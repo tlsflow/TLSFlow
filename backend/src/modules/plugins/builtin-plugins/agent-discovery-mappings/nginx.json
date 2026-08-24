@@ -1,0 +1,13 @@
+{
+  "apiVersion": "gcac.agent-discovery-mapping/v1",
+  "kind": "AgentCapabilityDiscoveryMapping",
+  "pluginId": "builtin.linux.nginx.pem",
+  "capabilityKey": "linux.nginx.detail",
+  "projection": {
+    "shape": "web_sites",
+    "frameworkType": "web.nginx",
+    "displayName": "NGINX",
+    "targetType": "tls.file",
+    "deployCapability": "nginx.cert.install"
+  }
+}

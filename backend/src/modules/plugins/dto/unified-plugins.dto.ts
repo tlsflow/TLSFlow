@@ -46,6 +46,7 @@ export interface UnifiedPluginManifestV1 {
     presentations?: Record<string, string>;
     locales?: Record<string, string>;
     discoveryMappings?: Record<string, string>;
+    agentDiscoveryMappings?: Record<string, string>;
     actionAliases?: Record<string, string>;
   };
 }

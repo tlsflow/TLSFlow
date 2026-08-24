@@ -97,7 +97,7 @@ function validateCompatibility(input: unknown): AgentDeploymentPluginManifestV1[
     : Object.fromEntries(Object.entries(record(value.operationSchemaVersions, 'compatibility.operationSchemaVersions')).map(([key, versions]) => [key, stringArray(versions, `compatibility.operationSchemaVersions.${key}`)]));
   return {
     platforms: declaredPlatforms as AgentDeploymentPluginManifestV1['compatibility']['platforms'],
-    frameworks: stringArray(value.frameworks, 'compatibility.frameworks', true).map((item) => item.toUpperCase()),
+    frameworks: stringArray(value.frameworks, 'compatibility.frameworks', true),
     architectures: stringArray(value.architectures, 'compatibility.architectures', true),
     requiredCapabilities: stringArray(value.requiredCapabilities, 'compatibility.requiredCapabilities', true),
     operationSchemaVersions,

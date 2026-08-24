@@ -22,6 +22,21 @@
       "packageSha256": "sha256:187bb554a5916a67f26c54cfb068b9597c6119ebec5be2df09a69e994a27415e"
     },
     {
+      "pluginId": "builtin.java.pkcs12",
+      "version": "1.0.8",
+      "packageSha256": "sha256:a65b5e57fc13aacd74ee6db6d7005c7d68f69e6fea5d020bf358c6973dbe5323"
+    },
+    {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.10",
+      "packageSha256": "sha256:e89f205658fd99d6a0d46abaebf95e021dd158feeba0481eed065b3dca6e7369"
+    },
+    {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.11",
+      "packageSha256": "sha256:6dc819d595f5fa9ca3d141b1654adbe1ae10167ec965977f7d625e78f7fe84d5"
+    },
+    {
       "pluginId": "builtin.linux.nginx.pem",
       "version": "1.0.4",
       "packageSha256": "sha256:f0db83dc04a19fe6aa24f37a5f9e4961791fbc8932a8dfbceaa17ee46a1f3091"
@@ -35,11 +50,6 @@
       "pluginId": "builtin.linux.nginx.pem",
       "version": "1.0.7",
       "packageSha256": "sha256:11cfdefc8b200aed20398c4ffccffb93a8feb79ac4de9bf91541aa8044e43023"
-    },
-    {
-      "pluginId": "builtin.linux.nginx.pem",
-      "version": "1.0.10",
-      "packageSha256": "sha256:e89f205658fd99d6a0d46abaebf95e021dd158feeba0481eed065b3dca6e7369"
     },
     {
       "pluginId": "builtin.rabbitmq.pem",
@@ -62,6 +72,11 @@
       "packageSha256": "sha256:821e867a50b894a96b56d8bdb83297c001f7046e7a5add26adae99682d9fe6b9"
     },
     {
+      "pluginId": "builtin.rabbitmq.pem",
+      "version": "1.0.8",
+      "packageSha256": "sha256:5fcb23b0b157912771f7b472b702c77ff957f46e72aa87850c738862d24dd1f4"
+    },
+    {
       "pluginId": "builtin.windows-service.certificate-file",
       "version": "1.0.4",
       "packageSha256": "sha256:985eeafa5db46e952f109e50e754764d2a2e86d63f6b64fcbb3f50d112014997"
@@ -80,6 +95,21 @@
       "pluginId": "builtin.windows-service.certificate-file",
       "version": "1.0.7",
       "packageSha256": "sha256:51019bca787f90e9f9c36ec07aad490bf79e454fa09ec5465ce2ac8273cd829a"
+    },
+    {
+      "pluginId": "builtin.windows-service.certificate-file",
+      "version": "1.0.8",
+      "packageSha256": "sha256:a7119c2f4ba125cca8c7eb0d879cd8793c2b129c0fa68bebb1527af516b1e0e3"
+    },
+    {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.11",
+      "packageSha256": "sha256:e14e6b3c863eeca1930092ae27d2ad0f6378ffae3bc18ba4b1aac4c49167377d"
+    },
+    {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.12",
+      "packageSha256": "sha256:e53f1a056a765ac91ca0aa2e2473dc721c3964c8b43c6c66e7cb62e45cc53b2e"
     },
     {
       "pluginId": "builtin.windows.iis.pfx",
@@ -102,11 +132,6 @@
       "packageSha256": "sha256:6efc7dfcdcfab3b42a147aad9b042aab04aa1df838a29ad0668bbafe0d08435f"
     },
     {
-      "pluginId": "builtin.windows.iis.pfx",
-      "version": "1.0.11",
-      "packageSha256": "sha256:e14e6b3c863eeca1930092ae27d2ad0f6378ffae3bc18ba4b1aac4c49167377d"
-    },
-    {
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
       "version": "1.1.6",
       "packageSha256": "sha256:75fd9041977e011ae410dab651ad472725371d59199e89836f55a7455c359d47"
@@ -115,6 +140,11 @@
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
       "version": "1.2.1",
       "packageSha256": "sha256:066a560ce46db801cc2aaff050cbbe7f9146cfe43d4c48874bf3dc2a27cf8961"
+    },
+    {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.2",
+      "packageSha256": "sha256:f9f4059c67525fb4836f285bd1520a9d8848121d9f94ff1208fa6172c29866c9"
     },
     {
       "pluginId": "builtin.workflow.synology-dsm-cert-import",

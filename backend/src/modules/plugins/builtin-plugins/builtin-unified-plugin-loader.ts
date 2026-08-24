@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { builtinAgentPluginManifests } from './agent-recipes.js';
+import { validateAgentCapabilityDiscoveryMapping } from '../discovery/agent-capability-discovery-mapping.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +27,12 @@ export class BuiltinUnifiedPluginLoader {
     const nativePackages = await Promise.all(packageDirectories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
     if (this.configuredRootDirectory) return nativePackages;
     const localeResources = await loadBuiltinLocaleResources(rootDirectory);
-    return [...nativePackages, ...await loadBuiltinWorkflowPackages(localeResources), ...loadBuiltinAgentPackages(localeResources)];
+    const discoveryMappings = await loadBuiltinDiscoveryMappings(rootDirectory);
+    return [
+      ...nativePackages,
+      ...await loadBuiltinWorkflowPackages(localeResources, discoveryMappings),
+      ...loadBuiltinAgentPackages(localeResources, discoveryMappings),
+    ];
   }
 
   async installAll(tenantId: string, service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
@@ -76,7 +82,7 @@ async function resolveBuiltinRootDirectory(): Promise<string> {
   return moduleDirectory;
 }
 
-async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResources): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
+async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResources, discoveryMappings: BuiltinDiscoveryMappings): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
   const workflowDirectory = await resolveBuiltinWorkflowDirectory();
   return Promise.all([
     'apache-8444-cert-switch.json',
@@ -85,7 +91,8 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
     const content = await readFile(join(workflowDirectory, fileName), 'utf8');
     const workflow = JSON.parse(content) as { metadata: { name: string; version: string; logoUrl?: string; platforms?: string[] } };
     const resourcePath = `workflows/${fileName}`;
-    const pluginId = `builtin.workflow.${workflow.metadata.name}`;
+      const pluginId = `builtin.workflow.${workflow.metadata.name}`;
+      const mapping = discoveryMappings.byPluginId.get(pluginId);
     const localeKey = builtinLocaleKey(pluginId);
     const manifest = {
       apiVersion: 'gcac.plugin-manifest/v1',
@@ -112,21 +119,23 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
         executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
         artifactContracts: ['certificate.deploy.v1'],
       },
-      resources: {
-        workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
-        locales: localeResources.paths,
-      },
-    };
-    const resources = { [resourcePath]: content, ...localeResources.contents };
+        resources: {
+          workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
+          ...(mapping ? { agentDiscoveryMappings: mapping.paths } : {}),
+          locales: localeResources.paths,
+        },
+      };
+    const resources = { [resourcePath]: content, ...(mapping?.contents ?? {}), ...localeResources.contents };
     return { manifest, resources, packageContent: JSON.stringify({ manifest, resources }) };
   }));
 }
 
-function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
+function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources, discoveryMappings: BuiltinDiscoveryMappings): Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
   return builtinAgentPluginManifests.map((agentManifest) => {
     const resourcePath = `agent-recipes/${agentManifest.pluginId}.json`;
     const recipe = JSON.stringify(agentManifest);
     const localeKey = builtinLocaleKey(agentManifest.pluginId);
+    const mapping = discoveryMappings.byPluginId.get(agentManifest.pluginId);
     const manifest = {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
@@ -152,7 +161,7 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       permissions: agentManifest.permissions.map((permission) => permission.name),
       compatibility: {
         productFamilies: agentManifest.compatibility.platforms.map((platform) => `${platform}_SERVER`),
-        frameworkTypes: (agentManifest.compatibility.frameworks ?? []).map(normalizeAgentFrameworkType),
+        frameworkTypes: [...(agentManifest.compatibility.frameworks ?? [])],
         targetTypes: ['tls.binding', 'tls.file'],
         managementMethods: ['AGENT'],
         executionLocations: ['AGENT'],
@@ -160,6 +169,7 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       },
       resources: {
         agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
+        ...(mapping ? { agentDiscoveryMappings: mapping.paths } : {}),
         ...(hasHistoricalActionAlias(agentManifest.pluginId) ? { actionAliases: { certificateDeploy: 'action-aliases/certificate-deploy.json' } } : {}),
         locales: localeResources.paths,
       },
@@ -169,7 +179,7 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       : agentManifest.pluginId === 'builtin.windows.iis.pfx'
         ? { apiVersion: 'gcac.plugin-action-aliases/v1', kind: 'PluginActionAliases', aliases: [{ actionType: 'windows.iis.deploy_certificate', capabilityKey: 'certificate.deploy', inputContract: 'certificate.deploy.v1' }] }
         : undefined;
-    const resources = { [resourcePath]: recipe, ...(aliasResource ? { 'action-aliases/certificate-deploy.json': JSON.stringify(aliasResource) } : {}), ...localeResources.contents };
+    const resources = { [resourcePath]: recipe, ...(mapping?.contents ?? {}), ...(aliasResource ? { 'action-aliases/certificate-deploy.json': JSON.stringify(aliasResource) } : {}), ...localeResources.contents };
     return { manifest, resources, packageContent: JSON.stringify({ manifest, resources }) };
   });
 }
@@ -183,11 +193,6 @@ interface BuiltinLocaleResources {
   contents: Record<string, string>;
 }
 
-function normalizeAgentFrameworkType(framework: string): string {
-  const types: Record<string, string> = { IIS: 'web.iis', NGINX: 'web.nginx', APACHE: 'web.apache', TOMCAT: 'app.tomcat', CUSTOM: 'custom.runtime' };
-  return types[framework] ?? framework.toLowerCase();
-}
-
 async function loadBuiltinLocaleResources(rootDirectory: string): Promise<BuiltinLocaleResources> {
   const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'fr-FR', 'ru-RU', 'pt-BR'];
   const paths = Object.fromEntries(locales.map((locale) => [locale, `locales/${locale}.json`]));
@@ -196,6 +201,27 @@ async function loadBuiltinLocaleResources(rootDirectory: string): Promise<Builti
     await readFile(join(rootDirectory, 'locales', `${locale}.json`), 'utf8'),
   ])));
   return { paths, contents };
+}
+
+interface BuiltinDiscoveryMappings {
+  byPluginId: Map<string, { paths: Record<string, string>; contents: Record<string, string> }>;
+}
+
+async function loadBuiltinDiscoveryMappings(rootDirectory: string): Promise<BuiltinDiscoveryMappings> {
+  const directory = join(rootDirectory, 'agent-discovery-mappings');
+  const byPluginId = new Map<string, { paths: Record<string, string>; contents: Record<string, string> }>();
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.json')).sort();
+  for (const file of files) {
+    const content = await readFile(join(directory, file), 'utf8');
+    const mapping = validateAgentCapabilityDiscoveryMapping(JSON.parse(content));
+    const resourcePath = `discovery-mappings/${file}`;
+    const current = byPluginId.get(mapping.pluginId) ?? { paths: {}, contents: {} };
+    if (current.paths[mapping.capabilityKey]) throw new Error(`插件发现映射 capabilityKey 重复: ${mapping.pluginId}/${mapping.capabilityKey}`);
+    current.paths[mapping.capabilityKey] = resourcePath;
+    current.contents[resourcePath] = content;
+    byPluginId.set(mapping.pluginId, current);
+  }
+  return { byPluginId };
 }
 
 function builtinLocaleKey(pluginId: string): string {

@@ -141,8 +141,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
   });
   const executionDetailStream = new ExecutionDetailStreamService();
+  const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
-  const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector);
+  const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector, unifiedPluginsService);
   const executionResultSync = new ExecutionResultSyncService(
     executionPersistence.executions,
     assetsService,
@@ -173,7 +174,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     },
     new PluginWorkflowBindingsRepository(appDb),
   );
-  const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const devicesService = new DevicesApplicationService(

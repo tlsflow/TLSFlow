@@ -3,6 +3,8 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { StandardDeviceDiscoveryV2 } from '../../plugins/discovery/device-discovery.dto.js';
 import { StandardDeviceDiscoveryProjector, type StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
+import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import { validateAgentCapabilityDiscoveryMapping, type AgentCapabilityDiscoveryMappingV1 } from '../../plugins/discovery/agent-capability-discovery-mapping.js';
 import type { AgentCapabilitySnapshot, AgentRegistration } from '../schema/agents.schema.js';
 
 interface AgentHostAnchor extends Record<string, unknown> {
@@ -25,44 +27,18 @@ interface AgentProductDiscoveryProjector {
   project(context: AgentProductProjectionContext): void;
 }
 
-interface WebProductDescriptor {
-  capabilityKey: string;
-  frameworkType: string;
-  frameworkName: string;
-  targetType: string;
-  deployCapability: string;
-  fallbackHostHeaderToSiteName?: boolean;
-}
-
-const webProductProjectors: AgentProductDiscoveryProjector[] = [
-  createWebProductProjector({
-    capabilityKey: 'linux.nginx.detail',
-    frameworkType: 'web.nginx',
-    frameworkName: 'NGINX',
-    targetType: 'tls.file',
-    deployCapability: 'nginx.cert.install',
-  }),
-  createWebProductProjector({
-    capabilityKey: 'linux.apache.detail',
-    frameworkType: 'web.apache',
-    frameworkName: 'Apache HTTP Server',
-    targetType: 'tls.file',
-    deployCapability: 'apache.cert.install',
-  }),
-  createIisProductProjector(),
-  createTomcatProductProjector(),
-];
+type ProductDescriptor = AgentCapabilityDiscoveryMappingV1['projection'] & { capabilityKey: string };
 
 export class AgentCapabilityDiscoveryProjector {
   constructor(
     private readonly db: DatabasePort,
     private readonly projector: StandardDeviceDiscoveryProjector,
-    private readonly productProjectors: AgentProductDiscoveryProjector[] = webProductProjectors,
+    private readonly plugins: Pick<UnifiedPluginsApplicationService, 'listVersions'>,
   ) {}
 
   async project(agent: AgentRegistration, snapshot: AgentCapabilitySnapshot): Promise<StandardDiscoveryProjectionSummary> {
     const host = await this.resolveHost(snapshot.tenantId, agent.id);
-    const discovery = this.buildDiscovery(agent, snapshot, host);
+    const discovery = await this.buildDiscovery(agent, snapshot, host);
     return this.projector.project({
       tenantId: snapshot.tenantId,
       hostId: host.id,
@@ -87,7 +63,7 @@ export class AgentCapabilityDiscoveryProjector {
     return host;
   }
 
-  private buildDiscovery(agent: AgentRegistration, snapshot: AgentCapabilitySnapshot, host: AgentHostAnchor): StandardDeviceDiscoveryV2 {
+  private async buildDiscovery(agent: AgentRegistration, snapshot: AgentCapabilitySnapshot, host: AgentHostAnchor): Promise<StandardDeviceDiscoveryV2> {
     const discovery: StandardDeviceDiscoveryV2 = {
       apiVersion: 'gcac.device-discovery/v2',
       device: {
@@ -113,7 +89,7 @@ export class AgentCapabilityDiscoveryProjector {
     };
 
     const capabilities = new Map(snapshot.capabilities.map((capability) => [capability.capabilityKey, capability.value]));
-    for (const productProjector of this.productProjectors) {
+    for (const productProjector of await this.loadProductProjectors(snapshot.tenantId)) {
       const detail = asRecord(capabilities.get(productProjector.capabilityKey));
       if (!detail || !isInstalledProduct(detail)) continue;
       productProjector.project({
@@ -126,9 +102,33 @@ export class AgentCapabilityDiscoveryProjector {
     }
     return discovery;
   }
+
+  private async loadProductProjectors(tenantId: string): Promise<AgentProductDiscoveryProjector[]> {
+    const byCapability = new Map<string, AgentProductDiscoveryProjector>();
+    const enabled = (await this.plugins.listVersions(tenantId)).filter((record) => record.status === 'ENABLED');
+    for (const record of enabled) {
+      for (const path of Object.values(record.manifest.resources.agentDiscoveryMappings ?? {})) {
+        const content = record.resources[path];
+        if (!content) throw new AppError('VALIDATION_FAILED', '插件发现映射资源缺失', { pluginVersionId: record.id, path });
+        const mapping = validateAgentCapabilityDiscoveryMapping(JSON.parse(content));
+        if (mapping.pluginId !== record.pluginId) {
+          throw new AppError('VALIDATION_FAILED', '插件发现映射归属与插件不一致', { pluginVersionId: record.id, mappingPluginId: mapping.pluginId });
+        }
+        if (byCapability.has(mapping.capabilityKey)) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', '多个启用插件声明同一 Agent 发现能力', { capabilityKey: mapping.capabilityKey });
+        }
+        byCapability.set(mapping.capabilityKey, createProductProjector({ capabilityKey: mapping.capabilityKey, ...mapping.projection }));
+      }
+    }
+    return [...byCapability.values()];
+  }
 }
 
-function createWebProductProjector(descriptor: WebProductDescriptor): AgentProductDiscoveryProjector {
+function createProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
+  return descriptor.shape === 'connectors' ? createConnectorProductProjector(descriptor) : createWebProductProjector(descriptor);
+}
+
+function createWebProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
   return {
     capabilityKey: descriptor.capabilityKey,
     project({ detail, discovery }) {
@@ -136,7 +136,7 @@ function createWebProductProjector(descriptor: WebProductDescriptor): AgentProdu
       discovery.frameworks.push({
         stableKey: frameworkStableKey,
         frameworkType: descriptor.frameworkType,
-        displayName: descriptor.frameworkName,
+        displayName: descriptor.displayName,
         version: readString(detail, 'version', 'VersionString'),
         metadata: compactRecord({
           binaryPath: readString(detail, 'binaryPath'),
@@ -149,7 +149,7 @@ function createWebProductProjector(descriptor: WebProductDescriptor): AgentProdu
       });
 
       for (const [siteIndex, site] of readRecords(detail, 'sites', 'Sites').entries()) {
-        const siteName = readString(site, 'name', 'Name') ?? `${descriptor.frameworkName}-${siteIndex + 1}`;
+        const siteName = readString(site, 'name', 'Name') ?? `${descriptor.displayName}-${siteIndex + 1}`;
         const listeners = readRecords(site, 'listen', 'bindings', 'Bindings').filter(hasValidPort);
         const primaryListener = listeners.find(isTlsListener) ?? listeners[0];
         const projectedSite = createSite(
@@ -184,34 +184,23 @@ function createWebProductProjector(descriptor: WebProductDescriptor): AgentProdu
   };
 }
 
-function createIisProductProjector(): AgentProductDiscoveryProjector {
-  return createWebProductProjector({
-    capabilityKey: 'windows.iis.detail',
-    frameworkType: 'web.iis',
-    frameworkName: 'Microsoft IIS',
-    targetType: 'tls.binding',
-    deployCapability: 'windows.iis.binding.update_certificate',
-    fallbackHostHeaderToSiteName: false,
-  });
-}
-
-function createTomcatProductProjector(): AgentProductDiscoveryProjector {
+function createConnectorProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
   return {
-    capabilityKey: 'linux.tomcat.detail',
+    capabilityKey: descriptor.capabilityKey,
     project({ detail, discovery }) {
-      const frameworkType = 'app.tomcat';
+      const frameworkType = descriptor.frameworkType;
       const frameworkStableKey = `framework:${frameworkType}`;
       discovery.frameworks.push({
         stableKey: frameworkStableKey,
         frameworkType,
-        displayName: 'Apache Tomcat',
+        displayName: descriptor.displayName,
         version: readString(detail, 'version'),
         metadata: compactRecord({
           configPath: readString(detail, 'configPath'),
           installPath: readString(detail, 'catalinaBase', 'catalinaHome'),
           serviceName: readString(detail, 'serviceName'),
           running: readBoolean(detail, 'running'),
-          capabilityKey: 'linux.tomcat.detail',
+          capabilityKey: descriptor.capabilityKey,
         }),
       });
 
@@ -225,8 +214,10 @@ function createTomcatProductProjector(): AgentProductDiscoveryProjector {
         discovery.managedTargets.push(createManagedTarget({
           frameworkStableKey,
           siteStableKey: projectedSite.stableKey,
-          targetType: readString(connector, 'keystorePath') ? 'tls.keystore' : 'tls.file',
-          deployCapability: 'tomcat.keystore.replace',
+          targetType: descriptor.targetTypeWhenFieldPresent && readString(connector, descriptor.targetTypeWhenFieldPresent.field)
+            ? descriptor.targetTypeWhenFieldPresent.value
+            : descriptor.targetType,
+          deployCapability: descriptor.deployCapability,
           targetKey: projectedSite.stableKey,
           metadata: {
             ...targetMetadata(siteName, {}, connector),

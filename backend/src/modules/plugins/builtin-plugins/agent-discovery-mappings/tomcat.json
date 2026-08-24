@@ -1,0 +1,17 @@
+{
+  "apiVersion": "gcac.agent-discovery-mapping/v1",
+  "kind": "AgentCapabilityDiscoveryMapping",
+  "pluginId": "builtin.java.pkcs12",
+  "capabilityKey": "linux.tomcat.detail",
+  "projection": {
+    "shape": "connectors",
+    "frameworkType": "app.tomcat",
+    "displayName": "Apache Tomcat",
+    "targetType": "tls.file",
+    "targetTypeWhenFieldPresent": {
+      "field": "keystorePath",
+      "value": "tls.keystore"
+    },
+    "deployCapability": "tomcat.keystore.replace"
+  }
+}
