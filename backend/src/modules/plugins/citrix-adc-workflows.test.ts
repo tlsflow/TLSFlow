@@ -72,14 +72,14 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   });
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
   const validated = new DeviceDiscoverySchemaService().validate(discovery);
-  assert.deepEqual(validated.frameworks, []);
+  assert.deepEqual(validated.frameworks, [{ stableKey: 'framework:nitro', frameworkType: 'adc.load-balancer', displayName: 'NITRO' }]);
   assert.equal(validated.device.metadata?.managementProtocol, 'NITRO API');
   assert.deepEqual(validated.sites.map((site) => site.stableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
   assert.equal(validated.certificates[0]?.stableKey, 'CERT:leaf-one');
   assert.equal(validated.certificates[0]?.sha256Fingerprint, '7ba6becd05012d4dc445954692203028e5042f2f13949ccf9acd4f7a5b2d293d');
   assert.equal(validated.certificates[0]?.notBefore, '2026-01-01T00:00:00Z');
   assert.equal(validated.certificates[0]?.notAfter, '2027-01-01T00:00:00Z');
-  assert.deepEqual(validated.certificateBindings.map((binding) => binding.siteStableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
+  assert.deepEqual(validated.certificateBindings.map((binding) => binding.managedTargetStableKey), ['TARGET:LB:lb-one', 'TARGET:VPN:vpn-one', 'TARGET:CS:cs-one', 'TARGET:GSLB:gslb-one']);
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
 });
 
@@ -140,7 +140,7 @@ test('Citrix ADC 发现为包含特殊字符的厂商名称生成合法稳定键
   assert.match(validated.sites[0]!.stableKey, stableKeyPattern);
   assert.match(validated.certificates[0]!.stableKey, stableKeyPattern);
   assert.match(validated.certificateBindings[0]!.stableKey, stableKeyPattern);
-  assert.equal(validated.certificateBindings[0]!.siteStableKey, validated.sites[0]!.stableKey);
+  assert.equal(validated.certificateBindings[0]!.managedTargetStableKey, validated.managedTargets[0]!.stableKey);
   assert.equal(validated.certificateBindings[0]!.certificateStableKey, validated.certificates[0]!.stableKey);
 });
 

@@ -220,8 +220,34 @@ function projectAgentSystemVersion(
 ): string | undefined {
   const rawVersion = stringValue(descriptor.osVersion) ?? source.osVersion;
   const osVersion = rawVersion && rawVersion.toUpperCase() !== 'WINDOWS_NT' ? rawVersion : undefined;
-  if (osType === 'WINDOWS') return osVersion ?? projectWindowsCapabilityVersion(source) ?? source.osName;
-  if (osType !== 'LINUX') return osVersion ?? source.osName;
+  const projector = agentSystemVersionProjectors[osType] ?? projectDefaultAgentSystemVersion;
+  return projector(descriptor, source, osVersion);
+}
+
+type AgentSystemVersionProjector = (
+  descriptor: Record<string, unknown>,
+  source: ManagedDeviceProjectionSource,
+  osVersion: string | undefined,
+) => string | undefined;
+
+const agentSystemVersionProjectors: Readonly<Record<string, AgentSystemVersionProjector>> = Object.freeze({
+  WINDOWS: (_descriptor, source, osVersion) => osVersion ?? projectWindowsCapabilityVersion(source) ?? source.osName,
+  LINUX: projectLinuxAgentSystemVersion,
+});
+
+function projectDefaultAgentSystemVersion(
+  _descriptor: Record<string, unknown>,
+  source: ManagedDeviceProjectionSource,
+  osVersion: string | undefined,
+): string | undefined {
+  return osVersion ?? source.osName;
+}
+
+function projectLinuxAgentSystemVersion(
+  descriptor: Record<string, unknown>,
+  source: ManagedDeviceProjectionSource,
+  osVersion: string | undefined,
+): string | undefined {
   const distribution = stringValue(descriptor.linuxDistribution) ?? source.osName;
   if (!distribution) return osVersion;
   if (/\d/.test(distribution)) return distribution;

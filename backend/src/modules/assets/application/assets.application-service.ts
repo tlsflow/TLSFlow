@@ -30,11 +30,12 @@ import type {
   UpdateServiceAssetDto,
   CreateSiteAssetDto,
   CreateServiceEndpointDto,
-  CreateServiceInstanceDto,
+  CreateFrameworkInstanceDto,
   UpdateHostDto,
   UpdateServiceEndpointDto,
-  UpdateServiceInstanceDto,
+  UpdateFrameworkInstanceDto,
   ServiceAssetDto,
+  ServiceAssetDetailDto,
   DeploymentStrategyDto,
   WorkflowBindingProjectionRequestDto,
 } from '../dto/assets.dto.js';
@@ -50,6 +51,7 @@ import {
   resolveDeploymentStrategy,
   validateDeploymentStrategyPluginBinding,
 } from './deployment-strategy.service.js';
+import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
 
 export class AssetsApplicationService {
   constructor(
@@ -60,6 +62,7 @@ export class AssetsApplicationService {
     private readonly directClient = new AgentDirectClient(),
     private workflowTemplates?: WorkflowTemplatesApplicationService,
     private pluginBindings?: PluginBindingsApplicationService,
+    private managedTargetContextResolver?: ManagedTargetContextResolver,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -78,6 +81,10 @@ export class AssetsApplicationService {
     this.pluginBindings = pluginBindings;
   }
 
+  setManagedTargetContextResolver(resolver: ManagedTargetContextResolver): void {
+    this.managedTargetContextResolver = resolver;
+  }
+
   async createHost(tenantId: string, input: CreateHostDto) {
     return this.repository.createHost(tenantId, this.domain.normalizeHost(input));
   }
@@ -94,20 +101,20 @@ export class AssetsApplicationService {
     return this.repository.listHosts(tenantId, query);
   }
 
-  async createServiceInstance(tenantId: string, input: CreateServiceInstanceDto) {
-    return this.repository.createServiceInstance(tenantId, this.domain.normalizeServiceInstance(input));
+  async createFrameworkInstance(tenantId: string, input: CreateFrameworkInstanceDto) {
+    return this.repository.createFrameworkInstance(tenantId, this.domain.normalizeServiceInstance(input));
   }
 
-  async updateServiceInstance(tenantId: string, serviceInstanceId: string, input: UpdateServiceInstanceDto) {
-    return this.repository.updateServiceInstance(tenantId, serviceInstanceId, this.domain.normalizeServiceInstancePatch(input));
+  async updateFrameworkInstance(tenantId: string, serviceInstanceId: string, input: UpdateFrameworkInstanceDto) {
+    return this.repository.updateFrameworkInstance(tenantId, serviceInstanceId, this.domain.normalizeServiceInstancePatch(input));
   }
 
-  async deleteServiceInstance(tenantId: string, serviceInstanceId: string) {
-    return this.repository.deleteServiceInstance(tenantId, serviceInstanceId);
+  async deleteFrameworkInstance(tenantId: string, serviceInstanceId: string) {
+    return this.repository.deleteFrameworkInstance(tenantId, serviceInstanceId);
   }
 
-  async listServiceInstances(tenantId: string, query: PageQuery) {
-    return this.repository.listServiceInstances(tenantId, query);
+  async listFrameworkInstances(tenantId: string, query: PageQuery) {
+    return this.repository.listFrameworkInstances(tenantId, query);
   }
 
   async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
@@ -115,7 +122,7 @@ export class AssetsApplicationService {
     const normalized = this.domain.normalizeServiceAsset(resolvedInput);
     if (normalized.deploymentStrategy) {
       const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(normalized.deploymentStrategy, {
-        asset: { id: '', agentId: normalized.agentId, metadata: normalized.metadata },
+        asset: { id: '', metadata: normalized.metadata },
         targetBinding: normalized.targetBinding,
       }));
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
@@ -124,7 +131,6 @@ export class AssetsApplicationService {
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform, normalized.agentId);
     const created = await this.repository.createServiceAsset(tenantId, normalized);
     if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
-    await this.ensureApplicationAssetTargetBinding(tenantId, created.id);
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
     if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, created);
@@ -132,59 +138,10 @@ export class AssetsApplicationService {
 
   private async resolveSiteAssetCreationInput(tenantId: string, input: CreateServiceAssetDto): Promise<CreateServiceAssetDto> {
     if (!input.siteAssetId || input.targetBinding) return input;
-
-    const siteAsset = await this.repository.getSiteAsset(tenantId, input.siteAssetId);
-    if (!siteAsset || siteAsset.status !== 'ACTIVE') {
-      throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在或不可用', { siteAssetId: input.siteAssetId });
-    }
-
-    const managedTargets = await this.repository.listActiveManagedTargetsBySiteAssetId(tenantId, siteAsset.id);
-    if (managedTargets.length === 0) {
-      throw new AppError('VALIDATION_FAILED', '站点没有可用的 ManagedTarget', {
-        code: 'SITE_MANAGED_TARGET_UNAVAILABLE',
-        siteAssetId: siteAsset.id,
-      });
-    }
-    if (managedTargets.length > 1) {
-      throw new AppError('RESOURCE_VERSION_CONFLICT', '站点存在多个可用的 ManagedTarget，无法自动选择', {
-        code: 'SITE_MANAGED_TARGET_AMBIGUOUS',
-        siteAssetId: siteAsset.id,
-        managedTargetIds: managedTargets.map((item) => item.id),
-      });
-    }
-
-    const managedTarget = managedTargets[0]!;
-    return {
-      ...input,
-      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
-      hostId: managedTarget.hostId ?? siteAsset.hostId,
-      deploymentStrategy: input.deploymentStrategy ?? {
-        type: 'MANAGED_TARGET',
-        managedTarget: {
-          managedTargetId: managedTarget.id,
-          certificateFormatId: input.certificateFormatId,
-          deploymentMode: managedTarget.deploymentMode,
-        },
-      },
-      targetBinding: {
-        applicationAssetId: '',
-        agentId: managedTarget.agentId,
-        deviceAssetId: managedTarget.deviceAssetId,
-        siteAssetId: siteAsset.id,
-        managedTargetId: managedTarget.id,
-        providerType: managedTarget.providerType,
-        frameworkType: managedTarget.frameworkType,
-        targetType: managedTarget.targetType,
-        targetKey: managedTarget.targetKey,
-        bindingKey: managedTarget.bindingKey,
-        status: 'ACTIVE',
-        metadata: {
-          source: 'manual_site_selection',
-          siteName: siteAsset.siteName,
-          bindingInformation: siteAsset.bindingInformation,
-        },
-      },
-    };
+    throw new AppError('VALIDATION_FAILED', '应用资产必须显式选择 ManagedTarget，禁止从 Site 自动推导部署目标', {
+      code: 'MANAGED_TARGET_REQUIRED',
+      siteAssetId: input.siteAssetId,
+    });
   }
 
   async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
@@ -203,7 +160,6 @@ export class AssetsApplicationService {
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform ?? current.platform, normalized.agentId ?? current.agentId);
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
-    await this.ensureApplicationAssetTargetBinding(tenantId, updated.id);
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
     if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, updated);
@@ -220,7 +176,9 @@ export class AssetsApplicationService {
 
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
-    return detail ? this.hydrateServiceAssetStrategy(tenantId, detail) : detail;
+    if (!detail) return detail;
+    const hydrated = await this.hydrateServiceAssetStrategy(tenantId, detail);
+    return this.hydrateServiceAssetTargetContext(tenantId, hydrated);
   }
 
   async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {
@@ -427,13 +385,13 @@ export class AssetsApplicationService {
         continue;
       }
       const identityKey = serviceIdentityKey(service, hostId);
-      const current = await this.repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: service.providerType, serviceName: service.serviceName, configPath: service.configPath });
+      const current = await this.repository.findFrameworkInstanceByIdentity(tenantId, frameworkIdentity(service, hostId, snapshot.source));
       if (!current) {
         if (!apply) {
         result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'service instance not found for service asset creation' });
           continue;
         }
-        const created = await this.createServiceInstance(tenantId, serviceToCreateDto(service, hostId, snapshot.source));
+        const created = await this.createFrameworkInstance(tenantId, serviceToCreateDto(service, hostId, snapshot.source));
         serviceIds.set(identityKey, created.id);
         result.businessTableMutated = true;
         result.actions.push({ kind: 'service', action: 'create', identityKey, resourceId: created.id, reason: '未找到现有 ServiceInstance，已创建新资源' });
@@ -444,7 +402,7 @@ export class AssetsApplicationService {
       result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
       const patch = pickChangedAutoFields(toRecord(current), { ...toRecord(service), lastDiscoveredAt: service.lastDiscoveredAt ?? snapshot.createdAt, discoverySource: service.discoverySource ?? snapshot.source }, ['versionText', 'installPath', 'configPath', 'runtimeUser', 'discoverySource', 'lastDiscoveredAt', 'status', 'rawFacts']);
       if (Object.keys(patch).length > 0 && apply) {
-        await this.updateServiceInstance(tenantId, current.id, patch as UpdateServiceInstanceDto);
+        await this.updateFrameworkInstance(tenantId, current.id, patch as UpdateFrameworkInstanceDto);
         result.businessTableMutated = true;
       }
       result.actions.push({ kind: 'service', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? '人工字段冲突，保留当前值' : '身份键匹配，可按自动字段合并' });
@@ -462,7 +420,7 @@ export class AssetsApplicationService {
         port: serviceAsset.port,
         protocol: serviceAsset.protocol,
       });
-      const serviceInstance = await this.repository.getServiceInstance(tenantId, resolvedServiceId);
+      const serviceInstance = await this.repository.getFrameworkInstance(tenantId, resolvedServiceId);
       if (!serviceInstance) {
         result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'service instance not found for service asset creation' });
         continue;
@@ -472,7 +430,7 @@ export class AssetsApplicationService {
           result.actions.push({ kind: 'service_asset', action: 'create', identityKey, reason: 'service asset can be created' });
           continue;
         }
-        const created = await this.createServiceAsset(tenantId, serviceAssetToCreateDto(serviceAsset, resolvedServiceId, serviceInstance.hostId, snapshot.source));
+        const created = await this.createServiceAsset(tenantId, serviceAssetToCreateDto(serviceAsset, resolvedServiceId, serviceInstance.deviceId, snapshot.source));
         serviceAssetIds.set(identityKey, created.id);
         result.businessTableMutated = true;
         result.actions.push({ kind: 'service_asset', action: 'create', identityKey, resourceId: created.id, reason: 'service asset created from discovery' });
@@ -481,7 +439,7 @@ export class AssetsApplicationService {
       serviceAssetIds.set(identityKey, current.id);
       const conflicts = collectManualConflicts('service_asset', current.id, snapshot.id, toRecord(current), toRecord(serviceAsset), ['displayName']);
       result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
-      const patch = pickChangedAutoFields(toRecord(current), { ...toRecord(serviceAsset), serviceInstanceId: resolvedServiceId, hostId: serviceInstance.hostId, discoverySource: serviceAsset.discoverySource ?? snapshot.source, lastDiscoveredAt: serviceAsset.lastDiscoveredAt ?? snapshot.createdAt }, ['addressType', 'sniName', 'serviceInstanceId', 'hostId', 'environment', 'discoverySource', 'lastDiscoveredAt', 'status', 'tags', 'metadata']);
+      const patch = pickChangedAutoFields(toRecord(current), { ...toRecord(serviceAsset), serviceInstanceId: resolvedServiceId, hostId: serviceInstance.deviceId, discoverySource: serviceAsset.discoverySource ?? snapshot.source, lastDiscoveredAt: serviceAsset.lastDiscoveredAt ?? snapshot.createdAt }, ['addressType', 'sniName', 'serviceInstanceId', 'hostId', 'environment', 'discoverySource', 'lastDiscoveredAt', 'status', 'tags', 'metadata']);
       if (Object.keys(patch).length > 0 && apply) {
         await this.updateServiceAsset(tenantId, current.id, patch as UpdateServiceAssetDto);
         result.businessTableMutated = true;
@@ -495,7 +453,7 @@ export class AssetsApplicationService {
         result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset, 'missing-service'), reason: 'site asset is missing a resolvable service instance' });
         continue;
       }
-      const serviceInstance = await this.repository.getServiceInstance(tenantId, resolvedServiceId);
+      const serviceInstance = await this.repository.getFrameworkInstance(tenantId, resolvedServiceId);
       if (!serviceInstance) {
         result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset), reason: 'service instance not found for site asset creation' });
         continue;
@@ -503,8 +461,7 @@ export class AssetsApplicationService {
       const resolvedServiceAssetId = await resolveDiscoveredSiteServiceAssetId(siteAsset, serviceAssetIds, tenantId, this.repository);
       const identityKey = siteAssetIdentityKey(siteAsset);
       const current = await this.repository.findSiteAssetByIdentity(tenantId, {
-        agentId: siteAsset.agentId,
-        providerType: siteAsset.providerType ?? serviceInstance.providerType,
+        frameworkInstanceId: resolvedServiceId,
         siteKey: siteAsset.siteKey ?? identityKey,
       });
       if (!current) {
@@ -512,7 +469,7 @@ export class AssetsApplicationService {
           result.actions.push({ kind: 'site_asset', action: 'create', identityKey, reason: 'site asset can be created' });
           continue;
         }
-        const created = await this.createSiteAsset(tenantId, siteAssetToCreateDto(siteAsset, resolvedServiceId, resolvedServiceAssetId, serviceInstance.hostId, serviceInstance.providerType, snapshot.source));
+        const created = await this.createSiteAsset(tenantId, siteAssetToCreateDto(siteAsset, resolvedServiceId, serviceInstance.deviceId, serviceInstance.discoveryProviderKey, snapshot.source));
         siteAssetIds.set(identityKey, created.id);
         if (siteAsset.siteAssetRef) siteAssetIds.set(siteAsset.siteAssetRef, created.id);
         result.businessTableMutated = true;
@@ -527,15 +484,14 @@ export class AssetsApplicationService {
         toRecord(current),
         {
           ...toRecord(siteAsset),
-          serviceInstanceId: resolvedServiceId,
-          serviceAssetId: resolvedServiceAssetId,
-          hostId: serviceInstance.hostId,
-          providerType: siteAsset.providerType ?? serviceInstance.providerType,
+          frameworkInstanceId: resolvedServiceId,
+          deviceId: serviceInstance.deviceId,
+          discoveryProviderKey: serviceInstance.discoveryProviderKey,
           siteKey: siteAsset.siteKey ?? identityKey,
           discoverySource: siteAsset.discoverySource ?? snapshot.source,
           lastDiscoveredAt: siteAsset.lastDiscoveredAt ?? snapshot.createdAt,
         },
-        ['serviceAssetId', 'bindingInformation', 'hostHeader', 'listenIp', 'port', 'protocol', 'configPath', 'runtimeStatus', 'discoverySource', 'lastDiscoveredAt', 'status', 'metadata'],
+        ['bindingInformation', 'hostHeader', 'listenIp', 'port', 'protocol', 'configPath', 'runtimeStatus', 'discoverySource', 'lastDiscoveredAt', 'status', 'metadata'],
       );
       if (Object.keys(patch).length > 0 && apply) {
         await this.updateSiteAsset(tenantId, current.id, patch as UpdateSiteAssetDto);
@@ -545,75 +501,13 @@ export class AssetsApplicationService {
     }
 
     for (const siteAsset of payload.siteAssets) {
-      const resolvedSiteAssetId = resolveDiscoveredSiteAssetId(siteAsset, siteAssetIds);
-      if (!resolvedSiteAssetId) {
-        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-site-asset'), reason: 'managed target is missing a resolvable site asset' });
-        continue;
-      }
-      const siteAssetRecord = await this.repository.getSiteAsset(tenantId, resolvedSiteAssetId);
-      if (!siteAssetRecord) {
-        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-site-record'), reason: 'site asset record not found for managed target creation' });
-        continue;
-      }
-      const hostRecord = siteAssetRecord.hostId ? await this.repository.getHost(tenantId, siteAssetRecord.hostId) : undefined;
-      const agentId = normalizeOptionalString(siteAsset.agentId)?.toLowerCase() ?? normalizeOptionalString(hostRecord?.agentId)?.toLowerCase();
-      if (!agentId) {
-        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-agent'), reason: 'managed target requires agentId on site asset or host' });
-        continue;
-      }
-      const providerType = siteAsset.providerType ?? siteAssetRecord.providerType;
-      const identityKey = managedTargetIdentityKey(siteAsset, agentId);
-      const targetKey = managedTargetTargetKey(siteAsset, agentId);
-      const current = await this.repository.findManagedTargetByIdentity(tenantId, {
-        agentId,
-        providerType,
-        targetType: 'SITE_BINDING',
-        targetKey,
+      result.actions.push({
+        kind: 'managed_target',
+        action: 'conflict',
+        identityKey: managedTargetIdentityKey(siteAsset, undefined, 'discovery-v2-required'),
+        reason: 'Discovery V1 不包含显式 ManagedTarget，禁止从 Site 自动推导目标',
       });
-      if (!current) {
-        if (!apply) {
-          result.actions.push({ kind: 'managed_target', action: 'create', identityKey, reason: 'managed target can be created' });
-          continue;
-        }
-        const created = await this.createManagedTarget(tenantId, managedTargetToCreateDto(siteAsset, siteAssetRecord, agentId, snapshot.source));
-        managedTargetIds.set(identityKey, created.id);
-        managedTargetIds.set(`site-asset-id:${resolvedSiteAssetId}`, created.id);
-        if (siteAsset.siteAssetRef) managedTargetIds.set(`site-asset-ref:${siteAsset.siteAssetRef}`, created.id);
-        result.businessTableMutated = true;
-        result.actions.push({ kind: 'managed_target', action: 'create', identityKey, resourceId: created.id, reason: 'managed target created from site asset' });
-        continue;
-      }
-      managedTargetIds.set(identityKey, current.id);
-      managedTargetIds.set(`site-asset-id:${resolvedSiteAssetId}`, current.id);
-      if (siteAsset.siteAssetRef) managedTargetIds.set(`site-asset-ref:${siteAsset.siteAssetRef}`, current.id);
-      const patch = pickChangedAutoFields(
-        toRecord(current),
-        {
-          ...toRecord(siteAsset),
-          hostId: siteAssetRecord.hostId,
-          serviceInstanceId: siteAssetRecord.serviceInstanceId,
-          serviceAssetId: siteAssetRecord.serviceAssetId,
-          siteAssetId: siteAssetRecord.id,
-          providerType,
-          frameworkType: providerType,
-          targetKey,
-          targetType: 'SITE_BINDING',
-          bindingKey: siteAsset.bindingInformation ?? siteAsset.siteKey ?? siteAsset.siteName,
-          capabilityProfile: managedTargetCapabilityProfile(siteAsset, siteAssetRecord),
-          deploymentMode: 'AGENT',
-          lastSeenAt: siteAsset.lastDiscoveredAt ?? snapshot.createdAt,
-          status: 'ACTIVE',
-          metadata: current.metadata,
-        },
-        ['hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId', 'bindingKey', 'capabilityProfile', 'deploymentMode', 'lastSeenAt', 'status'],
-      );
-      if (Object.keys(patch).length > 0 && apply) {
-        await this.updateManagedTarget(tenantId, current.id, patch as UpdateManagedTargetDto);
-        result.businessTableMutated = true;
-      }
-      result.actions.push({ kind: 'managed_target', action: Object.keys(patch).length > 0 ? 'update' : 'skip', identityKey, existingId: current.id, resourceId: current.id, reason: 'managed target merged from site asset' });
     }
-
     for (const binding of payload.bindings) {
       const resolvedServiceId = await resolveServiceId(binding, serviceIds, tenantId, this.repository);
       if (!resolvedServiceId) {
@@ -659,50 +553,23 @@ export class AssetsApplicationService {
       throw new AppError('SYSTEM_INTERNAL_ERROR', 'AssetsApplicationService 未注入 AgentsApplicationService');
     }
     const detail = await this.agentsService.getAgentDetail(tenantId, input.agentId);
-    const normalizedHashPrefix = `agent-direct:${input.agentId}:${new Date().toISOString()}`;
-    try {
-      const direct = await this.directClient.runDiscovery(detail.agent, {
-        providerTypes: input.providerTypes,
-        includeBindings: input.includeBindings,
-        requestId: input.requestId,
-      });
-      const result = await this.ingestDiscovery(tenantId, {
-        normalizedHash: buildDiscoveryHash(normalizedHashPrefix, 'direct'),
-        source: 'AGENT',
-        apply: true,
-        normalizedPayload: direct.payload as unknown as Record<string, unknown>,
-        rawPayload: {
-          mode: 'direct',
-          directControl: direct.directControl,
-          request: input,
-        },
-      });
-      return {
-        ...result,
+    const direct = await this.directClient.runDiscovery(detail.agent, {
+      providerTypes: input.providerTypes,
+      includeBindings: input.includeBindings,
+      requestId: input.requestId,
+    });
+    const result = await this.ingestDiscovery(tenantId, {
+      normalizedHash: buildDiscoveryHash(`agent-direct:${input.agentId}:${new Date().toISOString()}`, 'direct'),
+      source: 'AGENT',
+      apply: true,
+      normalizedPayload: direct.payload as unknown as Record<string, unknown>,
+      rawPayload: {
         mode: 'direct',
-      };
-    } catch (error) {
-      const fallbackPayload = this.buildFallbackPayloadFromCapabilitySnapshot(detail.agent.id, detail.capabilitySnapshot?.capabilities ?? []);
-      if (isEmptyDiscoveryPayload(fallbackPayload)) {
-        throw error;
-      }
-      const result = await this.ingestDiscovery(tenantId, {
-        normalizedHash: buildDiscoveryHash(normalizedHashPrefix, 'fallback'),
-        source: 'AGENT',
-        apply: true,
-        normalizedPayload: fallbackPayload,
-        rawPayload: {
-          mode: 'fallback_capability_snapshot',
-          reason: error instanceof Error ? error.message : 'unknown',
-          request: input,
-        },
-      });
-      return {
-        ...result,
-        mode: 'fallback_capability_snapshot',
-        fallbackReason: error instanceof Error ? error.message : 'unknown',
-      };
-    }
+        directControl: direct.directControl,
+        request: input,
+      },
+    });
+    return { ...result, mode: 'direct' };
   }
 
   async listAssetConflicts(tenantId: string, query: PageQuery) {
@@ -784,7 +651,7 @@ export class AssetsApplicationService {
       return this.updateHost(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateHostDto);
     }
     if (conflict.resourceType === 'service') {
-      return this.updateServiceInstance(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateServiceInstanceDto);
+      return this.updateFrameworkInstance(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateFrameworkInstanceDto);
     }
     if (conflict.resourceType === 'service_asset') {
       return this.updateServiceAsset(tenantId, conflict.resourceId, { [conflict.field]: value } as UpdateServiceAssetDto);
@@ -826,220 +693,6 @@ export class AssetsApplicationService {
     }
   }
 
-  private async ensureApplicationAssetTargetBinding(tenantId: string, applicationAssetId: string): Promise<void> {
-    const bindingTarget = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, applicationAssetId);
-    if (!bindingTarget) return;
-
-    const applicationAsset = await this.repository.getServiceAsset(tenantId, applicationAssetId);
-    if (!applicationAsset) return;
-
-    let managedTarget = await this.repository.getManagedTarget(tenantId, bindingTarget.managedTargetId);
-    let siteAsset = await this.repository.getSiteAsset(tenantId, bindingTarget.siteAssetId);
-    if (!managedTarget || !siteAsset) return;
-
-    const providerType = String(
-      siteAsset.providerType ?? managedTarget.providerType ?? '',
-    ).toUpperCase();
-    if (managedTarget.deviceAssetId) {
-      return;
-    }
-    if (providerType !== 'IIS' && providerType !== 'NGINX') {
-      return;
-    }
-
-    if (!managedTarget.hostId || !siteAsset.hostId) {
-      const hostId = await this.ensureAgentHostAnchor(tenantId, applicationAsset.agentId ?? bindingTarget.agentId, managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId);
-      if (hostId) {
-        if (!siteAsset.hostId) {
-          siteAsset = await this.updateSiteAsset(tenantId, siteAsset.id, { hostId });
-        }
-        if (!managedTarget.hostId) {
-          managedTarget = await this.updateManagedTarget(tenantId, managedTarget.id, { hostId });
-        }
-      }
-    }
-
-    const detail = await this.repository.getApplicationAssetTargetDetailByApplicationAssetId(tenantId, applicationAssetId);
-    const normalizedAddress = applicationAsset.address.trim().toLowerCase();
-    const existing = detail?.certificateBindings.find((item) => {
-      if (bindingTarget.bindingKey && item.bindingKey === bindingTarget.bindingKey) return true;
-      const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
-      return itemDomain !== '' && itemDomain === normalizedAddress;
-    });
-    const normalizedProviderType = providerType as 'IIS' | 'NGINX';
-    const siblingBinding = this.findApplicationAssetSiblingBinding(detail?.certificateBindings ?? [], bindingTarget, applicationAsset.address);
-    if (existing) {
-      if (normalizedProviderType === 'NGINX') {
-        await this.patchApplicationAssetLinuxBindingIfNeeded(tenantId, existing, managedTarget, siteAsset, siblingBinding);
-      }
-      return;
-    }
-
-    const createInput = normalizedProviderType === 'NGINX'
-      ? this.buildApplicationAssetLinuxBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset, siblingBinding)
-      : this.buildApplicationAssetWindowsBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset);
-    await this.requireBindingsRepository().createCertificateBinding(tenantId, createInput);
-  }
-
-  private buildApplicationAssetWindowsBindingInput(
-    applicationAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>,
-    bindingTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>>,
-    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
-    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
-  ): CreateCertificateBindingDto {
-    return {
-      serviceAssetId: applicationAsset.id,
-      siteAssetId: siteAsset.id,
-      managedTargetId: managedTarget.id,
-      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
-      domainName: applicationAsset.address,
-      domain: applicationAsset.address,
-      port: applicationAsset.port ?? siteAsset.port,
-      protocol: (applicationAsset.protocol ?? siteAsset.protocol ?? 'HTTPS') as CreateCertificateBindingDto['protocol'],
-      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAsset.address,
-      bindingType: 'WINDOWS_CERT_STORE',
-      storeLocation: 'LocalMachine',
-      storeName: 'My',
-      verifyMethod: 'STORE_QUERY',
-      status: 'MANAGED',
-      metadata: {
-        source: 'application_asset_target',
-        targetKey: bindingTarget.targetKey,
-        siteName: siteAsset.siteName,
-        hostHeader: siteAsset.hostHeader ?? '',
-        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
-        appPool: typeof siteAsset.metadata?.appPool === 'string' ? siteAsset.metadata.appPool : undefined,
-      },
-    };
-  }
-
-  private buildApplicationAssetLinuxBindingInput(
-    applicationAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>,
-    bindingTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>>,
-    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
-    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
-    siblingBinding?: { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> },
-  ): CreateCertificateBindingDto {
-    const capabilityProfile = toRecord(managedTarget.capabilityProfile);
-    const sourceFile = normalizeOptionalString(siteAsset.configPath)
-      ?? readString(siteAsset.metadata, 'sourceFile')
-      ?? readString(siblingBinding?.metadata, 'sourceFile');
-    const serverNames = [...new Set([
-      ...readStringArray(siteAsset.metadata, 'serverNames'),
-      ...readStringArray(siblingBinding?.metadata, 'serverNames'),
-      normalizeOptionalString(applicationAsset.address),
-      normalizeOptionalString(siteAsset.hostHeader),
-    ].filter(Boolean))];
-
-    return {
-      serviceAssetId: applicationAsset.id,
-      siteAssetId: siteAsset.id,
-      managedTargetId: managedTarget.id,
-      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
-      domainName: applicationAsset.address,
-      domain: applicationAsset.address,
-      port: applicationAsset.port ?? siteAsset.port,
-      protocol: (applicationAsset.protocol ?? siteAsset.protocol ?? 'HTTPS') as CreateCertificateBindingDto['protocol'],
-      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAsset.address,
-      bindingType: 'FILE_PATH',
-      certPath: normalizeOptionalString(siblingBinding?.certPath)
-        ?? readString(capabilityProfile, 'certPath')
-        ?? readString(siteAsset.metadata, 'certPath'),
-      keyPath: normalizeOptionalString(siblingBinding?.keyPath)
-        ?? readString(capabilityProfile, 'keyPath')
-        ?? readString(siteAsset.metadata, 'keyPath'),
-      reloadCommand: normalizeOptionalString(siblingBinding?.reloadCommand)
-        ?? readString(capabilityProfile, 'reloadCommand')
-        ?? readString(siteAsset.metadata, 'reloadCommand'),
-      verifyMethod: 'TLS_CONNECT',
-      status: 'MANAGED',
-      metadata: {
-        source: 'application_asset_target',
-        targetKey: bindingTarget.targetKey,
-        siteName: siteAsset.siteName,
-        hostHeader: siteAsset.hostHeader ?? '',
-        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
-        sourceFile,
-        serverNames,
-        testCommand: readString(siblingBinding?.metadata, 'testCommand')
-          ?? readString(capabilityProfile, 'testCommand')
-          ?? readString(siteAsset.metadata, 'testCommand'),
-        permission: readRecord(siblingBinding?.metadata, 'permission')
-          ?? readRecord(siteAsset.metadata, 'permission')
-          ?? {},
-      },
-    };
-  }
-
-  private findApplicationAssetSiblingBinding(
-    bindings: Array<{
-      id?: string;
-      serviceInstanceId?: string;
-      serviceAssetId?: string;
-      siteAssetId?: string;
-      managedTargetId?: string;
-      bindingKey?: string;
-      domainName?: string;
-      domain?: string;
-      certPath?: string;
-      keyPath?: string;
-      reloadCommand?: string;
-      metadata?: Record<string, unknown>;
-    }>,
-    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
-    applicationAddress: string,
-  ): { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> } | undefined {
-    const normalizedAddress = applicationAddress.trim().toLowerCase();
-    const normalizedBindingKey = String(bindingTarget.bindingKey ?? '').trim().toLowerCase();
-    const itemsWithPaths = bindings.filter((item) => Boolean(normalizeOptionalString(item.certPath) && normalizeOptionalString(item.keyPath)));
-    return itemsWithPaths.find((item) =>
-      item.managedTargetId === bindingTarget.managedTargetId
-      && item.siteAssetId === bindingTarget.siteAssetId
-      && (
-        (normalizedBindingKey && String(item.bindingKey ?? '').trim().toLowerCase() === normalizedBindingKey)
-        || String(item.domainName ?? item.domain ?? '').trim().toLowerCase() === normalizedAddress
-      ),
-    ) ?? itemsWithPaths.find((item) => {
-      const itemBindingKey = String(item.bindingKey ?? '').trim().toLowerCase();
-      const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
-      if (normalizedBindingKey && itemBindingKey === normalizedBindingKey) return true;
-      return itemDomain !== '' && itemDomain === normalizedAddress;
-    });
-  }
-
-  private async patchApplicationAssetLinuxBindingIfNeeded(
-    tenantId: string,
-    binding: { id: string; certPath?: string; keyPath?: string; reloadCommand?: string; bindingType?: string; verifyMethod?: string },
-    managedTarget: NonNullable<Awaited<ReturnType<AssetsRepository['getManagedTarget']>>>,
-    siteAsset: NonNullable<Awaited<ReturnType<AssetsRepository['getSiteAsset']>>>,
-    siblingBinding?: { certPath?: string; keyPath?: string; reloadCommand?: string; metadata?: Record<string, unknown> },
-  ): Promise<void> {
-    const capabilityProfile = toRecord(managedTarget.capabilityProfile);
-    const certPath = normalizeOptionalString(binding.certPath)
-      ?? normalizeOptionalString(siblingBinding?.certPath)
-      ?? readString(capabilityProfile, 'certPath')
-      ?? readString(siteAsset.metadata, 'certPath');
-    const keyPath = normalizeOptionalString(binding.keyPath)
-      ?? normalizeOptionalString(siblingBinding?.keyPath)
-      ?? readString(capabilityProfile, 'keyPath')
-      ?? readString(siteAsset.metadata, 'keyPath');
-    if (!certPath || !keyPath) return;
-
-    const patch: UpdateCertificateBindingDto = {};
-    if (!normalizeOptionalString(binding.certPath)) patch.certPath = certPath;
-    if (!normalizeOptionalString(binding.keyPath)) patch.keyPath = keyPath;
-    if (binding.bindingType !== 'FILE_PATH') patch.bindingType = 'FILE_PATH';
-    if (binding.verifyMethod !== 'TLS_CONNECT') patch.verifyMethod = 'TLS_CONNECT';
-    if (!normalizeOptionalString(binding.reloadCommand)) {
-      const reloadCommand = normalizeOptionalString(siblingBinding?.reloadCommand)
-        ?? readString(capabilityProfile, 'reloadCommand')
-        ?? readString(siteAsset.metadata, 'reloadCommand');
-      if (reloadCommand) patch.reloadCommand = reloadCommand;
-    }
-    if (Object.keys(patch).length === 0) return;
-    await this.requireBindingsRepository().updateCertificateBinding(tenantId, binding.id, patch);
-  }
-
   private async ensureAgentHostAnchor(tenantId: string, agentId: string | undefined, serviceInstanceId?: string): Promise<string | undefined> {
     if (!agentId || !this.agentsService) return undefined;
 
@@ -1066,53 +719,13 @@ export class AssetsApplicationService {
     }
 
     if (serviceInstanceId) {
-      const service = await this.repository.getServiceInstance(tenantId, serviceInstanceId);
-      if (service && !service.hostId) {
-        await this.updateServiceInstance(tenantId, service.id, { hostId: host.id });
+      const service = await this.repository.getFrameworkInstance(tenantId, serviceInstanceId);
+      if (service && service.deviceId !== host.id) {
+        await this.updateFrameworkInstance(tenantId, service.id, { deviceId: host.id });
       }
     }
     return host.id;
   }
-
-  private buildFallbackPayloadFromCapabilitySnapshot(agentId: string, capabilities: Array<{ capabilityKey: string; value: unknown }>): Record<string, unknown> {
-    const payload: {
-      hosts: NormalizedDiscoveredHostDto[];
-      services: NormalizedDiscoveredServiceDto[];
-      serviceAssets: NormalizedDiscoveredServiceAssetDto[];
-      siteAssets: NormalizedDiscoveredSiteAssetDto[];
-      bindings: NormalizedDiscoveredBindingDto[];
-    } = {
-      hosts: [],
-      services: [],
-      serviceAssets: [],
-      siteAssets: [],
-      bindings: [],
-    };
-
-    const osDetail = readCapabilityRecord(capabilities, 'windows.os.detail');
-    const adapters = readCapabilityArray(capabilities, 'windows.network.adapters');
-    const iisDetail = readCapabilityRecord(capabilities, 'windows.iis.detail');
-    const nginxDetail = readCapabilityRecord(capabilities, 'linux.nginx.detail');
-    const apacheDetail = readCapabilityRecord(capabilities, 'linux.apache.detail');
-    const tomcatDetail = readCapabilityRecord(capabilities, 'linux.tomcat.detail');
-
-    if (osDetail || adapters.length > 0 || iisDetail) {
-      payload.hosts.push(projectWindowsHost(agentId, osDetail, adapters, iisDetail));
-    }
-    if (iisDetail) {
-      projectWindowsIISDiscovery(agentId, iisDetail, payload);
-    }
-    if (nginxDetail) {
-      projectLinuxWebDiscovery(agentId, 'NGINX', nginxDetail, payload);
-    }
-    if (apacheDetail) {
-      projectLinuxWebDiscovery(agentId, 'APACHE', apacheDetail, payload);
-    }
-    if (tomcatDetail) {
-      projectLinuxTomcatDiscovery(agentId, tomcatDetail, payload);
-	    }
-	    return payload;
-	  }
 
   private async hydrateServiceAssetStrategy<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {
     const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, asset.id);
@@ -1120,6 +733,31 @@ export class AssetsApplicationService {
     return {
       ...asset,
       deploymentStrategy: strategy ? await this.applyPluginBindingCompatibility(tenantId, strategy) : undefined,
+    };
+  }
+
+  private async hydrateServiceAssetTargetContext(tenantId: string, asset: ServiceAssetDetailDto): Promise<ServiceAssetDetailDto> {
+    const targetBinding = asset.targetBinding;
+    if (!targetBinding) return asset;
+    const managedTargetId = targetBinding.managedTargetId;
+    if (!this.managedTargetContextResolver) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'ManagedTargetContextResolver 未接入，无法返回应用资产部署上下文', {
+        code: 'MANAGED_TARGET_CONTEXT_RESOLVER_MISSING',
+        serviceAssetId: asset.id,
+        managedTargetId,
+      });
+    }
+    const context = await this.managedTargetContextResolver.resolveTopology(tenantId, managedTargetId);
+    return {
+      ...asset,
+      targetBindingDetail: {
+        ...(asset.targetBindingDetail ?? targetBinding),
+        host: context.host,
+        frameworkInstance: context.serviceInstance,
+        siteAsset: context.siteAsset,
+        managedTarget: context.managedTarget,
+        certificateBindings: asset.targetBindingDetail?.certificateBindings ?? [],
+      },
     };
   }
 
@@ -1140,24 +778,6 @@ export class AssetsApplicationService {
   }
 
   private async validateDeploymentStrategyReferences(tenantId: string, strategy: DeploymentStrategyDto): Promise<void> {
-    if (strategy.type === 'AGENT') {
-      const agent = strategy.agent;
-      if (!agent) throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agent 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
-      if ((agent.mode ?? 'NATIVE_HANDLER') === 'PLUGIN') {
-        if (!agent.pluginBindingId) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少统一插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
-        return;
-      }
-      if (!agent.siteAssetId || !agent.managedTargetId) {
-        throw new AppError('VALIDATION_FAILED', '原生 AGENT 策略缺少 SiteAsset 或 ManagedTarget', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
-      }
-      if (!await this.repository.getSiteAsset(tenantId, agent.siteAssetId)) {
-        throw new AppError('RESOURCE_NOT_FOUND', 'AGENT 策略引用的 SiteAsset 不存在', { siteAssetId: agent.siteAssetId });
-      }
-      if (!await this.repository.getManagedTarget(tenantId, agent.managedTargetId)) {
-        throw new AppError('RESOURCE_NOT_FOUND', 'AGENT 策略引用的 ManagedTarget 不存在', { managedTargetId: agent.managedTargetId });
-      }
-      return;
-    }
     if (strategy.type === 'WORKFLOW') {
       const workflow = strategy.workflow;
       if (!workflow) throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflow 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
@@ -1231,383 +851,8 @@ function arrayOfObjects(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
 }
 
-function readCapabilityRecord(capabilities: Array<{ capabilityKey: string; value: unknown }>, key: string): Record<string, unknown> | undefined {
-  const item = capabilities.find((capability) => capability.capabilityKey === key)?.value;
-  return item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : undefined;
-}
-
-function readCapabilityArray(capabilities: Array<{ capabilityKey: string; value: unknown }>, key: string): Record<string, unknown>[] {
-  const item = capabilities.find((capability) => capability.capabilityKey === key)?.value;
-  return Array.isArray(item) ? item.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry))) : [];
-}
-
 function buildDiscoveryHash(prefix: string, mode: string): string {
   return `${prefix}:${mode}`.toLowerCase();
-}
-
-function isEmptyDiscoveryPayload(payload: Record<string, unknown>): boolean {
-  const arrays = ['hosts', 'services', 'serviceAssets', 'siteAssets', 'bindings']
-    .map((key) => payload[key])
-    .filter(Array.isArray) as unknown[][];
-  return arrays.every((items) => items.length === 0);
-}
-
-function projectWindowsHost(agentId: string, osDetail: Record<string, unknown> | undefined, adapters: Record<string, unknown>[], iisDetail: Record<string, unknown> | undefined): NormalizedDiscoveredHostDto {
-  const hostname = normalizeOptionalString(
-    readString(osDetail, 'hostname')
-      ?? readString(iisDetail, 'hostName')
-      ?? readString(osDetail, 'machineName')
-      ?? readString(osDetail, 'ProductName'),
-  ) ?? `${agentId}.local`;
-  const ipv4 = adapters.flatMap((adapter) => readStringArray(adapter, 'IPv4'));
-  return {
-    hostname,
-    primaryIp: ipv4[0],
-    ipAddresses: ipv4,
-    osType: 'WINDOWS',
-    osName: readString(osDetail, 'ProductName'),
-    osVersion: readString(osDetail, 'Version') ?? readString(osDetail, 'osVersion'),
-    agentId,
-    discoverySource: 'AGENT',
-    managementMode: 'AGENT',
-    status: 'ACTIVE',
-  };
-}
-
-function projectWindowsIISDiscovery(
-  agentId: string,
-  iisDetail: Record<string, unknown>,
-  payload: {
-    hosts: NormalizedDiscoveredHostDto[];
-    services: NormalizedDiscoveredServiceDto[];
-    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
-    siteAssets: NormalizedDiscoveredSiteAssetDto[];
-    bindings: NormalizedDiscoveredBindingDto[];
-  },
-): void {
-  const hostRef = payload.hosts[0]?.hostname;
-  if (!hostRef) return;
-  payload.services.push({
-    hostname: hostRef,
-    providerType: 'IIS',
-    serviceName: 'iis',
-    displayName: 'iis',
-    configPath: 'IIS:\\Sites',
-    discoverySource: 'AGENT',
-    status: 'ACTIVE',
-    rawFacts: iisDetail,
-  });
-  const sites = readObjectArray(iisDetail, 'Sites').length > 0 ? readObjectArray(iisDetail, 'Sites') : readObjectArray(iisDetail, 'sites');
-  for (const site of sites) {
-    const siteName = normalizeOptionalString(readString(site, 'Name') ?? readString(site, 'name'));
-    if (!siteName) continue;
-    const bindings = readObjectArray(site, 'Bindings').length > 0 ? readObjectArray(site, 'Bindings') : readObjectArray(site, 'bindings');
-    for (const binding of bindings) {
-      const protocol = normalizeProtocol(readString(binding, 'Protocol') ?? readString(binding, 'protocol'));
-      const port = readNumber(binding, 'Port') ?? readNumber(binding, 'port');
-      const hostHeader = normalizeOptionalString(readString(binding, 'HostHeader') ?? readString(binding, 'hostHeader'));
-      if (!protocol || !port || !hostHeader) continue;
-      const certificate = readRecord(binding, 'Certificate') ?? readRecord(binding, 'certificate');
-      const observedFingerprintSha256 = readString(certificate, 'FingerprintSHA256') ?? readString(certificate, 'fingerprintSha256');
-      const storeThumbprint = readString(binding, 'CertificateThumbprint') ?? readString(binding, 'certificateThumbprint') ?? readString(certificate, 'Thumbprint') ?? readString(certificate, 'thumbprint');
-      payload.serviceAssets.push({
-        hostname: hostRef,
-        providerType: 'IIS',
-        serviceName: 'iis',
-        address: hostHeader,
-        port,
-        protocol,
-        sniName: hostHeader,
-        displayName: hostHeader,
-        discoverySource: 'AGENT',
-        status: 'ACTIVE',
-        metadata: { source: 'direct_control' },
-      });
-      const bindingInformation = readString(binding, 'BindingInformation') ?? readString(binding, 'bindingInformation');
-      const siteKey = `${agentId}:iis:${siteName.toLowerCase()}:${bindingInformation ?? hostHeader}`;
-      payload.siteAssets.push({
-        hostname: hostRef,
-        providerType: 'IIS',
-        serviceName: 'iis',
-        agentId,
-        siteType: 'WEB_SITE',
-        siteName,
-        siteKey,
-        bindingInformation,
-        hostHeader,
-        listenIp: readString(binding, 'IPAddress') ?? readString(binding, 'ipAddress'),
-        port,
-        protocol,
-        configPath: 'IIS:\\Sites',
-        discoverySource: 'AGENT',
-        status: 'ACTIVE',
-      });
-      payload.bindings.push({
-        hostname: hostRef,
-        providerType: 'IIS',
-        serviceName: 'iis',
-        domainName: hostHeader,
-        port,
-        protocol,
-        bindingType: 'WINDOWS_CERT_STORE',
-        storeLocation: 'LocalMachine',
-        storeName: readString(binding, 'CertificateStoreName') ?? readString(binding, 'certificateStoreName') ?? readString(certificate, 'StoreName') ?? readString(certificate, 'storeName') ?? 'My',
-        storeThumbprint,
-        observedFingerprintSha256,
-        verifyMethod: 'TLS_CONNECT',
-        serviceAssetRef: `${hostHeader}:${port}:${protocol}`.toLowerCase(),
-        siteAssetRef: `site-asset:${siteKey}`.toLowerCase(),
-        metadata: {
-          certificateSubject: readString(certificate, 'Subject') ?? readString(certificate, 'subject'),
-          certificateIssuer: readString(certificate, 'Issuer') ?? readString(certificate, 'issuer'),
-        },
-      });
-    }
-  }
-}
-
-function projectLinuxWebDiscovery(
-  agentId: string,
-  providerType: 'NGINX' | 'APACHE',
-  detail: Record<string, unknown>,
-  payload: {
-    hosts: NormalizedDiscoveredHostDto[];
-    services: NormalizedDiscoveredServiceDto[];
-    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
-    siteAssets: NormalizedDiscoveredSiteAssetDto[];
-    bindings: NormalizedDiscoveredBindingDto[];
-  },
-): void {
-  const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
-  const serviceName = providerType === 'NGINX' ? 'nginx' : 'apache';
-  const configPath = readString(detail, 'ConfigPath') ?? readString(detail, 'configPath');
-  payload.services.push({
-    hostname: hostRef,
-    providerType,
-    serviceName,
-    displayName: serviceName,
-    configPath,
-    discoverySource: 'AGENT',
-    status: 'ACTIVE',
-    rawFacts: detail,
-  });
-  const sites = readObjectArray(detail, 'Sites').concat(readObjectArray(detail, 'sites'));
-  for (const site of sites) {
-    const siteName = normalizeOptionalString(readString(site, 'Name') ?? readString(site, 'name'));
-    if (!siteName) continue;
-    const serverNames = readStringArray(site, 'ServerNames').concat(readStringArray(site, 'serverNames'));
-    const hostHeader = normalizeOptionalString(serverNames[0] ?? siteName);
-    const sitePath = readString(site, 'SitePath') ?? readString(site, 'sitePath');
-    const siteMode = readString(site, 'SiteMode') ?? readString(site, 'siteMode');
-    const proxyTargets = readStringArray(site, 'ProxyTargets').concat(readStringArray(site, 'proxyTargets'));
-    const configFiles = readStringArray(site, 'ConfigFiles').concat(readStringArray(site, 'configFiles'));
-    const bindings = readObjectArray(site, 'Listen').concat(readObjectArray(site, 'listen'));
-    for (const binding of bindings) {
-      const port = readNumber(binding, 'Port') ?? readNumber(binding, 'port');
-      const protocol = normalizeProtocol(readString(binding, 'Protocol') ?? readString(binding, 'protocol'));
-      const address = normalizeOptionalString(hostHeader ?? siteName);
-      if (!port || !protocol || !address) continue;
-      const bindingAddress = normalizeOptionalString(readString(binding, 'Address') ?? readString(binding, 'address')) ?? '*';
-      const bindingInformation = `${bindingAddress}:${port}:${hostHeader ?? ''}`;
-      const siteKey = `${agentId}:${providerType.toLowerCase()}:${siteName}:${bindingInformation}`.toLowerCase();
-      payload.siteAssets.push({
-        serviceRef: `${hostRef}:${providerType}:${serviceName}`.toLowerCase(),
-        serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
-        siteAssetRef: `site-asset:${siteKey}`,
-        hostname: hostRef,
-        providerType,
-        serviceName,
-        agentId,
-        siteType: 'WEB_SITE',
-        siteName,
-        siteKey,
-        bindingInformation,
-        hostHeader: hostHeader ?? undefined,
-        listenIp: bindingAddress,
-        port,
-        protocol,
-        configPath: configFiles[0] || configPath,
-        runtimeStatus: siteMode,
-        discoverySource: 'AGENT',
-        status: 'ACTIVE',
-        metadata: {
-          sitePath,
-          siteMode,
-          serverNames,
-          proxyTargets,
-          configFiles,
-          certPath: readString(binding, 'CertificatePath') ?? readString(binding, 'certificatePath'),
-          keyPath: readString(binding, 'CertificateKeyPath') ?? readString(binding, 'certificateKeyPath'),
-          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
-          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
-          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
-        },
-      });
-      payload.serviceAssets.push({
-        hostname: hostRef,
-        providerType,
-        serviceName,
-        address,
-        port,
-        protocol,
-        sniName: address,
-        displayName: address,
-        discoverySource: 'AGENT',
-        status: 'ACTIVE',
-        metadata: {
-          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
-          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
-          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
-        },
-      });
-      payload.bindings.push({
-        hostname: hostRef,
-        providerType,
-        serviceName,
-        domainName: address,
-        port,
-        protocol,
-        bindingType: 'FILE_PATH',
-        certPath: readString(binding, 'CertificatePath') ?? readString(binding, 'certificatePath'),
-        keyPath: readString(binding, 'CertificateKeyPath') ?? readString(binding, 'certificateKeyPath'),
-        verifyMethod: 'TLS_CONNECT',
-        bindingKey: bindingInformation,
-        serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
-        siteAssetRef: `site-asset:${siteKey}`,
-        metadata: {
-          sourceFile: configFiles[0] || configPath,
-          serverNames,
-          testCommand: readString(binding, 'TestCommand') ?? readString(binding, 'testCommand'),
-          reloadCommand: readString(binding, 'ReloadCommand') ?? readString(binding, 'reloadCommand'),
-          permission: readRecord(binding, 'Permission') ?? readRecord(binding, 'permission') ?? {},
-        },
-      });
-    }
-  }
-}
-
-function projectLinuxTomcatDiscovery(
-  agentId: string,
-  detail: Record<string, unknown>,
-  payload: {
-    hosts: NormalizedDiscoveredHostDto[];
-    services: NormalizedDiscoveredServiceDto[];
-    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
-    siteAssets: NormalizedDiscoveredSiteAssetDto[];
-    bindings: NormalizedDiscoveredBindingDto[];
-  },
-): void {
-  const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
-  const configPath = readString(detail, 'ConfigPath') ?? readString(detail, 'configPath');
-  payload.services.push({
-    hostname: hostRef,
-    providerType: 'TOMCAT',
-    serviceName: 'tomcat',
-    displayName: 'tomcat',
-    configPath,
-    discoverySource: 'AGENT',
-    status: 'ACTIVE',
-    rawFacts: detail,
-  });
-  const connectors = readObjectArray(detail, 'Connectors').concat(readObjectArray(detail, 'connectors'));
-  for (const connector of connectors) {
-    const port = readNumber(connector, 'Port') ?? readNumber(connector, 'port');
-    const protocol = normalizeProtocol(readString(connector, 'Protocol') ?? readString(connector, 'protocol'));
-    if (!port || !protocol) continue;
-    const address = normalizeOptionalString(readString(connector, 'Address') ?? readString(connector, 'address')) ?? hostRef;
-    const bindingAddress = normalizeOptionalString(readString(connector, 'Address') ?? readString(connector, 'address')) ?? '*';
-    const bindingInformation = `${bindingAddress}:${port}:${address}`;
-    const siteKey = `${agentId}:tomcat:${address}:${bindingInformation}`.toLowerCase();
-    payload.siteAssets.push({
-      serviceRef: `${hostRef}:TOMCAT:tomcat`.toLowerCase(),
-      serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
-      siteAssetRef: `site-asset:${siteKey}`,
-      hostname: hostRef,
-      providerType: 'TOMCAT',
-      serviceName: 'tomcat',
-      agentId,
-      siteType: 'WEB_SITE',
-      siteName: address,
-      siteKey,
-      bindingInformation,
-      hostHeader: address,
-      listenIp: bindingAddress,
-      port,
-      protocol,
-      configPath,
-      discoverySource: 'AGENT',
-      status: 'ACTIVE',
-      metadata: {
-        keystorePath: readString(connector, 'KeystorePath') ?? readString(connector, 'keystorePath'),
-      },
-    });
-    payload.serviceAssets.push({
-      hostname: hostRef,
-      providerType: 'TOMCAT',
-      serviceName: 'tomcat',
-      address,
-      port,
-      protocol,
-      sniName: address,
-      displayName: address,
-      discoverySource: 'AGENT',
-      status: 'ACTIVE',
-    });
-    payload.bindings.push({
-      hostname: hostRef,
-      providerType: 'TOMCAT',
-      serviceName: 'tomcat',
-      domainName: address,
-      port,
-      protocol,
-      bindingKey: bindingInformation,
-      bindingType: 'FILE_PATH',
-      certPath: readString(connector, 'CertificatePath') ?? readString(connector, 'certificatePath'),
-      keyPath: readString(connector, 'CertificateKeyPath') ?? readString(connector, 'certificateKeyPath'),
-      keystorePath: readString(connector, 'KeystorePath') ?? readString(connector, 'keystorePath'),
-      verifyMethod: 'TLS_CONNECT',
-      serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
-      siteAssetRef: `site-asset:${siteKey}`,
-    });
-  }
-}
-
-function readString(value: Record<string, unknown> | undefined, key: string): string | undefined {
-  if (!value) return undefined;
-  const direct = value[key];
-  return typeof direct === 'string' && direct.trim() ? direct.trim() : undefined;
-}
-
-function readRecord(value: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
-  if (!value) return undefined;
-  const direct = value[key];
-  return direct && typeof direct === 'object' && !Array.isArray(direct) ? direct as Record<string, unknown> : undefined;
-}
-
-function readNumber(value: Record<string, unknown> | undefined, key: string): number | undefined {
-  if (!value) return undefined;
-  const direct = value[key];
-  return typeof direct === 'number' && Number.isFinite(direct) ? direct : undefined;
-}
-
-function readObjectArray(value: Record<string, unknown> | undefined, key: string): Record<string, unknown>[] {
-  if (!value) return [];
-  const direct = value[key];
-  return Array.isArray(direct) ? direct.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
-}
-
-function readStringArray(value: Record<string, unknown> | undefined, key: string): string[] {
-  if (!value) return [];
-  const direct = value[key];
-  return Array.isArray(direct) ? direct.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()) : [];
-}
-
-function normalizeProtocol(value: string | undefined): 'HTTPS' | 'HTTP' | 'TLS' | 'STARTTLS' | undefined {
-  const normalized = normalizeOptionalString(value)?.toUpperCase();
-  if (!normalized) return undefined;
-  if (normalized === 'HTTPS' || normalized === 'HTTP' || normalized === 'TLS' || normalized === 'STARTTLS') return normalized;
-  if (normalized == 'HTTP/1.1') return 'HTTPS';
-  return undefined;
 }
 
 function hostIdentityKey(host: NormalizedDiscoveredHostDto): string | undefined {
@@ -1615,8 +860,8 @@ function hostIdentityKey(host: NormalizedDiscoveredHostDto): string | undefined 
   return hostname ? `host:${hostname}` : undefined;
 }
 
-function serviceIdentityKey(service: NormalizedDiscoveredServiceDto, hostId: string): string {
-  return `service:${hostId}:${service.providerType}:${normalizeOptionalString(service.serviceName) ?? normalizeOptionalString(service.configPath) ?? 'default'}`.toLowerCase();
+function serviceIdentityKey(service: Pick<NormalizedDiscoveredServiceDto, 'frameworkType' | 'frameworkKey' | 'configPath'>, hostId: string): string {
+  return `service:${hostId}:${service.frameworkType}:${normalizeOptionalString(service.frameworkKey) ?? normalizeOptionalString(service.configPath) ?? 'default'}`.toLowerCase();
 }
 
 function serviceAssetIdentityKey(
@@ -1681,16 +926,12 @@ function hostToCreateDto(host: NormalizedDiscoveredHostDto, source: CreateDiscov
   };
 }
 
-function serviceToCreateDto(service: NormalizedDiscoveredServiceDto, hostId: string, source: CreateDiscoverySnapshotDto['source']): CreateServiceInstanceDto {
+function serviceToCreateDto(service: NormalizedDiscoveredServiceDto, hostId: string, source: CreateDiscoverySnapshotDto['source']): CreateFrameworkInstanceDto {
+  const identity = frameworkIdentity(service, hostId, source);
   return {
-    hostId,
-    providerType: service.providerType,
-    serviceName: service.serviceName,
-    displayName: service.displayName ?? service.serviceName ?? service.providerType.toLowerCase(),
-    versionText: service.versionText,
-    installPath: service.installPath,
-    configPath: service.configPath,
-    runtimeUser: service.runtimeUser,
+    ...identity,
+    displayName: service.displayName ?? service.frameworkKey ?? service.frameworkType.toLowerCase(),
+    frameworkVersion: service.versionText,
     discoverySource: service.discoverySource ?? source,
     lastDiscoveredAt: service.lastDiscoveredAt,
     status: service.status ?? 'ACTIVE',
@@ -1719,19 +960,16 @@ function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetD
 
 function siteAssetToCreateDto(
   siteAsset: NormalizedDiscoveredSiteAssetDto,
-  serviceInstanceId: string,
-  serviceAssetId: string | undefined,
-  hostId: string | undefined,
-  providerType: CreateSiteAssetDto['providerType'],
+  frameworkInstanceId: string,
+  deviceId: string,
+  discoveryProviderKey: string,
   source: CreateDiscoverySnapshotDto['source'],
 ): CreateSiteAssetDto {
   const identityKey = siteAssetIdentityKey(siteAsset);
   return {
-    serviceInstanceId,
-    serviceAssetId,
-    hostId,
-    agentId: siteAsset.agentId,
-    providerType,
+    frameworkInstanceId,
+    deviceId,
+    discoveryProviderKey,
     siteType: siteAsset.siteType ?? 'CUSTOM',
     siteName: siteAsset.siteName,
     siteKey: siteAsset.siteKey ?? identityKey,
@@ -1749,53 +987,6 @@ function siteAssetToCreateDto(
   };
 }
 
-function managedTargetToCreateDto(
-  discovered: NormalizedDiscoveredSiteAssetDto,
-  siteAsset: { id: string; hostId?: string; serviceInstanceId: string; serviceAssetId?: string; providerType: CreateManagedTargetDto['providerType'] },
-  agentId: string,
-  source: CreateDiscoverySnapshotDto['source'],
-): CreateManagedTargetDto {
-  return {
-    agentId,
-    hostId: siteAsset.hostId,
-    serviceInstanceId: siteAsset.serviceInstanceId,
-    serviceAssetId: siteAsset.serviceAssetId,
-    siteAssetId: siteAsset.id,
-    providerType: siteAsset.providerType,
-    frameworkType: siteAsset.providerType,
-    targetType: 'SITE_BINDING',
-    targetKey: managedTargetTargetKey(discovered, agentId),
-    bindingKey: discovered.bindingInformation ?? discovered.siteKey ?? discovered.siteName,
-    capabilityProfile: managedTargetCapabilityProfile(discovered, siteAsset),
-    deploymentMode: source === 'AGENT' ? 'AGENT' : 'DISCOVERY',
-    lastSeenAt: discovered.lastDiscoveredAt,
-    status: 'ACTIVE',
-    metadata: {},
-  };
-}
-
-function managedTargetCapabilityProfile(
-  discovered: Pick<NormalizedDiscoveredSiteAssetDto, 'protocol' | 'bindingInformation' | 'hostHeader' | 'siteType' | 'metadata'>,
-  siteAsset: { providerType: string; serviceAssetId?: string },
-): Record<string, unknown> {
-  const metadata = toRecord(discovered.metadata ?? {});
-  return {
-    providerType: siteAsset.providerType,
-    siteType: discovered.siteType ?? 'CUSTOM',
-    protocol: discovered.protocol,
-    bindingInformation: discovered.bindingInformation,
-    hostHeader: discovered.hostHeader,
-    certPath: readString(metadata, 'certPath'),
-    keyPath: readString(metadata, 'keyPath'),
-    reloadCommand: readString(metadata, 'reloadCommand'),
-    testCommand: readString(metadata, 'testCommand'),
-    sourceFile: readString(metadata, 'sourceFile'),
-    serverNames: readStringArray(metadata, 'serverNames'),
-    permission: readRecord(metadata, 'permission') ?? {},
-    serviceAssetLinked: Boolean(siteAsset.serviceAssetId),
-  };
-}
-
 function projectDiscoveredServiceAssetsFromBindings(bindings: NormalizedDiscoveredBindingDto[]): NormalizedDiscoveredServiceAssetDto[] {
   const seen = new Set<string>();
   const projected: NormalizedDiscoveredServiceAssetDto[] = [];
@@ -1809,8 +1000,8 @@ function projectDiscoveredServiceAssetsFromBindings(bindings: NormalizedDiscover
     projected.push({
       serviceRef: binding.serviceRef,
       hostname: binding.hostname,
-      providerType: binding.providerType,
-      serviceName: binding.serviceName,
+      frameworkType: binding.frameworkType,
+      frameworkKey: binding.frameworkKey,
       address,
       addressType: undefined,
       port: binding.port,
@@ -1877,17 +1068,30 @@ async function resolveHostId(hostRef: string | undefined, hostIds: Map<string, s
 }
 
 async function resolveServiceId(
-  input: Pick<NormalizedDiscoveredBindingDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredServiceAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredSiteAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'>,
+  input: Pick<NormalizedDiscoveredBindingDto, 'serviceRef' | 'hostname' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey'> | Pick<NormalizedDiscoveredServiceAssetDto, 'serviceRef' | 'hostname' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey'> | Pick<NormalizedDiscoveredSiteAssetDto, 'serviceRef' | 'hostname' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey'>,
   serviceIds: Map<string, string>,
   tenantId: string,
   repository: AssetsRepository,
 ): Promise<string | undefined> {
   const direct = normalizeOptionalString(input.serviceRef);
-  if (direct && await repository.getServiceInstance(tenantId, direct)) return direct;
+  if (direct && await repository.getFrameworkInstance(tenantId, direct)) return direct;
   const hostId = await resolveHostId(input.hostname, new Map(), tenantId, repository);
-  if (!hostId || !input.providerType) return undefined;
-  const key = serviceIdentityKey({ providerType: input.providerType, serviceName: input.serviceName }, hostId);
-  return serviceIds.get(key) ?? (await repository.findServiceInstanceByIdentity(tenantId, { hostId, providerType: input.providerType, serviceName: input.serviceName }))?.id;
+  if (!hostId || !input.frameworkType || !input.discoveryProviderKey) return undefined;
+  const key = serviceIdentityKey({ frameworkType: input.frameworkType, frameworkKey: input.frameworkKey }, hostId);
+  return serviceIds.get(key) ?? (await repository.findFrameworkInstanceByIdentity(tenantId, frameworkIdentity({ frameworkType: input.frameworkType, frameworkKey: input.frameworkKey, discoveryProviderKey: input.discoveryProviderKey }, hostId, 'MANUAL')))?.id;
+}
+
+function frameworkIdentity(service: Pick<NormalizedDiscoveredServiceDto, 'frameworkType' | 'frameworkKey' | 'configPath' | 'discoveryProviderKey'>, deviceId: string, _source: CreateDiscoverySnapshotDto['source']): Pick<CreateFrameworkInstanceDto, 'deviceId' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey'> {
+  const frameworkType = String(service.frameworkType).trim().toLowerCase();
+  if (!/^[a-z0-9]+([.-][a-z0-9]+)+$/.test(frameworkType)) {
+    throw new AppError('VALIDATION_FAILED', 'frameworkType 必须使用开放命名空间', { frameworkType });
+  }
+  return {
+    deviceId,
+    frameworkType,
+    frameworkKey: normalizeOptionalString(service.frameworkKey) ?? normalizeOptionalString(service.configPath) ?? `${frameworkType}:default`,
+    discoveryProviderKey: normalizeOptionalString(service.discoveryProviderKey)!,
+  };
 }
 
 async function resolveServiceAssetId(

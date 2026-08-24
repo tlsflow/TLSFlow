@@ -9,7 +9,7 @@ import { PgBindingsRepository } from '../bindings/repository/bindings.repository
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { PgAssetsRepository } from './repository/assets.repository.js';
 
-test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人工资产与发现目标', async () => {
+test('Spec033.1 历史校正语义在终态 FrameworkInstance 结构下仍只删除自动应用资产', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
   const assets = new PgAssetsRepository(database);
@@ -25,10 +25,11 @@ test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人�
     authMode: 'SESSION',
     tlsVerify: false,
   });
-  const serviceInstance = await assets.createServiceInstance(tenantId, {
-    hostId: device.hostId,
-    providerType: 'DEVICE_TEMPLATE',
-    serviceName: 'netscaler-adc',
+  const serviceInstance = await assets.createFrameworkInstance(tenantId, {
+    deviceId: device.hostId,
+    frameworkType: 'adc.load-balancer',
+    frameworkKey: 'netscaler-adc',
+    discoveryProviderKey: 'provider.discovery',
     displayName: 'Citrix ADC',
     discoverySource: 'PROVIDER',
   });
@@ -55,11 +56,10 @@ test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人�
     metadata: { deviceAssetId: device.id },
   });
   const site = await assets.createSiteAsset(tenantId, {
-    serviceInstanceId: serviceInstance.id,
-    serviceAssetId: projectedAsset.id,
-    hostId: device.hostId,
-    providerType: 'DEVICE_TEMPLATE',
-    siteType: 'CUSTOM',
+    frameworkInstanceId: serviceInstance.id,
+    deviceId: device.hostId,
+    discoveryProviderKey: 'plugin-version:version_1',
+    siteType: 'network.virtual-server',
     siteName: 'projected',
     siteKey: 'LB:projected',
     bindingInformation: '10.33.10.50:443',
@@ -69,41 +69,25 @@ test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人�
     metadata: { deviceAssetId: device.id, virtualServerType: 'LB', virtualServerName: 'projected' },
   });
   const managedTarget = await assets.createManagedTarget(tenantId, {
-    deviceAssetId: device.id,
-    hostId: device.hostId,
-    serviceInstanceId: serviceInstance.id,
-    serviceAssetId: projectedAsset.id,
-    siteAssetId: site.id,
-    providerType: 'DEVICE_TEMPLATE',
-    frameworkType: 'DEVICE_TEMPLATE',
-    targetType: 'SITE_BINDING',
+    deviceId: device.hostId,
+    frameworkInstanceId: serviceInstance.id,
+    siteId: site.id,
+    discoveryProviderKey: 'plugin-version:version_1',
+    targetType: 'tls.binding',
     targetKey: 'LB:projected',
     bindingKey: 'LB:projected',
-    deploymentMode: 'NITRO',
+    supportedCapabilities: ['certificate.deploy'],
+    executionLocations: ['CONTROL_PLANE'],
     metadata: { deviceAssetId: device.id },
   });
   const projectedTarget = await assets.createApplicationAssetTarget(tenantId, {
     applicationAssetId: projectedAsset.id,
-    deviceAssetId: device.id,
-    siteAssetId: site.id,
     managedTargetId: managedTarget.id,
-    providerType: 'DEVICE_TEMPLATE',
-    frameworkType: 'DEVICE_TEMPLATE',
-    targetType: 'SITE_BINDING',
-    targetKey: managedTarget.targetKey,
-    bindingKey: managedTarget.bindingKey,
     metadata: { deviceAssetId: device.id },
   });
   const manualTarget = await assets.createApplicationAssetTarget(tenantId, {
     applicationAssetId: manualAsset.id,
-    deviceAssetId: device.id,
-    siteAssetId: site.id,
     managedTargetId: managedTarget.id,
-    providerType: 'DEVICE_TEMPLATE',
-    frameworkType: 'DEVICE_TEMPLATE',
-    targetType: 'SITE_BINDING',
-    targetKey: managedTarget.targetKey,
-    bindingKey: managedTarget.bindingKey,
     metadata: { deviceAssetId: device.id },
   });
   const certificateBinding = await bindings.createCertificateBinding(tenantId, {
@@ -119,10 +103,10 @@ test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人�
     verifyMethod: 'CUSTOM',
   });
 
-  const migration = await readFile(
-    resolve('src/database/migrations/20260724000100_manual_application_assets.sql'),
+  const migration = (await readFile(
+    resolve('src/database/migrations/20260727001200_terminal_application_asset_cleanup.sql'),
     'utf8',
-  );
+  ));
   for (const statement of migration.split(/;\s*(?:\r?\n|$)/).map((item) => item.trim()).filter(Boolean)) {
     await database.query(statement);
   }
@@ -141,7 +125,7 @@ test('Spec033.1 迁移只软删除 ADC Provider 自动应用资产并保留人�
   assert.equal(manualAfter?.status, 'ACTIVE');
   assert.equal(manualAfter?.deletedAt, undefined);
   assert.equal(manualTargetAfter?.status, 'ACTIVE');
-  assert.equal(siteAfter?.serviceAssetId, undefined);
-  assert.equal(managedTargetAfter?.serviceAssetId, undefined);
+  assert.equal(siteAfter?.deviceId, device.hostId);
+  assert.equal(managedTargetAfter?.deviceId, device.hostId);
   assert.equal(bindingAfter?.serviceAssetId, undefined);
 });

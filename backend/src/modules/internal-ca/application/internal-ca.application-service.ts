@@ -46,6 +46,21 @@ import type {
   TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
 
+type CaNodePlatform = 'windows' | 'linux';
+
+const providerNodePlatformProfiles: Readonly<Partial<Record<CaProviderType, readonly CaNodePlatform[]>>> = Object.freeze({
+  microsoft_adcs: ['windows'],
+});
+
+const runtimeNodePlatformProfiles: Readonly<Partial<Record<CaRuntimePlatform, readonly CaNodePlatform[]>>> = Object.freeze({
+  windows: ['windows'],
+  linux: ['linux'],
+});
+
+function resolveProviderNodePlatforms(provider: Pick<CaProviderEntity, 'type' | 'runtimePlatform'>): readonly CaNodePlatform[] {
+  return providerNodePlatformProfiles[provider.type] ?? runtimeNodePlatformProfiles[provider.runtimePlatform] ?? [];
+}
+
 export interface CreateCaProviderInput {
   name: string;
   type: CaProviderType;
@@ -1165,7 +1180,7 @@ export class InternalCaApplicationService {
       throw new AppError('AUTH_FORBIDDEN', 'CA Node 注册令牌无效、已使用或已过期');
     }
     const provider = await this.requireProvider(consumed.tenantId, consumed.providerId);
-    if (provider.type === 'microsoft_adcs' ? input.platform !== 'windows' : provider.runtimePlatform !== input.platform) {
+    if (!resolveProviderNodePlatforms(provider).includes(input.platform)) {
       throw new AppError('CA_TOPOLOGY_INVALID', '节点平台与 Provider 配置不一致');
     }
     const authenticationPublicKeyPem = optionalText(input.authenticationPublicKeyPem);

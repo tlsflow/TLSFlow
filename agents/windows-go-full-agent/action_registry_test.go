@@ -10,7 +10,6 @@ func TestActionRegistryResolvesCanonicalAliasAndLegacySelector(t *testing.T) {
 	}{
 		{name: "canonical", payload: map[string]any{"type": "certificate.deploy"}},
 		{name: "published alias", payload: map[string]any{"type": "windows.iis.deploy_certificate"}},
-		{name: "legacy provider", payload: map[string]any{"providerType": "IIS"}},
 		{name: "legacy action", payload: map[string]any{"action": "INSTALL_CERTIFICATE"}},
 	}
 	for _, testCase := range cases {

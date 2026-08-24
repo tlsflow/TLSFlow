@@ -3,11 +3,11 @@
   "status": "frozen",
   "description": "仅用于保持历史 Native Handler 可执行；新增产品必须使用统一插件能力。",
   "driverKind": "AGENT_NATIVE",
-  "providers": [
-    "APACHE",
-    "IIS",
-    "NGINX",
-    "TOMCAT",
-    "WINDOWS_CERT_STORE"
+  "frameworkTypes": [
+    "app.tomcat",
+    "certificate.windows-store",
+    "web.apache",
+    "web.iis",
+    "web.nginx"
   ]
 }

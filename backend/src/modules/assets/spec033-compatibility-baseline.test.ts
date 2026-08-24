@@ -8,8 +8,10 @@ import type { AgentsApplicationService } from '../agents/application/agents.appl
 import { normalizeDeploymentStrategy } from './application/deployment-strategy.service.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 
-test('Spec033 兼容基线：旧 Agent 注册后仍可通过原列表接口查询', async () => {
-  const app = createApp();
+test('Spec033 终态基线：Agent 注册后可通过 Agent 列表查询', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const app = createApp({ db: database });
   const tenantId = 'tenant_spec033_agent_baseline';
   const registered = await app.inject({
     method: 'POST',
@@ -34,35 +36,15 @@ test('Spec033 兼容基线：旧 Agent 注册后仍可通过原列表接口查�
   assert.equal(listed.items[0]?.descriptor.hostname, 'spec033-win');
 });
 
-test('Spec033 兼容基线：旧 AGENT 策略继续保留目标和证书产物字段', () => {
-  const normalized = normalizeDeploymentStrategy({
-    type: 'AGENT',
-    agent: {
-      mode: 'NATIVE_HANDLER',
-      agentId: 'agent_spec033',
-      siteAssetId: 'site_spec033',
-      managedTargetId: 'target_spec033',
-      certificateFormatId: 'format_spec033',
-    },
-  }, {
-    asset: { id: 'asset_spec033', agentId: 'agent_spec033', metadata: {} },
-    targetBinding: {
-      agentId: 'agent_spec033',
-      siteAssetId: 'site_spec033',
-      managedTargetId: 'target_spec033',
-    },
+test('Spec033.4 终态拒绝旧 AGENT 部署策略', () => {
+  assert.throws(() => normalizeDeploymentStrategy({ type: 'AGENT' } as never, {
+    asset: { id: 'asset_spec033', metadata: {} },
     actorId: 'user_spec033',
     now: '2026-07-22T00:00:00.000Z',
-  });
-
-  assert.equal(normalized.type, 'AGENT');
-  assert.equal(normalized.agent?.agentId, 'agent_spec033');
-  assert.equal(normalized.agent?.siteAssetId, 'site_spec033');
-  assert.equal(normalized.agent?.managedTargetId, 'target_spec033');
-  assert.equal(normalized.agent?.certificateFormatId, 'format_spec033');
+  }));
 });
 
-test('Spec033 兼容基线：现有 NetScaler 设备仍使用 DEVICE 应用资产主键', async () => {
+test('Spec033 终态基线：NetScaler 设备使用 DEVICE 资产主键', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
   const repository = new PgDeviceAssetsRepository(database);

@@ -75,7 +75,7 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.equal(discoveredBinding?.current_certificate_version_id, 'certificate-version-1');
   assert.equal(discoveredBinding?.observed_fingerprint_sha256, 'A'.repeat(64));
 
-  const withoutSites = { ...fixture, sites: [], certificates: [], certificateBindings: [] };
+  const withoutSites = { ...fixture, sites: [], managedTargets: [], certificates: [], certificateBindings: [] };
   await projector.project(context, withoutSites);
   assert.equal((await db.query<{ status: string }>('select status from pg_site_assets limit 1')).rows[0]?.status, 'STALE');
   assert.equal((await db.query<{ status: string }>('select status from pg_managed_targets limit 1')).rows[0]?.status, 'STALE');
@@ -89,8 +89,8 @@ test('非法发现关系不会污染上次成功投影', async () => {
   await assert.rejects(() => projector.preview({
     tenantId: 'tenant-1', deviceAssetId: 'device-1', hostId: 'host-1', pluginVersionId: 'plugin-1',
   }, {
-    apiVersion: 'gcac.device-discovery/v1', device: { stableKey: 'device:1', displayName: 'Device', productFamily: 'Mock' },
-    capabilities: [], frameworks: [], sites: [], certificates: [],
-    certificateBindings: [{ stableKey: 'binding:1', siteStableKey: 'missing', certificateStableKey: 'missing' }], warnings: [],
+    apiVersion: 'gcac.device-discovery/v2', device: { stableKey: 'device:1', displayName: 'Device', productFamily: 'Mock' },
+    capabilities: [], frameworks: [], sites: [], managedTargets: [], certificates: [],
+    certificateBindings: [{ stableKey: 'binding:1', managedTargetStableKey: 'missing', certificateStableKey: 'missing' }], warnings: [],
   }));
 });

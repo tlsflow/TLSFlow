@@ -8,8 +8,8 @@ import type {
 import type { PluginBindingV1 } from '../../plugins/dto/plugin-bindings.dto.js';
 
 export interface DeploymentStrategyContext {
-  asset: Pick<ServiceAssetDto, 'id' | 'agentId' | 'metadata'>;
-  targetBinding?: Pick<ApplicationAssetTargetSummaryDto, 'agentId' | 'siteAssetId' | 'managedTargetId'>;
+  asset: Pick<ServiceAssetDto, 'id' | 'metadata'>;
+  targetBinding?: Pick<ApplicationAssetTargetSummaryDto, 'managedTargetId'>;
   actorId?: string;
   now?: string;
 }
@@ -20,47 +20,16 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'MANAGED_TARGET') {
     const managedTarget = input.managedTarget;
     if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
-    const pluginBindingId = optionalNonEmpty(managedTarget.pluginBindingId);
     return {
       type: 'MANAGED_TARGET',
       managedTarget: {
         managedTargetId: requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId'),
-        pluginBindingId,
-        certificateFormatId: pluginBindingId ? undefined : optionalNonEmpty(managedTarget.certificateFormatId),
-        deploymentMode: pluginBindingId ? undefined : optionalNonEmpty(managedTarget.deploymentMode),
       },
-      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
+      compatibilityMode: 'UNIFIED',
       updatedAt: now,
       updatedBy: context.actorId,
     };
   }
-  if (input.type === 'AGENT') {
-    const agent = input.agent;
-    if (!agent) throw strategyError('AGENT 策略必须提供 agent 配置');
-    const mode = agent.mode ?? 'NATIVE_HANDLER';
-    if (mode !== 'NATIVE_HANDLER' && mode !== 'PLUGIN') throw strategyError('agent.mode 只支持 NATIVE_HANDLER/PLUGIN');
-    const pluginBindingId = optionalNonEmpty(agent.pluginBindingId);
-    if (mode === 'PLUGIN' && !pluginBindingId) strategyError('PLUGIN 模式必须提供 pluginBindingId');
-    if (mode === 'NATIVE_HANDLER' && pluginBindingId) pluginBindingConflict('NATIVE_HANDLER 不能引用统一 PluginBinding');
-    assertLegacyTargetRelation(agent, context.targetBinding);
-    const normalized = {
-      mode,
-      pluginBindingId,
-      agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
-      siteAssetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId') : optionalNonEmpty(agent.siteAssetId),
-      managedTargetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId') : optionalNonEmpty(agent.managedTargetId),
-      certificateFormatId: pluginBindingId ? undefined : optionalNonEmpty(agent.certificateFormatId),
-      deploymentMode: pluginBindingId ? undefined : optionalNonEmpty(agent.deploymentMode),
-    };
-    return {
-      type: 'AGENT',
-      agent: normalized,
-      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
-      updatedAt: now,
-      updatedBy: context.actorId,
-    };
-  }
-
   if (input.type === 'WORKFLOW') {
     const workflow = input.workflow;
     if (!workflow) throw strategyError('WORKFLOW 策略必须提供 workflow 配置');
@@ -89,18 +58,17 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         variableBindings: pluginBindingId ? undefined : isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
-      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
+      compatibilityMode: 'UNIFIED',
       updatedAt: now,
       updatedBy: context.actorId,
     };
   }
 
-  throw strategyError('deploymentStrategy.type 只支持 MANAGED_TARGET/AGENT/WORKFLOW');
+  throw strategyError('deploymentStrategy.type 只支持 MANAGED_TARGET/WORKFLOW');
 }
 
 export function getDeploymentStrategyPluginBindingId(strategy: DeploymentStrategyDto): string | undefined {
-  if (strategy.type === 'AGENT') return optionalNonEmpty(strategy.agent?.pluginBindingId);
-  if (strategy.type === 'MANAGED_TARGET') return optionalNonEmpty(strategy.managedTarget?.pluginBindingId);
+  if (strategy.type === 'MANAGED_TARGET') return undefined;
   if (strategy.type === 'WORKFLOW') return optionalNonEmpty(strategy.workflow?.pluginBindingId);
   return undefined;
 }
@@ -118,23 +86,6 @@ export function validateDeploymentStrategyPluginBinding(
     assertManagedTargetBindingCompatibility(strategy, binding);
     return {
       ...strategy,
-      managedTarget: {
-        ...strategy.managedTarget!,
-        certificateFormatId: undefined,
-        deploymentMode: undefined,
-      },
-      compatibilityMode: 'UNIFIED',
-    };
-  }
-  if (strategy.type === 'AGENT') {
-    assertAgentBindingCompatibility(strategy, binding);
-    return {
-      ...strategy,
-      agent: {
-        ...strategy.agent!,
-        certificateFormatId: undefined,
-        deploymentMode: undefined,
-      },
       compatibilityMode: 'UNIFIED',
     };
   }
@@ -163,38 +114,15 @@ function assertManagedTargetBindingCompatibility(strategy: DeploymentStrategyDto
   }
 }
 
-function assertAgentBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
-  const agent = strategy.agent!;
-  if ((agent.mode ?? 'NATIVE_HANDLER') !== 'PLUGIN') pluginBindingConflict('统一 PluginBinding 只能用于 Agent Plugin 模式');
-  if (binding.mode !== 'MANAGED') pluginBindingConflict('Agent Plugin 策略只能引用 Managed PluginBinding');
-  if (binding.managedContext?.agentId && binding.managedContext.agentId !== agent.agentId) {
-    pluginBindingConflict('PluginBinding 与 Agent 不一致', { strategyAgentId: agent.agentId, bindingAgentId: binding.managedContext.agentId });
-  }
-}
-
 export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto, context: DeploymentStrategyContext): ManagedDeploymentIntentDto | undefined {
   const normalized = normalizeDeploymentStrategy(strategy, context);
   if (normalized.type === 'MANAGED_TARGET') {
     return {
       type: 'MANAGED_TARGET',
       managedTargetId: normalized.managedTarget!.managedTargetId,
-      certificateFormatId: normalized.managedTarget!.certificateFormatId,
-      deploymentMode: normalized.managedTarget!.deploymentMode,
     };
   }
-  if (normalized.type !== 'AGENT') return undefined;
-  const managedTargetId = normalized.agent?.managedTargetId ?? context.targetBinding?.managedTargetId;
-  if (!managedTargetId) throw legacyRelationError('旧 AGENT 策略无法解析 managedTargetId');
-  return {
-    type: 'MANAGED_TARGET',
-    managedTargetId,
-    certificateFormatId: normalized.agent?.certificateFormatId,
-    deploymentMode: normalized.agent?.deploymentMode,
-    legacyAgent: {
-      agentId: normalized.agent!.agentId,
-      siteAssetId: normalized.agent?.siteAssetId,
-    },
-  };
+  return undefined;
 }
 
 function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'] | undefined {
@@ -255,7 +183,10 @@ function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: un
 export function resolveDeploymentStrategy(context: DeploymentStrategyContext): DeploymentStrategyDto | undefined {
   const stored = readStoredDeploymentStrategy(context.asset.metadata);
   if (stored) return normalizeDeploymentStrategy(stored, context);
-  return inferAgentDeploymentStrategy(context);
+  const managedTargetId = optionalNonEmpty(context.targetBinding?.managedTargetId);
+  return managedTargetId
+    ? normalizeDeploymentStrategy({ type: 'MANAGED_TARGET', managedTarget: { managedTargetId } }, context)
+    : undefined;
 }
 
 export function writeDeploymentStrategyMetadata(metadata: Record<string, unknown>, strategy: DeploymentStrategyDto): Record<string, unknown> {
@@ -266,32 +197,6 @@ export function readStoredDeploymentStrategy(metadata: Record<string, unknown>):
   const value = metadata.deploymentStrategy;
   if (!isRecord(value)) return undefined;
   return value as unknown as DeploymentStrategyDto;
-}
-
-function inferAgentDeploymentStrategy(context: DeploymentStrategyContext): DeploymentStrategyDto | undefined {
-  const agentId = optionalNonEmpty(context.targetBinding?.agentId) ?? optionalNonEmpty(context.asset.agentId);
-  const siteAssetId = optionalNonEmpty(context.targetBinding?.siteAssetId);
-  const managedTargetId = optionalNonEmpty(context.targetBinding?.managedTargetId);
-  if (!agentId || !siteAssetId || !managedTargetId) return undefined;
-  return {
-    type: 'AGENT',
-    agent: { agentId, siteAssetId, managedTargetId },
-    updatedAt: context.now ?? new Date().toISOString(),
-    updatedBy: context.actorId,
-  };
-}
-
-function assertLegacyTargetRelation(
-  agent: NonNullable<DeploymentStrategyDto['agent']>,
-  target: DeploymentStrategyContext['targetBinding'],
-): void {
-  if (!target) return;
-  const conflicts = [
-    ['agentId', optionalNonEmpty(agent.agentId), optionalNonEmpty(target.agentId)],
-    ['siteAssetId', optionalNonEmpty(agent.siteAssetId), optionalNonEmpty(target.siteAssetId)],
-    ['managedTargetId', optionalNonEmpty(agent.managedTargetId), optionalNonEmpty(target.managedTargetId)],
-  ].filter(([, supplied, actual]) => supplied && actual && supplied !== actual);
-  if (conflicts.length > 0) throw legacyRelationError('旧 AGENT 策略与受管目标关系冲突', { conflicts });
 }
 
 function normalizeSecretRefRecord(value: unknown, path: string): Record<string, string> | undefined {

@@ -1,0 +1,152 @@
+import { AppError } from '../../../common/errors/app-error.js';
+import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
+import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
+
+export interface RuntimeCompileInput {
+  capability: ResolvedDeploymentCapability;
+  context: ResolvedManagedTargetContext;
+  applicationAssetId: string;
+  certificateBindingId?: string;
+  workflow?: {
+    workflowId: string;
+    workflowVersionId: string;
+    credentials: Record<string, unknown>;
+  };
+}
+
+export interface RuntimeExecutionRequest {
+  executorType: 'AGENT' | 'WORKFLOW';
+  executionTargetId: string;
+  requiredCapabilities: string[];
+  gatewayRoute?: {
+    gatewayId?: string;
+    adapter: 'curl';
+    delegatedTargetId: string;
+  };
+  payload: Record<string, unknown>;
+}
+
+export interface PluginRuntimeAdapter {
+  readonly runtime: ResolvedDeploymentCapability['pluginRuntime'];
+  supports(capability: ResolvedDeploymentCapability): boolean;
+  compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest>;
+}
+
+export class PluginRuntimeAdapterRegistry {
+  private readonly adapters = new Map<ResolvedDeploymentCapability['pluginRuntime'], PluginRuntimeAdapter>();
+
+  register(adapter: PluginRuntimeAdapter): this {
+    if (this.adapters.has(adapter.runtime)) throw new AppError('SYSTEM_INTERNAL_ERROR', '重复注册插件 Runtime Adapter', { runtime: adapter.runtime });
+    this.adapters.set(adapter.runtime, adapter);
+    return this;
+  }
+
+  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    const adapter = this.adapters.get(input.capability.pluginRuntime);
+    if (!adapter || !adapter.supports(input.capability)) {
+      throw new AppError('CAPABILITY_MISSING', '没有可用的插件 Runtime Adapter', { runtime: input.capability.pluginRuntime });
+    }
+    return adapter.compile(input);
+  }
+}
+
+export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
+  readonly runtime = 'AGENT_ATOMIC' as const;
+
+  supports(capability: ResolvedDeploymentCapability): boolean {
+    return capability.pluginRuntime === this.runtime && capability.executionLocation === 'AGENT';
+  }
+
+  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    const agentId = input.context.agent?.id;
+    if (!agentId) throw new AppError('CAPABILITY_MISSING', 'Agent Atomic Runtime 缺少可用 Agent 连接', { managedTargetId: input.context.managedTarget.id });
+    return {
+      executorType: 'AGENT',
+      executionTargetId: agentId,
+      requiredCapabilities: ['agent.atomic_plan.execute'],
+      payload: {
+        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        actionType: 'agent.atomic_plan.execute',
+        actionSchemaVersion: '1.0',
+        agentId,
+        pluginBindingId: input.capability.binding.id,
+        applicationAssetId: input.applicationAssetId,
+        certificateBindingId: input.certificateBindingId,
+        managedTargetId: input.context.managedTarget.id,
+      },
+    };
+  }
+}
+
+export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
+  readonly runtime = 'WORKFLOW_DSL' as const;
+
+  supports(capability: ResolvedDeploymentCapability): boolean {
+    return capability.pluginRuntime === this.runtime && capability.executionLocation !== 'AGENT';
+  }
+
+  async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
+    if (!input.workflow) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Workflow DSL Runtime 缺少已发布工作流快照');
+    const gatewayId = input.capability.executionLocation === 'GATEWAY' ? input.context.deviceAsset?.gatewayId : undefined;
+    if (input.capability.executionLocation === 'GATEWAY' && !gatewayId) {
+      throw new AppError('CAPABILITY_MISSING', 'Workflow DSL Runtime 缺少 Gateway 连接', { managedTargetId: input.context.managedTarget.id });
+    }
+    return {
+      executorType: 'WORKFLOW',
+      executionTargetId: input.context.managedTarget.id,
+      requiredCapabilities: gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
+      gatewayRoute: gatewayId ? { gatewayId, adapter: 'curl', delegatedTargetId: input.context.managedTarget.id } : undefined,
+      payload: {
+        pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        workflowRequest: {
+          workflowId: input.workflow.workflowId,
+          workflowVersionSelection: 'PINNED',
+          workflowVersionId: input.workflow.workflowVersionId,
+          runner: gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
+          gatewayId,
+          pluginVersionId: input.capability.pluginVersionId,
+          pluginBindingId: input.capability.binding.id,
+          capabilityKey: input.capability.assignment.capabilityKey,
+          target: {
+            frameworkType: input.context.frameworkType,
+            siteName: input.context.siteAsset?.siteName,
+            bindingInformation: input.context.siteAsset?.bindingInformation ?? input.context.managedTarget.bindingKey,
+            hostHeader: input.context.siteAsset?.hostHeader,
+            port: input.context.siteAsset?.port,
+            protocol: input.context.siteAsset?.protocol,
+          },
+          connectionBindings: input.capability.binding.connectionBindings,
+          variableBindings: input.capability.binding.variableBindings,
+          credentials: input.workflow.credentials,
+          parameterBindings: {},
+          certificateArtifactBindings: input.capability.binding.certificateArtifactBindings,
+          applicationAssetId: input.applicationAssetId,
+          certificateBindingId: input.certificateBindingId,
+          managedTargetId: input.context.managedTarget.id,
+          siteAssetId: input.context.siteAsset?.id,
+        },
+      },
+    };
+  }
+}
+
+export function createDefaultPluginRuntimeAdapterRegistry(): PluginRuntimeAdapterRegistry {
+  return new PluginRuntimeAdapterRegistry()
+    .register(new AgentAtomicRuntimeAdapter())
+    .register(new WorkflowDslRuntimeAdapter());
+}
+
+function immutableCapabilitySnapshot(capability: ResolvedDeploymentCapability) {
+  return {
+    assignmentId: capability.assignment.id,
+    assignmentOwnerType: capability.assignment.ownerType,
+    assignmentOwnerId: capability.assignment.ownerId,
+    assignmentPrecedence: capability.assignment.precedence,
+    pluginVersionId: capability.pluginVersionId,
+    pluginBindingId: capability.binding.id,
+    pluginBindingVersion: capability.binding.version,
+    runtime: capability.pluginRuntime,
+    executionLocation: capability.executionLocation,
+    capabilityKey: capability.assignment.capabilityKey,
+  };
+}

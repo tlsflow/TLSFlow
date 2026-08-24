@@ -7,7 +7,7 @@ import { AssetsDomainService } from './domain/assets.domain-service.js';
 import { PgAssetsRepository } from './repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 
-test('Spec033 设备可以拥有 ManagedTarget 和 ApplicationAssetTarget', async () => {
+test('Spec033 Device Root 可以统一承载 ManagedTarget 和 ApplicationAssetTarget', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
   const assets = new PgAssetsRepository(database);
@@ -22,10 +22,11 @@ test('Spec033 设备可以拥有 ManagedTarget 和 ApplicationAssetTarget', asyn
     authMode: 'SESSION',
     tlsVerify: false,
   });
-  const serviceInstance = await assets.createServiceInstance(tenantId, {
-    hostId: device.hostId,
-    providerType: 'DEVICE_TEMPLATE',
-    serviceName: 'netscaler-adc',
+  const serviceInstance = await assets.createFrameworkInstance(tenantId, {
+    deviceId: device.hostId,
+    frameworkType: 'adc.load-balancer',
+    frameworkKey: 'netscaler-adc',
+    discoveryProviderKey: 'provider.discovery',
     displayName: 'NetScaler ADC',
     discoverySource: 'PROVIDER',
   });
@@ -40,11 +41,10 @@ test('Spec033 设备可以拥有 ManagedTarget 和 ApplicationAssetTarget', asyn
     discoverySource: 'PROVIDER',
   });
   const site = await assets.createSiteAsset(tenantId, {
-    serviceInstanceId: serviceInstance.id,
-    serviceAssetId: application.id,
-    hostId: device.hostId,
-    providerType: 'DEVICE_TEMPLATE',
-    siteType: 'CUSTOM',
+    frameworkInstanceId: serviceInstance.id,
+    deviceId: device.hostId,
+    discoveryProviderKey: 'plugin-version:version_1',
+    siteType: 'network.virtual-server',
     siteName: 'vs-owner',
     siteKey: 'lb:vs-owner',
     port: 443,
@@ -52,46 +52,40 @@ test('Spec033 设备可以拥有 ManagedTarget 和 ApplicationAssetTarget', asyn
     discoverySource: 'PROVIDER',
   });
   const managedTarget = await assets.createManagedTarget(tenantId, {
-    deviceAssetId: device.id,
-    hostId: device.hostId,
-    serviceInstanceId: serviceInstance.id,
-    serviceAssetId: application.id,
-    siteAssetId: site.id,
-    providerType: 'DEVICE_TEMPLATE',
-    frameworkType: 'DEVICE_TEMPLATE',
-    targetType: 'SITE_BINDING',
+    deviceId: device.hostId,
+    frameworkInstanceId: serviceInstance.id,
+    siteId: site.id,
+    discoveryProviderKey: 'plugin-version:version_1',
+    targetType: 'tls.binding',
     targetKey: `${device.id}:lb:vs-owner`,
+    supportedCapabilities: ['certificate.deploy', 'certificate.verify'],
+    executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
   });
   const applicationTarget = await assets.createApplicationAssetTarget(tenantId, {
     applicationAssetId: application.id,
-    deviceAssetId: device.id,
-    siteAssetId: site.id,
     managedTargetId: managedTarget.id,
-    providerType: 'DEVICE_TEMPLATE',
-    frameworkType: 'DEVICE_TEMPLATE',
-    targetType: 'SITE_BINDING',
-    targetKey: managedTarget.targetKey,
   });
 
-  assert.equal(managedTarget.agentId, undefined);
-  assert.equal(managedTarget.deviceAssetId, device.id);
-  assert.equal(managedTarget.hostId, device.hostId);
-  assert.equal(applicationTarget.agentId, undefined);
-  assert.equal(applicationTarget.deviceAssetId, device.id);
+  assert.equal(managedTarget.deviceId, device.hostId);
+  assert.equal(managedTarget.frameworkInstanceId, serviceInstance.id);
+  assert.equal(managedTarget.siteId, site.id);
+  assert.equal(applicationTarget.applicationAssetId, application.id);
+  assert.equal(applicationTarget.managedTargetId, managedTarget.id);
 });
 
-test('Spec033 受管目标必须且只能指定一种所有者', () => {
+test('Spec033 受管目标只接受 Device Root 和显式能力', () => {
   const domain = new AssetsDomainService();
   const base = {
-    hostId: 'host_spec033',
-    providerType: 'IIS' as const,
-    frameworkType: 'IIS' as const,
-    targetType: 'SITE_BINDING' as const,
+    discoveryProviderKey: 'agent.discovery',
+    targetType: 'tls.binding',
     targetKey: 'site:443',
+    supportedCapabilities: ['certificate.deploy'],
+    executionLocations: ['AGENT'] as Array<'AGENT'>,
   };
 
-  assert.throws(() => domain.normalizeManagedTarget(base));
-  assert.throws(() => domain.normalizeManagedTarget({ ...base, agentId: 'agent_spec033', deviceAssetId: 'device_spec033' }));
-  assert.equal(domain.normalizeManagedTarget({ ...base, agentId: 'agent_spec033' }).agentId, 'agent_spec033');
-  assert.equal(domain.normalizeManagedTarget({ ...base, deviceAssetId: 'device_spec033' }).deviceAssetId, 'device_spec033');
+  assert.throws(() => domain.normalizeManagedTarget(base as never));
+  assert.throws(() => domain.normalizeManagedTarget({ ...base, deviceId: 'host_spec033', executionLocations: [] }));
+  const normalized = domain.normalizeManagedTarget({ ...base, deviceId: 'host_spec033' });
+  assert.equal(normalized.deviceId, 'host_spec033');
+  assert.deepEqual(normalized.supportedCapabilities, ['certificate.deploy']);
 });

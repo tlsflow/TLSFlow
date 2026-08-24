@@ -27,10 +27,10 @@ import type {
   UpdateServiceAssetDto,
   UpdateSiteAssetDto,
   CreateServiceEndpointDto,
-  CreateServiceInstanceDto,
+  CreateFrameworkInstanceDto,
   UpdateHostDto,
   UpdateServiceEndpointDto,
-  UpdateServiceInstanceDto,
+  UpdateFrameworkInstanceDto,
   DeploymentStrategyDto,
   WorkflowBindingProjectionRequestDto,
 } from '../dto/assets.dto.js';
@@ -46,10 +46,10 @@ export class AssetsController {
     router.post('/api/v1/hosts', '创建 Host', tags, (request) => this.createHost(request));
     router.patch('/api/v1/hosts', '更新 Host', tags, (request) => this.updateHost(request));
     router.post('/api/v1/hosts/delete', '软删除 Host', tags, (request) => this.deleteHost(request));
-    router.get('/api/v1/service-instances', '查询 ServiceInstance 列表', tags, (request) => this.listServiceInstances(request));
-    router.post('/api/v1/service-instances', '创建 ServiceInstance', tags, (request) => this.createServiceInstance(request));
-    router.patch('/api/v1/service-instances', '更新 ServiceInstance', tags, (request) => this.updateServiceInstance(request));
-    router.post('/api/v1/service-instances/delete', '软删除 ServiceInstance', tags, (request) => this.deleteServiceInstance(request));
+    router.get('/api/v1/framework-instances', '查询 FrameworkInstance 列表', tags, (request) => this.listFrameworkInstances(request));
+    router.post('/api/v1/framework-instances', '创建 FrameworkInstance', tags, (request) => this.createFrameworkInstance(request));
+    router.patch('/api/v1/framework-instances', '更新 FrameworkInstance', tags, (request) => this.updateFrameworkInstance(request));
+    router.post('/api/v1/framework-instances/delete', '软删除 FrameworkInstance', tags, (request) => this.deleteFrameworkInstance(request));
     router.get('/api/v1/service-assets', '查询 ServiceAsset 列表', tags, (request) => this.listServiceAssets(request));
     router.get('/api/v1/service-assets/detail', '查询 ServiceAsset 详情', tags, (request) => this.getServiceAssetDetail(request));
     router.post('/api/v1/service-assets', '创建 ServiceAsset', tags, (request) => this.createServiceAsset(request));
@@ -176,19 +176,14 @@ export class AssetsController {
     );
   }
 
-  private async createServiceInstance(request: HttpRequest) {
+  private async createFrameworkInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
-      hostId: { type: 'string' },
-      providerType: { type: 'string', required: true },
-      serviceName: { type: 'string' },
+      deviceId: { type: 'string', required: true },
+      frameworkType: { type: 'string', required: true },
+      frameworkKey: { type: 'string', required: true },
+      discoveryProviderKey: { type: 'string', required: true },
       displayName: { type: 'string', required: true },
-      versionText: { type: 'string' },
-      installPath: { type: 'string' },
-      configPath: { type: 'string' },
-      runtimeUser: { type: 'string' },
-      ports: { type: 'array' },
-      providerKey: { type: 'string' },
-      manualOverrides: { type: 'object' },
+      frameworkVersion: { type: 'string' },
       discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
       lastDiscoveredAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.serviceInstanceStatuses },
@@ -196,58 +191,53 @@ export class AssetsController {
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_instance.manage', 'service_instance', request);
-    return this.service.createServiceInstance(tenantId(request), body as unknown as CreateServiceInstanceDto).then((created) => {
+    return this.service.createFrameworkInstance(tenantId(request), body as unknown as CreateFrameworkInstanceDto).then((created) => {
       this.audit(request, subject, 'service_instance.created', 'service_instance.manage', 'service_instance', created.id, undefined, created);
       return { statusCode: 201, body: created };
     });
   }
 
-  private async listServiceInstances(request: HttpRequest) {
+  private async listFrameworkInstances(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
-      allowedSortFields: ['displayName', 'providerType', 'createdAt', 'updatedAt', 'status', 'hostId'],
-      allowedFilterFields: ['hostId', 'providerType', 'serviceName', 'displayName', 'providerKey', 'status', 'discoverySource'],
+      allowedSortFields: ['displayName', 'frameworkType', 'createdAt', 'updatedAt', 'status', 'deviceId'],
+      allowedFilterFields: ['deviceId', 'frameworkType', 'frameworkKey', 'discoveryProviderKey', 'displayName', 'status', 'discoverySource'],
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_instance.read', 'service_instance', request);
-    return this.service.listServiceInstances(tenantId(request), await this.authorizedQuery(subject, 'service_instance', 'read', query));
+    return this.service.listFrameworkInstances(tenantId(request), await this.authorizedQuery(subject, 'service_instance', 'read', query));
   }
 
-  private async updateServiceInstance(request: HttpRequest) {
+  private async updateFrameworkInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
-      hostId: { type: 'string' },
-      providerType: { type: 'string' },
-      serviceName: { type: 'string' },
+      deviceId: { type: 'string' },
+      frameworkType: { type: 'string' },
+      frameworkKey: { type: 'string' },
+      discoveryProviderKey: { type: 'string' },
       displayName: { type: 'string' },
-      versionText: { type: 'string' },
-      installPath: { type: 'string' },
-      configPath: { type: 'string' },
-      runtimeUser: { type: 'string' },
-      ports: { type: 'array' },
-      providerKey: { type: 'string' },
-      manualOverrides: { type: 'object' },
+      frameworkVersion: { type: 'string' },
       discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
       lastDiscoveredAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.serviceInstanceStatuses },
       rawFacts: { type: 'object' },
     });
-    const { id, ...patch } = body as unknown as UpdateServiceInstanceDto & { id: string };
+    const { id, ...patch } = body as unknown as UpdateFrameworkInstanceDto & { id: string };
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_instance.manage', 'service_instance', request, id);
-    return this.service.getRepository().getServiceInstance(tenantId(request), id).then((before) =>
-      this.service.updateServiceInstance(tenantId(request), id, patch).then((updated) => {
+    return this.service.getRepository().getFrameworkInstance(tenantId(request), id).then((before) =>
+      this.service.updateFrameworkInstance(tenantId(request), id, patch).then((updated) => {
         this.audit(request, subject, 'service_instance.updated', 'service_instance.manage', 'service_instance', id, before, updated);
         return updated;
       }),
     );
   }
 
-  private async deleteServiceInstance(request: HttpRequest) {
+  private async deleteFrameworkInstance(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_instance.manage', 'service_instance', request, String(body.id));
-    return this.service.getRepository().getServiceInstance(tenantId(request), String(body.id)).then((before) =>
-      this.service.deleteServiceInstance(tenantId(request), String(body.id)).then((deleted) => {
+    return this.service.getRepository().getFrameworkInstance(tenantId(request), String(body.id)).then((before) =>
+      this.service.deleteFrameworkInstance(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_instance.deleted', 'service_instance.manage', 'service_instance', String(body.id), before, deleted);
         return deleted;
       }),
@@ -382,7 +372,7 @@ export class AssetsController {
     await this.assertCanAsync(subject, 'service_asset.read', 'service_asset', request);
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'status', 'applicationAssetId', 'managedTargetId', 'siteAssetId'],
-      allowedFilterFields: ['id', 'applicationAssetId', 'managedTargetId', 'siteAssetId', 'agentId', 'providerType', 'targetType', 'status', 'bindingKey'],
+      allowedFilterFields: ['id', 'applicationAssetId', 'managedTargetId', 'status'],
     });
     const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', query);
     return this.service.getRepository().listApplicationAssetTargets(tenantId(request), {
@@ -420,14 +410,7 @@ export class AssetsController {
     return validateObject(request.body, {
       id: { type: 'string', required: !creating },
       applicationAssetId: { type: 'string', required: creating },
-      agentId: { type: 'string' },
-      siteAssetId: { type: 'string' },
       managedTargetId: { type: 'string', required: creating },
-      providerType: { type: 'string' },
-      frameworkType: { type: 'string' },
-      targetType: { type: 'string', enum: assetsEnumValues.managedTargetTypes },
-      targetKey: { type: 'string' },
-      bindingKey: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.applicationAssetTargetStatuses },
       metadata: { type: 'object' },
     });
@@ -437,30 +420,15 @@ export class AssetsController {
     const managedTargetId = String(body.managedTargetId);
     const managedTarget = await this.service.getRepository().getManagedTarget(tenantIdValue, managedTargetId);
     if (!managedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId });
-    const siteAssetId = typeof body.siteAssetId === 'string' && body.siteAssetId.trim()
-      ? body.siteAssetId
-      : managedTarget.siteAssetId;
-    const siteAsset = siteAssetId ? await this.service.getRepository().getSiteAsset(tenantIdValue, siteAssetId) : undefined;
-    return {
-      ...body,
-      agentId: body.agentId ?? managedTarget.agentId ?? siteAsset?.agentId,
-      siteAssetId,
-      providerType: body.providerType ?? managedTarget.providerType ?? siteAsset?.providerType,
-      frameworkType: body.frameworkType ?? managedTarget.frameworkType ?? managedTarget.providerType ?? siteAsset?.providerType,
-      targetType: body.targetType ?? managedTarget.targetType,
-      targetKey: body.targetKey ?? managedTarget.targetKey,
-      bindingKey: body.bindingKey ?? managedTarget.bindingKey ?? siteAsset?.bindingInformation,
-    };
+    return body;
   }
 
   private async createSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
-      serviceInstanceId: { type: 'string', required: true },
-      serviceAssetId: { type: 'string' },
-      hostId: { type: 'string' },
-      agentId: { type: 'string' },
-      providerType: { type: 'string', required: true },
-      siteType: { type: 'string', required: true, enum: assetsEnumValues.siteAssetTypes },
+      frameworkInstanceId: { type: 'string', required: true },
+      deviceId: { type: 'string', required: true },
+      discoveryProviderKey: { type: 'string', required: true },
+      siteType: { type: 'string', required: true },
       siteName: { type: 'string', required: true },
       siteKey: { type: 'string', required: true },
       bindingInformation: { type: 'string' },
@@ -485,8 +453,8 @@ export class AssetsController {
 
   private async listSiteAssets(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
-      allowedSortFields: ['siteName', 'siteKey', 'providerType', 'port', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId'],
-      allowedFilterFields: ['id', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId', 'providerType', 'siteType', 'siteName', 'siteKey', 'hostHeader', 'port', 'protocol', 'status', 'discoverySource'],
+      allowedSortFields: ['siteName', 'siteKey', 'discoveryProviderKey', 'port', 'createdAt', 'updatedAt', 'status', 'frameworkInstanceId', 'deviceId'],
+      allowedFilterFields: ['id', 'frameworkInstanceId', 'deviceId', 'discoveryProviderKey', 'siteType', 'siteName', 'siteKey', 'hostHeader', 'port', 'protocol', 'status', 'discoverySource'],
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'site_asset.read', 'site_asset', request);
@@ -496,12 +464,10 @@ export class AssetsController {
   private async updateSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
-      serviceInstanceId: { type: 'string' },
-      serviceAssetId: { type: 'string' },
-      hostId: { type: 'string' },
-      agentId: { type: 'string' },
-      providerType: { type: 'string' },
-      siteType: { type: 'string', enum: assetsEnumValues.siteAssetTypes },
+      frameworkInstanceId: { type: 'string' },
+      deviceId: { type: 'string' },
+      discoveryProviderKey: { type: 'string' },
+      siteType: { type: 'string' },
       siteName: { type: 'string' },
       siteKey: { type: 'string' },
       bindingInformation: { type: 'string' },
@@ -603,19 +569,15 @@ export class AssetsController {
 
   private async createManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
-      agentId: { type: 'string' },
-      deviceAssetId: { type: 'string' },
-      hostId: { type: 'string' },
-      serviceInstanceId: { type: 'string' },
-      serviceAssetId: { type: 'string' },
-      siteAssetId: { type: 'string' },
-      providerType: { type: 'string', required: true },
-      frameworkType: { type: 'string', required: true },
-      targetType: { type: 'string', required: true, enum: assetsEnumValues.managedTargetTypes },
+      deviceId: { type: 'string', required: true },
+      frameworkInstanceId: { type: 'string' },
+      siteId: { type: 'string' },
+      discoveryProviderKey: { type: 'string', required: true },
+      targetType: { type: 'string', required: true },
       targetKey: { type: 'string', required: true },
       bindingKey: { type: 'string' },
-      capabilityProfile: { type: 'object' },
-      deploymentMode: { type: 'string' },
+      supportedCapabilities: { type: 'array', required: true },
+      executionLocations: { type: 'array', required: true },
       lastSeenAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.managedTargetStatuses },
       metadata: { type: 'object' },
@@ -630,8 +592,8 @@ export class AssetsController {
 
   private async listManagedTargets(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
-      allowedSortFields: ['agentId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'createdAt', 'updatedAt', 'status', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId'],
-      allowedFilterFields: ['id', 'agentId', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'bindingKey', 'deploymentMode', 'status'],
+      allowedSortFields: ['deviceId', 'frameworkInstanceId', 'siteId', 'discoveryProviderKey', 'targetType', 'targetKey', 'createdAt', 'updatedAt', 'status'],
+      allowedFilterFields: ['id', 'deviceId', 'frameworkInstanceId', 'siteId', 'discoveryProviderKey', 'targetType', 'targetKey', 'bindingKey', 'status'],
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'managed_target.read', 'managed_target', request);
@@ -651,18 +613,15 @@ export class AssetsController {
   private async updateManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
-      agentId: { type: 'string' },
-      hostId: { type: 'string' },
-      serviceInstanceId: { type: 'string' },
-      serviceAssetId: { type: 'string' },
-      siteAssetId: { type: 'string' },
-      providerType: { type: 'string' },
-      frameworkType: { type: 'string' },
-      targetType: { type: 'string', enum: assetsEnumValues.managedTargetTypes },
+      deviceId: { type: 'string' },
+      frameworkInstanceId: { type: 'string' },
+      siteId: { type: 'string' },
+      discoveryProviderKey: { type: 'string' },
+      targetType: { type: 'string' },
       targetKey: { type: 'string' },
       bindingKey: { type: 'string' },
-      capabilityProfile: { type: 'object' },
-      deploymentMode: { type: 'string' },
+      supportedCapabilities: { type: 'array' },
+      executionLocations: { type: 'array' },
       lastSeenAt: { type: 'string' },
       status: { type: 'string', enum: assetsEnumValues.managedTargetStatuses },
       metadata: { type: 'object' },
@@ -854,10 +813,10 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/hosts', operationId: 'createHost', summary: '创建 Host', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/hosts', operationId: 'updateHost', summary: '更新 Host', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/hosts/delete', operationId: 'deleteHost', summary: '软删除 Host', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/service-instances', operationId: 'listServiceInstances', summary: '查询 ServiceInstance 列表', tags, responseSchema: pageSchema() },
-    { method: 'POST', path: '/api/v1/service-instances', operationId: 'createServiceInstance', summary: '创建 ServiceInstance', tags, responseSchema: objectSchema() },
-    { method: 'PATCH', path: '/api/v1/service-instances', operationId: 'updateServiceInstance', summary: '更新 ServiceInstance', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/service-instances/delete', operationId: 'deleteServiceInstance', summary: '软删除 ServiceInstance', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/framework-instances', operationId: 'listFrameworkInstances', summary: '查询 ServiceInstance 列表', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/framework-instances', operationId: 'createFrameworkInstance', summary: '创建 ServiceInstance', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/framework-instances', operationId: 'updateFrameworkInstance', summary: '更新 ServiceInstance', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/framework-instances/delete', operationId: 'deleteFrameworkInstance', summary: '软删除 ServiceInstance', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/service-assets', operationId: 'listServiceAssets', summary: '查询 ServiceAsset 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/service-assets/detail', operationId: 'getServiceAssetDetail', summary: '查询 ServiceAsset 详情', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets', operationId: 'createServiceAsset', summary: '创建 ServiceAsset', tags, responseSchema: objectSchema() },

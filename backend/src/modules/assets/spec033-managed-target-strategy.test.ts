@@ -26,47 +26,24 @@ test('Spec033 新 MANAGED_TARGET 策略只要求目标 ID', () => {
   }, context);
   assert.deepEqual(strategy.managedTarget, {
     managedTargetId: 'target_spec033_strategy',
-    pluginBindingId: undefined,
-    certificateFormatId: undefined,
-    deploymentMode: undefined,
   });
-  assert.equal(strategy.compatibilityMode, 'LEGACY');
-  assert.equal(strategy.agent, undefined);
+  assert.equal(strategy.compatibilityMode, 'UNIFIED');
 });
 
-test('Spec033.2 统一 PluginBinding 策略标记为 UNIFIED', () => {
+test('Spec033.4 ManagedTarget 策略不保存 PluginBinding', () => {
   const strategy = normalizeDeploymentStrategy({
     type: 'MANAGED_TARGET',
-    managedTarget: {
-      managedTargetId: 'target_spec033_strategy',
-      pluginBindingId: 'plgb_spec033_strategy',
-    },
+    managedTarget: { managedTargetId: 'target_spec033_strategy' },
   }, context);
-
-  const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding());
-  assert.equal(validated.compatibilityMode, 'UNIFIED');
+  assert.equal(strategy.compatibilityMode, 'UNIFIED');
 });
 
-test('Spec033.2 ManagedTarget 引用统一 Binding 后移除宿主证书格式副本', () => {
+test('Spec033.4 ManagedTarget 意图只保留目标 ID', () => {
   const strategy = normalizeDeploymentStrategy({
     type: 'MANAGED_TARGET',
-    managedTarget: {
-      managedTargetId: 'target_spec033_strategy',
-      pluginBindingId: 'plgb_spec033_strategy',
-      certificateFormatId: 'format_spec033_strategy',
-    },
+    managedTarget: { managedTargetId: 'target_spec033_strategy' },
   }, context);
-
-  const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
-    certificateArtifactBindings: {
-      certificate: {
-        certificateFormatId: 'format_spec033_strategy',
-        outputBindings: { certificatePem: 'certificatePem' },
-      },
-    },
-  }));
-  assert.equal(validated.compatibilityMode, 'UNIFIED');
-  assert.equal(validated.managedTarget?.certificateFormatId, undefined);
+  assert.deepEqual(normalizeManagedDeploymentIntent(strategy, context), { type: 'MANAGED_TARGET', managedTargetId: 'target_spec033_strategy' });
 });
 
 test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
@@ -110,42 +87,6 @@ test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
   });
 });
 
-test('Spec033.2 Agent Plugin 只保留统一 PluginBinding 引用', () => {
-  const strategy = normalizeDeploymentStrategy({
-    type: 'AGENT',
-    agent: {
-      mode: 'PLUGIN',
-      pluginBindingId: 'plgb_spec033_strategy',
-      agentId: 'agent_spec033_strategy',
-    },
-  }, context);
-
-  assert.equal(strategy.agent?.pluginBindingId, 'plgb_spec033_strategy');
-  assert.equal(validateDeploymentStrategyPluginBinding(strategy, pluginBinding()).compatibilityMode, 'UNIFIED');
-});
-
-test('Spec033 旧 AGENT 策略归一为统一受管意图且保持原策略兼容', () => {
-  const strategy = { type: 'AGENT', agent: { agentId: 'agent_spec033_strategy', siteAssetId: 'site_spec033_strategy', managedTargetId: 'target_spec033_strategy' } } as const;
-  assert.equal(normalizeDeploymentStrategy(strategy, context).type, 'AGENT');
-  assert.deepEqual(normalizeManagedDeploymentIntent(strategy, context), {
-    type: 'MANAGED_TARGET',
-    managedTargetId: 'target_spec033_strategy',
-    certificateFormatId: undefined,
-    deploymentMode: undefined,
-    legacyAgent: { agentId: 'agent_spec033_strategy', siteAssetId: 'site_spec033_strategy' },
-  });
-});
-
-test('Spec033 拒绝旧 AGENT 冗余关系与真实目标冲突', () => {
-  assert.throws(() => normalizeManagedDeploymentIntent({
-    type: 'AGENT',
-    agent: { agentId: 'agent_wrong', siteAssetId: 'site_spec033_strategy', managedTargetId: 'target_spec033_strategy' },
-  }, context), (error: unknown) => {
-    return typeof error === 'object' && error !== null
-      && (error as { details?: { code?: string } }).details?.code === 'LEGACY_TARGET_RELATION_CONFLICT';
-  });
-});
-
 function pluginBinding(patch: Partial<PluginBindingV1> = {}): PluginBindingV1 {
   return {
     id: 'plgb_spec033_strategy',
@@ -159,7 +100,6 @@ function pluginBinding(patch: Partial<PluginBindingV1> = {}): PluginBindingV1 {
     connectionBindings: {},
     managedContext: {
       hostId: 'host_spec033_strategy',
-      agentId: 'agent_spec033_strategy',
       managedTargetId: 'target_spec033_strategy',
     },
     status: 'ACTIVE',

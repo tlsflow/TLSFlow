@@ -236,6 +236,8 @@ export class DeploymentPlansController {
 
   private parseTargets(value: unknown): Array<{
     certificateBindingId?: string;
+    applicationAssetId?: string;
+    serviceAssetId?: string;
     managedTargetId?: string;
     siteAssetId?: string;
     domain?: string;
@@ -259,6 +261,8 @@ export class DeploymentPlansController {
       const target = raw as Record<string, unknown>;
       const parsed = {
         certificateBindingId: typeof target.certificateBindingId === 'string' ? target.certificateBindingId : undefined,
+        applicationAssetId: typeof target.applicationAssetId === 'string' ? target.applicationAssetId : undefined,
+        serviceAssetId: typeof target.serviceAssetId === 'string' ? target.serviceAssetId : undefined,
         managedTargetId: typeof target.managedTargetId === 'string' ? target.managedTargetId : undefined,
         siteAssetId: typeof target.siteAssetId === 'string' ? target.siteAssetId : undefined,
         domain: typeof target.domain === 'string' ? target.domain : undefined,

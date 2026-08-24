@@ -54,6 +54,13 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   await assert.rejects(
     () => service.importVersion('tenant-1', {
       ...workflowPluginInput(),
+      manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), compatibility: { products: ['legacy'] } },
+    }),
+    /未知字段/,
+  );
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
       manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), logoUrl: '../private/logo.svg' },
     }),
     /不能包含 \.\./,

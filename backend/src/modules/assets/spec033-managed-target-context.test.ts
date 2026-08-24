@@ -8,10 +8,10 @@ import { ManagedTargetContextResolver, type ManagedTargetAssetsPort } from './ap
 
 const now = '2026-07-22T00:00:00.000Z';
 const host = { id: 'host_1', tenantId: 'tenant_1', agentId: 'agent_1', osType: 'WINDOWS', ipAddresses: [], managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1', managementMode: 'AGENT', status: 'ACTIVE', tags: [], createdAt: now, updatedAt: now, version: 1 } as HostDto;
-const target = { id: 'target_1', tenantId: 'tenant_1', agentId: 'agent_1', hostId: 'host_1', providerType: 'IIS', frameworkType: 'IIS', targetType: 'SITE_BINDING', targetKey: 'site:1', capabilityProfile: {}, status: 'ACTIVE', metadata: {}, createdAt: now, updatedAt: now, version: 1 } as ManagedTargetDto;
+const target = { id: 'target_1', tenantId: 'tenant_1', deviceId: 'host_1', discoveryProviderKey: 'agent.discovery', targetType: 'tls.binding', targetKey: 'site:1', supportedCapabilities: ['certificate.deploy'], executionLocations: ['AGENT'], status: 'ACTIVE', metadata: {}, createdAt: now, updatedAt: now, version: 1 } as ManagedTargetDto;
 
 test('Spec033 Resolver 从目标 ID 解析 Agent 完整上下文', async () => {
-  const resolver = new ManagedTargetContextResolver(assetsPort(target, host), { getRegistration: async () => agent() }, { get: async () => undefined });
+  const resolver = new ManagedTargetContextResolver(assetsPort(target, host), { getRegistration: async () => agent() }, { findByHostId: async () => undefined });
   const result = await resolver.resolve('tenant_1', 'target_1');
   assert.equal(result.driverKind, 'AGENT_NATIVE');
   assert.equal(result.executionLocation, 'AGENT');
@@ -19,9 +19,9 @@ test('Spec033 Resolver 从目标 ID 解析 Agent 完整上下文', async () => {
 });
 
 test('Spec033 Resolver 从目标 ID 解析统一插件设备上下文', async () => {
-  const deviceTarget = { ...target, agentId: undefined, deviceAssetId: 'device_1', providerType: 'PLUGIN:version_1', frameworkType: 'PLUGIN:version_1' } as ManagedTargetDto;
+  const deviceTarget = { ...target, discoveryProviderKey: 'plugin-version:version_1', executionLocations: ['CONTROL_PLANE', 'GATEWAY'] } as ManagedTargetDto;
   const deviceHost = { ...host, agentId: undefined, osType: 'NETWORK_DEVICE', managementMode: 'AGENTLESS' } as HostDto;
-  const resolver = new ManagedTargetContextResolver(assetsPort(deviceTarget, deviceHost), { getRegistration: async () => undefined }, { get: async () => device() });
+  const resolver = new ManagedTargetContextResolver(assetsPort(deviceTarget, deviceHost), { getRegistration: async () => undefined }, { findByHostId: async () => device() });
   const result = await resolver.resolve('tenant_1', 'target_1');
   assert.equal(result.driverKind, 'DEVICE_PLUGIN');
   assert.equal(result.executionLocation, 'CONTROL_PLANE');
@@ -29,11 +29,11 @@ test('Spec033 Resolver 从目标 ID 解析统一插件设备上下文', async ()
 });
 
 test('Spec033 Resolver 拒绝跨租户、禁用和关系冲突目标', async () => {
-  const empty = new ManagedTargetContextResolver(assetsPort(undefined, undefined), { getRegistration: async () => undefined }, { get: async () => undefined });
+  const empty = new ManagedTargetContextResolver(assetsPort(undefined, undefined), { getRegistration: async () => undefined }, { findByHostId: async () => undefined });
   await assert.rejects(() => empty.resolve('tenant_2', 'target_1'));
-  const disabled = new ManagedTargetContextResolver(assetsPort({ ...target, status: 'DISABLED' }, host), { getRegistration: async () => undefined }, { get: async () => undefined });
+  const disabled = new ManagedTargetContextResolver(assetsPort({ ...target, status: 'DISABLED' }, host), { getRegistration: async () => undefined }, { findByHostId: async () => undefined });
   await assert.rejects(() => disabled.resolve('tenant_1', 'target_1'));
-  const conflict = new ManagedTargetContextResolver(assetsPort(target, { ...host, agentId: 'agent_other' }), { getRegistration: async () => undefined }, { get: async () => undefined });
+  const conflict = new ManagedTargetContextResolver(assetsPort(target, { ...host, agentId: undefined }), { getRegistration: async () => undefined }, { findByHostId: async () => undefined });
   await assert.rejects(() => conflict.resolve('tenant_1', 'target_1'));
 });
 
@@ -42,8 +42,7 @@ function assetsPort(managedTarget: ManagedTargetDto | undefined, managedHost: Ho
     getManagedTarget: async () => managedTarget,
     getHost: async () => managedHost,
     getSiteAsset: async () => undefined,
-    getServiceAsset: async () => undefined,
-    getServiceInstance: async () => undefined,
+    getFrameworkInstance: async () => undefined,
   };
 }
 

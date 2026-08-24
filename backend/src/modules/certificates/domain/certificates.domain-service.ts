@@ -2,6 +2,9 @@ import { X509Certificate, createHash, createPrivateKey, createPublicKey } from '
 import { AppError } from '../../../common/errors/app-error.js';
 import {
   FormatCodecRegistry,
+  DerCodec,
+  JksCodec,
+  P7bCodec,
   PemCodec,
   PfxCodec,
   type CertificateImportMaterial,
@@ -52,7 +55,7 @@ export interface CertificateImportValidationResult extends ParsedMaterialBundle 
 
 export class CertificatesDomainService {
   constructor(
-    private readonly codecs = new FormatCodecRegistry([new PemCodec(), new PfxCodec()]),
+    private readonly codecs = new FormatCodecRegistry([new PemCodec(), new DerCodec(), new PfxCodec(), new JksCodec(), new P7bCodec()]),
   ) {}
 
   getFormatCapabilities() {
@@ -73,6 +76,30 @@ export class CertificatesDomainService {
           containsPrivateKey: 'required',
           implementation: 'openssl',
           limitations: ['导入时必须能从容器中解析出服务器证书、中间证书链和私钥；根证书不是强制项。'],
+        },
+        {
+          format: 'der',
+          importSupported: true,
+          exportSupported: true,
+          containsPrivateKey: 'never',
+          implementation: 'node_crypto',
+          limitations: ['DER 只包含单张证书，导入后不可直接部署。'],
+        },
+        {
+          format: 'jks',
+          importSupported: true,
+          exportSupported: true,
+          containsPrivateKey: 'optional',
+          implementation: 'keytool',
+          limitations: ['导入私钥条目时必须提供 JKS 密码，可选指定 alias。'],
+        },
+        {
+          format: 'p7b',
+          importSupported: true,
+          exportSupported: true,
+          containsPrivateKey: 'never',
+          implementation: 'openssl',
+          limitations: ['P7B 不包含私钥，导入后不可直接部署。'],
         },
       ],
     } as const;

@@ -15,8 +15,6 @@ export interface PluginBindingV1 {
   connectionBindings: Record<string, unknown>;
   managedContext?: {
     hostId: string;
-    deviceAssetId?: string;
-    agentId?: string;
     managedTargetId?: string;
   };
   status: 'ACTIVE' | 'DISABLED' | 'MIGRATING' | 'ERROR';

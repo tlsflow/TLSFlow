@@ -8,20 +8,14 @@ import { DeploymentStrategyResolver } from './application/deployment-strategy-re
 import type { ResolvedManagedTargetContext } from '../assets/application/managed-target-context.resolver.js';
 
 describe('DeploymentStrategyResolver', () => {
-  it('旧 Agent 绑定没有显式策略时会推导为 AGENT 策略', () => {
+  it('没有显式策略时失败关闭', () => {
     const resolver = new DeploymentStrategyResolver();
-    const resolved = resolver.resolve({
+    assert.throws(() => resolver.resolve({
       applicationAsset: serviceAsset({ agentId: 'agent_1' }),
-      bindingTarget: bindingTarget({ agentId: 'agent_1', siteAssetId: 'site_1', managedTargetId: 'target_1' }),
+      bindingTarget: bindingTarget({ managedTargetId: 'target_1' }),
       certificateBinding: certificateBinding(),
-    });
-
-    assert.equal(resolved.strategyType, 'AGENT');
-    assert.equal(resolved.executorType, 'AGENT');
-    assert.equal(resolved.executionTargetId, 'target_1');
-    assert.deepEqual(resolved.requiredCapabilities, ['cert.install', 'cert.verify']);
-    assert.equal(resolved.payload.agentId, 'agent_1');
-    assert.equal(resolved.payload.certificateBindingId, 'binding_1');
+    }), (error: unknown) => error instanceof AppError
+      && (error.details as { code?: string } | undefined)?.code === 'DEPLOYMENT_STRATEGY_MISSING');
   });
 
   it('Agent 受管目标会解析为 AGENT_NATIVE 驱动', () => {
@@ -30,7 +24,7 @@ describe('DeploymentStrategyResolver', () => {
       applicationAsset: serviceAsset({
         deploymentStrategy: {
           type: 'MANAGED_TARGET',
-          managedTarget: { managedTargetId: 'target_1', certificateFormatId: 'format_1' },
+          managedTarget: { managedTargetId: 'target_1' },
         },
       }),
       bindingTarget: bindingTarget(),
@@ -51,13 +45,13 @@ describe('DeploymentStrategyResolver', () => {
       applicationAsset: serviceAsset({
         deploymentStrategy: {
           type: 'MANAGED_TARGET',
-          managedTarget: { managedTargetId: 'target_1', certificateFormatId: 'format_1' },
+          managedTarget: { managedTargetId: 'target_1' },
         },
       }),
-      bindingTarget: bindingTarget({ providerType: 'PLUGIN:uplgv_plugin_test', frameworkType: 'PLUGIN_FRAMEWORK' }),
+      bindingTarget: bindingTarget(),
       certificateBinding: certificateBinding(),
       managedTargetContext: managedTargetContext({
-        providerType: 'PLUGIN:uplgv_plugin_test',
+        discoveryProviderKey: 'plugin-version:uplgv_plugin_test',
         driverKind: 'DEVICE_PLUGIN',
         executionLocation: 'CONTROL_PLANE',
         agent: undefined,
@@ -125,7 +119,7 @@ describe('DeploymentStrategyResolver', () => {
     assert.throws(
       () => resolver.resolve({
         applicationAsset: serviceAsset(),
-        bindingTarget: bindingTarget({ agentId: undefined, siteAssetId: undefined, managedTargetId: undefined }),
+        bindingTarget: bindingTarget({ managedTargetId: undefined }),
         certificateBinding: certificateBinding(),
       }),
       (error) => {
@@ -152,7 +146,7 @@ describe('DeploymentStrategyResolver', () => {
             },
           },
         }),
-        bindingTarget: bindingTarget({ agentId: 'agent_1', siteAssetId: 'site_1', managedTargetId: 'target_1' }),
+        bindingTarget: bindingTarget({ managedTargetId: 'target_1' }),
         certificateBinding: certificateBinding(),
       }),
       (error) => {
@@ -235,13 +229,7 @@ function bindingTarget(patch: Partial<ApplicationAssetTargetSummaryDto> = {}): A
     id: 'asset_target_1',
     tenantId: 'tenant_1',
     applicationAssetId: 'asset_1',
-    agentId: 'agent_1',
-    siteAssetId: 'site_1',
     managedTargetId: 'target_1',
-    providerType: 'IIS',
-    frameworkType: 'IIS',
-    targetType: 'SITE_BINDING',
-    targetKey: 'target_1',
     status: 'ACTIVE',
     metadata: {},
     createdAt: '2026-07-03T00:00:00.000Z',
@@ -272,8 +260,8 @@ function certificateBinding(patch: Partial<CertificateBindingDto> = {}): Certifi
 function managedTargetContext(patch: Partial<ResolvedManagedTargetContext> = {}): ResolvedManagedTargetContext {
   return {
     managedTarget: {
-      id: 'target_1', tenantId: 'tenant_1', hostId: 'host_1', agentId: 'agent_1', serviceAssetId: 'asset_1', siteAssetId: 'site_1',
-      providerType: 'IIS', targetType: 'SITE_BINDING', targetKey: 'target_1', status: 'ACTIVE', metadata: {},
+      id: 'target_1', tenantId: 'tenant_1', deviceId: 'host_1', siteId: 'site_1', discoveryProviderKey: 'agent.discovery',
+      targetType: 'tls.binding', targetKey: 'target_1', supportedCapabilities: ['certificate.deploy'], executionLocations: ['AGENT'], status: 'ACTIVE', metadata: {},
       createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z', version: 1,
     },
     host: {
@@ -282,7 +270,8 @@ function managedTargetContext(patch: Partial<ResolvedManagedTargetContext> = {})
       createdAt: '2026-07-03T00:00:00.000Z', updatedAt: '2026-07-03T00:00:00.000Z', version: 1,
     },
     agent: { id: 'agent_1', tenantId: 'tenant_1', name: 'agent-1', status: 'online' } as unknown as ResolvedManagedTargetContext['agent'],
-    providerType: 'IIS',
+    discoveryProviderKey: 'agent.discovery',
+    frameworkType: 'web.iis',
     driverKind: 'AGENT_NATIVE',
     executionLocation: 'AGENT',
     ...patch,

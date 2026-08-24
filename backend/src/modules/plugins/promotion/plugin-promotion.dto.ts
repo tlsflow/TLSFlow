@@ -1,4 +1,4 @@
-import type { StandardDeviceDiscoveryV1 } from '../discovery/device-discovery.dto.js';
+import type { StandardDeviceDiscoveryV2 } from '../discovery/device-discovery.dto.js';
 
 export interface PluginPromotionPreviewInput {
   sourcePluginBindingId: string;
@@ -10,7 +10,7 @@ export interface PluginPromotionPreviewInput {
   tlsVerify: boolean;
   gatewayId?: string;
   applicationAssetId?: string;
-  discovery: StandardDeviceDiscoveryV1;
+  discovery: StandardDeviceDiscoveryV2;
 }
 
 export interface PluginPromotionConflict {

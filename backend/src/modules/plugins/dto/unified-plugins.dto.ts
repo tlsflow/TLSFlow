@@ -32,9 +32,12 @@ export interface UnifiedPluginManifestV1 {
   capabilities: UnifiedPluginCapabilityDescriptor[];
   permissions: string[];
   compatibility?: {
-    products?: string[];
-    versions?: string[];
-    platforms?: string[];
+    productFamilies?: string[];
+    frameworkTypes?: string[];
+    targetTypes?: string[];
+    managementMethods?: Array<'AGENT' | 'PLUGIN' | 'MANUAL'>;
+    executionLocations?: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
+    artifactContracts?: string[];
   };
   resources: {
     workflows?: Record<string, string>;

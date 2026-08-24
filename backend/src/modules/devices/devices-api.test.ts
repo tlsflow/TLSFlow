@@ -167,7 +167,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(hosts.rows[0]?.agent_id, registered.id);
   assert.equal(hosts.rows[0]?.asset_fingerprint, 'windows-2008-r2-machine');
   assert.equal(hosts.rows[0]?.os_version, 'Windows Server 2008 R2');
-  assert.equal(hosts.rows[0]?.status, 'ACTIVE');
+  assert.equal(hosts.rows[0]?.status, 'INACTIVE');
   assert.equal(hosts.rows[0]?.primary_ip, '10.33.2.18');
 });
 
@@ -275,8 +275,9 @@ test('Linux Agent 接受带连字符的能力键并从能力快照识别 Nginx �
 });
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
-  const database = new CountingDatabase(new PgliteDatabase());
-  await runMigrations(database, 'src/database/migrations');
+  const migratedDatabase = new PgliteDatabase();
+  await runMigrations(migratedDatabase, 'src/database/migrations');
+  const database = new CountingDatabase(migratedDatabase);
   const assets = new PgAssetsRepository(database);
   const devices = new PgDeviceAssetsRepository(database);
   const tenantId = 'tenant_spec033_devices';
@@ -642,7 +643,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.equal(result.onboardingKind, 'PLUGIN_MANAGED');
   if (result.onboardingKind !== 'PLUGIN_MANAGED') assert.fail('应返回插件接入结果');
   assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
-  assert.equal(result.binding.managedContext?.deviceAssetId, result.device.id);
+  assert.equal(result.binding.managedContext?.hostId, result.device.hostId);
   assert.deepEqual(result.binding.credentialBindings.credential, { credentialId: 'cred_adc' });
   assert.deepEqual(result.binding.secretBindings, {});
   assert.equal(result.assignments.length, 6);
@@ -797,7 +798,7 @@ class CountingDatabase implements DatabasePort {
   }
 
   transaction<T>(work: (tx: DatabasePort) => Promise<T>): Promise<T> {
-    return this.database.transaction(() => work(this));
+    return this.database.transaction((tx) => work(new CountingDatabase(tx)));
   }
 
   resetQueryCount(): void {

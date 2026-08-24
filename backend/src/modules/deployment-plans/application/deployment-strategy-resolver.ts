@@ -26,14 +26,13 @@ export class DeploymentStrategyResolver {
   constructor(private readonly drivers: DeploymentDriverRegistry = createBuiltinDeploymentDriverRegistry()) {}
 
   resolve(input: DeploymentStrategyResolutionInput): ResolvedDeploymentStrategySnapshot {
-    const strategy = input.applicationAsset.deploymentStrategy ?? this.inferAgentStrategy(input);
+    const strategy = input.applicationAsset.deploymentStrategy;
     if (!strategy) {
       throw new AppError('VALIDATION_FAILED', '应用资产缺少证书部署策略', {
         code: 'DEPLOYMENT_STRATEGY_MISSING',
         applicationAssetId: input.applicationAsset.id,
       });
     }
-    if (strategy.type === 'AGENT') return this.resolveAgent(input, strategy);
     if (strategy.type === 'MANAGED_TARGET') return this.resolveManagedTarget(input, strategy);
     if (strategy.type === 'WORKFLOW') return this.resolveWorkflow(input, strategy);
     throw new AppError('VALIDATION_FAILED', '应用资产部署策略类型不支持', { code: 'DEPLOYMENT_STRATEGY_INVALID', strategyType: (strategy as { type?: unknown }).type });
@@ -66,7 +65,7 @@ export class DeploymentStrategyResolver {
         applicationAssetId: input.applicationAsset.id,
         certificateBindingId: input.certificateBinding?.id,
         driverKind: driver.kind,
-        executionLocation: driver.executionLocation,
+        executionLocation: context.executionLocation,
         precheckSteps: driver.precheck(context),
         deploymentSteps: driver.buildDeployment(context),
         rollbackSteps: driver.buildRollback(context),
@@ -75,68 +74,8 @@ export class DeploymentStrategyResolver {
           managedTarget: context.managedTarget,
           host: context.host,
           siteAsset: context.siteAsset,
-          serviceAsset: context.serviceAsset,
-          serviceInstance: context.serviceInstance,
-          deviceAssetId: context.deviceAsset?.id,
-          agentId: context.agent?.id,
+          frameworkInstance: context.serviceInstance,
         },
-      },
-    };
-  }
-
-  private inferAgentStrategy(input: DeploymentStrategyResolutionInput): DeploymentStrategyDto | undefined {
-    const agentId = input.bindingTarget?.agentId ?? input.applicationAsset.agentId;
-    if (!agentId || !input.bindingTarget?.siteAssetId || !input.bindingTarget.managedTargetId) return undefined;
-    return {
-      type: 'AGENT',
-      agent: {
-        agentId,
-        siteAssetId: input.bindingTarget.siteAssetId,
-        managedTargetId: input.bindingTarget.managedTargetId,
-      },
-    };
-  }
-
-  private resolveAgent(input: DeploymentStrategyResolutionInput, strategy: DeploymentStrategyDto): ResolvedDeploymentStrategySnapshot {
-    const agent = strategy.agent;
-    if (!agent?.agentId) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agentId', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: input.applicationAsset.id,
-      });
-    }
-    const mode = agent.mode ?? 'NATIVE_HANDLER';
-    if (mode === 'PLUGIN' && !agent.pluginBindingId) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少统一 PluginBinding', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: input.applicationAsset.id,
-      });
-    }
-    if (mode === 'NATIVE_HANDLER' && (!agent.siteAssetId || !agent.managedTargetId)) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agentId/siteAssetId/managedTargetId', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: input.applicationAsset.id,
-      });
-    }
-    if (!input.certificateBinding) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 CertificateBinding', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: input.applicationAsset.id,
-      });
-    }
-    return {
-      strategyType: 'AGENT',
-      executorType: 'AGENT',
-      executionTargetId: mode === 'PLUGIN' ? agent.agentId : agent.managedTargetId,
-      requiredCapabilities: mode === 'PLUGIN' ? ['agent.atomic_plan.execute'] : ['cert.install', 'cert.verify'],
-      payload: {
-        deploymentStrategy: strategy,
-        agentDeploymentMode: mode,
-        agentId: agent.agentId,
-        siteAssetId: agent.siteAssetId,
-        managedTargetId: agent.managedTargetId,
-        certificateBindingId: input.certificateBinding.id,
-        serviceAssetId: input.applicationAsset.id,
       },
     };
   }
@@ -189,7 +128,7 @@ export class DeploymentStrategyResolver {
           applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBinding?.id,
           managedTargetId: input.bindingTarget?.managedTargetId,
-          siteAssetId: input.bindingTarget?.siteAssetId,
+          siteAssetId: input.managedTargetContext?.siteAsset?.id,
         },
       },
     };

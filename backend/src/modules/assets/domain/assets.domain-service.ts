@@ -3,18 +3,16 @@ import {
   CompatibilityLevels,
   ManagementModes,
   OsTypes,
-  ProviderTypes,
   type CompatibilityLevel,
   type ManagementMode,
   type OsType,
-  type ProviderType,
 } from '../../../shared/enums/core.enums.js';
 import type {
   CreateHostDto,
   CreateDiscoverySnapshotDto,
   CreateServiceAssetDto,
   CreateServiceEndpointDto,
-  CreateServiceInstanceDto,
+  CreateFrameworkInstanceDto,
   CreateManagedTargetDto,
   CreateApplicationAssetTargetDto,
   CreateSiteAssetDto,
@@ -27,7 +25,7 @@ import type {
   ServiceEndpointStatus,
   ServiceAssetPlatform,
   ServiceAssetStatus,
-  ServiceInstanceStatus,
+  FrameworkInstanceStatus,
   SiteAssetStatus,
   SiteAssetType,
   UpdateHostDto,
@@ -35,7 +33,7 @@ import type {
   UpdateApplicationAssetTargetDto,
   UpdateServiceAssetDto,
   UpdateServiceEndpointDto,
-  UpdateServiceInstanceDto,
+  UpdateFrameworkInstanceDto,
   UpdateSiteAssetDto,
 } from '../dto/assets.dto.js';
 
@@ -46,9 +44,8 @@ const discoverySources = ['AGENT', 'SSH', 'MANUAL', 'GATEWAY', 'WINRM', 'IMPORT'
 const endpointProtocols = ['HTTPS', 'TLS', 'STARTTLS', 'HTTP'] as const;
 const endpointStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN'] as const;
 const serviceAssetPlatforms = ['WINDOWS', 'LINUX', 'APPLIANCE'] as const;
-const siteAssetTypes = ['WEB_SITE', 'VHOST', 'CONNECTOR', 'CUSTOM'] as const;
 const siteAssetStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
-const managedTargetTypes = ['SITE_BINDING', 'FILE_DEPLOY', 'KEYSTORE_ENTRY', 'CUSTOM'] as const;
+const managedTargetExecutionLocations = ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] as const;
 const managedTargetStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'UNREACHABLE', 'DISABLED', 'DELETED'] as const;
 const applicationAssetTargetStatuses = ['ACTIVE', 'INACTIVE', 'PENDING', 'ERROR', 'DELETED'] as const;
 const conflictResolutions = ['keep_current', 'use_discovered', 'custom'] as const;
@@ -117,44 +114,37 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeServiceInstance(input: CreateServiceInstanceDto): Required<Pick<CreateServiceInstanceDto, 'providerType' | 'displayName' | 'discoverySource' | 'status' | 'rawFacts'>> & CreateServiceInstanceDto {
-    const providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
+  normalizeServiceInstance(input: CreateFrameworkInstanceDto): Required<Pick<CreateFrameworkInstanceDto, 'deviceId' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey' | 'displayName' | 'discoverySource' | 'status' | 'rawFacts'>> & CreateFrameworkInstanceDto {
+    const deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    const frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
+    const frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
+    const discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
     const displayName = normalizeRequiredString(input.displayName, 'displayName');
     const discoverySource = readEnum(input.discoverySource ?? 'MANUAL', discoverySources, 'discoverySource');
     const status = readEnum(input.status ?? 'ACTIVE', serviceInstanceStatuses, 'status');
 
     return {
       ...input,
-      hostId: normalizeOptionalString(input.hostId),
-      providerType,
-      serviceName: normalizeOptionalString(input.serviceName),
+      deviceId,
+      frameworkType,
+      frameworkKey,
+      discoveryProviderKey,
       displayName,
-      versionText: normalizeOptionalString(input.versionText),
-      installPath: normalizeOptionalString(input.installPath),
-      configPath: normalizeOptionalString(input.configPath),
-      runtimeUser: normalizeOptionalString(input.runtimeUser),
-      ports: normalizePorts(input.ports ?? []),
-      providerKey: normalizeOptionalString(input.providerKey),
-      manualOverrides: input.manualOverrides ?? {},
+      frameworkVersion: normalizeOptionalString(input.frameworkVersion),
       discoverySource,
       status,
       rawFacts: input.rawFacts ?? {},
     };
   }
 
-  normalizeServiceInstancePatch(input: UpdateServiceInstanceDto): UpdateServiceInstanceDto {
-    const normalized: UpdateServiceInstanceDto = { ...input };
-    if (input.hostId !== undefined) normalized.hostId = normalizeRequiredString(input.hostId, 'hostId');
-    if (input.providerType !== undefined) normalized.providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
-    if (input.serviceName !== undefined) normalized.serviceName = normalizeOptionalString(input.serviceName);
+  normalizeServiceInstancePatch(input: UpdateFrameworkInstanceDto): UpdateFrameworkInstanceDto {
+    const normalized: UpdateFrameworkInstanceDto = { ...input };
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.frameworkType !== undefined) normalized.frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
+    if (input.frameworkKey !== undefined) normalized.frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
+    if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
     if (input.displayName !== undefined) normalized.displayName = normalizeRequiredString(input.displayName, 'displayName');
-    if (input.versionText !== undefined) normalized.versionText = normalizeOptionalString(input.versionText);
-    if (input.installPath !== undefined) normalized.installPath = normalizeOptionalString(input.installPath);
-    if (input.configPath !== undefined) normalized.configPath = normalizeOptionalString(input.configPath);
-    if (input.runtimeUser !== undefined) normalized.runtimeUser = normalizeOptionalString(input.runtimeUser);
-    if (input.ports !== undefined) normalized.ports = normalizePorts(input.ports);
-    if (input.providerKey !== undefined) normalized.providerKey = normalizeOptionalString(input.providerKey);
-    if (input.manualOverrides !== undefined) normalized.manualOverrides = input.manualOverrides;
+    if (input.frameworkVersion !== undefined) normalized.frameworkVersion = normalizeOptionalString(input.frameworkVersion);
     if (input.discoverySource !== undefined) normalized.discoverySource = readEnum(input.discoverySource, discoverySources, 'discoverySource');
     if (input.status !== undefined) normalized.status = readEnum(input.status, serviceInstanceStatuses, 'status');
     if (input.rawFacts !== undefined) normalized.rawFacts = input.rawFacts;
@@ -243,15 +233,13 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeSiteAsset(input: CreateSiteAssetDto): Required<Pick<CreateSiteAssetDto, 'serviceInstanceId' | 'providerType' | 'siteType' | 'siteName' | 'siteKey' | 'discoverySource' | 'status' | 'metadata'>> & CreateSiteAssetDto {
+  normalizeSiteAsset(input: CreateSiteAssetDto): Required<Pick<CreateSiteAssetDto, 'frameworkInstanceId' | 'deviceId' | 'discoveryProviderKey' | 'siteType' | 'siteName' | 'siteKey' | 'discoverySource' | 'status' | 'metadata'>> & CreateSiteAssetDto {
     return {
       ...input,
-      serviceInstanceId: normalizeRequiredString(input.serviceInstanceId, 'serviceInstanceId'),
-      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
-      hostId: normalizeOptionalString(input.hostId),
-      agentId: normalizeOptionalString(input.agentId),
-      providerType: readEnum(input.providerType, ProviderTypes, 'providerType'),
-      siteType: readEnum(input.siteType, siteAssetTypes, 'siteType'),
+      frameworkInstanceId: normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId'),
+      deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
+      siteType: normalizeNamespaceValue(input.siteType, 'siteType'),
       siteName: normalizeRequiredString(input.siteName, 'siteName'),
       siteKey: normalizeRequiredString(input.siteKey, 'siteKey').toLowerCase(),
       bindingInformation: normalizeOptionalString(input.bindingInformation),
@@ -270,12 +258,10 @@ export class AssetsDomainService {
 
   normalizeSiteAssetPatch(input: UpdateSiteAssetDto): UpdateSiteAssetDto {
     const normalized: UpdateSiteAssetDto = { ...input };
-    if (input.serviceInstanceId !== undefined) normalized.serviceInstanceId = normalizeRequiredString(input.serviceInstanceId, 'serviceInstanceId');
-    if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
-    if (input.hostId !== undefined) normalized.hostId = normalizeRequiredString(input.hostId, 'hostId');
-    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
-    if (input.providerType !== undefined) normalized.providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
-    if (input.siteType !== undefined) normalized.siteType = readEnum(input.siteType, siteAssetTypes, 'siteType');
+    if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId');
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
+    if (input.siteType !== undefined) normalized.siteType = normalizeNamespaceValue(input.siteType, 'siteType');
     if (input.siteName !== undefined) normalized.siteName = normalizeRequiredString(input.siteName, 'siteName');
     if (input.siteKey !== undefined) normalized.siteKey = normalizeRequiredString(input.siteKey, 'siteKey').toLowerCase();
     if (input.bindingInformation !== undefined) normalized.bindingInformation = normalizeOptionalString(input.bindingInformation);
@@ -292,22 +278,18 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeManagedTarget(input: CreateManagedTargetDto): Required<Pick<CreateManagedTargetDto, 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'capabilityProfile' | 'status' | 'metadata'>> & CreateManagedTargetDto {
-    const owner = normalizeManagementOwner(input.agentId, input.deviceAssetId);
+  normalizeManagedTarget(input: CreateManagedTargetDto): Required<Pick<CreateManagedTargetDto, 'deviceId' | 'discoveryProviderKey' | 'targetType' | 'targetKey' | 'supportedCapabilities' | 'executionLocations' | 'status' | 'metadata'>> & CreateManagedTargetDto {
     return {
       ...input,
-      ...owner,
-      hostId: normalizeOptionalString(input.hostId),
-      serviceInstanceId: normalizeOptionalString(input.serviceInstanceId),
-      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
-      siteAssetId: normalizeOptionalString(input.siteAssetId),
-      providerType: readEnum(input.providerType, ProviderTypes, 'providerType'),
-      frameworkType: readEnum(input.frameworkType, ProviderTypes, 'frameworkType'),
-      targetType: readEnum(input.targetType, managedTargetTypes, 'targetType'),
-      targetKey: normalizeRequiredString(input.targetKey, 'targetKey').toLowerCase(),
+      deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      frameworkInstanceId: normalizeOptionalString(input.frameworkInstanceId),
+      siteId: normalizeOptionalString(input.siteId),
+      discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
+      targetType: normalizeNamespaceValue(input.targetType, 'targetType'),
+      targetKey: normalizeRequiredString(input.targetKey, 'targetKey'),
       bindingKey: normalizeOptionalString(input.bindingKey),
-      capabilityProfile: input.capabilityProfile ?? {},
-      deploymentMode: normalizeOptionalString(input.deploymentMode),
+      supportedCapabilities: normalizeStringArray(input.supportedCapabilities),
+      executionLocations: normalizeExecutionLocations(input.executionLocations),
       lastSeenAt: normalizeOptionalString(input.lastSeenAt),
       status: readEnum(input.status ?? 'ACTIVE', managedTargetStatuses, 'status'),
       metadata: input.metadata ?? {},
@@ -316,38 +298,26 @@ export class AssetsDomainService {
 
   normalizeManagedTargetPatch(input: UpdateManagedTargetDto): UpdateManagedTargetDto {
     const normalized: UpdateManagedTargetDto = { ...input };
-    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
-    if (input.deviceAssetId !== undefined) normalized.deviceAssetId = normalizeOptionalString(input.deviceAssetId);
-    if (input.hostId !== undefined) normalized.hostId = normalizeRequiredString(input.hostId, 'hostId');
-    if (input.serviceInstanceId !== undefined) normalized.serviceInstanceId = normalizeOptionalString(input.serviceInstanceId);
-    if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
-    if (input.siteAssetId !== undefined) normalized.siteAssetId = normalizeOptionalString(input.siteAssetId);
-    if (input.providerType !== undefined) normalized.providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
-    if (input.frameworkType !== undefined) normalized.frameworkType = readEnum(input.frameworkType, ProviderTypes, 'frameworkType');
-    if (input.targetType !== undefined) normalized.targetType = readEnum(input.targetType, managedTargetTypes, 'targetType');
-    if (input.targetKey !== undefined) normalized.targetKey = normalizeRequiredString(input.targetKey, 'targetKey').toLowerCase();
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeOptionalString(input.frameworkInstanceId);
+    if (input.siteId !== undefined) normalized.siteId = normalizeOptionalString(input.siteId);
+    if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
+    if (input.targetType !== undefined) normalized.targetType = normalizeNamespaceValue(input.targetType, 'targetType');
+    if (input.targetKey !== undefined) normalized.targetKey = normalizeRequiredString(input.targetKey, 'targetKey');
     if (input.bindingKey !== undefined) normalized.bindingKey = normalizeOptionalString(input.bindingKey);
-    if (input.capabilityProfile !== undefined) normalized.capabilityProfile = input.capabilityProfile;
-    if (input.deploymentMode !== undefined) normalized.deploymentMode = normalizeOptionalString(input.deploymentMode);
+    if (input.supportedCapabilities !== undefined) normalized.supportedCapabilities = normalizeStringArray(input.supportedCapabilities);
+    if (input.executionLocations !== undefined) normalized.executionLocations = normalizeExecutionLocations(input.executionLocations);
     if (input.lastSeenAt !== undefined) normalized.lastSeenAt = normalizeOptionalString(input.lastSeenAt);
     if (input.status !== undefined) normalized.status = readEnum(input.status, managedTargetStatuses, 'status');
     if (input.metadata !== undefined) normalized.metadata = input.metadata;
     return normalized;
   }
 
-  normalizeApplicationAssetTarget(input: CreateApplicationAssetTargetDto): Required<Pick<CreateApplicationAssetTargetDto, 'applicationAssetId' | 'siteAssetId' | 'managedTargetId' | 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'status' | 'metadata'>> & CreateApplicationAssetTargetDto {
-    const owner = normalizeManagementOwner(input.agentId, input.deviceAssetId);
+  normalizeApplicationAssetTarget(input: CreateApplicationAssetTargetDto): Required<Pick<CreateApplicationAssetTargetDto, 'applicationAssetId' | 'managedTargetId' | 'status' | 'metadata'>> & CreateApplicationAssetTargetDto {
     return {
       ...input,
-      ...owner,
       applicationAssetId: normalizeRequiredString(input.applicationAssetId, 'applicationAssetId'),
-      siteAssetId: normalizeRequiredString(input.siteAssetId, 'siteAssetId'),
       managedTargetId: normalizeRequiredString(input.managedTargetId, 'managedTargetId'),
-      providerType: readEnum(input.providerType, ProviderTypes, 'providerType'),
-      frameworkType: readEnum(input.frameworkType, ProviderTypes, 'frameworkType'),
-      targetType: readEnum(input.targetType, managedTargetTypes, 'targetType'),
-      targetKey: normalizeRequiredString(input.targetKey, 'targetKey').toLowerCase(),
-      bindingKey: normalizeOptionalString(input.bindingKey),
       status: readEnum(input.status ?? 'ACTIVE', applicationAssetTargetStatuses, 'status'),
       metadata: input.metadata ?? {},
     };
@@ -356,15 +326,7 @@ export class AssetsDomainService {
   normalizeApplicationAssetTargetPatch(input: UpdateApplicationAssetTargetDto): UpdateApplicationAssetTargetDto {
     const normalized: UpdateApplicationAssetTargetDto = { ...input };
     if (input.applicationAssetId !== undefined) normalized.applicationAssetId = normalizeRequiredString(input.applicationAssetId, 'applicationAssetId');
-    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
-    if (input.deviceAssetId !== undefined) normalized.deviceAssetId = normalizeOptionalString(input.deviceAssetId);
-    if (input.siteAssetId !== undefined) normalized.siteAssetId = normalizeRequiredString(input.siteAssetId, 'siteAssetId');
     if (input.managedTargetId !== undefined) normalized.managedTargetId = normalizeRequiredString(input.managedTargetId, 'managedTargetId');
-    if (input.providerType !== undefined) normalized.providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
-    if (input.frameworkType !== undefined) normalized.frameworkType = readEnum(input.frameworkType, ProviderTypes, 'frameworkType');
-    if (input.targetType !== undefined) normalized.targetType = readEnum(input.targetType, managedTargetTypes, 'targetType');
-    if (input.targetKey !== undefined) normalized.targetKey = normalizeRequiredString(input.targetKey, 'targetKey').toLowerCase();
-    if (input.bindingKey !== undefined) normalized.bindingKey = normalizeOptionalString(input.bindingKey);
     if (input.status !== undefined) normalized.status = readEnum(input.status, applicationAssetTargetStatuses, 'status');
     if (input.metadata !== undefined) normalized.metadata = input.metadata;
     return normalized;
@@ -389,15 +351,23 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeManagementOwner(agentIdValue: unknown, deviceAssetIdValue: unknown): Pick<CreateManagedTargetDto, 'agentId' | 'deviceAssetId'> {
-  const agentId = normalizeOptionalString(agentIdValue);
-  const deviceAssetId = normalizeOptionalString(deviceAssetIdValue);
-  if (Boolean(agentId) === Boolean(deviceAssetId)) {
-    throw new AppError('VALIDATION_FAILED', '受管目标必须且只能指定一个 Agent 或设备所有者', {
-      fields: ['agentId', 'deviceAssetId'],
-    });
+function normalizeNamespaceValue(value: unknown, field: string): string {
+  const normalized = normalizeRequiredString(value, field).toLowerCase();
+  if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', '命名空间字符串不合法', { field, value });
   }
-  return { agentId, deviceAssetId };
+  return normalized;
+}
+
+function normalizeExecutionLocations(values: readonly string[]): CreateManagedTargetDto['executionLocations'] {
+  const normalized = [...new Set(values.map((value) => normalizeRequiredString(value, 'executionLocations')))].sort();
+  for (const value of normalized) {
+    if (!managedTargetExecutionLocations.includes(value as typeof managedTargetExecutionLocations[number])) {
+      throw new AppError('VALIDATION_FAILED', '执行位置不合法', { value, allowedValues: managedTargetExecutionLocations });
+    }
+  }
+  if (normalized.length === 0) throw new AppError('VALIDATION_FAILED', 'executionLocations 不能为空');
+  return normalized as CreateManagedTargetDto['executionLocations'];
 }
 
 function normalizeRequiredString(value: unknown, field: string): string {
@@ -437,10 +407,6 @@ function normalizePorts(values: Array<number | Record<string, unknown>>): Array<
 }
 
 function readEnum<T extends string>(value: string, allowed: readonly T[], field: string): T {
-  if (field === 'providerType' || field === 'frameworkType') {
-    const normalized = value.trim();
-    if (normalized) return normalized as T;
-  }
   if (!allowed.includes(value as T)) {
     throw new AppError('VALIDATION_FAILED', '枚举值不合法', { field, allowedValues: allowed });
   }
@@ -455,21 +421,18 @@ export const assetsEnumValues = {
   endpointProtocols,
   endpointStatuses,
   serviceAssetPlatforms,
-  siteAssetTypes,
   siteAssetStatuses,
-  managedTargetTypes,
   managedTargetStatuses,
   applicationAssetTargetStatuses,
   conflictResolutions,
   osTypes: OsTypes,
   compatibilityLevels: CompatibilityLevels,
   managementModes: ManagementModes,
-  providerTypes: ProviderTypes,
 } as const;
 
 export type AssetsDomainEnums = {
   hostStatus: HostStatus;
-  serviceInstanceStatus: ServiceInstanceStatus;
+  serviceInstanceStatus: FrameworkInstanceStatus;
   serviceAssetStatus: ServiceAssetStatus;
   serviceAssetPlatform: ServiceAssetPlatform;
   siteAssetType: SiteAssetType;
@@ -483,7 +446,6 @@ export type AssetsDomainEnums = {
   osType: OsType;
   compatibilityLevel: CompatibilityLevel;
   managementMode: ManagementMode;
-  providerType: ProviderType;
 };
 
 function inferAddressType(address: string): 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN' {

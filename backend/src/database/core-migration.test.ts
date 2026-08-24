@@ -189,11 +189,11 @@ describe('核心数据模型迁移', () => {
     const bindingId = 'bnd_legacy_001';
 
     await db.exec(`
-      insert into pg_service_instances (
-        id, tenant_id, host_id, provider_type, display_name, discovery_source, status, created_at, updated_at, version,
+      insert into pg_framework_instances (
+        id, tenant_id, device_id, framework_type, framework_key, discovery_provider_key, display_name, discovery_source, status, created_at, updated_at, version,
         ports, manual_overrides, raw_facts
       ) values (
-        '${serviceId}', 'tenant_migration', 'hst_legacy_001', 'NGINX', 'legacy-nginx', 'IMPORT', 'ACTIVE', now(), now(), 1,
+        '${serviceId}', 'tenant_migration', 'hst_legacy_001', 'web.nginx', 'nginx:legacy', 'import.discovery', 'legacy-nginx', 'IMPORT', 'ACTIVE', now(), now(), 1,
         '[]'::jsonb, '{}'::jsonb, '{}'::jsonb
       );
       insert into pg_service_endpoints (
@@ -220,7 +220,7 @@ describe('核心数据模型迁移', () => {
         protocol varchar(16) not null,
         sni_name varchar(255),
         display_name varchar(255),
-        service_instance_id text references pg_service_instances(id),
+        service_instance_id text references pg_framework_instances(id),
         service_endpoint_id text references pg_service_endpoints(id),
         host_id text,
         environment varchar(32),

@@ -232,7 +232,12 @@ export class CertificatesApplicationService {
 
   async importVersion(input: ImportCertificateVersionInput, context?: RequestContext): Promise<ImportCertificateVersionResult> {
     const bundle = this.domain.validateCertificateMaterial(input, input.privateKeyPem);
-    const acceptsExternalKeyReference = Boolean(input.allowCertificateOnly || input.existingPrivateKeySecretRef);
+    const acceptsExternalKeyReference = Boolean(
+      input.allowCertificateOnly
+      || input.existingPrivateKeySecretRef
+      || bundle.sourceFormat === 'der'
+      || bundle.sourceFormat === 'p7b',
+    );
     const blockers = acceptsExternalKeyReference
       ? bundle.blockers.filter((item) => !item.startsWith('缺少私钥'))
       : bundle.blockers;

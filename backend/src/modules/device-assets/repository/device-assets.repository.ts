@@ -6,6 +6,7 @@ import type { CreateDeviceAssetDto, DeviceAssetDto, UpdateDeviceAssetDto } from 
 export interface DeviceAssetsRepository {
   list(tenantId: string): Promise<DeviceAssetDto[]>;
   get(tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto | undefined>;
+  findByHostId(tenantId: string, hostId: string): Promise<DeviceAssetDto | undefined>;
   create(tenantId: string, input: Required<Pick<CreateDeviceAssetDto, 'managementPort' | 'authMode' | 'tlsVerify'>> & CreateDeviceAssetDto): Promise<DeviceAssetDto>;
   update(tenantId: string, deviceAssetId: string, input: UpdateDeviceAssetDto): Promise<DeviceAssetDto>;
   softDelete(tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto>;
@@ -21,6 +22,11 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
 
   async get(tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto | undefined> {
     const result = await this.db.query<DeviceAssetRow>(selectDeviceSql('where sa.tenant_id = $1 and sa.id = $2 and sa.deleted_at is null'), [tenantId, deviceAssetId]);
+    return result.rows[0] ? toDto(result.rows[0]) : undefined;
+  }
+
+  async findByHostId(tenantId: string, hostId: string): Promise<DeviceAssetDto | undefined> {
+    const result = await this.db.query<DeviceAssetRow>(selectDeviceSql('where sa.tenant_id = $1 and da.host_id = $2 and sa.deleted_at is null'), [tenantId, hostId]);
     return result.rows[0] ? toDto(result.rows[0]) : undefined;
   }
 

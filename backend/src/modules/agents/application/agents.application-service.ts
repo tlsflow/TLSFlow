@@ -21,6 +21,7 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
 import type { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
 import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
+import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
@@ -34,6 +35,7 @@ export class AgentsApplicationService {
     private readonly executionResultSync?: ExecutionResultSyncService,
     private readonly detailStream?: ExecutionDetailStreamService,
     private readonly liveness?: LivenessApplicationService,
+    private readonly capabilityDiscoveryProjector?: AgentCapabilityDiscoveryProjector,
   ) {}
 
   getModuleMetadata() {
@@ -262,6 +264,21 @@ export class AgentsApplicationService {
   async reportCapabilities(tenantId: string, input: AgentCapabilitySnapshotInput, requestId: string): Promise<AgentCapabilityProjection> {
     const agent = await this.requireAgent(tenantId, input.agentId);
     const snapshot = await this.repository.saveCapabilitySnapshot(this.domain.normalizeCapabilitySnapshot(tenantId, agent.id, input, requestId));
+    if (this.capabilityDiscoveryProjector) {
+      try {
+        await this.capabilityDiscoveryProjector.project(agent, snapshot);
+      } catch (error) {
+        structuredLogger.error('Agent capability discovery projection failed', {
+          error: error instanceof Error ? error.message : String(error),
+          snapshotId: snapshot.id,
+        }, {
+          module: 'agents',
+          tenantId,
+          resourceType: 'agent',
+          resourceId: agent.id,
+        });
+      }
+    }
     const gateway = this.domain.normalizeGatewayOnCapabilities(agent, input);
     const updated = gateway ? await this.repository.updateRegistration(agent.id, {
       gateway,
@@ -1403,10 +1420,20 @@ async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSes
   };
 }
 
+const installDirectControlPorts: Readonly<Record<string, number>> = Object.freeze({
+  'full_agent:windows_powershell_service': 18930,
+  'full_agent:linux_go_systemd': 18931,
+  'gateway:windows_powershell_service': 18932,
+  'gateway:linux_go_systemd': 18932,
+  'gateway:windows_compatibility_service': 18932,
+  'full_agent:windows_compatibility_service': 18933,
+});
+
 function installDirectControlListenPort(session: AgentInstallSession): number {
-  if (session.role === 'gateway') return 18932;
-  if (session.platform === 'windows_compatibility_service') return 18933;
-  return session.platform === 'linux_go_systemd' ? 18931 : 18930;
+  const key = `${session.role}:${session.platform}`;
+  const port = installDirectControlPorts[key];
+  if (port === undefined) throw new AppError('VALIDATION_FAILED', 'Agent 安装目标缺少直连端口声明', { role: session.role, platform: session.platform });
+  return port;
 }
 
 async function loadWindowsCompatibilityAgentArtifacts(): Promise<Array<{ path: string; description: string; content: string; encoding: 'utf8' | 'base64' }>> {

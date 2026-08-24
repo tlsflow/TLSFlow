@@ -1448,9 +1448,9 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/service-instances:
+  /api/v1/framework-instances:
     get:
-      operationId: "listServiceInstances"
+      operationId: "listFrameworkInstances"
       summary: "查询 ServiceInstance 列表"
       tags:
         - "Assets"
@@ -1485,7 +1485,7 @@ paths:
         500:
           $ref: "#/components/responses/ErrorResponse"
     post:
-      operationId: "createServiceInstance"
+      operationId: "createFrameworkInstance"
       summary: "创建 ServiceInstance"
       tags:
         - "Assets"
@@ -1504,7 +1504,7 @@ paths:
         500:
           $ref: "#/components/responses/ErrorResponse"
     patch:
-      operationId: "updateServiceInstance"
+      operationId: "updateFrameworkInstance"
       summary: "更新 ServiceInstance"
       tags:
         - "Assets"
@@ -1522,9 +1522,9 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/service-instances/delete:
+  /api/v1/framework-instances/delete:
     post:
-      operationId: "deleteServiceInstance"
+      operationId: "deleteFrameworkInstance"
       summary: "软删除 ServiceInstance"
       tags:
         - "Assets"
@@ -2661,6 +2661,7 @@ paths:
                   - "displayName"
                   - "overview"
                   - "informationSections"
+                  - "frameworks"
                   - "sites"
                   - "certificates"
                   - "logs"
@@ -2732,6 +2733,11 @@ paths:
                                   - "NUMBER"
                               copyable:
                                 type: "boolean"
+                  frameworks:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: true
                   sites:
                     type: "array"
                     items:
@@ -2760,6 +2766,7 @@ paths:
                             - "TOMCAT"
                             - "LB"
                             - "VPN"
+                            - "CUSTOM"
                         name:
                           type: "string"
                         status:
@@ -6499,6 +6506,82 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey:
+    get:
+      operationId: "getManagedTargetEffectiveCapability"
+      summary: "查询受管目标生效部署能力"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/managed-targets/:managedTargetId/compatible-plugins:
+    get:
+      operationId: "listManagedTargetCompatiblePlugins"
+      summary: "查询受管目标兼容插件"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: true
+                  page:
+                    type: "number"
+                  pageSize:
+                    type: "number"
+                  total:
+                    type: "number"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-assets/:applicationAssetId/managed-target:
+    put:
+      operationId: "saveApplicationAssetManagedTarget"
+      summary: "保存应用资产受管目标和插件覆盖"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/workflows:
     get:
       operationId: "listWorkflows"
@@ -8175,4 +8258,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-27T03:08:12.014Z"
+x-generatedAt: "2026-07-28T03:55:54.602Z"

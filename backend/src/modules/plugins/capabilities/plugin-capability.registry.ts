@@ -20,9 +20,9 @@ export interface PluginCapabilityContract {
 const contracts: PluginCapabilityContract[] = [
   contract('device.connection.test', 'device.connection.test.v1', 'LOW', 'READ_ONLY', 'device.read', 'gcac.connection-test-input/v1', 'gcac.connection-test-result/v1', 'NONE'),
   contract('device.identity.detect', 'device.identity.detect.v1', 'LOW', 'READ_ONLY', 'device.read', 'gcac.device-identity-input/v1', 'gcac.device-identity-result/v1', 'NONE'),
-  contract('device.discover', 'device.discover.v1', 'LOW', 'READ_ONLY', 'device.read', 'gcac.device-discovery-input/v1', 'gcac.device-discovery/v1', 'DEVICE'),
+  contract('device.discover', 'device.discover.v1', 'LOW', 'READ_ONLY', 'device.read', 'gcac.device-discovery-input/v1', 'gcac.device-discovery/v2', 'DEVICE'),
   contract('device.logs.read', 'device.logs.read.v1', 'LOW', 'READ_ONLY', 'device.read', 'gcac.device-logs-query/v1', 'gcac.device-logs-page/v1', 'NONE'),
-  contract('certificate.discover', 'certificate.discover.v1', 'LOW', 'READ_ONLY', 'certificate.read', 'gcac.certificate-discovery-input/v1', 'gcac.device-discovery/v1', 'DEVICE'),
+  contract('certificate.discover', 'certificate.discover.v1', 'LOW', 'READ_ONLY', 'certificate.read', 'gcac.certificate-discovery-input/v1', 'gcac.device-discovery/v2', 'DEVICE'),
   contract('certificate.deploy', 'certificate.deploy.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'certificate.deploy', 'gcac.certificate-deploy-input/v1', 'gcac.certificate-deploy-result/v1', 'TARGET'),
   contract('certificate.rollback', 'certificate.rollback.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'certificate.deploy', 'gcac.certificate-rollback-input/v1', 'gcac.certificate-deploy-result/v1', 'TARGET'),
 ];

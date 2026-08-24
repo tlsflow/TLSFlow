@@ -16,7 +16,6 @@ export interface DeploymentDriverSecretRequirement {
 
 export interface DeploymentDriver {
   kind: DeploymentDriverKind;
-  executionLocation: ExecutionLocation;
   supports(context: ResolvedManagedTargetContext): boolean;
   precheck(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[];
   buildDeployment(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[];
@@ -36,46 +35,38 @@ export class DeploymentDriverRegistry {
   resolve(context: ResolvedManagedTargetContext): DeploymentDriver {
     const driver = this.drivers.get(context.driverKind);
     if (!driver) throw driverError('受管目标没有可用部署驱动', { driverKind: context.driverKind });
-    if (driver.executionLocation !== context.executionLocation) {
-      throw driverError('部署驱动执行位置与受管目标不一致', {
-        driverKind: driver.kind,
-        driverLocation: driver.executionLocation,
-        targetLocation: context.executionLocation,
-      });
-    }
-    if (!driver.supports(context)) throw driverError('部署驱动不支持当前受管目标', { driverKind: driver.kind, providerType: context.providerType });
+    if (!driver.supports(context)) throw driverError('部署驱动不支持当前受管目标', { driverKind: driver.kind, frameworkType: context.frameworkType, executionLocation: context.executionLocation });
     return driver;
   }
 }
 
 export function createBuiltinDeploymentDriverRegistry(): DeploymentDriverRegistry {
   return new DeploymentDriverRegistry()
-    .register(new BasicDeploymentDriver('AGENT_NATIVE', 'AGENT', ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'WINDOWS_CERT_STORE']))
-    .register(new BasicDeploymentDriver('AGENT_PLUGIN', 'AGENT'))
+    .register(new BasicDeploymentDriver('AGENT_NATIVE', ['web.iis', 'web.nginx', 'web.apache', 'app.tomcat', 'certificate.windows-store']))
+    .register(new BasicDeploymentDriver('AGENT_PLUGIN'))
     .register(new DevicePluginDeploymentDriver());
 }
 
 class BasicDeploymentDriver implements DeploymentDriver {
   constructor(
     readonly kind: DeploymentDriverKind,
-    readonly executionLocation: ExecutionLocation,
-    private readonly providers?: string[],
+    private readonly frameworkTypes?: string[],
   ) {}
 
   supports(context: ResolvedManagedTargetContext): boolean {
-    return !this.providers || this.providers.includes(context.providerType);
+    return context.executionLocation === 'AGENT' && (!this.frameworkTypes || Boolean(context.frameworkType && this.frameworkTypes.includes(context.frameworkType)));
   }
 
   precheck(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [step('PRECHECK', this.executionLocation === 'AGENT' ? 'AGENT' : 'WORKFLOW', 'managed_target.precheck', context)];
+    return [step('PRECHECK', 'AGENT', 'managed_target.precheck', context)];
   }
 
   buildDeployment(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [step('DEPLOY', this.executionLocation === 'AGENT' ? 'AGENT' : 'WORKFLOW', 'managed_target.deploy', context)];
+    return [step('DEPLOY', 'AGENT', 'managed_target.deploy', context)];
   }
 
   buildRollback(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [step('ROLLBACK', this.executionLocation === 'AGENT' ? 'AGENT' : 'WORKFLOW', 'managed_target.rollback', context)];
+    return [step('ROLLBACK', 'AGENT', 'managed_target.rollback', context)];
   }
 
   requiredSecrets(_context: ResolvedManagedTargetContext): DeploymentDriverSecretRequirement[] {
@@ -85,10 +76,9 @@ class BasicDeploymentDriver implements DeploymentDriver {
 
 class DevicePluginDeploymentDriver implements DeploymentDriver {
   readonly kind = 'DEVICE_PLUGIN' as const;
-  readonly executionLocation = 'CONTROL_PLANE' as const;
 
   supports(context: ResolvedManagedTargetContext): boolean {
-    return context.deviceAsset?.pluginBindingId !== undefined && context.executionLocation === this.executionLocation;
+    return context.deviceAsset?.pluginBindingId !== undefined && ['CONTROL_PLANE', 'GATEWAY'].includes(context.executionLocation);
   }
 
   precheck(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
@@ -109,7 +99,7 @@ class DevicePluginDeploymentDriver implements DeploymentDriver {
 }
 
 function step(stage: DeploymentDriverStepDraft['stage'], executorType: DeploymentDriverStepDraft['executorType'], operation: string, context: ResolvedManagedTargetContext): DeploymentDriverStepDraft {
-  return { stage, executorType, operation, input: { managedTargetId: context.managedTarget.id, providerType: context.providerType } };
+  return { stage, executorType, operation, input: { managedTargetId: context.managedTarget.id, discoveryProviderKey: context.discoveryProviderKey, frameworkType: context.frameworkType } };
 }
 
 function driverError(message: string, detail: Record<string, unknown>): AppError {

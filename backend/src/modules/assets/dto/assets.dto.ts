@@ -9,24 +9,24 @@ import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindi
 import type { WorkflowCredentialBinding } from '../../workflow-templates/dto/workflow-templates.dto.js';
 
 export type HostStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
-export type ServiceInstanceStatus = 'ACTIVE' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'RETIRED' | 'DELETED';
+export type FrameworkInstanceStatus = 'ACTIVE' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'RETIRED' | 'DELETED';
 export type ServiceAssetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
 export type ServiceEndpointStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN';
 export type DiscoverySource = 'AGENT' | 'SSH' | 'MANUAL' | 'GATEWAY' | 'WINRM' | 'IMPORT' | 'PROVIDER';
 export type ServiceEndpointProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP';
 export type ServiceAssetAddressType = 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN';
 export type ServiceAssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE';
-export type SiteAssetType = 'WEB_SITE' | 'VHOST' | 'CONNECTOR' | 'CUSTOM';
+export type SiteAssetType = string;
 export type SiteAssetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
-export type ManagedTargetType = 'SITE_BINDING' | 'FILE_DEPLOY' | 'KEYSTORE_ENTRY' | 'CUSTOM';
+export type ManagedTargetType = string;
 export type ManagedTargetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'DELETED';
+export type ManagedTargetExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR' | 'DELETED';
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
-export type DeploymentStrategyType = 'AGENT' | 'MANAGED_TARGET' | 'WORKFLOW';
-export type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN';
+export type DeploymentStrategyType = 'MANAGED_TARGET' | 'WORKFLOW';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
-export type DeploymentStrategyCompatibilityMode = 'UNIFIED' | 'LEGACY' | 'LEGACY_ADAPTED';
+export type DeploymentStrategyCompatibilityMode = 'UNIFIED';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
@@ -35,21 +35,8 @@ export interface ManagementChannelDto {
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentDeploymentStrategyDto {
-  mode?: AgentDeploymentMode;
-  pluginBindingId?: string;
-  agentId: string;
-  siteAssetId?: string;
-  managedTargetId?: string;
-  certificateFormatId?: string;
-  deploymentMode?: string;
-}
-
 export interface ManagedTargetDeploymentStrategyDto {
   managedTargetId: string;
-  pluginBindingId?: string;
-  certificateFormatId?: string;
-  deploymentMode?: string;
 }
 
 export interface WorkflowDeploymentStrategyDto {
@@ -101,7 +88,6 @@ export interface WorkflowBindingProjectionRequestDto {
 
 export interface DeploymentStrategyDto {
   type: DeploymentStrategyType;
-  agent?: AgentDeploymentStrategyDto;
   managedTarget?: ManagedTargetDeploymentStrategyDto;
   workflow?: WorkflowDeploymentStrategyDto;
   compatibilityMode?: DeploymentStrategyCompatibilityMode;
@@ -112,12 +98,6 @@ export interface DeploymentStrategyDto {
 export interface ManagedDeploymentIntentDto {
   type: 'MANAGED_TARGET';
   managedTargetId: string;
-  certificateFormatId?: string;
-  deploymentMode?: string;
-  legacyAgent?: {
-    agentId: string;
-    siteAssetId?: string;
-  };
 }
 export type AssetConflictResourceType = 'host' | 'service' | 'service_asset' | 'binding';
 export type AssetConflictStatus = 'open' | 'resolved' | 'ignored';
@@ -177,23 +157,18 @@ export interface CreateHostDto {
 
 export type UpdateHostDto = Partial<CreateHostDto>;
 
-export interface ServiceInstanceDto {
+export interface FrameworkInstanceDto {
   id: string;
   tenantId: string;
-  hostId?: string;
-  providerType: ProviderType;
-  serviceName?: string;
+  deviceId: string;
+  frameworkType: string;
+  frameworkKey: string;
+  discoveryProviderKey: string;
   displayName: string;
-  versionText?: string;
-  installPath?: string;
-  configPath?: string;
-  runtimeUser?: string;
-  ports: Array<number | Record<string, unknown>>;
-  providerKey?: string;
-  manualOverrides: Record<string, unknown>;
+  frameworkVersion?: string;
   discoverySource: DiscoverySource;
   lastDiscoveredAt?: string;
-  status: ServiceInstanceStatus;
+  status: FrameworkInstanceStatus;
   rawFacts: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -201,26 +176,21 @@ export interface ServiceInstanceDto {
   version: number;
 }
 
-export interface CreateServiceInstanceDto {
-  hostId?: string;
-  providerType: ProviderType;
-  serviceName?: string;
+export interface CreateFrameworkInstanceDto {
+  deviceId: string;
+  frameworkType: string;
+  frameworkKey: string;
+  discoveryProviderKey: string;
   displayName: string;
-  versionText?: string;
-  installPath?: string;
-  configPath?: string;
-  runtimeUser?: string;
-  ports?: Array<number | Record<string, unknown>>;
-  providerKey?: string;
-  manualOverrides?: Record<string, unknown>;
+  frameworkVersion?: string;
   discoverySource?: DiscoverySource;
   lastDiscoveredAt?: string;
-  status?: ServiceInstanceStatus;
+  status?: FrameworkInstanceStatus;
   rawFacts?: Record<string, unknown>;
 }
 
-export type UpdateServiceInstanceDto = Partial<Omit<CreateServiceInstanceDto, 'hostId'>> & {
-  hostId?: string;
+export type UpdateFrameworkInstanceDto = Partial<Omit<CreateFrameworkInstanceDto, 'deviceId'>> & {
+  deviceId?: string;
 };
 
 export interface ServiceAssetDto {
@@ -316,11 +286,9 @@ export type UpdateServiceEndpointDto = Partial<CreateServiceEndpointDto>;
 export interface SiteAssetDto {
   id: string;
   tenantId: string;
-  serviceInstanceId: string;
-  serviceAssetId?: string;
-  hostId?: string;
-  agentId?: string;
-  providerType: ProviderType;
+  frameworkInstanceId: string;
+  deviceId: string;
+  discoveryProviderKey: string;
   siteType: SiteAssetType;
   siteName: string;
   siteKey: string;
@@ -342,11 +310,9 @@ export interface SiteAssetDto {
 }
 
 export interface CreateSiteAssetDto {
-  serviceInstanceId: string;
-  serviceAssetId?: string;
-  hostId?: string;
-  agentId?: string;
-  providerType: ProviderType;
+  frameworkInstanceId: string;
+  deviceId: string;
+  discoveryProviderKey: string;
   siteType: SiteAssetType;
   siteName: string;
   siteKey: string;
@@ -368,19 +334,15 @@ export type UpdateSiteAssetDto = Partial<CreateSiteAssetDto>;
 export interface ManagedTargetDto {
   id: string;
   tenantId: string;
-  agentId?: string;
-  deviceAssetId?: string;
-  hostId?: string;
-  serviceInstanceId?: string;
-  serviceAssetId?: string;
-  siteAssetId?: string;
-  providerType: ProviderType;
-  frameworkType: ProviderType;
+  deviceId: string;
+  frameworkInstanceId?: string;
+  siteId?: string;
+  discoveryProviderKey: string;
   targetType: ManagedTargetType;
   targetKey: string;
   bindingKey?: string;
-  capabilityProfile: Record<string, unknown>;
-  deploymentMode?: string;
+  supportedCapabilities: string[];
+  executionLocations: ManagedTargetExecutionLocation[];
   lastSeenAt?: string;
   status: ManagedTargetStatus;
   metadata: Record<string, unknown>;
@@ -393,15 +355,7 @@ export interface ManagedTargetDto {
 export interface ApplicationAssetTargetSummaryDto {
   id: string;
   applicationAssetId: string;
-  agentId?: string;
-  deviceAssetId?: string;
-  siteAssetId: string;
   managedTargetId: string;
-  providerType: ProviderType;
-  frameworkType: ProviderType;
-  targetType: ManagedTargetType;
-  targetKey: string;
-  bindingKey?: string;
   status: ApplicationAssetTargetStatus;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -411,8 +365,13 @@ export interface ApplicationAssetTargetSummaryDto {
 }
 
 export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetSummaryDto {
+  host?: HostDto;
+  frameworkInstance?: FrameworkInstanceDto;
   siteAsset?: SiteAssetDto;
   managedTarget?: ManagedTargetDto;
+  driverKind?: 'AGENT_NATIVE' | 'AGENT_PLUGIN' | 'DEVICE_PLUGIN';
+  executionLocation?: ManagedTargetExecutionLocation;
+  availableExecutionLocations?: ManagedTargetExecutionLocation[];
   certificateBindings: Array<Pick<
     CertificateBindingDto,
     | 'id'
@@ -437,15 +396,7 @@ export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetS
 
 export interface CreateApplicationAssetTargetDto {
   applicationAssetId: string;
-  agentId?: string;
-  deviceAssetId?: string;
-  siteAssetId: string;
   managedTargetId: string;
-  providerType: ProviderType;
-  frameworkType: ProviderType;
-  targetType: ManagedTargetType;
-  targetKey: string;
-  bindingKey?: string;
   status?: ApplicationAssetTargetStatus;
   metadata?: Record<string, unknown>;
 }
@@ -500,19 +451,15 @@ export interface CreateManagedTargetSnapshotDto {
 }
 
 export interface CreateManagedTargetDto {
-  agentId?: string;
-  deviceAssetId?: string;
-  hostId?: string;
-  serviceInstanceId?: string;
-  serviceAssetId?: string;
-  siteAssetId?: string;
-  providerType: ProviderType;
-  frameworkType: ProviderType;
+  deviceId: string;
+  frameworkInstanceId?: string;
+  siteId?: string;
+  discoveryProviderKey: string;
   targetType: ManagedTargetType;
   targetKey: string;
   bindingKey?: string;
-  capabilityProfile?: Record<string, unknown>;
-  deploymentMode?: string;
+  supportedCapabilities: string[];
+  executionLocations: ManagedTargetExecutionLocation[];
   lastSeenAt?: string;
   status?: ManagedTargetStatus;
   metadata?: Record<string, unknown>;
@@ -622,19 +569,19 @@ export interface NormalizedDiscoveredHostDto {
 export interface NormalizedDiscoveredServiceDto {
   hostRef?: string;
   hostname?: string;
-  providerType: ProviderType;
-  serviceName?: string;
+  frameworkType: ProviderType;
+  frameworkKey?: string;
   displayName?: string;
   versionText?: string;
   installPath?: string;
   configPath?: string;
   runtimeUser?: string;
   ports?: Array<number | Record<string, unknown>>;
-  providerKey?: string;
+  discoveryProviderKey: string;
   manualOverrides?: Record<string, unknown>;
   discoverySource?: DiscoverySource;
   lastDiscoveredAt?: string;
-  status?: ServiceInstanceStatus;
+  status?: FrameworkInstanceStatus;
   rawFacts?: Record<string, unknown>;
 }
 
@@ -642,8 +589,9 @@ export interface NormalizedDiscoveredServiceAssetDto {
   serviceRef?: string;
   endpointRef?: string;
   hostname?: string;
-  providerType?: ProviderType;
-  serviceName?: string;
+  frameworkType?: ProviderType;
+  frameworkKey?: string;
+  discoveryProviderKey?: string;
   address: string;
   addressType?: ServiceAssetAddressType;
   port: number;
@@ -664,8 +612,9 @@ export interface NormalizedDiscoveredSiteAssetDto {
   serviceAssetRef?: string;
   serviceRef?: string;
   hostname?: string;
-  providerType?: ProviderType;
-  serviceName?: string;
+  frameworkType?: ProviderType;
+  frameworkKey?: string;
+  discoveryProviderKey?: string;
   agentId?: string;
   siteType?: SiteAssetType;
   siteName: string;
@@ -688,8 +637,9 @@ export interface NormalizedDiscoveredBindingDto {
   siteAssetRef?: string;
   serviceRef?: string;
   hostname?: string;
-  providerType?: ProviderType;
-  serviceName?: string;
+  frameworkType?: ProviderType;
+  frameworkKey?: string;
+  discoveryProviderKey?: string;
   domain?: string;
   domainName?: string;
   port?: number;
@@ -741,8 +691,7 @@ export interface RefreshAssetsFromAgentDto {
 }
 
 export interface RefreshAssetsFromAgentResultDto extends DiscoveryIngestResultDto {
-  mode: 'direct' | 'fallback_capability_snapshot';
-  fallbackReason?: string;
+  mode: 'direct';
 }
 
 export interface DiscoveryIngestResultDto {
@@ -761,7 +710,7 @@ export interface DiscoveryIngestResultDto {
 
 export interface ResolvedAssetConflictDto {
   conflict: AssetConflictDto;
-  resource?: HostDto | ServiceInstanceDto | ServiceAssetDto | SiteAssetDto | ManagedTargetDto | CertificateBindingDto;
+  resource?: HostDto | FrameworkInstanceDto | ServiceAssetDto | SiteAssetDto | ManagedTargetDto | CertificateBindingDto;
 }
 
 export interface BindingDriftPersistenceDto {

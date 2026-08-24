@@ -22,7 +22,7 @@ import (
 
 type linuxNginxDeployInput struct {
 	Operation       string                    `json:"operation"`
-	ProviderType    string                    `json:"providerType"`
+	FrameworkType   string                    `json:"frameworkType"`
 	BindingSelector linuxNginxBindingSelector `json:"bindingSelector"`
 	Artifact        linuxNginxArtifact        `json:"artifact"`
 	ExecutionPolicy linuxNginxExecutionPolicy `json:"executionPolicy"`
@@ -296,7 +296,7 @@ func runLinuxNginxDryRun(taskID string, input linuxNginxDeployInput) (bool, stri
 		"executor":       "linux-nginx-provider",
 		"mode":           "nginx_dry_run_preflight",
 		"taskId":         taskID,
-		"providerType":   "NGINX",
+		"frameworkType":  "web.nginx",
 		"operation":      "dryRun",
 		"executable":     len(blockers) == 0,
 		"blockers":       blockers,
@@ -2196,7 +2196,7 @@ func mergeLinuxNginxPrivilegeMode(left string, right string) string {
 func rollbackAfterInstallFailure(taskID string, input linuxNginxDeployInput, manifest *linuxNginxBackupManifest, code string, message string, baseDetail map[string]any) (bool, string, string, map[string]any) {
 	rollbackSuccess, rollbackCode, rollbackMessage, rollbackDetail := runLinuxNginxRollback(taskID, linuxNginxDeployInput{
 		Operation:       "rollback",
-		ProviderType:    input.ProviderType,
+		FrameworkType:   input.FrameworkType,
 		BindingSelector: input.BindingSelector,
 		Artifact:        input.Artifact,
 		ExecutionPolicy: input.ExecutionPolicy,

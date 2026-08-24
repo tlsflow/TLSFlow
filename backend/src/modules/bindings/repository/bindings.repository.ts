@@ -32,7 +32,7 @@ export class PgBindingsRepository implements BindingsRepository {
   ) {}
 
   async createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto> {
-    const serviceInstance = await this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
+    const serviceInstance = await this.assets.getFrameworkInstance(tenantId, input.serviceInstanceId);
     if (!serviceInstance) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     }
@@ -51,7 +51,7 @@ export class PgBindingsRepository implements BindingsRepository {
 
     const serviceAsset = input.serviceAssetId
       ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId)
-      : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.hostId, endpoint);
+      : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.deviceId, endpoint);
     if (input.serviceAssetId && !serviceAsset) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     }
@@ -67,7 +67,7 @@ export class PgBindingsRepository implements BindingsRepository {
     if (input.managedTargetId && !managedTarget) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: input.managedTargetId });
     }
-    this.assertBindingRelations(input, serviceInstance.hostId, serviceAsset?.id, siteAsset, managedTarget);
+    this.assertBindingRelations(input, serviceInstance.deviceId, serviceAsset?.id, siteAsset, managedTarget);
     await this.assertNoDuplicate(tenantId, {
       ...input,
       serviceAssetId: serviceAsset?.id,
@@ -85,7 +85,7 @@ export class PgBindingsRepository implements BindingsRepository {
       managedTargetId: managedTarget?.id,
       serviceInstanceId: input.serviceInstanceId,
       serviceEndpointId: input.serviceEndpointId,
-      hostId: serviceInstance.hostId,
+      hostId: serviceInstance.deviceId,
       domainName: input.domainName ?? input.domain,
       domain: input.domain ?? input.domainName,
       port: input.port,
@@ -166,7 +166,7 @@ export class PgBindingsRepository implements BindingsRepository {
     const result: CertificateBindingUsageDto[] = [];
     for (const binding of bindings) {
       const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAssetIncludingDeleted(tenantId, binding.serviceAssetId) : undefined;
-      const service = await this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
+      const service = await this.assets.getFrameworkInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
       const host = binding.hostId ? await this.assets.getHostIncludingDeleted(tenantId, binding.hostId) : undefined;
       const siteAsset = binding.siteAssetId ? await this.assets.getSiteAssetIncludingDeleted(tenantId, binding.siteAssetId) : undefined;
       const managedTarget = binding.managedTargetId ? await this.assets.getManagedTargetIncludingDeleted(tenantId, binding.managedTargetId) : undefined;
@@ -177,7 +177,7 @@ export class PgBindingsRepository implements BindingsRepository {
           : { id: serviceAsset.id, address: serviceAsset.address, port: serviceAsset.port, protocol: serviceAsset.protocol, status: serviceAsset.status, deletedAt: serviceAsset.deletedAt },
         service: service === undefined
           ? undefined
-          : { id: service.id, displayName: service.displayName, providerType: service.providerType, status: service.status, deletedAt: service.deletedAt },
+          : { id: service.id, displayName: service.displayName, providerType: service.frameworkType, status: service.status, deletedAt: service.deletedAt },
         host: host === undefined
           ? undefined
           : {
@@ -193,12 +193,14 @@ export class PgBindingsRepository implements BindingsRepository {
           ? undefined
           : {
             id: siteAsset.id,
+            deviceId: siteAsset.deviceId,
+            frameworkInstanceId: siteAsset.frameworkInstanceId,
+            discoveryProviderKey: siteAsset.discoveryProviderKey,
             siteName: siteAsset.siteName,
             bindingInformation: siteAsset.bindingInformation,
             hostHeader: siteAsset.hostHeader,
             port: siteAsset.port,
             protocol: siteAsset.protocol,
-            agentId: siteAsset.agentId,
             status: siteAsset.status,
             deletedAt: siteAsset.deletedAt,
           },
@@ -206,8 +208,10 @@ export class PgBindingsRepository implements BindingsRepository {
           ? undefined
           : {
             id: managedTarget.id,
-            agentId: managedTarget.agentId,
-            deviceAssetId: managedTarget.deviceAssetId,
+            deviceId: managedTarget.deviceId,
+            frameworkInstanceId: managedTarget.frameworkInstanceId,
+            siteId: managedTarget.siteId,
+            discoveryProviderKey: managedTarget.discoveryProviderKey,
             targetKey: managedTarget.targetKey,
             bindingKey: managedTarget.bindingKey,
             status: managedTarget.status,
@@ -234,9 +238,9 @@ export class PgBindingsRepository implements BindingsRepository {
 
     let nextHostId = current.hostId;
     if (input.serviceInstanceId && input.serviceInstanceId !== current.serviceInstanceId) {
-      const serviceInstance = await this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
+      const serviceInstance = await this.assets.getFrameworkInstance(tenantId, input.serviceInstanceId);
       if (!serviceInstance) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
-      nextHostId = serviceInstance.hostId;
+      nextHostId = serviceInstance.deviceId;
     }
 
     const nextServiceAsset = input.serviceAssetId ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId) : (current.serviceAssetId ? await this.assets.getServiceAsset(tenantId, current.serviceAssetId) : undefined);
@@ -373,27 +377,21 @@ export class PgBindingsRepository implements BindingsRepository {
     managedTarget: Awaited<ReturnType<AssetsRepository['getManagedTarget']>>,
   ): void {
     if (siteAsset) {
-      if (siteAsset.serviceInstanceId !== input.serviceInstanceId) {
+      if (siteAsset.frameworkInstanceId !== input.serviceInstanceId) {
         throw new AppError('VALIDATION_FAILED', 'SiteAsset 必须属于同一 ServiceInstance', { siteAssetId: siteAsset.id, serviceInstanceId: input.serviceInstanceId });
       }
-      if (hostId && siteAsset.hostId && siteAsset.hostId !== hostId) {
+      if (hostId && siteAsset.deviceId !== hostId) {
         throw new AppError('VALIDATION_FAILED', 'SiteAsset 必须属于同一 Host', { siteAssetId: siteAsset.id, hostId });
-      }
-      if (serviceAssetId && siteAsset.serviceAssetId && siteAsset.serviceAssetId !== serviceAssetId) {
-        throw new AppError('VALIDATION_FAILED', 'SiteAsset 与 ServiceAsset 关联不一致', { siteAssetId: siteAsset.id, serviceAssetId });
       }
     }
     if (managedTarget) {
-      if (hostId && managedTarget.hostId && managedTarget.hostId !== hostId) {
+      if (hostId && managedTarget.deviceId !== hostId) {
         throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须属于同一 Host', { managedTargetId: managedTarget.id, hostId });
       }
-      if (managedTarget.serviceInstanceId && managedTarget.serviceInstanceId !== input.serviceInstanceId) {
+      if (managedTarget.frameworkInstanceId && managedTarget.frameworkInstanceId !== input.serviceInstanceId) {
         throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须属于同一 ServiceInstance', { managedTargetId: managedTarget.id, serviceInstanceId: input.serviceInstanceId });
       }
-      if (serviceAssetId && managedTarget.serviceAssetId && managedTarget.serviceAssetId !== serviceAssetId) {
-        throw new AppError('VALIDATION_FAILED', 'ManagedTarget 与 ServiceAsset 关联不一致', { managedTargetId: managedTarget.id, serviceAssetId });
-      }
-      if (siteAsset?.id && managedTarget.siteAssetId && managedTarget.siteAssetId !== siteAsset.id) {
+      if (siteAsset?.id && managedTarget.siteId && managedTarget.siteId !== siteAsset.id) {
         throw new AppError('VALIDATION_FAILED', 'ManagedTarget 与 SiteAsset 关联不一致', { managedTargetId: managedTarget.id, siteAssetId: siteAsset.id });
       }
     }

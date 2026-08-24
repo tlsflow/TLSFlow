@@ -131,10 +131,14 @@ function validateResourceMaps(resources: Record<string, unknown>): void {
 function readCompatibility(input: unknown): UnifiedPluginManifestV1['compatibility'] {
   if (input === undefined) return undefined;
   const record = requireRecord(input, 'compatibility');
+  assertKnownKeys(record, new Set(['productFamilies', 'frameworkTypes', 'targetTypes', 'managementMethods', 'executionLocations', 'artifactContracts']), 'compatibility');
   return {
-    products: record.products === undefined ? undefined : requireStringArray(record.products, 'compatibility.products'),
-    versions: record.versions === undefined ? undefined : requireStringArray(record.versions, 'compatibility.versions'),
-    platforms: record.platforms === undefined ? undefined : requireStringArray(record.platforms, 'compatibility.platforms'),
+    productFamilies: record.productFamilies === undefined ? undefined : requireStringArray(record.productFamilies, 'compatibility.productFamilies'),
+    frameworkTypes: record.frameworkTypes === undefined ? undefined : requireStringArray(record.frameworkTypes, 'compatibility.frameworkTypes'),
+    targetTypes: record.targetTypes === undefined ? undefined : requireStringArray(record.targetTypes, 'compatibility.targetTypes'),
+    managementMethods: record.managementMethods === undefined ? undefined : requireArray(record.managementMethods, 'compatibility.managementMethods').map((item, index) => requireEnum(item, ['AGENT', 'PLUGIN', 'MANUAL'] as const, `compatibility.managementMethods.${index}`)),
+    executionLocations: record.executionLocations === undefined ? undefined : requireArray(record.executionLocations, 'compatibility.executionLocations').map((item, index) => requireEnum(item, ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] as const, `compatibility.executionLocations.${index}`)),
+    artifactContracts: record.artifactContracts === undefined ? undefined : requireStringArray(record.artifactContracts, 'compatibility.artifactContracts'),
   };
 }
 

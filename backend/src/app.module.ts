@@ -66,8 +66,11 @@ import { PgPluginsRepository } from './modules/plugins/repository/plugins.reposi
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
+import { ManagedTargetPluginQueryService } from './modules/plugins/application/managed-target-plugin-query.service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
 import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/standard-device-discovery.projector.js';
+import { AgentCapabilityDiscoveryProjector } from './modules/agents/discovery/agent-capability-discovery.projector.js';
+import { ManagedTargetContextResolver } from './modules/assets/application/managed-target-context.resolver.js';
 import { LivenessApplicationService } from './modules/liveness/index.js';
 import { PluginCertificateResultService } from './modules/plugins/results/plugin-certificate-result.service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
@@ -135,6 +138,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
   });
   const executionDetailStream = new ExecutionDetailStreamService();
+  const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
+  const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector);
   const executionResultSync = new ExecutionResultSyncService(
     executionPersistence.executions,
     assetsService,
@@ -152,6 +157,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executionResultSync,
     executionDetailStream,
     livenessService,
+    agentCapabilityDiscoveryProjector,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const pluginsRepository = new PgPluginsRepository(appDb);
@@ -170,7 +176,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
-  const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const devicesService = new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
@@ -231,6 +236,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
   assetsService.setBindingsRepository(bindingsService.getRepository());
   assetsService.setWorkflowTemplatesService(workflowTemplatesService);
   assetsService.setPluginBindingsService(pluginBindingsService);
+  assetsService.setManagedTargetContextResolver(new ManagedTargetContextResolver(
+    assetsService.getRepository(),
+    agentsService.getRepository(),
+    deviceAssetsRepository,
+  ));
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
@@ -270,6 +280,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificatesApp: certificateServices.certificates,
     workflows: workflowTemplatesService,
     pluginBindings: pluginBindingsService,
+    unifiedPlugins: unifiedPluginsService,
     pluginWorkflows: pluginWorkflowPublisher,
     secrets: security.secrets,
     database: appDb,
@@ -284,6 +295,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   })).register(app.router);
   new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(appDb), undefined, appDb, security.secrets), security).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
+  app.setResource('deploymentPlansController', deploymentPlans);
+  app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());
+  app.setResource('gatewaysService', gatewaysService);
   executionResultSync.setContinuationRunner(({ runId, actorId, tenantId }) =>
     executionsService.runDispatchedExecution(runId, actorId, tenantId, executorRegistry),
   );
@@ -291,6 +305,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executionsService.triggerAutomaticRollback(runId, actorId, tenantId),
   );
   app.setResource('executionsService', executionsService);
+  app.setResource('executionResultSync', executionResultSync);
   app.setResource('executionDetailStream', executionDetailStream);
   new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
 
@@ -365,7 +380,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
-  new PluginsController(pluginsService, unifiedPluginsService, pluginBindingsService, new PluginPromotionService(appDb)).register(app.router);
+  new PluginsController(
+    pluginsService,
+    unifiedPluginsService,
+    pluginBindingsService,
+    new PluginPromotionService(appDb),
+    new ManagedTargetPluginQueryService(appDb),
+  ).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({

@@ -15,7 +15,7 @@ import { GatewaysApplicationService } from '../../gateways/application/gateways.
 import type { GatewayAdapterType, GatewayCandidate, ZoneRouteResult } from '../../gateway-agents/index.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import { PgBindingsRepository } from '../../bindings/repository/bindings.repository.js';
-import type { CertificateBindingDto, CreateCertificateBindingDto, UpdateCertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
+import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
 import { PgAssetsRepository } from '../../assets/repository/assets.repository.js';
 import type { ManagedTargetDto, ServiceAssetDto, SiteAssetDto } from '../../assets/dto/assets.dto.js';
@@ -33,6 +33,8 @@ import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
+import { DeploymentCapabilityResolver, type UnifiedPluginVersionReader } from '../../plugins/application/deployment-capability.resolver.js';
+import { createDefaultPluginRuntimeAdapterRegistry, type PluginRuntimeAdapterRegistry } from './plugin-runtime-adapter.registry.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
@@ -58,17 +60,6 @@ interface ResolvedCreatePlanInput {
   targets: ResolvedCreateTarget[];
 }
 
-interface LinuxNginxBindingHints {
-  certPath?: string;
-  keyPath?: string;
-  reloadCommand?: string;
-  sourceFile?: string;
-  serverNames?: string[];
-  testCommand?: string;
-  permission?: Record<string, unknown>;
-  helperCommand?: string;
-}
-
 interface WorkflowCertificateArtifactBinding {
   certificateFormatId: string;
   outputBindings: Record<string, string>;
@@ -91,10 +82,12 @@ export interface DeploymentPlansApplicationDependencies {
   managedTargetContextResolver?: ManagedTargetContextResolver;
   workflows?: WorkflowTemplatesApplicationService;
   pluginBindings?: PluginBindingsApplicationService;
+  unifiedPlugins?: UnifiedPluginVersionReader;
   pluginWorkflows?: PluginWorkflowPublisherService;
   credentials?: RuntimeCredentialResolver;
   secrets?: SecretService;
   database?: import('../../../database/database-port.js').DatabasePort;
+  pluginRuntimeAdapters?: PluginRuntimeAdapterRegistry;
 }
 
 export class DeploymentPlansApplicationService {
@@ -114,8 +107,10 @@ export class DeploymentPlansApplicationService {
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
   private readonly workflows?: WorkflowTemplatesApplicationService;
   private readonly pluginBindings?: PluginBindingsApplicationService;
+  private readonly deploymentCapabilityResolver?: DeploymentCapabilityResolver;
   private readonly pluginWorkflows?: PluginWorkflowPublisherService;
   private readonly credentials?: RuntimeCredentialResolver;
+  private readonly pluginRuntimeAdapters: PluginRuntimeAdapterRegistry;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -138,10 +133,14 @@ export class DeploymentPlansApplicationService {
       ?? (dependencies.deviceAssets ? new ManagedTargetContextResolver(this.assets, this.agents, dependencies.deviceAssets) : undefined);
     this.workflows = dependencies.workflows;
     this.pluginBindings = dependencies.pluginBindings;
+    this.deploymentCapabilityResolver = dependencies.pluginBindings && dependencies.unifiedPlugins
+      ? new DeploymentCapabilityResolver(dependencies.pluginBindings, dependencies.unifiedPlugins)
+      : undefined;
     this.pluginWorkflows = dependencies.pluginWorkflows;
     this.credentials = dependencies.credentials ?? (dependencies.secrets && dependencies.database
       ? new RuntimeCredentialResolver(new CredentialsRepository(dependencies.database), dependencies.secrets)
       : undefined);
+    this.pluginRuntimeAdapters = dependencies.pluginRuntimeAdapters ?? createDefaultPluginRuntimeAdapterRegistry();
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -466,24 +465,19 @@ export class DeploymentPlansApplicationService {
     if (!bindingTarget) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAssetTarget 不存在', { applicationAssetId: input.applicationAssetId });
     }
+    const targetManagedTarget = await this.assets.getManagedTarget(input.tenantId, bindingTarget.managedTargetId);
+    if (!targetManagedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: bindingTarget.managedTargetId });
+    const targetSiteAsset = targetManagedTarget.siteId
+      ? await this.assets.getSiteAsset(input.tenantId, targetManagedTarget.siteId)
+      : undefined;
 
-    let applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
-    let candidates = this.resolveApplicationAssetBindingCandidates(
+    const applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
+    const candidates = this.resolveApplicationAssetBindingCandidates(
       applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? [],
       input.applicationAssetId,
-      bindingTarget,
+      targetManagedTarget,
       applicationAsset.address,
     );
-    if (candidates.length === 0) {
-      await this.ensureApplicationAssetBinding(input.tenantId, applicationAsset.id, applicationAsset.address, bindingTarget);
-      applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
-      candidates = this.resolveApplicationAssetBindingCandidates(
-        applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? [],
-        input.applicationAssetId,
-        bindingTarget,
-        applicationAsset.address,
-      );
-    }
     if (candidates.length !== 1) {
       throw new AppError(
         candidates.length === 0 ? 'RESOURCE_NOT_FOUND' : 'VALIDATION_FAILED',
@@ -495,8 +489,8 @@ export class DeploymentPlansApplicationService {
           applicationAssetId: input.applicationAssetId,
           applicationAddress: applicationAsset.address,
           managedTargetId: bindingTarget.managedTargetId,
-          siteAssetId: bindingTarget.siteAssetId,
-          bindingKey: bindingTarget.bindingKey,
+          siteAssetId: targetManagedTarget.siteId,
+          bindingKey: targetManagedTarget.bindingKey,
           bindingIds: candidates.map((item) => item.id),
           targetBindingDetailBindings: (applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? []).map((item) => ({
             id: item.id,
@@ -516,10 +510,10 @@ export class DeploymentPlansApplicationService {
     }
     const managedTarget = binding.managedTargetId
       ? await this.assets.getManagedTarget(input.tenantId, binding.managedTargetId)
-      : await this.assets.getManagedTarget(input.tenantId, bindingTarget.managedTargetId);
+      : targetManagedTarget;
     const siteAsset = binding.siteAssetId
       ? await this.assets.getSiteAsset(input.tenantId, binding.siteAssetId)
-      : await this.assets.getSiteAsset(input.tenantId, bindingTarget.siteAssetId);
+      : targetSiteAsset;
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
@@ -529,25 +523,16 @@ export class DeploymentPlansApplicationService {
     );
     const deploymentStrategy = strategyAsset.deploymentStrategy;
     const strategyType = deploymentStrategy?.type;
-    const providerType = (siteAsset?.providerType ?? managedTarget?.providerType ?? 'IIS') as 'IIS' | 'NGINX';
-    const readyBinding = strategyType === 'AGENT' && providerType === 'NGINX'
-      ? await this.ensureLinuxNginxBindingPayloadReady(input.tenantId, binding, managedTarget, siteAsset)
-      : binding;
-    const strategyCertificateFormatId = deploymentStrategy?.type === 'AGENT'
-      ? deploymentStrategy.agent?.certificateFormatId
-      : undefined;
-    const certificateFormatId = input.certificateFormatId ?? strategyCertificateFormatId;
-    if (strategyType === 'AGENT' && !certificateFormatId) {
-      throw new AppError('VALIDATION_FAILED', '受管应用资产缺少证书产物配置', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: applicationAsset.id,
-      });
-    }
+    const targetContext = await this.resolveManagedTargetContext(input.tenantId, managedTarget?.id ?? bindingTarget.managedTargetId);
+    const readyBinding = binding;
+    const certificateFormatId = input.certificateFormatId;
     const managedTargetId = deploymentStrategy?.type === 'MANAGED_TARGET'
       ? deploymentStrategy.managedTarget?.managedTargetId
       : bindingTarget.managedTargetId;
     const managedTargetContext = strategyType === 'MANAGED_TARGET'
-      ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
+      ? managedTargetId === targetContext.managedTarget.id
+        ? targetContext
+        : await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
       : undefined;
     const baseStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
@@ -555,7 +540,7 @@ export class DeploymentPlansApplicationService {
       certificateBinding: readyBinding,
       managedTargetContext,
     });
-    const managedPluginStrategy = await this.attachManagedPluginWorkflowRequest(
+    const managedPluginStrategy = await this.compileManagedPluginRuntime(
       input.tenantId,
       strategyAsset,
       managedTargetContext,
@@ -574,7 +559,7 @@ export class DeploymentPlansApplicationService {
         applicationAssetId: applicationAsset.id,
         serviceAssetId: applicationAsset.id,
         managedTargetId: resolvedStrategy.executionTargetId ?? bindingTarget.managedTargetId,
-        siteAssetId: bindingTarget.siteAssetId,
+        siteAssetId: targetManagedTarget.siteId,
         domain: readyBinding.domainName ?? readyBinding.domain ?? applicationAsset.address,
         executionTargetId: resolvedStrategy.executionTargetId,
         executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
@@ -654,82 +639,64 @@ export class DeploymentPlansApplicationService {
     };
   }
 
-  private async attachManagedPluginWorkflowRequest(
+  private async compileManagedPluginRuntime(
     tenantId: string,
     asset: ServiceAssetDto,
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
     resolved: ReturnType<DeploymentStrategyResolver['resolve']>,
   ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
-    if (asset.deploymentStrategy?.type !== 'MANAGED_TARGET' || resolved.executorType !== 'WORKFLOW' || !context?.deviceAsset) {
+    if (asset.deploymentStrategy?.type !== 'MANAGED_TARGET' || !context) {
       return resolved;
     }
-    if (!this.pluginBindings || !this.pluginWorkflows) {
+    if (!this.deploymentCapabilityResolver) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '设备插件部署编译服务未完整接入', {
         code: 'PLUGIN_DEPLOYMENT_COMPILER_MISSING',
         applicationAssetId: asset.id,
         managedTargetId: context.managedTarget.id,
       });
     }
-    const explicitBindingId = asset.deploymentStrategy.managedTarget?.pluginBindingId;
-    const assignment = await this.pluginBindings.resolveAssignment(tenantId, 'certificate.deploy', {
-      applicationAssetId: asset.id,
+    const capability = await this.deploymentCapabilityResolver.resolve({
+      tenantId,
+      capabilityKey: 'certificate.deploy',
+      hostId: context.host.id,
       managedTargetId: context.managedTarget.id,
-      deviceId: context.deviceAsset.id,
+      applicationAssetId: asset.id,
+      executionLocations: context.availableExecutionLocations,
+      compatibility: {
+        productFamily: context.deviceAsset?.deviceFamily ?? agentProductFamily(context.host.osType),
+        frameworkType: context.frameworkType,
+        targetType: context.managedTarget.targetType,
+        managementMethod: context.agent ? 'AGENT' : context.deviceAsset ? 'PLUGIN' : 'MANUAL',
+        artifactContract: 'certificate.deploy.v1',
+      },
     });
-    if (explicitBindingId && assignment && explicitBindingId !== assignment.pluginBindingId) {
-      throw new AppError('VALIDATION_FAILED', '应用资产部署策略与生效证书能力指派冲突', {
-        code: 'PLUGIN_BINDING_CONFLICT',
-        applicationAssetId: asset.id,
-        explicitBindingId,
-        assignedBindingId: assignment.pluginBindingId,
-      });
-    }
-    const pluginBindingId = explicitBindingId ?? assignment?.pluginBindingId;
-    if (!pluginBindingId) {
-      throw new AppError('CAPABILITY_MISSING', '受管目标没有可用的 certificate.deploy 插件能力指派', {
-        applicationAssetId: asset.id,
-        managedTargetId: context.managedTarget.id,
-        deviceAssetId: context.deviceAsset.id,
-      });
-    }
-    const binding = await this.pluginBindings.getTenantBinding(tenantId, pluginBindingId);
-    const workflow = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
-    const credentials = await this.snapshotCredentials(tenantId, binding.credentialBindings);
-    const gatewayId = context.executionLocation === 'GATEWAY' ? context.deviceAsset.gatewayId : undefined;
+    const workflow = capability.pluginRuntime === 'WORKFLOW_DSL'
+      ? await this.requirePluginWorkflow(capability.pluginVersionId, capability.assignment.capabilityKey)
+      : undefined;
+    const credentials = workflow ? await this.snapshotCredentials(tenantId, capability.binding.credentialBindings) : {};
+    const runtime = await this.pluginRuntimeAdapters.compile({
+      capability,
+      context,
+      applicationAssetId: asset.id,
+      certificateBindingId: readOptionalString(resolved.payload.certificateBindingId),
+      workflow: workflow ? { workflowId: workflow.workflowTemplateId, workflowVersionId: workflow.workflowVersionId, credentials } : undefined,
+    });
     return {
       ...resolved,
-      requiredCapabilities: gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
+      executorType: runtime.executorType,
+      executionTargetId: runtime.executionTargetId,
+      requiredCapabilities: runtime.requiredCapabilities,
+      gatewayRoute: runtime.gatewayRoute,
       payload: {
         ...resolved.payload,
-        workflowRequest: {
-          workflowId: workflow.workflowTemplateId,
-          workflowVersionSelection: 'PINNED',
-          workflowVersionId: workflow.workflowVersionId,
-          runner: gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
-          gatewayId,
-          pluginVersionId: binding.pluginVersionId,
-          pluginBindingId,
-          capabilityKey: 'certificate.deploy',
-          target: {
-            frameworkType: context.managedTarget.frameworkType,
-            siteName: context.siteAsset?.siteName,
-            bindingInformation: context.siteAsset?.bindingInformation ?? context.managedTarget.bindingKey,
-            hostHeader: context.siteAsset?.hostHeader,
-            port: context.siteAsset?.port,
-            protocol: context.siteAsset?.protocol,
-          },
-          connectionBindings: binding.connectionBindings,
-          variableBindings: binding.variableBindings,
-          credentials,
-          parameterBindings: {},
-          certificateArtifactBindings: binding.certificateArtifactBindings,
-          applicationAssetId: asset.id,
-          certificateBindingId: readOptionalString(resolved.payload.certificateBindingId),
-          managedTargetId: context.managedTarget.id,
-          siteAssetId: context.siteAsset?.id,
-        },
+        ...runtime.payload,
       },
     };
+  }
+
+  private requirePluginWorkflow(pluginVersionId: string, capabilityKey: string) {
+    if (!this.pluginWorkflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件 Workflow 发布服务未接入', { code: 'PLUGIN_WORKFLOW_RESOLVER_MISSING' });
+    return this.pluginWorkflows.require(pluginVersionId, capabilityKey);
   }
 
   private async snapshotCredentials(tenantId: string, bindings: Record<string, { credentialId: string }>) {
@@ -830,7 +797,7 @@ export class DeploymentPlansApplicationService {
   private resolveApplicationAssetBindingCandidates(
     items: Array<Pick<CertificateBindingDto, 'id' | 'serviceAssetId' | 'siteAssetId' | 'managedTargetId' | 'bindingKey' | 'domainName' | 'domain'>>,
     applicationAssetId: string,
-    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
+    bindingTarget: Pick<ManagedTargetDto, 'id' | 'siteId' | 'bindingKey'>,
     applicationAddress?: string,
   ): Array<Pick<CertificateBindingDto, 'id' | 'serviceAssetId' | 'siteAssetId' | 'managedTargetId' | 'bindingKey' | 'domainName' | 'domain'>> {
     const explicit = items.filter((item) => item.serviceAssetId === applicationAssetId);
@@ -840,8 +807,8 @@ export class DeploymentPlansApplicationService {
     const normalizedBindingKey = this.normalizeCompareValue(bindingTarget.bindingKey);
 
     const matched = items.filter((item) => {
-      if (item.managedTargetId !== bindingTarget.managedTargetId) return false;
-      if (item.siteAssetId !== bindingTarget.siteAssetId) return false;
+      if (item.managedTargetId !== bindingTarget.id) return false;
+      if (item.siteAssetId !== bindingTarget.siteId) return false;
 
       const itemBindingKey = this.normalizeCompareValue(item.bindingKey);
       const itemDomain = this.normalizeCompareValue(item.domainName ?? item.domain);
@@ -856,409 +823,6 @@ export class DeploymentPlansApplicationService {
 
   private normalizeCompareValue(value: string | undefined): string {
     return String(value ?? '').trim().toLowerCase();
-  }
-
-  private async ensureApplicationAssetBinding(
-    tenantId: string,
-    applicationAssetId: string,
-    applicationAddress: string,
-    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
-  ): Promise<void> {
-    const managedTarget = await this.assets.getManagedTarget(tenantId, bindingTarget.managedTargetId);
-    const siteAsset = await this.assets.getSiteAsset(tenantId, bindingTarget.siteAssetId);
-    if (!managedTarget || !siteAsset) return;
-
-    const serviceInstanceId = managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId;
-    if (!serviceInstanceId) return;
-
-    const providerType = (siteAsset.providerType ?? managedTarget.providerType ?? 'IIS') as 'IIS' | 'NGINX';
-    const createInput = providerType === 'NGINX'
-      ? this.buildApplicationAssetLinuxNginxBindingInput(applicationAssetId, applicationAddress, managedTarget, siteAsset, serviceInstanceId, bindingTarget)
-      : this.buildApplicationAssetIisBindingInput(applicationAssetId, applicationAddress, managedTarget, siteAsset, serviceInstanceId, bindingTarget);
-    const existing = await this.bindings.findCertificateBindingByIdentity(tenantId, createInput);
-    if (existing) {
-      if (providerType === 'NGINX') {
-        await this.ensureLinuxNginxBindingPayloadReady(tenantId, existing, managedTarget, siteAsset);
-      }
-      return;
-    }
-
-    await this.bindings.createCertificateBinding(tenantId, createInput);
-  }
-
-  private buildApplicationAssetIisBindingInput(
-    applicationAssetId: string,
-    applicationAddress: string,
-    managedTarget: ManagedTargetDto,
-    siteAsset: SiteAssetDto,
-    serviceInstanceId: string,
-    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
-  ): CreateCertificateBindingDto {
-    return {
-      serviceAssetId: applicationAssetId,
-      siteAssetId: siteAsset.id,
-      managedTargetId: managedTarget.id,
-      serviceInstanceId,
-      domainName: applicationAddress,
-      domain: applicationAddress,
-      port: siteAsset.port ?? undefined,
-      protocol: (siteAsset.protocol ?? 'HTTPS') as CertificateBindingDto['protocol'],
-      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAddress,
-      bindingType: 'WINDOWS_CERT_STORE',
-      storeLocation: 'LocalMachine',
-      storeName: 'My',
-      verifyMethod: 'STORE_QUERY',
-      status: 'MANAGED',
-      metadata: {
-        source: 'deployment_plan_autofix',
-        targetKey: managedTarget.targetKey,
-        siteName: siteAsset.siteName,
-        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
-        hostHeader: siteAsset.hostHeader ?? '',
-      },
-    };
-  }
-
-  private buildApplicationAssetLinuxNginxBindingInput(
-    applicationAssetId: string,
-    applicationAddress: string,
-    managedTarget: ManagedTargetDto,
-    siteAsset: SiteAssetDto,
-    serviceInstanceId: string,
-    bindingTarget: { managedTargetId: string; siteAssetId: string; bindingKey?: string },
-  ): CreateCertificateBindingDto {
-    const capabilityProfile = readRecord(managedTarget.capabilityProfile);
-    const sourceFile = readOptionalString(siteAsset.configPath)
-      ?? readOptionalString(siteAsset.metadata?.sourceFile);
-    const serverNames = [...new Set([
-      ...readStringArray(siteAsset.metadata?.serverNames),
-      normalizeDomain(applicationAddress),
-      normalizeDomain(siteAsset.hostHeader),
-    ].filter(Boolean))];
-
-    return {
-      serviceAssetId: applicationAssetId,
-      siteAssetId: siteAsset.id,
-      managedTargetId: managedTarget.id,
-      serviceInstanceId,
-      domainName: applicationAddress,
-      domain: applicationAddress,
-      port: siteAsset.port ?? undefined,
-      protocol: (siteAsset.protocol ?? 'HTTPS') as CertificateBindingDto['protocol'],
-      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAddress,
-      bindingType: 'FILE_PATH',
-      certPath: readOptionalString(capabilityProfile?.certPath)
-        ?? readOptionalString(siteAsset.metadata?.certPath),
-      keyPath: readOptionalString(capabilityProfile?.keyPath)
-        ?? readOptionalString(siteAsset.metadata?.keyPath),
-      reloadCommand: readOptionalString(capabilityProfile?.reloadCommand)
-        ?? readOptionalString(siteAsset.metadata?.reloadCommand),
-      verifyMethod: 'TLS_CONNECT',
-      status: 'MANAGED',
-      metadata: {
-        source: 'deployment_plan_autofix',
-        targetKey: managedTarget.targetKey,
-        siteName: siteAsset.siteName,
-        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
-        hostHeader: siteAsset.hostHeader ?? '',
-        sourceFile,
-        serverNames,
-        testCommand: readOptionalString(capabilityProfile?.testCommand)
-          ?? readOptionalString(siteAsset.metadata?.testCommand),
-        permission: readRecord(siteAsset.metadata?.permission) ?? {},
-      },
-    };
-  }
-
-  private async ensureLinuxNginxBindingPayloadReady(
-    tenantId: string,
-    binding: CertificateBindingDto,
-    managedTarget: ManagedTargetDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-  ): Promise<CertificateBindingDto> {
-    const capabilityProfile = readRecord(managedTarget?.capabilityProfile);
-    const siblingBinding = await this.findLinuxNginxSiblingBinding(tenantId, binding, managedTarget, siteAsset);
-    const snapshotBinding = await this.findLinuxNginxBindingFromDiscoverySnapshots(tenantId, binding, managedTarget, siteAsset);
-    const agentSnapshotBinding = await this.findLinuxNginxBindingFromAgentSnapshot(tenantId, binding, managedTarget, siteAsset);
-    const certPath = readOptionalString(binding.certPath)
-      ?? readOptionalString(siblingBinding?.certPath)
-      ?? readOptionalString(snapshotBinding?.certPath)
-      ?? readOptionalString(agentSnapshotBinding?.certPath)
-      ?? readOptionalString(capabilityProfile?.certPath)
-      ?? readOptionalString(siteAsset?.metadata?.certPath);
-    const keyPath = readOptionalString(binding.keyPath)
-      ?? readOptionalString(siblingBinding?.keyPath)
-      ?? readOptionalString(snapshotBinding?.keyPath)
-      ?? readOptionalString(agentSnapshotBinding?.keyPath)
-      ?? readOptionalString(capabilityProfile?.keyPath)
-      ?? readOptionalString(siteAsset?.metadata?.keyPath);
-
-    if (!certPath || !keyPath) {
-      throw new AppError('VALIDATION_FAILED', 'NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload', {
-        certificateBindingId: binding.id,
-        managedTargetId: managedTarget?.id,
-        siteAssetId: siteAsset?.id,
-        bindingCertPath: binding.certPath,
-        bindingKeyPath: binding.keyPath,
-        capabilityProfile,
-        siblingBindingId: siblingBinding?.id,
-        snapshotCertPath: snapshotBinding?.certPath,
-        snapshotKeyPath: snapshotBinding?.keyPath,
-        agentSnapshotCertPath: agentSnapshotBinding?.certPath,
-        agentSnapshotKeyPath: agentSnapshotBinding?.keyPath,
-      });
-    }
-
-    const patch: UpdateCertificateBindingDto = {};
-    if (!readOptionalString(binding.certPath)) patch.certPath = certPath;
-    if (!readOptionalString(binding.keyPath)) patch.keyPath = keyPath;
-    if (binding.bindingType !== 'FILE_PATH') patch.bindingType = 'FILE_PATH';
-    if (binding.verifyMethod !== 'TLS_CONNECT') patch.verifyMethod = 'TLS_CONNECT';
-
-    const reloadCommand = readOptionalString(binding.reloadCommand)
-      ?? readOptionalString(siblingBinding?.reloadCommand)
-      ?? readOptionalString(snapshotBinding?.reloadCommand)
-      ?? readOptionalString(agentSnapshotBinding?.reloadCommand)
-      ?? readOptionalString(capabilityProfile?.reloadCommand)
-      ?? readOptionalString(siteAsset?.metadata?.reloadCommand);
-    if (!readOptionalString(binding.reloadCommand) && reloadCommand) patch.reloadCommand = reloadCommand;
-
-    const existingMetadata = readRecord(binding.metadata) ?? {};
-    const sourceFile = readOptionalString(binding.localConfigPath)
-      ?? readOptionalString(existingMetadata.sourceFile)
-      ?? readOptionalString(agentSnapshotBinding?.sourceFile)
-      ?? readOptionalString(snapshotBinding?.sourceFile)
-      ?? readOptionalString(siteAsset?.metadata?.sourceFile)
-      ?? readOptionalString(siteAsset?.configPath);
-    const serverNames = uniqueStrings([
-      ...readStringArray(existingMetadata.serverNames),
-      ...(agentSnapshotBinding?.serverNames ?? []),
-      ...(snapshotBinding?.serverNames ?? []),
-      ...readStringArray(siteAsset?.metadata?.serverNames),
-      normalizeDomain(binding.domainName ?? binding.domain),
-      normalizeDomain(siteAsset?.hostHeader),
-      normalizeDomain(siteAsset?.siteName),
-    ]);
-    const testCommand = readOptionalString(existingMetadata.testCommand)
-      ?? readOptionalString(agentSnapshotBinding?.testCommand)
-      ?? readOptionalString(snapshotBinding?.testCommand)
-      ?? readOptionalString(capabilityProfile?.testCommand)
-      ?? readOptionalString(siteAsset?.metadata?.testCommand);
-    const permission = firstNonEmptyRecord(
-      readRecord(existingMetadata.permission),
-      agentSnapshotBinding?.permission,
-      snapshotBinding?.permission,
-      readRecord(siteAsset?.metadata?.permission),
-    );
-    const helperCommand = readOptionalString(existingMetadata.helperCommand)
-      ?? readOptionalString(agentSnapshotBinding?.helperCommand)
-      ?? readOptionalString(snapshotBinding?.helperCommand)
-      ?? readOptionalString((permission ?? {})['recommendedHelperCommand']);
-    const metadataPatch = mergeLinuxNginxBindingMetadata(existingMetadata, {
-      sourceFile,
-      serverNames,
-      testCommand,
-      permission,
-      helperCommand,
-      reloadCommand,
-    });
-    if (metadataPatch) patch.metadata = metadataPatch;
-    if (sourceFile && readOptionalString(binding.localConfigPath) !== sourceFile) patch.localConfigPath = sourceFile;
-
-    if (Object.keys(patch).length === 0) {
-      return {
-        ...binding,
-        certPath,
-        keyPath,
-        reloadCommand: reloadCommand ?? binding.reloadCommand,
-        localConfigPath: sourceFile ?? binding.localConfigPath,
-        metadata: metadataPatch ?? binding.metadata,
-      };
-    }
-
-    const updated = await this.bindings.updateCertificateBinding(tenantId, binding.id, patch);
-    return {
-      ...updated,
-      certPath: readOptionalString(updated.certPath) ?? certPath,
-      keyPath: readOptionalString(updated.keyPath) ?? keyPath,
-      reloadCommand: readOptionalString(updated.reloadCommand) ?? reloadCommand,
-      localConfigPath: readOptionalString(updated.localConfigPath) ?? sourceFile,
-      metadata: metadataPatch ?? updated.metadata,
-    };
-  }
-
-  private async findLinuxNginxSiblingBinding(
-    tenantId: string,
-    binding: CertificateBindingDto,
-    managedTarget: ManagedTargetDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-  ): Promise<CertificateBindingDto | undefined> {
-    const candidates = new Map<string, CertificateBindingDto>();
-    if (managedTarget?.id) {
-      const page = await this.bindings.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: { managedTargetId: managedTarget.id } });
-      for (const item of page.items) candidates.set(item.id, item);
-    }
-    if (siteAsset?.id) {
-      const page = await this.bindings.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: { siteAssetId: siteAsset.id } });
-      for (const item of page.items) candidates.set(item.id, item);
-    }
-    const serviceInstanceId = binding.serviceInstanceId
-      || managedTarget?.serviceInstanceId
-      || siteAsset?.serviceInstanceId;
-    if (serviceInstanceId) {
-      const page = await this.bindings.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: { serviceInstanceId } });
-      for (const item of page.items) candidates.set(item.id, item);
-    }
-
-    const targetBindingKey = this.normalizeCompareValue(binding.bindingKey);
-    const targetDomain = this.normalizeCompareValue(binding.domainName ?? binding.domain);
-    const items = [...candidates.values()];
-    return items.find((item) => {
-      if (item.id === binding.id) return false;
-      if (managedTarget?.id && item.managedTargetId !== managedTarget.id) return false;
-      if (siteAsset?.id && item.siteAssetId !== siteAsset.id) return false;
-      if (!readOptionalString(item.certPath) || !readOptionalString(item.keyPath)) return false;
-      const itemBindingKey = this.normalizeCompareValue(item.bindingKey);
-      const itemDomain = this.normalizeCompareValue(item.domainName ?? item.domain);
-      if (targetBindingKey && itemBindingKey === targetBindingKey) return true;
-      return Boolean(targetDomain && itemDomain === targetDomain);
-    }) ?? items.find((item) => {
-      if (item.id === binding.id) return false;
-      if (!readOptionalString(item.certPath) || !readOptionalString(item.keyPath)) return false;
-      const itemBindingKey = this.normalizeCompareValue(item.bindingKey);
-      const itemDomain = this.normalizeCompareValue(item.domainName ?? item.domain);
-      if (targetBindingKey && itemBindingKey === targetBindingKey) return true;
-      return Boolean(targetDomain && itemDomain === targetDomain);
-    }) ?? await this.findLinuxNginxBindingByGlobalIdentity(tenantId, binding, targetBindingKey, targetDomain);
-  }
-
-  private async findLinuxNginxBindingFromDiscoverySnapshots(
-    tenantId: string,
-    binding: CertificateBindingDto,
-    managedTarget: ManagedTargetDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-  ): Promise<LinuxNginxBindingHints | undefined> {
-    const targetBindingKey = this.normalizeCompareValue(binding.bindingKey ?? managedTarget?.bindingKey ?? siteAsset?.bindingInformation);
-    const targetDomain = this.normalizeCompareValue(
-      binding.domainName
-      ?? binding.domain
-      ?? siteAsset?.hostHeader
-      ?? readOptionalString(siteAsset?.metadata?.hostHeader),
-    );
-    if (!targetBindingKey && !targetDomain) return undefined;
-
-    const snapshots = await this.assets.listDiscoverySnapshots(tenantId, { page: 1, pageSize: 200, filter: {} });
-    const ordered = [...snapshots.items].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
-    for (const snapshot of ordered) {
-      const payload = readRecord(snapshot.normalizedPayload);
-      const bindings = readObjectArray(payload?.bindings);
-      const matched = bindings.find((item) => {
-        const itemBindingKey = this.normalizeCompareValue(readOptionalString(item.bindingKey));
-        const itemDomain = this.normalizeCompareValue(readOptionalString(item.domainName) ?? readOptionalString(item.domain));
-        if (targetBindingKey && itemBindingKey === targetBindingKey) return true;
-        return Boolean(targetDomain && itemDomain === targetDomain);
-      });
-      if (!matched) continue;
-      const certPath = readOptionalString(matched.certPath);
-      const keyPath = readOptionalString(matched.keyPath);
-      if (!certPath || !keyPath) continue;
-      const metadata = readRecord(matched.metadata);
-      return {
-        certPath,
-        keyPath,
-        reloadCommand: readOptionalString(matched.reloadCommand)
-          ?? readOptionalString(metadata?.reloadCommand),
-        sourceFile: readOptionalString(metadata?.sourceFile),
-        serverNames: readStringArray(metadata?.serverNames),
-        testCommand: readOptionalString(metadata?.testCommand),
-        permission: readRecord(metadata?.permission),
-        helperCommand: readOptionalString(metadata?.helperCommand)
-          ?? readOptionalString((readRecord(metadata?.permission) ?? {})['recommendedHelperCommand']),
-      };
-    }
-    return undefined;
-  }
-
-  private async findLinuxNginxBindingFromAgentSnapshot(
-    tenantId: string,
-    binding: CertificateBindingDto,
-    managedTarget: ManagedTargetDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-  ): Promise<LinuxNginxBindingHints | undefined> {
-    const agentId = managedTarget?.agentId ?? siteAsset?.agentId;
-    if (!agentId) return undefined;
-    const snapshot = await this.agents.getLatestCapabilitySnapshot(tenantId, agentId);
-    const nginxDetail = snapshot?.capabilities.find((item) => item.capabilityKey === 'linux.nginx.detail');
-    const detail = readRecord(nginxDetail?.value);
-    if (!detail) return undefined;
-
-    const targetBindingKey = this.normalizeCompareValue(binding.bindingKey ?? managedTarget?.bindingKey ?? siteAsset?.bindingInformation);
-    const targetDomain = this.normalizeCompareValue(
-      binding.domainName
-      ?? binding.domain
-      ?? siteAsset?.hostHeader
-      ?? siteAsset?.siteName,
-    );
-    const targetPort = siteAsset?.port ?? binding.port;
-    const sites = readObjectArray(detail.sites);
-    for (const site of sites) {
-      const siteName = normalizeDomain(readOptionalString(site.name));
-      const serverNames = uniqueStrings([
-        ...readStringArray(site.serverNames),
-        siteName,
-      ]);
-      const configFiles = readStringArray(site.configFiles);
-      const listens = readObjectArray(site.listen);
-      for (const listen of listens) {
-        const port = readOptionalNumber(listen.port);
-        if (targetPort && port && targetPort !== port) continue;
-
-        const hostCandidates = serverNames.length > 0
-          ? serverNames
-          : [siteName].filter(Boolean) as string[];
-        const listenAddress = readOptionalString(listen.address) ?? '*';
-        const candidateBindingKeys = hostCandidates.map((host) => `${listenAddress}:${port ?? targetPort ?? 443}:${host}`.toLowerCase());
-        const matchedByBindingKey = Boolean(targetBindingKey && candidateBindingKeys.includes(targetBindingKey));
-        const matchedByDomain = Boolean(targetDomain && hostCandidates.some((item) => this.normalizeCompareValue(item) === targetDomain));
-        if (!matchedByBindingKey && !matchedByDomain) continue;
-
-        const certPath = readOptionalString(listen.certificatePath) ?? readOptionalString(listen.CertificatePath);
-        const keyPath = readOptionalString(listen.certificateKeyPath) ?? readOptionalString(listen.CertificateKeyPath);
-        if (!certPath || !keyPath) continue;
-        const permission = readRecord(listen.permission) ?? readRecord(listen.Permission);
-        return {
-          certPath,
-          keyPath,
-          reloadCommand: readOptionalString(listen.reloadCommand)
-            ?? readOptionalString(listen.ReloadCommand),
-          sourceFile: configFiles[0] ?? readOptionalString(detail.configPath),
-          serverNames,
-          testCommand: readOptionalString(listen.testCommand)
-            ?? readOptionalString(listen.TestCommand),
-          permission,
-          helperCommand: readOptionalString((permission ?? {})['recommendedHelperCommand']),
-        };
-      }
-    }
-    return undefined;
-  }
-
-  private async findLinuxNginxBindingByGlobalIdentity(
-    tenantId: string,
-    binding: CertificateBindingDto,
-    targetBindingKey: string,
-    targetDomain: string,
-  ): Promise<CertificateBindingDto | undefined> {
-    if (!targetBindingKey && !targetDomain) return undefined;
-    const page = await this.bindings.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} });
-    return page.items.find((item) => {
-      if (item.id === binding.id) return false;
-      if (!readOptionalString(item.certPath) || !readOptionalString(item.keyPath)) return false;
-      const itemBindingKey = this.normalizeCompareValue(item.bindingKey);
-      const itemDomain = this.normalizeCompareValue(item.domainName ?? item.domain);
-      if (targetBindingKey && itemBindingKey === targetBindingKey) return true;
-      return Boolean(targetDomain && itemDomain === targetDomain);
-    });
   }
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -1547,25 +1111,7 @@ export class DeploymentPlansApplicationService {
     if (target.certificateBindingId) {
       const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
       if (!binding) {
-        // 兼容老的 fixture-only 调用：历史测试只传 bindingId，并未初始化 bindings 表。
-        return {
-          ...target,
-          certificateBindingId: target.certificateBindingId,
-          binding: {
-            id: target.certificateBindingId,
-            tenantId,
-            serviceInstanceId: '',
-            hostId: '',
-            bindingKey: target.certificateBindingId,
-            bindingType: 'WINDOWS_CERT_STORE',
-            verifyMethod: 'STORE_QUERY',
-            status: 'DISCOVERED',
-            metadata: {},
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            version: 1,
-          },
-        };
+        throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { certificateBindingId: target.certificateBindingId });
       }
       const managedTarget = binding.managedTargetId ? await this.assets.getManagedTarget(tenantId, binding.managedTargetId) : undefined;
       const siteAsset = binding.siteAssetId ? await this.assets.getSiteAsset(tenantId, binding.siteAssetId) : undefined;
@@ -1578,8 +1124,8 @@ export class DeploymentPlansApplicationService {
     }
     const siteAsset = target.siteAssetId
       ? await this.assets.getSiteAsset(tenantId, target.siteAssetId)
-      : managedTarget?.siteAssetId
-        ? await this.assets.getSiteAsset(tenantId, managedTarget.siteAssetId)
+      : managedTarget?.siteId
+        ? await this.assets.getSiteAsset(tenantId, managedTarget.siteId)
         : undefined;
     if (target.siteAssetId && !siteAsset) {
       throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: target.siteAssetId });
@@ -1702,12 +1248,12 @@ export class DeploymentPlansApplicationService {
     if (!this.coversBindingDomain(binding, version, asset, requestedDomain)) {
       throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', { certificateVersionId, domain: requestedDomain ?? binding.domainName ?? binding.domain });
     }
-    const providerType = await this.resolveProviderTypeFromBinding(binding.tenantId, binding);
+    const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContextFromBinding(binding.tenantId, binding));
     if (requestedCertificateFormatId) {
-      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId, providerType);
+      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId, frameworkType);
       return;
     }
-    if (providerType === 'NGINX') {
+    if (frameworkType === 'web.nginx') {
       return;
     }
     const hasCompatibleFormat = await this.hasCompatibleWindowsIisFormat(certificateVersionId);
@@ -1719,7 +1265,7 @@ export class DeploymentPlansApplicationService {
   private async assertExplicitCertificateFormatDeployable(
     certificateVersionId: string,
     certificateFormatId: string,
-    providerType: 'IIS' | 'NGINX',
+    frameworkType: 'web.iis' | 'web.nginx',
   ): Promise<void> {
     const format = await this.certificates.getFormat(certificateFormatId);
     if (!format) {
@@ -1732,7 +1278,7 @@ export class DeploymentPlansApplicationService {
         formatCertificateVersionId: format.certificateVersionId,
       });
     }
-    if (providerType === 'IIS' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
+    if (frameworkType === 'web.iis' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
       throw new AppError('VALIDATION_FAILED', 'Windows IIS 目前只支持带私钥的 PFX 格式配置', {
         certificateVersionId,
         certificateFormatId,
@@ -1740,7 +1286,7 @@ export class DeploymentPlansApplicationService {
         containsPrivateKey: format.containsPrivateKey,
       });
     }
-    if (providerType === 'NGINX' && !this.isDeployableLinuxNginxFormat(format)) {
+    if (frameworkType === 'web.nginx' && !this.isDeployableLinuxNginxFormat(format)) {
       throw new AppError('VALIDATION_FAILED', 'Linux NGINX 证书部署必须使用可生成 PEM 证书文件与私钥文件的格式配置', {
         certificateVersionId,
         certificateFormatId,
@@ -1982,14 +1528,14 @@ export class DeploymentPlansApplicationService {
         tenantId: resolvedTenantId,
       });
     }
-    const providerType = await this.resolveProviderTypeFromBinding(resolvedTenantId, binding, target);
-    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, providerType);
+    const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContextFromBinding(resolvedTenantId, binding, target));
+    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, frameworkType);
   }
 
   private async resolveDeploymentArtifact(
     certificateVersionId: string,
     certificateFormatId?: string,
-    providerType: 'IIS' | 'NGINX' = 'IIS',
+    frameworkType: 'web.iis' | 'web.nginx' = 'web.iis',
   ): Promise<DeploymentArtifactSnapshotDto> {
     const version = await this.certificates.getVersion(certificateVersionId);
     if (!version) {
@@ -1997,26 +1543,26 @@ export class DeploymentPlansApplicationService {
     }
     const format = certificateFormatId
       ? await this.certificates.getFormat(certificateFormatId)
-      : providerType === 'IIS'
+      : frameworkType === 'web.iis'
         ? await this.artifacts.resolveWindowsIisPfx(certificateVersionId)
         : undefined;
     if (!format) {
-      if (providerType === 'NGINX') {
+      if (frameworkType === 'web.nginx') {
         throw new AppError('VALIDATION_FAILED', 'Linux NGINX 当前必须显式指定 certificateFormatId，且格式需可生成 PEM 证书文件与私钥文件', {
           certificateVersionId,
-          providerType,
+          frameworkType,
         });
       }
       throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
     }
-    if (providerType === 'IIS' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
+    if (frameworkType === 'web.iis' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
       throw new AppError('VALIDATION_FAILED', 'Windows IIS 目前只支持带私钥的 PFX 格式配置', {
         certificateFormatId,
         format: format.format,
         containsPrivateKey: format.containsPrivateKey,
       });
     }
-    if (providerType === 'NGINX' && !this.isDeployableLinuxNginxFormat(format)) {
+    if (frameworkType === 'web.nginx' && !this.isDeployableLinuxNginxFormat(format)) {
       throw new AppError('VALIDATION_FAILED', 'Linux NGINX 当前要求导出格式必须可生成 PEM 证书文件与私钥文件', {
         certificateFormatId,
         format: format.format,
@@ -2136,103 +1682,22 @@ export class DeploymentPlansApplicationService {
     const resolvedTenantId = target.tenantId ?? tenantId;
     if (!resolvedTenantId) return undefined;
     const strategyPayload = target.strategyPayload ?? {};
-    const deploymentStrategy = readRecord(strategyPayload.deploymentStrategy);
-    const agentStrategy = readRecord(deploymentStrategy?.agent);
-    if (readOptionalString(agentStrategy?.mode) === 'PLUGIN') {
+    const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
+    if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_ATOMIC') {
       return {
         ...strategyPayload,
         actionType: 'agent.atomic_plan.execute',
         actionSchemaVersion: '1.0',
-        agentDeploymentMode: 'PLUGIN',
-        agentId: readOptionalString(agentStrategy?.agentId) ?? readOptionalString(strategyPayload.agentId),
-        pluginBindingId: readOptionalString(agentStrategy?.pluginBindingId),
+        agentId: readOptionalString(strategyPayload.agentId),
+        pluginBindingId: readOptionalString(runtimeCapability?.pluginBindingId),
         deploymentArtifact: artifact,
       };
     }
-    if (!target.certificateBindingId) return undefined;
-    const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
-    if (!binding) return undefined;
-
-    const managedTargetId = binding.managedTargetId ?? target.executionTargetId;
-    const managedTarget = managedTargetId
-      ? await this.assets.getManagedTarget(resolvedTenantId, managedTargetId)
-      : undefined;
-    const siteAssetId = binding.siteAssetId ?? managedTarget?.siteAssetId;
-    const siteAsset = siteAssetId
-      ? await this.assets.getSiteAsset(resolvedTenantId, siteAssetId)
-      : managedTarget?.siteAssetId
-        ? await this.assets.getSiteAsset(resolvedTenantId, managedTarget.siteAssetId)
-        : undefined;
-    const serviceAssetId = binding.serviceAssetId ?? siteAsset?.serviceAssetId;
-    const serviceAsset = serviceAssetId
-      ? await this.assets.getServiceAsset(resolvedTenantId, serviceAssetId)
-      : undefined;
-
-    const providerType = (siteAsset?.providerType ?? managedTarget?.providerType ?? 'IIS') as 'IIS' | 'NGINX';
-    if (providerType === 'IIS') {
-      const siteName = siteAsset?.siteName?.trim();
-      if (!siteName) {
-        throw new AppError('VALIDATION_FAILED', 'IIS 部署目标缺少 siteName，无法生成 Agent 执行 payload', {
-          deploymentPlanTargetId: target.id,
-          certificateBindingId: binding.id,
-          siteAssetId: siteAsset?.id,
-          managedTargetId: managedTarget?.id,
-        });
-      }
-
-      const bindingInformation = siteAsset?.bindingInformation?.trim() || binding.bindingKey?.trim() || '';
-      const parsedBinding = parseIisBindingInformation(bindingInformation);
-      const expectedDomains = [...new Set([
-        normalizeDomain(binding.domainName ?? binding.domain),
-        normalizeDomain(siteAsset?.hostHeader),
-      ].filter(Boolean))];
-      const verifyUrl = this.resolveVerifyUrl(binding, siteAsset);
-
-      return {
-        type: 'windows.iis.deploy_certificate',
-        providerType: 'IIS',
-        action: 'INSTALL_CERTIFICATE',
-        agentId: managedTarget?.agentId,
-        managedTargetId: managedTarget?.id,
-        siteAssetId: siteAsset?.id,
-        siteName,
-        bindingSelector: {
-          ip: siteAsset?.listenIp ?? parsedBinding.ip,
-          port: siteAsset?.port ?? binding.port ?? parsedBinding.port ?? 443,
-          hostHeader: siteAsset?.hostHeader ?? parsedBinding.hostHeader,
-          bindingInformation: bindingInformation || undefined,
-        },
-        expectedDomains,
-        verifyUrl,
-        appPoolName: readOptionalString(siteAsset?.metadata?.appPool) ?? readOptionalString(binding.metadata?.appPool),
-        currentBindingCertificate: {
-          bindingId: binding.id,
-          certificateVersionId: binding.certificateVersionId,
-          targetCertificateVersionId: binding.targetCertificateVersionId,
-          observedFingerprintSha256: binding.observedFingerprintSha256,
-          targetFingerprintSha256: binding.targetFingerprintSha256,
-          desiredFingerprintSha256: binding.desiredFingerprintSha256,
-          storeThumbprint: binding.storeThumbprint,
-          currentThumbprint: readOptionalString(binding.metadata?.currentThumbprint),
-        },
-        pfxBase64: artifact.pfxBase64,
-        pfxPassword: artifact.pfxPassword,
-        expectedCertificateFingerprintSha256: artifact.expectedFingerprintSha256,
-        deploymentArtifact: {
-          certificateVersionId: artifact.certificateVersionId,
-          certificateFormatId: artifact.certificateFormatId,
-          format: artifact.format,
-          containsPrivateKey: artifact.containsPrivateKey,
-          providerType: 'IIS',
-          expectedFingerprintSha256: artifact.expectedFingerprintSha256,
-          warnings: artifact.warnings,
-        },
-      };
-    }
-
-    if (providerType !== 'NGINX') return undefined;
-    const readyBinding = await this.ensureLinuxNginxBindingPayloadReady(resolvedTenantId, binding, managedTarget, siteAsset);
-    return this.buildLinuxNginxPayload(target, readyBinding, managedTarget, siteAsset, serviceAsset, artifact);
+    throw new AppError('VALIDATION_FAILED', '受管目标缺少可执行的插件运行能力', {
+      deploymentPlanTargetId: target.id,
+      executionTargetId: target.executionTargetId,
+      runtime: readOptionalString(runtimeCapability?.runtime),
+    });
   }
 
   private async attachInitialDryRunChecks(
@@ -2335,25 +1800,6 @@ export class DeploymentPlansApplicationService {
     return checks;
   }
 
-  private resolveVerifyUrl(binding: CertificateBindingDto, siteAsset?: SiteAssetDto): string {
-    const explicit = readOptionalString(siteAsset?.metadata?.verifyUrl);
-    if (explicit) return explicit;
-
-    const host = normalizeDomain(
-      binding.domainName
-      ?? binding.domain
-      ?? siteAsset?.hostHeader
-      ?? readOptionalString(siteAsset?.metadata?.hostHeader),
-    );
-    const port = siteAsset?.port ?? binding.port ?? 443;
-    if (!host) {
-      throw new AppError('VALIDATION_FAILED', 'IIS VERIFY 缺少可构造 verifyUrl 的域名', {
-        certificateBindingId: binding.id,
-        siteAssetId: siteAsset?.id,
-      });
-    }
-    return `https://${host}:${port}`;
-  }
 
   private isDeployableVersion(version: CertificateVersionEntity): boolean {
     return version.status === 'active'
@@ -2373,182 +1819,27 @@ export class DeploymentPlansApplicationService {
     }
   }
 
-  private buildLinuxNginxPayload(
-    target: DeploymentPlanTargetEntity,
-    binding: CertificateBindingDto,
-    managedTarget: ManagedTargetDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-    serviceAsset: ServiceAssetDto | undefined,
-    artifact: DeploymentArtifactSnapshotDto,
-  ): Record<string, unknown> {
-    const certPath = readOptionalString(binding.certPath);
-    const keyPath = readOptionalString(binding.keyPath);
-    if (!certPath || !keyPath) {
-      throw new AppError('VALIDATION_FAILED', 'NGINX 部署目标缺少 certPath/keyPath，无法生成 Agent 执行 payload', {
-        deploymentPlanTargetId: target.id,
-        certificateBindingId: binding.id,
-        certPath: binding.certPath,
-        keyPath: binding.keyPath,
-      });
-    }
-    if (artifact.format !== 'pem' || !artifact.certificatePem || !artifact.privateKeyPem) {
-      throw new AppError('VALIDATION_FAILED', 'Linux NGINX 当前只支持包含 certificatePem/privateKeyPem 的 PEM 部署材料', {
-        deploymentPlanTargetId: target.id,
-        certificateBindingId: binding.id,
-        certificateFormatId: artifact.certificateFormatId,
-        format: artifact.format,
-      });
-    }
 
-    const bindingDomain = normalizeDomain(binding.domainName ?? binding.domain);
-    const hostHeader = normalizeDomain(siteAsset?.hostHeader);
-    const metadataServerNames = readStringArray(siteAsset?.metadata?.serverNames);
-    const bindingServerNames = readStringArray(binding.metadata?.serverNames);
-    const serverNames = [...new Set([
-      ...metadataServerNames,
-      ...bindingServerNames,
-      bindingDomain,
-      hostHeader,
-    ].filter((item): item is string => Boolean(item)))];
-    const sourceFile = readOptionalString(binding.localConfigPath)
-      ?? readOptionalString(binding.metadata?.sourceFile)
-      ?? readOptionalString(siteAsset?.metadata?.sourceFile)
-      ?? readOptionalString(siteAsset?.configPath);
-    const verifyTarget = this.resolveLinuxNginxVerifyTarget(binding, siteAsset, serviceAsset, serverNames);
-    const testCommand = readOptionalString(binding.metadata?.testCommand)
-      ?? readOptionalString(siteAsset?.metadata?.testCommand)
-      ?? 'nginx -t';
-    const reloadCommand = readOptionalString(binding.reloadCommand)
-      ?? readOptionalString(binding.reloadHint?.command)
-      ?? readOptionalString(binding.metadata?.reloadCommand)
-      ?? readOptionalString(siteAsset?.metadata?.reloadCommand)
-      ?? 'nginx -s reload';
-    const helperCommand = readOptionalString(binding.metadata?.helperCommand)
-      ?? readOptionalString(siteAsset?.metadata?.helperCommand)
-      ?? readOptionalString((binding.metadata?.permission as Record<string, unknown> | undefined)?.recommendedHelperCommand)
-      ?? readOptionalString((siteAsset?.metadata?.permission as Record<string, unknown> | undefined)?.recommendedHelperCommand);
-    const expectedDomains = [...new Set([
-      normalizeDomain(verifyTarget.serverName),
-      normalizeDomain(verifyTarget.host),
-    ].filter((item): item is string => Boolean(item)))];
-
-    return {
-      type: 'linux.nginx.deploy_certificate',
-      providerType: 'NGINX',
-      action: 'INSTALL_CERTIFICATE',
-      operation: 'install',
-      agentId: managedTarget?.agentId,
-      managedTargetId: managedTarget?.id,
-      serviceAssetId: serviceAsset?.id,
-      siteAssetId: siteAsset?.id,
-      bindingId: binding.id,
-      verifyUrl: verifyTarget.url,
-      expectedDomains,
-      expectedCertificateFingerprintSha256: artifact.expectedFingerprintSha256,
-      bindingSelector: {
-        siteAssetId: siteAsset?.id,
-        bindingId: binding.id,
-        sourceFile,
-        listenPort: verifyTarget.port,
-        serverNames,
-        certPath,
-        keyPath,
-      },
-      artifact: {
-        certificatePem: artifact.certificatePem,
-        privateKeyPem: artifact.privateKeyPem,
-        targetFingerprintSha256: artifact.expectedFingerprintSha256,
-      },
-      executionPolicy: {
-        testCommand,
-        reloadCommand,
-        helperCommand,
-        verifyHost: verifyTarget.host,
-        verifyPort: verifyTarget.port,
-        hostHeader: verifyTarget.serverName,
-        verifyUrl: verifyTarget.url,
-      },
-      currentBindingCertificate: {
-        bindingId: binding.id,
-        certificateVersionId: binding.certificateVersionId,
-        targetCertificateVersionId: binding.targetCertificateVersionId,
-        observedFingerprintSha256: binding.observedFingerprintSha256,
-        targetFingerprintSha256: binding.targetFingerprintSha256,
-        desiredFingerprintSha256: binding.desiredFingerprintSha256,
-        certPath,
-        keyPath,
-      },
-      deploymentArtifact: {
-        certificateVersionId: artifact.certificateVersionId,
-        certificateFormatId: artifact.certificateFormatId,
-        format: artifact.format,
-        containsPrivateKey: artifact.containsPrivateKey,
-        providerType: 'NGINX',
-        expectedFingerprintSha256: artifact.expectedFingerprintSha256,
-        warnings: artifact.warnings,
-      },
-    };
-  }
-
-  private resolveLinuxNginxVerifyTarget(
-    binding: CertificateBindingDto,
-    siteAsset: SiteAssetDto | undefined,
-    serviceAsset: ServiceAssetDto | undefined,
-    serverNames: string[],
-  ): { host: string; port: number; serverName: string; url: string } {
-    const explicitUrl = readOptionalString(serviceAsset?.verifyUrl)
-      ?? readOptionalString(serviceAsset?.metadata?.verifyUrl)
-      ?? readOptionalString((siteAsset as { verifyUrl?: string } | undefined)?.verifyUrl)
-      ?? readOptionalString(siteAsset?.metadata?.verifyUrl);
-    if (explicitUrl) {
-      const parsed = parseVerifyUrl(explicitUrl);
-      if (parsed) {
-        const serverName = normalizeDomain(serviceAsset?.sniName)
-          ?? normalizeDomain(readOptionalString(serviceAsset?.metadata?.sniName))
-          ?? parsed.serverName;
-        return { ...parsed, serverName };
-      }
-    }
-
-    const serviceHost = normalizeDomain(readOptionalString(serviceAsset?.address));
-    const bindingHost = normalizeDomain(binding.domainName ?? binding.domain);
-    const siteHost = normalizeDomain(siteAsset?.hostHeader);
-    const metadataHost = normalizeDomain(readOptionalString(siteAsset?.metadata?.hostHeader));
-    const serverNameHost = normalizeDomain(serverNames[0]);
-    const host = serviceHost ?? bindingHost ?? siteHost ?? metadataHost ?? serverNameHost;
-    const port = serviceAsset?.port ?? siteAsset?.port ?? binding.port ?? 443;
-    if (!host) {
-      throw new AppError('VALIDATION_FAILED', 'NGINX VERIFY 缺少应用资产访问域名，无法生成验证目标', {
-        certificateBindingId: binding.id,
-        siteAssetId: siteAsset?.id,
-        serviceAssetId: serviceAsset?.id,
-      });
-    }
-    const serverName = normalizeDomain(serviceAsset?.sniName) ?? host;
-    return {
-      host,
-      port,
-      serverName,
-      url: `https://${host}:${port}`,
-    };
-  }
-
-  private async resolveProviderTypeFromBinding(
+  private async resolveManagedTargetContextFromBinding(
     tenantId: string,
     binding: CertificateBindingDto,
     target?: Pick<DeploymentPlanTargetEntity, 'executionTargetId'>,
-  ): Promise<'IIS' | 'NGINX'> {
+  ) {
     const managedTargetId = binding.managedTargetId ?? target?.executionTargetId;
-    const managedTarget = managedTargetId
-      ? await this.assets.getManagedTarget(tenantId, managedTargetId)
-      : undefined;
-    const siteAssetId = binding.siteAssetId ?? managedTarget?.siteAssetId;
-    const siteAsset = siteAssetId
-      ? await this.assets.getSiteAsset(tenantId, siteAssetId)
-      : managedTarget?.siteAssetId
-        ? await this.assets.getSiteAsset(tenantId, managedTarget.siteAssetId)
-        : undefined;
-    return (siteAsset?.providerType ?? managedTarget?.providerType ?? 'IIS') as 'IIS' | 'NGINX';
+    return this.resolveManagedTargetContext(tenantId, managedTargetId);
+  }
+
+  private resolveSupportedFrameworkType(
+    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
+  ): 'web.iis' | 'web.nginx' {
+    if (context.frameworkType === 'web.iis') return 'web.iis';
+    if (context.frameworkType === 'web.nginx') return 'web.nginx';
+    throw new AppError('VALIDATION_FAILED', '当前 Framework 不支持证书部署适配器', {
+      frameworkInstanceId: context.serviceInstance?.id,
+      frameworkType: context.frameworkType,
+      managedTargetId: context.managedTarget.id,
+      siteId: context.siteAsset?.id,
+    });
   }
 
   private isDeployableLinuxNginxFormat(format: { format: string; containsPrivateKey: boolean; parameters?: Record<string, unknown> | null }): boolean {
@@ -2821,23 +2112,6 @@ function normalizeDomain(value?: string): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-function parseVerifyUrl(value: string): { host: string; port: number; serverName: string; url: string } | undefined {
-  try {
-    const parsed = new URL(value);
-    const host = normalizeDomain(parsed.hostname);
-    if (!host) return undefined;
-    const port = parsed.port ? Number(parsed.port) : (parsed.protocol === 'http:' ? 80 : 443);
-    return {
-      host,
-      port,
-      serverName: host,
-      url: value,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
 function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
   const record = readRecord(value);
   if (!record) return {};
@@ -2881,17 +2155,6 @@ function resolveStandardCertificateOutput(
     format: definition.format,
     content,
     ...(definition.format === 'pem' ? { contentBase64: Buffer.from(content, 'utf8').toString('base64') } : {}),
-  };
-}
-
-function parseIisBindingInformation(value: string): { ip?: string; port?: number; hostHeader?: string } {
-  const trimmed = value.trim();
-  if (!trimmed) return {};
-  const [ip, port, hostHeader] = trimmed.split(':');
-  return {
-    ip: ip?.trim() || undefined,
-    port: port ? Number(port) || undefined : undefined,
-    hostHeader: normalizeDomain(hostHeader),
   };
 }
 
@@ -3018,3 +2281,12 @@ function isMissingRelationError(error: unknown): boolean {
   const message = 'message' in error ? String((error as { message?: unknown }).message ?? '') : '';
   return code === '42P01' || message.includes('does not exist');
 }
+
+function agentProductFamily(osType: string): string | undefined {
+  return AGENT_PRODUCT_FAMILY_BY_OS[osType.trim().toUpperCase()];
+}
+
+const AGENT_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = Object.freeze({
+  WINDOWS: 'WINDOWS_SERVER',
+  LINUX: 'LINUX_SERVER',
+});

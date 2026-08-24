@@ -56,7 +56,7 @@ export class DevicesApplicationService {
         `select capability_key from plugin_capability_assignments
          where tenant_id=$1 and owner_type='DEVICE' and owner_id=$2 and plugin_binding_id=$3 and status='ACTIVE'
          order by capability_key`,
-        [tenantId, device.extension.deviceAssetId, device.extension.pluginBindingId],
+        [tenantId, device.id, device.extension.pluginBindingId],
       ),
     ]);
     if (plugin.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', '设备插件不存在', { deviceId });
@@ -120,7 +120,7 @@ export class DevicesApplicationService {
       });
     }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginBindingId) throw new AppError('CAPABILITY_MISSING', '设备未绑定统一插件');
-    const assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.extension.deviceAssetId });
+    const assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.id });
     if (!assignment || assignment.pluginBindingId !== device.extension.pluginBindingId) {
       throw new AppError('CAPABILITY_MISSING', '设备未分配该插件能力', { capabilityKey });
     }
@@ -253,7 +253,7 @@ export class DevicesApplicationService {
         secretBindings: mapped.secrets,
         certificateArtifactBindings: {},
         connectionBindings: mapped.connections,
-        managedContext: { hostId: device.hostId, deviceAssetId: device.id },
+        managedContext: { hostId: device.hostId },
       });
       await tx.query(
         `update pg_device_assets set plugin_version_id=$1, plugin_binding_id=$2, product_family=$3, metadata=$4::jsonb, updated_at=$5
@@ -263,7 +263,7 @@ export class DevicesApplicationService {
       const assignments = [];
       for (const capability of plugin.manifest.capabilities) {
         assignments.push(await bindingService.assignCapability(tenantId, {
-          ownerType: 'DEVICE', ownerId: device.id, capabilityKey: capability.key,
+          ownerType: 'DEVICE', ownerId: device.hostId, capabilityKey: capability.key,
           pluginVersionId, pluginBindingId: binding.id, precedence: 'DEVICE_DEFAULT',
         }));
       }

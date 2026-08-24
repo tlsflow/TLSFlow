@@ -414,11 +414,11 @@ export class WorkflowExecutorAdapter implements Executor {
     const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
     const requested = readRecord(request.resourceLock) ?? {};
     const managedContext = readRecord(request.managedContext) ?? readRecord(assetVariables.managedContext) ?? {};
-    const deviceAssetId = stringFromSnapshot(managedContext.deviceAssetId) ?? stringFromSnapshot(assetVariables.deviceAssetId);
+    const hostId = stringFromSnapshot(managedContext.hostId) ?? stringFromSnapshot(assetVariables.hostId);
     const managedTargetId = stringFromSnapshot(managedContext.managedTargetId) ?? stringFromSnapshot(assetVariables.managedTargetId);
     const standaloneKey = stringFromSnapshot(request.standaloneStableKey);
     const resourceKey = stringFromSnapshot(requested.key)
-      ?? (deviceAssetId ? `tenant:${tenantId}:device:${deviceAssetId}` : undefined)
+      ?? (hostId ? `tenant:${tenantId}:device:${hostId}` : undefined)
       ?? (managedTargetId ? `tenant:${tenantId}:managed-target:${managedTargetId}` : undefined)
       ?? (standaloneKey ? `tenant:${tenantId}:standalone:${standaloneKey}` : undefined);
     if (!resourceKey) throw new AppError('VALIDATION_FAILED', '插件工作流缺少稳定资源锁键，Standalone 写操作拒绝并发执行');

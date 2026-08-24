@@ -1,5 +1,5 @@
 {
-  "apiVersion": "gcac.device-discovery/v1",
+  "apiVersion": "gcac.device-discovery/v2",
   "device": {
     "stableKey": "device:mock-adc-01",
     "displayName": "Mock ADC 01",
@@ -13,16 +13,19 @@
     { "key": "certificate.deploy", "available": true }
   ],
   "frameworks": [
-    { "stableKey": "framework:load-balancer", "type": "LOAD_BALANCER", "displayName": "Load Balancer" }
+    { "stableKey": "framework:load-balancer", "frameworkType": "adc.load-balancer", "displayName": "Load Balancer" }
   ],
   "sites": [
-    { "stableKey": "site:https-main", "frameworkStableKey": "framework:load-balancer", "displayName": "HTTPS Main", "addresses": ["198.51.100.20"], "port": 443, "protocol": "HTTPS" }
+    { "stableKey": "site:https-main", "frameworkStableKey": "framework:load-balancer", "siteType": "network.virtual-server", "displayName": "HTTPS Main", "addresses": ["198.51.100.20"], "port": 443, "protocol": "HTTPS" }
+  ],
+  "managedTargets": [
+    { "stableKey": "target:https-main", "frameworkStableKey": "framework:load-balancer", "siteStableKey": "site:https-main", "targetType": "tls.binding", "targetKey": "site:https-main", "supportedCapabilities": ["certificate.deploy", "certificate.verify", "certificate.rollback"], "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
   ],
   "certificates": [
     { "stableKey": "certificate:main", "sha256Fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "subject": "CN=example.test" }
   ],
   "certificateBindings": [
-    { "stableKey": "binding:https-main", "siteStableKey": "site:https-main", "certificateStableKey": "certificate:main", "bindingName": "frontend" }
+    { "stableKey": "binding:https-main", "managedTargetStableKey": "target:https-main", "certificateStableKey": "certificate:main", "bindingName": "frontend" }
   ],
   "warnings": []
 }

@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "citrix.netscaler-adc",
-  "version": "1.1.13",
+  "version": "1.1.15",
   "displayNameKey": "plugin.citrixAdc.name",
   "descriptionKey": "plugin.citrixAdc.description",
   "logoUrl": "/plugin-logos/citrix-adc.svg",
@@ -23,9 +23,12 @@
   ],
   "permissions": ["network.http", "secret.read", "artifact.read", "device.write"],
   "compatibility": {
-    "products": ["Citrix ADC", "NetScaler ADC"],
-    "versions": ["13.1", "14.1"],
-    "platforms": ["appliance"]
+    "productFamilies": ["citrix.netscaler-adc"],
+    "frameworkTypes": ["adc.load-balancer"],
+    "targetTypes": ["tls.binding"],
+    "managementMethods": ["PLUGIN"],
+    "executionLocations": ["CONTROL_PLANE", "GATEWAY"],
+    "artifactContracts": ["certificate.deploy.v1"]
   },
   "resources": {
     "workflows": {

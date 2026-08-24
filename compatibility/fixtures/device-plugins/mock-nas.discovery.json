@@ -1,5 +1,5 @@
 {
-  "apiVersion": "gcac.device-discovery/v1",
+  "apiVersion": "gcac.device-discovery/v2",
   "device": {
     "stableKey": "device:mock-nas-01",
     "displayName": "Mock NAS 01",
@@ -13,10 +13,13 @@
     { "key": "certificate.deploy", "available": true }
   ],
   "frameworks": [
-    { "stableKey": "framework:web-portal", "type": "WEB_PORTAL", "displayName": "Management Portal" }
+    { "stableKey": "framework:web-portal", "frameworkType": "web.management-portal", "displayName": "Management Portal" }
   ],
   "sites": [
-    { "stableKey": "site:management", "frameworkStableKey": "framework:web-portal", "displayName": "Management", "addresses": ["192.0.2.30"], "port": 5001, "protocol": "HTTPS", "metadata": { "reverseProxy": false } }
+    { "stableKey": "site:management", "frameworkStableKey": "framework:web-portal", "siteType": "network.virtual-server", "displayName": "Management", "addresses": ["192.0.2.30"], "port": 5001, "protocol": "HTTPS", "metadata": { "reverseProxy": false } }
+  ],
+  "managedTargets": [
+    { "stableKey": "target:management", "frameworkStableKey": "framework:web-portal", "siteStableKey": "site:management", "targetType": "tls.binding", "targetKey": "site:management", "supportedCapabilities": ["certificate.deploy"], "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
   ],
   "certificates": [],
   "certificateBindings": [],

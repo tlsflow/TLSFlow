@@ -163,19 +163,23 @@ export interface CertificateBindingUsageDto {
   };
   siteAsset?: {
     id: string;
+    deviceId: string;
+    frameworkInstanceId: string;
+    discoveryProviderKey: string;
     siteName: string;
     bindingInformation?: string;
     hostHeader?: string;
     port?: number;
     protocol?: string;
-    agentId?: string;
     status: string;
     deletedAt?: string;
   };
   managedTarget?: {
     id: string;
-    agentId?: string;
-    deviceAssetId?: string;
+    deviceId: string;
+    frameworkInstanceId?: string;
+    siteId?: string;
+    discoveryProviderKey: string;
     targetKey: string;
     bindingKey?: string;
     status: string;

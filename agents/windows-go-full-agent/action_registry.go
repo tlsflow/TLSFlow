@@ -251,7 +251,7 @@ func windowsIISActionHandler() actionHandler {
 			ActionType:      "certificate.deploy",
 			SchemaVersions:  []string{"1.0"},
 			Aliases:         []string{"windows.iis.deploy_certificate"},
-			LegacySelectors: []actionAliasSelector{{Fields: map[string]string{"providerType": "IIS"}}, {Fields: map[string]string{"action": "INSTALL_CERTIFICATE"}}},
+			LegacySelectors: []actionAliasSelector{{Fields: map[string]string{"action": "INSTALL_CERTIFICATE"}}},
 			DirectControl:   true,
 		},
 		execute: func(execution *taskExecutionContext) actionExecutionResult {

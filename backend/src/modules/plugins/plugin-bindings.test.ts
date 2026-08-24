@@ -13,11 +13,15 @@ test('Managed 与 Standalone Binding 使用同一数据模型并保护上下文�
     (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
     values ('version-1','tenant-1','fixture','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
-  const managed = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', variableBindings: {}, secretBindings: { auth: 'secret://device/1' }, certificateArtifactBindings: {}, connectionBindings: {}, managedContext: { hostId: 'host-1', deviceAssetId: 'device-1' } });
+  const managed = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', variableBindings: {}, secretBindings: { auth: 'secret://device/1' }, certificateArtifactBindings: {}, connectionBindings: {}, managedContext: { hostId: 'host-1', managedTargetId: 'target-1' } });
   const standalone = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'STANDALONE', variableBindings: {}, secretBindings: {}, certificateArtifactBindings: {}, connectionBindings: { address: '10.0.0.1' } });
   assert.equal(managed.mode, 'MANAGED');
   assert.equal(standalone.mode, 'STANDALONE');
   await assert.rejects(() => service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', variableBindings: {}, secretBindings: {}, certificateArtifactBindings: {}, connectionBindings: {} }), /hostId/);
+  await assert.rejects(() => service.createBinding('tenant-1', {
+    pluginVersionId: 'version-1', mode: 'MANAGED', variableBindings: {}, secretBindings: {}, certificateArtifactBindings: {}, connectionBindings: {},
+    managedContext: { hostId: 'host-1', agentId: 'agent-1' } as never,
+  }), /只允许保存 Host 和 ManagedTarget 身份/);
 });
 
 test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖', async () => {
@@ -28,10 +32,10 @@ test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖'
     values ('version-1','tenant-1','fixture','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const binding = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', variableBindings: {}, secretBindings: {}, certificateArtifactBindings: {}, connectionBindings: {}, managedContext: { hostId: 'host-1' } });
-  for (const [ownerType, ownerId, precedence] of [['DEVICE','device-1','DEVICE_DEFAULT'],['MANAGED_TARGET','target-1','TARGET_OVERRIDE'],['APPLICATION_ASSET','asset-1','ASSET_OVERRIDE']] as const) {
+  for (const [ownerType, ownerId, precedence] of [['DEVICE','host-1','DEVICE_DEFAULT'],['MANAGED_TARGET','target-1','TARGET_OVERRIDE'],['APPLICATION_ASSET','asset-1','ASSET_OVERRIDE']] as const) {
     await service.assignCapability('tenant-1', { ownerType, ownerId, capabilityKey: 'certificate.deploy', pluginVersionId: 'version-1', pluginBindingId: binding.id, precedence });
   }
-  const resolved = await service.resolveAssignment('tenant-1', 'certificate.deploy', { deviceId: 'device-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1' });
+  const resolved = await service.resolveAssignment('tenant-1', 'certificate.deploy', { deviceId: 'host-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1' });
   assert.equal(resolved?.ownerType, 'APPLICATION_ASSET');
 });
 

@@ -372,8 +372,6 @@ export class ExecutionResultSyncService {
   ): Promise<ServiceAssetDto | undefined> {
     const repository = this.assets.getRepository();
     const directServiceAssetId = binding?.serviceAssetId
-      ?? siteAsset?.serviceAssetId
-      ?? managedTarget?.serviceAssetId
       ?? readString(step.inputSnapshot, 'serviceAssetId');
     if (directServiceAssetId) {
       const direct = await repository.getServiceAsset(tenantId, directServiceAssetId);
@@ -486,8 +484,8 @@ export class ExecutionResultSyncService {
 
     const resultState = deriveResultState(input.runType, step.stepType, input.success, detail, input.errorCode);
     const assetBinding = await this.assets.getRepository().getApplicationAssetTargetByApplicationAssetId(input.tenantId, applicationAssetId);
-    const siteAsset = assetBinding?.siteAssetId ? await this.assets.getRepository().getSiteAsset(input.tenantId, assetBinding.siteAssetId) : undefined;
     const managedTarget = assetBinding?.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, assetBinding.managedTargetId) : undefined;
+    const siteAsset = managedTarget?.siteId ? await this.assets.getRepository().getSiteAsset(input.tenantId, managedTarget.siteId) : undefined;
 
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
     const probeResult = resultState.kind === 'DEPLOY_SUCCESS'
@@ -682,10 +680,10 @@ export class ExecutionResultSyncService {
     const page = await this.assets.getRepository().listApplicationAssetTargets(tenantId, {
       page: 1,
       pageSize: 500,
-      filter: { managedTargetId: binding.managedTargetId ?? '', siteAssetId: binding.siteAssetId ?? '' },
+      filter: { managedTargetId: binding.managedTargetId ?? '' },
       sort: undefined,
     });
-    return page.items.find((item) => item.managedTargetId === binding.managedTargetId || item.siteAssetId === binding.siteAssetId);
+    return page.items.find((item) => item.managedTargetId === binding.managedTargetId);
   }
 
   private async captureSnapshots(
@@ -1009,7 +1007,7 @@ function validateFormalCertificateVerification(
     ?? readString(detail, 'remoteCertificateSha256'));
   const remoteThumbprint = normalizeThumbprint(readString(detail, 'verify.remoteThumbprint'));
   const deployedThumbprint = normalizeThumbprint(readString(detail, 'newThumbprint'));
-  const providerType = readString(step.inputSnapshot, 'providerType')?.toUpperCase();
+  const frameworkType = readString(step.inputSnapshot, 'frameworkType')?.toLowerCase();
 
   if (!expected) {
     return {
@@ -1019,7 +1017,7 @@ function validateFormalCertificateVerification(
       detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
     };
   }
-  if (providerType === 'NGINX' && !installed) {
+  if (frameworkType === 'web.nginx' && !installed) {
     return {
       success: false,
       errorCode: 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISSING',

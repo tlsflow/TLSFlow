@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
 import { AssetsApplicationService } from '../assets/application/assets.application-service.js';
+import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { runMigrations } from '../../database/migration-runner.js';
 import { MockProvider } from './application/mock.provider.js';
 import { ProviderFallbackAdvisor } from './application/fallback-advisor.js';
 import { ProviderPlanRunner } from './application/provider-plan-runner.js';
@@ -120,7 +123,9 @@ describe('spec018 providers 基础框架', () => {
 
   it('DiscoveryService 主流程会写入 discovery snapshot，但不会污染资产表', async () => {
     const app = new App();
-    const assetsService = new AssetsApplicationService();
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const assetsService = new AssetsApplicationService(new PgAssetsRepository(db));
     const service = new ProvidersApplicationService({ assetsService });
     new ProvidersController(service).register(app.router);
 
@@ -163,7 +168,7 @@ describe('spec018 providers 基础框架', () => {
     const snapshots = await assetsService.listDiscoverySnapshots('tenant_spec018', { page: 1, pageSize: 20, filter: { normalizedHash: record.normalizedHash }, sort: undefined });
     assert.equal(snapshots.total, 1);
     const hosts = await assetsService.listHosts('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
-    const services = await assetsService.listServiceInstances('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
+    const services = await assetsService.listFrameworkInstances('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
     const endpoints = await assetsService.listServiceEndpoints('tenant_spec018', { page: 1, pageSize: 20, filter: {}, sort: undefined });
     assert.equal(hosts.total, 0);
     assert.equal(services.total, 0);

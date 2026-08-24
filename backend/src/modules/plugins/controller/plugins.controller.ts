@@ -6,6 +6,7 @@ import { validateObject } from '../../../common/validation/schema-validation.js'
 import { PluginsApplicationService } from '../application/plugins.application-service.js';
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
+import { ManagedTargetPluginQueryService, type SaveManagedTargetPluginOverrideInput } from '../application/managed-target-plugin-query.service.js';
 import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
@@ -29,6 +30,7 @@ export class PluginsController {
     private readonly unifiedPlugins = new UnifiedPluginsApplicationService(),
     private readonly pluginBindings = new PluginBindingsApplicationService(),
     private readonly promotions?: PluginPromotionService,
+    private readonly managedTargetPlugins?: ManagedTargetPluginQueryService,
   ) {}
 
   register(router: Router): void {
@@ -63,6 +65,9 @@ export class PluginsController {
     router.post('/api/v1/plugin-promotions/revoke', '撤销 Standalone 目标归集', tags, (request) => this.revokePromotion(request));
     router.get('/api/v1/plugin-promotions', '查询 Standalone 目标归集记录', tags, (request) => this.getPromotion(request));
     router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => ({ items: pluginRuntimeGuard.listMetrics(tenantId(request)) }));
+    router.get('/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', '查询受管目标生效部署能力', tags, (request) => this.getManagedTargetEffectiveCapability(request));
+    router.get('/api/v1/managed-targets/:managedTargetId/compatible-plugins', '查询受管目标兼容插件', tags, (request) => this.listManagedTargetCompatiblePlugins(request));
+    router.put('/api/v1/application-assets/:applicationAssetId/managed-target', '保存应用资产受管目标和插件覆盖', tags, (request) => this.saveApplicationAssetManagedTarget(request));
   }
 
   getApplicationService(): PluginsApplicationService {
@@ -279,6 +284,53 @@ export class PluginsController {
     return this.requirePromotions().get(tenantId(request), promotionId);
   }
 
+  private getManagedTargetEffectiveCapability(request: HttpRequest) {
+    const service = this.requireManagedTargetPlugins();
+    const match = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/deployment-capabilities\/([^/]+)$/);
+    if (!match) throw new Error('受管目标能力路径无效');
+    return service.getEffectiveCapability({
+      tenantId: tenantId(request),
+      managedTargetId: decodeURIComponent(match[1]!),
+      capabilityKey: decodeURIComponent(match[2]!),
+      applicationAssetId: queryString(request, 'applicationAssetId'),
+    });
+  }
+
+  private listManagedTargetCompatiblePlugins(request: HttpRequest) {
+    const service = this.requireManagedTargetPlugins();
+    const managedTargetId = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/compatible-plugins$/)?.[1];
+    if (!managedTargetId) throw new Error('受管目标兼容插件路径无效');
+    return service.listCompatiblePlugins({
+      tenantId: tenantId(request),
+      managedTargetId: decodeURIComponent(managedTargetId),
+      capabilityKey: queryString(request, 'capabilityKey') ?? 'certificate.deploy',
+      applicationAssetId: queryString(request, 'applicationAssetId'),
+      locale: queryString(request, 'locale') ?? 'zh-CN',
+    });
+  }
+
+  private saveApplicationAssetManagedTarget(request: HttpRequest) {
+    const service = this.requireManagedTargetPlugins();
+    const applicationAssetId = request.path.match(/^\/api\/v1\/application-assets\/([^/]+)\/managed-target$/)?.[1];
+    if (!applicationAssetId) throw new Error('应用资产受管目标路径无效');
+    const body = validateObject(request.body, {
+      managedTargetId: { type: 'string', required: true },
+      expectedTargetVersion: { type: 'number' },
+      capabilityKey: { type: 'string' },
+      pluginOverride: { type: 'object' },
+    }) as unknown as SaveManagedTargetPluginOverrideInput;
+    return service.saveApplicationAssetTarget({
+      tenantId: tenantId(request),
+      applicationAssetId: decodeURIComponent(applicationAssetId),
+      value: body,
+    });
+  }
+
+  private requireManagedTargetPlugins(): ManagedTargetPluginQueryService {
+    if (!this.managedTargetPlugins) throw new Error('受管目标插件查询服务未接入');
+    return this.managedTargetPlugins;
+  }
+
   private requirePromotions(): PluginPromotionService {
     if (!this.promotions) throw new Error('PluginPromotionService 未配置');
     return this.promotions;
@@ -320,7 +372,14 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageResponseSchema },
+    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', operationId: 'getManagedTargetEffectiveCapability', summary: '查询受管目标生效部署能力', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/compatible-plugins', operationId: 'listManagedTargetCompatiblePlugins', summary: '查询受管目标兼容插件', tags, responseSchema: pageResponseSchema },
+    { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/managed-target', operationId: 'saveApplicationAssetManagedTarget', summary: '保存应用资产受管目标和插件覆盖', tags, responseSchema: objectSchema() },
   ];
+}
+
+function queryString(request: HttpRequest, key: string): string | undefined {
+  return typeof request.query[key] === 'string' ? request.query[key] : undefined;
 }
 
 function objectSchema() {

@@ -28,9 +28,6 @@ export class UnifiedAgentPlanCompilerService {
     const binding = await this.bindings.getTenantBinding(input.tenantId, input.pluginBindingId);
     if (binding.status !== 'ACTIVE') throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件绑定未启用');
     if (binding.mode !== 'MANAGED') throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent Atomic 插件必须使用 MANAGED Binding');
-    if (binding.managedContext?.agentId && binding.managedContext.agentId !== input.agentId) {
-      throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '统一插件绑定不属于目标 Agent');
-    }
     const plugin = await this.plugins.getVersion(binding.pluginVersionId);
     if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED') {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件版本未启用');

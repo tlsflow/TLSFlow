@@ -48,7 +48,7 @@ export class PgDevicesRepository implements DevicesRepository {
     if (!row) return undefined;
     const summary = this.projectionRegistry.project(toProjectionSource(row));
     const [managedSites, resources] = await Promise.all([
-      this.getManagedSites(tenantId, row.agent_id, row.device_asset_id),
+      this.getManagedSites(tenantId, row.id),
       row.device_asset_id ? this.getNetworkDeviceResources(tenantId, row.device_asset_id) : Promise.resolve(undefined),
     ]);
     const sites = resources ? mergeNetworkSites(managedSites, resources.sites) : managedSites;
@@ -294,9 +294,9 @@ export class PgDevicesRepository implements DevicesRepository {
     };
   }
 
-  private async getManagedSites(tenantId: string, agentId: string | null, deviceAssetId: string | null): Promise<ManagedDeviceSiteDto[]> {
+  private async getManagedSites(tenantId: string, deviceId: string): Promise<ManagedDeviceSiteDto[]> {
     const rows = (await this.db.query<ManagedSiteRow>(
-      `select site.id, site.provider_type, site.site_name, site.binding_information, site.host_header,
+      `select site.id, site.discovery_provider_key as provider_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
@@ -306,17 +306,15 @@ export class PgDevicesRepository implements DevicesRepository {
                version.certificate_asset_id, asset.name as certificate_name
        from pg_site_assets site
        left join pg_managed_targets target
-         on target.tenant_id=site.tenant_id and target.site_asset_id=site.id and target.deleted_at is null
+         on target.tenant_id=site.tenant_id and target.site_id=site.id and target.deleted_at is null
        left join pg_certificate_bindings binding
          on binding.tenant_id=site.tenant_id and binding.deleted_at is null
         and (binding.site_asset_id=site.id or (target.id is not null and binding.managed_target_id=target.id))
        left join pg_certificate_versions version on version.id=binding.certificate_version_id
        left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
-       where site.tenant_id=$1 and site.deleted_at is null
-         and (($2::text is not null and site.agent_id=$2)
-           or ($3::text is not null and site.metadata->>'deviceAssetId'=$3))
+       where site.tenant_id=$1 and site.device_id=$2 and site.deleted_at is null
        order by site.site_name, binding.binding_key`,
-      [tenantId, agentId, deviceAssetId],
+      [tenantId, deviceId],
     )).rows;
     const sites = new Map<string, ManagedDeviceSiteDto>();
     for (const row of rows) {
@@ -415,9 +413,9 @@ const DEVICE_LIST_SQL = `
       from pg_service_assets sa
       where sa.tenant_id = $1 and sa.deleted_at is null and coalesce(sa.asset_kind, 'APPLICATION') <> 'DEVICE'
       union
-      select si.host_id, site.id as asset_id
+      select si.device_id as host_id, site.id as asset_id
       from pg_site_assets site
-      join pg_service_instances si on si.id = site.service_instance_id and si.tenant_id = site.tenant_id
+      join pg_framework_instances si on si.id = site.framework_instance_id and si.tenant_id = site.tenant_id
       where site.tenant_id = $1 and site.deleted_at is null and si.deleted_at is null
     ) related_assets
     where host_id is not null

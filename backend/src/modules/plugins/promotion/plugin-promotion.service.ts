@@ -75,12 +75,12 @@ export class PluginPromotionService {
       record = await this.saveState(record, { deviceAssetId: device.id, createdResources: { ...record.createdResources, deviceAssetId: device.id } });
       const targetBinding = record.targetPluginBindingId
         ? await this.requireBinding(tenantId, record.targetPluginBindingId)
-        : await this.createManagedBinding(tenantId, source, device.hostId, device.id);
+        : await this.createManagedBinding(tenantId, source, device.hostId);
       record = await this.saveState(record, { targetPluginBindingId: targetBinding.id, createdResources: { ...record.createdResources, pluginBindingId: targetBinding.id } });
       await this.db.query(`update pg_device_assets set plugin_version_id=$1,plugin_binding_id=$2,updated_at=$3,version=version+1
         where tenant_id=$4 and service_asset_id=$5`, [source.pluginVersionId, targetBinding.id, new Date().toISOString(), tenantId, device.id]);
       await this.projector.project({ tenantId, deviceAssetId: device.id, hostId: device.hostId, pluginVersionId: source.pluginVersionId, pluginBindingId: targetBinding.id }, snapshot.discovery);
-      await this.createAssignments(tenantId, source.pluginVersionId, targetBinding.id, device.id);
+      await this.createAssignments(tenantId, source.pluginVersionId, targetBinding.id, device.hostId);
       await this.db.query(`update unified_plugin_bindings set status='DISABLED',updated_at=$1,version=version+1 where tenant_id=$2 and id=$3`, [new Date().toISOString(), tenantId, source.id]);
       const completedAt = new Date().toISOString();
       return this.saveState(record, { status: 'COMPLETED', completedAt, updatedAt: completedAt });
@@ -120,10 +120,10 @@ export class PluginPromotionService {
     return conflicts;
   }
 
-  private async createManagedBinding(tenantId: string, source: PluginBindingV1, hostId: string, deviceAssetId: string): Promise<PluginBindingV1> {
+  private async createManagedBinding(tenantId: string, source: PluginBindingV1, hostId: string): Promise<PluginBindingV1> {
     const now = new Date().toISOString();
     const binding: PluginBindingV1 = {
-      ...source, id: newId('plgb'), tenantId, mode: 'MANAGED', managedContext: { hostId, deviceAssetId },
+      ...source, id: newId('plgb'), tenantId, mode: 'MANAGED', managedContext: { hostId },
       status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now,
     };
     await this.db.query(`insert into unified_plugin_bindings
@@ -135,7 +135,7 @@ export class PluginPromotionService {
     return binding;
   }
 
-  private async createAssignments(tenantId: string, pluginVersionId: string, pluginBindingId: string, deviceAssetId: string): Promise<void> {
+  private async createAssignments(tenantId: string, pluginVersionId: string, pluginBindingId: string, hostId: string): Promise<void> {
     const version = await this.requirePluginVersion(tenantId, pluginVersionId);
     const now = new Date().toISOString();
     for (const capability of version.manifest.capabilities) {
@@ -144,7 +144,7 @@ export class PluginPromotionService {
         values ($1,$2,'DEVICE',$3,$4,$5,$6,'DEVICE_DEFAULT','ACTIVE',$7,$7)
         on conflict (tenant_id,owner_type,owner_id,capability_key) do update set plugin_version_id=excluded.plugin_version_id,
         plugin_binding_id=excluded.plugin_binding_id,status='ACTIVE',updated_at=excluded.updated_at`, [
-        newId('capa'), tenantId, deviceAssetId, capability.key, pluginVersionId, pluginBindingId, now,
+        newId('capa'), tenantId, hostId, capability.key, pluginVersionId, pluginBindingId, now,
       ]);
     }
   }

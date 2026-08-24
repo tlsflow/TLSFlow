@@ -36,6 +36,7 @@ export class PluginBindingsApplicationService {
     const binding = await this.getTenantBinding(tenantId, bindingId);
     if (binding.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'PluginBinding 版本冲突', { bindingId, expectedVersion: input.expectedVersion, actualVersion: binding.version });
     if (binding.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
+    assertManagedContext(input.managedContext);
     const next = {
       ...binding,
       variableBindings: input.variableBindings ?? binding.variableBindings,
@@ -54,6 +55,7 @@ export class PluginBindingsApplicationService {
   async createBinding(tenantId: string, input: CreatePluginBindingInput): Promise<PluginBindingV1> {
     if (input.mode === 'MANAGED' && !input.managedContext?.hostId) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId');
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
+    assertManagedContext(input.managedContext);
     const credentialBindings = input.credentialBindings ?? {};
     for (const [slot, value] of Object.entries(credentialBindings)) {
       if (!slot.trim() || !value.credentialId?.trim()) throw new AppError('VALIDATION_FAILED', 'Credential Binding 必须使用非空 credentialId');
@@ -115,3 +117,11 @@ export class CertificateArtifactBindingResolver {
 }
 
 function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`; if (value && typeof value === 'object') return `{${Object.entries(value as Record<string, unknown>).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${JSON.stringify(k)}:${stable(v)}`).join(',')}}`; return JSON.stringify(value); }
+
+function assertManagedContext(context: PluginBindingV1['managedContext'] | undefined): void {
+  if (!context) return;
+  const unknownFields = Object.keys(context).filter((key) => key !== 'hostId' && key !== 'managedTargetId');
+  if (unknownFields.length > 0) {
+    throw new AppError('VALIDATION_FAILED', 'Managed Binding 只允许保存 Host 和 ManagedTarget 身份', { unknownFields });
+  }
+}

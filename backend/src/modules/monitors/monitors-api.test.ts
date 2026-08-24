@@ -84,9 +84,11 @@ describe('监控风险 API', () => {
       compatibilityLevel: 'L1',
       managementMode: 'AGENT',
     });
-    const service = await assetsService.createServiceInstance('tenant_monitor', {
-      hostId: host.id,
-      providerType: 'NGINX',
+    const service = await assetsService.createFrameworkInstance('tenant_monitor', {
+      deviceId: host.id,
+      frameworkType: 'web.nginx',
+      frameworkKey: 'nginx:default',
+      discoveryProviderKey: 'manual.discovery',
       displayName: 'monitor nginx',
     });
     await bindingsService.createCertificateBinding('tenant_monitor', {

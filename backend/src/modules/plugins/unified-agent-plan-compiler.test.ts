@@ -47,7 +47,7 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
       privateKey: { certificateFormatId: 'format-pem', outputBindings: { privateKeyPem: 'privateKeyPem' } },
     },
     connectionBindings: {},
-    managedContext: { hostId: 'host-agent', agentId: 'agent-1' },
+    managedContext: { hostId: 'host-agent', managedTargetId: 'target-1' },
   });
   const compiler = new UnifiedAgentPlanCompilerService(plugins, bindings);
   const plan = await compiler.compile({
@@ -65,20 +65,4 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   assert.ok(plan.rollback.length > 0);
   assert.equal(plan.authorization.keyId, 'agent-plan-v1');
   assert.ok(plan.authorization.signature.length > 32);
-});
-
-test('统一 Agent Binding 不能跨 Agent 执行', async () => {
-  const plugins = { getVersion: async () => assert.fail('不应读取插件') } as unknown as UnifiedPluginsApplicationService;
-  const bindings = {
-    getTenantBinding: async () => ({
-      id: 'binding-1', tenantId: 'tenant-1', pluginVersionId: 'plugin-1', mode: 'MANAGED', variableBindings: {}, secretBindings: {},
-      certificateArtifactBindings: {}, connectionBindings: {}, managedContext: { hostId: 'host-1', agentId: 'agent-1' },
-      status: 'ACTIVE', version: 1, createdAt: '', updatedAt: '',
-    }),
-  } as unknown as PluginBindingsApplicationService;
-  const compiler = new UnifiedAgentPlanCompilerService(plugins, bindings);
-  await assert.rejects(
-    compiler.compile({ tenantId: 'tenant-1', agentId: 'agent-2', executionRunId: 'run-1', executionStepId: 'step-1', pluginBindingId: 'binding-1', artifacts: {} }),
-    (error: unknown) => typeof error === 'object' && error !== null && (error as { errorCode?: string }).errorCode === 'AGENT_PLUGIN_BINDING_INVALID',
-  );
 });

@@ -83,11 +83,12 @@ function input(sourcePluginBindingId: string) {
     sourcePluginBindingId, displayName: 'Managed Device', deviceFamily: 'test.both-device', managementAddress: '10.50.0.10',
     managementPort: 443, authMode: 'SECRET_REF', tlsVerify: true,
     discovery: {
-      apiVersion: 'gcac.device-discovery/v1' as const,
+      apiVersion: 'gcac.device-discovery/v2' as const,
       device: { stableKey: 'device:10.50.0.10', displayName: 'Managed Device', productFamily: 'TEST', managementAddress: '10.50.0.10' },
       capabilities: [{ key: 'device.discover', available: true }, { key: 'certificate.deploy', available: true }],
-      frameworks: [{ stableKey: 'framework:main', type: 'TEST', displayName: 'Test Framework' }],
-      sites: [{ stableKey: 'site:443', frameworkStableKey: 'framework:main', displayName: 'HTTPS', addresses: ['10.50.0.10'], port: 443, protocol: 'HTTPS' }],
+      frameworks: [{ stableKey: 'framework:main', frameworkType: 'test.framework', displayName: 'Test Framework' }],
+      sites: [{ stableKey: 'site:443', frameworkStableKey: 'framework:main', siteType: 'network.virtual-server', displayName: 'HTTPS', addresses: ['10.50.0.10'], port: 443, protocol: 'HTTPS' }],
+      managedTargets: [{ stableKey: 'target:443', frameworkStableKey: 'framework:main', siteStableKey: 'site:443', targetType: 'tls.binding', targetKey: 'site:443', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE' as const] }],
       certificates: [], certificateBindings: [], warnings: [],
     },
   };

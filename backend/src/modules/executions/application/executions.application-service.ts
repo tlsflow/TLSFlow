@@ -890,8 +890,8 @@ function mapStepTypeToOperation(stepType: 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'R
 }
 
 function resolveStepExecutorType(baseExecutorType: string, stepType: string, payload: Record<string, unknown>): string {
-  const providerType = typeof payload.providerType === 'string' ? payload.providerType.toUpperCase() : undefined;
-  if (providerType === 'NGINX' && stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
+  const frameworkType = typeof payload.frameworkType === 'string' ? payload.frameworkType.toLowerCase() : undefined;
+  if (frameworkType === 'web.nginx' && stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
   return baseExecutorType;
 }
 
