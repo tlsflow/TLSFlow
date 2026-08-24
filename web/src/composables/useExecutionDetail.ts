@@ -598,6 +598,27 @@ function matchesRecoveredVerificationFailure(
 function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
   return items.flatMap((item, index) => {
     const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
+    const projectedSteps = readArray(resultDetail, 'workflowExecutionSteps')
+    if (projectedSteps.length > 0) {
+      return projectedSteps.map((step, stepIndex) => ({
+        ...item,
+        id: readString(step, ['id'], `workflow-projection-${index + 1}-${stepIndex + 1}`),
+        name: readString(step, ['name'], `workflow-${stepIndex + 1}`),
+        status: readString(step, ['status'], 'UNKNOWN'),
+        stepType: readString(step, ['stepType'], 'CUSTOM'),
+        startedAt: readString(step, ['startedAt'], readString(item, ['startedAt', 'createdAt'], '')),
+        finishedAt: readString(step, ['finishedAt'], ''),
+        dependsOn: readArray(step, 'dependsOn'),
+        inputSnapshot: {
+          ...(readObject(item, 'inputSnapshot') ?? {}),
+          resultDetail: {
+            ...(resultDetail ?? {}),
+            workflowStepResult: step,
+            workflowRollback: readPath(step, 'compensation') === true,
+          },
+        },
+      }))
+    }
     const workflowRun = readObject(resultDetail, 'workflowRun')
     const workflowProgress = readObject(resultDetail, 'workflowProgress')
     const completedStepResults = readArray(workflowRun, 'stepResults')

@@ -520,6 +520,10 @@ export class WorkflowTemplatesDomainService {
         `foreach:${step.name}:count:${items.length}:completed:${iterations.length}:status:${success ? 'success' : 'failed'}`,
         ...logs,
       ].map((line) => maskText(line, context.secretPaths, context.values)),
+      children: iterations.flatMap((iteration) => iteration.steps.map((child) => ({
+        ...child,
+        name: `${step.name}[${iteration.index}].${child.name}`,
+      }))),
     };
     const snapshot = stepSnapshot(step, result, output, {});
     context.values.previous = snapshot;

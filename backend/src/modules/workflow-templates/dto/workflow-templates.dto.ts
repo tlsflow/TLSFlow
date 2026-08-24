@@ -425,6 +425,7 @@ export interface WorkflowStepRunResult {
   extracted: Record<string, unknown>;
   assertions: Array<{ type: string; passed: boolean; message: string }>;
   logs: string[];
+  children?: WorkflowStepRunResult[];
 }
 
 export interface WorkflowRunResult {

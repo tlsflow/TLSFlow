@@ -19,6 +19,7 @@ import type { AgentPluginBindingInput } from '../../plugins/dto/agent-deployment
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
+import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -341,6 +342,7 @@ export class WorkflowExecutorAdapter implements Executor {
           mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
           stepType: input.step.stepType,
           workflowProgress,
+          workflowExecutionSteps: projectWorkflowBusinessSteps(input.step.id, workflowProgress),
         });
       };
       const workflowRun = input.dryRun
@@ -362,6 +364,7 @@ export class WorkflowExecutorAdapter implements Executor {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
         workflowRequest: maskWorkflowRequest(request),
         workflowRun,
+        workflowExecutionSteps: projectWorkflowBusinessSteps(input.step.id, workflowRun),
         ...(dryRunChecks ? {
           dryRunChecks,
           dryRunSummary: summarizeDryRunChecks(dryRunChecks),
