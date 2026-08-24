@@ -1,0 +1,15 @@
+{
+  "source": "REAL_DEVICE_REDACTED",
+  "productVersion": "13.1",
+  "build": "55.29.nc",
+  "containsSecrets": false,
+  "mockResponses": {
+    "readVersion": { "statusCode": 200, "body": { "errorcode": 0, "nsversion": { "version": "NetScaler NS13.1: Build 55.29.nc" } } },
+    "readLbVirtualServers": { "statusCode": 200, "body": { "errorcode": 0, "lbvserver": [{ "name": "lb-one", "servicetype": "SSL", "ipv46": "10.0.0.41", "port": 443 }] } },
+    "readVpnVirtualServers": { "statusCode": 200, "body": { "errorcode": 0, "vpnvserver": [{ "name": "vpn-one", "ipv46": "10.0.0.50", "port": 443 }] } },
+    "readCsVirtualServers": { "statusCode": 200, "body": { "errorcode": 0, "csvserver": [{ "name": "cs-one", "servicetype": "SSL", "ipv46": "10.0.0.60", "port": 443 }] } },
+    "readGslbVirtualServers": { "statusCode": 200, "body": { "errorcode": 0, "gslbvserver": [{ "name": "gslb-one", "ipv46": "10.0.0.70", "port": 443 }] } },
+    "readCertificateBindings": { "statusCode": 200, "body": { "errorcode": 0, "sslvserver_sslcertkey_binding": [{ "vservername": "lb-one", "certkeyname": "leaf-one", "snicert": false }, { "vservername": "vpn-one", "certkeyname": "leaf-one", "snicert": false }, { "vservername": "cs-one", "certkeyname": "leaf-one", "snicert": false }, { "vservername": "gslb-one", "certkeyname": "leaf-one", "snicert": false }] } },
+    "readCertificates": { "statusCode": 200, "body": { "errorcode": 0, "sslcertkey": [{ "certkey": "leaf-one", "sha256Fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "subject": "CN=example.invalid", "issuer": "CN=Fixture Issuer", "clientcertnotafter": "2027-01-01T00:00:00Z" }] } }
+  }
+}

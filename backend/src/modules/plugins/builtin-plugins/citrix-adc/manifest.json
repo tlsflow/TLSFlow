@@ -37,6 +37,7 @@
     },
     "forms": { "device": "forms/device.json" },
     "presentations": { "device": "presentations/device.json" },
+    "discoveryMappings": { "nitro-13.1": "discovery-mappings/nitro-13.1.json" },
     "locales": {
       "zh-CN": "locales/zh-CN.json",
       "zh-TW": "locales/zh-TW.json",
