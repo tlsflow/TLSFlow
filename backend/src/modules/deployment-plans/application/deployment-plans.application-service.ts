@@ -1386,6 +1386,7 @@ export class DeploymentPlansApplicationService {
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
       failurePolicy: plan.policy.failurePolicy,
+      source: input.executionSource,
     }, context);
 
     return { plan: await this.toDto(running), ...created };
@@ -1436,6 +1437,7 @@ export class DeploymentPlansApplicationService {
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
       failurePolicy: plan.policy.failurePolicy,
+      source: input.executionSource,
     }, context);
     const stepsWithInitialChecks = await this.attachInitialDryRunChecks(created.steps, targets, deploymentArtifactByTargetId, agentPayloadByTargetId, input.actorId, input.tenantId);
     const stepsWithTrustChecks = await this.attachTrustPlanDryRunChecks(stepsWithInitialChecks, trustPlanByTargetId, input.actorId, input.tenantId);

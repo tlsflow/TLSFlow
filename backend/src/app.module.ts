@@ -590,7 +590,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     automationApprovalOrchestrator,
   );
-  const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined, tasksService);
+  const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined);
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);

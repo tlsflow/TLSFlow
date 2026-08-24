@@ -146,13 +146,14 @@ watch(() => props.automation, (automation) => {
   }
 
   const trigger = automation.configuration.trigger
-  const selector = automation.configuration.targetResolver?.type === 'legacy_target_selector'
-    ? (automation.configuration.targetResolver.selector ?? {})
+  const resolver = automation.configuration.targetResolver
+  const selector = resolver?.type === 'legacy_target_selector'
+    ? (resolver.selector ?? {})
     : (automation.configuration.targetSelector ?? {})
   const filters = automation.configuration.filters ?? []
   const selectedAssetIds = readStringArray(
     filters.find((item) => item.field === 'target.assetId')?.value,
-    selector.assetIds ?? [],
+    resolver?.type === 'certificate_version_targets' ? resolver.assetIds ?? [] : selector.assetIds ?? [],
   )
   const eventDomains = readStringArray(filters.find((item) => item.field === 'event.domains')?.value)
 
@@ -446,7 +447,14 @@ function buildTrigger(): AutomationConfiguration['trigger'] {
 }
 
 function buildTargetResolver(): NonNullable<AutomationConfiguration['targetResolver']> {
-  if (isEventTrigger.value) return { type: 'certificate_version_targets' }
+  if (isEventTrigger.value) {
+    return {
+      type: 'certificate_version_targets',
+      ...(form.targetScopeMode === 'selected_assets' && form.selectedAssetIds.length
+        ? { assetIds: [...form.selectedAssetIds] }
+        : {}),
+    }
+  }
   return {
     type: 'legacy_target_selector',
     selector: {
@@ -463,7 +471,6 @@ function buildFilters(): NonNullable<AutomationConfiguration['filters']> {
   if (!isEventTrigger.value) return filters
   if (form.certificateSources.length) filters.push({ field: 'event.sourceType', operator: 'in', value: [...form.certificateSources] })
   if (domains.value.length) filters.push({ field: 'event.domains', operator: 'contains_any', value: [...domains.value] })
-  if (form.targetScopeMode === 'selected_assets' && form.selectedAssetIds.length) filters.push({ field: 'target.assetId', operator: 'in', value: [...form.selectedAssetIds] })
   return filters
 }
 

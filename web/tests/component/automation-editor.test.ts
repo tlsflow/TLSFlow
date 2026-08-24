@@ -81,12 +81,11 @@ describe('AutomationEditor', () => {
     const payload = wrapper.emitted('save')?.[0]?.[0] as Record<string, any>
     expect(payload.name).toBe('example.com · 证书新版本事件 · 只更新指定应用资产')
     expect(payload.trigger).toEqual({ type: 'certificate_version_created', sources: ['acme', 'manual_import'] })
-    expect(payload.targetResolver).toEqual({ type: 'certificate_version_targets' })
+    expect(payload.targetResolver).toMatchObject({ type: 'certificate_version_targets', assetIds: expect.arrayContaining(['asset-a', 'asset-b']) })
     expect(payload.targetSelector).toBeUndefined()
     expect(payload.filters).toEqual([
       { field: 'event.sourceType', operator: 'in', value: ['acme', 'manual_import'] },
       { field: 'event.domains', operator: 'contains_any', value: ['example.com'] },
-      { field: 'target.assetId', operator: 'in', value: expect.arrayContaining(['asset-a', 'asset-b']) },
     ])
     expect(payload.actions.map((action: { type: string }) => action.type)).toEqual(['create_deployment_plan', 'execute_deployment_plan'])
     expect(payload.guardrails).toMatchObject({ maxTargetsPerRun: 5000, requirePreview: true, requireDryRun: true, requireApproval: true })

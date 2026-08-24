@@ -7,7 +7,7 @@ export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 's
 export interface AutomationConfiguration {
   trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'acme' | 'manual_import'> }
   filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
-  targetResolver?: { type: 'legacy_target_selector'; selector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] } } | { type: 'certificate_version_targets' }
+  targetResolver?: { type: 'legacy_target_selector'; selector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] } } | { type: 'certificate_version_targets'; assetIds?: string[] }
   targetSelector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
   approvalStage?: { type: 'run'; mode?: 'before_actions'; operationType?: string; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; expiresInHours?: number }
   actions: Array<{ type: 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification'; position: number; config: Record<string, unknown> }>
@@ -69,7 +69,17 @@ export interface AutomationRunRecord {
 export interface AutomationRunTargetRecord {
   id: string
   sequenceNo: number
-  targetSnapshot: { certificateName: string; environment?: string; assetName?: string }
+  targetSnapshot: {
+    certificateName: string
+    certificateVersionId?: string
+    currentCertificateVersionId?: string
+    currentCertificateNotAfter?: string
+    targetCertificateNotAfter?: string
+    certificateVersionImpact?: 'upgrade' | 'same' | 'downgrade' | 'missing_current'
+    environment?: string
+    assetId?: string
+    assetName?: string
+  }
   status: string
   currentAction?: string
   failureStage?: string
@@ -86,7 +96,15 @@ export interface AutomationPreviewRecord {
   executableCount: number
   excludedCount: number
   excludedReasons: Record<string, number>
-  items: Array<{ target: AutomationRunTargetRecord['targetSnapshot'] & { bindingId?: string }; executable: boolean; excludedReason?: string }>
+  versionImpactSummary?: { total: number; upgrade: number; same: number; downgrade: number; missingCurrent: number }
+  items: Array<{
+    target: AutomationRunTargetRecord['targetSnapshot'] & {
+      bindingId?: string
+      currentCertificateVersionId?: string
+    }
+    executable: boolean
+    excludedReason?: string
+  }>
 }
 
 const basePath = '/api/v1/automations'

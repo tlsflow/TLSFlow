@@ -1,6 +1,6 @@
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel } from '../../../shared/security-types.js';
-import type { ExecutionRunDto } from '../../executions/dto/executions.dto.js';
+import type { ExecutionRunDto, ExecutionSourceDto } from '../../executions/dto/executions.dto.js';
 import type { FallbackSuggestion, GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 
 export type DeploymentPlanType = 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY';
@@ -184,6 +184,7 @@ export interface ExecuteDeploymentPlanInput {
   tenantId?: string;
   idempotencyKey: string;
   approvalId?: string;
+  executionSource?: ExecutionSourceDto;
 }
 
 export interface DryRunDeploymentPlanInput {
@@ -191,6 +192,7 @@ export interface DryRunDeploymentPlanInput {
   actorId: string;
   tenantId?: string;
   idempotencyKey: string;
+  executionSource?: ExecutionSourceDto;
 }
 
 export interface CancelDeploymentPlanInput {

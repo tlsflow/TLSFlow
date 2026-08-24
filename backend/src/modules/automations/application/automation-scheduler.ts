@@ -3,7 +3,6 @@ import type { AutomationTriggerDto } from '../dto/automations.dto.js';
 import { cronMatches, nextCronOccurrence } from '../domain/automation-schedule.js';
 import { AutomationsApplicationService } from './automations.application-service.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
-import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface AutomationClock {
   now(): Date;
@@ -29,7 +28,6 @@ export class AutomationScheduler {
     private readonly executor: AutomationRunExecutionPort,
     private readonly ownerId = newId('scheduler'),
     private readonly clock: AutomationClock = defaultClock,
-    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   async runOnce(maxRuns = 10): Promise<AutomationSchedulerResult> {
@@ -70,15 +68,6 @@ export class AutomationScheduler {
       const idempotencyKey = `${version.trigger.type === 'once' ? 'once' : 'schedule'}:${automation.id}:${scheduledAt}`;
       const run = await this.service.createOnDemandRun(tenantId, 'system_scheduler', automation.id, idempotencyKey, automation.version, { triggerType: 'schedule', scheduledAt });
       created.push(run.id);
-      enqueueTaskBestEffort(this.tasks, {
-        tenantId,
-        taskType: 'AUTOMATION_RUN',
-        requestedBy: 'system_scheduler',
-        triggerSource: 'automation.scheduler',
-        idempotencyKey: `automation-run:${run.id}`,
-        payload: { runId: run.id },
-        resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
-      });
       const nextRunAt = version.trigger.type === 'once' ? undefined : nextCronOccurrence(version.trigger, now)?.toISOString();
       await this.repository.updateAutomation(automation.id, tenantId, { nextRunAt, lastRunAt: scheduledAt, updatedAt: now.toISOString() });
     }

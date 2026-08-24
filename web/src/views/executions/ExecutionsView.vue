@@ -31,6 +31,7 @@ interface ExecutionListRow extends ViewRow {
   readonly runNumberLabel: string
   readonly startedAtLabel: string
   readonly logSummary: string
+  readonly sourceLabel: string
 }
 
 const PAGE_SIZE = 20
@@ -213,7 +214,13 @@ function toExecutionRow(
     runNumberLabel: t('executions.list.runNumber', { number: readString(record, ['runNo'], '—') }),
     startedAtLabel: formatListTime(readString(record, ['startedAt', 'createdAt'], '')),
     logSummary: executionLogSummary(record, status),
+    sourceLabel: executionSourceLabel(record),
   }
+}
+
+function executionSourceLabel(record: ApiRecord): string {
+  const sourceType = readString(record, ['summary.executionSource.type', 'executionSource.type'], 'deployment_plan')
+  return sourceType === 'automation' ? t('automations.title') : t('deploymentPlans.title')
 }
 
 function executionTypeLabel(value: string): string {
@@ -321,6 +328,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
             <tr>
               <th scope="col">{{ t('executions.fields.status') }}</th>
               <th scope="col">{{ t('executions.fields.deploymentPlan') }}</th>
+              <th scope="col">{{ t('tasks.fields.triggerSource') }}</th>
               <th scope="col">{{ t('executions.list.assetsLabel') }}</th>
               <th scope="col">{{ t('executions.fields.runType') }}</th>
               <th scope="col">{{ t('executions.list.logLabel') }}</th>
@@ -344,6 +352,9 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
               <td class="execution-list__plan">
                 <strong>{{ item.planName }}</strong>
                 <small>{{ item.id }}</small>
+              </td>
+              <td class="execution-list__source-cell">
+                <span class="execution-list__source">{{ item.sourceLabel }}</span>
               </td>
               <td class="execution-list__assets">
                 <span v-for="asset in item.assetNames" :key="asset" class="execution-list__asset">{{ asset }}</span>
@@ -409,6 +420,10 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
             <div>
               <dt>{{ t('executions.fields.deploymentPlan') }}</dt>
               <dd>{{ detailRow.planName }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('tasks.fields.triggerSource') }}</dt>
+              <dd>{{ detailRow.sourceLabel }}</dd>
             </div>
             <div>
               <dt>{{ t('executions.fields.target') }}</dt>
@@ -556,7 +571,7 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 
 .execution-list__table {
   width: 100%;
-  min-width: 68rem;
+  min-width: 74rem;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -578,12 +593,13 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
 }
 
 .execution-list__table th:nth-child(1) { width: 7rem; }
-.execution-list__table th:nth-child(2) { width: 18%; }
-.execution-list__table th:nth-child(3) { width: 16%; }
-.execution-list__table th:nth-child(4) { width: 10rem; }
-.execution-list__table th:nth-child(5) { width: 28%; }
-.execution-list__table th:nth-child(6) { width: 10rem; }
-.execution-list__table th:nth-child(7) { width: 8rem; }
+.execution-list__table th:nth-child(2) { width: 17%; }
+.execution-list__table th:nth-child(3) { width: 9rem; }
+.execution-list__table th:nth-child(4) { width: 15%; }
+.execution-list__table th:nth-child(5) { width: 10rem; }
+.execution-list__table th:nth-child(6) { width: 25%; }
+.execution-list__table th:nth-child(7) { width: 10rem; }
+.execution-list__table th:nth-child(8) { width: 8rem; }
 
 .execution-list__record {
   color: var(--gc-color-text);
@@ -612,6 +628,17 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   font-size: var(--gc-font-size-sm);
   font-weight: 900;
   overflow-wrap: anywhere;
+}
+
+.execution-list__source {
+  width: fit-content;
+  padding: var(--gc-space-1) var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-full);
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-bg);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
 }
 
 .execution-list__plan small,

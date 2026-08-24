@@ -65,15 +65,15 @@ export class AutomationDeploymentActionService {
     });
   }
 
-  dryRun(input: { planId: string; runId: string; actorId: string; tenantId: string; idempotencyKey: string }, context?: RequestContext): Promise<unknown> {
-    return this.deployment.dryRun({ planId: input.planId, actorId: input.actorId, tenantId: input.tenantId, idempotencyKey: `automation:${input.runId}:dry-run:${input.planId}` }, context);
+  dryRun(input: { planId: string; runId: string; automationId?: string; actorId: string; tenantId: string; idempotencyKey: string }, context?: RequestContext): Promise<unknown> {
+    return this.deployment.dryRun({ planId: input.planId, actorId: input.actorId, tenantId: input.tenantId, idempotencyKey: `automation:${input.runId}:dry-run:${input.planId}`, executionSource: { type: 'automation', automationRunId: input.runId, automationId: input.automationId } }, context);
   }
 
   submit(input: { planId: string; actorId: string; tenantId: string; approvalId?: string }, context?: RequestContext): Promise<DeploymentPlanDto> {
     return this.deployment.submit(input, context);
   }
 
-  execute(input: { planId: string; runId: string; actorId: string; tenantId: string; approvalId?: string }, context?: RequestContext): Promise<unknown> {
-    return this.deployment.execute({ planId: input.planId, actorId: input.actorId, tenantId: input.tenantId, approvalId: input.approvalId, idempotencyKey: `automation:${input.runId}:execute:${input.planId}` }, context);
+  execute(input: { planId: string; runId: string; automationId?: string; actorId: string; tenantId: string; approvalId?: string }, context?: RequestContext): Promise<unknown> {
+    return this.deployment.execute({ planId: input.planId, actorId: input.actorId, tenantId: input.tenantId, approvalId: input.approvalId, idempotencyKey: `automation:${input.runId}:execute:${input.planId}`, executionSource: { type: 'automation', automationRunId: input.runId, automationId: input.automationId } }, context);
   }
 }

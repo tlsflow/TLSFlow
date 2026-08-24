@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
 import { listAssets } from '@/api/modules/assets.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
@@ -17,7 +18,10 @@ import {
   type AutomationRecord,
   type AutomationPreviewRecord,
   type AutomationRunRecord,
+  listAutomationRunTargets,
+  type AutomationRunTargetRecord,
 } from '@/api/modules/automations.api'
+import { listTasks, type TaskRun } from '@/api/modules/tasks.api'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
@@ -27,6 +31,7 @@ import AutomationEditor from './AutomationEditor.vue'
 import AutomationPreviewPanel from './AutomationPreviewPanel.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const editorOpen = ref(false)
 const detailOpen = ref(false)
@@ -37,6 +42,7 @@ const detailRow = ref<ViewRow | null>(null)
 const historyAutomation = ref<AutomationRecord | null>(null)
 const historyItems = ref<AutomationRunRecord[]>([])
 const historyLoading = ref(false)
+const historyDetails = ref<Record<string, { targets: AutomationRunTargetRecord[]; tasksByPlan: Record<string, TaskRun[]> }>>({})
 const manualRunAutomation = ref<AutomationRecord | null>(null)
 const manualRunVersionId = ref('')
 const manualRunVersions = ref<ApiRecord[]>([])
@@ -270,9 +276,37 @@ async function openHistory(item: AutomationRecord, prependedRun?: AutomationRunR
     historyItems.value = prependedRun
       ? [prependedRun, ...runs.filter((run) => run.id !== prependedRun.id)]
       : runs
+    historyDetails.value = {}
+    await loadHistoryDetails(historyItems.value)
   } finally {
     historyLoading.value = false
   }
+}
+
+async function loadHistoryDetails(runs: readonly AutomationRunRecord[]): Promise<void> {
+  const details = await Promise.all(runs.map(async (run) => {
+    const targets = await listAutomationRunTargets(run.id)
+    const planIds = [...new Set(targets.map((target) => target.deploymentPlanId).filter((id): id is string => Boolean(id)))]
+    const taskEntries = await Promise.all(planIds.map(async (planId) => {
+      const result = await listTasks({ page: 1, pageSize: 50, filters: { resourceType: 'deploymentPlan', resourceId: planId }, includeAll: true })
+      return [planId, (result.data?.items ?? []).filter((task) => ['CERTIFICATE_DRY_RUN', 'CERTIFICATE_DEPLOY', 'CERTIFICATE_ROLLBACK'].includes(task.taskType)).sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))] as const
+    }))
+    return [run.id, { targets, tasksByPlan: Object.fromEntries(taskEntries) }] as const
+  }))
+  historyDetails.value = Object.fromEntries(details)
+}
+
+function historyTargetTasks(runId: string, target: AutomationRunTargetRecord): TaskRun[] {
+  return target.deploymentPlanId ? historyDetails.value[runId]?.tasksByPlan[target.deploymentPlanId] ?? [] : []
+}
+
+function historyTaskSummary(task: TaskRun): string {
+  const message = typeof task.lastErrorMessage === 'string' && task.lastErrorMessage.trim()
+    ? task.lastErrorMessage
+    : typeof task.progress?.message === 'string' && task.progress.message.trim()
+      ? task.progress.message
+      : typeof task.progress?.summary === 'string' ? task.progress.summary : ''
+  return message ? `${t(`tasks.status.${task.status}`)} · ${message}` : t(`tasks.status.${task.status}`)
 }
 
 async function runNow(item: AutomationRecord) {
@@ -344,7 +378,7 @@ async function loadManualRunPreview() {
 async function submitManualRun() {
   const automation = manualRunAutomation.value
   if (!automation || !manualRunVersionId.value || manualRunSubmitting.value) return
-  if (!manualRunPreview.value || manualRunPreview.value.executableCount === 0) return
+  if (!manualRunPreview.value || manualRunExecutableCount.value === 0) return
   manualRunSubmitting.value = true
   manualRunError.value = ''
   try {
@@ -377,12 +411,16 @@ function manualRunVersionKey(version: ApiRecord): string {
 function manualRunVersionLabel(version: ApiRecord): string {
   const name = readString(version, ['commonName', 'subject.commonName', 'name'], manualRunVersionKey(version))
   const asset = readString(version, ['primaryDomain', 'certificateAssetName', 'certificateAssetId'], '')
-  const versionNo = readString(version, ['versionNo', 'version'], '')
   const notAfter = formatMaybeLocalTime(readString(version, ['notAfter'], ''), t('automations.common.notAvailable'))
-  return [name, asset, versionNo ? `#${versionNo}` : '', notAfter].filter(Boolean).join(' · ')
+  return [name, asset, notAfter].filter(Boolean).join(' · ')
 }
 
 const manualRunCanDryRun = computed(() => manualRunAutomation.value?.configuration.guardrails.requireDryRun !== true)
+const manualRunExecutableCount = computed(() => {
+  const preview = manualRunPreview.value
+  if (!preview) return 0
+  return Math.max(preview.executableCount ?? 0, preview.items.filter((item) => item.executable).length)
+})
 
 watch(manualRunVersionId, () => {
   if (!manualRunOpen.value) return
@@ -760,6 +798,39 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
               <span>{{ run.id }}</span>
               <span>{{ run.approvalId || t('automations.common.notAvailable') }}</span>
             </div>
+            <section v-if="historyDetails[run.id]" class="automation-history__targets">
+              <header class="automation-history__targets-header">
+                <strong>{{ t('automations.detail.fields.involvedAssets') }}</strong>
+                <span>{{ run.targetSummary.succeeded || 0 }}/{{ run.targetSummary.total || 0 }}</span>
+              </header>
+              <article v-for="target in historyDetails[run.id].targets" :key="target.id" class="automation-history__target">
+                <div class="automation-history__target-head">
+                  <div>
+                    <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName }}</strong>
+                    <span>{{ target.targetSnapshot.certificateName }} · {{ target.targetSnapshot.environment || t('automations.common.notAvailable') }}</span>
+                  </div>
+                  <GcStatusTag :status="target.status" />
+                </div>
+                <div class="automation-history__target-facts">
+                  <span>{{ target.currentAction || t('automations.common.notAvailable') }}</span>
+                  <span>{{ target.failureStage ? t(`automations.failureStages.${target.failureStage}`) : t('automations.runDetail.noFailure') }}</span>
+                  <span v-if="target.errorCode">{{ target.errorCode }} · {{ target.errorMessage }}</span>
+                </div>
+                <div v-if="historyTargetTasks(run.id, target).length" class="automation-history__execution-list">
+                  <div v-for="task in historyTargetTasks(run.id, target)" :key="task.id" class="automation-history__execution">
+                    <div>
+                      <strong>{{ t(`tasks.typeLabels.${task.taskType}`) }}</strong>
+                      <span>{{ historyTaskSummary(task) }}</span>
+                    </div>
+                    <GcStatusTag :status="task.status" />
+                  </div>
+                </div>
+                <div class="automation-history__target-actions">
+                  <button v-if="target.deploymentPlanId" class="gc-button gc-button--sm" type="button" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
+                  <button v-if="target.executionRunId" class="gc-button gc-button--sm" type="button" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
+                </div>
+              </article>
+            </section>
           </article>
         </div>
       </section>
@@ -816,7 +887,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
         <button
           class="gc-button gc-button--primary"
           type="button"
-          :disabled="manualRunLoading || manualRunPreviewLoading || manualRunSubmitting || !manualRunVersionId || !manualRunPreview || manualRunPreview.executableCount === 0"
+          :disabled="manualRunLoading || manualRunPreviewLoading || manualRunSubmitting || !manualRunVersionId || !manualRunPreview || manualRunExecutableCount === 0"
           @click="submitManualRun"
         >
           {{ t('automations.manualRun.start') }}
@@ -882,6 +953,67 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
 .automation-history__item span,
 .automation-history__hint {
   margin: 0;
+}
+
+.automation-history__targets {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin-top: var(--gc-space-2);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+}
+
+.automation-history__targets-header,
+.automation-history__target-head,
+.automation-history__execution,
+.automation-history__target-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  flex-wrap: wrap;
+}
+
+.automation-history__targets-header span,
+.automation-history__target-head span,
+.automation-history__target-facts,
+.automation-history__execution span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.automation-history__target {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border-left: var(--gc-space-1) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-panel);
+}
+
+.automation-history__target-head > div,
+.automation-history__execution > div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.automation-history__target-facts {
+  display: flex;
+  gap: var(--gc-space-3);
+  flex-wrap: wrap;
+}
+
+.automation-history__execution-list {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.automation-history__execution {
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-solid);
 }
 
 .automation-detail__hero-copy h2 {

@@ -2,6 +2,11 @@ import type { ExecutionRunStatus, ExecutionStepStatus, ExecutionTargetKind } fro
 import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto } from '../../deployment-plans/dto/deployment-plans.dto.js';
 
 export type ExecutionRunType = 'apply' | 'dry_run' | 'rollback';
+export interface ExecutionSourceDto {
+  type: 'deployment_plan' | 'automation';
+  automationRunId?: string;
+  automationId?: string;
+}
 export type ExecutionStepType = 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'RELOAD' | 'VERIFY' | 'ROLLBACK' | 'CUSTOM';
 export type ExecutionFailureCategory = 'transient' | 'unsafe' | 'timeout' | 'cancelled';
 
@@ -23,6 +28,7 @@ export interface ExecutionRunDto {
   recoveryAttemptCount?: number;
   lastRecoveryAt?: string;
   summary: Record<string, unknown>;
+  source?: ExecutionSourceDto;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -73,6 +79,7 @@ export interface CreateExecutionRunInput {
   failurePolicy?: NonNullable<DeploymentPlanPolicyDto['failurePolicy']>;
   retry?: DeploymentPlanPolicyDto['retry'];
   allowMockExecutor?: boolean;
+  source?: ExecutionSourceDto;
 }
 
 export interface DeploymentArtifactSnapshotDto {

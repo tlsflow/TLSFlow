@@ -11,6 +11,7 @@ import { AutomationFilterEvaluator } from './automation-filter-evaluator.js';
 import { AutomationTargetResolverRegistry, type AutomationTargetResolverInput } from './automation-target-resolver.registry.js';
 import { AutomationTriggerRegistry } from './automation-trigger-registry.js';
 import { AutomationApprovalOrchestrator } from './automation-approval-orchestrator.js';
+import { buildAutomationTaskResourceSummary } from './automation-task-progress.js';
 
 export interface AutomationsApplicationOptions {
   triggerRegistry?: AutomationTriggerRegistry;
@@ -77,7 +78,7 @@ export class AutomationsApplicationService {
       actorId,
       triggerContext,
       guardrails: version.guardrails,
-      resolver: version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} },
+      resolver: this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []),
       filters: version.filters ?? [],
       page,
       pageSize,
@@ -99,7 +100,7 @@ export class AutomationsApplicationService {
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
     this.domain.assertVersion(automation, expectedVersion);
     const version = await this.requireRunnableVersion(tenantId, automation, { allowDisabledManual: true });
-    const resolver = version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} };
+    const resolver = this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []);
     if (resolver.type === 'certificate_version_targets' && !options.triggerContext?.certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', '证书新版本事件自动化手动执行时必须选择证书版本');
     }
@@ -123,6 +124,7 @@ export class AutomationsApplicationService {
       executionOptions: options.executionOptions,
       items: preview,
     });
+    this.enqueueRunTask(run, actorId, options.triggerType === 'schedule' ? 'automation.scheduler' : 'automation.manual');
     return run;
   }
 
@@ -145,7 +147,7 @@ export class AutomationsApplicationService {
       actorId: input.actorId,
       triggerContext: input.triggerContext,
       guardrails: version.guardrails,
-      resolver: version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} },
+      resolver: this.effectiveResolver(version.targetResolver ?? { type: 'legacy_target_selector', selector: version.targetSelector ?? {} }, version.filters ?? []),
       filters: version.filters ?? [],
     });
     const executable = items.filter((item) => item.executable);
@@ -164,15 +166,8 @@ export class AutomationsApplicationService {
       deliveryId: input.deliveryId,
       items,
     });
-    enqueueTaskBestEffort(this.tasks, {
-      tenantId: input.tenantId,
-      taskType: 'AUTOMATION_RUN',
-      requestedBy: input.actorId,
-      triggerSource: 'automation.event',
-      idempotencyKey: `automation-run:${run.id}`,
-      payload: { runId: run.id },
-      resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
-    });
+    // 必须使用审批状态已经写回后的 run，否则任务会永久停留在 queued，审批人也无法看到待审批标识。
+    this.enqueueRunTask(run, input.actorId, 'automation.event');
     return { run, items };
   }
 
@@ -318,7 +313,10 @@ export class AutomationsApplicationService {
   }
 
   private async resolveTargets(input: AutomationTargetResolverInput & { filters: NonNullable<AutomationConfigurationDto['filters']> }): Promise<AutomationPreviewTargetDto[]> {
-    const eventFilters = input.filters.filter((filter) => filter.field.startsWith('event.'));
+    const filters = input.resolver.type === 'certificate_version_targets'
+      ? input.filters.filter((filter) => filter.field !== 'event.domains' && filter.field !== 'target.assetId')
+      : input.filters;
+    const eventFilters = filters.filter((filter) => filter.field.startsWith('event.'));
     if (eventFilters.length > 0) {
       const eventMatch = this.filterEvaluator.evaluate(eventFilters, { event: input.triggerContext });
       if (!eventMatch.matched) return [];
@@ -326,9 +324,21 @@ export class AutomationsApplicationService {
     const items = await this.resolverRegistry.resolve(input);
     return items.map((item) => {
       if (!item.executable) return item;
-      const matched = this.filterEvaluator.evaluate(input.filters, { event: input.triggerContext, target: item.target });
+      const matched = this.filterEvaluator.evaluate(filters, { event: input.triggerContext, target: item.target });
       return matched.matched ? item : { ...item, executable: false, excludedReason: 'filter_not_matched' };
     });
+  }
+
+  private effectiveResolver(
+    resolver: NonNullable<AutomationVersionEntity['targetResolver']>,
+    filters: NonNullable<AutomationConfigurationDto['filters']>,
+  ): NonNullable<AutomationVersionEntity['targetResolver']> {
+    if (resolver.type !== 'certificate_version_targets' || resolver.assetIds?.length) return resolver;
+    const assetIds = filters
+      .filter((filter) => filter.field === 'target.assetId')
+      .flatMap((filter) => Array.isArray(filter.value) ? filter.value : [])
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    return assetIds.length > 0 ? { ...resolver, assetIds: [...new Set(assetIds)] } : resolver;
   }
 
   private toPreview(input: {
@@ -345,6 +355,7 @@ export class AutomationsApplicationService {
     for (const item of limited) {
       if (item.excludedReason) excludedReasons[item.excludedReason] = (excludedReasons[item.excludedReason] ?? 0) + 1;
     }
+    const impactItems = limited.filter((item) => item.target.certificateVersionImpact);
     const page = input.page ?? 1;
     const size = Math.min(input.pageSize ?? 50, 200);
     const start = (page - 1) * size;
@@ -360,6 +371,15 @@ export class AutomationsApplicationService {
       page,
       pageSize: size,
       items: limited.slice(start, start + size),
+      ...(impactItems.length > 0 ? {
+        versionImpactSummary: {
+          total: impactItems.length,
+          upgrade: impactItems.filter((item) => item.target.certificateVersionImpact === 'upgrade').length,
+          same: impactItems.filter((item) => item.target.certificateVersionImpact === 'same').length,
+          downgrade: impactItems.filter((item) => item.target.certificateVersionImpact === 'downgrade').length,
+          missingCurrent: impactItems.filter((item) => item.target.certificateVersionImpact === 'missing_current').length,
+        },
+      } : {}),
     };
   }
 
@@ -456,5 +476,22 @@ export class AutomationsApplicationService {
       });
     }
     return run;
+  }
+
+  private enqueueRunTask(run: AutomationRunDto, actorId: string, triggerSource: string): void {
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: run.tenantId,
+      taskType: 'AUTOMATION_RUN',
+      requestedBy: actorId,
+      triggerSource,
+      idempotencyKey: `automation-run:${run.id}`,
+      resourceSummary: buildAutomationTaskResourceSummary(run),
+      payload: {
+        runId: run.id,
+        automationId: run.automationId,
+        automationName: run.automationNameSnapshot,
+      },
+      resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
+    });
   }
 }

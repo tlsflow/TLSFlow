@@ -89,7 +89,7 @@ export interface AutomationGuardrailsDto {
 
 export type AutomationTargetResolverDto =
   | { type: 'legacy_target_selector'; selector?: AutomationTargetSelectorDto }
-  | { type: 'certificate_version_targets' };
+  | { type: 'certificate_version_targets'; assetIds?: string[] };
 
 export interface AutomationApprovalStageDto {
   type: AutomationApprovalStageType;
@@ -193,6 +193,10 @@ export interface AutomationTargetSnapshotDto {
   certificateId: string;
   certificateName: string;
   certificateVersionId?: string;
+  currentCertificateVersionId?: string;
+  currentCertificateNotAfter?: string;
+  targetCertificateNotAfter?: string;
+  certificateVersionImpact?: 'upgrade' | 'same' | 'downgrade' | 'missing_current';
   eventId?: string;
   eventType?: string;
   sourceType?: string;
@@ -282,7 +286,7 @@ export interface AutomationTriggerDeliveryDto {
 export interface AutomationPreviewTargetDto {
   target: AutomationTargetSnapshotDto;
   executable: boolean;
-  excludedReason?: 'permission_denied' | 'missing_version' | 'version_not_deployable' | 'binding_not_managed' | 'environment_not_allowed' | 'binding_missing' | 'asset_missing_deployment_capability' | 'filter_not_matched' | 'runtime_context_required';
+  excludedReason?: 'permission_denied' | 'missing_version' | 'version_not_deployable' | 'binding_not_managed' | 'environment_not_allowed' | 'binding_missing' | 'asset_missing_deployment_capability' | 'certificate_version_downgrade' | 'certificate_already_up_to_date' | 'filter_not_matched' | 'runtime_context_required';
 }
 
 export interface AutomationPreviewDto {
@@ -297,4 +301,11 @@ export interface AutomationPreviewDto {
   page: number;
   pageSize: number;
   items: AutomationPreviewTargetDto[];
+  versionImpactSummary?: {
+    total: number;
+    upgrade: number;
+    same: number;
+    downgrade: number;
+    missingCurrent: number;
+  };
 }

@@ -10,7 +10,7 @@ import { newId } from '../../../shared/id.js';
 import { assertTransition } from '../../../shared/state-machine/core-state-machine.js';
 import type { RequestContext } from '../../../shared/security-types.js';
 import type { StateTransitionEventEntity } from '../../deployment-plans/schema/deployment-plans.schema.js';
-import type { CreateExecutionRunInput, ExecutionRunDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
+import type { CreateExecutionRunInput, ExecutionRunDto, ExecutionSourceDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
 import { ExecutionsDomainService } from '../domain/executions.domain-service.js';
 import { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
@@ -143,6 +143,7 @@ export class ExecutionsApplicationService {
       executorTypeByTargetId,
       gatewayRouteByTargetId,
       agentPayloadByTargetId: sourcePayloadByTargetId,
+      source: readExecutionSource(sourceRun.summary.executionSource),
     }, context);
   }
 
@@ -212,6 +213,7 @@ export class ExecutionsApplicationService {
       executorTypeByTargetId,
       gatewayRouteByTargetId,
       agentPayloadByTargetId: sourcePayloadByTargetId,
+      source: readExecutionSource(sourceRun.summary.executionSource),
     }, context);
     return { sourceRun: this.toRunDto(transitioned), rollbackRun: created.run, steps: created.steps, jobId: created.jobId };
   }
@@ -419,6 +421,7 @@ export class ExecutionsApplicationService {
         failurePolicy: input.failurePolicy ?? 'stop',
         retry: input.retry ?? { maxAttempts: input.stepMaxAttempts ?? 1, backoffSeconds: 0 },
         allowMockExecutor: input.allowMockExecutor === true,
+        executionSource: input.source ?? { type: 'deployment_plan' },
       },
       createdAt: now,
       updatedAt: now,
@@ -953,7 +956,10 @@ export class ExecutionsApplicationService {
   }
 
   private toRunDto(run: ExecutionRunEntity): ExecutionRunDto {
-    return { ...run };
+    return {
+      ...run,
+      source: readExecutionSource(run.summary.executionSource),
+    };
   }
 
   private toStepDto(step: ExecutionStepEntity): ExecutionStepDto {
@@ -1283,6 +1289,19 @@ function buildWorkflowStepOutputsFromSourceSteps(
     }
   }
   return Object.keys(outputs).length > 0 ? outputs : undefined;
+}
+
+function readExecutionSource(value: unknown): ExecutionSourceDto | undefined {
+  const source = readRecord(value);
+  const type = readString(source, 'type');
+  if (type !== 'automation' && type !== 'deployment_plan') return undefined;
+  const automationRunId = readString(source, 'automationRunId');
+  const automationId = readString(source, 'automationId');
+  return {
+    type,
+    ...(automationRunId ? { automationRunId } : {}),
+    ...(automationId ? { automationId } : {}),
+  };
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
