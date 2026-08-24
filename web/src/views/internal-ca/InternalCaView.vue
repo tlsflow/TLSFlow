@@ -36,7 +36,7 @@ const adcsWizardOpen = ref(false)
 const deletingProviderId = ref('')
 
 const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
-const adcsDraft = reactive({ name: '', availabilityMode: 'single' })
+const adcsDraft = reactive({ name: '' })
 const trustDomainDraft = reactive({ name: '', code: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
@@ -296,13 +296,12 @@ function capabilityCount(provider: InternalCaRecord, state: string): number {
 function openAdcsWizard() {
   adcsInstallSession.value = null
   adcsDraft.name = t('internalCa.adcsAgent.defaultProviderNameIndexed', { index: adcsProviders.value.length + 1 })
-  adcsDraft.availabilityMode = 'single'
   adcsWizardOpen.value = true
 }
 
 async function createAdcsAgentInstallSession() {
   await runAction(async () => {
-    adcsInstallSession.value = (await internalCaApi.createAdcsAgentInstallSession({ name: adcsDraft.name, availabilityMode: adcsDraft.availabilityMode })).data ?? null
+    adcsInstallSession.value = (await internalCaApi.createAdcsAgentInstallSession({ name: adcsDraft.name })).data ?? null
   }, 'internalCa.messages.adcsAgentInstallCreated')
 }
 
@@ -510,9 +509,10 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
     <GcModal v-model:open="adcsWizardOpen" size="lg" :title="t('internalCa.adcsAgent.wizardTitle')" :description="t('internalCa.adcsAgent.wizardDescription')">
       <form v-if="!adcsInstallSession" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
-        <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.multiProviderTitle') }}</strong><p>{{ t('internalCa.adcsAgent.multiProviderDescription') }}</p></article>
-        <label>{{ t('internalCa.adcsAgent.providerName') }}<input v-model="adcsDraft.name" required /></label>
-        <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="adcsDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
+        <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.adapterRoleTitle') }}</strong><p>{{ t('internalCa.adcsAgent.adapterRoleDescription') }}</p></article>
+        <article class="adcs-wizard__requirements"><strong>{{ t('internalCa.adcsAgent.requirementsTitle') }}</strong><ul><li>{{ t('internalCa.adcsAgent.requirementInstalled') }}</li><li>{{ t('internalCa.adcsAgent.requirementConfigured') }}</li><li>{{ t('internalCa.adcsAgent.requirementService') }}</li><li>{{ t('internalCa.adcsAgent.requirementPermission') }}</li></ul></article>
+        <label>{{ t('internalCa.adcsAgent.connectionName') }}<input v-model="adcsDraft.name" required /></label>
+        <article class="adcs-wizard__compatibility"><strong>{{ t('internalCa.adcsAgent.coexistenceTitle') }}</strong><p>{{ t('internalCa.adcsAgent.coexistenceDescription') }}</p></article>
         <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
       </form>
       <section v-else class="adcs-wizard adcs-wizard--result">
@@ -642,6 +642,10 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .adcs-agent-install__command { grid-column: 1 / -1; display: grid; gap: var(--gc-space-2); }
 .adcs-agent-install__command code { overflow-wrap: anywhere; padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text-strong); }
 .adcs-wizard { display: grid; gap: var(--gc-space-4); }
+.adcs-wizard__requirements, .adcs-wizard__compatibility { padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
+.adcs-wizard__requirements ul { margin: var(--gc-space-3) 0 0; padding-left: var(--gc-space-5); color: var(--gc-color-text-muted); }
+.adcs-wizard__requirements li + li { margin-top: var(--gc-space-2); }
+.adcs-wizard__compatibility p { margin: var(--gc-space-2) 0 0; color: var(--gc-color-text-muted); }
 .adcs-wizard--result code { overflow-wrap: anywhere; padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); color: var(--gc-color-text-strong); }
 .adcs-wizard--result small { color: var(--gc-color-text-muted); }
 .provider-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
