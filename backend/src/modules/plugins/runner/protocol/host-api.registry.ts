@@ -108,6 +108,17 @@ const cryptoSignRequest = objectSchema({
   hashAlgorithm: { enum: ['SHA-256', 'SHA-384', 'SHA-512'] },
   signatureAlgorithm: { enum: ['RS256', 'ES256'] },
 }, ['grantId', 'secretRef', 'data', 'hashAlgorithm', 'signatureAlgorithm']);
+// 中文说明：HMAC 只在宿主解密边界内使用密钥。publicValueRef 用于云厂商要求
+// 放入请求参数的公开标识（例如阿里云 AccessKeyId），绝不返回 HMAC 密钥。
+const cryptoHmacRequest = objectSchema({
+  grantId: id,
+  secretRef,
+  publicValueRef: secretRef,
+  publicValuePlaceholder: { type: 'string', minLength: 1, maxLength: 128 },
+  data: { type: 'string', minLength: 1, maxLength: 1024 * 1024 },
+  hashAlgorithm: { enum: ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'] },
+  keySuffix: { type: 'string', maxLength: 32 },
+}, ['grantId', 'secretRef', 'publicValueRef', 'publicValuePlaceholder', 'data', 'hashAlgorithm']);
 const cloudServiceGetRequest = objectSchema({ cloudServiceRef: id }, ['cloudServiceRef']);
 const httpRequest = objectSchema({
   url: { type: 'string', format: 'uri', pattern: '^https://[^\\s#]+$', maxLength: 2048 },
@@ -122,6 +133,7 @@ export const hostApiRegistry: Readonly<Record<string, HostApiMethodDefinition>> 
   'artifact.grant.read': method('artifact.grant.read', grantReadRequest, { permission: 'artifact.read', requiredGrants: ['artifact.read'], riskLevel: 'HIGH', readOnly: true, retryable: false, idempotencyKey: null, timeoutMs: 10_000, maxOutputBytes: 4 * 1024 * 1024, auditFields: ['grantId', 'artifactRef'], secretRedaction: 'ALWAYS' }),
   'secret.grant.resolve': method('secret.grant.resolve', secretResolveRequest, { permission: 'secret.resolve', requiredGrants: ['secret.resolve'], riskLevel: 'CRITICAL', readOnly: true, retryable: false, idempotencyKey: 'grantId', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'purpose'], secretRedaction: 'ALWAYS' }),
   'crypto.sign': method('crypto.sign', cryptoSignRequest, { permission: 'crypto.sign', requiredGrants: ['crypto.sign'], riskLevel: 'CRITICAL', readOnly: false, retryable: false, idempotencyKey: 'data', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'hashAlgorithm', 'signatureAlgorithm'], secretRedaction: 'ALWAYS' }),
+  'crypto.hmac': method('crypto.hmac', cryptoHmacRequest, { permission: 'crypto.hmac', requiredGrants: ['crypto.hmac'], riskLevel: 'CRITICAL', readOnly: true, retryable: true, idempotencyKey: 'data', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'publicValueRef', 'hashAlgorithm'], secretRedaction: 'ALWAYS', resultSchema: resultWithData(objectSchema({ signatureBase64: { type: 'string', minLength: 1, maxLength: 1024 }, publicValue: { type: 'string', minLength: 1, maxLength: 512 } }, ['signatureBase64', 'publicValue'])) }),
   // 通用 HTTPS 出口承载 Cloud 插件的签名写请求，超时或连接中断必须按外部状态未知处理。
   'http.request': method('http.request', httpRequest, { resultSchema: resultWithData(httpResponseData), permission: 'network.http', requiredGrants: ['network.http'], riskLevel: 'HIGH', readOnly: false, retryable: false, idempotencyKey: 'url', timeoutMs: 30_000, maxOutputBytes: 2 * 1024 * 1024, auditFields: ['method', 'url'], secretRedaction: 'ALWAYS' }),
   'execution.isCancelled': method('execution.isCancelled', objectSchema({ executionId: id, executionStepId: id }, ['executionId', 'executionStepId']), { permission: 'execution.cancel.read', requiredGrants: ['execution.cancel'], riskLevel: 'LOW', readOnly: true, retryable: true, idempotencyKey: null, timeoutMs: 2_000, maxOutputBytes: 8 * 1024, auditFields: ['executionId', 'executionStepId'], secretRedaction: 'METADATA_ONLY' }),

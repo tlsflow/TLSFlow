@@ -7,6 +7,7 @@ import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/proto
 import type { PluginRunnerClient, PluginRunnerExecutionInput } from '../plugins/runner/plugin-runner-client.js';
 import {
   createPluginRunnerExecutors,
+  expandPluginActionGrantActions,
   PluginRunnerExecutorAdapter,
   PluginWorkflowCapabilityExecutorAdapter,
   pluginActionBindingApiVersion,
@@ -30,6 +31,14 @@ const outputSchema: JsonSchema = {
 };
 const inputSchemaSha256 = schemaHash(inputSchema);
 const outputSchemaSha256 = schemaHash(outputSchema);
+
+test('crypto.hmac 会同步授予公开标识 Secret 的内部解析目的', () => {
+  assert.deepEqual(
+    expandPluginActionGrantActions(['crypto.hmac', 'network.http']),
+    ['crypto.hmac', 'network.http', 'crypto.hmac.public-identifier'],
+  );
+  assert.deepEqual(expandPluginActionGrantActions(['cloud.service.get']), ['cloud.service.get']);
+});
 
 test('旧包级字段不能伪装成步骤级 Action Binding，直接 Capability 入口也失败关闭', async () => {
   const adapter = new PluginRunnerExecutorAdapter();

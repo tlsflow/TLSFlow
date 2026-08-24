@@ -22,6 +22,7 @@
       "artifact.grant.read": { "$ref": "#/$defs/record" },
       "secret.grant.resolve": { "$ref": "#/$defs/record" },
       "crypto.sign": { "$ref": "#/$defs/record" },
+      "crypto.hmac": { "$ref": "#/$defs/record" },
       "http.request": { "$ref": "#/$defs/record" },
       "execution.isCancelled": { "$ref": "#/$defs/record" },
       "audit.append": { "$ref": "#/$defs/record" }

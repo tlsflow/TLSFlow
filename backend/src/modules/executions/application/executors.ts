@@ -21,6 +21,7 @@ import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/
 import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 import {
   createDefaultPluginRunnerExecutionDependencies,
+  expandPluginActionGrantActions,
   PluginRunnerExecutorAdapter,
   pluginRunnerExecutorType,
   resolvePluginActionBinding,
@@ -839,7 +840,7 @@ export class WorkflowExecutorAdapter implements Executor {
         executorType: pluginRunnerExecutorType,
         allowedSecretRefs: collectReferencesByScheme(actionInput, 'secret://'),
         allowedArtifactRefs: collectReferencesByScheme(actionInput, 'artifact://'),
-        allowedActions: ['plugin.action.execute', binding.actionId, ...binding.hostPermissions],
+        allowedActions: ['plugin.action.execute', binding.actionId, ...expandPluginActionGrantActions(binding.hostPermissions)],
         expiresAt: new Date(Date.now() + Math.min(timeoutSeconds, 120) * 1000 + 30_000).toISOString(),
       });
       const result = await this.pluginActionExecutor.executeAction({

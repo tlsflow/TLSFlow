@@ -44,6 +44,8 @@ export interface PluginRunnerLaunchSpec {
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
   capabilities: readonly string[];
+  /** Runner 握手声明的完整 Manifest 权限；缺省时兼容旧测试夹具。 */
+  runnerPermissions?: readonly string[];
   hostPermissions?: readonly string[];
   packageHash: string;
   resourceHash: string;
@@ -376,7 +378,7 @@ export class PluginRunnerClient {
       protocolVersion: 'gcac.plugin-runner/v2' as const, messageType: 'hello' as const, requestId: newId('plugin-hello'), sentAt: new Date().toISOString(),
       pluginVersionId: this.spec.pluginVersionId, pluginId: this.spec.pluginId, pluginVersion: this.spec.pluginVersion, tenantId: this.spec.tenantId,
       runner: { pid: child.pid ?? 0, sdkVersion: this.spec.sdkVersion, runnerVersion: this.spec.runnerVersion }, capabilities: [...(this.spec.capabilities ?? [])],
-      permissions: [...(this.spec.hostPermissions ?? [])],
+      permissions: [...(this.spec.runnerPermissions ?? this.spec.hostPermissions ?? [])],
       packageHash: this.spec.packageHash!,
       resourceHash: this.spec.resourceHash!,
       manifestHash: this.spec.manifestHash!,
@@ -580,7 +582,7 @@ export class PluginRunnerClient {
     if (message.messageType !== 'hello_result' || !message.accepted || message.pluginId !== this.spec.pluginId || message.pluginVersion !== this.spec.pluginVersion
       || message.runnerVersion !== this.spec.runnerVersion || message.sdkVersion !== this.spec.sdkVersion
       || !sameStringArray(message.capabilities, this.spec.capabilities ?? [])
-      || !sameStringArray(message.permissions, this.spec.hostPermissions ?? [])
+      || !sameStringArray(message.permissions, this.spec.runnerPermissions ?? this.spec.hostPermissions ?? [])
       || !matchesExpectedHash(this.spec.packageHash, message.packageHash)
       || !matchesExpectedHash(this.spec.resourceHash, message.resourceHash)
       || !matchesExpectedHash(this.spec.manifestHash, message.manifestHash)) {
@@ -771,6 +773,7 @@ function immutableLaunchSpec(spec: PluginRunnerLaunchSpec): PluginRunnerLaunchSp
     ...spec,
     args: Object.freeze([...spec.args]),
     environment: Object.freeze({ ...(spec.environment ?? {}) }),
+    runnerPermissions: Object.freeze([...(spec.runnerPermissions ?? spec.hostPermissions ?? [])]),
     hostPermissions: Object.freeze([...(spec.hostPermissions ?? [])]),
     capabilities: Object.freeze([...(spec.capabilities ?? [])]),
   });

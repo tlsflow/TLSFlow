@@ -15,11 +15,22 @@ import { resolvePluginRunnerConfig, type ProductionPluginRunnerConfig } from '..
 import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
-import { evaluatePluginCompatibility } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
+import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
 
 export const pluginActionBindingApiVersion = 'gcac.plugin-action-binding/v1' as const;
 export const pluginRunnerExecutorType = 'plugin.action' as const;
 const dslCertificateCapabilities = new Set(['certificate.deploy', 'certificate.rollback']);
+
+/**
+ * 中文说明：Host API 权限是 Runner 的入口权限，但部分 Host API 会在宿主内部
+ * 继续执行更细的 Secret 目的校验。这里把这些内部目的显式加入 ExecutionGrant，
+ * 避免插件已经声明 crypto.hmac 却在解析公开 AccessKeyId 时被二次授权拒绝。
+ */
+export function expandPluginActionGrantActions(hostPermissions: readonly string[]): string[] {
+  const actions = new Set(hostPermissions);
+  if (actions.has('crypto.hmac')) actions.add('crypto.hmac.public-identifier');
+  return [...actions];
+}
 
 /**
  * 这是 DeploymentPlan/Execution 冻结的步骤级绑定，不是另一份 Workflow。
@@ -56,6 +67,8 @@ export interface PluginActionExecutionInput {
   grantRefs: string[];
   idempotencyKey: string;
   deadlineAt: string;
+  /** 中文说明：目标上下文由宿主动作入口提供，用于执行前兼容性门禁。 */
+  compatibilityContext?: Pick<PluginCompatibilityContext, 'productFamily' | 'productVersion' | 'frameworkType' | 'targetType' | 'managementMethod'>;
 }
 
 export interface PluginActionExecutionResult {
@@ -184,6 +197,7 @@ export class PluginRunnerExecutorAdapter implements Executor {
         executionLocation: 'CONTROL_PLANE',
         hostVersion: GCAC_VERSION,
         runtimeVersions: { CONTROL_PLANE: runner.runnerVersion },
+        ...input.compatibilityContext,
       }, capability);
       if (!compatibility.compatible) {
         throw new AppError('CAPABILITY_MISSING', 'Plugin Runner 执行前兼容性门禁未通过', {
@@ -402,6 +416,7 @@ function buildLaunchSpec(
     runnerVersion: runner.runnerVersion,
     sdkVersion: runner.sdkVersion,
     capabilities: packageEntry.capabilities.map((capability) => capability.key),
+    runnerPermissions: packageEntry.manifest.permissions,
     hostPermissions: permissions,
     packageHash: binding.packageHash,
     resourceHash: binding.resourceHash,

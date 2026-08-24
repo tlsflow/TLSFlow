@@ -81,6 +81,20 @@ test('IPC host_call 合同允许已注册的 crypto.sign 调用', () => {
   assert.doesNotThrow(() => validateIpcMessage(message));
 });
 
+test('IPC host_call 合同允许已注册的 crypto.hmac 调用', () => {
+  const message = {
+    protocolVersion: 'gcac.plugin-runner/v2', messageType: 'host_call', requestId: 'host-crypto-hmac-1', sentAt: '2026-08-12T00:00:00.000Z',
+    pluginVersionId: 'test-version-v1', tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', workflowVersionId: 'workflow-1',
+    pluginId: 'cloud.aliyun', capability: 'cloud.service.discover', actionId: 'cloud.service.discover.v1', actionContractVersion: 'v1',
+    inputSchemaSha256: `sha256:${'a'.repeat(64)}`, outputSchemaSha256: `sha256:${'b'.repeat(64)}`, packageHash: `sha256:${'c'.repeat(64)}`,
+    manifestHash: `sha256:${'d'.repeat(64)}`, resourceHash: `sha256:${'e'.repeat(64)}`, planDigest: 'f'.repeat(64), writeEffect: false,
+    method: 'crypto.hmac', input: { grantId: 'grant-1', secretRef: 'secret://api_token/key', publicValueRef: 'secret://api_token/id', publicValuePlaceholder: '__PUBLIC__', data: 'key=__PUBLIC__', hashAlgorithm: 'SHA-1' },
+    grantRefs: ['grant-1'], idempotencyKey: 'crypto-hmac-1', deadlineAt: '2026-08-12T00:00:05.000Z', timeoutMs: 5_000,
+  };
+  assert.equal(validateJsonSchema(message, ipcV1Schema).valid, true);
+  assert.doesNotThrow(() => validateIpcMessage(message));
+});
+
 function readJson(path: string): any {
   return JSON.parse(readFileSync(path, 'utf8')) as unknown;
 }

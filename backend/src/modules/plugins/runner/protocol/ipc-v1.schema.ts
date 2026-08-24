@@ -80,7 +80,7 @@ const messageSchemas: Record<PluginRunnerMessageType, JsonSchema> = {
   }, ['pluginVersionId', 'tenantId', 'executionId', 'executionStepId', ...actionBindingRequired, 'success', 'status', 'output', 'warnings']),
   host_call: messageSchema('host_call', {
     ...actionBindingProperties, pluginVersionId: identifier, tenantId: identifier, executionId: identifier, executionStepId: identifier,
-    method: { enum: ['cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'http.request', 'execution.isCancelled', 'audit.append'] },
+    method: { enum: ['cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'crypto.hmac', 'http.request', 'execution.isCancelled', 'audit.append'] },
     input: record, grantRefs: hostGrantRefs, idempotencyKey: identifier, deadlineAt: dateTime, timeoutMs: { type: 'integer', minimum: 1, maximum: 120000 },
   }, ['pluginVersionId', 'tenantId', 'executionId', 'executionStepId', ...actionBindingRequired, 'method', 'input', 'grantRefs', 'idempotencyKey', 'deadlineAt', 'timeoutMs']),
   host_result: messageSchema('host_result', {

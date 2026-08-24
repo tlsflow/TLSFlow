@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHmac } from 'node:crypto';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { createPluginRunnerHostApiHandler, type PluginRunnerHostApiDependencies } from './plugin-runner-host-api.handler.js';
@@ -9,7 +10,7 @@ import { getHostApiMethod } from './protocol/host-api.registry.js';
 import type { PluginRunnerError } from './protocol/protocol.types.js';
 
 const planDigest = 'b'.repeat(64);
-const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'crypto.sign', 'network.http', 'execution.cancel', 'audit.append'];
+const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'crypto.sign', 'crypto.hmac', 'network.http', 'execution.cancel', 'audit.append'];
 
 test('允许的 Host API 只通过 Action Grant、持久化端口和审计调用', async () => {
   const fixture = createFixture();
@@ -21,6 +22,22 @@ test('允许的 Host API 只通过 Action Grant、持久化端口和审计调用
   const secret = await handler({ ...context('secret.grant.resolve', ['secret.resolve']), input: { grantId: 'grant-1', secretRef: 'secret://api_token/secret-1#current', purpose: 'secret.resolve' } });
   assert.equal(JSON.stringify(secret).includes('plain-text-must-not-leak'), false);
   assert.equal((secret.data as Record<string, unknown>).value, '[REDACTED]');
+
+  const hmac = await handler({
+    ...context('crypto.hmac', ['crypto.hmac']),
+    input: {
+      grantId: 'grant-1',
+      secretRef: 'secret://api_token/secret-key#current',
+      publicValueRef: 'secret://api_token/public-id#current',
+      publicValuePlaceholder: '__PUBLIC__',
+      data: 'action=Describe&key=__PUBLIC__',
+      hashAlgorithm: 'SHA-1',
+      keySuffix: '&',
+    },
+  });
+  assert.equal((hmac.data as Record<string, unknown>).publicValue, 'public-access-id');
+  assert.equal((hmac.data as Record<string, unknown>).signatureBase64, createHmac('sha1', 'plain-text-must-not-leak&').update('action=Describe&key=public-access-id').digest('base64'));
+  assert.equal(JSON.stringify(hmac).includes('plain-text-must-not-leak'), false);
 
 
   const cancelled = await handler({ ...context('execution.isCancelled', ['execution.cancel']), input: { executionId: 'run-1', executionStepId: 'step-1' } });
@@ -135,6 +152,28 @@ test('Cloud Service 非 ACTIVE 或 Host API 装配缺失时失败关闭', async 
     handler({ ...context('http.request', ['network.http']), input: { url: 'https://example.invalid', method: 'GET', headers: {} } }),
     /HTTP Host API 未装配/,
   );
+});
+
+test('阿里云 Cloud Service 缺少 scope endpoint 时使用 Provider 默认 endpoint', async () => {
+  const fixture = createFixture();
+  fixture.dependencies.cloudServices = {
+    get: async () => ({
+      tenantId: 'tenant-1', providerKey: 'cloud.aliyun', displayName: '阿里云',
+      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1, metadata: {},
+    } as never),
+    list: async () => ({ items: [{
+      tenantId: 'tenant-1', providerKey: 'cloud.aliyun', displayName: '阿里云',
+      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1, metadata: {},
+    }], page: 1, pageSize: 1, total: 1 } as never),
+  };
+  fixture.dependencies.httpClient = { request: async () => ({ statusCode: 200, headers: {}, bodyText: '{}', body: {} }) };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const service = await handler({ ...context('cloudService.get', ['cloud.service.get']), pluginId: 'cloud.aliyun', input: { cloudServiceRef: 'caa-aliyun' } });
+  assert.deepEqual((service.data as Record<string, unknown>).scope, { endpoint: 'https://cdn.aliyuncs.com' });
+  const response = await handler({ ...context('http.request', ['network.http']), pluginId: 'cloud.aliyun', input: { url: 'https://cdn.aliyuncs.com/', method: 'POST', headers: {}, body: '{}' } });
+  assert.equal((response.data as Record<string, unknown>).statusCode, 200);
+  const ecsResponse = await handler({ ...context('http.request', ['network.http']), pluginId: 'cloud.aliyun', input: { url: 'https://ecs.aliyuncs.com/', method: 'POST', headers: {}, body: '{}' } });
+  assert.equal((ecsResponse.data as Record<string, unknown>).statusCode, 200);
 });
 
 test('生产 Host API 未装配持久化消费门禁时失败关闭，不使用内存 fallback', async () => {
@@ -318,7 +357,7 @@ function createFixture() {
         },
       },
       secrets: {
-        resolveForExecution: async () => ({ secretRef: 'secret://api_token/secret-1#current', versionId: 'secret-version-1', plainText: 'plain-text-must-not-leak', fingerprint: 'a'.repeat(64) }),
+        resolveForExecution: async (input: { secretRef: string }) => ({ secretRef: input.secretRef, versionId: 'secret-version-1', plainText: input.secretRef.includes('public-id') ? 'public-access-id' : 'plain-text-must-not-leak', fingerprint: 'a'.repeat(64) }),
       },
       audit: {
         write: async (input: WriteAuditInput) => {

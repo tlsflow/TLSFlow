@@ -1,5 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import { createHash, createPrivateKey, createPublicKey, sign as signData } from 'node:crypto';
+import { createHash, createHmac, createPrivateKey, createPublicKey, sign as signData } from 'node:crypto';
 import type { OutboundHttpClient, OutboundHttpRequest, OutboundHttpResponse } from '../../../common/http/outbound-http-client.js';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
 import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
@@ -256,6 +256,8 @@ async function dispatchHostApiCall(
       return await resolveSecret(dependencies, context, input, grants);
     case 'crypto.sign':
       return await signCrypto(dependencies, context, input, grants);
+    case 'crypto.hmac':
+      return await hmacCrypto(dependencies, context, input, grants);
     case 'cloudService.get':
       return await readCloudService(dependencies, context, input);
     case 'http.request':
@@ -280,7 +282,8 @@ async function readCloudService(
   if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service 不属于当前插件、当前租户或不是 ACTIVE 标准对象', { cloudServiceRef });
   }
-  if (service.scope.endpoint !== undefined) assertHttpsUrl(service.scope.endpoint, 'Cloud Service endpoint');
+  const endpoint = resolveCloudServiceEndpoint(service);
+  if (endpoint !== undefined) assertHttpsUrl(endpoint, 'Cloud Service endpoint');
   return {
     ok: true,
     data: {
@@ -290,7 +293,7 @@ async function readCloudService(
       providerKey: service.providerKey,
       displayName: service.displayName,
       ...(service.accountId ? { accountId: service.accountId } : {}),
-      scope: service.scope,
+      scope: { ...service.scope, ...(endpoint ? { endpoint } : {}) },
       metadata: service.metadata,
       status: service.status,
       version: service.version,
@@ -358,16 +361,34 @@ async function assertRegisteredCloudEndpoint(
   const services = await dependencies.cloudServices.list(context.tenantId);
   const allowed = services.items.some((service) => {
     if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) return false;
-    if (typeof service.scope.endpoint !== 'string') return false;
-    try {
-      return new URL(service.scope.endpoint).origin === requestOrigin;
-    } catch {
-      return false;
-    }
+    return resolveCloudServiceEndpoints(service).some((endpoint) => {
+      try {
+        return new URL(endpoint).origin === requestOrigin;
+      } catch {
+        return false;
+      }
+    });
   });
   if (!allowed) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP URL 未绑定到当前插件的 ACTIVE Cloud Service', { url: urlValue });
   }
+}
+
+/** 中文说明：云账号创建不要求用户手填厂商公共 API 地址；缺省地址由 Provider
+ * 标准定义统一补齐，HTTP 出口登记与 cloudService.get 使用同一解析结果。 */
+function resolveCloudServiceEndpoint(service: { providerKey: string; scope: { endpoint?: string } }): string | undefined {
+  if (typeof service.scope.endpoint === 'string' && service.scope.endpoint.trim() !== '') return service.scope.endpoint;
+  if (service.providerKey === 'cloud.aliyun') return 'https://cdn.aliyuncs.com';
+  return undefined;
+}
+
+/** 中文说明：HTTP 出口必须登记完整的 Provider 标准端点集合；账号未自定义端点时，
+ * 阿里云云账号同时允许 CDN 与 ECS 只读 API，避免发现可用区域时被误判为未绑定服务。 */
+function resolveCloudServiceEndpoints(service: { providerKey: string; scope: { endpoint?: string } }): string[] {
+  if (typeof service.scope.endpoint === 'string' && service.scope.endpoint.trim() !== '') return [service.scope.endpoint];
+  if (service.providerKey === 'cloud.aliyun') return ['https://cdn.aliyuncs.com', 'https://ecs.aliyuncs.com'];
+  const endpoint = resolveCloudServiceEndpoint(service);
+  return endpoint ? [endpoint] : [];
 }
 
 
@@ -551,6 +572,57 @@ async function signCrypto(
   };
 }
 
+async function hmacCrypto(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  input: Record<string, unknown>,
+  grants: Array<{ id: string; allowedActions: string[] }>,
+): Promise<Record<string, unknown>> {
+  const grantId = stringValue(input.grantId, 'grantId');
+  const secretRef = stringValue(input.secretRef, 'secretRef');
+  const publicValueRef = stringValue(input.publicValueRef, 'publicValueRef');
+  const publicValuePlaceholder = stringValue(input.publicValuePlaceholder, 'publicValuePlaceholder');
+  const data = stringValue(input.data, 'data');
+  const hashAlgorithm = stringValue(input.hashAlgorithm, 'hashAlgorithm');
+  const keySuffix = input.keySuffix === undefined ? '' : stringValue(input.keySuffix, 'keySuffix');
+  if (secretRef === publicValueRef || !data.includes(publicValuePlaceholder)) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HMAC 请求必须分离密钥引用和公开标识引用，并包含占位符');
+  }
+  assertSelectedGrant(context, grants, grantId, 'crypto.hmac');
+  const common = {
+    grantId,
+    runId: context.executionId,
+    stepId: context.executionStepId,
+    executorType: 'plugin.action',
+    workflowVersionId: context.workflowVersionId,
+    pluginVersionId: context.pluginVersionId,
+    pluginId: context.pluginId,
+    capability: context.capability,
+    planDigest: context.planDigest,
+    actorId: context.pluginId,
+    context: { tenantId: context.tenantId },
+    markUsed: false,
+  } as const;
+  const [key, publicValue] = await Promise.all([
+    dependencies.security.secrets.resolveForExecution({ ...common, secretRef, purpose: 'crypto.hmac' }),
+    dependencies.security.secrets.resolveForExecution({ ...common, secretRef: publicValueRef, purpose: 'crypto.hmac.public-identifier' }),
+  ]);
+  const algorithm = hmacAlgorithm(hashAlgorithm);
+  const resolvedData = data.split(publicValuePlaceholder).join(publicValue.plainText);
+  const signatureBase64 = createHmac(algorithm, `${key.plainText}${keySuffix}`).update(resolvedData, 'utf8').digest('base64');
+  return { ok: true, data: { signatureBase64, publicValue: publicValue.plainText } };
+}
+
+function hmacAlgorithm(value: string): 'sha1' | 'sha256' | 'sha384' | 'sha512' {
+  switch (value) {
+    case 'SHA-1': return 'sha1';
+    case 'SHA-256': return 'sha256';
+    case 'SHA-384': return 'sha384';
+    case 'SHA-512': return 'sha512';
+    default: throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HMAC 哈希算法不在固定集合');
+  }
+}
+
 function assertSignatureAlgorithmForKey(signatureAlgorithm: string, publicKey: ReturnType<typeof createPublicKey>): void {
   const type = publicKey.asymmetricKeyType;
   const namedCurve = publicKey.asymmetricKeyDetails?.namedCurve;
@@ -654,7 +726,7 @@ async function writeHostCallAudit(
 ): Promise<void> {
   const auditedInput = Object.fromEntries(definition.auditFields
     .filter((field) => input[field] !== undefined)
-    .map((field) => [field, input[field]]));
+    .map((field) => [field, field === 'url' && context.method === 'http.request' ? redactHttpAuditUrl(input[field]) : input[field]]));
   await dependencies.security.audit.write({
     eventType: 'plugin.host_api.call',
     actorType: 'system',
@@ -680,6 +752,16 @@ async function writeHostCallAudit(
     },
     failClosed: true,
   });
+}
+
+function redactHttpAuditUrl(value: unknown): string {
+  if (typeof value !== 'string') return '[REDACTED]';
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return '[REDACTED]';
+  }
 }
 
 function stringValue(value: unknown, name: string): string {

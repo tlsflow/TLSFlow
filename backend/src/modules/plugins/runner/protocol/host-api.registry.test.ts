@@ -14,7 +14,7 @@ import {
 } from './host-api.registry.js';
 
 const expectedMethods = [
-  'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'http.request',
+  'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'crypto.hmac', 'http.request',
   'execution.isCancelled', 'audit.append',
 ].sort();
 
@@ -44,6 +44,7 @@ test('Host API request/result Schema 拒绝未知字段、错误类型和非法�
   validateHostApiRequest('http.request', { url: 'https://example.invalid/api', method: 'GET', headers: {} });
   validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' });
   validateHostApiRequest('crypto.sign', { grantId: 'grant-1', secretRef: 'secret://private_key/key-1#current', data: 'header.payload', hashAlgorithm: 'SHA-256', signatureAlgorithm: 'ES256' });
+  validateHostApiRequest('crypto.hmac', { grantId: 'grant-1', secretRef: 'secret://api_token/key-1#current', publicValueRef: 'secret://api_token/id-1#current', publicValuePlaceholder: '__PUBLIC__', data: 'key=__PUBLIC__', hashAlgorithm: 'SHA-1' });
   validateHostApiResult('artifact.grant.read', { ok: true, data: { id: 'artifact-1' } });
   assert.throws(() => validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1', secret: 'must-not-pass' }));
   assert.throws(() => validateHostApiRequest('secret.grant.resolve', { grantId: 'grant-1', secretRef: 'secret-1' }));
