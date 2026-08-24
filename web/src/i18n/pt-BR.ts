@@ -3878,6 +3878,10 @@ export default {
         http: {
           description: 'Chama uma API HTTP estruturada em vez de comandos curl dispersos.'
         },
+        browser: {
+          displayName: 'Etapa do navegador',
+          description: 'Navega, extrai ou verifica informações em uma sessão de navegador autenticada.'
+        },
         ssh: {
           displayName: 'Comando SSH',
           description: 'Declara o comando SSH a executar, mantendo apenas referências de conexão e credenciais.'
@@ -3965,7 +3969,11 @@ export default {
         outputFormat: 'Formato de saída',
         usernameVariable: 'Variável de nome de usuário',
         variable: 'Variável',
-        verifyType: 'Tipo de verificação'
+        verifyType: 'Tipo de verificação',
+        browserAction: 'Ação do navegador',
+        browserUrl: 'URL da página',
+        browserExtractions: 'JSON de extrações',
+        browserVerification: 'JSON de verificação'
       },
       options: {
         boolean: { yes: 'Sim', no: 'Não' },
@@ -4123,7 +4131,16 @@ export default {
         selectFile: 'Selecionar arquivo DSL',
         actions: {
           importOverwrite: 'Importar DSL e substituir canvas',
-          resetToCanvas: 'Preencher novamente com o DSL do canvas atual'
+          resetToCanvas: 'Preencher novamente com o DSL do canvas atual',
+          openStepEditor: 'Editar o DSL do nó atual em uma janela',
+          openStepEditorAria: 'Editar o DSL do nó atual em uma janela',
+          applyStepEditor: 'Aplicar alterações',
+          cancelStepEditor: 'Cancelar'
+        },
+        editor: {
+          title: 'Editar o DSL do nó atual',
+          description: 'Edite o JSON completo e aplique. Um JSON inválido não substituirá o nó atual.',
+          ariaLabel: 'Conteúdo do DSL do nó atual'
         },
         messages: {
           fileLoaded: 'Arquivo carregado: {fileName}',
@@ -4167,6 +4184,9 @@ export default {
         newNodeStage: 'Estágio do novo nó',
         nodeName: 'Nome do nó',
         remotePath: 'Caminho remoto',
+        requestBody: 'Corpo da solicitação',
+        requestBodyStructuredHint: 'Esta solicitação usa campos estruturados de formulário ou multipart. Edite-os no editor DSL.',
+        requestBodyEmptyHint: 'Esta solicitação não tem um corpo configurado.',
         required: 'Obrigatório',
         secretValue: 'Valor sigiloso',
         sensitive: 'Sensível',

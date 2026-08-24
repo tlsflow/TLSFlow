@@ -4032,6 +4032,10 @@ export default {
         http: {
           description: 'Call a structured HTTP API instead of scattered curl strings.'
         },
+        browser: {
+          displayName: 'Browser step',
+          description: 'Navigate, extract, or verify page information in a logged-in browser session.'
+        },
         ssh: {
           displayName: 'SSH command',
           description: 'Declare the SSH command to run while storing only connection and credential references.'
@@ -4119,7 +4123,11 @@ export default {
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',
-        verifyType: 'Verify type'
+        verifyType: 'Verify type',
+        browserAction: 'Browser action',
+        browserUrl: 'Page URL',
+        browserExtractions: 'Extraction JSON',
+        browserVerification: 'Verification JSON'
       },
       options: {
         boolean: { yes: 'Yes', no: 'No' },
@@ -4277,7 +4285,16 @@ export default {
         selectFile: 'Select DSL file',
         actions: {
           importOverwrite: 'Import DSL and overwrite canvas',
-          resetToCanvas: 'Refill current canvas DSL'
+          resetToCanvas: 'Refill current canvas DSL',
+          openStepEditor: 'Edit current node DSL in a dialog',
+          openStepEditorAria: 'Edit current node DSL in a dialog',
+          applyStepEditor: 'Apply changes',
+          cancelStepEditor: 'Cancel'
+        },
+        editor: {
+          title: 'Edit current node DSL',
+          description: 'Edit the complete JSON and apply it. Invalid JSON will not overwrite the current node.',
+          ariaLabel: 'Current node DSL content'
         },
         messages: {
           fileLoaded: 'Loaded file: {fileName}',
@@ -4321,6 +4338,9 @@ export default {
         newNodeStage: 'New node stage',
         nodeName: 'Node name',
         remotePath: 'Remote path',
+        requestBody: 'Request body',
+        requestBodyStructuredHint: 'This request uses structured form or multipart fields. Edit them in the DSL editor.',
+        requestBodyEmptyHint: 'This request has no configured body.',
         required: 'Required',
         secretValue: 'Secret value',
         sensitive: 'Sensitive',

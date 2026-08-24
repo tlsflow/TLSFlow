@@ -3865,6 +3865,10 @@ export default {
         http: {
           description: '구조화된 HTTP 화면를 호출하여 분산된 curl 명령을 대체한다.'
         },
+        browser: {
+          displayName: '브라우저 단계',
+          description: '로그인된 브라우저 세션에서 페이지를 탐색, 추출 또는 검증합니다.'
+        },
         ssh: {
           displayName: 'SSH 명령',
           description: '실행될 SSH 명령어는 연결과 인증서 참조만 저장합니다.'
@@ -3952,7 +3956,11 @@ export default {
         outputFormat: '출력 형식',
         usernameVariable: '사용자 이름 변수',
         variable: '변수',
-        verifyType: '형식 인증'
+        verifyType: '형식 인증',
+        browserAction: '브라우저 동작',
+        browserUrl: '페이지 URL',
+        browserExtractions: '추출 JSON',
+        browserVerification: '검증 JSON'
       },
       options: {
         boolean: { yes: '예', no: '아니요' },
@@ -4110,7 +4118,16 @@ export default {
         selectFile: 'DSL 파일을 선택합니다',
         actions: {
           importOverwrite: 'DSL 덮어쓰기 캔버스 가져오기',
-          resetToCanvas: '현재 캔버스 DSL을 다시 입력합니다'
+          resetToCanvas: '현재 캔버스 DSL을 다시 입력합니다',
+          openStepEditor: '대화상자에서 현재 노드 DSL 편집',
+          openStepEditorAria: '대화상자에서 현재 노드 DSL 편집',
+          applyStepEditor: '변경 사항 적용',
+          cancelStepEditor: '취소'
+        },
+        editor: {
+          title: '현재 노드 DSL 편집',
+          description: '전체 JSON을 수정한 뒤 적용하세요. 잘못된 JSON은 현재 노드를 덮어쓰지 않습니다.',
+          ariaLabel: '현재 노드 DSL 내용'
         },
         messages: {
           fileLoaded: '로드파일: {fileName}',
@@ -4154,6 +4171,9 @@ export default {
         newNodeStage: '새로운 노드 단계',
         nodeName: '노드 이름',
         remotePath: '원거리 경로',
+        requestBody: '요청 본문',
+        requestBodyStructuredHint: '이 요청은 구조화된 form 또는 multipart 필드를 사용합니다. DSL 편집기에서 수정하세요.',
+        requestBodyEmptyHint: '이 요청에는 구성된 본문이 없습니다.',
         required: '필수',
         secretValue: '암호문값',
         sensitive: '민감',

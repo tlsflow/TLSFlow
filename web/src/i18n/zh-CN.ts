@@ -4081,6 +4081,10 @@ export default {
         http: {
           description: '调用结构化 HTTP 接口，取代分散的 curl 命令。'
         },
+        browser: {
+          displayName: '浏览器步骤',
+          description: '在已登录的浏览器会话中导航、提取或验证页面信息。'
+        },
         ssh: {
           displayName: 'SSH 命令',
           description: '声明要执行的 SSH 命令，只保存连接和凭据引用。'
@@ -4168,7 +4172,11 @@ export default {
         outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',
-        verifyType: '验证类型'
+        verifyType: '验证类型',
+        browserAction: '浏览器动作',
+        browserUrl: '页面 URL',
+        browserExtractions: '提取配置 JSON',
+        browserVerification: '验证配置 JSON'
       },
       options: {
         boolean: { yes: '是', no: '否' },
@@ -4326,7 +4334,16 @@ export default {
         selectFile: '选择 DSL 文件',
         actions: {
           importOverwrite: '导入 DSL 覆盖画布',
-          resetToCanvas: '回填当前画布 DSL'
+          resetToCanvas: '回填当前画布 DSL',
+          openStepEditor: '在弹窗中编辑当前节点 DSL',
+          openStepEditorAria: '在弹窗中编辑当前节点 DSL',
+          applyStepEditor: '应用修改',
+          cancelStepEditor: '取消'
+        },
+        editor: {
+          title: '编辑当前节点 DSL',
+          description: '修改完整 JSON 后点击应用；解析失败时不会覆盖当前节点。',
+          ariaLabel: '当前节点 DSL 内容'
         },
         messages: {
           fileLoaded: '已加载文件：{fileName}',
@@ -4370,6 +4387,9 @@ export default {
         newNodeStage: '新增节点阶段',
         nodeName: '节点名称',
         remotePath: '远端路径',
+        requestBody: '请求体',
+        requestBodyStructuredHint: '当前请求使用 form、multipart 等结构化字段，请通过 DSL 编辑器修改。',
+        requestBodyEmptyHint: '当前请求未配置请求体。',
         required: '必填',
         secretValue: '密文值',
         sensitive: '敏感',

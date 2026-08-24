@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
+import { GcModal } from '@/design-system/components'
 import {
   loadCredentialProfiles,
   credentialProfileBinding,
@@ -20,6 +21,7 @@ import {
   getNodeStage,
   getVariableFlow,
   isWorkflowDslCanvasImportable,
+  isWorkflowDslStep,
   isWorkflowDslV1,
   removeWorkflowVariable,
   renameWorkflowVariable,
@@ -29,6 +31,7 @@ import {
   setNodeStage,
   upsertWorkflowVariable,
   workflowDslToCanvas,
+  workflowDslStepToCanvasNode,
   type WorkflowCanvasDefinition,
   type WorkflowCanvasHttpAuthType,
   type WorkflowCanvasNode,
@@ -99,6 +102,11 @@ const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {}, credentialId
 const dslEditorText = ref('')
 const dslEditorDirty = ref(false)
 const dslEditorMessage = ref('')
+const nodeDslEditorText = ref('')
+const nodeDslEditorMessage = ref('')
+const nodeDslEditorModalOpen = ref(false)
+const nodeDslEditorModalText = ref('')
+const nodeDslEditorModalMessage = ref('')
 const managedCredentials = ref<CredentialProfileOption[]>([])
 const credentialsLoading = ref(false)
 const credentialsLoadError = ref('')
@@ -118,7 +126,7 @@ async function refreshManagedCredentials() {
 
 function readNodeHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType {
   const authType = String(value ?? 'none')
-  return ['none', 'basic', 'bearer', 'api_key'].includes(authType)
+  return ['none', 'basic', 'bearer', 'api_key', 'cookie', 'custom_header', 'mtls'].includes(authType)
     ? authType as WorkflowCanvasHttpAuthType
     : 'none'
 }
@@ -128,6 +136,25 @@ const selectedNodeHttpAuthType = computed(() => selectedNode.value?.type === 'ht
 const canvas = computed(() => props.modelValue ?? createDefaultWorkflowCanvas())
 const selectedNode = computed(() => canvas.value.nodes.find((node) => node.id === selectedNodeId.value) ?? canvas.value.nodes[0] ?? null)
 const selectedNodeDefinition = computed(() => selectedNode.value ? getNodeTypeDefinition(selectedNode.value.type) : null)
+const selectedNodeHttpBodyPresentation = computed<'empty' | 'body' | 'structured'>(() => {
+  const node = selectedNode.value
+  if (node?.type !== 'http') return 'empty'
+  const request = readRecord(readRecord(node.ui?.rawStep)?.request)
+  if (request && ['form', 'formCredentialRefs', 'multipart'].some((key) => key in request)) return 'structured'
+  if (request?.body !== undefined || String(node.config.body ?? '').trim()) return 'body'
+  return 'empty'
+})
+const selectedNodeHttpBodyText = computed(() => {
+  const node = selectedNode.value
+  if (node?.type !== 'http') return ''
+  if (selectedNodeHttpBodyPresentation.value === 'structured') {
+    const request = readRecord(readRecord(node.ui?.rawStep)?.request)
+    if (!request) return ''
+    const bodyKeys = ['bodyType', 'body', 'form', 'formCredentialRefs', 'multipart']
+    return JSON.stringify(Object.fromEntries(bodyKeys.filter((key) => key in request).map((key) => [key, request[key]])), null, 2)
+  }
+  return String(node.config.body ?? '')
+})
 const validationIssues = ref<WorkflowValidationIssue[]>([])
 const variableFlow = computed(() => getVariableFlow(canvas.value))
 const dslPreview = ref<WorkflowDslV1 | null>(null)
@@ -230,6 +257,14 @@ watch([canvas, selectedNodeId], () => {
   stepRuntimeState.value = mergeRuntimeState(stepRuntimeState.value, canvas.value)
 }, { immediate: true, deep: true })
 
+watch([canvas, selectedNodeId], () => {
+  const rawStep = selectedNode.value?.ui?.rawStep
+  nodeDslEditorText.value = rawStep && typeof rawStep === 'object'
+    ? JSON.stringify(rawStep, null, 2)
+    : ''
+  nodeDslEditorMessage.value = ''
+}, { immediate: true, deep: true })
+
 async function syncBackendCanvasState(value: WorkflowCanvasDefinition) {
   const seq = ++backendCanvasSyncSeq
   backendValidationMessage.value = ''
@@ -260,6 +295,54 @@ function commit(next: WorkflowCanvasDefinition) {
   history.value = [...history.value, cloneCanvas(canvas.value)]
   future.value = []
   emit('update:modelValue', cloneCanvas(next))
+}
+
+function updateSelectedNodeDslText(value: string): boolean {
+  nodeDslEditorText.value = value
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!isWorkflowDslStep(parsed)) throw new Error(t('workflows.canvasEditor.dsl.errors.invalidTopLevel'))
+    const current = selectedNode.value
+    if (!current) return false
+    const index = canvas.value.nodes.findIndex((node) => node.id === current.id)
+    const rebuilt = workflowDslStepToCanvasNode(parsed, index < 0 ? 0 : index)
+    commit({
+      ...canvas.value,
+      nodes: canvas.value.nodes.map((node) => node.id === current.id
+        ? { ...rebuilt, id: current.id, position: current.position }
+        : node),
+    })
+    nodeDslEditorMessage.value = ''
+    return true
+  } catch (cause) {
+    nodeDslEditorMessage.value = cause instanceof Error
+      ? cause.message
+      : t('workflows.canvasEditor.dsl.errors.importFailed')
+    return false
+  }
+}
+
+function updateSelectedNodeDsl(event: Event) {
+  const value = event.target instanceof HTMLTextAreaElement ? event.target.value : ''
+  updateSelectedNodeDslText(value)
+}
+
+function openNodeDslEditor() {
+  if (!canEdit.value || !nodeDslEditorText.value) return
+  nodeDslEditorModalText.value = nodeDslEditorText.value
+  nodeDslEditorModalMessage.value = ''
+  nodeDslEditorModalOpen.value = true
+}
+
+function applyNodeDslEditor() {
+  if (!canEdit.value) return
+  const applied = updateSelectedNodeDslText(nodeDslEditorModalText.value)
+  if (!applied) {
+    nodeDslEditorModalMessage.value = nodeDslEditorMessage.value
+    return
+  }
+  nodeDslEditorModalMessage.value = ''
+  nodeDslEditorModalOpen.value = false
 }
 
 function add(type: WorkflowCanvasNodeType) {
@@ -844,6 +927,9 @@ function firstNumber(...values: unknown[]): number | undefined {
                   <option value="basic">basic</option>
                   <option value="bearer">bearer</option>
                   <option value="api_key">api_key</option>
+                  <option value="cookie">cookie</option>
+                  <option value="custom_header">custom_header</option>
+                  <option value="mtls">mtls</option>
                 </select>
               </label>
               <label v-if="['basic', 'bearer', 'api_key'].includes(selectedNodeHttpAuthType)">
@@ -887,8 +973,21 @@ function firstNumber(...values: unknown[]): number | undefined {
               </label>
             </div>
             <label>
-              <span>{{ t('workflows.canvasEditor.fields.contentRef') }}</span>
-              <textarea :value="String(selectedNode.config.body ?? '')" :disabled="!canEdit" rows="4" @input="updateField({ key: 'body', label: t('workflows.canvasEditor.fields.contentRef'), kind: 'textarea' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.requestBody') }}</span>
+              <textarea
+                class="workflow-canvas-editor__http-body-editor"
+                :value="selectedNodeHttpBodyText"
+                :disabled="!canEdit"
+                :readonly="selectedNodeHttpBodyPresentation === 'structured'"
+                rows="4"
+                @input="updateField({ key: 'body', label: t('workflows.canvasEditor.fields.requestBody'), kind: 'textarea' }, $event)"
+              />
+              <small v-if="selectedNodeHttpBodyPresentation === 'structured'" class="workflow-canvas-editor__property-hint">
+                {{ t('workflows.canvasEditor.fields.requestBodyStructuredHint') }}
+              </small>
+              <small v-else-if="selectedNodeHttpBodyPresentation === 'empty'" class="workflow-canvas-editor__property-hint">
+                {{ t('workflows.canvasEditor.fields.requestBodyEmptyHint') }}
+              </small>
             </label>
             <label>
               <span>{{ t('workflows.canvasEditor.fields.timeoutSeconds') }}</span>
@@ -962,6 +1061,29 @@ function firstNumber(...values: unknown[]): number | undefined {
               <input v-else :type="field.kind === 'number' ? 'number' : 'text'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @input="updateField(field, $event)" />
             </label>
           </template>
+          <div v-if="nodeDslEditorText" class="workflow-canvas-editor__raw-step">
+            <strong>{{ t('workflows.canvasEditor.dsl.title') }}</strong>
+            <div class="workflow-canvas-editor__raw-step-editor-wrap">
+              <button
+                class="gc-button workflow-canvas-editor__raw-step-open"
+                type="button"
+                :disabled="!canEdit"
+                :aria-label="t('workflows.canvasEditor.dsl.actions.openStepEditorAria')"
+                :title="t('workflows.canvasEditor.dsl.actions.openStepEditor')"
+                @click="openNodeDslEditor"
+              >
+                <span aria-hidden="true">↖</span>
+              </button>
+              <textarea
+                class="workflow-canvas-editor__raw-step-editor"
+                :value="nodeDslEditorText"
+                :readonly="!canEdit"
+                spellcheck="false"
+                @change="updateSelectedNodeDsl"
+              />
+            </div>
+            <p v-if="nodeDslEditorMessage" class="workflow-canvas-editor__dsl-message">{{ nodeDslEditorMessage }}</p>
+          </div>
           <div class="workflow-canvas-editor__test-actions">
             <button class="gc-button gc-button--primary workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="runSelectedNode('real_test')">
               {{ realRunButtonLabel }}
@@ -1047,7 +1169,7 @@ function firstNumber(...values: unknown[]): number | undefined {
               <span>{{ t('workflows.canvasEditor.fields.defaultValue') }}</span>
               <input :value="String(definition.default ?? '')" :disabled="!canEdit" @change="updateVariableField(String(name), 'default', $event)" />
             </label>
-            <label v-if="!definition.configurationMode" class="workflow-canvas-editor__variable-check">
+            <label class="workflow-canvas-editor__variable-check">
               <input type="checkbox" :checked="Boolean(definition.required)" :disabled="!canEdit" @change="updateVariableField(String(name), 'required', $event)" />
               <span>{{ t('workflows.canvasEditor.fields.required') }}</span>
             </label>
@@ -1220,6 +1342,28 @@ function firstNumber(...values: unknown[]): number | undefined {
         />
       </div>
     </section>
+    <GcModal
+      v-model:open="nodeDslEditorModalOpen"
+      size="xxl"
+      :title="t('workflows.canvasEditor.dsl.editor.title')"
+      :description="t('workflows.canvasEditor.dsl.editor.description')"
+    >
+      <textarea
+        v-model="nodeDslEditorModalText"
+        class="workflow-canvas-editor__node-dsl-modal-editor"
+        :aria-label="t('workflows.canvasEditor.dsl.editor.ariaLabel')"
+        spellcheck="false"
+      />
+      <p v-if="nodeDslEditorModalMessage" class="workflow-canvas-editor__dsl-message">{{ nodeDslEditorModalMessage }}</p>
+      <template #actions>
+        <button class="gc-button" type="button" @click="nodeDslEditorModalOpen = false">
+          {{ t('workflows.canvasEditor.dsl.actions.cancelStepEditor') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="!canEdit" @click="applyNodeDslEditor">
+          {{ t('workflows.canvasEditor.dsl.actions.applyStepEditor') }}
+        </button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -1563,6 +1707,60 @@ function firstNumber(...values: unknown[]): number | undefined {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   line-height: 1.45;
+}
+
+.workflow-canvas-editor__raw-step {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-hover);
+}
+
+.workflow-canvas-editor__raw-step-editor-wrap {
+  position: relative;
+}
+
+.workflow-canvas-editor__raw-step-open {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  min-width: var(--gc-space-5);
+  width: var(--gc-space-5);
+  height: var(--gc-space-5);
+  padding: 0;
+  margin: 0;
+  border-radius: var(--gc-radius-control) 0 0 0;
+  border-color: var(--gc-color-border-muted);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-solid);
+  box-shadow: none;
+}
+
+.workflow-canvas-editor__raw-step-editor {
+  width: 100%;
+  min-height: 12rem;
+  padding-top: var(--gc-space-8);
+  resize: vertical;
+  background: var(--gc-color-text);
+  color: var(--gc-color-muted-bg);
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-xs);
+  line-height: 1.5;
+}
+
+.workflow-canvas-editor__node-dsl-modal-editor {
+  display: block;
+  width: 100%;
+  min-height: min(60vh, 36rem);
+  resize: vertical;
+  background: var(--gc-color-text);
+  color: var(--gc-color-muted-bg);
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-sm);
+  line-height: 1.55;
 }
 
 .workflow-canvas-editor__bottom {

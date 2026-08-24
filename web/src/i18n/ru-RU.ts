@@ -3878,6 +3878,10 @@ export default {
         http: {
           description: 'Вызов структурированного HTTP API вместо разрозненных curl-команд.'
         },
+        browser: {
+          displayName: 'Шаг браузера',
+          description: 'Переход, извлечение или проверка данных страницы в авторизованной сессии браузера.'
+        },
         ssh: {
           displayName: 'Команда SSH',
           description: 'Объявляет выполняемую SSH-команду, сохраняя только ссылки на подключение и учетные данные.'
@@ -3965,7 +3969,11 @@ export default {
         outputFormat: 'Формат вывода',
         usernameVariable: 'Переменная имени пользователя',
         variable: 'Переменная',
-        verifyType: 'Тип проверки'
+        verifyType: 'Тип проверки',
+        browserAction: 'Действие браузера',
+        browserUrl: 'URL страницы',
+        browserExtractions: 'JSON извлечений',
+        browserVerification: 'JSON проверки'
       },
       options: {
         boolean: { yes: 'Да', no: 'Нет' },
@@ -4123,7 +4131,16 @@ export default {
         selectFile: 'Выбрать DSL-файл',
         actions: {
           importOverwrite: 'Импортировать DSL и перезаписать canvas',
-          resetToCanvas: 'Вернуть DSL текущего canvas'
+          resetToCanvas: 'Вернуть DSL текущего canvas',
+          openStepEditor: 'Редактировать DSL текущего узла в окне',
+          openStepEditorAria: 'Редактировать DSL текущего узла в окне',
+          applyStepEditor: 'Применить изменения',
+          cancelStepEditor: 'Отмена'
+        },
+        editor: {
+          title: 'Редактирование DSL текущего узла',
+          description: 'Измените полный JSON и примените его. Некорректный JSON не перезапишет текущий узел.',
+          ariaLabel: 'Содержимое DSL текущего узла'
         },
         messages: {
           fileLoaded: 'Файл загружен: {fileName}',
@@ -4167,6 +4184,9 @@ export default {
         newNodeStage: 'Этап нового узла',
         nodeName: 'Имя узла',
         remotePath: 'Удаленный путь',
+        requestBody: 'Тело запроса',
+        requestBodyStructuredHint: 'Запрос использует структурированные поля form или multipart. Изменяйте их в редакторе DSL.',
+        requestBodyEmptyHint: 'Для этого запроса тело не настроено.',
         required: 'Обязательно',
         secretValue: 'Секретное значение',
         sensitive: 'Чувствительное',

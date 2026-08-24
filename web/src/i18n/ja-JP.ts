@@ -3891,6 +3891,10 @@ export default {
         http: {
           description: '调用结构化 HTTP 接口、取代分散の curl コマンド。'
         },
+        browser: {
+          displayName: 'ブラウザステップ',
+          description: 'ログイン済みブラウザセッションでページを移動、抽出、検証します。'
+        },
         ssh: {
           displayName: 'SSH コマンド',
           description: '実行する SSH コマンドを宣言、のみ保存接続と認証情報引用。'
@@ -3978,7 +3982,11 @@ export default {
         outputFormat: '出力形式',
         usernameVariable: 'ユーザー名変数',
         variable: '変数',
-        verifyType: '検証タイプ'
+        verifyType: '検証タイプ',
+        browserAction: 'ブラウザ操作',
+        browserUrl: 'ページ URL',
+        browserExtractions: '抽出 JSON',
+        browserVerification: '検証 JSON'
       },
       options: {
         boolean: { yes: 'はい', no: 'いいえ' },
@@ -4136,7 +4144,16 @@ export default {
         selectFile: 'DSL ファイルを選択',
         actions: {
           importOverwrite: 'DSL をインポートしてキャンバスを上書き',
-          resetToCanvas: '現在のキャンバス DSL を反映'
+          resetToCanvas: '現在のキャンバス DSL を反映',
+          openStepEditor: 'ダイアログで現在のノード DSL を編集',
+          openStepEditorAria: 'ダイアログで現在のノード DSL を編集',
+          applyStepEditor: '変更を適用',
+          cancelStepEditor: 'キャンセル'
+        },
+        editor: {
+          title: '現在のノード DSL を編集',
+          description: '完全な JSON を編集して適用します。無効な JSON では現在のノードを上書きしません。',
+          ariaLabel: '現在のノード DSL 内容'
         },
         messages: {
           fileLoaded: 'ファイルを読み込みました：{fileName}',
@@ -4180,6 +4197,9 @@ export default {
         newNodeStage: '追加ノードステージ',
         nodeName: 'ノード名',
         remotePath: 'リモートパス',
+        requestBody: 'リクエスト本文',
+        requestBodyStructuredHint: 'このリクエストは form または multipart の構造化フィールドを使用します。DSL エディターで編集してください。',
+        requestBodyEmptyHint: 'このリクエストには本文が設定されていません。',
         required: '必須',
         secretValue: 'シークレット値',
         sensitive: '機密',

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { getCredential, listCredentials } from '@/api/modules/credentials.api'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
@@ -17,6 +17,13 @@ vi.mock('@/api/modules/workflow-templates.api', () => ({
 }))
 
 describe('WorkflowCanvasEditor', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    document.body.style.overflow = ''
+    document.documentElement.style.overflow = ''
+    document.documentElement.classList.remove('gc-modal-open')
+  })
+
   beforeEach(() => {
     vi.mocked(compileWorkflowCanvas).mockReset()
     vi.mocked(validateWorkflowCanvasOnBackend).mockReset()
@@ -26,6 +33,34 @@ describe('WorkflowCanvasEditor', () => {
     mockWorkflowCredentialSecrets([])
     mockCompileWorkflowCanvas()
   })
+
+  function createImportedHttpCanvas() {
+    const base = createDefaultWorkflowCanvas()
+    return {
+      ...base,
+      nodes: [{
+        ...base.nodes[0]!,
+        label: 'prepare_auth',
+        ui: {
+          ...(base.nodes[0]!.ui ?? {}),
+          rawStep: {
+            name: 'prepare_auth',
+            type: 'http',
+            stage: 'prepare',
+            request: {
+              method: 'POST',
+              connectionRef: 'management',
+              url: '/webapi/auth.cgi',
+              headers: { Accept: 'application/json' },
+              bodyType: 'form',
+              form: { api: 'SYNO.API.Auth' },
+              timeoutSeconds: 30,
+            },
+          },
+        },
+      }],
+    } as ReturnType<typeof createDefaultWorkflowCanvas>
+  }
 
   it('渲染节点库、画布、属性面板、变量面板和校验面板', () => {
     const wrapper = mount(WorkflowCanvasEditor, {
@@ -117,6 +152,159 @@ describe('WorkflowCanvasEditor', () => {
 
     const updated = wrapper.emitted('update:modelValue')!.at(-1)![0] as ReturnType<typeof createDefaultWorkflowCanvas>
     expect(updated.nodes[0]?.config.authCredential).toBe('{{credentials.sshCredential}}')
+  })
+
+  it('选中已导入节点时可直接编辑完整 DSL step', async () => {
+    const base = createDefaultWorkflowCanvas()
+    const imported = {
+      ...base,
+      nodes: [{
+        ...base.nodes[0]!,
+        label: 'prepare_auth',
+        ui: {
+          ...(base.nodes[0]!.ui ?? {}),
+          rawStep: {
+            name: 'prepare_auth',
+            type: 'http',
+            stage: 'prepare',
+            request: {
+              method: 'POST',
+              connectionRef: 'management',
+              url: '/webapi/auth.cgi',
+              headers: { Accept: 'application/json' },
+              bodyType: 'form',
+              form: { api: 'SYNO.API.Auth' },
+              timeoutSeconds: 30,
+            },
+          },
+        },
+      }],
+    } as ReturnType<typeof createDefaultWorkflowCanvas>
+    const wrapper = mount(WorkflowCanvasEditor, { props: { modelValue: imported } })
+    const editor = wrapper.find('.workflow-canvas-editor__raw-step-editor')
+    const requestBodyEditor = wrapper.find('.workflow-canvas-editor__http-body-editor')
+
+    expect(editor.exists()).toBe(true)
+    const requestBodyElement = requestBodyEditor.element as HTMLTextAreaElement
+    expect(requestBodyElement.value).toContain('"bodyType": "form"')
+    expect(requestBodyElement.value).toContain('SYNO.API.Auth')
+    expect(requestBodyEditor.attributes('readonly')).toBeDefined()
+    await editor.setValue(JSON.stringify({
+      name: 'prepare_auth',
+      type: 'http',
+      stage: 'prepare',
+      request: {
+        method: 'POST',
+        connectionRef: 'management',
+        url: '/webapi/auth.cgi?changed=true',
+        headers: { Accept: 'application/json', 'X-Trace': '1' },
+        bodyType: 'form',
+        form: { api: 'SYNO.API.Auth', version: 7 },
+        timeoutSeconds: 45,
+      },
+    }, null, 2))
+    await editor.trigger('change')
+
+    const updated = wrapper.emitted('update:modelValue')!.at(-1)![0] as ReturnType<typeof createDefaultWorkflowCanvas>
+    expect(updated.nodes[0]?.config.url).toBe('/webapi/auth.cgi?changed=true')
+    expect(updated.nodes[0]?.ui?.rawStep).toEqual(expect.objectContaining({
+      request: expect.objectContaining({
+        headers: { Accept: 'application/json', 'X-Trace': '1' },
+        form: { api: 'SYNO.API.Auth', version: 7 },
+      }),
+    }))
+  })
+
+  it('通过箭头按钮在模态框中编辑当前节点 DSL，并支持取消', async () => {
+    const wrapper = mount(WorkflowCanvasEditor, {
+      props: { modelValue: createImportedHttpCanvas() },
+      attachTo: document.body,
+    })
+    const openButton = wrapper.find('.workflow-canvas-editor__raw-step-open')
+
+    expect(openButton.exists()).toBe(true)
+    expect(openButton.attributes('aria-label')).toBe('在弹窗中编辑当前节点 DSL')
+
+    await openButton.trigger('click')
+    await flushPromises()
+
+    const modal = document.body.querySelector('.gc-modal')
+    const modalEditor = document.body.querySelector<HTMLTextAreaElement>('.workflow-canvas-editor__node-dsl-modal-editor')
+    expect(modal).not.toBeNull()
+    expect(modalEditor?.value).toContain('prepare_auth')
+
+    const updateCountBeforeCancel = wrapper.emitted('update:modelValue')?.length ?? 0
+    if (!modalEditor) throw new Error('模态框编辑器未渲染')
+    modalEditor.value = JSON.stringify({
+      name: 'prepare_auth',
+      type: 'http',
+      stage: 'prepare',
+      request: {
+        method: 'POST',
+        connectionRef: 'management',
+        url: '/webapi/auth.cgi?cancelled=true',
+      },
+    }, null, 2)
+    modalEditor.dispatchEvent(new Event('input', { bubbles: true }))
+    const cancelButton = document.body.querySelector<HTMLButtonElement>('.gc-modal__actions .gc-button:not(.gc-button--primary)')
+    expect(cancelButton).not.toBeNull()
+    cancelButton?.click()
+    await flushPromises()
+
+    expect(wrapper.emitted('update:modelValue')?.length ?? 0).toBe(updateCountBeforeCancel)
+    wrapper.unmount()
+  })
+
+  it('应用模态框中的 DSL 修改后同步节点配置和原始 DSL', async () => {
+    const wrapper = mount(WorkflowCanvasEditor, {
+      props: { modelValue: createImportedHttpCanvas() },
+      attachTo: document.body,
+    })
+
+    await wrapper.find('.workflow-canvas-editor__raw-step-open').trigger('click')
+    await flushPromises()
+    const modalEditor = document.body.querySelector<HTMLTextAreaElement>('.workflow-canvas-editor__node-dsl-modal-editor')
+    const applyButton = document.body.querySelector<HTMLButtonElement>('.gc-modal__actions .gc-button--primary')
+    expect(modalEditor).not.toBeNull()
+    expect(applyButton).not.toBeNull()
+    if (!modalEditor || !applyButton) throw new Error('模态框控件未渲染')
+
+    modalEditor.value = JSON.stringify({
+      name: 'prepare_auth',
+      type: 'http',
+      stage: 'prepare',
+      request: {
+        method: 'POST',
+        connectionRef: 'management',
+        url: '/webapi/auth.cgi?modal=true',
+        headers: { Accept: 'application/json', 'X-Trace': 'modal' },
+      },
+    }, null, 2)
+    modalEditor.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    applyButton.click()
+    await flushPromises()
+
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as ReturnType<typeof createDefaultWorkflowCanvas>
+    expect(updated).toBeDefined()
+    expect(updated.nodes[0]?.config.url).toBe('/webapi/auth.cgi?modal=true')
+    expect(updated.nodes[0]?.ui?.rawStep).toEqual(expect.objectContaining({
+      request: expect.objectContaining({ headers: { Accept: 'application/json', 'X-Trace': 'modal' } }),
+    }))
+    wrapper.unmount()
+  })
+
+  it('只读模式下不允许打开当前节点 DSL 编辑模态框', async () => {
+    const wrapper = mount(WorkflowCanvasEditor, {
+      props: { modelValue: createImportedHttpCanvas(), readonly: true },
+      attachTo: document.body,
+    })
+
+    const openButton = wrapper.find('.workflow-canvas-editor__raw-step-open')
+    expect(openButton.attributes('disabled')).toBeDefined()
+    await openButton.trigger('click')
+    await flushPromises()
+    wrapper.unmount()
   })
 
   it('HTTP 节点支持 Basic 和 API Key 的 Slot 引用表单', async () => {
