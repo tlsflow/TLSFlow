@@ -360,25 +360,37 @@ const selectedWorkflowTemplate = computed(() =>
   workflowItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowId) ?? null,
 )
 
+const publishedWorkflowVersionItems = computed<ApiRecord[]>(() => {
+  const published = workflowVersionItems.value.filter((item) => workflowVersionStatus(item) === 'published')
+  if (String(selectedWorkflowTemplate.value?.origin ?? '') !== 'plugin_internal') return published
+
+  const currentVersionId = String(selectedWorkflowTemplate.value?.currentVersionId ?? '')
+  const selectedVersionId = assetDraft.workflowVersionId
+  const unique = new Map<string, ApiRecord>()
+  for (const item of published) {
+    const dslVersion = workflowDslVersion(item)
+    const key = dslVersion ? `dsl:${dslVersion}` : `id:${String(item.id ?? '')}`
+    const existing = unique.get(key)
+    if (!existing || preferWorkflowVersion(item, existing, selectedVersionId, currentVersionId)) unique.set(key, item)
+  }
+  return [...unique.values()]
+    .sort(compareWorkflowVersionsByDsl)
+    .map((item): ApiRecord => ({ ...item, displayVersion: workflowDslVersion(item) || String(item.id ?? '') }))
+})
+
 const latestPublishedWorkflowVersion = computed(() => {
   const currentVersionId = String(selectedWorkflowTemplate.value?.currentVersionId ?? '')
-  const current = workflowVersionItems.value.find((item) =>
+  const current = publishedWorkflowVersionItems.value.find((item) =>
     String(item.id ?? '') === currentVersionId && workflowVersionStatus(item) === 'published',
   )
   if (current) return current
-  return [...workflowVersionItems.value]
-    .filter((item) => workflowVersionStatus(item) === 'published')
-    .sort((left, right) => Number(right.version ?? 0) - Number(left.version ?? 0))[0] ?? null
+  return publishedWorkflowVersionItems.value[0] ?? null
 })
 
 const selectedWorkflowVersion = computed(() =>
   assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
     ? latestPublishedWorkflowVersion.value
-    : workflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
-)
-
-const publishedWorkflowVersionItems = computed(() =>
-  workflowVersionItems.value.filter((item) => workflowVersionStatus(item) === 'published'),
+    : publishedWorkflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
 )
 
 const selectedGateway = computed(() =>
@@ -692,7 +704,7 @@ async function loadWorkflowVersions(workflowId: string) {
   }
   try {
     const result = await listWorkflowTemplateVersions(workflowId)
-    workflowVersionItems.value = [...(result.data?.items ?? [])]
+    workflowVersionItems.value = [...(result.data?.items ?? [])] as ApiRecord[]
     if (assetDraft.workflowVersionId && !workflowVersionItems.value.some((item) => String(item.id ?? '') === assetDraft.workflowVersionId)) {
       assetDraft.workflowVersionId = ''
     }
@@ -1426,9 +1438,48 @@ function workflowTemplateLabel(item: ApiRecord): string {
 }
 
 function workflowVersionLabel(item: ApiRecord): string {
-  const version = String(item.version ?? item.versionNo ?? item.name ?? item.id ?? '')
+  const version = workflowVersionDisplayValue(item)
   const status = workflowVersionStatus(item)
   return `${version}${status ? ` / ${workflowVersionStatusLabel(status)}` : ''}`
+}
+
+function workflowVersionDisplayValue(item: ApiRecord): string {
+  if (String(selectedWorkflowTemplate.value?.origin ?? '') === 'plugin_internal') {
+    return workflowDslVersion(item) || String(item.id ?? '')
+  }
+  return String(item.version ?? item.versionNo ?? item.name ?? item.id ?? '')
+}
+
+function workflowDslVersion(item: ApiRecord): string {
+  const value = readNested(item, ['content', 'metadata', 'version'])
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function preferWorkflowVersion(candidate: ApiRecord, existing: ApiRecord, selectedId: string, currentId: string): boolean {
+  const candidateId = String(candidate.id ?? '')
+  const existingId = String(existing.id ?? '')
+  if (candidateId === selectedId) return existingId !== selectedId
+  if (existingId === selectedId) return false
+  if (candidateId === currentId) return existingId !== currentId
+  if (existingId === currentId) return false
+  return String(candidate.createdAt ?? '').localeCompare(String(existing.createdAt ?? '')) > 0
+}
+
+function compareWorkflowVersionsByDsl(left: ApiRecord, right: ApiRecord): number {
+  const semanticOrder = compareSemanticVersions(workflowDslVersion(right), workflowDslVersion(left))
+  if (semanticOrder !== 0) return semanticOrder
+  return String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''))
+}
+
+function compareSemanticVersions(left: string, right: string): number {
+  const leftParts = left.split(/[.-]/).map((part) => Number.parseInt(part, 10))
+  const rightParts = right.split(/[.-]/).map((part) => Number.parseInt(part, 10))
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (Number.isFinite(leftParts[index]) ? leftParts[index]! : 0)
+      - (Number.isFinite(rightParts[index]) ? rightParts[index]! : 0)
+    if (difference !== 0) return difference
+  }
+  return left.localeCompare(right)
 }
 
 function workflowVersionStatus(item: ApiRecord | null | undefined): string {

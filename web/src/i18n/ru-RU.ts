@@ -557,6 +557,7 @@ export default {
       dryRunDiscover: 'Предпроверка только для чтения: распознаны цель развертывания и сведения сайта {providerLabel}. Сайт {siteName}, привязка {binding}. {pendingText}',
       dryRunVerify: 'Предпроверка только для чтения: проверены материалы сертификата, целевая привязка и соответствие домена. Цель {providerLabel}, привязка {binding}. {pendingText}',
       dryRunCreated: 'Предпроверка только для чтения создана. {pendingText}',
+      workflowIdentity: 'Версия выполнения: плагин {plugin}; рабочий процесс {workflow}',
       failure: {
         emptyMessage: 'Конкретное сообщение об ошибке не получено',
         issue: 'Категория {category}, слот {slot}, путь {path}, источник {source}, исправление {remediation}'
@@ -3450,6 +3451,9 @@ export default {
         note: 'Примечание',
         status: 'Статус',
         updatedAt: 'Время обновления'
+      },
+      filters: {
+        showNonDeployment: 'Показать рабочие процессы не для развертывания'
       },
       empty: {
         description: 'Сначала создайте черновик canvas, затем публикуйте версии в рабочий контур.',

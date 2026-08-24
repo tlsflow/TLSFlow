@@ -465,6 +465,63 @@ describe('WorkflowTemplatesView', () => {
     expect([...publishedItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('切换版本')
   })
 
+  it('插件内置工作流只显示 DSL SemVer 并禁止手动切换版本', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([{
+      id: 'tpl-plugin-apache',
+      name: 'apache-8444-cert-switch',
+      origin: 'plugin_internal',
+      capabilities: ['certificate.deploy', 'certificate.rollback'],
+      status: 'published',
+      currentVersionId: 'ver-plugin-126',
+      currentVersion: 2,
+      currentVersionLabel: '1.2.6',
+      createdAt: '2026-07-31T01:36:51.000Z',
+      updatedAt: '2026-08-02T22:48:31.000Z',
+    }]))
+    vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ver-plugin-126',
+            templateId: 'tpl-plugin-apache',
+            version: 2,
+            status: 'published',
+            content: { metadata: { version: '1.2.6' } },
+            createdAt: '2026-08-02T22:48:31.000Z',
+          },
+          {
+            id: 'ver-plugin-124',
+            templateId: 'tpl-plugin-apache-legacy',
+            version: 4,
+            status: 'published',
+            content: { metadata: { version: '1.2.4' } },
+            createdAt: '2026-08-01T21:11:56.000Z',
+          },
+        ],
+      },
+      requestId: 'req_versions',
+      timestamp: '2026-08-02T22:48:31.000Z',
+    })
+
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('1.2.6')
+    clickBodyButton('详情')
+    await flushPromises()
+    clickBodyButton('版本')
+    await flushPromises()
+
+    const labels = [...document.body.querySelectorAll('.workflow-template-detail__list-head strong')].map((item) => item.textContent?.trim())
+    expect(labels).toEqual(['1.2.6', '1.2.4'])
+    expect(document.body.textContent).not.toContain('已发布版本：V2')
+    expect([...document.body.querySelectorAll('button')].map((item) => item.textContent?.trim())).not.toContain('新增版本')
+    expect([...document.body.querySelectorAll('button')].map((item) => item.textContent?.trim())).not.toContain('切换版本')
+  })
+
   it('发布草稿版本后立即切换当前版本，并保留已发布状态', async () => {
     vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
       {

@@ -57,6 +57,7 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.step.dryRunDiscover',
   'executionDetail.step.dryRunVerify',
   'executionDetail.step.dryRunCreated',
+  'executionDetail.step.workflowIdentity',
   'executionDetail.step.failure.emptyMessage',
   'executionDetail.step.failure.issue',
   'executionDetail.agent.taskSuffix',
@@ -433,6 +434,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
   const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
   if (workflowStepResult) return buildWorkflowStepDetail(workflowStepResult, index, text)
+  const workflowIdentityDetail = formatWorkflowIdentityDetail(readObject(resultDetail, 'workflowIdentity'), text)
   const dispatchDetail = readObject(record, 'inputSnapshot.dispatchDetail')
   const failureDetail = readObject(resultDetail, 'failure')
   const verificationRecovery = readObject(resultDetail, 'verificationRecovery')
@@ -471,7 +473,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
     const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
     const issues = readArray(lastErrorDetails, 'issues').map((issue) => formatExecutionInputIssue(issue, text))
     const issueDetail = issues.length > 0 ? `；${issues.join('；')}` : ''
-    return `${code}: ${message}${issueDetail}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
+    return `${code}: ${message}${issueDetail}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}${workflowIdentityDetail}`
   }
 
   if (readPath(record, 'inputSnapshot.dryRun') === true) {
@@ -530,6 +532,27 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   }
 
   return readString(record, ['message', 'detail', 'summary'], text('executionDetail.step.createdFallback', { index: index + 1 }))
+}
+
+function formatWorkflowIdentityDetail(identity: Record<string, unknown> | undefined, text: ExecutionDetailText): string {
+  if (!identity) return ''
+  const pluginId = readString(identity, ['pluginId'], '')
+  const pluginVersionId = readString(identity, ['pluginVersionId'], '')
+  const pluginVersion = readString(identity, ['pluginVersion'], '')
+  const workflowName = readString(identity, ['workflowName'], '')
+  const workflowVersionId = readString(identity, ['workflowVersionId'], '')
+  const workflowDslVersion = readString(identity, ['workflowDslVersion'], '')
+  if (!pluginId && !pluginVersionId && !workflowName && !workflowVersionId) return ''
+  const plugin = pluginVersion
+    ? `${pluginId || pluginVersionId}@${pluginVersion}`
+    : pluginId || pluginVersionId || '-'
+  const workflow = workflowDslVersion
+    ? `${workflowName || workflowVersionId}@${workflowDslVersion}`
+    : workflowName || workflowVersionId || '-'
+  return `；${text('executionDetail.step.workflowIdentity', {
+    plugin,
+    workflow,
+  })}`
 }
 
 function formatExecutionInputIssue(issue: Record<string, unknown>, text: ExecutionDetailText): string {

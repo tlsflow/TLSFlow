@@ -564,6 +564,7 @@ export default {
       dryRunDiscover: '只读预检：识别部署目标与 {providerLabel} 站点信息。站点 {siteName}，绑定 {binding}。{pendingText}',
       dryRunVerify: '只读预检：校验证书材料、目标绑定和域名匹配。目标 {providerLabel} 绑定 {binding}。{pendingText}',
       dryRunCreated: '只读预检已创建。{pendingText}',
+      workflowIdentity: '执行版本：插件 {plugin}；工作流 {workflow}',
       failure: {
         emptyMessage: '未收到具体错误信息',
         issue: '类型 {category}，槽位 {slot}，路径 {path}，来源 {source}，修复位置 {remediation}'
@@ -3589,6 +3590,9 @@ export default {
         note: '备注',
         status: '状态',
         updatedAt: '更新时间'
+      },
+      filters: {
+        showNonDeployment: '显示非部署工作流'
       },
       empty: {
         description: '先创建画布草稿，再基于版本发布到正式链路。',

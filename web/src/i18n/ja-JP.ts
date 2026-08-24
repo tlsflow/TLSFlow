@@ -557,6 +557,7 @@ export default {
       dryRunDiscover: '読み取り専用事前チェック：識別デプロイターゲットと {providerLabel} サイト情報。サイト {siteName}、バインド {binding}。{pendingText}',
       dryRunVerify: '読み取り専用事前チェック：検証証明書マテリアル、ターゲットバインドとドメイン名一致。ターゲット {providerLabel} バインド {binding}。{pendingText}',
       dryRunCreated: '読み取り専用事前チェック作成済み。{pendingText}',
+      workflowIdentity: '実行バージョン：プラグイン {plugin}；ワークフロー {workflow}',
       failure: {
           emptyMessage: '具体的なエラー情報を受信していません',
           issue: '分類 {category}、スロット {slot}、パス {path}、ソース {source}、修正箇所 {remediation}'
@@ -3476,6 +3477,9 @@ export default {
         note: 'メモ',
         status: 'ステータス',
         updatedAt: '更新時刻'
+      },
+      filters: {
+        showNonDeployment: '非デプロイワークフローを表示'
       },
       empty: {
         description: '先作成キャンバスドラフト、再に基づくバージョン公開へ正式経路。',

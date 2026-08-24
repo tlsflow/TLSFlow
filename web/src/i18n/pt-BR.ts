@@ -557,6 +557,7 @@ export default {
       dryRunDiscover: 'Pré-verificação somente leitura: identificação do alvo de implantação e das informações de site de {providerLabel}. Site {siteName}, binding {binding}. {pendingText}',
       dryRunVerify: 'Pré-verificação somente leitura: validação do material do certificado, do binding do alvo e da correspondência de domínio. Alvo {providerLabel}, binding {binding}. {pendingText}',
       dryRunCreated: 'Pré-verificação somente leitura criada. {pendingText}',
+      workflowIdentity: 'Versão de execução: plugin {plugin}; workflow {workflow}',
       failure: {
         emptyMessage: 'Nenhuma mensagem de erro específica foi recebida',
         issue: 'Categoria {category}, slot {slot}, caminho {path}, origem {source}, correção {remediation}'
@@ -3450,6 +3451,9 @@ export default {
         note: 'Observação',
         status: 'Status',
         updatedAt: 'Atualizado em'
+      },
+      filters: {
+        showNonDeployment: 'Mostrar workflows que não são de implantação'
       },
       empty: {
         description: 'Crie primeiro um rascunho no canvas e depois publique versões para o fluxo oficial.',

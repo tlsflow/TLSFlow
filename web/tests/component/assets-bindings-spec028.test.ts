@@ -757,6 +757,73 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
   })
 
+  it('应用资产选择插件内置工作流时按 DSL SemVer 展示并合并重复版本', async () => {
+    workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([{
+      id: 'workflow-apache',
+      name: 'apache-8444-cert-switch',
+      origin: 'plugin_internal',
+      capabilities: ['certificate.deploy', 'certificate.rollback'],
+      currentVersionId: 'workflow-version-126',
+      currentVersionLabel: '1.2.6',
+    }]))
+    workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'workflow-version-126',
+            version: 2,
+            status: 'published',
+            templateId: 'workflow-apache',
+            createdAt: '2026-08-02T22:48:31.000Z',
+            content: { metadata: { version: '1.2.6' }, inputContract: { variables: {}, connections: {}, credentials: {}, artifacts: {} } },
+          },
+          {
+            id: 'workflow-version-126-duplicate',
+            version: 8,
+            status: 'published',
+            templateId: 'workflow-apache-legacy',
+            createdAt: '2026-08-02T21:00:00.000Z',
+            content: { metadata: { version: '1.2.6' }, inputContract: { variables: {}, connections: {}, credentials: {}, artifacts: {} } },
+          },
+          {
+            id: 'workflow-version-124',
+            version: 4,
+            status: 'published',
+            templateId: 'workflow-apache-legacy',
+            createdAt: '2026-08-01T21:11:56.000Z',
+            content: { metadata: { version: '1.2.4' }, inputContract: { variables: {}, connections: {}, credentials: {}, artifacts: {} } },
+          },
+        ],
+      },
+      requestId: 'req_workflow_versions',
+      timestamp: '2026-08-02T22:48:31.000Z',
+    })
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
+    await flushPromises()
+    await setInputElementValue(
+      wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!.element as HTMLInputElement,
+      'test03.jacksonz.cn',
+    )
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+
+    const workflowSelect = wrapper.findAll('select').find((select) => select.find('option[value="workflow-apache"]').exists())
+    expect(workflowSelect).toBeTruthy()
+    await workflowSelect!.setValue('workflow-apache')
+    await flushPromises()
+
+    const versionSelect = wrapper.findAll('select').find((select) => select.find('option[value="workflow-version-126"]').exists())
+    expect(versionSelect).toBeTruthy()
+    expect(versionSelect!.findAll('option').map((option) => option.text())).toEqual(['请选择已发布版本', '1.2.6', '1.2.4'])
+    expect(versionSelect!.find('option[value="workflow-version-126-duplicate"]').exists()).toBe(false)
+    expect(versionSelect!.text()).not.toMatch(/(^|\s)[1248](\s|$)/)
+  })
+
   it('工作流投影中的 credential 必须渲染为凭据选择器', async () => {
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({
       id: 'asset-1', address: 'cloud.jacksonz.cn', port: 443, protocol: 'HTTPS', platform: 'LINUX',

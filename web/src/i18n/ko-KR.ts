@@ -557,6 +557,7 @@ export default {
       dryRunDiscover: '읽기 전용 사전 점검:배포 대상과 {providerLabel} 사이트 정보를 식별합니다.{siteName}, {binding} 바인딩.{pendingText}',
       dryRunVerify: '읽기 전용 사전 점검: 검증인증서 자료, 대상 바인딩 및 도메인 일치.대상 {providerLabel} 바인딩 {binding}.{pendingText}',
       dryRunCreated: '읽기 전용 사전 점검이 생성되었습니다.{pendingText}',
+      workflowIdentity: '실행 버전: 플러그인 {plugin}; 워크플로 {workflow}',
       failure: {
         emptyMessage: '구체적인 오류 메시지가 없습니다',
         issue: '유형 {category}, 슬롯 {slot}, 경로 {path}, 소스 {source}, 수정 위치 {remediation}'
@@ -3450,6 +3451,9 @@ export default {
         note: '비고',
         status: '상태',
         updatedAt: '업데이트 시간'
+      },
+      filters: {
+        showNonDeployment: '배포 외 워크플로 표시'
       },
       empty: {
         description: '캔버스 스케치를 만든 다음, 버전에 따라 공식 링크에 게시합니다.',

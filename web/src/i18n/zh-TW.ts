@@ -556,6 +556,7 @@ export default {
       dryRunDiscover: "唯讀預檢：識別部署目標與 {providerLabel} 站點資訊。站點 {siteName}，繫結 {binding}。{pendingText}",
       dryRunVerify: "唯讀預檢：驗證憑證材料、目標繫結和域名匹配。目標 {providerLabel} 繫結 {binding}。{pendingText}",
       dryRunCreated: "唯讀預檢已建立。{pendingText}",
+      workflowIdentity: "執行版本：外掛程式 {plugin}；工作流程 {workflow}",
       failure: {
         emptyMessage: "未收到具體錯誤資訊",
         issue: "類型 {category}，槽位 {slot}，路徑 {path}，來源 {source}，修復位置 {remediation}"
@@ -3475,6 +3476,9 @@ export default {
         note: "備註",
         status: "狀態",
         updatedAt: "更新時間"
+      },
+      filters: {
+        showNonDeployment: "顯示非部署工作流"
       },
       empty: {
         description: "先建立畫布草稿，再基於版本釋出到正式鏈路。",

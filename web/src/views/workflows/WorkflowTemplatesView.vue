@@ -63,6 +63,7 @@ const pluginSourceError = ref('')
 const selectedPluginSourceId = ref('')
 const pluginSourceTargetRow = ref<ViewRow | null>(null)
 const pluginSourceWorkflowName = ref('')
+const showNonDeploymentWorkflows = ref(false)
 
 const config: BusinessPageConfig = {
   title: t('workflows.templates.title'),
@@ -104,7 +105,19 @@ const config: BusinessPageConfig = {
   ],
   emptyTitle: t('workflows.templates.empty.title'),
   emptyDescription: t('workflows.templates.empty.description'),
-  load: () => listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' }),
+  load: async () => {
+    const result = await listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' })
+    if (!result.data) return result
+    const items = result.data.items.filter((item) => shouldShowWorkflow(item))
+    return {
+      ...result,
+      data: {
+        ...result.data,
+        items,
+        total: items.length,
+      },
+    }
+  },
   actions: [],
   rowActions: [
     {
@@ -161,7 +174,7 @@ const publishedVersionLabel = computed(() => {
     readString(item, ['status']) === 'published'
     && (!currentId || readString(item, ['id']) === currentId),
   ) ?? versionItems.value.find((item) => readString(item, ['status']) === 'published')
-  return published ? `V${readString(published, ['version'])}` : '—'
+  return published ? workflowVersionDisplayLabel(published, detailRow.value) : '—'
 })
 
 const pluginSourceModalTitle = computed(() => pluginSourceMode.value === 'create' ? t('workflows.templates.pluginSources.createTitle') : t('workflows.templates.pluginSources.applyTitle'))
@@ -185,6 +198,17 @@ function normalizeWorkflowOrigin(origin: string): 'plugin_internal' | 'user' {
   return normalized === 'plugin_internal' ? 'plugin_internal' : 'user'
 }
 
+function workflowCapabilities(record: ApiRecord): string[] {
+  const capabilities = record.capabilities
+  return Array.isArray(capabilities) ? capabilities.map((capability) => String(capability)) : []
+}
+
+function shouldShowWorkflow(record: ApiRecord): boolean {
+  if (normalizeWorkflowOrigin(readString(record, ['origin'], 'user')) === 'user') return true
+  if (showNonDeploymentWorkflows.value) return true
+  return workflowCapabilities(record).includes('certificate.deploy')
+}
+
 function pluginSourceId(item: ApiRecord): string {
   return `${readString(item, ['pluginVersionId'])}:${readString(item, ['capabilityKey'])}`
 }
@@ -195,6 +219,14 @@ function isCurrentWorkflowVersion(item: ApiRecord, row: ViewRow | null = version
   if (currentVersionId && versionId && currentVersionId === versionId) return true
   const currentVersion = readString(row.raw, ['currentVersion'], '')
   return Boolean(currentVersion && currentVersion !== '—' && currentVersion === readString(item, ['version'], ''))
+}
+
+function workflowVersionDisplayLabel(item: ApiRecord, row: ViewRow | null): string {
+  if (row && isPluginInternal(row)) {
+    return readString(item, ['content.metadata.version'], readString(item, ['version'], '—'))
+  }
+  const version = readString(item, ['version'], '')
+  return version ? `V${version}` : '—'
 }
 
 interface VersionStatusBadge {
@@ -215,6 +247,8 @@ function versionStatusBadges(item: ApiRecord): VersionStatusBadge[] {
 }
 
 function canRunVersionAction(item: ApiRecord): boolean {
+  const owner = versionManagerRow.value ?? detailRow.value
+  if (owner && isPluginInternal(owner)) return false
   const status = readString(item, ['status'], 'draft')
   if (status === 'draft') return true
   if (status !== 'published') return false
@@ -445,7 +479,7 @@ async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition }) {
 
 async function createManagedVersion() {
   const row = versionManagerRow.value
-  if (!row || versionCreating.value) return
+  if (!row || isPluginInternal(row) || versionCreating.value) return
   versionCreating.value = true
   publishMessage.value = ''
   versionError.value = ''
@@ -613,7 +647,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 <template>
   <section class="workflow-templates-page">
-    <BusinessResourcePage ref="pageRef" :config="config" />
+    <BusinessResourcePage ref="pageRef" :config="config">
+      <template #toolbar-actions-before-refresh>
+        <label class="workflow-templates__visibility-toggle">
+          <input v-model="showNonDeploymentWorkflows" type="checkbox" @change="pageRef?.reload()" />
+          <span>{{ t('workflows.templates.filters.showNonDeployment') }}</span>
+        </label>
+      </template>
+    </BusinessResourcePage>
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -681,7 +722,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <ul v-else-if="versionItems.length" class="workflow-template-detail__list">
             <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-template-detail__list-item">
               <div class="workflow-template-detail__list-head">
-                <strong>v{{ readString(item, ['version']) }}</strong>
+                <strong>{{ workflowVersionDisplayLabel(item, detailRow) }}</strong>
                 <GcStatusTag :status="readString(item, ['status'])" />
               </div>
               <p>{{ readString(item, ['changeSummary'], t('workflows.templates.empty.noChangeSummary')) }}</p>
@@ -721,7 +762,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <strong>{{ readString(versionManagerRow.raw, ['currentVersionLabel', 'currentVersion'], '—') }}</strong>
             <small>{{ readString(versionManagerRow.raw, ['status'], 'draft') }}</small>
           </div>
-          <button class="gc-button gc-button--primary" type="button" :disabled="versionCreating" @click="createManagedVersion">
+          <button v-if="!isPluginInternal(versionManagerRow)" class="gc-button gc-button--primary" type="button" :disabled="versionCreating" @click="createManagedVersion">
             {{ versionCreating ? t('workflows.templates.states.creating') : t('workflows.templates.actions.addVersion') }}
           </button>
         </header>
@@ -732,7 +773,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <ul v-else-if="versionItems.length" class="workflow-version-manager__list">
           <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-version-manager__item">
             <div class="workflow-version-manager__version">
-              <strong>V{{ readString(item, ['version']) }}</strong>
+              <strong>{{ workflowVersionDisplayLabel(item, versionManagerRow) }}</strong>
               <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
             </div>
             <div class="workflow-version-manager__summary">
@@ -744,11 +785,12 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
                   type="text"
                   maxlength="120"
                   :placeholder="t('workflows.templates.empty.noChangeSummaryShort')"
-                  :disabled="versionNoteSavingId === readString(item, ['id'])"
+                  :disabled="isPluginInternal(versionManagerRow) || versionNoteSavingId === readString(item, ['id'])"
                   @input="updateVersionNoteDraft(item, $event)"
                 />
               </label>
               <button
+                v-if="!isPluginInternal(versionManagerRow)"
                 class="gc-button workflow-version-manager__note-save"
                 type="button"
                 :disabled="versionNoteSavingId === readString(item, ['id']) || !versionNoteChanged(item)"
@@ -863,6 +905,20 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-templates-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.workflow-templates__visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.workflow-templates__visibility-toggle input {
+  accent-color: var(--gc-color-primary);
 }
 
 .workflow-template-detail {

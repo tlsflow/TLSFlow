@@ -96,7 +96,20 @@ describe('useExecutionDetail', () => {
           status: 'FAILED',
           lastErrorCode: 'VALIDATION_FAILED',
           lastErrorMessage: 'Agent task 缺少 actionType/type，不能直连执行',
-          inputSnapshot: { dryRun: true },
+          inputSnapshot: {
+            dryRun: true,
+            resultDetail: {
+              workflowIdentity: {
+                pluginId: 'builtin.workflow.apache-8444-cert-switch',
+                pluginVersion: '1.2.6',
+                pluginVersionId: 'uplgv-apache-1-2-6',
+                workflowName: 'apache-8444-cert-switch',
+                workflowDslVersion: '1.2.6',
+                workflowVersion: 9,
+                workflowVersionId: 'wftplv-apache-v9',
+              },
+            },
+          },
         }],
       },
     })
@@ -119,6 +132,9 @@ describe('useExecutionDetail', () => {
     })
     expect(detail?.steps.value[0]?.detail).toContain('VALIDATION_FAILED')
     expect(detail?.steps.value[0]?.detail).toContain('Agent task 缺少 actionType/type，不能直连执行')
+    expect(detail?.steps.value[0]?.detail).toContain('builtin.workflow.apache-8444-cert-switch@1.2.6')
+    expect(detail?.steps.value[0]?.detail).not.toContain('V9')
+    expect(detail?.steps.value[0]?.detail).not.toContain('wftplv-apache-v9')
     expect(detail?.steps.value[0]?.detail).not.toContain('dryRunPending.failed')
 
     wrapper.unmount()

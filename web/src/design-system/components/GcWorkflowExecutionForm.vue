@@ -44,6 +44,10 @@ function recordText(record: ApiRecord, keys: readonly string[]): string {
   }
   return ''
 }
+
+function workflowVersionText(record: ApiRecord): string {
+  return recordText(record, ['displayVersion', 'versionNumber', 'version', 'id'])
+}
 </script>
 
 <template>
@@ -69,7 +73,7 @@ function recordText(record: ApiRecord, keys: readonly string[]): string {
       <select :value="workflowVersionId" :disabled="versionLoading || !workflowId" @change="emit('update:workflowVersionId', ($event.target as HTMLSelectElement).value)">
         <option value="">{{ labels.versionPlaceholder }}</option>
         <option v-for="version in versions" :key="String(version.id)" :value="String(version.id)">
-          {{ recordText(version, ['versionNumber', 'version', 'id']) }}
+          {{ workflowVersionText(version) }}
         </option>
       </select>
     </label>

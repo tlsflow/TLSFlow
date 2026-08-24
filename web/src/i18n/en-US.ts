@@ -564,6 +564,7 @@ export default {
       dryRunDiscover: 'Read-only precheck: discovered deployment target and {providerLabel} site context. Site {siteName}, binding {binding}. {pendingText}',
       dryRunVerify: 'Read-only precheck: validated certificate material, target binding, and domain match. Target {providerLabel} binding {binding}. {pendingText}',
       dryRunCreated: 'Read-only precheck has been created. {pendingText}',
+      workflowIdentity: 'Execution version: plugin {plugin}; workflow {workflow}',
       failure: {
         emptyMessage: 'The backend did not receive a concrete error message',
         issue: 'Category {category}, slot {slot}, path {path}, source {source}, remediation {remediation}'
@@ -3553,6 +3554,9 @@ export default {
         note: 'Note',
         status: 'Status',
         updatedAt: 'Updated at'
+      },
+      filters: {
+        showNonDeployment: 'Show non-deployment workflows'
       },
       empty: {
         description: 'Create a canvas draft first, then publish versions to the production flow.',
