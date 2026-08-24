@@ -118,6 +118,76 @@ test('Registry 在 Policy 边界跳过未知 Canonical Plugin ID 插件', async 
   assert.deepEqual(await new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), []);
 });
 
+test('registerAll 自动退休源码已移除的 BUILTIN 孤儿版本记录', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const registry = new BuiltinPluginRegistry(loader, { logger: { warn: () => {} } });
+
+  const disabled: string[] = [];
+  const retired: string[] = [];
+  const service = {
+    listBuiltinVersions: async () => [
+      { id: 'orphan-acme', pluginId: 'ca.acme', version: '1.0.0', status: 'ENABLED' },
+      { id: 'orphan-openssl', pluginId: 'ca.openssl', version: '1.0.0', status: 'DISABLED' },
+      { id: 'retired-acme-dns', pluginId: 'ca.acme-dns', version: '1.0.0', status: 'RETIRED' },
+      { id: 'current-nginx', pluginId: 'web.nginx', version: '1.0.0', status: 'ENABLED' },
+    ],
+    disableVersion: async (id: string) => { disabled.push(id); return { id }; },
+    retireVersion: async (id: string) => { retired.push(id); return { id }; },
+    importVersion: async (_tenantId: string, pluginPackage: { manifest: { pluginId: string; version: string } }) => ({
+      id: `pv-${pluginPackage.manifest.pluginId}`,
+      pluginId: pluginPackage.manifest.pluginId,
+      version: pluginPackage.manifest.version,
+      permissionApprovalStatus: 'APPROVED',
+      status: 'DISABLED',
+      manifest: pluginPackage.manifest,
+    }),
+    approvePermissions: async (id: string) => ({ id, status: 'DISABLED' }),
+    enableVersion: async (id: string) => ({ id, status: 'ENABLED' }),
+  } as unknown as Parameters<typeof registry.registerAll>[0];
+
+  await registry.registerAll(service);
+
+  // 启用的孤儿先降级再退休；已退休和当前源码包记录不动。
+  assert.deepEqual(disabled, ['orphan-acme']);
+  assert.deepEqual([...retired].sort(), ['orphan-acme', 'orphan-openssl']);
+});
+
+test('registerAll 孤儿退休失败只跳过该记录，不影响其余安装', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const registry = new BuiltinPluginRegistry(loader, { logger: { warn: () => {} } });
+
+  const service = {
+    listBuiltinVersions: async () => [
+      { id: 'orphan-acme', pluginId: 'ca.acme', version: '1.0.0', status: 'ENABLED' },
+      { id: 'orphan-openssl', pluginId: 'ca.openssl', version: '1.0.0', status: 'DISABLED' },
+    ],
+    disableVersion: async (id: string) => {
+      if (id === 'orphan-acme') throw new Error('disable failed');
+      return { id };
+    },
+    retireVersion: async (id: string) => ({ id }),
+    importVersion: async (_tenantId: string, pluginPackage: { manifest: { pluginId: string; version: string } }) => ({
+      id: `pv-${pluginPackage.manifest.pluginId}`,
+      pluginId: pluginPackage.manifest.pluginId,
+      version: pluginPackage.manifest.version,
+      permissionApprovalStatus: 'APPROVED',
+      status: 'DISABLED',
+      manifest: pluginPackage.manifest,
+    }),
+    approvePermissions: async (id: string) => ({ id, status: 'DISABLED' }),
+    enableVersion: async (id: string) => ({ id, status: 'ENABLED' }),
+  } as unknown as Parameters<typeof registry.registerAll>[0];
+
+  await registry.registerAll(service);
+
+  // 失败的孤儿被跳过，其余孤儿仍完成退休，当前包正常安装。
+  const installed = await registry.list();
+  assert.equal(installed.length, 1);
+  assert.equal(installed[0]?.pluginId, 'web.nginx');
+});
+
 async function createPackageRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'gcac-p2-registry-'));
   const packageRoot = join(root, 'web-nginx');

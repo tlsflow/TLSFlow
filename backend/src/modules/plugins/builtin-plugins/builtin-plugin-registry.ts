@@ -59,7 +59,7 @@ export class BuiltinPluginRegistry {
     for (const pluginPackage of packages) {
       const packageDirectory = basename(pluginPackage.packageDirectory);
       if (this.blockedPackageDirectories.has(packageDirectory)) {
-        this.warnFailure('versionGate', pluginPackage, new AppError('RESOURCE_VERSION_CONFLICT', '插件版本不可变检查未通过', {
+        this.warnFailure('versionGate', '内置插件注册阶段失败，已跳过该插件', identityOfManifest(pluginPackage.manifest), new AppError('RESOURCE_VERSION_CONFLICT', '插件版本不可变检查未通过', {
           packageDirectory,
         }));
         continue;
@@ -69,7 +69,7 @@ export class BuiltinPluginRegistry {
       try {
         entry = buildRegistryEntry(pluginPackage);
       } catch (error) {
-        this.warnFailure('registry', pluginPackage, error);
+        this.warnFailure('registry', '内置插件注册阶段失败，已跳过该插件', identityOfManifest(pluginPackage.manifest), error);
         continue;
       }
       const key = identityKey(entry.pluginId, entry.version);
@@ -80,7 +80,10 @@ export class BuiltinPluginRegistry {
           conflictedKeys.add(key);
           nextEntries.delete(key);
           nextPackages.delete(key);
-          this.warnFailure('registry', pluginPackage, new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
+          this.warnFailure('registry', '内置插件注册阶段失败，已跳过该插件', {
+            pluginId: entry.pluginId,
+            version: entry.version,
+          }, new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
             pluginId: entry.pluginId,
             version: entry.version,
             expectedPackageSha256: existing.packageSha256,
@@ -129,27 +132,61 @@ export class BuiltinPluginRegistry {
   /** 启动与热刷新共用同一条“扫描、校验、注册”链路。 */
   async registerAll(service: UnifiedPluginsApplicationService): Promise<Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>> {
     await this.refresh();
+    await this.retireRemovedBuiltinVersions(service);
     return this.loader.installPackages(service, [...this.packages.values()], { failFast: false });
   }
 
+  /**
+   * 数据库已登记但当前源码包已不存在的 BUILTIN 版本记录自动退休，
+   * 避免插件目录继续展示已从源码移除的插件（如已退役的内置 CA 插件）。
+   * 只处理 source=BUILTIN 的孤儿记录；用户导入版本、仍在源码中的包均不受影响。
+   */
+  private async retireRemovedBuiltinVersions(service: UnifiedPluginsApplicationService): Promise<void> {
+    const currentPluginIds = new Set<string>([...this.entries.values()].map((entry) => entry.pluginId));
+    const builtinVersions = await service.listBuiltinVersions();
+    for (const version of builtinVersions) {
+      if (currentPluginIds.has(version.pluginId)) continue;
+      if (version.status === 'RETIRED' || version.status === 'QUARANTINED') continue;
+      try {
+        // 启用中的版本不能直接退休，先降级再退休。
+        if (version.status === 'ENABLED') await service.disableVersion(version.id);
+        await service.retireVersion(version.id);
+        this.logger.warn('内置插件源码包已移除，自动退休数据库孤儿版本记录', {
+          pluginId: version.pluginId,
+          version: version.version,
+          pluginVersionId: version.id,
+          previousStatus: version.status,
+        }, {
+          module: 'builtin-plugin-startup',
+          resourceType: 'pluginVersion',
+          resourceId: version.id,
+        });
+      } catch (error) {
+        this.warnFailure('retireOrphan', '内置插件孤儿版本退休失败，已跳过该记录', {
+          pluginId: version.pluginId,
+          version: version.version,
+        }, error, version.id);
+      }
+    }
+  }
+
   private warnFailure(
-    phase: 'versionGate' | 'registry',
-    pluginPackage: BuiltinPluginPackage,
+    phase: 'versionGate' | 'registry' | 'retireOrphan',
+    message: string,
+    identity: { pluginId?: string; version?: string },
     error: unknown,
+    resourceId?: string,
   ): void {
-    const manifest = pluginPackage.manifest;
-    const identity = manifest && typeof manifest === 'object' && !Array.isArray(manifest)
-      ? manifest as Record<string, unknown>
-      : {};
-    this.logger.warn('内置插件注册阶段失败，已跳过该插件', {
+    this.logger.warn(message, {
       phase,
-      pluginId: typeof identity.pluginId === 'string' ? identity.pluginId : basename(pluginPackage.packageDirectory),
-      version: typeof identity.version === 'string' ? identity.version : undefined,
+      pluginId: identity.pluginId,
+      version: identity.version,
       errorCode: errorCodeOf(error),
       error: errorMessageOf(error),
     }, {
       module: 'builtin-plugin-startup',
       resourceType: 'pluginVersion',
+      ...(resourceId ? { resourceId } : {}),
     });
   }
 }
@@ -217,6 +254,16 @@ function errorCodeOf(error: unknown): string {
     return error.errorCode;
   }
   return 'UNKNOWN_ERROR';
+}
+
+function identityOfManifest(manifest: unknown): { pluginId?: string; version?: string } {
+  const record = manifest && typeof manifest === 'object' && !Array.isArray(manifest)
+    ? manifest as Record<string, unknown>
+    : {};
+  return {
+    pluginId: typeof record.pluginId === 'string' ? record.pluginId : undefined,
+    version: typeof record.version === 'string' ? record.version : undefined,
+  };
 }
 
 function errorMessageOf(error: unknown): string {
