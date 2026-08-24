@@ -13,7 +13,7 @@ withDefaults(defineProps<{
   emptyText?: string
 }>(), {
   rowKey: 'id',
-  emptyText: '暂无数据'
+  emptyText: '暂无数据',
 })
 </script>
 
@@ -28,7 +28,9 @@ withDefaults(defineProps<{
       <thead>
         <tr>
           <th v-for="column in columns" :key="String(column.key)" :style="{ width: column.width }">
-            {{ column.title }}
+            <slot :name="`header-${String(column.key)}`" :column="column">
+              {{ column.title }}
+            </slot>
           </th>
         </tr>
       </thead>
@@ -42,8 +44,8 @@ withDefaults(defineProps<{
         </tr>
       </tbody>
     </table>
-    <footer class="gc-data-table__footer">
-      <slot name="pagination">服务端分页占位</slot>
+    <footer v-if="$slots.pagination" class="gc-data-table__footer">
+      <slot name="pagination" />
     </footer>
   </section>
 </template>
