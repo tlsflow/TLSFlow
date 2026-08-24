@@ -3,16 +3,17 @@ import { describe, it } from 'node:test';
 import { AgentActionDispatchRegistry } from './application/agent-action-dispatch-registry.js';
 
 describe('AgentActionDispatchRegistry', () => {
-  it('通过规范动作和旧任务 Alias 保持直连必选语义', () => {
+  it('默认注册表只接受标准 Atomic Plan', () => {
     const registry = new AgentActionDispatchRegistry();
-    const standard = registry.resolve({ actionType: 'certificate.deploy' });
-    assert.equal(standard?.actionType, 'certificate.deploy');
-    assert.equal(standard?.kind, 'HISTORICAL_PLUGIN_ALIAS');
+    const standard = registry.resolve({ actionType: 'agent.atomic_plan.execute', actionSchemaVersion: '1.0' });
+    assert.equal(standard?.actionType, 'agent.atomic_plan.execute');
+    assert.equal(standard?.kind, 'ATOMIC_PLAN');
     assert.equal(standard?.contract.riskBoundary, 'DEPLOYMENT');
-    assert.equal(standard?.contract.acceptsSecrets, true);
+    assert.equal(standard?.contract.acceptsSecrets, false);
     assert.equal(standard?.aliased, false);
-    assert.equal(registry.resolve({ type: 'windows.iis.deploy_certificate' })?.mode, 'direct_required');
-    assert.equal(registry.resolve({ type: 'linux.nginx.deploy_certificate' })?.mode, 'direct_required');
+    assert.equal(registry.resolve({ actionType: 'certificate.deploy' }), undefined);
+    assert.equal(registry.resolve({ type: 'windows.iis.deploy_certificate' }), undefined);
+    assert.equal(registry.resolve({ type: 'linux.nginx.deploy_certificate' }), undefined);
   });
 
   it('未知动作不猜测执行模式', () => {

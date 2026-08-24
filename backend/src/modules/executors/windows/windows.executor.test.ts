@@ -36,7 +36,7 @@ describe('spec016 WinRM/SMB/WMI 无代理执行器基础模型', () => {
     assert.ok(smbWmi.limitations.includes('wmi_exit_code_limited'));
   });
 
-  it('WindowsCapabilityProbe 输出 WinRM、PowerShell、SMB、WMI、证书存储和 IIS 声明', () => {
+  it('WindowsCapabilityProbe 输出通用 Windows 能力声明', () => {
     const report = new WindowsCapabilityProbe().probe(modernProfile);
     const values = new Map(report.declarations.map((item) => [item.capabilityKey, item.value]));
     assert.equal(values.get('winrm.available'), true);
@@ -44,8 +44,31 @@ describe('spec016 WinRM/SMB/WMI 无代理执行器基础模型', () => {
     assert.equal(values.get('smb.available'), true);
     assert.equal(values.get('wmi.available'), true);
     assert.equal(values.get('windows.cert_store'), true);
-    assert.equal(values.get('iis.binding'), true);
     assert.deepEqual(report.suggestions, ['use_winrm']);
+  });
+
+  it('ChannelSelector 只消费插件贡献的产品能力声明', () => {
+    const selector = new ChannelSelector();
+    const probe = new WindowsCapabilityProbe();
+    const request = {
+      connection: modernProfile,
+      steps: [{ id: 'plugin-operation', kind: 'powershell' as const, script: 'Write-Host ok', requires: ['plugin.binding.update'] }],
+    };
+
+    const unsupported = selector.select(request, probe.probe(modernProfile));
+    assert.equal(unsupported.channel, 'script_package');
+
+    const supported = selector.select(request, probe.probe(modernProfile, {
+      declarations: [{ capabilityKey: 'plugin.binding.update', value: true, confidence: 1, evidence: { source: 'plugin' } }],
+    }));
+    assert.equal(supported.channel, 'winrm');
+    assert.deepEqual(supported.requiredCapabilities, ['plugin.binding.update', 'winrm', 'powershell']);
+  });
+
+  it('插件能力声明不得覆盖宿主探测事实', () => {
+    assert.throws(() => new WindowsCapabilityProbe().probe(modernProfile, {
+      declarations: [{ capabilityKey: 'winrm.available', value: false, confidence: 1, evidence: { source: 'plugin' } }],
+    }), /不得覆盖宿主探测事实/);
   });
 
   it('拒绝明文敏感字段、不安全 TLS 策略和非法 Windows 路径', () => {
@@ -119,7 +142,7 @@ describe('spec016 WinRM/SMB/WMI 无代理执行器基础模型', () => {
         smb: { available: false, adminShare: false },
         wmi: { available: false, remoteProcess: false },
       },
-      steps: [{ id: 'manual-iis', kind: 'iis_binding', script: 'Write-Host bind' }],
+      steps: [{ id: 'manual-script', kind: 'powershell', script: 'Write-Host install' }],
     });
     assert.equal(result.channel, 'script_package');
     assert.ok(result.limitations.includes('manual_execution_required'));

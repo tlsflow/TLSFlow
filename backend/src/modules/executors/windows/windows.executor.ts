@@ -5,7 +5,7 @@ import type { Executor, StepExecutionInput, StepExecutionResult } from '../../ex
 
 export type WindowsRemoteChannel = 'winrm' | 'smb_wmi' | 'wmi' | 'script_package';
 export type WindowsAuthMethod = 'ntlm' | 'kerberos' | 'credssp' | 'basic';
-export type WindowsStepKind = 'powershell' | 'file_copy' | 'backup' | 'wmi_query' | 'service_control' | 'iis_binding' | 'cert_store' | 'script_package';
+export type WindowsStepKind = 'powershell' | 'file_copy' | 'backup' | 'wmi_query' | 'service_control' | 'cert_store' | 'script_package';
 export type WindowsObservabilityLevel = 'full' | 'polling_file' | 'process_started_only' | 'manual';
 
 export interface WindowsConnectionProfile {
@@ -45,7 +45,6 @@ export interface WindowsCapabilityReport {
   smb: { available: boolean; adminShare: boolean };
   wmi: { available: boolean; remoteProcess: boolean };
   windows: { cert_store: boolean };
-  iis: { binding: boolean };
   declarations: WindowsCapabilityDeclaration[];
   compatibilityWarnings: string[];
   suggestions: string[];
@@ -76,7 +75,7 @@ export interface PartialWindowsCapabilities {
   smb?: Partial<WindowsCapabilityReport['smb']>;
   wmi?: Partial<WindowsCapabilityReport['wmi']>;
   windows?: Partial<WindowsCapabilityReport['windows']>;
-  iis?: Partial<WindowsCapabilityReport['iis']>;
+  declarations?: WindowsCapabilityDeclaration[];
 }
 
 export type WindowsRemoteStep = WinRmStepPlan | SmbStepPlan | WmiStepPlan | ScriptPackageStepPlan;
@@ -84,7 +83,7 @@ export type WindowsRemoteStep = WinRmStepPlan | SmbStepPlan | WmiStepPlan | Scri
 export interface BaseWindowsStepPlan {
   id: string;
   kind: WindowsStepKind;
-  requires?: Array<'winrm' | 'powershell' | 'smb' | 'wmi' | 'cert_store' | 'iis_binding'>;
+  requires?: string[];
   timeoutMs?: number;
 }
 
@@ -174,8 +173,6 @@ export class WindowsCapabilityProbe {
     const wmiAvailable = observed.wmi?.available ?? compatibilityLevel !== 'L5';
     const wmiRemoteProcess = observed.wmi?.remoteProcess ?? wmiAvailable;
     const certStore = observed.windows?.cert_store ?? powershellAvailable;
-    const iisBinding = observed.iis?.binding ?? (powershellAvailable && compatibilityLevel !== 'L4' && compatibilityLevel !== 'L5');
-
     const report: WindowsCapabilityReport = {
       osVersion,
       compatibilityLevel,
@@ -184,12 +181,11 @@ export class WindowsCapabilityProbe {
       smb: { available: smbAvailable, adminShare },
       wmi: { available: wmiAvailable, remoteProcess: wmiRemoteProcess },
       windows: { cert_store: certStore },
-      iis: { binding: iisBinding },
       declarations: [],
       compatibilityWarnings: [],
       suggestions: [],
     };
-    report.declarations = buildDeclarations(profile, report);
+    report.declarations = mergeCapabilityDeclarations(buildDeclarations(profile, report), observed.declarations ?? []);
     report.compatibilityWarnings = buildCompatibilityWarnings(report);
     report.suggestions = buildSuggestions(report);
     return report;
@@ -380,13 +376,28 @@ function buildDeclarations(profile: WindowsConnectionProfile, report: WindowsCap
     declaration('wmi.available', report.wmi.available, evidence),
     declaration('wmi.remote_process', report.wmi.remoteProcess, evidence),
     declaration('windows.cert_store', report.windows.cert_store, evidence),
-    declaration('iis.binding', report.iis.binding, evidence),
     declaration('risk.legacyWindows', ['L4', 'L5'].includes(report.compatibilityLevel), evidence),
   ];
 }
 
 function declaration(capabilityKey: string, value: unknown, evidence: Record<string, unknown>): WindowsCapabilityDeclaration {
   return { capabilityKey, value, confidence: 0.8, evidence };
+}
+
+function mergeCapabilityDeclarations(
+  builtIn: WindowsCapabilityDeclaration[],
+  contributed: WindowsCapabilityDeclaration[],
+): WindowsCapabilityDeclaration[] {
+  const byKey = new Map(builtIn.map((item) => [item.capabilityKey, item]));
+  for (const item of contributed) {
+    const capabilityKey = item.capabilityKey.trim();
+    if (!capabilityKey) throw new AppError('VALIDATION_FAILED', '能力声明 capabilityKey 必填');
+    if (byKey.has(capabilityKey)) {
+      throw new AppError('VALIDATION_FAILED', '插件能力声明不得覆盖宿主探测事实', { capabilityKey });
+    }
+    byKey.set(capabilityKey, { ...item, capabilityKey });
+  }
+  return [...byKey.values()].sort((left, right) => left.capabilityKey.localeCompare(right.capabilityKey));
 }
 
 function buildCompatibilityWarnings(report: WindowsCapabilityReport): string[] {
@@ -413,7 +424,6 @@ function requiredCapabilities(steps: WindowsRemoteStep[]): string[] {
     if (step.kind === 'file_copy' || step.kind === 'backup') inferred.push('smb');
     if (step.kind === 'wmi_query') inferred.push('wmi');
     if (step.kind === 'cert_store') inferred.push('cert_store');
-    if (step.kind === 'iis_binding') inferred.push('iis_binding');
     return [...explicit, ...inferred];
   }))];
 }
@@ -436,7 +446,7 @@ function evaluateChannel(channel: WindowsRemoteChannel, required: string[], repo
     return undefined;
   }
   if (channel === 'wmi') {
-    if (report.wmi.available && required.every((item) => !['smb', 'cert_store', 'iis_binding'].includes(item))) {
+    if (report.wmi.available && required.every((item) => !['smb', 'cert_store'].includes(item) && capabilitySatisfied(item, report))) {
       return { channel, reason: '仅 WMI 查询或受控命令可用', limitations: ['process_started_only', 'no_file_transfer'], requiredCapabilities: required };
     }
     return undefined;
@@ -453,8 +463,7 @@ function capabilitySatisfied(capability: string, report: WindowsCapabilityReport
   if (capability === 'smb') return report.smb.available;
   if (capability === 'wmi') return report.wmi.available;
   if (capability === 'cert_store') return report.windows.cert_store;
-  if (capability === 'iis_binding') return report.iis.binding;
-  return true;
+  return report.declarations.some((item) => item.capabilityKey === capability && item.value === true);
 }
 
 function plannedActionsForStep(step: WindowsRemoteStep, channel: WindowsRemoteChannel): string[] {
