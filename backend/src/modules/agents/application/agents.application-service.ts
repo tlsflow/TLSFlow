@@ -116,11 +116,17 @@ export class AgentsApplicationService {
     this.domain.assertStatusTransition(agent.status, nextStatus);
     const now = new Date().toISOString();
     const gateway = this.domain.normalizeGatewayOnHeartbeat(agent, input, now);
+    const directControl = input.directControl ?? agent.directControl;
+    const reportedIpAddress = resolveDirectControlHost(directControl?.listenAddress);
     const updated = await this.repository.updateRegistration(agent.id, {
       status: nextStatus,
-      descriptor: { ...agent.descriptor, version: input.version },
+      descriptor: {
+        ...agent.descriptor,
+        version: input.version,
+        ...(reportedIpAddress ? { ipAddress: reportedIpAddress } : {}),
+      },
       gateway,
-      directControl: input.directControl ?? agent.directControl,
+      directControl,
       updatedAt: now,
       lastRequestId: requestId,
     });
@@ -132,7 +138,7 @@ export class AgentsApplicationService {
       version: input.version,
       runtimeHealth: input.runtimeHealth,
       gateway,
-      directControl: input.directControl ?? agent.directControl,
+      directControl,
       taskSummary: input.taskSummary ?? { running: 0, queued: 0 },
       receivedAt: now,
       requestId,
@@ -1517,4 +1523,14 @@ function resolveAgentProductRoot(productDirectory: string): string {
     }
   }
   return path.resolve(process.cwd(), relativeAgentPath);
+}
+
+function resolveDirectControlHost(listenAddress?: string): string | undefined {
+  const value = listenAddress?.trim();
+  if (!value) return undefined;
+  try {
+    return new URL(value.includes('://') ? value : `http://${value}`).hostname || undefined;
+  } catch {
+    return undefined;
+  }
 }

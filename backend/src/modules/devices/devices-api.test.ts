@@ -95,6 +95,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(result.items[0]?.displayName, 'legacy-win2008r2');
   assert.equal(result.items[0]?.productFamily, 'Windows Server');
   assert.equal(result.items[0]?.managementMethod, 'AGENT');
+  assert.equal(result.items[0]?.managementAddress, '10.33.2.8');
   assert.equal(result.items[0]?.softwareVersion, 'Windows Server 2008 R2');
   assert.equal(result.items[0]?.extensionType, 'AGENT');
   await agents.reportCapabilities('tenant_windows_2008_r2', {
@@ -128,6 +129,25 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(unifiedDetail.sites[0]?.name, 'Default Web Site');
   assert.equal(unifiedDetail.sites[0]?.endpoint?.port, 80);
 
+  await agents.heartbeat('tenant_windows_2008_r2', {
+    agentId: registered.id,
+    version: '1.0.0',
+    directControl: {
+      enabled: true,
+      reachable: true,
+      listenAddress: '10.33.2.18:18933',
+      protocolVersion: 'v1',
+      supportedActions: ['health'],
+    },
+  }, 'request_windows_2008_r2_heartbeat');
+  const refreshed = await new PgDevicesRepository(database).list('tenant_windows_2008_r2', {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    sort: { field: 'displayName', direction: 'asc' },
+  });
+  assert.equal(refreshed.items[0]?.managementAddress, '10.33.2.18');
+
   await agents.register('tenant_windows_2008_r2', {
     agentKey: 'windows-2008-r2-agent-reinstalled',
     machineId: 'windows-2008-r2-machine',
@@ -136,11 +156,11 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
     osType: 'windows',
     osVersion: 'Windows Server 2008 R2',
     arch: 'amd64',
-    ipAddress: '10.33.2.8',
+    ipAddress: '10.33.2.18',
   }, 'request_windows_2008_r2_reinstalled');
 
-  const hosts = await database.query<{ agent_id: string; asset_fingerprint: string; os_version: string; status: string }>(
-    'select agent_id, asset_fingerprint, os_version, status from pg_hosts where tenant_id = $1 and deleted_at is null',
+  const hosts = await database.query<{ agent_id: string; asset_fingerprint: string; os_version: string; status: string; primary_ip: string }>(
+    'select agent_id, asset_fingerprint, os_version, status, primary_ip from pg_hosts where tenant_id = $1 and deleted_at is null',
     ['tenant_windows_2008_r2'],
   );
   assert.equal(hosts.rows.length, 1);
@@ -148,6 +168,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(hosts.rows[0]?.asset_fingerprint, 'windows-2008-r2-machine');
   assert.equal(hosts.rows[0]?.os_version, 'Windows Server 2008 R2');
   assert.equal(hosts.rows[0]?.status, 'ACTIVE');
+  assert.equal(hosts.rows[0]?.primary_ip, '10.33.2.18');
 });
 
 test('Linux Agent 接受带连字符的能力键并从能力快照识别 Nginx 站点', async () => {

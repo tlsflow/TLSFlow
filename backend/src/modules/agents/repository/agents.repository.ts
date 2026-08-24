@@ -467,8 +467,8 @@ async function syncAgentHost(db: DatabasePort, agent: AgentRegistration): Promis
       `update pg_hosts
        set hostname = coalesce(hostname, $1),
            display_name = coalesce(display_name, $1),
-           primary_ip = coalesce(primary_ip, $2),
-           ip_addresses = case when jsonb_array_length(ip_addresses) = 0 then $3::jsonb else ip_addresses end,
+           primary_ip = coalesce($2, primary_ip),
+           ip_addresses = case when $2::text is not null then $3::jsonb else ip_addresses end,
            os_type = $4,
            os_name = $5,
            os_version = $6,
