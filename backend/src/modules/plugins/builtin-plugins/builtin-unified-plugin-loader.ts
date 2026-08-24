@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { structuredLogger, type StructuredLogger } from '../../../common/logging/structured-logger.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
+import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
@@ -95,7 +96,8 @@ export class BuiltinUnifiedPluginLoader {
   private async loadPackage(directory: string): Promise<BuiltinPluginPackage> {
     const manifestPath = join(directory, 'manifest.json');
     const manifestContent = await readFile(manifestPath, 'utf8');
-    const manifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string> | string> };
+    const parsedManifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string> | string> };
+    const manifest = validateUnifiedPluginManifest(parsedManifest);
     const resourcePaths = collectManifestResourcePaths(manifest).sort();
     const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => {
       const absolutePath = resolvePackageResource(directory, resourcePath);
@@ -107,6 +109,7 @@ export class BuiltinUnifiedPluginLoader {
     const runtimeEntrypointPath = runtimeEntrypoint === undefined
       ? undefined
       : resolvePackageResource(directory, runtimeEntrypoint);
+    assertUnifiedPluginResources(manifest, resources);
     return {
       packageDirectory: directory,
       manifest,
