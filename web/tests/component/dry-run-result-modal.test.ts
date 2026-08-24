@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import GcDryRunResultModal from '@/design-system/components/GcDryRunResultModal.vue'
+import { i18n } from '@/i18n'
 
 describe('GcDryRunResultModal', () => {
   afterEach(() => {
@@ -8,11 +10,10 @@ describe('GcDryRunResultModal', () => {
     document.body.innerHTML = ''
   })
 
-  it('以任务列表展示 dry-run 进度，并按间隔逐步揭示任务', async () => {
-    vi.useFakeTimers()
-
+  it('dry-run 与正式执行一致地实时展示任务日志和预检结论', async () => {
     const wrapper = mount(GcDryRunResultModal, {
       attachTo: document.body,
+      global: { plugins: [i18n] },
       props: {
         open: true,
         polling: true,
@@ -59,28 +60,22 @@ describe('GcDryRunResultModal', () => {
 
     expect(bodyText()).toContain('任务进度')
     expect(bodyText()).toContain('环境识别')
-    expect(bodyText()).not.toContain('结果校验')
+    expect(bodyText()).toContain('结果校验')
     expect(bodyText()).toContain('检查结论')
-    expect(bodyText()).not.toContain('执行日志')
+    expect(bodyText()).toContain('执行日志')
+    expect(bodyText()).toContain('已命中 IIS 站点 TEST')
+    expect(bodyText()).toContain('Certificate domains match the expected target domains')
     expect(bodyText()).toContain('50%')
     expect(bodyText()).toContain('1/2')
-
-    await vi.advanceTimersByTimeAsync(2050)
-
-    expect(bodyText()).toContain('结果校验')
-    expect(bodyText()).toContain('最新事件')
-    expect(bodyText()).toContain('展开事件')
     expect(bodyText()).toContain('查看完整日志')
-    expect(bodyText()).toContain('1/2')
 
     wrapper.unmount()
   })
 
-  it('证书更新执行模式在右侧展示逐条完成日志，不显示检查结论', async () => {
-    vi.useFakeTimers()
-
+  it('证书更新执行模式立即展示实时任务日志，不使用定时假揭示', async () => {
     const wrapper = mount(GcDryRunResultModal, {
       attachTo: document.body,
+      global: { plugins: [i18n] },
       props: {
         open: true,
         mode: 'execution',
@@ -116,13 +111,95 @@ describe('GcDryRunResultModal', () => {
     expect(bodyText()).not.toContain('检查结论')
     expect(bodyText()).not.toContain('最新事件')
     expect(bodyText()).toContain('已完成当前证书绑定备份')
-    expect(bodyText()).toContain('50%')
-    expect(bodyText()).toContain('1/2')
-
-    await vi.advanceTimersByTimeAsync(2050)
-
     expect(bodyText()).toContain('已完成 IIS 绑定刷新')
+    expect(bodyText()).toContain('100%')
     expect(bodyText()).toContain('2/2')
+
+    wrapper.unmount()
+  })
+
+  it('执行日志默认跟随最新任务，用户上翻后暂停自动滚动', async () => {
+    const initialSteps = [
+      {
+        id: 'step-1',
+        name: 'BACKUP target-1',
+        status: 'SUCCESS',
+        detail: '备份完成。',
+        startedAt: '2026/07/21 11:08:12',
+        finishedAt: '2026/07/21 11:08:13',
+      },
+      {
+        id: 'step-2',
+        name: 'INSTALL target-1',
+        status: 'RUNNING',
+        detail: '正在安装证书。',
+        startedAt: '2026/07/21 11:08:13',
+      },
+    ]
+    const wrapper = mount(GcDryRunResultModal, {
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+      props: {
+        open: true,
+        mode: 'execution',
+        summary: null,
+        steps: initialSteps,
+        lines: [],
+      },
+    })
+    const feedElement = document.querySelector('.gc-dry-run-modern__feed-list') as HTMLUListElement | null
+    expect(feedElement).not.toBeNull()
+    if (!feedElement) throw new Error('执行日志列表未渲染')
+    let scrollHeight = 400
+    Object.defineProperty(feedElement, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+    Object.defineProperty(feedElement, 'clientHeight', { configurable: true, value: 200 })
+    Object.defineProperty(feedElement, 'scrollTop', { configurable: true, writable: true, value: 200 })
+
+    scrollHeight = 600
+    await wrapper.setProps({
+      steps: [
+        { ...initialSteps[0] },
+        { ...initialSteps[1], status: 'SUCCESS', finishedAt: '2026/07/21 11:08:14' },
+        {
+          id: 'step-3',
+          name: 'VERIFY target-1',
+          status: 'RUNNING',
+          detail: '正在验证证书。',
+          startedAt: '2026/07/21 11:08:14',
+        },
+      ],
+    })
+    await nextTick()
+    expect(feedElement.scrollTop).toBe(600)
+    expect(document.body.textContent).toContain('正在验证证书。')
+
+    feedElement.scrollTop = 100
+    feedElement.dispatchEvent(new Event('scroll'))
+    await nextTick()
+    scrollHeight = 800
+    await wrapper.setProps({
+      steps: [
+        { ...initialSteps[0] },
+        { ...initialSteps[1], status: 'SUCCESS', finishedAt: '2026/07/21 11:08:14' },
+        {
+          id: 'step-3',
+          name: 'VERIFY target-1',
+          status: 'SUCCESS',
+          detail: '证书验证完成。',
+          startedAt: '2026/07/21 11:08:14',
+          finishedAt: '2026/07/21 11:08:15',
+        },
+        {
+          id: 'step-4',
+          name: 'CLEANUP target-1',
+          status: 'RUNNING',
+          detail: '正在清理临时文件。',
+          startedAt: '2026/07/21 11:08:15',
+        },
+      ],
+    })
+    await nextTick()
+    expect(feedElement.scrollTop).toBe(100)
 
     wrapper.unmount()
   })

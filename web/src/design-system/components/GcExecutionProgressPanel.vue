@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from './GcExecutionLogViewer.vue'
 import GcDryRunChecklist from './GcDryRunChecklist.vue'
 import GcExecutionLogViewer from './GcExecutionLogViewer.vue'
 
-const TASK_REVEAL_INTERVAL_MS = 2000
+const LOG_FOLLOW_THRESHOLD_PX = 24
 
 type SummaryState = 'queued' | 'running' | 'pending' | 'passed' | 'warning' | 'failed'
 type TaskStatus = 'queued' | 'running' | 'passed' | 'warning' | 'failed'
@@ -64,11 +64,10 @@ const props = withDefaults(defineProps<{
   mode: 'dry-run',
 })
 
-const revealedTaskCount = ref(0)
-const eventsExpanded = ref(false)
 const logExpanded = ref(false)
+const feedListRef = ref<HTMLUListElement | null>(null)
+const followLatestFeedItem = ref(true)
 const { t } = useI18n()
-let revealTimer: ReturnType<typeof setTimeout> | null = null
 
 const taskChecksByStep = computed(() => groupLinesByStep(props.lines ?? []))
 const rawTasks = computed<VisibleTask[]>(() => buildVisibleTasksFromChecks(props.steps ?? [], taskChecksByStep.value))
@@ -81,7 +80,7 @@ const counts = computed(() => {
     queued: tasks.filter((task) => task.status === 'queued').length,
   }
 })
-const allTasksRevealed = computed(() => revealedTaskCount.value >= rawTasks.value.length)
+const allTasksRevealed = computed(() => true)
 
 const isDryRunMode = computed(() => props.mode === 'dry-run')
 const processLabel = computed(() => isDryRunMode.value ? 'Dry-run' : t('designSystem.executionProgress.process.execution'))
@@ -92,24 +91,17 @@ const heroState = computed<SummaryState>(() => {
 })
 const displayState = computed<SummaryState>(() => {
   if (props.error) return 'failed'
-  if (!allTasksRevealed.value && ['passed', 'warning', 'failed'].includes(heroState.value)) return 'running'
   return heroState.value
 })
 const displayCounts = computed(() => ({
   total: counts.value.total,
-  completed: revealedCounts.value.completed,
-  running: revealedCounts.value.running,
-  queued: Math.max(counts.value.total - revealedCounts.value.completed - revealedCounts.value.running, 0),
+  completed: counts.value.completed,
+  running: counts.value.running,
+  queued: counts.value.queued,
 }))
 
 const heroDetail = computed(() => {
   if (props.error) return props.error
-  if (!allTasksRevealed.value && counts.value.total > 0) {
-    return t('designSystem.executionProgress.detail.stepsCompleted', {
-      completed: displayCounts.value.completed,
-      total: Math.max(displayCounts.value.total, 1),
-    })
-  }
   if (props.summary) {
     const total = props.summary.passed + props.summary.warning + props.summary.failed + props.summary.unknown
     if (props.summary.state === 'passed') return t('designSystem.executionProgress.detail.summaryPassed', { passed: props.summary.passed })
@@ -162,24 +154,9 @@ const activeTaskIndex = computed(() => {
   return tasks.length - 1
 })
 
-const visibleTasks = computed(() => {
-  const limit = Math.min(revealedTaskCount.value, rawTasks.value.length)
-  return rawTasks.value.slice(0, Math.max(limit, 1))
-})
-const revealedCounts = computed(() => {
-  const tasks = visibleTasks.value
-  return {
-    total: tasks.length,
-    completed: tasks.filter((task) => ['passed', 'warning', 'failed'].includes(task.status)).length,
-    running: tasks.filter((task) => task.status === 'running').length,
-    queued: tasks.filter((task) => task.status === 'queued').length,
-  }
-})
-
-const recentEvents = computed(() => (props.lines ?? []).slice(-8).reverse())
-const latestEvent = computed(() => recentEvents.value[0] ?? null)
-const completionFeed = computed<ExecutionFeedItem[]>(() => visibleTasks.value
-  .filter((task) => ['passed', 'warning', 'failed'].includes(task.status))
+const visibleTasks = computed(() => rawTasks.value)
+const executionFeed = computed<ExecutionFeedItem[]>(() => visibleTasks.value
+  .filter((task) => ['running', 'passed', 'warning', 'failed'].includes(task.status))
   .map((task) => {
     const checks = taskChecksByStep.value.get(taskTitleKey(task)) ?? []
     const latestCheck = checks[checks.length - 1]
@@ -210,46 +187,36 @@ const heroMetrics = computed(() => {
   ]
 })
 
-watch(() => [props.revealOnMount, rawTasks.value.length] as const, ([revealOnMount]) => {
-  if (!revealOnMount) {
-    clearRevealTimer()
-    revealedTaskCount.value = rawTasks.value.length
-    return
-  }
-  scheduleReveal()
-}, { immediate: true })
+watch(
+  () => executionFeed.value.map((item) => `${item.id}:${item.status}:${item.timeLabel}:${item.detail}`).join('|'),
+  async () => {
+    if (!followLatestFeedItem.value) return
+    await nextTick()
+    scrollFeedToLatest()
+  },
+  { immediate: true, flush: 'post' },
+)
 
-watch(rawTasks, () => {
-  if (!props.revealOnMount) {
-    revealedTaskCount.value = rawTasks.value.length
-    return
-  }
-  scheduleReveal()
-}, { deep: true })
+watch(
+  () => [props.runId, props.requestId] as const,
+  async () => {
+    followLatestFeedItem.value = true
+    await nextTick()
+    scrollFeedToLatest()
+  },
+)
 
-onBeforeUnmount(() => clearRevealTimer())
-
-function clearRevealTimer() {
-  if (!revealTimer) return
-  clearTimeout(revealTimer)
-  revealTimer = null
+function handleFeedScroll() {
+  const element = feedListRef.value
+  if (!element) return
+  const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
+  followLatestFeedItem.value = remaining <= LOG_FOLLOW_THRESHOLD_PX
 }
 
-function scheduleReveal() {
-  clearRevealTimer()
-  const total = rawTasks.value.length
-  if (total === 0) {
-    revealedTaskCount.value = 0
-    return
-  }
-  if (revealedTaskCount.value === 0) {
-    revealedTaskCount.value = 1
-  }
-  if (revealedTaskCount.value >= total) return
-  revealTimer = setTimeout(() => {
-    revealedTaskCount.value = Math.min(total, revealedTaskCount.value + 1)
-    scheduleReveal()
-  }, TASK_REVEAL_INTERVAL_MS)
+function scrollFeedToLatest() {
+  const element = feedListRef.value
+  if (!element) return
+  element.scrollTop = element.scrollHeight
 }
 
 function buildVisibleTasksFromChecks(
@@ -410,6 +377,7 @@ function taskDotText(status: TaskStatus): string {
 }
 
 function feedStatusText(status: TaskStatus): string {
+  if (status === 'running') return t('designSystem.executionProgress.progress.running')
   if (status === 'failed') return t('designSystem.executionProgress.feed.failed')
   if (status === 'warning') return t('designSystem.executionProgress.feed.warning')
   return t('designSystem.executionProgress.feed.completed')
@@ -492,44 +460,10 @@ function feedStatusText(status: TaskStatus): string {
 
         <p v-else class="gc-dry-run-modern__empty">{{ t('designSystem.executionProgress.empty.tasks') }}</p>
 
-        <section v-if="isDryRunMode" class="gc-card gc-dry-run-modern__events" :aria-label="t('designSystem.executionProgress.aria.latestEvents')">
-          <header class="gc-dry-run-modern__section-head">
-            <div>
-              <strong>{{ t('designSystem.executionProgress.section.latestEvents') }}</strong>
-            </div>
-            <button class="gc-button" type="button" @click="eventsExpanded = !eventsExpanded">
-              {{ eventsExpanded ? t('designSystem.executionProgress.event.collapse') : t('designSystem.executionProgress.event.expand') }}
-            </button>
-          </header>
-
-          <ul v-if="recentEvents.length && eventsExpanded" class="gc-dry-run-modern__event-list">
-            <li v-for="line in recentEvents" :key="line.id" :data-level="line.level">
-              <small>{{ line.time }}</small>
-              <strong>{{ line.step || t('designSystem.executionProgress.event.defaultLabel') }}</strong>
-              <span>{{ line.message }}</span>
-            </li>
-          </ul>
-          <article v-else-if="latestEvent" class="gc-dry-run-modern__event-preview" :data-level="latestEvent.level">
-            <small>{{ latestEvent.time }}</small>
-            <strong>{{ latestEvent.step || t('designSystem.executionProgress.event.defaultLabel') }}</strong>
-            <span>{{ latestEvent.message }}</span>
-          </article>
-          <p v-else class="gc-dry-run-modern__empty">{{ t('designSystem.executionProgress.empty.events') }}</p>
-
-          <button
-            v-if="requestId"
-            class="gc-dry-run-modern__event-request"
-            type="button"
-            :title="requestId"
-            @click="logExpanded = !logExpanded"
-          >
-            {{ logExpanded ? t('designSystem.executionProgress.log.collapse') : t('designSystem.executionProgress.log.expand') }}
-          </button>
-        </section>
       </section>
 
       <aside class="gc-dry-run-modern__aside">
-        <section v-if="!isDryRunMode" class="gc-card gc-dry-run-modern__activity" :aria-label="t('designSystem.executionProgress.aria.executionLog')">
+        <section class="gc-card gc-dry-run-modern__activity" :aria-label="t('designSystem.executionProgress.aria.executionLog')">
           <header class="gc-dry-run-modern__section-head">
             <div>
               <strong>{{ t('designSystem.executionProgress.section.executionLog') }}</strong>
@@ -544,10 +478,15 @@ function feedStatusText(status: TaskStatus): string {
             </button>
           </header>
 
-          <ul v-if="completionFeed.length" class="gc-dry-run-modern__feed-list">
-            <li v-for="item in completionFeed" :key="item.id" class="gc-dry-run-modern__feed-item" :data-status="item.status">
+          <ul
+            v-if="executionFeed.length"
+            ref="feedListRef"
+            class="gc-dry-run-modern__feed-list"
+            @scroll.passive="handleFeedScroll"
+          >
+            <li v-for="item in executionFeed" :key="item.id" class="gc-dry-run-modern__feed-item" :data-status="item.status">
               <span class="gc-dry-run-modern__feed-icon" aria-hidden="true">
-                {{ item.status === 'failed' ? '!' : item.status === 'warning' ? '!' : '✓' }}
+                {{ taskDotText(item.status) }}
               </span>
               <div class="gc-dry-run-modern__feed-copy">
                 <strong>{{ item.title }}</strong>
@@ -560,7 +499,7 @@ function feedStatusText(status: TaskStatus): string {
         </section>
 
         <GcDryRunChecklist
-          v-else-if="showChecklist"
+          v-if="isDryRunMode && showChecklist"
           :items="checks ?? []"
           :title="t('designSystem.executionProgress.checklist.title')"
         />
@@ -885,6 +824,10 @@ function feedStatusText(status: TaskStatus): string {
   padding: 0;
   display: grid;
   gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .gc-dry-run-modern__feed-item {
@@ -912,6 +855,10 @@ function feedStatusText(status: TaskStatus): string {
 
 .gc-dry-run-modern__feed-item[data-status='warning'] .gc-dry-run-modern__feed-icon {
   background: var(--gc-color-warning);
+}
+
+.gc-dry-run-modern__feed-item[data-status='running'] .gc-dry-run-modern__feed-icon {
+  background: var(--gc-color-info);
 }
 
 .gc-dry-run-modern__feed-item[data-status='failed'] .gc-dry-run-modern__feed-icon {

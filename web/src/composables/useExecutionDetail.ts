@@ -161,8 +161,8 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       requestId: readString(record, ['requestId'], ''),
     }))
     lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text))
-    dryRunSummary.value = summarizeDryRun(items, text)
-    dryRunChecks.value = collectDryRunChecks(items)
+    dryRunSummary.value = summarizeDryRun(stepRecords.value, text)
+    dryRunChecks.value = collectDryRunChecks(stepRecords.value)
   }
 
   async function connectStream() {
@@ -599,7 +599,10 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
   return items.flatMap((item, index) => {
     const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
     const workflowRun = readObject(resultDetail, 'workflowRun')
-    const stepResults = readArray(workflowRun, 'stepResults')
+    const workflowProgress = readObject(resultDetail, 'workflowProgress')
+    const completedStepResults = readArray(workflowRun, 'stepResults')
+    const progressStepResults = readArray(workflowProgress, 'steps')
+    const stepResults = completedStepResults.length > 0 ? completedStepResults : progressStepResults
     const rollbackResults = readArray(workflowRun, 'rollbackResults')
     const workflowResults = [
       ...stepResults.map((step) => ({ step, rollback: false })),
@@ -607,7 +610,7 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
     ]
     if (workflowResults.length === 0) return [item]
     const parentId = readString(item, ['id', 'stepId'], `workflow-${index + 1}`)
-    const workflowRunId = readString(workflowRun ?? {}, ['id'], '')
+    const workflowRunId = readString(workflowRun ?? workflowProgress ?? {}, ['id'], '')
     return workflowResults.map(({ step, rollback }, stepIndex) => {
       const name = readString(step, ['name'], `${rollback ? 'rollback' : 'workflow'}-${stepIndex + 1}`)
       const status = mapWorkflowStepStatus(readString(step, ['status'], ''))
@@ -617,11 +620,12 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
         name: rollback ? `rollback.${name}` : name,
         status,
         stepType: readString(step, ['type'], readString(item, ['stepType', 'type'], 'WORKFLOW')).toUpperCase(),
-        startedAt: readString(item, ['startedAt', 'createdAt'], ''),
-        finishedAt: readString(item, ['finishedAt', 'updatedAt'], ''),
+        startedAt: readString(step, ['startedAt'], readString(item, ['startedAt', 'createdAt'], '')),
+        finishedAt: readString(step, ['finishedAt'], ''),
         inputSnapshot: {
           ...(readObject(item, 'inputSnapshot') ?? {}),
           resultDetail: {
+            ...(resultDetail ?? {}),
             workflowRunId,
             workflowStepResult: step,
             workflowRollback: rollback,
@@ -634,6 +638,8 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
 
 function mapWorkflowStepStatus(status: string): string {
   const current = status.trim().toLowerCase()
+  if (current === 'queued') return 'PENDING'
+  if (current === 'running') return 'RUNNING'
   if (current === 'success') return 'SUCCESS'
   if (current === 'failed') return 'FAILED'
   if (current === 'skipped') return 'SKIPPED'
@@ -646,6 +652,8 @@ function buildWorkflowStepDetail(step: Record<string, unknown>, index: number, t
   const errorMessage = readString(step, ['errorMessage'], '')
   const assertions = readArray(step, 'assertions')
   const failedAssertions = assertions.filter((item) => readPath(item, 'passed') === false)
+  if (status === 'running') return text('executionDetail.step.running.dispatched')
+  if (status === 'queued') return text('executionDetail.step.pending.waitingDependency')
   if (status === 'failed') {
     return `${errorCode || 'WORKFLOW_STEP_FAILED'}: ${errorMessage || failedAssertions[0]?.message || text('executionDetail.workflowStep.failedDefault', { index: index + 1 })}`
   }
