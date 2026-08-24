@@ -393,7 +393,7 @@ interface RootGroup {
       <p>{{ t('businessPage.errorCode', { code: listError.errorCode }) }}</p>
     </GcEmptyState>
 
-    <div v-else-if="loading" class="trust-roots-modal__state">{{ t('certificates.detailPanel.states.loading') }}</div>
+    <div v-else-if="loading && rootGroups.length === 0" class="trust-roots-modal__state">{{ t('certificates.detailPanel.states.loading') }}</div>
 
     <template v-else>
       <section v-if="managedTotal > 0" class="trust-roots-modal__summary">
@@ -468,7 +468,6 @@ interface RootGroup {
             <header class="trust-roots-modal__detail-header">
               <div>
                 <h3>{{ rootGroupName(selectedRootGroup) }}</h3>
-                <p>{{ t('certificates.trustRoots.detail.subtitle') }}</p>
               </div>
               <div class="trust-roots-modal__status-group">
                 <GcStatusTag
@@ -616,6 +615,8 @@ interface RootGroup {
 <style scoped>
 .trust-roots-modal {
   display: grid;
+  /* 避免最小高度的剩余空间拉伸摘要和工作区的隐式网格行。 */
+  align-content: start;
   gap: var(--gc-space-4);
   min-height: 72vh;
 }
@@ -652,8 +653,25 @@ interface RootGroup {
 
 .trust-roots-modal__summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(var(--gc-size-card-min), 1fr));
+  grid-auto-rows: var(--gc-size-card-compact);
+  grid-template-rows: var(--gc-size-card-compact);
+  align-self: start;
+  align-content: start;
+  align-items: start;
   gap: var(--gc-space-3);
+}
+
+.trust-roots-modal__summary-card.gc-pro-card {
+  align-self: start;
+  block-size: var(--gc-size-card-compact) !important;
+  min-block-size: 0 !important;
+  max-block-size: var(--gc-size-card-compact) !important;
+  height: var(--gc-size-card-compact) !important;
+  min-height: 0 !important;
+  max-height: var(--gc-size-card-compact) !important;
+  min-width: 0;
+  padding: var(--gc-space-3);
 }
 
 .trust-roots-modal__summary-card-content {

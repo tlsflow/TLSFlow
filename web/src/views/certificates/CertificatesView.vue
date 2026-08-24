@@ -1275,7 +1275,6 @@ async function removeVersion(row: CertificateVersionRow) {
     <GcModal
       v-model:open="trustRootsDialogOpen"
       :title="t('certificates.trustRoots.title')"
-      :description="t('certificates.trustRoots.description')"
       size="xxl"
     >
       <CertificateTrustRootsModalContent :open="trustRootsDialogOpen" />
