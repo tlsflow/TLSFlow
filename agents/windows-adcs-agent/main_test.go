@@ -59,3 +59,10 @@ func TestReadServerEventsDispatchesTaskWithoutPolling(t *testing.T) {
 		t.Fatalf("SSE 事件解析错误：%v", events)
 	}
 }
+
+func TestDecodeCommandOutputUsesWindowsSimplifiedChineseCodePage(t *testing.T) {
+	gbk := []byte{0xb2, 0xe2, 0xca, 0xd4}
+	if actual := decodeCommandOutputWithCodePage(gbk, 936); actual != "测试" {
+		t.Fatalf("CP936 输出解码错误：%q", actual)
+	}
+}

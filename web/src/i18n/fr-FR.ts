@@ -16,6 +16,13 @@ export default {
     logout: 'Déconnexion',
     enter: 'Ouvrir',
     loading: 'Loading',
+    actions: { done: 'Terminé' },
+    cancel: 'Annuler',
+    save: 'Enregistrer',
+    edit: 'Modifier',
+    delete: 'Supprimer',
+    notAvailable: 'Indisponible',
+    unknownError: 'Erreur inconnue',
     userFallback: 'Guest user',
     tenantFallback: 'Default tenant'
   },

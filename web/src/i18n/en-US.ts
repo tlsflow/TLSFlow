@@ -15,6 +15,13 @@ export default {
     logout: 'Sign out',
     enter: 'Open',
     loading: 'Loading',
+    actions: { done: 'Done' },
+    cancel: 'Cancel',
+    save: 'Save',
+    edit: 'Edit',
+    delete: 'Delete',
+    notAvailable: 'Not available',
+    unknownError: 'Unknown error',
     userFallback: 'Guest user',
     tenantFallback: 'Default tenant'
   },

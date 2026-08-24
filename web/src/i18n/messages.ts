@@ -13,6 +13,13 @@ const zhCN = {
     logout: '退出',
     enter: '进入',
     loading: '加载中',
+    actions: { done: '完成' },
+    cancel: '取消',
+    save: '保存',
+    edit: '编辑',
+    delete: '删除',
+    notAvailable: '暂无',
+    unknownError: '未知错误',
     userFallback: '未登录用户',
     tenantFallback: '默认租户'
   },
@@ -3295,7 +3302,7 @@ const zhCN = {
 const zhTW = {
   ...zhCN,
   app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板', versionLabel: '版本 {version}' },
-  common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', cancel: '取消', save: '儲存', edit: '編輯', delete: '刪除', notAvailable: '暫無', unknownError: '未知錯誤', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
+  common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', actions: { done: '完成' }, cancel: '取消', save: '儲存', edit: '編輯', delete: '刪除', notAvailable: '暫無', unknownError: '未知錯誤', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
   notifications: {
     ...zhCN.notifications,
     title: '通知管理',
@@ -3411,7 +3418,7 @@ const zhTW = {
 const enUS = {
   ...zhCN,
   app: { brand: 'GCAC Console', platform: 'Enterprise SSL Certificate Lifecycle Platform', defaultBreadcrumb: 'Console', dashboard: 'Dashboard', versionLabel: 'Version {version}' },
-  common: { refresh: 'Refresh', logout: 'Sign out', enter: 'Open', loading: 'Loading', userFallback: 'Guest user', tenantFallback: 'Default tenant' },
+  common: { refresh: 'Refresh', logout: 'Sign out', enter: 'Open', loading: 'Loading', actions: { done: 'Done' }, cancel: 'Cancel', save: 'Save', edit: 'Edit', delete: 'Delete', notAvailable: 'Not available', unknownError: 'Unknown error', userFallback: 'Guest user', tenantFallback: 'Default tenant' },
   notifications: {
     title: 'Notification Management',
     description: 'Manage notification channels, routing, templates, silences, and reliable delivery records.',
@@ -6361,7 +6368,7 @@ const enUS = {
 const jaJP = {
   ...zhCN,
   app: { brand: 'GCAC コンソール', platform: '企業向け SSL 証明書ライフサイクル管理平台', defaultBreadcrumb: 'コンソール', dashboard: 'ダッシュボード', versionLabel: 'バージョン {version}' },
-  common: { ...enUS.common, refresh: '更新', logout: 'ログアウト', enter: '開く' },
+  common: { ...enUS.common, refresh: '更新', logout: 'ログアウト', enter: '開く', actions: { done: '完了' } },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: '{action}を確認', impactCount: '影響を受けるリソース数：{count}', defaultRisk: 'この操作はデプロイ、再試行、ロールバック、または不可逆な変更を引き起こす可能性があります。', typeToConfirm: '確認のため {text} を入力', cancel: 'キャンセル', confirm: '確認' },
@@ -6411,7 +6418,7 @@ const jaJP = {
 const frFR = {
   ...zhCN,
   app: { brand: 'Console GCAC', platform: 'Plateforme de cycle de vie des certificats SSL', defaultBreadcrumb: 'Console', dashboard: 'Tableau de bord', versionLabel: 'Version {version}' },
-  common: { ...enUS.common, refresh: 'Actualiser', logout: 'Déconnexion', enter: 'Ouvrir' },
+  common: { ...enUS.common, refresh: 'Actualiser', logout: 'Déconnexion', enter: 'Ouvrir', actions: { done: 'Terminé' } },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: 'Confirmer {action}', impactCount: 'Ressources affectées : {count}', defaultRisk: 'Cette opération peut déclencher un déploiement, une nouvelle tentative, un retour arrière ou des changements irréversibles.', typeToConfirm: 'Saisissez {text} pour confirmer', cancel: 'Annuler', confirm: 'Confirmer' },
@@ -6461,7 +6468,7 @@ const frFR = {
 const ruRU = {
   ...zhCN,
   app: { brand: 'Консоль GCAC', platform: 'Платформа управления жизненным циклом SSL-сертификатов', defaultBreadcrumb: 'Консоль', dashboard: 'Панель', versionLabel: 'Версия {version}' },
-  common: { ...enUS.common, refresh: 'Обновить', logout: 'Выйти', enter: 'Открыть' },
+  common: { ...enUS.common, refresh: 'Обновить', logout: 'Выйти', enter: 'Открыть', actions: { done: 'Готово' } },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: 'Подтвердить {action}', impactCount: 'Затронуто ресурсов: {count}', defaultRisk: 'Эта операция может запустить развертывание, повтор, откат или необратимые изменения.', typeToConfirm: 'Введите {text} для подтверждения', cancel: 'Отмена', confirm: 'Подтвердить' },
@@ -6511,7 +6518,7 @@ const ruRU = {
 const ptBR = {
   ...zhCN,
   app: { brand: 'Console GCAC', platform: 'Plataforma de ciclo de vida de certificados SSL corporativos', defaultBreadcrumb: 'Console', dashboard: 'Painel', versionLabel: 'Versão {version}' },
-  common: { ...enUS.common, refresh: 'Atualizar', logout: 'Sair', enter: 'Abrir' },
+  common: { ...enUS.common, refresh: 'Atualizar', logout: 'Sair', enter: 'Abrir', actions: { done: 'Concluído' } },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: 'Confirmar {action}', impactCount: 'Recursos afetados: {count}', defaultRisk: 'Esta operação pode acionar implantação, nova tentativa, rollback ou alterações irreversíveis.', typeToConfirm: 'Digite {text} para confirmar', cancel: 'Cancelar', confirm: 'Confirmar' },
@@ -6561,7 +6568,7 @@ const ptBR = {
 const koKR = {
   ...zhCN,
   app: { brand: 'GCAC 콘솔', platform: '엔터프라이즈 SSL 인증서 수명 주기 관리 플랫폼', defaultBreadcrumb: '콘솔', dashboard: '대시보드', versionLabel: '버전 {version}' },
-  common: { ...enUS.common, refresh: '새로고침', logout: '로그아웃', enter: '열기' },
+  common: { ...enUS.common, refresh: '새로고침', logout: '로그아웃', enter: '열기', actions: { done: '완료' } },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: '{action} 확인', impactCount: '영향 받는 리소스 수: {count}', defaultRisk: '이 작업은 배포, 재시도, 롤백 또는 되돌릴 수 없는 변경을 유발할 수 있습니다.', typeToConfirm: '확인을 위해 {text} 입력', cancel: '취소', confirm: '확인' },

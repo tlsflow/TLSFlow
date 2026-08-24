@@ -16,6 +16,13 @@ export default {
     logout: 'Sair',
     enter: 'Abrir',
     loading: 'Carregando',
+    actions: { done: 'Concluído' },
+    cancel: 'Cancelar',
+    save: 'Salvar',
+    edit: 'Editar',
+    delete: 'Excluir',
+    notAvailable: 'Indisponível',
+    unknownError: 'Erro desconhecido',
     userFallback: 'Usuário não autenticado',
     tenantFallback: 'Tenant padrão'
   },

@@ -15,6 +15,13 @@ export default {
     logout: '退出',
     enter: '进入',
     loading: '加载中',
+    actions: { done: '完成' },
+    cancel: '取消',
+    save: '保存',
+    edit: '编辑',
+    delete: '删除',
+    notAvailable: '暂无',
+    unknownError: '未知错误',
     userFallback: '未登录用户',
     tenantFallback: '默认租户'
   },

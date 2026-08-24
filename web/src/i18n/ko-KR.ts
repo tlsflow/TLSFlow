@@ -16,6 +16,13 @@ export default {
     logout: '로그아웃',
     enter: '열기',
     loading: '로드 중',
+    actions: { done: '완료' },
+    cancel: '취소',
+    save: '저장',
+    edit: '편집',
+    delete: '삭제',
+    notAvailable: '사용할 수 없음',
+    unknownError: '알 수 없는 오류',
     userFallback: '로그인하지 않은 사용자',
     tenantFallback: '기본 테넌트'
   },

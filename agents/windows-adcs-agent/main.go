@@ -25,7 +25,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -502,10 +505,30 @@ func runCommand(parent context.Context, timeout time.Duration, name string, args
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
 	output, err := command.CombinedOutput()
+	decoded := decodeCommandOutput(output)
 	if ctx.Err() == context.DeadlineExceeded {
-		return string(output), fmt.Errorf("命令执行超时：%s", name)
+		return decoded, fmt.Errorf("命令执行超时：%s", name)
 	}
-	return string(output), err
+	return decoded, err
+}
+
+func decodeCommandOutput(output []byte) string {
+	return decodeCommandOutputWithCodePage(output, windows.GetACP())
+}
+
+func decodeCommandOutputWithCodePage(output []byte, codePage uint32) string {
+	if len(output) == 0 || utf8.Valid(output) || codePage == 0 {
+		return string(output)
+	}
+	wideLength, err := windows.MultiByteToWideChar(codePage, 0, &output[0], int32(len(output)), nil, 0)
+	if err != nil || wideLength <= 0 {
+		return string(output)
+	}
+	wide := make([]uint16, wideLength)
+	if _, err := windows.MultiByteToWideChar(codePage, 0, &output[0], int32(len(output)), &wide[0], wideLength); err != nil {
+		return string(output)
+	}
+	return string(utf16.Decode(wide))
 }
 
 func certificateFileToPEM(ctx context.Context, path string) (string, error) {

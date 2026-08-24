@@ -16,6 +16,13 @@ export default {
     logout: 'Выйти',
     enter: 'Войти',
     loading: 'Загрузка',
+    actions: { done: 'Готово' },
+    cancel: 'Отмена',
+    save: 'Сохранить',
+    edit: 'Изменить',
+    delete: 'Удалить',
+    notAvailable: 'Недоступно',
+    unknownError: 'Неизвестная ошибка',
     userFallback: 'Пользователь не вошел',
     tenantFallback: 'Тенант по умолчанию'
   },

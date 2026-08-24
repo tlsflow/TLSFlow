@@ -15,6 +15,13 @@ export default {
     logout: "登出",
     enter: "進入",
     loading: "載入中",
+    actions: { done: "完成" },
+    cancel: "取消",
+    save: "儲存",
+    edit: "編輯",
+    delete: "刪除",
+    notAvailable: "暫無",
+    unknownError: "未知錯誤",
     userFallback: "未登入使用者",
     tenantFallback: "預設租戶"
   },

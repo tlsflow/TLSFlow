@@ -16,6 +16,13 @@ export default {
     logout: '終了',
     enter: '開く',
     loading: '読み込み中',
+    actions: { done: '完了' },
+    cancel: 'キャンセル',
+    save: '保存',
+    edit: '編集',
+    delete: '削除',
+    notAvailable: '利用不可',
+    unknownError: '不明なエラー',
     userFallback: '未ログインユーザー',
     tenantFallback: 'デフォルトテナント'
   },
