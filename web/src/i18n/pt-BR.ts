@@ -2664,7 +2664,9 @@ export default {
       capabilityAssignmentMissing: 'Este alvo não possui uma atribuição efetiva de capacidade de implantação.'
     },
     platforms: {
-      appliance: 'Dispositivo'
+      appliance: 'Dispositivo',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: 'Plataforma',

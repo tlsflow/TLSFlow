@@ -2664,7 +2664,9 @@ export default {
       capabilityAssignmentMissing: '현재 대상에 유효한 배포 기능 할당이 없습니다.'
     },
     platforms: {
-      appliance: '장치'
+      appliance: '장치',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: '플랫폼',

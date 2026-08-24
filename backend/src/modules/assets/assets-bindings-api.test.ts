@@ -231,6 +231,33 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
 }
 
 describe('资产与证书绑定 API', () => {
+  it('应用资产平台仅作为标识，不校验直接关联 Agent 的操作系统', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_asset_platform_marker', 'x-request-id': 'req_asset_platform_marker' };
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: { agentKey: 'windows-marker-agent', hostname: 'windows-marker.example.com', version: '1.0.0', osType: 'windows' },
+    });
+    assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        address: 'marker.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        agentId: (registered.body as { id: string }).id,
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    assert.equal((created.body as { platform?: string }).platform, 'LINUX');
+  });
+
   it('可以创建 Host、ServiceInstance、ServiceEndpoint 和 CertificateBinding，并按 Host 查询绑定', async () => {
     const app = await createMigratedApp();
     const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007', 'x-request-id': 'req_spec007_create' };

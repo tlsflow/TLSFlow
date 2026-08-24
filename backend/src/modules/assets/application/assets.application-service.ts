@@ -128,7 +128,6 @@ export class AssetsApplicationService {
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
       normalized.deploymentStrategy = strategy;
     }
-    await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform, normalized.agentId);
     const created = await this.repository.createServiceAsset(tenantId, normalized);
     if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
@@ -157,7 +156,6 @@ export class AssetsApplicationService {
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
       normalized.deploymentStrategy = strategy;
     }
-    await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform ?? current.platform, normalized.agentId ?? current.agentId);
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
     if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
@@ -669,28 +667,6 @@ export class AssetsApplicationService {
     if (!local && !remote) return 'incomplete' as const;
     const observed = remote ?? local;
     return observed === desired ? 'synced' as const : 'mismatch' as const;
-  }
-
-  private async assertServiceAssetAgentPlatform(
-    tenantId: string,
-    platform: CreateServiceAssetDto['platform'] | UpdateServiceAssetDto['platform'],
-    agentId: string | undefined,
-  ): Promise<void> {
-    if (!agentId) return;
-    if (!this.agentsService) {
-      throw new AppError('SYSTEM_INTERNAL_ERROR', 'AgentsService 未注入，无法校验 ServiceAsset Agent 绑定');
-    }
-    const detail = await this.agentsService.getAgentDetail(tenantId, agentId);
-    const agentPlatform = String(detail.agent.descriptor.osType ?? '').toUpperCase();
-    if (!platform) return;
-    const expectedPlatforms = platform === 'APPLIANCE' ? ['NETWORK_DEVICE'] : [platform];
-    if (!expectedPlatforms.includes(agentPlatform)) {
-      throw new AppError('VALIDATION_FAILED', '应用资产平台与 Agent 平台不匹配', {
-        platform,
-        agentId,
-        agentPlatform,
-      });
-    }
   }
 
   private async ensureAgentHostAnchor(tenantId: string, agentId: string | undefined, serviceInstanceId?: string): Promise<string | undefined> {

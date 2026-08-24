@@ -2734,7 +2734,9 @@ export default {
       capabilityAssignmentMissing: 'Cette cible ne possède aucune affectation de capacité de déploiement effective.'
     },
     platforms: {
-      appliance: 'Appliance'
+      appliance: 'Appliance',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: 'Control plane',

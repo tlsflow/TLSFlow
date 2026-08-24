@@ -27,7 +27,7 @@ import {
   type CredentialProfileOption,
 } from '@/views/workflows/credential-profiles'
 
-type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
+type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
 type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM' | 'DEVICE_TEMPLATE'
 type AssetManagementMode = 'MANAGED_TARGET' | 'WORKFLOW'
@@ -210,7 +210,6 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
   { name: 'sshUsername', type: 'string', descriptionKey: 'assets.workflowVariables.presets.sshUsername' },
   { name: 'credential', type: 'credential', descriptionKey: 'assets.workflowVariables.presets.credential' },
   { name: 'certificate', type: 'certificate', descriptionKey: 'assets.workflowVariables.presets.certificate' },
-  { name: 'targetPlatform', type: 'enum', descriptionKey: 'assets.workflowVariables.presets.targetPlatform' },
   { name: 'apacheServiceName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheServiceName' },
   { name: 'apacheSiteConfigPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheSiteConfigPath' },
   { name: 'certificateFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateFilePath' },
@@ -226,6 +225,12 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
   { name: 'protocol', type: 'enum', descriptionKey: 'assets.fields.protocol' },
   { name: 'verifyUrl', type: 'string', descriptionKey: 'assets.fields.verifyUrl' },
   { name: 'sniName', type: 'string', descriptionKey: 'assets.fields.sniName' },
+]
+
+const assetPlatformOptions: ReadonlyArray<{ value: AssetPlatform; labelKey: string }> = [
+  { value: 'LINUX', labelKey: 'assets.platforms.linux' },
+  { value: 'WINDOWS', labelKey: 'assets.platforms.windows' },
+  { value: 'APPLIANCE', labelKey: 'assets.platforms.appliance' },
 ]
 
 const assetDraft = reactive<AssetDraft>({
@@ -367,12 +372,7 @@ const selectedServiceInstance = computed(() =>
   serviceInstanceItems.value.find((item) => String(item.id ?? '') === assetDraft.frameworkInstanceId) ?? null,
 )
 
-const availableFrameworkOptions = computed<FrameworkType[]>(() => {
-  if (assetDraft.managementMode === 'WORKFLOW') return ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
-  if (assetDraft.platform === 'WINDOWS') return ['IIS']
-  if (assetDraft.platform === 'LINUX') return ['NGINX', 'APACHE', 'TOMCAT']
-  return ['DEVICE_TEMPLATE']
-})
+const availableFrameworkOptions: readonly FrameworkType[] = ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
 
 const filteredSiteItems = computed(() => {
   return siteItems.value.filter((item) =>
@@ -593,6 +593,7 @@ const commonStepReady = computed(() => {
   const port = Number(assetDraft.port)
   return Boolean(
     assetDraft.address.trim()
+    && assetDraft.platform
     && Number.isInteger(port)
     && port >= 1
     && port <= 65535,
@@ -1571,7 +1572,7 @@ function addWorkflowVariableRow() {
     value: suggestedWorkflowVariableValue(preset?.name ?? '', { type: preset?.type ?? 'string' }),
     required: false,
     description: preset?.description ?? '',
-    enumValues: preset?.name === 'targetPlatform' ? ['linux', 'windows', 'appliance'] : [],
+    enumValues: [],
     fromDefinition: false,
   })
   workflowVariablePresetName.value = ''
@@ -1907,7 +1908,6 @@ function suggestedAssetVariableValue(name: string): string | undefined {
   if (name === 'deviceHost') return assetDraft.address.trim()
   if (name === 'port') return assetDraft.port.trim()
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
-  if (name === 'targetPlatform') return assetDraft.platform.toLowerCase()
   if (name === 'frameworkType') return assetDraft.frameworkType
   if (name === 'siteName') return String(selectedSiteAsset.value?.siteName ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'siteAsset', 'siteName']) ?? '').trim()
     || assetDraft.workflowTargetSiteName.trim() || assetDraft.displayName.trim() || assetDraft.address.trim()
@@ -2185,11 +2185,6 @@ watch(
 )
 
 watch(
-  () => [assetDraft.address, assetDraft.port, assetDraft.protocol, assetDraft.verifyUrl, assetDraft.platform] as const,
-  () => undefined,
-)
-
-watch(
   () => [
     assetDraft.frameworkType,
     assetDraft.workflowTargetSiteName,
@@ -2209,21 +2204,6 @@ watch(
   () => assetDraft.workflowRunner,
   (runner) => {
     if (runner === 'CONTROL_PLANE') assetDraft.workflowGatewayId = ''
-  },
-)
-
-watch(
-  () => assetDraft.platform,
-  async (platform) => {
-    if (isEditMode.value) return
-    const nextFramework = platform === 'WINDOWS' ? 'IIS' : 'NGINX'
-    if (!availableFrameworkOptions.value.includes(assetDraft.frameworkType)) {
-      assetDraft.frameworkType = nextFramework
-    }
-    assetDraft.siteAssetId = ''
-    assetDraft.managedTargetId = ''
-    siteItems.value = []
-    await refreshAssetTargets()
   },
 )
 
@@ -2640,11 +2620,10 @@ function managedTargetLabel(target: ApiRecord): string {
             </label>
             <label class="asset-form__field">
               <span>{{ t('assets.fields.platform') }} <strong>*</strong></span>
-              <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.platform || '—' }}</div>
-              <select v-else v-model="assetDraft.platform">
-                <option value="LINUX">Linux</option>
-                <option value="WINDOWS">Windows</option>
-                <option value="APPLIANCE">{{ t('assets.platforms.appliance') }}</option>
+              <select v-model="assetDraft.platform">
+                <option v-for="option in assetPlatformOptions" :key="option.value" :value="option.value">
+                  {{ t(option.labelKey) }}
+                </option>
               </select>
             </label>
             <label class="asset-form__field">

@@ -2689,7 +2689,9 @@ export default {
       capabilityAssignmentMissing: "目前目標尚未設定生效的部署能力。"
     },
     platforms: {
-      appliance: "裝置"
+      appliance: "裝置",
+      linux: "Linux",
+      windows: "Windows"
     },
     runners: {
       controlPlane: "平台",

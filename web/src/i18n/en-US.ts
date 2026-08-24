@@ -2767,7 +2767,9 @@ export default {
       capabilityAssignmentMissing: 'This target has no effective deployment capability assignment.'
     },
     platforms: {
-      appliance: 'Appliance'
+      appliance: 'Appliance',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: 'Control plane',

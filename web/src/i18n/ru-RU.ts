@@ -2664,7 +2664,9 @@ export default {
       capabilityAssignmentMissing: 'Для этой цели нет действующего назначения возможности развёртывания.'
     },
     platforms: {
-      appliance: 'Устройство'
+      appliance: 'Устройство',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: 'Платформа',

@@ -275,6 +275,45 @@ describe('资产与证书产物视图', () => {
     document.body.innerHTML = ''
   })
 
+  it('应用资产平台使用固定标识选项且不依赖设备记录', async () => {
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const addButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
+    expect(addButton).toBeTruthy()
+    await addButton!.trigger('click')
+    await flushPromises()
+
+    const platformField = wrapper.findAll('label').find((label) => label.text().includes('平台 *'))
+    expect(platformField).toBeTruthy()
+    expect(platformField!.findAll('option').map((option) => option.attributes('value'))).toEqual(['LINUX', 'WINDOWS', 'APPLIANCE'])
+  })
+
+  it('编辑应用资产时允许修改平台标识', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1',
+      address: 'www.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'WINDOWS',
+    }))
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const editButton = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    expect(editButton).toBeTruthy()
+    await editButton!.trigger('click')
+    await flushPromises()
+
+    const platformField = wrapper.findAll('label').find((label) => label.text().includes('平台 *'))
+    const platformSelect = platformField!.find('select')
+    expect(platformSelect.exists()).toBe(true)
+    expect(platformSelect.element.value).toBe('WINDOWS')
+
+    await platformSelect.setValue('APPLIANCE')
+    expect(platformSelect.element.value).toBe('APPLIANCE')
+  })
+
   it('资产页仍然可以正常加载基础列表', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()

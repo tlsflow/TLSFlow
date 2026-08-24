@@ -2690,7 +2690,9 @@ export default {
       capabilityAssignmentMissing: 'この対象には有効なデプロイ機能の割り当てがありません。'
     },
     platforms: {
-      appliance: 'デバイス'
+      appliance: 'デバイス',
+      linux: 'Linux',
+      windows: 'Windows'
     },
     runners: {
       controlPlane: 'プラットフォーム',
