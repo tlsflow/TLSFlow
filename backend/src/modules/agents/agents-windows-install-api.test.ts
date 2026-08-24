@@ -18,7 +18,7 @@ describe('Agent 安装会话安全约束', () => {
       method: 'POST',
       path: '/api/v1/agents/install-sessions/windows-powershell',
       headers,
-      body: { zone: 'default', startAfterInstall: true },
+      body: { zone: 'default' },
     });
     assert.equal(created.statusCode, 201);
 
@@ -75,7 +75,13 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /Join-Path \$manifest\.installRoot 'gcac-agent\.exe'/);
     assert.match(bootstrapBody, /WriteAllText\(\$selfCheckPath, \$selfCheckOutput, \$utf8Bom\)/);
     assert.match(bootstrapBody, /\$installArgs = @\(/);
-    assert.match(bootstrapBody, /"-StartAfterInstall:\$" \+ \(\[bool\]\$manifest\.startAfterInstall\)\.ToString\(\)\.ToLowerInvariant\(\)/);
+    assert.match(bootstrapBody, /\"startAfterInstall\": true/);
+    assert.match(bootstrapBody, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
+    assert.match(bootstrapBody, /Windows Agent service is not running after install/);
+    assert.match(bootstrapBody, /'-NoStartAfterInstall'/);
+    assert.doesNotMatch(bootstrapBody, /\$installArgs \+= '-StartAfterInstall'/);
+    assert.doesNotMatch(bootstrapBody, /\$installArgs[\s\S]*'-StartAfterInstall'[\s\S]*& powershell @installArgs/);
+    assert.doesNotMatch(bootstrapBody, /-StartAfterInstall:\$/);
     assert.doesNotMatch(bootstrapBody, /& powershell -NoProfile -ExecutionPolicy Bypass -File \$installScript @params/);
     assert.doesNotMatch(bootstrapBody, /Start-GcacFullAgent\.ps1/);
     assert.doesNotMatch(bootstrapBody, /Invoke-RestMethod -Method Get -Uri/);
@@ -128,6 +134,15 @@ describe('Agent 安装会话安全约束', () => {
     assert.equal(bootstrap.statusCode, 200);
     assert.equal(bootstrap.headers['content-type'], 'text/plain; charset=utf-8');
     assert.match(String(bootstrap.body), /\$manifest = @'/);
+  });
+
+  it('Windows Go Agent 手工安装启动后必须等待 Running', async () => {
+    const installScript = await readFile(resolve('../agents/windows-go-full-agent/install-service.ps1'), 'utf8');
+    assert.match(installScript, /\[switch\]\$NoStartAfterInstall/);
+    assert.match(installScript, /\$shouldStartAfterInstall = \$StartAfterInstall -or \(-not \$NoStartAfterInstall -and -not \$PSBoundParameters\.ContainsKey\("StartAfterInstall"\)\)/);
+    assert.match(installScript, /if \(\$shouldStartAfterInstall\) \{/);
+    assert.match(installScript, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
+    assert.match(installScript, /Windows Service did not reach Running after install/);
   });
 
   it('Windows Compatibility Agent 生成兼容 PowerShell 的独立安装命令和 Bootstrap', async () => {

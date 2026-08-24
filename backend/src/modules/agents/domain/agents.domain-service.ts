@@ -72,7 +72,7 @@ export class AgentsDomainService {
       agentKey,
       controlPlaneUrl,
       zone,
-      startAfterInstall: input.startAfterInstall === true,
+      startAfterInstall: input.startAfterInstall !== false,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
       serviceName,

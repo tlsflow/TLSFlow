@@ -7,10 +7,17 @@ param(
   [string]$ConfigDir = "C:\ProgramData\GCAC\FullAgentGo\config",
   [string]$DataDir = "C:\ProgramData\GCAC\FullAgentGo\data",
   [string]$LogDir = "C:\ProgramData\GCAC\FullAgentGo\logs",
-  [switch]$StartAfterInstall
+  [switch]$StartAfterInstall,
+  [switch]$NoStartAfterInstall
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($StartAfterInstall -and $NoStartAfterInstall) {
+  throw "StartAfterInstall and NoStartAfterInstall cannot be used together."
+}
+
+$shouldStartAfterInstall = $StartAfterInstall -or (-not $NoStartAfterInstall -and -not $PSBoundParameters.ContainsKey("StartAfterInstall"))
 
 $principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -316,8 +323,16 @@ Write-Host "Start command: Start-Service -Name '$ServiceName'"
 Write-Host "Stop command: Stop-Service -Name '$ServiceName'"
 Write-Host "Status command: Get-Service -Name '$ServiceName'"
 
-if ($StartAfterInstall) {
+if ($shouldStartAfterInstall) {
   Start-Sleep -Seconds 1
-  Start-Service -Name $ServiceName
-  Get-Service -Name $ServiceName
+  $service = Get-Service -Name $ServiceName -ErrorAction Stop
+  if ([string]$service.Status -ne "Running") {
+    Start-Service -Name $ServiceName -ErrorAction Stop
+    $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+  }
+  $service = Get-Service -Name $ServiceName -ErrorAction Stop
+  if ([string]$service.Status -ne "Running") {
+    throw "Windows Service did not reach Running after install: $ServiceName status=$($service.Status)"
+  }
+  $service
 }
