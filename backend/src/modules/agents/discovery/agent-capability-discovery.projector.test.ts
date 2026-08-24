@@ -570,6 +570,20 @@ test('Tomcat 的相对 keystore 配置路径可关联 Agent 读取到的绝对�
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'B'.repeat(64)}`);
 });
 
+test('Tomcat Debian 布局可通过 Agent 保留的相对 keystore 别名关联证书', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: '/etc/tomcat9/server.xml', content: '<Connector port="8445" scheme="https" keystoreFile="conf/localhost-rsa.p12" keystorePass="changeit"/><Host name="localhost" />' }],
+      certificateFiles: [{ path: '/var/lib/tomcat9/conf/localhost-rsa.p12', configuredPaths: ['conf/localhost-rsa.p12'], name: 'localhost', sha256Fingerprint: 'e'.repeat(64), subject: 'CN=localhost', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' }],
+    },
+  }]));
+
+  const projected = fixture.projected() as { certificateBindings: Array<{ certificateStableKey: string }> };
+  assert.equal(projected.certificateBindings.length, 1);
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'E'.repeat(64)}`);
+});
+
 test('Tomcat 多 listener 中会选择已上报证书路径，而不是注释示例路径', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{

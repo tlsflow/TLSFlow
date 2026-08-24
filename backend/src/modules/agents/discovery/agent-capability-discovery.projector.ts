@@ -718,7 +718,10 @@ function certificatePathCandidates(certificatePath: string, sourceConfigPath?: s
   const normalized = normalizePath(unquoteConfigPath(certificatePath));
   if (!normalized) return [];
   if (isAbsoluteConfigPath(normalized) || !sourceConfigPath) return [normalized];
-  const candidates: string[] = [];
+  // Linux Agent 会保留 server.xml 中的原始相对引用。Tomcat 默认把
+  // conf/xxx 解释为 CATALINA_BASE/conf/xxx，而 CATALINA_BASE 可能与
+  // server.xml 目录无关；先用原始别名匹配 Agent 已实际读取的文件，避免猜测默认安装目录。
+  const candidates: string[] = [normalized];
   let base = pathDir(normalizePath(sourceConfigPath));
   // 配置相对路径的基准可能是配置目录，也可能是产品的工作目录。Agent 已经只读取
   // 由真实配置引用定位到的证书；这里仅在这些已上报的事实索引里逐级匹配，不读取
