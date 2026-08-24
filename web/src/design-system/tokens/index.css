@@ -109,6 +109,7 @@
   --gc-space-nav-gap: var(--gc-space-3);
   --gc-space-modal-x: var(--gc-space-8);
   --gc-space-modal-y: var(--gc-space-6);
+  --gc-space-modal-detail-y: 15px;
   --gc-border-width: 1px;
   --gc-border-width-thick: 2px;
   --gc-control-height-md: 42.5px;

@@ -64,6 +64,21 @@ describe('GcModal', () => {
     wrapper.unmount()
   })
 
+  it('将调用方指定的对话框 class 挂到 Teleport 中的实际容器', () => {
+    const wrapper = mount(GcModal, {
+      attachTo: document.body,
+      props: {
+        open: true,
+        title: '测试模态框',
+        dialogClass: 'device-detail-dialog',
+      },
+    })
+
+    expect(document.body.querySelector('.gc-modal.device-detail-dialog')).not.toBeNull()
+
+    wrapper.unmount()
+  })
+
   it('显式传入 closeOnBackdrop 也不能通过遮罩关闭', async () => {
     const wrapper = mount(GcModal, {
       attachTo: document.body,

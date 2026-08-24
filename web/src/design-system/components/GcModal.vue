@@ -54,6 +54,8 @@ const props = withDefaults(defineProps<{
   width?: string
   /** 自定义模态框最大高度，例如 '60vh'。 */
   maxHeight?: string
+  /** 追加到实际对话框容器的 CSS class，用于调用方的局部布局覆写。 */
+  dialogClass?: string
   /** 只保留遮罩和内容插槽，不渲染默认卡片标题、内边距和 footer。 */
   frameless?: boolean
   /** 缩小遮罩和卡片边距，用于接近全屏的工作区。 */
@@ -103,6 +105,7 @@ const isOpen = computed({
 const modalClass = computed(() => [
   'gc-modal',
   `gc-modal--${props.size}`,
+  props.dialogClass ?? '',
   props.frameless ? '' : 'gc-card',
   props.frameless ? 'gc-modal--frameless' : '',
   props.edgeToEdge ? 'gc-modal--edge-to-edge' : '',

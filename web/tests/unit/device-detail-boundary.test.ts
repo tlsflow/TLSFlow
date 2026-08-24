@@ -180,6 +180,15 @@ describe('统一设备详情动作边界', () => {
     expect(source).toContain("candidates: ['controlVersion']")
   })
 
+  it('设备详情弹窗使用紧凑的十五像素上下间距', () => {
+    const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
+
+    expect(modalSource).toContain('dialog-class="device-detail-dialog"')
+    expect(modalSource).toContain(':global(.device-detail-dialog .gc-modal__header)')
+    expect(modalSource).toContain(':global(.device-detail-dialog .gc-modal__body)')
+    expect(modalSource).toContain('padding-block: var(--gc-space-modal-detail-y)')
+  })
+
   it('应用资产向导进入部署模式时刷新当前 ACTIVE 发现数据', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
     expect(source).toContain("filters: { deviceId: hostId, status: 'ACTIVE' }")

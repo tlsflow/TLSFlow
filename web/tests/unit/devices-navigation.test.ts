@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { businessRoutes } from '@/router/modules/business'
 import { mainMenuItems } from '@/router/menu'
+import { devicesZhCN } from '@/i18n/devices.locale'
 
 describe('统一设备导航', () => {
   it('注册设备页面并保留 Agent 参数重定向', () => {
@@ -17,5 +18,10 @@ describe('统一设备导航', () => {
     const assetsMenu = mainMenuItems.find((item) => item.path === '/assets')
     expect(assetsMenu?.children?.find((item) => item.path === '/assets/devices')).toMatchObject({ titleKey: 'nav.devices' })
     expect(assetsMenu?.children?.some((item) => item.path === '/agents')).toBe(false)
+  })
+
+  it('中文设备页使用设备名称及设备详情标题', () => {
+    expect(devicesZhCN.page.title).toBe('设备')
+    expect(devicesZhCN.detail.title).toBe('设备详情')
   })
 })

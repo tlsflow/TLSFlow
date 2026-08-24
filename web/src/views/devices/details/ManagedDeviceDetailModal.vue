@@ -206,6 +206,7 @@ defineExpose({ open })
     v-model:open="opened"
     :title="t('devices.detail.title')"
     size="xxl"
+    dialog-class="device-detail-dialog"
   >
     <template #header-actions>
       <button
@@ -340,6 +341,15 @@ defineExpose({ open })
 
 <style scoped>
 .agent-detail-modal { display: grid; gap: var(--gc-space-2); }
+
+:global(.device-detail-dialog .gc-modal__header) {
+  padding-block: var(--gc-space-modal-detail-y);
+}
+
+:global(.device-detail-dialog .gc-modal__body) {
+  padding-block: var(--gc-space-modal-detail-y);
+}
+
 .agent-detail-modal__error,
 .agent-detail-modal__loading { margin: 0; padding: var(--gc-space-4); color: var(--gc-color-text-muted); text-align: center; }
 .agent-detail-modal__error { color: var(--gc-color-danger); }
