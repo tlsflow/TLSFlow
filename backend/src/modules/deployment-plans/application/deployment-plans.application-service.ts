@@ -69,6 +69,7 @@ import type {
   DeploymentInputSnapshotRefV1,
   DeploymentInputRuntimeSnapshotV1,
   DeploymentInputSnapshotV1,
+  PluginCompatibilitySnapshotV1,
 } from '../../deployment-inputs/dto/deployment-input-snapshot.dto.js';
 import type { ApprovalRequestEntity } from '../../../persistence/entities/approval.entity.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
@@ -81,6 +82,7 @@ import type { TenantHierarchyService } from '../../security/domain/tenant.domain
 import { DEFAULT_DEPLOYMENT_TASK_SETTINGS, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
 import { buildPluginActionBindings } from '../../executions/application/plugin-action-binding.service.js';
 import type { WorkflowStep } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import { GCAC_VERSION } from '../../../common/version.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -1061,6 +1063,13 @@ export class DeploymentPlansApplicationService {
         targetType: context.managedTarget.targetType,
         managementMethod: context.agent ? 'AGENT' : context.deviceAsset ? 'PLUGIN' : 'MANUAL',
         artifactContract: 'certificate.deploy.v1',
+        hostVersion: GCAC_VERSION,
+        hostFeatures: readStringArray(context.deviceAsset?.capabilityProfile?.hostFeatures)
+          ?? process.env.GCAC_HOST_FEATURES?.split(',').map((item) => item.trim()).filter(Boolean),
+        runtimeVersions: {
+          ...(context.agent?.descriptor.version ? { AGENT: context.agent.descriptor.version } : {}),
+          ...(readStringValue(context.deviceAsset?.capabilityProfile?.gatewayVersion) ? { GATEWAY: readStringValue(context.deviceAsset?.capabilityProfile?.gatewayVersion) } : {}),
+        },
       },
     });
     const workflow = capability.pluginRuntime === 'WORKFLOW_DSL'
@@ -1119,6 +1128,7 @@ export class DeploymentPlansApplicationService {
           packageSha256: executionSource.capability.plugin.packageSha256,
           manifestSha256: executionSource.capability.plugin.manifestSha256,
           resourceSha256: structuredClone(executionSource.capability.plugin.resourceSha256),
+          compatibility: structuredClone(executionSource.capability.compatibility),
           ...(workflow ? {
             workflowTemplateId: workflow.workflowTemplateId,
             workflowVersionSelection: 'FIXED' as const,
@@ -1932,17 +1942,23 @@ export class DeploymentPlansApplicationService {
       );
       // 内网部署以配置绑定和 Agent 写后校验为准；运行态 TLS 观测只作诊断，不能成为建计划门槛。
       const safeStrategyPayload = sanitizeDeploymentInputPersistencePayload(target.strategyPayload ?? {});
-      target.deploymentInputSnapshotDraft = this.deploymentInputSnapshotService.build(
-        resolvedInput,
-        deploymentInputSnapshotIdentity(safeStrategyPayload),
-        now,
-      );
+      const compatibilitySnapshot = readPluginCompatibilitySnapshot(target.strategyPayload?.executionSource);
+      if (compatibilitySnapshot) compatibilitySnapshot.compatibilitySha256 = `sha256:${createHash('sha256').update(canonicalize(compatibilitySnapshot)).digest('hex')}`;
+      target.deploymentInputSnapshotDraft = {
+        ...this.deploymentInputSnapshotService.build(
+          resolvedInput,
+          deploymentInputSnapshotIdentity(safeStrategyPayload),
+          now,
+        ),
+        ...(compatibilitySnapshot ? { compatibility: compatibilitySnapshot } : {}),
+      };
       target.deploymentInputRuntimeSnapshotDraft = {
         apiVersion: 'gcac.deployment-input-runtime-snapshot/v1',
         contract: structuredClone(contract),
         effectiveBinding: structuredClone(effectiveBinding),
         resolvedDeploymentInput: structuredClone(resolvedInput),
         deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+        ...(compatibilitySnapshot ? { compatibility: compatibilitySnapshot } : {}),
       };
       target.strategyPayload = {
         ...safeStrategyPayload,
@@ -4249,6 +4265,10 @@ function readStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function readOptionalBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
@@ -4269,6 +4289,24 @@ function readOptionalNumber(value: unknown): number | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readPluginCompatibilitySnapshot(value: unknown): PluginCompatibilitySnapshotV1 | undefined {
+  const source = readRecord(value);
+  const compatibility = readRecord(source?.compatibility);
+  if (!compatibility) return undefined;
+  const capabilityKey = readOptionalString(compatibility.capabilityKey);
+  const status = readOptionalString(compatibility.status);
+  const evaluatedAt = readOptionalString(compatibility.evaluatedAt);
+  if (!capabilityKey || !evaluatedAt || !['COMPATIBLE', 'INCOMPATIBLE', 'UNKNOWN'].includes(status ?? '') || typeof compatibility.compatible !== 'boolean') return undefined;
+  return {
+    capabilityKey,
+    status: status as PluginCompatibilitySnapshotV1['status'],
+    compatible: compatibility.compatible,
+    evaluatedAt,
+    inputs: readRecord(compatibility.inputs) ?? {},
+    reasons: Array.isArray(compatibility.reasons) ? compatibility.reasons.filter((item): item is Record<string, unknown> => Boolean(readRecord(item))) : [],
+  };
 }
 
 function readStringMap(value: unknown): Record<string, string> | undefined {

@@ -1220,6 +1220,8 @@ export class ExecutionsApplicationService {
       const materializedStep = await this.materializeRuntimeStep(runningStep, tenantId);
       const runtimeStep = await this.bindPluginRunnerExecution(materializedStep, run);
       executionStep = runtimeStep;
+      assertFrozenPluginCompatibility(runtimeStep.inputSnapshot.executionSource);
+      assertFrozenPluginCompatibility(runtimeStep.inputSnapshot.executionRuntimeSnapshot);
       result = await registry.get(executorType).executeStep({
         step: runtimeStep,
         runType: run.type,
@@ -1605,6 +1607,21 @@ export class ExecutionsApplicationService {
   private readRunFailurePolicy(run: ExecutionRunEntity): FailurePolicy {
     const value = String(run.summary.failurePolicy ?? 'stop');
     return value === 'continue' || value === 'rollback' ? value : 'stop';
+  }
+}
+
+function assertFrozenPluginCompatibility(value: unknown): void {
+  const source = readRecord(value);
+  const compatibility = readRecord(source?.compatibility)
+    ?? (source?.status === 'COMPATIBLE' || source?.status === 'INCOMPATIBLE' || source?.status === 'UNKNOWN' ? source : undefined);
+  if (!compatibility) return;
+  const status = readString(compatibility, 'status');
+  if (status === 'INCOMPATIBLE' || compatibility.compatible !== true) {
+    throw new AppError('CAPABILITY_MISSING', '执行前插件能力兼容性门禁未通过', {
+      status: status ?? 'INCOMPATIBLE',
+      reasons: compatibility.reasons,
+      inputs: compatibility.inputs,
+    });
   }
 }
 

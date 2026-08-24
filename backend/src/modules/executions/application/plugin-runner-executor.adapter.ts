@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { GCAC_VERSION } from '../../../common/version.js';
 import { assertJsonSchema, type JsonSchema } from '../../../common/validation/json-schema.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
 import {
@@ -14,6 +15,7 @@ import { resolvePluginRunnerConfig, type ProductionPluginRunnerConfig } from '..
 import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
+import { evaluatePluginCompatibility } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
 
 export const pluginActionBindingApiVersion = 'gcac.plugin-action-binding/v1' as const;
 export const pluginRunnerExecutorType = 'plugin.action' as const;
@@ -176,6 +178,20 @@ export class PluginRunnerExecutorAdapter implements Executor {
     let packageEntry: BuiltinPluginRegistryEntry | undefined;
     try {
       packageEntry = await resolveBuiltinPackage(this.dependencies.builtinRegistry, binding);
+      const capability = packageEntry.capabilities.find((item) => item.key === binding.capability);
+      if (!capability) throw new AppError('CAPABILITY_MISSING', '固定插件包未声明当前能力', { capability: binding.capability });
+      const compatibility = evaluatePluginCompatibility(packageEntry.manifest, {
+        executionLocation: 'CONTROL_PLANE',
+        hostVersion: GCAC_VERSION,
+        runtimeVersions: { CONTROL_PLANE: runner.runnerVersion },
+      }, capability);
+      if (!compatibility.compatible) {
+        throw new AppError('CAPABILITY_MISSING', 'Plugin Runner 执行前兼容性门禁未通过', {
+          status: compatibility.status,
+          reasons: compatibility.reasons,
+          inputs: compatibility.inputs,
+        });
+      }
       if (!this.dependencies.executionGrants) {
         throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Plugin Action 缺少 ExecutionGrantService，已失败关闭');
       }

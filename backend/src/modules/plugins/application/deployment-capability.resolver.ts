@@ -52,7 +52,8 @@ export class DeploymentCapabilityResolver {
       }
       const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
       const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
-      if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED' || !capability) {
+      // 已退休版本仍可被已有 Binding 精确引用，用于历史执行和回滚；目录和新指派仍只暴露 ENABLED。
+      if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || ['DISABLED', 'QUARANTINED', 'IMPORTED', 'PENDING_APPROVAL'].includes(plugin.status) || !capability) {
         throw new AppError('CAPABILITY_MISSING', '插件版本未启用或未声明目标能力', { pluginVersionId: plugin.id, capabilityKey: input.capabilityKey });
       }
       const candidateLocations = input.executionLocations.filter((location) => capability.executionLocations.includes(location));
@@ -65,7 +66,7 @@ export class DeploymentCapabilityResolver {
       }
       const evaluations = candidateLocations.map((executionLocation) => ({
         executionLocation,
-        compatibility: evaluatePluginCompatibility(plugin.manifest, { ...input.compatibility, executionLocation }),
+        compatibility: evaluatePluginCompatibility(plugin.manifest, { ...input.compatibility, executionLocation }, capability),
       }));
       const selected = evaluations.find((item) => item.compatibility.compatible);
       if (!selected) {

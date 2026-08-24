@@ -5,12 +5,38 @@ export type UnifiedPluginTrust = 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED';
 export type UnifiedPluginSupport = 'OFFICIAL' | 'COMMUNITY' | 'SELF_MANAGED';
 export type UnifiedPluginVersionStatus = 'IMPORTED' | 'PENDING_APPROVAL' | 'DISABLED' | 'ENABLED' | 'RETIRED' | 'QUARANTINED';
 
+export type UnifiedPluginExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
+
+export interface UnifiedPluginCapabilityHostCompatibility {
+  minVersion?: string;
+  requiredFeatures?: string[];
+}
+
+export interface UnifiedPluginCapabilityTargetCompatibility {
+  productFamily: string;
+  versionRange: string;
+}
+
+export interface UnifiedPluginCapabilityExecutionCompatibility {
+  location: UnifiedPluginExecutionLocation;
+  minRuntimeVersion?: string;
+}
+
+export interface UnifiedPluginCapabilityCompatibility {
+  host?: UnifiedPluginCapabilityHostCompatibility;
+  targets?: UnifiedPluginCapabilityTargetCompatibility[];
+  execution?: UnifiedPluginCapabilityExecutionCompatibility[];
+  /** 仅用于记录验证证据，不能作为兼容范围。 */
+  testedVersions?: Record<string, string[]>;
+}
+
 export interface UnifiedPluginCapabilityDescriptor {
   key: string;
   contractVersion: string;
   actionContractId: string;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
+  executionLocations: UnifiedPluginExecutionLocation[];
+  compatibility?: UnifiedPluginCapabilityCompatibility;
 }
 
 export interface CredentialOutputParameterContract {
@@ -79,7 +105,7 @@ export interface UnifiedPluginManifestV1 {
     frameworkTypes?: string[];
     targetTypes?: string[];
     managementMethods?: Array<'AGENT' | 'PLUGIN' | 'MANUAL'>;
-    executionLocations?: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
+    executionLocations?: UnifiedPluginExecutionLocation[];
     artifactContracts?: string[];
   };
   resources: {
@@ -152,6 +178,13 @@ export interface UnifiedPluginUpgradeDiff {
   runtimeChanged: boolean;
   scopeChanged: boolean;
   compatibilityChanged: boolean;
+  capabilityCompatibilityChanges?: Array<{
+    capabilityKey: string;
+    changed: boolean;
+    breaking: boolean;
+    reason?: string;
+  }>;
+  bindingRecheckRequired?: boolean;
   requiresApproval: boolean;
 }
 

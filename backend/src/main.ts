@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createAppAsync } from './app.module.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
 import { loadEnvFile } from './config/load-env.js';
+import { ensureProductionRuntimeSecurityEnvironment } from './config/production-runtime-secrets.js';
 import { loadAppConfig } from './config/app-config.js';
 import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
@@ -26,6 +27,7 @@ const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
 
 loadEnvFile();
+ensureProductionRuntimeSecurityEnvironment();
 
 // 只有直接执行入口文件时才启动监听；测试和模块导入只创建应用实例，不抢占端口。
 if (entryFilePath !== '' && currentFilePath === entryFilePath) {

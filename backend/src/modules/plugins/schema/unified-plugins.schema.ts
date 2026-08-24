@@ -1,7 +1,9 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { isSemVerRange, normalizeMinimumGcacVersion } from '../../../common/version.js';
 import type {
   CredentialAcquireContract,
   UnifiedPluginCapabilityDescriptor,
+  UnifiedPluginCapabilityCompatibility,
   UnifiedPluginLogoResources,
   UnifiedPluginManifestV1,
   UnifiedPluginRuntime,
@@ -40,6 +42,9 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   const scope = requireEnum(manifest.scope, unifiedPluginScopes, 'scope');
   const trust = requireEnum(manifest.trust, unifiedPluginTrustLevels, 'trust');
   const support = requireEnum(manifest.support, unifiedPluginSupportLevels, 'support');
+  const minGcacVersion = manifest.minGcacVersion === undefined
+    ? undefined
+    : normalizeMinimumGcacVersion(manifest.minGcacVersion);
   const capabilities = requireArray(manifest.capabilities, 'capabilities').map(validateCapability);
   if (capabilities.length === 0) fail('capabilities', '至少声明一项能力');
   const resources = requireRecord(manifest.resources, 'resources');
@@ -68,7 +73,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     scope,
     trust,
     support,
-    minGcacVersion: optionalString(manifest.minGcacVersion, 'minGcacVersion'),
+    minGcacVersion,
     capabilities,
     ...(credentialAcquire ? { credentialAcquire } : {}),
     permissions,
@@ -181,6 +186,7 @@ function assertKnownKeys(record: Record<string, unknown>, allowed: Set<string>, 
 
 function validateCapability(input: unknown, index: number): UnifiedPluginCapabilityDescriptor {
   const item = requireRecord(input, `capabilities.${index}`);
+  assertKnownKeys(item, new Set(['key', 'contractVersion', 'actionContractId', 'riskLevel', 'executionLocations', 'compatibility']), `capabilities.${index}`);
   const locations = requireStringArray(item.executionLocations, `capabilities.${index}.executionLocations`);
   const allowed = ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] as const;
   if (locations.some((location) => !allowed.includes(location as typeof allowed[number]))) {
@@ -193,6 +199,50 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
     actionContractId: requireString(item.actionContractId, `capabilities.${index}.actionContractId`),
     riskLevel,
     executionLocations: locations as UnifiedPluginCapabilityDescriptor['executionLocations'],
+    ...(item.compatibility === undefined ? {} : { compatibility: readCapabilityCompatibility(item.compatibility, locations, index) }),
+  };
+}
+
+function readCapabilityCompatibility(input: unknown, locations: string[], index: number): UnifiedPluginCapabilityCompatibility {
+  const path = `capabilities.${index}.compatibility`;
+  const record = requireRecord(input, path);
+  assertKnownKeys(record, new Set(['host', 'targets', 'execution', 'testedVersions']), path);
+  let host: UnifiedPluginCapabilityCompatibility['host'];
+  if (record.host !== undefined) {
+    const value = requireRecord(record.host, `${path}.host`);
+    assertKnownKeys(value, new Set(['minVersion', 'requiredFeatures']), `${path}.host`);
+    host = {
+      ...(value.minVersion === undefined ? {} : { minVersion: requireSemanticVersion(value.minVersion, `${path}.host.minVersion`) }),
+      ...(value.requiredFeatures === undefined ? {} : { requiredFeatures: requireStringArray(value.requiredFeatures, `${path}.host.requiredFeatures`) }),
+    };
+    if (host.requiredFeatures && host.requiredFeatures.length === 0) fail(`${path}.host.requiredFeatures`, '必须至少声明一个特性');
+  }
+  const targets = record.targets === undefined ? undefined : requireArray(record.targets, `${path}.targets`).map((raw, targetIndex) => {
+    const target = requireRecord(raw, `${path}.targets.${targetIndex}`);
+    assertKnownKeys(target, new Set(['productFamily', 'versionRange']), `${path}.targets.${targetIndex}`);
+    const versionRange = requireString(target.versionRange, `${path}.targets.${targetIndex}.versionRange`);
+    if (!isSemVerRange(versionRange)) fail(`${path}.targets.${targetIndex}.versionRange`, '必须是合法 SemVer 版本范围');
+    return {
+      productFamily: requireString(target.productFamily, `${path}.targets.${targetIndex}.productFamily`),
+      versionRange,
+    };
+  });
+  const execution = record.execution === undefined ? undefined : requireArray(record.execution, `${path}.execution`).map((raw, executionIndex) => {
+    const value = requireRecord(raw, `${path}.execution.${executionIndex}`);
+    assertKnownKeys(value, new Set(['location', 'minRuntimeVersion']), `${path}.execution.${executionIndex}`);
+    const location = requireEnum(value.location, ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] as const, `${path}.execution.${executionIndex}.location`);
+    if (!locations.includes(location)) fail(`${path}.execution.${executionIndex}.location`, '能力兼容执行位置必须包含在 executionLocations 中');
+    return {
+      location,
+      ...(value.minRuntimeVersion === undefined ? {} : { minRuntimeVersion: requireSemanticVersion(value.minRuntimeVersion, `${path}.execution.${executionIndex}.minRuntimeVersion`) }),
+    };
+  });
+  const testedVersions = record.testedVersions === undefined ? undefined : readStringArrayMap(record.testedVersions, `${path}.testedVersions`);
+  return {
+    ...(host ? { host } : {}),
+    ...(targets ? { targets } : {}),
+    ...(execution ? { execution } : {}),
+    ...(testedVersions ? { testedVersions } : {}),
   };
 }
 
@@ -286,6 +336,13 @@ function readCompatibility(input: unknown): UnifiedPluginManifestV1['compatibili
     executionLocations: record.executionLocations === undefined ? undefined : requireArray(record.executionLocations, 'compatibility.executionLocations').map((item, index) => requireEnum(item, ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] as const, `compatibility.executionLocations.${index}`)),
     artifactContracts: record.artifactContracts === undefined ? undefined : requireStringArray(record.artifactContracts, 'compatibility.artifactContracts'),
   };
+}
+
+function readStringArrayMap(input: unknown, path: string): Record<string, string[]> {
+  const record = requireRecord(input, path);
+  const result: Record<string, string[]> = {};
+  for (const [key, value] of Object.entries(record)) result[key] = requireStringArray(value, `${path}.${key}`);
+  return result;
 }
 
 function readStringMap(input: unknown, path = 'resources'): Record<string, string> {

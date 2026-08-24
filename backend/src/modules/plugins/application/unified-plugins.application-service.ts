@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { assertPluginGcacCompatibility, compareSemVer } from '../../../common/version.js';
 import { newId } from '../../../shared/id.js';
 import type {
   ImportUnifiedPluginVersionInput,
   UnifiedPluginCatalogItem,
+  UnifiedPluginCapabilityDescriptor,
   UnifiedPluginLogoResources,
   UnifiedPluginManifestV1,
   UnifiedPluginSource,
@@ -39,6 +41,8 @@ export class UnifiedPluginsApplicationService {
   ): Promise<UnifiedPluginVersionRecord> {
     const manifest = validateUnifiedPluginManifest(input.manifest);
     assertSupportedPluginManifest(manifest);
+    // 外部市场包和用户目录包都必须先满足当前宿主版本，不能把不兼容包写入运行链路。
+    assertPluginGcacCompatibility(manifest.pluginId, manifest.minGcacVersion);
     manifest.capabilities.forEach((capability) => this.capabilityRegistry.validate(capability));
     if (manifest.source !== sourceChannel) {
       throw new AppError('VALIDATION_FAILED', '插件来源由安装通道决定，不能由 Manifest 伪造', {
@@ -287,6 +291,8 @@ export class UnifiedPluginsApplicationService {
 
   async enableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
+    // 再次检查持久化版本，覆盖降级、数据库恢复或绕过导入接口写入的未来版本。
+    assertPluginGcacCompatibility(record.pluginId, record.manifest.minGcacVersion);
     if (record.status === 'RETIRED' || record.status === 'QUARANTINED') {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '历史或隔离插件版本不能重新启用；请发布新包替换当前版本', { id, status: record.status });
     }
@@ -298,6 +304,22 @@ export class UnifiedPluginsApplicationService {
     // 启用前按目标状态预检；目录运行时仍只允许读取已启用版本。
     // 不能直接传入 DISABLED 记录，否则带配方的插件永远无法完成 DISABLED -> ENABLED 转换。
     new ApplicationOnboardingRecipeLoader().loadOptional({ ...record, status: 'ENABLED' });
+    const enabledSibling = (await this.repository.listVersions(record.tenantId))
+      .find((item) => item.id !== record.id && item.pluginId === record.pluginId && item.status === 'ENABLED');
+    if (enabledSibling) {
+      const upgradeDiff = buildUpgradeDiff(enabledSibling, record);
+      if (upgradeDiff.bindingRecheckRequired) {
+        const references = await this.repository.countReferences(record.tenantId, enabledSibling.id);
+        if (references.total > 0) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', '已有 Binding 引用的插件能力兼容范围发生破坏性变化，必须先重新检查或迁移 Binding', {
+            fromVersionId: enabledSibling.id,
+            toVersionId: record.id,
+            capabilityCompatibilityChanges: upgradeDiff.capabilityCompatibilityChanges,
+            references,
+          });
+        }
+      }
+    }
     const updatedAt = new Date().toISOString();
     const next = {
       ...(record.source === 'USER' ? normalizeUserPluginLifecycle(record) : record),
@@ -329,21 +351,7 @@ export class UnifiedPluginsApplicationService {
   async getUpgradeDiff(fromVersionId: string, toVersionId: string): Promise<UnifiedPluginUpgradeDiff> {
     const [from, to] = await Promise.all([this.getVersion(fromVersionId), this.getVersion(toVersionId)]);
     if (from.pluginId !== to.pluginId) throw new AppError('VALIDATION_FAILED', '只能比较同一插件的版本');
-    const capabilityDiff = diffKeys(from.manifest.capabilities.map((item) => item.key), to.manifest.capabilities.map((item) => item.key));
-    const permissionDiff = diffKeys(from.manifest.permissions, to.manifest.permissions);
-    return {
-      pluginId: from.pluginId,
-      fromVersionId,
-      toVersionId,
-      addedCapabilities: capabilityDiff.added,
-      removedCapabilities: capabilityDiff.removed,
-      addedPermissions: permissionDiff.added,
-      removedPermissions: permissionDiff.removed,
-      runtimeChanged: from.runtime !== to.runtime,
-      scopeChanged: from.scope !== to.scope,
-      compatibilityChanged: stableJson(from.manifest.compatibility) !== stableJson(to.manifest.compatibility),
-      requiresApproval: permissionDiff.added.length > 0 || from.runtime !== to.runtime || from.scope !== to.scope,
-    };
+    return buildUpgradeDiff(from, to, fromVersionId, toVersionId);
   }
 
   async listCatalog(
@@ -428,6 +436,8 @@ export class UnifiedPluginsApplicationService {
 
   private toCatalogItem(record: UnifiedPluginVersionRecord, locale: string): UnifiedPluginCatalogItem | undefined {
     try {
+      // 目录只展示当前宿主能够安装和启用的版本；历史数据库中残留的未来版本不能重新进入市场。
+      assertPluginGcacCompatibility(record.pluginId, record.manifest.minGcacVersion);
       const validatedResources = this.packageResources.validate(record.manifest, record.resources);
       const messages = validatedResources.locales;
       const displayName = messages ? new PluginLocaleService().resolve(messages, locale, record.manifest.displayNameKey) : undefined;
@@ -665,6 +675,66 @@ function diffKeys(before: string[], after: string[]): { added: string[]; removed
     added: [...next].filter((item) => !previous.has(item)).sort(),
     removed: [...previous].filter((item) => !next.has(item)).sort(),
   };
+}
+
+function buildUpgradeDiff(
+  from: UnifiedPluginVersionRecord,
+  to: UnifiedPluginVersionRecord,
+  fromVersionId = from.id,
+  toVersionId = to.id,
+): UnifiedPluginUpgradeDiff {
+  const capabilityDiff = diffKeys(from.manifest.capabilities.map((item) => item.key), to.manifest.capabilities.map((item) => item.key));
+  const permissionDiff = diffKeys(from.manifest.permissions, to.manifest.permissions);
+  const before = new Map(from.manifest.capabilities.map((item) => [item.key, item]));
+  const after = new Map(to.manifest.capabilities.map((item) => [item.key, item]));
+  const capabilityCompatibilityChanges = [...new Set([...before.keys(), ...after.keys()])].sort().map((capabilityKey) => {
+    const previous = before.get(capabilityKey);
+    const next = after.get(capabilityKey);
+    if (!previous || !next) return { capabilityKey, changed: true, breaking: Boolean(previous), reason: previous ? '能力被移除' : '新增能力' };
+    const changed = stableJson(previous.compatibility) !== stableJson(next.compatibility);
+    return {
+      capabilityKey,
+      changed,
+      breaking: changed && isCapabilityCompatibilityBreaking(previous.compatibility, next.compatibility),
+      ...(changed ? { reason: '能力兼容约束发生变化' } : {}),
+    };
+  });
+  const bindingRecheckRequired = capabilityCompatibilityChanges.some((item) => item.breaking);
+  return {
+    pluginId: from.pluginId,
+    fromVersionId,
+    toVersionId,
+    addedCapabilities: capabilityDiff.added,
+    removedCapabilities: capabilityDiff.removed,
+    addedPermissions: permissionDiff.added,
+    removedPermissions: permissionDiff.removed,
+    runtimeChanged: from.runtime !== to.runtime,
+    scopeChanged: from.scope !== to.scope,
+    compatibilityChanged: stableJson(from.manifest.compatibility) !== stableJson(to.manifest.compatibility),
+    capabilityCompatibilityChanges,
+    bindingRecheckRequired,
+    requiresApproval: permissionDiff.added.length > 0 || from.runtime !== to.runtime || from.scope !== to.scope || bindingRecheckRequired,
+  };
+}
+
+function isCapabilityCompatibilityBreaking(
+  previous: UnifiedPluginCapabilityDescriptor['compatibility'],
+  next: UnifiedPluginCapabilityDescriptor['compatibility'],
+): boolean {
+  if (!next) return false;
+  if (!previous) return true;
+  const previousMin = previous.host?.minVersion;
+  const nextMin = next.host?.minVersion;
+  if (nextMin && (!previousMin || compareSemVer(nextMin, previousMin) > 0)) return true;
+  const previousFeatures = new Set(previous.host?.requiredFeatures ?? []);
+  if ((next.host?.requiredFeatures ?? []).some((feature) => !previousFeatures.has(feature))) return true;
+  const previousExecution = new Map((previous.execution ?? []).map((item) => [item.location, item.minRuntimeVersion]));
+  for (const item of next.execution ?? []) {
+    const old = previousExecution.get(item.location);
+    if (item.minRuntimeVersion && (!old || compareSemVer(item.minRuntimeVersion, old) > 0)) return true;
+  }
+  if (stableJson(previous.targets) !== stableJson(next.targets) && (next.targets?.length ?? 0) > 0) return true;
+  return false;
 }
 
 function sha256(value: string): string {

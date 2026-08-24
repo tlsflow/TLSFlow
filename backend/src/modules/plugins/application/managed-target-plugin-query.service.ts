@@ -33,6 +33,7 @@ import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/appl
 import { migrateInputBindingsToContract } from '../../deployment-inputs/application/input-binding-contract-migrator.js';
 import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import { certificateFormats } from '../../certificates/schema/certificates.schema.js';
+import { GCAC_VERSION } from '../../../common/version.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -257,14 +258,6 @@ export class ManagedTargetPluginQueryService {
         return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
       const plugin = await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
-      const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);
-      if (!evaluated.compatible) {
-        throw new AppError('CAPABILITY_MISSING', '插件与受管目标不兼容', {
-          code: 'PLUGIN_INCOMPATIBLE',
-          pluginVersionId: plugin.id,
-          reasons: evaluated.reasons,
-        });
-      }
       const requestedInputBindings = input.value.pluginOverride.inputBindings ?? emptyInputBindingsV1();
       const artifacts = Object.keys(requestedInputBindings.artifacts).length > 0
         ? requestedInputBindings.artifacts
@@ -288,6 +281,14 @@ export class ManagedTargetPluginQueryService {
         submitted: { ...requestedInputBindings, artifacts },
       });
       if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
+      const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);
+      if (!evaluated.compatible) {
+        throw new AppError('CAPABILITY_MISSING', '插件与受管目标不兼容', {
+          code: 'PLUGIN_INCOMPATIBLE',
+          pluginVersionId: plugin.id,
+          reasons: evaluated.reasons,
+        });
+      }
       const hasAssetOverride = hasBindingValues(validation.assetOverride);
       const inheritedSameVersion = layers.target?.pluginVersionId === plugin.id || layers.device?.pluginVersionId === plugin.id;
       const binding = hasAssetOverride || !inheritedSameVersion
@@ -560,6 +561,14 @@ export class ManagedTargetPluginQueryService {
       targetType: context.managedTarget.targetType,
       managementMethod: normalizeManagementMethod(device?.managementMethod ?? context.host.managementMode),
       artifactContract: this.capabilityRegistry.require(capabilityKey).actionContractId,
+      productVersion: context.deviceAsset?.softwareVersion ?? device?.softwareVersion,
+      hostVersion: GCAC_VERSION,
+      hostFeatures: readStringArray(context.deviceAsset?.capabilityProfile.hostFeatures)
+        ?? process.env.GCAC_HOST_FEATURES?.split(',').map((item) => item.trim()).filter(Boolean),
+      runtimeVersions: {
+        ...(context.agent?.descriptor.version ? { AGENT: context.agent.descriptor.version } : {}),
+        ...(readStringValue(context.deviceAsset?.capabilityProfile.gatewayVersion) ? { GATEWAY: readStringValue(context.deviceAsset?.capabilityProfile.gatewayVersion) } : {}),
+      },
     };
   }
 
@@ -658,7 +667,6 @@ function evaluateCompatiblePlugin(
 ) {
   const capability = plugin.manifest.capabilities.find((item) => item.key === capabilityKey);
   const reasons: Array<{ dimension: string; expected: string[]; actual?: string }> = [];
-  if (plugin.status !== 'ENABLED') reasons.push({ dimension: 'status', expected: ['ENABLED'], actual: plugin.status });
   if (plugin.scope !== 'MANAGED' && plugin.scope !== 'BOTH') reasons.push({ dimension: 'scope', expected: ['MANAGED', 'BOTH'], actual: plugin.scope });
   if (!capability) reasons.push({ dimension: 'capabilityKey', expected: [capabilityKey] });
   const candidateLocations = capability
@@ -669,9 +677,14 @@ function evaluateCompatiblePlugin(
   }
   const evaluations = candidateLocations.map((executionLocation) => ({
     executionLocation,
-    evaluation: evaluatePluginCompatibility(plugin.manifest, { ...context, executionLocation }),
+    evaluation: evaluatePluginCompatibility(plugin.manifest, { ...context, executionLocation }, capability),
   }));
   const compatibleLocations = evaluations.filter((item) => item.evaluation.compatible).map((item) => item.executionLocation);
+  const compatibilityStatus = evaluations.some((item) => item.evaluation.status === 'COMPATIBLE')
+    ? 'COMPATIBLE'
+    : evaluations.some((item) => item.evaluation.status === 'UNKNOWN')
+      ? 'UNKNOWN'
+      : 'INCOMPATIBLE';
   if (candidateLocations.length > 0 && compatibleLocations.length === 0) {
     reasons.push(...evaluations.flatMap((item) => item.evaluation.reasons));
   }
@@ -686,6 +699,8 @@ function evaluateCompatiblePlugin(
     displayNameKey: plugin.manifest.displayNameKey,
     displayName,
     compatible: reasons.length === 0 && compatibleLocations.length > 0,
+    compatibilityStatus,
+    compatibility: evaluations.find((item) => item.evaluation.compatible)?.evaluation ?? evaluations[0]?.evaluation,
     executionLocations: compatibleLocations,
     reasons: deduplicateReasons(reasons),
   };
@@ -738,6 +753,8 @@ function summarizeCapability(resolved: ResolvedDeploymentCapability) {
     },
     executionLocation: resolved.executionLocation,
     compatible: resolved.compatibility.compatible,
+    compatibilityStatus: resolved.compatibility.status ?? (resolved.compatibility.compatible ? 'COMPATIBLE' : 'INCOMPATIBLE'),
+    compatibilityInputs: resolved.compatibility.inputs,
     reasons: resolved.compatibility.reasons,
   };
 }
@@ -747,6 +764,16 @@ function normalizeManagementMethod(value: string | undefined): 'AGENT' | 'PLUGIN
   if (normalized?.includes('AGENT')) return 'AGENT';
   if (normalized?.includes('PLUGIN') || normalized?.includes('API')) return 'PLUGIN';
   return 'MANUAL';
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim());
+  return result.length > 0 ? result : undefined;
 }
 
 function deduplicateReasons<T extends { dimension: string; expected: string[]; actual?: string }>(reasons: T[]): T[] {

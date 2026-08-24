@@ -13,6 +13,68 @@ const legacyMinimumVersion = '0.0.0';
 
 export const GCAC_VERSION = loadGcacVersion();
 
+export interface PluginGcacCompatibilityResult {
+  compatible: boolean;
+  currentGcacVersion: string;
+  minGcacVersion: string;
+}
+
+export type SemVerRangeOperator = '>=' | '>' | '<=' | '<' | '=';
+
+export interface SemVerRangeClause {
+  operator: SemVerRangeOperator;
+  version: string;
+}
+
+/** 解析插件声明的简单 SemVer 范围，例如 ">=2.11.0 <3.0.0"。 */
+export function parseSemVerRange(value: string): SemVerRangeClause[] {
+  const normalized = value.trim();
+  if (!normalized) throw new AppError('VALIDATION_FAILED', '版本范围不能为空', { versionRange: value });
+  const clauses = normalized.split(/\s+/).map((token) => {
+    const match = /^(>=|<=|>|<|=)?(.*)$/.exec(token);
+    const operator = (match?.[1] ?? '=') as SemVerRangeOperator;
+    const version = match?.[2] ?? '';
+    parseSemVer(version);
+    return { operator, version };
+  });
+  if (clauses.length === 0) throw new AppError('VALIDATION_FAILED', '版本范围无效', { versionRange: value });
+  return clauses;
+}
+
+export function isSemVerRange(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    parseSemVerRange(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 判断输入是否为可比较的完整 SemVer；未知或非法版本不会抛出异常。 */
+export function isSemVer(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  try {
+    parseSemVer(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function satisfiesSemVerRange(version: string, range: string): boolean {
+  return parseSemVerRange(range).every((clause) => {
+    const comparison = compareSemVer(version, clause.version);
+    switch (clause.operator) {
+      case '>=': return comparison >= 0;
+      case '>': return comparison > 0;
+      case '<=': return comparison <= 0;
+      case '<': return comparison < 0;
+      default: return comparison === 0;
+    }
+  });
+}
+
 export function normalizeMinimumGcacVersion(value: unknown): string {
   if (value === undefined) return legacyMinimumVersion;
   if (typeof value !== 'string') {
@@ -30,13 +92,26 @@ export function compareSemVer(left: string, right: string): number {
   return comparePrerelease(leftVersion.prerelease, rightVersion.prerelease);
 }
 
-export function assertPluginGcacCompatibility(pluginId: string, minimumVersion: string | undefined): void {
+/**
+ * 计算插件声明的最低宿主版本是否满足当前 GCAC 版本。
+ * 缺少字段的历史插件按 0.0.0 处理，保持已有插件可继续运行。
+ */
+export function evaluatePluginGcacCompatibility(minimumVersion: string | undefined): PluginGcacCompatibilityResult {
   const requiredVersion = normalizeMinimumGcacVersion(minimumVersion);
-  if (compareSemVer(GCAC_VERSION, requiredVersion) >= 0) return;
-  throw new AppError('VALIDATION_FAILED', '插件要求更高版本的 GCAC，当前版本不兼容', {
-    pluginId,
+  return {
+    compatible: compareSemVer(GCAC_VERSION, requiredVersion) >= 0,
     currentGcacVersion: GCAC_VERSION,
     minGcacVersion: requiredVersion,
+  };
+}
+
+export function assertPluginGcacCompatibility(pluginId: string, minimumVersion: string | undefined): void {
+  const compatibility = evaluatePluginGcacCompatibility(minimumVersion);
+  if (compatibility.compatible) return;
+  throw new AppError('VALIDATION_FAILED', '插件要求更高版本的 GCAC，当前版本不兼容', {
+    pluginId,
+    currentGcacVersion: compatibility.currentGcacVersion,
+    minGcacVersion: compatibility.minGcacVersion,
   });
 }
 
