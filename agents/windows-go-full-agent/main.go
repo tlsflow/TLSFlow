@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,12 +20,14 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 )
 
@@ -521,11 +524,18 @@ func handleService(args []string) error {
 	if isInteractiveSession() {
 		return errors.New("`service run` 必须由 Windows Service Manager 调用，交互会话请使用 `run`")
 	}
+	config, err := loadConfig(configPath)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(logPath) == "" {
+		logPath = filepath.Join(config.Paths.Windows.LogDir, "agent.log")
+	}
 	program := &serviceProgram{
 		configPath: configPath,
 		logPath:    logPath,
 	}
-	return runWindowsService(serviceNameFromPath(configPath), program)
+	return runWindowsService(serviceNameFromConfig(config), program)
 }
 
 func handleServiceInfo(args []string) error {
@@ -1240,6 +1250,17 @@ func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 }
 
 func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
+	return collectCapabilityReportsWithInventory(identity, nil)
+}
+
+func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory map[string]any) []reportedCapability {
+	if inventory == nil {
+		inventory = map[string]any{
+			"processExecutables": collectWindowsWebProcessExecutables(context.Background()),
+			"listeningPorts":     collectWindowsListeningPorts(context.Background()),
+			"configFiles":        collectWindowsWebConfigFiles(),
+		}
+	}
 	return []reportedCapability{
 		{
 			CapabilityKey: "windows.os.detail",
@@ -1256,35 +1277,49 @@ func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
 		},
 		{
 			CapabilityKey: "web.inventory",
-			Value: map[string]any{
-				"processExecutables": collectWindowsWebProcessExecutables(context.Background()),
-				"listeningPorts":     collectWindowsListeningPorts(context.Background()),
-				"configFiles":        collectWindowsWebConfigFiles(),
-			},
-			Confidence: 0.8, Evidence: map[string]any{"source": "agent-v2-generic-inventory"},
+			Value:         inventory,
+			Confidence:    0.8, Evidence: map[string]any{"source": "agent-v2-generic-inventory"},
 		},
 	}
 }
 
-// 只读取常见安装目录中的原始配置，产品识别和站点解析由控制面插件完成。
+// 只读取受控目录中的原始配置；控制面会再次校验并完成最终资产投影。
 func collectWindowsWebConfigFiles() []map[string]any {
 	files := make([]map[string]any, 0, 128)
-	for _, root := range []string{`C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`} {
+	seen := make(map[string]struct{})
+	roots := []string{
+		`C:\Windows\System32\inetsrv\config\applicationHost.config`,
+		`C:\nginx`, `C:\Apache24`, `C:\Tomcat`,
+		`C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`,
+	}
+	for _, root := range roots {
+		if _, exists := seen[strings.ToLower(root)]; exists {
+			continue
+		}
+		seen[strings.ToLower(root)] = struct{}{}
+		if info, err := os.Stat(root); err == nil && !info.IsDir() {
+			if item := collectWebConfigFile(root); item != nil {
+				files = append(files, item)
+			}
+			continue
+		}
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if len(files) >= 256 {
+				return filepath.SkipAll
+			}
 			if walkErr != nil || entry == nil || entry.IsDir() {
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext != ".conf" && ext != ".xml" && ext != ".properties" {
+			if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
 				return nil
 			}
 			info, err := entry.Info()
 			if err != nil || info.Size() > 256*1024 {
 				return nil
 			}
-			content, err := os.ReadFile(path)
-			if err == nil {
-				files = append(files, map[string]any{"path": filepath.ToSlash(path), "content": string(content)})
+			if item := collectWebConfigFile(path); item != nil {
+				files = append(files, item)
 			}
 			return nil
 		})
@@ -1293,6 +1328,50 @@ func collectWindowsWebConfigFiles() []map[string]any {
 		}
 	}
 	return files
+}
+
+func collectWebConfigFile(path string) map[string]any {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > 256*1024 {
+		return nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text, ok := decodeWindowsConfigText(content)
+	if !ok {
+		return nil
+	}
+	return map[string]any{"path": filepath.ToSlash(path), "content": text}
+}
+
+// Windows 配置文件常见 UTF-8、UTF-16 LE 和 UTF-16 BE 三种编码。UTF-16 原始字节不能直接转 string，否则会把 NUL 上报到 JSONB。
+func decodeWindowsConfigText(content []byte) (string, bool) {
+	if len(content) >= 2 && content[0] == 0xff && content[1] == 0xfe {
+		return decodeUTF16ConfigText(content[2:], true)
+	}
+	if len(content) >= 2 && content[0] == 0xfe && content[1] == 0xff {
+		return decodeUTF16ConfigText(content[2:], false)
+	}
+	text := strings.TrimPrefix(string(content), "\ufeff")
+	return text, !strings.ContainsRune(text, '\x00')
+}
+
+func decodeUTF16ConfigText(content []byte, littleEndian bool) (string, bool) {
+	if len(content)%2 != 0 {
+		return "", false
+	}
+	units := make([]uint16, 0, len(content)/2)
+	for index := 0; index < len(content); index += 2 {
+		if littleEndian {
+			units = append(units, uint16(content[index])|uint16(content[index+1])<<8)
+		} else {
+			units = append(units, uint16(content[index])<<8|uint16(content[index+1]))
+		}
+	}
+	text := string(utf16.Decode(units))
+	return text, !strings.ContainsRune(text, '\x00')
 }
 
 // Windows Go Agent 使用系统 tasklist 获取原始进程镜像名；控制面插件负责解释事实。
@@ -1441,9 +1520,13 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity) error {
+	return reportCapabilitiesWithInventory(ctx, client, config, registration, identity, nil)
+}
+
+func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, inventory map[string]any) error {
 	capabilities := []reportedCapability{}
 	if !isPureGatewayRole(config) {
-		capabilities = collectCapabilityReports(identity)
+		capabilities = collectCapabilityReportsWithInventory(identity, inventory)
 	}
 	request := capabilityReportRequest{
 		AgentID:            registration.AgentID,
@@ -1462,6 +1545,179 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 		}
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
+}
+
+// webInventoryFromFactEnvelope 将事实采集的受控文件内容转换为宿主可消费的通用 Web 库存。
+// 这里仅做稳定、无副作用的文本识别；具体资产投影仍由控制面完成。
+func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
+	inventory := map[string]any{"processExecutables": []string{}, "listeningPorts": []map[string]any{}, "configFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
+	if envelope == nil {
+		return inventory
+	}
+	frameworks := inventory["frameworks"].([]map[string]any)
+	sites := inventory["sites"].([]map[string]any)
+	seenFramework := map[string]bool{}
+	addFramework := func(kind, name string) {
+		if !seenFramework[kind] {
+			frameworks = append(frameworks, map[string]any{"frameworkType": kind, "displayName": name})
+			seenFramework[kind] = true
+		}
+	}
+	addSite := func(kind, name, protocol string, port int, addresses []string, metadata map[string]any) {
+		if name == "" {
+			return
+		}
+		sites = append(sites, map[string]any{"frameworkType": kind, "name": name, "addresses": addresses, "port": port, "protocol": protocol, "metadata": metadata})
+	}
+	facts := factMaps(envelope["facts"])
+	for _, fact := range facts {
+		switch stringFromMap(fact, "kind") {
+		case "process":
+			if executable := stringFromMap(fact, "executablePath"); executable != "" {
+				inventory["processExecutables"] = append(inventory["processExecutables"].([]string), executable)
+			}
+			continue
+		case "listening_port":
+			inventory["listeningPorts"] = append(inventory["listeningPorts"].([]map[string]any), map[string]any{
+				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": stringFromMap(fact, "protocol"),
+			})
+		case "file_content":
+			// 受控配置文本继续向控制面提供原始证据，控制面可据此进行完整解析。
+		default:
+			continue
+		}
+		path := stringFromMap(fact, "path")
+		encoded := stringFromMap(fact, "contentBase64")
+		if path == "" || encoded == "" {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			continue
+		}
+		content, ok := decodeWindowsConfigText(decoded)
+		if !ok {
+			continue
+		}
+		inventory["configFiles"] = append(inventory["configFiles"].([]map[string]any), map[string]any{"path": filepath.ToSlash(path), "content": content})
+		lower := strings.ToLower(filepath.ToSlash(path))
+		switch {
+		case strings.HasSuffix(lower, "/applicationhost.config") || strings.Contains(content, "<system.applicationhost"):
+			addFramework("web.iis", "IIS")
+			for _, match := range regexp.MustCompile(`(?is)<site\b[^>]*\bname=["']([^"']+)["'][^>]*>(.*?)</site>`).FindAllStringSubmatch(content, -1) {
+				name := match[1]
+				body := match[2]
+				port, protocol, host := iisBinding(body)
+				addresses := []string{}
+				if host != "" {
+					addresses = append(addresses, host)
+				}
+				addSite("web.iis", name, protocol, port, addresses, map[string]any{"sourcePath": path})
+			}
+		case strings.Contains(lower, "nginx") || strings.Contains(content, "server_name"):
+			addFramework("web.nginx", "Nginx")
+			for _, match := range regexp.MustCompile(`(?is)server\s*\{(.*?)\}`).FindAllStringSubmatch(content, -1) {
+				names := regexp.MustCompile(`(?i)server_name\s+([^;]+);`).FindStringSubmatch(match[1])
+				name := "default"
+				if len(names) > 1 {
+					name = strings.Fields(names[1])[0]
+				}
+				port := 80
+				protocol := "HTTP"
+				if strings.Contains(match[1], "443") || strings.Contains(strings.ToLower(match[1]), "ssl") {
+					port = 443
+					protocol = "HTTPS"
+				}
+				addresses := []string{}
+				if len(names) > 1 {
+					addresses = strings.Fields(names[1])
+				}
+				addSite("web.nginx", name, protocol, port, addresses, map[string]any{"sourcePath": path})
+			}
+		case strings.Contains(lower, "apache") || strings.Contains(content, "<VirtualHost"):
+			addFramework("web.apache", "Apache")
+			for _, match := range regexp.MustCompile(`(?is)<VirtualHost\s+([^>]+)>(.*?)</VirtualHost>`).FindAllStringSubmatch(content, -1) {
+				name := "localhost"
+				if nameMatch := regexp.MustCompile(`(?i)(?:ServerName|ServerAlias)\s+([^\s#]+)`).FindStringSubmatch(match[2]); len(nameMatch) > 1 {
+					name = strings.TrimSpace(nameMatch[1])
+				}
+				port := 80
+				if strings.Contains(match[1], "443") {
+					port = 443
+				}
+				protocol := "HTTP"
+				if port == 443 || strings.Contains(strings.ToLower(match[2]), "sslengine on") {
+					protocol = "HTTPS"
+				}
+				addSite("web.apache", name, protocol, port, []string{name}, map[string]any{"sourcePath": path})
+			}
+		case strings.HasSuffix(lower, "/server.xml") || strings.Contains(lower, "tomcat"):
+			addFramework("app.tomcat", "Tomcat")
+			for _, match := range regexp.MustCompile(`(?is)<Connector\b([^>]*)/?>`).FindAllStringSubmatch(content, -1) {
+				port := 8080
+				if p := regexp.MustCompile(`(?i)port=["'](\d+)["']`).FindStringSubmatch(match[1]); len(p) > 1 {
+					fmt.Sscanf(p[1], "%d", &port)
+				}
+				protocol := "HTTP"
+				if strings.Contains(strings.ToLower(match[1]), "ssl") || strings.Contains(strings.ToLower(match[1]), "https") || port == 8443 {
+					protocol = "HTTPS"
+				}
+				addSite("app.tomcat", "localhost", protocol, port, []string{"localhost"}, map[string]any{"sourcePath": path})
+			}
+		}
+	}
+	inventory["frameworks"] = frameworks
+	inventory["sites"] = sites
+	return inventory
+}
+
+func iisBinding(body string) (int, string, string) {
+	match := regexp.MustCompile(`(?i)bindingInformation=["']([^"']+)["']`).FindStringSubmatch(body)
+	if len(match) < 2 {
+		return 80, "HTTP", ""
+	}
+	parts := strings.Split(match[1], ":")
+	port := 80
+	if len(parts) > 1 {
+		fmt.Sscanf(parts[1], "%d", &port)
+	}
+	protocol := "HTTP"
+	if regexp.MustCompile(`(?i)protocol\s*=\s*["']https["']`).MatchString(body) || port == 443 {
+		protocol = "HTTPS"
+	}
+	host := ""
+	if len(parts) > 2 {
+		host = strings.TrimSpace(strings.Join(parts[2:], ":"))
+	}
+	return port, protocol, host
+}
+
+func lenOfAny(value any) int {
+	switch items := value.(type) {
+	case []map[string]any:
+		return len(items)
+	case []any:
+		return len(items)
+	default:
+		return 0
+	}
+}
+
+func factMaps(value any) []map[string]any {
+	switch facts := value.(type) {
+	case []map[string]any:
+		return facts
+	case []any:
+		result := make([]map[string]any, 0, len(facts))
+		for _, item := range facts {
+			if fact, ok := item.(map[string]any); ok {
+				result = append(result, fact)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func loadRuntimeDependencies(config *AgentConfig) (*runtimeDependencies, error) {
@@ -1741,12 +1997,14 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 		if !result.Success {
 			return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 		}
-		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane)); err != nil {
+		inventory := webInventoryFromFactEnvelope(mapFromMap(result.Detail, "factEnvelope"))
+		if err := reportCapabilitiesWithInventory(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane), inventory); err != nil {
 			detail := cloneMap(result.Detail)
 			detail["capabilityRescan"] = map[string]any{"trigger": "manual", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": false, "error": err.Error()}
 			return false, "CAPABILITY_RESCAN_FAILED", fmt.Sprintf("Web 库存上报失败: %v", err), detail
 		}
 		detail := cloneMap(result.Detail)
+		detail["webInventory"] = map[string]any{"frameworks": inventory["frameworks"], "sites": inventory["sites"], "configFiles": lenOfAny(inventory["configFiles"])}
 		detail["capabilityRescan"] = map[string]any{"trigger": "manual", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": true}
 		return true, "", "", detail
 	}
@@ -2053,7 +2311,6 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 		"tenantId":            firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
 		"pluginId":            stringFromMap(token, "pluginId"),
 		"pluginVersion":       pluginVersion,
-		"pluginVersionId":     stringFromMap(token, "pluginVersionId"),
 		"capability":          stringFromMap(token, "capability"),
 		"actions":             token["actions"],
 		"paths":               token["allowedPaths"],
@@ -2447,9 +2704,8 @@ func loadInstallMetadata(path string) (*InstallMetadata, error) {
 	return &metadata, nil
 }
 
-func serviceNameFromPath(configPath string) string {
-	config, err := loadConfig(configPath)
-	if err != nil || strings.TrimSpace(config.Service.Name) == "" {
+func serviceNameFromConfig(config *AgentConfig) string {
+	if config == nil || strings.TrimSpace(config.Service.Name) == "" {
 		return "gcac-agent"
 	}
 	return config.Service.Name

@@ -23,10 +23,11 @@ namespace GCAC.WindowsCompatibilityAgent
             }
         }
 
-        public string Register(CapabilitySnapshot snapshot)
+        public RegistrationResponse Register(CapabilitySnapshot snapshot)
         {
             RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot));
-            return response.id;
+            if (response == null || TextUtility.IsBlank(response.id)) throw new InvalidOperationException("注册响应缺少 Agent ID");
+            return response;
         }
 
         private static bool Is64BitOperatingSystem()
@@ -200,6 +201,9 @@ namespace GCAC.WindowsCompatibilityAgent
             if (!TextUtility.IsBlank(primaryIp))
                 adapters.Add(new Dictionary<string, object> { { "Name", "primary" }, { "IPv4", new string[] { primaryIp } } });
             reports.Add(Capability("windows.network.adapters", adapters, 0.9, "runtime-inspection"));
+            object webInventory;
+            if (snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue("web.inventory", out webInventory) && webInventory != null)
+                reports.Add(Capability("web.inventory", webInventory, 0.95, "compatibility-runtime"));
             return reports;
         }
 

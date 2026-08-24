@@ -13,6 +13,8 @@ export interface StandardDiscoveryProjectionContext {
   pluginBindingId?: string;
   discoveryProviderKey?: string;
   discoverySource?: 'PROVIDER' | 'AGENT';
+  /** Web 事实本次为空时保留上一次投影，避免瞬时空上报造成资产消失。 */
+  preserveEmptyWeb?: boolean;
 }
 
 export interface StandardDiscoveryProjectionSummary {
@@ -46,7 +48,7 @@ export class StandardDeviceDiscoveryProjector {
       managedTargets: discovery.managedTargets.length,
       certificates: discovery.certificates.length,
       certificateBindings: discovery.certificateBindings.length,
-      stale: existingSites.rows.filter((row) => !discoveredKeys.has(row.site_key)).length,
+      stale: context.preserveEmptyWeb ? 0 : existingSites.rows.filter((row) => !discoveredKeys.has(row.site_key)).length,
       conflicts: 0,
     };
   }
@@ -87,7 +89,7 @@ export class StandardDeviceDiscoveryProjector {
            where tenant_id=$3 and id=$4 and deleted_at is null`,
           [JSON.stringify({ onboardingState: 'ACTIVE', discoveryStatus: 'ACTIVE' }), discoveredAt, context.tenantId, context.deviceAssetId],
         );
-        await markStale(tx, context, discoveryProviderKey, discoveredAt);
+        if (!context.preserveEmptyWeb) await markStale(tx, context, discoveryProviderKey, discoveredAt);
 
         const frameworkIds = new Map<string, string>();
         for (const framework of discovery.frameworks) {

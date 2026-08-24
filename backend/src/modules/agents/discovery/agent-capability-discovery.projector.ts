@@ -31,13 +31,16 @@ export class AgentCapabilityDiscoveryProjector {
   async project(agent: AgentRegistration, snapshot: AgentCapabilitySnapshot): Promise<StandardDiscoveryProjectionSummary> {
     const host = await this.resolveHost(snapshot.tenantId, agent.id);
     const discovery = this.buildDiscovery(agent, snapshot, host);
+    const hasWebInventory = snapshot.capabilities.some((capability) => capability.capabilityKey === 'web.inventory');
+    const preserveEmptyWeb = hasWebInventory && discovery.frameworks.length === 0 && discovery.sites.length === 0;
     const summary = await this.projector.project({
       tenantId: snapshot.tenantId,
       hostId: host.id,
       discoveryProviderKey: `agent:${agent.id}`,
       discoverySource: 'AGENT',
+      preserveEmptyWeb,
     }, discovery);
-    if (snapshot.capabilities.some((capability) => capability.capabilityKey === 'web.inventory')) {
+    if (hasWebInventory && !preserveEmptyWeb) {
       await this.markLegacyWebPluginDiscoveryStale(snapshot.tenantId, host.id);
     }
     return summary;
@@ -182,12 +185,12 @@ function projectWebFacts(
   const frameworkSeen = new Set<string>();
   const siteByKey = new Map<string, StandardDeviceDiscoveryV2['sites'][number]>();
   const targetBySite = new Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>();
-  const certificateByPath = buildCertificateIndex(capabilities);
+  const certificateByReference = buildCertificateIndex(capabilities);
   for (const capability of capabilities) {
     const value = asRecord(capability.value);
     if (!value) continue;
     if (capability.capabilityKey === 'web.inventory') {
-      projectGenericWebInventory(value, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetBySite, certificates, certificateBindings, certificateByPath);
+      projectGenericWebInventory(value, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetBySite, certificates, certificateBindings, certificateByReference);
       continue;
     }
   }
@@ -205,7 +208,7 @@ function projectGenericWebInventory(
   targetBySite: Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>,
   certificates: WebProjection['certificates'],
   certificateBindings: WebProjection['certificateBindings'],
-  certificateByPath: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>,
+  certificateByReference: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>,
 ): void {
   const configFiles = arrayValue(value.configFiles)
     ?.map((item) => asRecord(item))
@@ -225,7 +228,7 @@ function projectGenericWebInventory(
       const frameworkStableKey = `framework:${frameworkType}`;
       const normalized = normalizeWebSite(site, frameworkStableKey, primaryAddress, frameworkType);
       if (!normalized) continue;
-      addWebSite(normalized, sites, managedTargets, siteByKey, targetBySite, certificates, certificateBindings, certificateByPath);
+      addWebSite(normalized, sites, managedTargets, siteByKey, targetBySite, certificates, certificateBindings, certificateByReference);
     }
   }
   for (const rawFramework of arrayValue(value.frameworks) ?? []) {
@@ -249,7 +252,7 @@ function projectGenericWebInventory(
     }
     const site = normalizeWebSite(siteValue, frameworkStableKey, primaryAddress, frameworkType);
     if (!site) continue;
-    addWebSite(site, sites, managedTargets, siteByKey, targetBySite, certificates, certificateBindings, certificateByPath);
+    addWebSite(site, sites, managedTargets, siteByKey, targetBySite, certificates, certificateBindings, certificateByReference);
   }
 }
 
@@ -261,7 +264,7 @@ function addWebSite(
   targetBySite: Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>,
   certificates: WebProjection['certificates'],
   certificateBindings: WebProjection['certificateBindings'],
-  certificateByPath: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>,
+  certificateByReference: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>,
 ): void {
   const existing = siteByKey.get(site.stableKey);
   if (existing) {
@@ -279,13 +282,16 @@ function addWebSite(
     targetBySite.set(site.stableKey, target);
     managedTargets.push(target);
   }
-  const certificatePath = listenersOf(site).map((item) => stringValue(item.certificatePath)).find((path) => Boolean(path && certificateByPath.has(normalizePath(path))))
+  const certificatePath = listenersOf(site).map((item) => stringValue(item.certificatePath)).find((path) => Boolean(path && certificateReference(certificateByReference, path)))
     ?? listenersOf(site).map((item) => stringValue(item.certificatePath)).find(Boolean)
     ?? stringValue(site.metadata?.certificatePath);
-  const certificate = certificatePath ? certificateByPath.get(normalizePath(certificatePath)) : undefined;
+  const certificateThumbprint = listenersOf(site).map((item) => stringValue(item.certificateThumbprint)).find((thumbprint) => Boolean(thumbprint && certificateReference(certificateByReference, `thumbprint:${thumbprint}`)));
+  const certificate = certificateThumbprint
+    ? certificateReference(certificateByReference, `thumbprint:${certificateThumbprint}`)
+    : certificatePath ? certificateReference(certificateByReference, certificatePath) : undefined;
   if (certificate && !certificates.some((item) => item.stableKey === certificate.stableKey)) certificates.push(certificate);
   if (certificate && !certificateBindings.some((item) => item.managedTargetStableKey === target!.stableKey && item.certificateStableKey === certificate.stableKey)) {
-    certificateBindings.push({ stableKey: `BINDING:${current.stableKey}:${certificate.stableKey}`, managedTargetStableKey: target.stableKey, certificateStableKey: certificate.stableKey, bindingName: current.displayName, metadata: { certificatePath } });
+    certificateBindings.push({ stableKey: `BINDING:${current.stableKey}:${certificate.stableKey}`, managedTargetStableKey: target.stableKey, certificateStableKey: certificate.stableKey, bindingName: current.displayName, metadata: { ...(certificatePath ? { certificatePath } : {}), ...(certificateThumbprint ? { certificateThumbprint } : {}) } });
   }
 }
 
@@ -305,26 +311,33 @@ function buildCertificateIndex(capabilities: AgentCapabilitySnapshot['capabiliti
     const reported = certificateFromReportedMetadata(value, path) ?? certificateFromPem(value, path);
     if (!reported) continue;
     index.set(normalizePath(path), reported);
+    index.set(`basename:${pathBasename(path).toLowerCase()}`, reported);
+    const thumbprint = certificateThumbprint(value);
+    if (thumbprint) index.set(`thumbprint:${thumbprint}`, reported);
     for (const configuredPath of arrayValue(value.configuredPaths) ?? []) {
       const alias = stringValue(configuredPath);
-      if (alias) index.set(normalizePath(alias), reported);
+      if (alias) {
+        index.set(normalizePath(alias), reported);
+        index.set(`basename:${pathBasename(alias).toLowerCase()}`, reported);
+      }
     }
   }
   return index;
 }
 
 function certificateFromReportedMetadata(value: Record<string, any>, path: string): StandardDeviceDiscoveryV2['certificates'][number] | undefined {
-  const fingerprint = stringValue(value.sha256Fingerprint)?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
-  if (!fingerprint || !/^[A-F0-9]{64}$/.test(fingerprint)) return undefined;
+  const fingerprint = stringValue(value.sha256Fingerprint ?? value.fingerprintSha256)?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
+  const thumbprint = certificateThumbprint(value);
+  if ((!fingerprint || !/^[A-F0-9]{64}$/.test(fingerprint)) && !thumbprint) return undefined;
   const notBefore = validTimestamp(value.notBefore); const notAfter = validTimestamp(value.notAfter);
   return {
-    stableKey: `CERT:${fingerprint}`,
-    sha256Fingerprint: fingerprint,
+    stableKey: fingerprint && /^[A-F0-9]{64}$/.test(fingerprint) ? `CERT:${fingerprint}` : `CERT:SHA1:${thumbprint}`,
+    ...(fingerprint && /^[A-F0-9]{64}$/.test(fingerprint) ? { sha256Fingerprint: fingerprint } : {}),
     ...(stringValue(value.subject) ? { subject: stringValue(value.subject) } : {}),
     ...(stringValue(value.issuer) ? { issuer: stringValue(value.issuer) } : {}),
     ...(notBefore ? { notBefore } : {}),
     ...(notAfter ? { notAfter } : {}),
-    metadata: { path, ...(stringValue(value.name) ? { name: stringValue(value.name) } : {}) },
+    metadata: { path, ...(thumbprint ? { thumbprint } : {}), ...(stringValue(value.store) ? { store: stringValue(value.store) } : {}), ...(stringValue(value.storeLocation) ? { storeLocation: stringValue(value.storeLocation) } : {}), ...(stringValue(value.name) ? { name: stringValue(value.name) } : {}) },
   };
 }
 
@@ -348,6 +361,19 @@ function certificateNameFromSubject(subject: string): string | undefined {
 }
 
 function normalizePath(value: string): string { return value.replaceAll('\\', '/').replace(/\/+/g, '/').trim(); }
+
+function pathBasename(value: string): string { return normalizePath(value).split('/').at(-1) ?? value; }
+
+function certificateThumbprint(value: Record<string, any>): string | undefined {
+  const raw = stringValue(value.thumbprint ?? value.sha1Fingerprint ?? value.certificateThumbprint ?? value.certificateHash ?? value.certHash);
+  const normalized = raw?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
+  return normalized && normalized.length >= 8 ? normalized : undefined;
+}
+
+function certificateReference(index: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>, value: string): StandardDeviceDiscoveryV2['certificates'][number] | undefined {
+  const normalized = normalizePath(value);
+  return index.get(normalized) ?? index.get(`basename:${pathBasename(normalized).toLowerCase()}`) ?? index.get(value.toLowerCase());
+}
 
 function frameworkDisplayName(frameworkType: string): string {
   return ({ 'web.nginx': 'Nginx', 'web.apache': 'Apache', 'app.tomcat': 'Tomcat', 'web.iis': 'IIS' } as Record<string, string>)[frameworkType] ?? frameworkType;

@@ -73,6 +73,7 @@ type Parser = (content: string, fallbackAddress?: string) => WebConfigDiscoveryR
 
 function parserFor(path: string, content: string): Parser | undefined {
   const normalized = path.replaceAll('\\', '/').toLowerCase();
+  if (normalized.endsWith('/inetsrv/config/applicationhost.config') || /<configuration>\s*<configsections\b|<sites>\s*<site\b/i.test(content)) return parseIis;
   if (normalized.endsWith('/nginx.conf') || normalized.includes('/nginx/') || normalized.includes('nginx\\')) return parseNginx;
   if (normalized.endsWith('/httpd.conf') || normalized.endsWith('/apache2.conf') || normalized.includes('/sites-enabled/') || normalized.includes('/conf-enabled/')) return parseApache;
   if (normalized.endsWith('/server.xml') && (normalized.includes('tomcat') || normalized.includes('catalina'))) return parseTomcat;
@@ -80,6 +81,47 @@ function parserFor(path: string, content: string): Parser | undefined {
   if (/<VirtualHost\b|\bSSLCertificateFile\s+/i.test(content)) return parseApache;
   if (/<Connector\b|<Context\b|<Host\b/i.test(content)) return parseTomcat;
   return undefined;
+}
+
+function parseIis(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const activeContent = content.replace(/<!--[\s\S]*?-->/g, '');
+  const sites: Array<Record<string, unknown>> = [];
+  const sitePattern = /<site\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/site>)/gi;
+  let matched: RegExpExecArray | null;
+  while ((matched = sitePattern.exec(activeContent))) {
+    const siteAttributes = attributes(matched[1] ?? '');
+    const siteName = siteAttributes.name ?? fallbackAddress ?? 'Default Web Site';
+    const body = matched[2] ?? '';
+    const listeners: Array<Record<string, unknown>> = [];
+    const addresses: string[] = [];
+    for (const binding of body.matchAll(/<binding\b([^>]*?)(?:\/\s*>|>)/gi)) {
+      const bindingAttributes = attributes(binding[1] ?? '');
+      const protocol = String(bindingAttributes.protocol ?? 'http').toLowerCase() === 'https' ? 'HTTPS' : 'HTTP';
+      const parts = String(bindingAttributes.bindingInformation ?? '').split(':');
+      const port = parsePort(parts.length > 1 ? parts[1]! : '') ?? (protocol === 'HTTPS' ? 443 : 80);
+      const host = parts.length > 2 ? parts.slice(2).join(':').trim() : '';
+      if (host && host !== '*') addresses.push(host);
+      const certificateHash = normalizeThumbprint(bindingAttributes.certificateHash);
+      listeners.push({
+        port,
+        protocol,
+        bindingInformation: bindingAttributes.bindingInformation ?? '',
+        ...(host ? { host } : {}),
+        ...(certificateHash ? { certificateThumbprint: certificateHash } : {}),
+        ...(bindingAttributes.certificateStoreName ? { certificateStoreName: bindingAttributes.certificateStoreName } : {}),
+        ...(bindingAttributes.certificateStoreLocation ? { certificateStoreLocation: bindingAttributes.certificateStoreLocation } : {}),
+      });
+    }
+    const preferred = listeners.find((listener) => listener.protocol === 'HTTPS') ?? listeners[0];
+    sites.push({
+      frameworkType: 'web.iis',
+      name: siteName,
+      addresses: addresses.length ? [...new Set(addresses)] : [fallbackAddress ?? siteName],
+      ...(preferred ? { port: preferred.port, protocol: preferred.protocol } : {}),
+      metadata: { siteId: siteAttributes.id, listeners },
+    });
+  }
+  return { frameworks: [{ frameworkType: 'web.iis', displayName: 'IIS' }], sites };
 }
 
 function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
@@ -90,11 +132,12 @@ function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscove
     const names = words(body, /server_name\s+([^;]+);/i).flatMap((value) => value.split(/\s+/)).filter(Boolean);
     const listens = words(body, /listen\s+([^;]+);/gi);
     const certificate = match(body, /ssl_certificate\s+([^;]+);/i);
+    const certificateKey = match(body, /ssl_certificate_key\s+([^;]+);/i);
     const listen = listens[0] ?? '80';
     const port = parsePort(listen) ?? 80;
     const protocol = /ssl|443/.test(listen.toLowerCase()) ? 'HTTPS' : 'HTTP';
     const siteNames = names.length ? names : [fallbackAddress ?? 'default'];
-    sites.push({ frameworkType: 'web.nginx', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, certificatePath: certificate }] } });
+    sites.push({ frameworkType: 'web.nginx', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}) }] } });
   }
   return { frameworks: [{ frameworkType: 'web.nginx', displayName: 'Nginx' }], sites };
 }
@@ -108,8 +151,10 @@ function parseApache(content: string, fallbackAddress?: string): WebConfigDiscov
     const port = parsePort(header) ?? 80;
     const protocol = /443|ssl/i.test(header) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP';
     const certificate = match(block, /SSLCertificateFile\s+([^\s#]+)/i);
+    const certificateKey = match(block, /SSLCertificateKeyFile\s+([^\s#]+)/i);
+    const certificateChain = match(block, /SSLCertificateChainFile\s+([^\s#]+)/i);
     const siteNames = names.length ? names : [fallbackAddress ?? header];
-    sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, certificatePath: certificate }] } });
+    sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}), ...(certificateChain ? { certificateChainPath: certificateChain } : {}) }] } });
   }
   return { frameworks: [{ frameworkType: 'web.apache', displayName: 'Apache' }], sites };
 }
@@ -136,7 +181,9 @@ function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscov
     const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' || Boolean(certificatePath) ? 'HTTPS' : 'HTTP';
     const hosts = [...activeContent.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
     const names = hosts.length ? hosts : [fallbackAddress ?? 'localhost'];
-    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: certificatePath, listeners: [{ port, protocol, certificatePath }] } });
+    const certificateKeyPath = attrs.certificateKeyFile;
+    const certificateChainPath = attrs.certificateChainFile;
+    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: certificatePath, listeners: [{ port, protocol, ...(certificatePath ? { certificatePath } : {}), ...(certificateKeyPath ? { certificateKeyPath } : {}), ...(certificateChainPath ? { certificateChainPath } : {}) }] } });
   }
   const contexts = [...activeContent.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
   for (const context of contexts) sites.push({ frameworkType: 'app.tomcat', name: context, addresses: [fallbackAddress ?? 'localhost'], metadata: { contextPath: context } });
@@ -159,6 +206,11 @@ function match(value: string, pattern: RegExp): string | undefined {
 function parsePort(value: string): number | undefined {
   const port = Number(value.match(/:(\d{1,5})/)?.[1] ?? value.match(/\b(\d{1,5})\b/)?.[1]);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined;
+}
+
+function normalizeThumbprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
+  return normalized && normalized.length >= 8 ? normalized : undefined;
 }
 
 function text(value: unknown): string | undefined {

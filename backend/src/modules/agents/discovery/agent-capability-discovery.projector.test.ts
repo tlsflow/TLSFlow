@@ -8,6 +8,7 @@ import { AgentCapabilityDiscoveryProjector } from './agent-capability-discovery.
 
 function createFixture() {
   let projected: Record<string, unknown> | undefined;
+  let projectionContext: Record<string, unknown> | undefined;
   const queries: string[] = [];
   const database = {
     query: async (query: string) => {
@@ -16,12 +17,13 @@ function createFixture() {
     },
   } as unknown as DatabasePort;
   const projector = {
-    project: async (_context: unknown, discovery: Record<string, unknown>) => {
+    project: async (context: Record<string, unknown>, discovery: Record<string, unknown>) => {
+      projectionContext = context;
       projected = discovery;
       return { serviceInstances: 0, sites: 0, managedTargets: 0, certificates: 0, certificateBindings: 0, stale: 0, conflicts: 0 };
     },
   } as unknown as StandardDeviceDiscoveryProjector;
-  return { projected: () => projected, queries: () => queries, service: new AgentCapabilityDiscoveryProjector(database, projector) };
+  return { projected: () => projected, projectionContext: () => projectionContext, queries: () => queries, service: new AgentCapabilityDiscoveryProjector(database, projector) };
 }
 
 function agent(): AgentRegistration {
@@ -185,6 +187,24 @@ test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报�
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
 });
 
+test('IIS binding Thumbprint 可关联 Windows 证书库事实', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: `<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="a1 b2 c3 d4 e5 f6 07 08" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>` }],
+      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', subject: 'CN=portal.example.test', issuer: 'CN=GCAC Test CA', notAfter: '2027-08-01T00:00:00Z', store: 'My', storeLocation: 'LocalMachine' }],
+    },
+  }]));
+  const projected = fixture.projected() as {
+    certificates: Array<{ stableKey: string; subject?: string; sha256Fingerprint?: string; metadata?: Record<string, unknown> }>;
+    certificateBindings: Array<{ certificateStableKey: string; metadata?: Record<string, unknown> }>;
+  };
+  assert.equal(projected.certificates[0]?.stableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  assert.equal(projected.certificates[0]?.subject, 'CN=portal.example.test');
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  assert.equal(projected.certificateBindings[0]?.metadata?.certificateThumbprint, 'A1B2C3D4E5F60708');
+});
+
 test('Tomcat 的相对 keystore 配置路径可关联 Agent 读取到的绝对路径证书', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
@@ -237,7 +257,7 @@ test('Tomcat 多 listener 中会选择已上报证书路径，而不是注释示
 test('权威 web.inventory 投影成功后只淘汰旧 Agent Web 插件资产', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{
-    capabilityKey: 'web.inventory', confidence: 0.9, value: { configFiles: [] },
+    capabilityKey: 'web.inventory', confidence: 0.9, value: { frameworks: [{ frameworkType: 'web.nginx' }], sites: [{ name: 'current.example.test', frameworkType: 'web.nginx', addresses: ['current.example.test'], port: 443, protocol: 'HTTPS' }] },
   }]));
 
   const cleanupSql = fixture.queries().slice(1).join('\n');
@@ -248,4 +268,12 @@ test('权威 web.inventory 投影成功后只淘汰旧 Agent Web 插件资产', 
   assert.match(cleanupSql, /framework_type = any\(\$4::text\[\]\)/i);
   assert.match(cleanupSql, /discovery_source='AGENT'/i);
   assert.match(cleanupSql, /discovery_provider_key like 'plugin:%'/i);
+});
+
+test('Web inventory 没有可解析事实时保留旧投影，不执行清理', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{ capabilityKey: 'web.inventory', confidence: 0.9, value: { configFiles: [] } }]));
+
+  assert.equal(fixture.projectionContext()?.preserveEmptyWeb, true);
+  assert.equal(fixture.queries().filter((query) => /update pg_(framework_instances|site_assets|managed_targets|certificate_bindings)/i.test(query)).length, 0);
 });

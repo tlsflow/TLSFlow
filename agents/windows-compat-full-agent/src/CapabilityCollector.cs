@@ -118,7 +118,12 @@ namespace GCAC.WindowsCompatibilityAgent
         private static object[] CollectWebConfigFiles()
         {
             List<object> result = new List<object>();
-            string[] roots = new string[] { @"C:\ProgramData", @"C:\Program Files", @"C:\Program Files (x86)" };
+            AddWebConfigFile(result, @"C:\Windows\System32\inetsrv\config\applicationHost.config");
+            string[] roots = new string[]
+            {
+                @"C:\nginx", @"C:\Apache24", @"C:\Tomcat",
+                @"C:\ProgramData", @"C:\Program Files", @"C:\Program Files (x86)"
+            };
             for (int rootIndex = 0; rootIndex < roots.Length; rootIndex++)
             {
                 try
@@ -127,15 +132,31 @@ namespace GCAC.WindowsCompatibilityAgent
                     for (int index = 0; index < paths.Length && result.Count < 256; index++)
                     {
                         string extension = Path.GetExtension(paths[index]).ToLowerInvariant();
-                        if (extension != ".conf" && extension != ".xml" && extension != ".properties") continue;
-                        FileInfo info = new FileInfo(paths[index]);
-                        if (!info.Exists || info.Length > 262144) continue;
-                        result.Add(new Dictionary<string, object> { { "path", paths[index].Replace('\\', '/') }, { "content", File.ReadAllText(paths[index]) } });
+                        if (extension != ".conf" && extension != ".xml" && extension != ".properties" && extension != ".config") continue;
+                        AddWebConfigFile(result, paths[index]);
                     }
                 }
                 catch { }
             }
             return result.ToArray();
+        }
+
+        private static void AddWebConfigFile(List<object> result, string path)
+        {
+            if (result == null || TextUtility.IsBlank(path) || result.Count >= 256) return;
+            try
+            {
+                FileInfo info = new FileInfo(path);
+                if (!info.Exists || info.Length > 262144) return;
+                string normalizedPath = path.Replace('\\', '/');
+                foreach (object item in result)
+                {
+                    Dictionary<string, object> existing = item as Dictionary<string, object>;
+                    if (existing != null && string.Equals(Convert.ToString(existing["path"]), normalizedPath, StringComparison.OrdinalIgnoreCase)) return;
+                }
+                result.Add(new Dictionary<string, object> { { "path", normalizedPath }, { "content", File.ReadAllText(path) } });
+            }
+            catch { }
         }
 
         private static int ReadDotNetRelease()

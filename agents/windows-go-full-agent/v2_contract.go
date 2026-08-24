@@ -357,14 +357,22 @@ func collectWindowsFiles(paths []string) []map[string]any {
 	for _, path := range paths {
 		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
 			_ = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
-				if walkErr != nil || entry == nil { return nil }
+				if walkErr != nil || entry == nil {
+					return nil
+				}
 				if entry.IsDir() {
-					if candidate != path && strings.Count(strings.TrimPrefix(candidate, path), string(os.PathSeparator)) > 4 { return filepath.SkipDir }
+					if candidate != path && strings.Count(strings.TrimPrefix(candidate, path), string(os.PathSeparator)) > 4 {
+						return filepath.SkipDir
+					}
 					return nil
 				}
 				ext := strings.ToLower(filepath.Ext(candidate))
-				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" { return nil }
-				if len(files) >= 512 { return filepath.SkipDir }
+				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
+					return nil
+				}
+				if len(files) >= 512 {
+					return filepath.SkipDir
+				}
 				files = append(files, collectWindowsFile(candidate))
 				return nil
 			})
@@ -376,36 +384,37 @@ func collectWindowsFiles(paths []string) []map[string]any {
 }
 
 func collectWindowsFile(path string) map[string]any {
-		item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": int64(0)}
-		info, err := os.Stat(path)
-		if err != nil {
-			return item
-		}
-		item["exists"] = true
-		item["sizeBytes"] = info.Size()
-		item["mode"] = info.Mode().String()
-		item["modifiedAt"] = info.ModTime().UTC().Format(time.RFC3339Nano)
-		if info.Mode().IsRegular() {
-			if digest, digestErr := sha256FileDigest(path); digestErr == nil {
-				item["sha256"] = digest
-			}
-			if content, readErr := os.ReadFile(path); readErr == nil {
-				const maximumFileContentBytes = 64 * 1024
-				truncated := len(content) > maximumFileContentBytes
-				if truncated {
-					content = content[:maximumFileContentBytes]
-				}
-				item = map[string]any{
-					"kind":          "file_content",
-					"path":          path,
-					"contentBase64": base64.StdEncoding.EncodeToString(content),
-					"bytesRead":     len(content),
-					"truncated":     truncated,
-					"sha256":        sha256Bytes(content),
-				}
-			}
-		}
+	item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": int64(0)}
+	info, err := os.Stat(path)
+	if err != nil {
 		return item
+	}
+	item["exists"] = true
+	item["sizeBytes"] = info.Size()
+	item["mode"] = info.Mode().String()
+	item["modifiedAt"] = info.ModTime().UTC().Format(time.RFC3339Nano)
+	if info.Mode().IsRegular() {
+		if digest, digestErr := sha256FileDigest(path); digestErr == nil {
+			item["sha256"] = digest
+		}
+		if content, readErr := os.ReadFile(path); readErr == nil {
+			// IIS applicationHost.config 和大型站点配置可能超过 64 KiB；保持在 256 KiB 单文件受控上限内，避免截断 XML 导致宿主无法解析。
+			const maximumFileContentBytes = 256 * 1024
+			truncated := len(content) > maximumFileContentBytes
+			if truncated {
+				content = content[:maximumFileContentBytes]
+			}
+			item = map[string]any{
+				"kind":          "file_content",
+				"path":          path,
+				"contentBase64": base64.StdEncoding.EncodeToString(content),
+				"bytesRead":     len(content),
+				"truncated":     truncated,
+				"sha256":        sha256Bytes(content),
+			}
+		}
+	}
+	return item
 }
 
 func sha256Bytes(value []byte) string {

@@ -22,6 +22,38 @@ test('Web 配置事实解析出 Apache VirtualHost 和 Tomcat Connector/Context'
   assert.equal(tomcat.sites.some((site) => site.name === '/shop'), true);
 });
 
+test('Web 配置事实解析 IIS applicationHost.config 的站点和 HTTPS 绑定', () => {
+  const result = discoverWebConfigs([{
+    path: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+    content: `<configuration><system.applicationHost><sites><site name="Default Web Site" id="1"><bindings><binding protocol="http" bindingInformation="*:80:" /><binding protocol="https" bindingInformation="*:443:portal.example.test" /></bindings></site><site name="Admin" id="2"><bindings><binding protocol="http" bindingInformation="*:8080:admin.example.test" /></bindings></site></sites></system.applicationHost></configuration>`,
+  }]);
+  assert.equal(result.frameworks[0]?.frameworkType, 'web.iis');
+  assert.deepEqual(result.sites.map((site) => site.name), ['Default Web Site', 'Admin']);
+  assert.equal(result.sites[0]?.protocol, 'HTTPS');
+  assert.equal(result.sites[0]?.port, 443);
+  assert.deepEqual(result.sites[0]?.addresses, ['portal.example.test']);
+  assert.deepEqual((result.sites[0]?.metadata as { listeners?: Array<{ port: number; protocol: string }> }).listeners, [
+    { port: 80, protocol: 'HTTP', bindingInformation: '*:80:' },
+    { port: 443, protocol: 'HTTPS', bindingInformation: '*:443:portal.example.test', host: 'portal.example.test' },
+  ]);
+});
+
+test('IIS HTTPS binding 保留 Windows 证书库 Thumbprint 和存储区', () => {
+  const result = discoverWebConfigs([{
+    path: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+    content: `<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="a1 b2 c3 d4 e5 f6 07 08" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>`,
+  }]);
+  const listeners = (result.sites[0]?.metadata as { listeners?: Array<Record<string, unknown>> })?.listeners ?? [];
+  assert.deepEqual(listeners[0], {
+    port: 443,
+    protocol: 'HTTPS',
+    bindingInformation: '*:443:portal.example.test',
+    host: 'portal.example.test',
+    certificateThumbprint: 'A1B2C3D4E5F60708',
+    certificateStoreName: 'My',
+  });
+});
+
 test('Web 配置事实把 Tomcat Connector 和 SSLHostConfig keystore 作为 HTTPS 证书路径', () => {
   const result = discoverWebConfigs([{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateKeystoreFile="localhost-rsa.p12" certificateKeystorePassword="changeit" /></SSLHostConfig></Connector><Host name="localhost" />` }]);
   const site = result.sites.find((item) => item.name === 'localhost');

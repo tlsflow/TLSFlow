@@ -6,9 +6,9 @@ import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugi
 import type { AgentRegistration, AgentTaskEnvelope } from '../schema/agents.schema.js';
 import type { AgentsRepository } from '../repository/agents.repository.js';
 import { newId } from '../../../shared/id.js';
+import { selectWebDiscoveryPaths } from '../agent-discovery-paths.js';
 
 const WEB_PLUGIN_IDS = new Set(['web.nginx', 'web.apache', 'app.tomcat', 'web.iis']);
-const DISCOVERY_PATHS = Object.freeze(['/etc', '/opt', '/usr/local', '/usr/share/nginx', '/srv', '/var/lib', '/var/www']);
 
 export interface AgentDiscoveryTaskFactory {
   createForAgent(input: {
@@ -74,7 +74,9 @@ async function createDiscoveryTask(
     lifetimeSeconds: 300,
   });
   if (!authorization.token || authorization.decision.allowed !== true) {
-    throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Web 发现授权未签发');
+    throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Web 发现授权未签发', {
+      reason: authorization.decision.reason ?? 'Policy Authority 未返回允许的发现决策',
+    });
   }
 
   const idempotencyKey = `agent.web-inventory:${input.agent.id}:${input.requestId}`;
@@ -98,7 +100,6 @@ async function createDiscoveryTask(
       pluginId: anchor.pluginId,
       // Agent v2 字段历史上命名为 pluginVersion，但其安全合同绑定的是版本 ID。
       pluginVersion: anchor.id,
-      pluginVersionId: anchor.id,
       capability: 'application.discover',
       actions: authorization.token.actions,
       paths: authorization.token.allowedPaths,
@@ -130,9 +131,7 @@ function selectAuthorizationAnchor(versions: UnifiedPluginVersionRecord[]): Unif
 }
 
 function discoveryPathsFor(agent: AgentRegistration): string[] {
-  return agent.descriptor.osType.toLowerCase().includes('windows')
-    ? ['C:/Windows/System32/inetsrv/config/applicationHost.config', 'C:/nginx', 'C:/Apache24', 'C:/Tomcat', 'C:/ProgramData', 'C:/Program Files', 'C:/Program Files (x86)']
-    : [...DISCOVERY_PATHS];
+  return [...selectWebDiscoveryPaths(agent.descriptor.osType)];
 }
 
 function digest(value: unknown): string {
