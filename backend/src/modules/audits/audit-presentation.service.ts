@@ -85,7 +85,7 @@ export async function buildAuditPresentationContext(input: {
     setObjectLabel(objectLabelByKey, ['service_asset', 'application_asset'], asset.id, label);
   }
   await addSecretLabels(objectLabelByKey, input.secrets);
-  await addCertificateLabels(objectLabelByKey, input.certificates);
+  await addCertificateLabels(objectLabelByKey, input.certificates, input.tenantId);
 
   return {
     deploymentPlanById,
@@ -140,9 +140,13 @@ async function addSecretLabels(objectLabelByKey: Map<string, string>, secrets: S
   }
 }
 
-async function addCertificateLabels(objectLabelByKey: Map<string, string>, certificates: CertificatesRepository | undefined): Promise<void> {
+async function addCertificateLabels(
+  objectLabelByKey: Map<string, string>,
+  certificates: CertificatesRepository | undefined,
+  tenantId: string,
+): Promise<void> {
   if (!certificates) return;
-  const certificateAssets = await certificates.listAssets(allRowsQuery('updatedAt:desc'));
+  const certificateAssets = await certificates.listAssets(allRowsQuery('updatedAt:desc'), tenantId);
   const assetNameById = new Map<string, string>();
   for (const asset of certificateAssets.items) {
     const name = asset.name || asset.primaryDomain || asset.id;
@@ -150,7 +154,7 @@ async function addCertificateLabels(objectLabelByKey: Map<string, string>, certi
     setObjectLabel(objectLabelByKey, ['certificate'], asset.id, labelWithId(name, asset.id));
   }
 
-  const certificateVersions = await certificates.listVersions(allRowsQuery('createdAt:desc'));
+  const certificateVersions = await certificates.listVersions(allRowsQuery('createdAt:desc'), tenantId);
   for (const version of certificateVersions.items) {
     const assetName = assetNameById.get(version.certificateAssetId);
     const name = assetName

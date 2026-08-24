@@ -136,6 +136,7 @@ export class AcmeCertificateService {
     if (!account) throw new AppError('ACME_ACCOUNT_INVALID', '当前租户没有可用的 ACME Account');
 
     const asset = await this.certificates.createAsset({
+      tenantId: input.tenantId,
       name: input.name?.trim() || domains[0],
       primaryDomain: domains[0],
       sans: domains.slice(1),
@@ -225,7 +226,7 @@ export class AcmeCertificateService {
   async update(input: UpdateAcmeCertificateInput): Promise<AcmeCertificateAutomationView> {
     const policy = await this.requirePolicyForAsset(input.tenantId, input.certificateAssetId);
     await this.assertNoRunningJob(input.tenantId, policy.id);
-    const asset = await this.requireAcmeAsset(input.certificateAssetId);
+    const asset = await this.requireAcmeAsset(input.tenantId, input.certificateAssetId);
     const domains = normalizeDomains(input.domains);
     if (domains.length === 0) throw new AppError('VALIDATION_FAILED', '至少需要一个域名');
     if (!input.contactEmail.trim()) throw new AppError('VALIDATION_FAILED', '联系邮箱不能为空');
@@ -258,7 +259,7 @@ export class AcmeCertificateService {
       sourceType: 'acme',
       tags: [...new Set([...(asset.tags ?? []), 'acme'])],
       updatedAt: new Date().toISOString(),
-    });
+    }, input.tenantId);
     const maintenanceWindow = {
       contactEmail: input.contactEmail.trim(),
       keyType: input.keyType ?? 'rsa',
@@ -289,13 +290,14 @@ export class AcmeCertificateService {
   ): Promise<AcmeCertificateAutomationView> {
     const policy = await this.requirePolicyForAsset(tenantId, certificateAssetId);
     await this.assertNoRunningJob(tenantId, policy.id);
-    await this.requireAcmeAsset(certificateAssetId);
+    await this.requireAcmeAsset(tenantId, certificateAssetId);
     const disabledPolicy = await this.policies.update(tenantId, policy.id, {
       enabled: false,
       actorId,
     });
     const deletedAsset = await this.certificates.deleteAsset({
       id: certificateAssetId,
+      tenantId,
       status: 'deleted',
       actorId,
     }, [], context);
@@ -335,8 +337,8 @@ export class AcmeCertificateService {
     return policy;
   }
 
-  private async requireAcmeAsset(certificateAssetId: string) {
-    const asset = await this.certificates.getRepository().getAsset(certificateAssetId);
+  private async requireAcmeAsset(tenantId: string, certificateAssetId: string) {
+    const asset = await this.certificates.getRepository().getAsset(certificateAssetId, tenantId);
     if (!asset || asset.status === 'deleted') {
       throw new AppError('RESOURCE_NOT_FOUND', 'ACME 证书资产不存在', { certificateAssetId });
     }

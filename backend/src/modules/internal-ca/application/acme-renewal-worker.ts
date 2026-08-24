@@ -132,7 +132,7 @@ export class AcmeRenewalWorker {
     }
     if (!issuedRequest && !requestId && !initialIssuance && !sourceRequest) {
       const assetId = policy.certificateAssetId;
-      const asset = assetId ? await this.dependencies.certificates.getAsset(assetId) : undefined;
+      const asset = assetId ? await this.dependencies.certificates.getAsset(assetId, job.tenantId) : undefined;
       if (!asset) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源证书申请上下文');
       const issuanceContext = await this.dependencies.internalCa.ensureAcmeIssuanceContext(
         job.tenantId,

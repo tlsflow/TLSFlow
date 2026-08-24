@@ -1578,6 +1578,7 @@ export class DeploymentPlansApplicationService {
           requestedDomain: target.domain,
         })
       : this.resolveWorkflowCertificateVersionId({
+          tenantId: input.tenantId!,
           selectionMode,
           requestedCertificateVersionId: input.certificateVersionId,
         })));
@@ -1783,6 +1784,7 @@ export class DeploymentPlansApplicationService {
         input.binding,
         input.requestedDomain,
         input.requestedCertificateFormatId,
+        input.tenantId,
       );
       return input.requestedCertificateVersionId;
     }
@@ -1796,17 +1798,19 @@ export class DeploymentPlansApplicationService {
       input.requestedCertificateVersionId,
       input.binding,
       input.requestedDomain,
+      input.tenantId,
     );
   }
 
   private async resolveWorkflowCertificateVersionId(input: {
+    tenantId: string;
     selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
     requestedCertificateVersionId?: string;
   }): Promise<string> {
     if (!input.requestedCertificateVersionId) {
       throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署计划必须指定 certificateVersionId', { selectionMode: input.selectionMode });
     }
-    const version = await this.certificates.getVersion(input.requestedCertificateVersionId);
+    const version = await this.certificates.getVersion(input.requestedCertificateVersionId, input.tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.requestedCertificateVersionId });
     if (!isDeployableCertificateVersion(version)) {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', {
@@ -1824,10 +1828,11 @@ export class DeploymentPlansApplicationService {
     binding: CertificateBindingDto,
     requestedDomain?: string,
     requestedCertificateFormatId?: string,
+    tenantId?: string,
   ): Promise<void> {
-    const version = await this.certificates.getVersion(certificateVersionId);
+    const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
-    const asset = await this.certificates.getAsset(version.certificateAssetId);
+    const asset = await this.certificates.getAsset(version.certificateAssetId, tenantId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: version.certificateAssetId });
     if (!isDeployableCertificateVersion(version)) {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', { certificateVersionId, status: version.status, deployable: version.deployable, notAfter: version.notAfter });
@@ -1836,7 +1841,7 @@ export class DeploymentPlansApplicationService {
       throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', { certificateVersionId, domain: requestedDomain ?? binding.domainName ?? binding.domain });
     }
     if (requestedCertificateFormatId) {
-      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId);
+      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId, tenantId);
       return;
     }
   }
@@ -1844,20 +1849,22 @@ export class DeploymentPlansApplicationService {
   private async assertExplicitCertificateFormatDeployable(
     certificateVersionId: string,
     certificateFormatId: string,
+    tenantId?: string,
   ): Promise<void> {
-    await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId);
+    await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId, tenantId);
   }
 
   private async findLatestDeployableCertificateVersionIdFromSeed(
     certificateVersionId: string,
     binding?: CertificateBindingDto,
     requestedDomain?: string,
+    tenantId?: string,
   ): Promise<string> {
-    const seed = await this.certificates.getVersion(certificateVersionId);
+    const seed = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!seed) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
-    const asset = await this.certificates.getAsset(seed.certificateAssetId);
+    const asset = await this.certificates.getAsset(seed.certificateAssetId, tenantId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: seed.certificateAssetId });
-    const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} });
+    const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} }, tenantId);
     const targetDomain = normalizeDomain(requestedDomain ?? binding?.domainName ?? binding?.domain);
     const candidates = targetDomain
       ? versionsPage.items.filter((version) => this.coversCertificateDomain(version, asset, targetDomain))
@@ -1922,6 +1929,7 @@ export class DeploymentPlansApplicationService {
       plan.certificateVersionId,
       binding,
       applicationAsset?.sniName ?? applicationAsset?.address,
+      tenantId,
     );
     const artifact = await this.resolveDeploymentArtifactForTarget(target, certificateVersionId, plan.certificateFormatId, tenantId);
     const material = await this.resolveTargetDeploymentInput('preflight', tenantId, {
@@ -2121,10 +2129,14 @@ export class DeploymentPlansApplicationService {
         ? workflowExecutionBinding!.inputBindings.artifacts
         : workflowBindings;
     if (Object.keys(artifactBindings).length > 0) {
-      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings as Record<string, WorkflowCertificateArtifactBinding>);
+      return this.resolveWorkflowDeploymentArtifact(
+        certificateVersionId,
+        artifactBindings as Record<string, WorkflowCertificateArtifactBinding>,
+        resolvedTenantId,
+      );
     }
     if (!target.certificateBindingId) {
-      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId);
+      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, resolvedTenantId);
     }
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) {
@@ -2134,14 +2146,15 @@ export class DeploymentPlansApplicationService {
         tenantId: resolvedTenantId,
       });
     }
-    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId);
+    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, resolvedTenantId);
   }
 
   private async resolveDeploymentArtifact(
     certificateVersionId: string,
     certificateFormatId?: string,
+    tenantId?: string,
   ): Promise<DeploymentArtifactSnapshotDto> {
-    const version = await this.certificates.getVersion(certificateVersionId);
+    const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     }
@@ -2151,8 +2164,9 @@ export class DeploymentPlansApplicationService {
         certificateVersionId,
       });
     }
-    const format = await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId);
+    const format = await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId, tenantId);
     const generated = await this.certificatesApp.generateDeploymentArtifactFromFormat({
+      tenantId,
       certificateVersionId,
       certificateFormatId: format.id,
       createdBy: 'system',
@@ -2172,11 +2186,11 @@ export class DeploymentPlansApplicationService {
     };
   }
 
-  private async resolveCertificateFormatForVersion(certificateVersionId: string, certificateFormatId: string) {
-    const selected = await this.certificates.getFormat(certificateFormatId);
+  private async resolveCertificateFormatForVersion(certificateVersionId: string, certificateFormatId: string, tenantId?: string) {
+    const selected = await this.certificates.getFormat(certificateFormatId, tenantId);
     if (!selected) throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
     if (!selected.certificateVersionId || selected.certificateVersionId === certificateVersionId) return selected;
-    const candidates = await this.certificates.listFormatsByVersion(certificateVersionId);
+    const candidates = await this.certificates.listFormatsByVersion(certificateVersionId, tenantId);
     const equivalent = candidates.find((candidate) => candidate.format === selected.format
       && candidate.parameterHash === selected.parameterHash
       && candidate.containsPrivateKey === selected.containsPrivateKey);
@@ -2194,8 +2208,9 @@ export class DeploymentPlansApplicationService {
   private async resolveWorkflowDeploymentArtifact(
     certificateVersionId: string,
     bindings: Record<string, WorkflowCertificateArtifactBinding>,
+    tenantId?: string,
   ): Promise<DeploymentArtifactSnapshotDto> {
-    const version = await this.certificates.getVersion(certificateVersionId);
+    const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     }
@@ -2203,8 +2218,9 @@ export class DeploymentPlansApplicationService {
     let first: DeploymentArtifactSnapshotDto | undefined;
     const warnings: string[] = [];
     for (const [variableName, binding] of Object.entries(bindings)) {
-      const format = await this.resolveCertificateFormatForVersion(certificateVersionId, binding.certificateFormatId);
+      const format = await this.resolveCertificateFormatForVersion(certificateVersionId, binding.certificateFormatId, tenantId);
       const generated = await this.certificatesApp.generateDeploymentArtifactFromFormat({
+        tenantId,
         certificateVersionId,
         certificateFormatId: format.id,
         createdBy: 'system',

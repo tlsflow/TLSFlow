@@ -47,6 +47,74 @@ describe('证书资产 API', () => {
     assert.equal((duplicated.body as any).errorCode, 'CERT_DUPLICATE_VERSION');
   });
 
+  it('证书资产、版本、格式和材料产物按租户隔离', async () => {
+    const { app, artifacts } = await createMultiTenantAuthorizedApp();
+    const tenantA = tenantHeaders('user_cert_tenant_a', 'tenant_a');
+    const tenantB = tenantHeaders('user_cert_tenant_b', 'tenant_b');
+
+    const importedA = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: tenantA,
+      body: { certificatePem: CERT_PEM, allowCertificateOnly: true },
+    });
+    const importedB = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: tenantB,
+      body: { certificatePem: CERT_PEM, allowCertificateOnly: true },
+    });
+
+    assert.equal(importedA.statusCode, 201, JSON.stringify(importedA.body));
+    assert.equal(importedB.statusCode, 201, JSON.stringify(importedB.body));
+    const assetA = (importedA.body as any).asset;
+    const versionA = (importedA.body as any).version;
+
+    const listA = await app.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: tenantA });
+    const listB = await app.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: tenantB });
+    assert.equal((listA.body as any).total, 1);
+    assert.equal((listB.body as any).total, 1);
+
+    const crossAsset = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-assets/${assetA.id}`,
+      headers: tenantB,
+    });
+    const crossVersion = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/detail?id=${versionA.id}`,
+      headers: tenantB,
+    });
+    assert.equal(crossAsset.statusCode, 404);
+    assert.equal(crossVersion.statusCode, 404);
+
+    const crossExport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/export',
+      headers: tenantB,
+      body: { certificateVersionId: versionA.id, format: 'pem', containsPrivateKey: false },
+    });
+    assert.equal(crossExport.statusCode, 404);
+
+    await artifacts.put({
+      tenantId: 'tenant_a',
+      artifactRef: 'artifact://certificate-tenant-isolation-test',
+      content: Buffer.from('tenant-a'),
+      contentType: 'application/octet-stream',
+      createdBy: 'user_cert_tenant_a',
+    });
+    assert.equal(await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_b'), undefined);
+    await artifacts.put({
+      tenantId: 'tenant_b',
+      artifactRef: 'artifact://certificate-tenant-isolation-test',
+      content: Buffer.from('tenant-b'),
+      contentType: 'application/octet-stream',
+      createdBy: 'user_cert_tenant_b',
+    });
+    assert.equal((await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_a'))?.content.toString(), 'tenant-a');
+    assert.equal((await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_b'))?.content.toString(), 'tenant-b');
+  });
+
   it('ACME 管理的证书资产允许手动导入新版本', async () => {
     const manualFixture = createPemChainFixture();
     const db = new PgliteDatabase();
@@ -537,7 +605,7 @@ describe('证书资产 API', () => {
     });
     const db = new PgliteDatabase();
     await runMigrations(db);
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
 
     const imported = await app.inject({
       method: 'POST',
@@ -669,10 +737,10 @@ async function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   }
   const db = new PgliteDatabase();
   await runMigrations(db);
-  if (!exposeArtifacts) return { app: createApp({ db, corePersistence: { mode: 'memory' }, security }), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
+  if (!exposeArtifacts) return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true }), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };
+  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates }, allowLegacyHeaderContext: true }), security, artifacts };
 }
 
 async function createAuthorizedMigratedApp(actorId: string) {
@@ -691,13 +759,13 @@ async function createAuthorizedMigratedApp(actorId: string) {
   await runMigrations(db);
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };
+  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates }, allowLegacyHeaderContext: true }), security, artifacts };
 }
 
 async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' } });
+  if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' }, allowLegacyHeaderContext: true });
   const security = createSecurityServices();
   security.rbac.createPolicy({
     subjectType: 'user',
@@ -707,11 +775,46 @@ async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
     resourceTypes: ['certificate_asset', 'certificate_version', 'host', 'service_instance', 'site_asset', 'managed_target', 'certificate_binding'],
     scope: { tenantId },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security });
+  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
 }
 
 function headers(actorId: string) {
   return { 'x-tenant-id': 'tenant_1', 'x-actor-id': actorId };
+}
+
+function tenantHeaders(actorId: string, tenantId: string) {
+  return { 'x-tenant-id': tenantId, 'x-actor-id': actorId };
+}
+
+async function createMultiTenantAuthorizedApp() {
+  const security = createSecurityServices();
+  for (const [subjectId, tenantId] of [
+    ['user_cert_tenant_a', 'tenant_a'],
+    ['user_cert_tenant_b', 'tenant_b'],
+  ] as const) {
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId,
+      effect: 'allow',
+      actions: ['*'],
+      resourceTypes: ['*'],
+      scope: { tenantId },
+    });
+  }
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const artifacts = new PgCertificateArtifactStore(db);
+  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+  return {
+    app: createApp({
+      db,
+      corePersistence: { mode: 'memory' },
+      security,
+      certificates: { certificates },
+      allowLegacyHeaderContext: true,
+    }),
+    artifacts,
+  };
 }
 
 function createPemChainFixture(): { pem: string; privateKeyPem: string } {

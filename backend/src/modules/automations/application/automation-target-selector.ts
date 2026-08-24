@@ -32,10 +32,10 @@ export class AutomationTargetSelector {
     for (const binding of bindings) {
       if (binding.deletedAt || !this.matchesBinding(binding, input.selector)) continue;
       const currentVersionId = binding.targetCertificateVersionId ?? binding.certificateVersionId;
-      const currentVersion = currentVersionId ? await this.certificates.getVersion(currentVersionId) : undefined;
-      const certificate = currentVersion ? await this.certificates.getAsset(currentVersion.certificateAssetId) : undefined;
+      const currentVersion = currentVersionId ? await this.certificates.getVersion(currentVersionId, input.tenantId) : undefined;
+      const certificate = currentVersion ? await this.certificates.getAsset(currentVersion.certificateAssetId, input.tenantId) : undefined;
       if (!certificate || !this.matchesCertificate(certificate, currentVersion?.notAfter, input.selector)) continue;
-      const version = await this.resolveTargetVersion(certificate.id, currentVersion, input.selector);
+      const version = await this.resolveTargetVersion(input.tenantId, certificate.id, currentVersion, input.selector);
       const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAsset(input.tenantId, binding.serviceAssetId) : undefined;
       const environment = serviceAsset?.environment;
       if (input.selector.environments?.length && (!environment || !input.selector.environments.includes(environment))) continue;
@@ -93,9 +93,9 @@ export class AutomationTargetSelector {
     return true;
   }
 
-  private async resolveTargetVersion(certificateAssetId: string, currentVersion: { id: string; certificateAssetId: string; notAfter?: string; deployable?: boolean } | undefined, selector: AutomationTargetSelectorDto) {
+  private async resolveTargetVersion(tenantId: string, certificateAssetId: string, currentVersion: { id: string; certificateAssetId: string; notAfter?: string; deployable?: boolean } | undefined, selector: AutomationTargetSelectorDto) {
     if (selector.certificateVersionSelection !== 'latest' && selector.certificateVersionSelection !== 'specific') return currentVersion;
-    const versions = await this.certificates.listVersionsByAsset(certificateAssetId);
+    const versions = await this.certificates.listVersionsByAsset(certificateAssetId, tenantId);
     if (selector.certificateVersionSelection === 'specific') {
       return versions.find((version) => selector.certificateVersionIds?.includes(version.id));
     }

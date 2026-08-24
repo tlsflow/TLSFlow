@@ -1099,7 +1099,7 @@ export class InternalCaApplicationService {
     const requests = await this.repository.listRequests(tenantId);
     const created: CertificateRenewalJobEntity[] = [];
     for (const request of requests.filter((item) => ['issued', 'active'].includes(item.status) && item.certificateVersionId)) {
-      const version = await this.dependencies.certificates.getRepository().getVersion(request.certificateVersionId!);
+      const version = await this.dependencies.certificates.getRepository().getVersion(request.certificateVersionId!, tenantId);
       const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
       const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
       if (!version || !profileVersion || !keyReference) continue;
@@ -1143,7 +1143,7 @@ export class InternalCaApplicationService {
   }
 
   async requestRevocation(tenantId: string, certificateVersionId: string, reason: string, actorId: string, context?: RequestContext): Promise<CertificateRevocationEntity> {
-    const version = await this.dependencies.certificates.getRepository().getVersion(certificateVersionId);
+    const version = await this.dependencies.certificates.getRepository().getVersion(certificateVersionId, tenantId);
     if (!version?.issuingCaId) throw new AppError('RESOURCE_NOT_FOUND', '证书版本没有可用的签发 CA', { certificateVersionId });
     const authority = await this.requireAuthority(tenantId, version.issuingCaId);
     const provider = await this.requireProvider(tenantId, authority.providerId);
@@ -1178,7 +1178,7 @@ export class InternalCaApplicationService {
     if (revocation.status !== 'pending_approval' || !revocation.approvalId || revocation.approvalId !== approvalId) {
       throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '吊销申请需要匹配的审批单');
     }
-    const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId);
+    const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: revocation.certificateVersionId });
     const ledgerRecord = await this.repository.getIssuanceByCertificateVersion(tenantId, version.id);
     if (!ledgerRecord || ledgerRecord.caId !== revocation.caId || version.issuingCaId !== revocation.caId) {
@@ -1204,7 +1204,12 @@ export class InternalCaApplicationService {
       invalidityDate: result.revokedAt,
       updatedAt: new Date().toISOString(),
     });
-    await this.dependencies.certificates.revokeVersion({ id: version.id, status: 'revoked', actorId });
+    await this.dependencies.certificates.revokeVersion({
+      id: version.id,
+      tenantId,
+      status: 'revoked',
+      actorId,
+    });
     return this.repository.saveRevocation({ ...revocation, status: 'revoked', revokedAt: result.revokedAt, updatedAt: new Date().toISOString() });
   }
 
@@ -1882,6 +1887,7 @@ export class InternalCaApplicationService {
       });
     }
     const imported = await this.dependencies.certificates.importVersion({
+      tenantId: request.tenantId,
       certificatePem: issued.certificateChainPem,
       allowCertificateOnly: !keyReference.secretRef,
       existingPrivateKeySecretRef: keyReference.secretRef,

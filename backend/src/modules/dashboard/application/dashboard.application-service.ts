@@ -38,8 +38,8 @@ export class DashboardApplicationService {
       auditLogs,
     ] = await Promise.all([
       this.dependencies.assets.listServiceAssets(input.tenantId, allRowsQuery('updatedAt:desc')),
-      this.dependencies.certificates.listAssets(allRowsQuery('updatedAt:desc')),
-      this.dependencies.certificates.listVersions(allRowsQuery('notAfter:asc')),
+      this.dependencies.certificates.listAssets(allRowsQuery('updatedAt:desc'), input.tenantId),
+      this.dependencies.certificates.listVersions(allRowsQuery('notAfter:asc'), input.tenantId),
       this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery('updatedAt:desc')),
       this.dependencies.agents.listRegistrations(input.tenantId, allRowsQuery('updatedAt:desc')),
       this.dependencies.gateways.listGateways(input.tenantId, allRowsQuery('updatedAt:desc')),

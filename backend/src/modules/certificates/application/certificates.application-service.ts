@@ -81,18 +81,19 @@ export class CertificatesApplicationService {
   async createAsset(input: CreateCertificateAssetInput): Promise<CertificateAssetDto> {
     const now = new Date().toISOString();
     const primaryDomain = normalizeCertificateDomain(input.primaryDomain);
-    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain);
+    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain, input.tenantId);
     if (existing) {
       const updated = await this.repository.updateAsset(existing.id, {
         name: existing.name || input.name || primaryDomain,
         sans: uniqueStrings([...existing.sans, ...(input.sans ?? []).map(normalizeCertificateDomain)]),
         tags: uniqueStrings([...existing.tags, ...(input.tags ?? [])]),
         updatedAt: now,
-      });
+      }, input.tenantId);
       return toCertificateAssetDto(updated);
     }
     const asset = await this.repository.createAsset({
       id: newId('certasset'),
+      tenantId: input.tenantId,
       name: input.name ?? primaryDomain,
       primaryDomain,
       sans: uniqueStrings((input.sans ?? []).map(normalizeCertificateDomain)),
@@ -106,18 +107,18 @@ export class CertificatesApplicationService {
     return toCertificateAssetDto(asset);
   }
 
-  async listAssets(query: PageQuery): Promise<PageResponse<CertificateAssetDto>> {
-    const page = await this.repository.listAssets(query);
+  async listAssets(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateAssetDto>> {
+    const page = await this.repository.listAssets(query, tenantId);
     return { ...page, items: page.items.map(toCertificateAssetDto) };
   }
 
-  async listVersions(query: PageQuery): Promise<PageResponse<CertificateVersionDto>> {
-    const page = await this.repository.listVersions(query);
+  async listVersions(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionDto>> {
+    const page = await this.repository.listVersions(query, tenantId);
     return { ...page, items: page.items.map(toCertificateVersionDto) };
   }
 
-  async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatDto>> {
-    const page = await this.repository.listFormats(query);
+  async listFormats(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionFormatDto>> {
+    const page = await this.repository.listFormats(query, tenantId);
     return { ...page, items: page.items.map(toCertificateVersionFormatDto) };
   }
 
@@ -125,9 +126,9 @@ export class CertificatesApplicationService {
     return { formats: [...this.domain.getFormatCapabilities().formats].map((item) => ({ ...item, limitations: [...item.limitations] })) };
   }
 
-  async getAssetDetail(id: string): Promise<CertificateAssetDetailDto> {
-    const asset = await this.getExistingAsset(id);
-    const versions = (await this.repository.listVersionsByAsset(id)).map(toCertificateVersionDto);
+  async getAssetDetail(id: string, tenantId?: string): Promise<CertificateAssetDetailDto> {
+    const asset = await this.getExistingAsset(id, tenantId);
+    const versions = (await this.repository.listVersionsByAsset(id, tenantId)).map(toCertificateVersionDto);
     return {
       ...toCertificateAssetDto(asset),
       versions,
@@ -135,14 +136,14 @@ export class CertificatesApplicationService {
     };
   }
 
-  async getVersionDetail(id: string): Promise<CertificateVersionDetailDto> {
-    const version = await this.getExistingVersion(id);
-    const asset = await this.getExistingAsset(version.certificateAssetId);
-    const chainCertificates = await this.buildChainCertificates(version);
+  async getVersionDetail(id: string, tenantId?: string): Promise<CertificateVersionDetailDto> {
+    const version = await this.getExistingVersion(id, tenantId);
+    const asset = await this.getExistingAsset(version.certificateAssetId, tenantId);
+    const chainCertificates = await this.buildChainCertificates(version, tenantId);
     return {
       ...toCertificateVersionDto(version),
       asset: toCertificateAssetDto(asset),
-      formats: (await this.repository.listFormatsByVersion(id)).map(toCertificateVersionFormatDto),
+      formats: (await this.repository.listFormatsByVersion(id, tenantId)).map(toCertificateVersionFormatDto),
       chainCertificates,
     };
   }
@@ -184,8 +185,9 @@ export class CertificatesApplicationService {
   async promoteVersion(input: {
     certificateVersionId: string;
     actorId: string;
+    tenantId?: string;
   }): Promise<CertificateVersionEntity> {
-    const version = await this.getExistingVersion(input.certificateVersionId);
+    const version = await this.getExistingVersion(input.certificateVersionId, input.tenantId);
     const activationState = version.activationState ?? 'promoted';
     if (activationState === 'promoted') return version;
     if (!['staged', 'deploying', 'verified'].includes(activationState)) {
@@ -194,11 +196,11 @@ export class CertificatesApplicationService {
         activationState,
       });
     }
-    const asset = await this.getExistingAsset(version.certificateAssetId);
+    const asset = await this.getExistingAsset(version.certificateAssetId, input.tenantId);
     const currentVersion = asset.currentVersionId && asset.currentVersionId !== version.id
-      ? await this.repository.getVersion(asset.currentVersionId)
+      ? await this.repository.getVersion(asset.currentVersionId, input.tenantId)
       : undefined;
-    const promoted = await this.repository.promoteVersionAtomic(version.id);
+    const promoted = await this.repository.promoteVersionAtomic(version.id, input.tenantId);
     void this.dependencies.audit?.write({
       eventType: 'certificate.version.promoted',
       actorType: 'user',
@@ -280,7 +282,7 @@ export class CertificatesApplicationService {
       : bundle.blockers;
     this.assertImportableChain(blockers.length === 0, blockers);
     const parsed = bundle.leaf;
-    if (await this.repository.getVersionByFingerprint(parsed.fingerprintSha256)) {
+    if (await this.repository.getVersionByFingerprint(parsed.fingerprintSha256, input.tenantId)) {
       throw new AppError('CERT_DUPLICATE_VERSION', '重复 fingerprintSha256 的证书版本已存在', {
         fingerprintSha256: parsed.fingerprintSha256,
       });
@@ -302,24 +304,25 @@ export class CertificatesApplicationService {
     }
 
     const asset = input.certificateAssetId
-      ? await this.getExistingAsset(input.certificateAssetId)
+      ? await this.getExistingAsset(input.certificateAssetId, input.tenantId)
       : await this.createAssetFromParsed(input, parsed.commonName, parsed.sans);
     const now = new Date().toISOString();
-    const versionNo = (await this.repository.countVersionsByAsset(asset.id)) + 1;
+    const versionNo = (await this.repository.countVersionsByAsset(asset.id, input.tenantId)) + 1;
     const notExpired = new Date(parsed.notAfter).getTime() > Date.now();
     const sourceType = input.sourceType ?? asset.sourceType;
     const leafStorageRef = `artifact://certificate-leaf/${sha256Fingerprint(parsed.der, 32)}`;
-    await this.artifacts.put({ artifactRef: leafStorageRef, content: parsed.der, contentType: 'application/pkix-cert', createdBy: input.createdBy });
+    await this.artifacts.put({ tenantId: input.tenantId, artifactRef: leafStorageRef, content: parsed.der, contentType: 'application/pkix-cert', createdBy: input.createdBy });
     const chainCertificateRefs = await Promise.all(bundle.certificates
       .filter((certificate) => certificate.fingerprintSha256 !== parsed.fingerprintSha256)
       .map(async (certificate) => {
         const artifactRef = `artifact://certificate-chain/${sha256Fingerprint(certificate.der, 32)}`;
-        await this.artifacts.put({ artifactRef, content: certificate.der, contentType: 'application/pkix-cert', createdBy: input.createdBy });
+        await this.artifacts.put({ tenantId: input.tenantId, artifactRef, content: certificate.der, contentType: 'application/pkix-cert', createdBy: input.createdBy });
         return artifactRef;
       }));
 
     const version = await this.repository.createVersion({
       id: newId('certver'),
+      tenantId: input.tenantId ?? asset.tenantId,
       certificateAssetId: asset.id,
       versionNo,
       commonName: parsed.commonName,
@@ -359,7 +362,7 @@ export class CertificatesApplicationService {
       ...(version.activationState === 'promoted' ? { currentVersionId: version.id } : {}),
       sans: uniqueStrings([...asset.sans, ...parsed.sans.map(normalizeCertificateDomain)]),
       updatedAt: now,
-    });
+    }, input.tenantId);
 
     void this.dependencies.audit?.write({
       eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
@@ -396,7 +399,7 @@ export class CertificatesApplicationService {
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
     }
-    if (input.certificateVersionId && !await this.repository.getVersion(input.certificateVersionId)) {
+    if (input.certificateVersionId && !await this.repository.getVersion(input.certificateVersionId, input.tenantId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
     this.assertPasswordSecretRef(input.format, input.passwordSecretRef);
@@ -409,12 +412,13 @@ export class CertificatesApplicationService {
       parameters,
     });
     if (input.certificateVersionId) {
-      const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash);
+      const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash, input.tenantId);
       if (existing) return toCertificateVersionFormatDto(existing);
     }
 
     const format = await this.repository.createFormat({
       id: newId('certfmt'),
+      tenantId: input.tenantId,
       certificateVersionId: input.certificateVersionId,
       format: input.format,
       artifactRef: this.normalizeFormatConfigArtifactRef(undefined, input.format, input.parameters),
@@ -430,7 +434,7 @@ export class CertificatesApplicationService {
   }
 
   async updateFormat(input: UpdateCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto> {
-    const current = await this.repository.getFormat(input.id);
+    const current = await this.repository.getFormat(input.id, input.tenantId);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书产物配置不存在', { certificateVersionFormatId: input.id });
     }
@@ -443,7 +447,7 @@ export class CertificatesApplicationService {
     if (!certificateFormats.includes(formatName)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: formatName });
     }
-    if (certificateVersionId && !await this.repository.getVersion(certificateVersionId)) {
+    if (certificateVersionId && !await this.repository.getVersion(certificateVersionId, input.tenantId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     }
     this.assertPasswordSecretRef(formatName, passwordSecretRef);
@@ -454,7 +458,7 @@ export class CertificatesApplicationService {
       parameters,
     });
     const duplicated = certificateVersionId
-      ? await this.repository.getFormatByNaturalKey(certificateVersionId, formatName, parameterHash)
+      ? await this.repository.getFormatByNaturalKey(certificateVersionId, formatName, parameterHash, input.tenantId)
       : undefined;
     if (duplicated && duplicated.id !== current.id) {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '已存在相同规则的证书产物配置', {
@@ -473,7 +477,7 @@ export class CertificatesApplicationService {
       passwordSecretRef,
       createdBy: input.createdBy,
       expiresAt,
-    });
+    }, input.tenantId);
     void this.dependencies.audit?.write({
       eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
       actorType: 'user',
@@ -490,11 +494,11 @@ export class CertificatesApplicationService {
   }
 
   async deleteFormat(input: DeleteCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto> {
-    const current = await this.repository.getFormat(input.id);
+    const current = await this.repository.getFormat(input.id, input.tenantId);
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书产物配置不存在', { certificateVersionFormatId: input.id });
     }
-    const deleted = await this.repository.deleteFormat(input.id);
+    const deleted = await this.repository.deleteFormat(input.id, input.tenantId);
     void this.dependencies.audit?.write({
       eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
       actorType: 'user',
@@ -510,8 +514,8 @@ export class CertificatesApplicationService {
     return toCertificateVersionFormatDto(deleted);
   }
 
-  private async buildChainCertificates(version: CertificateVersionEntity): Promise<CertificateVersionDetailDto['chainCertificates']> {
-    const leaf = this.readCertificateSummary(Buffer.from(await this.readArtifact(version.leafStorageRef)));
+  private async buildChainCertificates(version: CertificateVersionEntity, tenantId?: string): Promise<CertificateVersionDetailDto['chainCertificates']> {
+    const leaf = this.readCertificateSummary(Buffer.from(await this.readArtifact(version.leafStorageRef, tenantId ?? version.tenantId)));
     const byFingerprint = new Map<string, Omit<CertificateVersionDetailDto['chainCertificates'][number], 'role'>>([
       [
         leaf.fingerprintSha256,
@@ -525,7 +529,7 @@ export class CertificatesApplicationService {
       ],
     ]);
     for (const artifactRef of version.chainCertificateRefs) {
-      const certificate = this.readCertificateSummary(Buffer.from(await this.readArtifact(artifactRef)));
+      const certificate = this.readCertificateSummary(Buffer.from(await this.readArtifact(artifactRef, tenantId ?? version.tenantId)));
       byFingerprint.set(certificate.fingerprintSha256, certificate);
     }
     return version.chainOrder.map((fingerprint, index) => {
@@ -563,6 +567,7 @@ export class CertificatesApplicationService {
   }
 
   async generateDeploymentArtifactFromFormat(input: {
+    tenantId?: string;
     certificateVersionId: string;
     certificateFormatId: string;
     createdBy: string;
@@ -579,15 +584,15 @@ export class CertificatesApplicationService {
     files: CertificateArtifactFileDto[];
     warnings: string[];
   }> {
-    const format = await this.repository.getFormat(input.certificateFormatId);
+    const format = await this.repository.getFormat(input.certificateFormatId, input.tenantId);
     if (!format) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: input.certificateFormatId });
     }
-    const version = await this.repository.getVersion(input.certificateVersionId);
+    const version = await this.repository.getVersion(input.certificateVersionId, input.tenantId);
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
-    const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context);
+    const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context, input.tenantId);
     console.info('[certificates.generateDeploymentArtifactFromFormat]', JSON.stringify({
       certificateVersionId: input.certificateVersionId,
       certificateFormatId: format.id,
@@ -620,10 +625,10 @@ export class CertificatesApplicationService {
     if (!input.certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', 'certificateVersionId 不能为空');
     }
-    const version = await this.getExistingVersion(input.certificateVersionId);
+    const version = await this.getExistingVersion(input.certificateVersionId, input.tenantId);
     const warnings = this.validateFormatExportRequest(input as Required<Pick<CreateCertificateVersionFormatInput, 'certificateVersionId' | 'format' | 'createdBy'>> & CreateCertificateVersionFormatInput, version);
     const format = await this.createFormat(input);
-    const entity = await this.repository.getFormat(format.id);
+    const entity = await this.repository.getFormat(format.id, input.tenantId);
     if (!entity) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: format.id });
     }
@@ -634,17 +639,18 @@ export class CertificatesApplicationService {
     if (!input.certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', 'certificateVersionId 不能为空');
     }
-    const version = await this.getExistingVersion(input.certificateVersionId);
+    const version = await this.getExistingVersion(input.certificateVersionId, input.tenantId);
     this.validateFormatExportRequest(input as Required<Pick<CreateCertificateVersionFormatInput, 'certificateVersionId' | 'format' | 'createdBy'>> & CreateCertificateVersionFormatInput, version);
     const formatDto = await this.createFormat(input);
-    const format = await this.repository.getFormat(formatDto.id);
+    const format = await this.repository.getFormat(formatDto.id, input.tenantId);
     if (!format) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: formatDto.id });
     }
-    const { generated, warnings } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context);
+    const { generated, warnings } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context, input.tenantId);
     const artifactSha256 = createHash('sha256').update(generated.content).digest('hex');
     const artifactRef = `artifact://certificate-format/${format.id}/${artifactSha256}`;
     await this.artifacts.put({
+      tenantId: input.tenantId,
       artifactRef,
       content: generated.content,
       contentType: generated.contentType,
@@ -666,6 +672,7 @@ export class CertificatesApplicationService {
       throw new AppError('VALIDATION_FAILED', '来源同步不能使用 manual，手工导入请调用导入接口', { sourceType: input.sourceType });
     }
     const imported = await this.importVersion({
+      tenantId: input.tenantId,
       certificatePem: input.certificatePem,
       pfxBase64: input.pfxBase64,
       pfxPassword: input.pfxPassword,
@@ -685,8 +692,8 @@ export class CertificatesApplicationService {
     };
   }
 
-  private async getExistingVersion(id: string): Promise<CertificateVersionEntity> {
-    const version = await this.repository.getVersion(id);
+  private async getExistingVersion(id: string, tenantId?: string): Promise<CertificateVersionEntity> {
+    const version = await this.repository.getVersion(id, tenantId);
     if (!version || version.status === 'deleted') {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: id });
     }
@@ -699,6 +706,7 @@ export class CertificatesApplicationService {
     actorId: string,
     expiresAt: string | undefined,
     context?: RequestContext,
+    tenantId?: string,
   ): Promise<{
     generated: GeneratedCertificateFormatArtifact;
     warnings: string[];
@@ -725,8 +733,8 @@ export class CertificatesApplicationService {
       : undefined;
     const generated = this.exporter.generate(format.format, {
       version,
-      leafDer: await this.readArtifact(version.leafStorageRef),
-      chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef))),
+      leafDer: await this.readArtifact(version.leafStorageRef, tenantId ?? version.tenantId),
+      chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef, tenantId ?? version.tenantId))),
       privateKeyPem: privateKey?.plainText,
       password: password?.plainText,
       parameters: { ...format.parameters },
@@ -781,8 +789,8 @@ export class CertificatesApplicationService {
     }
   }
 
-  private async readArtifact(artifactRef: string): Promise<Buffer> {
-    const artifact = await this.artifacts.get(artifactRef);
+  private async readArtifact(artifactRef: string, tenantId?: string): Promise<Buffer> {
+    const artifact = await this.artifacts.get(artifactRef, tenantId);
     if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', '证书材料产物不存在，无法导出格式', { artifactRef });
     return artifact.content;
   }
@@ -810,20 +818,20 @@ export class CertificatesApplicationService {
   }
 
   private async changeAssetStatus(input: ChangeCertificateAssetStatusInput, context?: RequestContext): Promise<CertificateAssetEntity> {
-    const asset = await this.getExistingAsset(input.id);
-    const updated = await this.repository.deleteOrUpdateAsset(asset.id, { status: input.status, updatedAt: new Date().toISOString() });
+    const asset = await this.getExistingAsset(input.id, input.tenantId);
+    const updated = await this.repository.deleteOrUpdateAsset(asset.id, { status: input.status, updatedAt: new Date().toISOString() }, input.tenantId);
     void this.writeLifecycleAudit('certificate.asset.status', 'certificate_asset', updated.id, input.actorId, input.status, context);
     return updated;
   }
 
   private async changeVersionStatus(input: ChangeCertificateVersionStatusInput, context?: RequestContext): Promise<CertificateVersionEntity> {
-    const version = await this.getExistingVersion(input.id);
-    const updated = await this.repository.deleteOrUpdateVersion(version.id, { status: input.status, deployable: input.status === 'active' ? version.deployable : false });
+    const version = await this.getExistingVersion(input.id, input.tenantId);
+    const updated = await this.repository.deleteOrUpdateVersion(version.id, { status: input.status, deployable: input.status === 'active' ? version.deployable : false }, input.tenantId);
     if (input.status === 'deleted') {
-      const asset = await this.repository.getAsset(updated.certificateAssetId);
+      const asset = await this.repository.getAsset(updated.certificateAssetId, input.tenantId);
       if (asset?.currentVersionId === updated.id) {
-        const replacement = (await this.repository.listVersionsByAsset(asset.id)).find((candidate) => candidate.id !== updated.id && candidate.status === 'active');
-        await this.repository.updateAsset(asset.id, { currentVersionId: replacement?.id, updatedAt: new Date().toISOString() });
+        const replacement = (await this.repository.listVersionsByAsset(asset.id, input.tenantId)).find((candidate) => candidate.id !== updated.id && candidate.status === 'active');
+        await this.repository.updateAsset(asset.id, { currentVersionId: replacement?.id, updatedAt: new Date().toISOString() }, input.tenantId);
       }
     }
     void this.writeLifecycleAudit('certificate.version.status', 'certificate_version', updated.id, input.actorId, input.status, context);
@@ -845,8 +853,8 @@ export class CertificatesApplicationService {
     });
   }
 
-  private async getExistingAsset(id: string): Promise<CertificateAssetEntity> {
-    const asset = await this.repository.getAsset(id);
+  private async getExistingAsset(id: string, tenantId?: string): Promise<CertificateAssetEntity> {
+    const asset = await this.repository.getAsset(id, tenantId);
     if (!asset || asset.status === 'deleted') {
       throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: id });
     }
@@ -864,13 +872,13 @@ export class CertificatesApplicationService {
     if (!primaryDomain) {
       throw new AppError('CERT_PARSE_FAILED', '证书缺少 commonName 和 SAN，无法创建逻辑资产');
     }
-    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain);
+    const existing = await this.repository.findAssetByPrimaryDomain(primaryDomain, input.tenantId);
     if (existing) {
       const updated = await this.repository.updateAsset(existing.id, {
         sans: uniqueStrings([...existing.sans, ...sans.map(normalizeCertificateDomain)]),
         tags: uniqueStrings([...existing.tags, ...(input.tags ?? [])]),
         updatedAt: new Date().toISOString(),
-      });
+      }, input.tenantId);
       return updated;
     }
     const created = await this.createAsset({
@@ -879,9 +887,10 @@ export class CertificatesApplicationService {
       sans,
       sourceType: input.sourceType,
       tags: input.tags,
+      tenantId: input.tenantId,
       createdBy: input.createdBy,
     });
-    return this.getExistingAsset(created.id);
+    return this.getExistingAsset(created.id, input.tenantId);
   }
 
   private normalizeFormatConfigArtifactRef(

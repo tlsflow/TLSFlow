@@ -62,29 +62,29 @@ export class MonitorsApplicationService {
   }
 
   async collectRisks(input: CollectMonitorRisksInput = {}): Promise<{ risks: RiskEventDto[]; dashboard: MonitorDashboardDto; matchedRuleIds: string[]; alertDispatches: Awaited<ReturnType<AlertDispatcher['dispatch']>> }> {
+    const tenantId = input.tenantId;
+    if (!tenantId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少租户上下文');
     const detectedAt = input.scanStartedAt ?? new Date().toISOString();
     const thresholdDays = input.certificateExpiringThresholdDays ?? 30;
     const createdOrUpdated: RiskEvent[] = [];
 
-    const certificates = await this.dependencies.certificates.listVersions(allRowsQuery());
+    const certificates = await this.dependencies.certificates.listVersions(allRowsQuery(), tenantId);
     // 中文说明：先用已持久化的最新观测恢复状态，再生成本轮风险，避免扫描把已恢复的漂移重新写成活动风险。
     await this.reconcileMonitorCertificateRisks({
-      tenantId: input.tenantId,
+      tenantId,
       occurredAt: detectedAt,
     });
 
     for (const version of certificates.items) {
-      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
+      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId, tenantId);
       if (!asset || asset.status !== 'active' || version.status !== 'active') continue;
       const risk = this.domain.buildCertificateRiskEvent(asset, version, detectedAt, thresholdDays);
       if (!risk) continue;
-      risk.scope.tenantId = input.tenantId;
+      risk.scope.tenantId = tenantId;
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const bindings = input.tenantId
-      ? await this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery())
-      : { items: [] as CertificateBindingDto[] };
+    const bindings = await this.dependencies.bindings.listCertificateBindings(tenantId, allRowsQuery());
     const unknownCertificateBindingIds = new Set<string>();
     for (const binding of bindings.items) {
       const risk = this.domain.buildBindingRiskEvent(binding);
@@ -94,21 +94,19 @@ export class MonitorsApplicationService {
       risk.scope.tenantId = binding.tenantId;
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
-    if (input.tenantId) {
-      await this.resolveClearedBindingMappingRisks(input.tenantId, unknownCertificateBindingIds, detectedAt);
-    }
+    await this.resolveClearedBindingMappingRisks(tenantId, unknownCertificateBindingIds, detectedAt);
 
-    const runs = await this.dependencies.executions.listRuns(input.tenantId);
+    const runs = await this.dependencies.executions.listRuns(tenantId);
     for (const run of runs) {
       const risk = this.domain.buildExecutionRiskEvent(run);
       if (!risk) continue;
       risk.detectedAt = detectedAt;
-      risk.scope.tenantId = run.tenantId ?? input.tenantId;
+      risk.scope.tenantId = run.tenantId ?? tenantId;
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const allRisks = await this.listRiskEvents({ tenantId: input.tenantId });
-    const matchedRuleIds = (await this.listAlertRules(input.tenantId))
+    const allRisks = await this.listRiskEvents({ tenantId });
+    const matchedRuleIds = (await this.listAlertRules(tenantId))
       .filter((rule) => this.domain.evaluateRule(rule, allRisks, detectedAt))
       .map((rule) => rule.id);
     return {
@@ -491,12 +489,13 @@ export class MonitorsApplicationService {
       ?? readString(risk.metadata.certificateVersionId);
     if (!versionId) return undefined;
 
-    const version = await this.dependencies.certificates.getVersion(versionId);
+    const tenantId = risk.scope.tenantId;
+    const version = await this.dependencies.certificates.getVersion(versionId, tenantId);
     if (!version) return undefined;
-    const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
+    const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId, tenantId);
     const latestVersion = asset?.currentVersionId
-      ? await this.dependencies.certificates.getVersion(asset.currentVersionId)
-      : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId))
+      ? await this.dependencies.certificates.getVersion(asset.currentVersionId, tenantId)
+      : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId, tenantId))
         .sort((left, right) => right.versionNo - left.versionNo)[0];
     return normalizeFingerprint(latestVersion?.fingerprintSha256);
   }
@@ -510,12 +509,12 @@ export class MonitorsApplicationService {
     ].filter((value): value is string => Boolean(value)))];
     let resolvedVersionFingerprint = false;
     for (const versionId of versionIds) {
-      const version = await this.dependencies.certificates.getVersion(versionId);
+      const version = await this.dependencies.certificates.getVersion(versionId, binding.tenantId);
       if (!version) continue;
-      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId);
+      const asset = await this.dependencies.certificates.getAsset(version.certificateAssetId, binding.tenantId);
       const latestVersion = asset?.currentVersionId
-        ? await this.dependencies.certificates.getVersion(asset.currentVersionId)
-        : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId))
+        ? await this.dependencies.certificates.getVersion(asset.currentVersionId, binding.tenantId)
+        : (await this.dependencies.certificates.listVersionsByAsset(version.certificateAssetId, binding.tenantId))
           .sort((left, right) => right.versionNo - left.versionNo)[0];
       const fingerprint = normalizeFingerprint(latestVersion?.fingerprintSha256);
       if (!fingerprint) continue;

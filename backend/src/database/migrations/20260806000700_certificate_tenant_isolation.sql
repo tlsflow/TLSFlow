@@ -85,7 +85,9 @@ end
 $$;
 
 -- 旧索引按全局唯一约束建立，必须先删除后按租户重建。
+drop index if exists uq_pg_certificate_assets_primary_domain_active;
 drop index if exists uq_pg_certificate_versions_fingerprint;
+drop index if exists uq_pg_certificate_versions_fingerprint_active;
 drop index if exists uq_pg_certificate_versions_asset_version;
 drop index if exists uq_pg_certificate_version_formats_natural;
 
@@ -120,8 +122,10 @@ create index if not exists idx_pg_certificate_versions_tenant_not_after
 create index if not exists idx_pg_certificate_version_formats_tenant_version
   on pg_certificate_version_formats (tenant_id, certificate_version_id, created_at desc);
 
-create unique index if not exists uq_pg_certificate_artifacts_tenant_ref
-  on pg_certificate_artifacts (tenant_id, artifact_ref);
+alter table pg_certificate_artifacts
+  drop constraint if exists pg_certificate_artifacts_pkey;
+alter table pg_certificate_artifacts
+  add constraint pg_certificate_artifacts_pkey primary key (tenant_id, artifact_ref);
 
 create index if not exists idx_pg_certificate_artifacts_tenant_created
   on pg_certificate_artifacts (tenant_id, created_at desc);

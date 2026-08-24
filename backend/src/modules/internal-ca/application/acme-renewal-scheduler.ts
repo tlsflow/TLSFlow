@@ -29,7 +29,7 @@ export class AcmeRenewalScheduler {
         }
         continue;
       }
-      const version = await this.certificates.getVersion(currentVersionId);
+      const version = await this.certificates.getVersion(currentVersionId, policy.tenantId);
       if (!version || (version.activationState ?? 'promoted') !== 'promoted') continue;
       if (Date.parse(version.notAfter) - now.getTime() > policy.renewalWindowDays * 86_400_000) continue;
 
@@ -98,7 +98,7 @@ export class AcmeRenewalScheduler {
       throw new AppError('ACME_RENEWAL_FAILED', '证书缺少可执行的首次申请上下文', { certificateAssetId });
     }
 
-    const version = await this.certificates.getVersion(currentVersionId);
+    const version = await this.certificates.getVersion(currentVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书当前版本不存在', { certificateVersionId: currentVersionId });
     if ((version.activationState ?? 'promoted') !== 'promoted') {
       throw new AppError('ACME_RENEWAL_FAILED', '证书当前版本尚未完成 Promotion，暂不能手动续签', { certificateVersionId: currentVersionId });
@@ -150,7 +150,7 @@ export class AcmeRenewalScheduler {
     const renewalWindowKey = `initial:${policy.certificateAssetId}`;
     const existing = await this.repository.getRenewalJobByWindow(policy.tenantId, undefined, renewalWindowKey);
     if (existing) return undefined;
-    const asset = await this.certificates.getAsset(policy.certificateAssetId);
+    const asset = await this.certificates.getAsset(policy.certificateAssetId, policy.tenantId);
     if (!asset || asset.sourceType !== 'acme' || asset.currentVersionId) return undefined;
 
     const issuanceContext = await this.issuance.ensureAcmeIssuanceContext(policy.tenantId, policy.providerId, policy.createdBy);
@@ -201,7 +201,7 @@ export class AcmeRenewalScheduler {
 
   private async resolveCurrentVersionId(policy: AcmeRenewalPolicyEntity): Promise<string | undefined> {
     if (policy.certificateAssetId) {
-      const asset = await this.certificates.getAsset(policy.certificateAssetId);
+      const asset = await this.certificates.getAsset(policy.certificateAssetId, policy.tenantId);
       return asset?.currentVersionId;
     }
     if (!policy.bindingId || !this.bindings) return undefined;

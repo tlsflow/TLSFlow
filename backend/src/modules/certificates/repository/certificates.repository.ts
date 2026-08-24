@@ -45,6 +45,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
   ) {}
 
   async createAsset(entity: CertificateAssetEntity): Promise<CertificateAssetEntity> {
+    const tenantId = await this.resolveWriteTenantId(entity.tenantId);
     await this.db.query(
       `insert into pg_certificate_assets (
          id, tenant_id, name, primary_domain, sans, source_type, current_version_id,
@@ -52,7 +53,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
        ) values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz)`,
       [
         entity.id,
-        entity.tenantId ?? effectiveTenantId(),
+        tenantId,
         entity.name,
         entity.primaryDomain,
         JSON.stringify(entity.sans ?? []),
@@ -65,13 +66,19 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.updatedAt,
       ],
     );
-    return { ...structuredClone(entity), tenantId: entity.tenantId ?? effectiveTenantId() };
+    return { ...structuredClone(entity), tenantId };
   }
 
   async updateAsset(id: string, patch: Partial<CertificateAssetEntity>, tenantId?: string): Promise<CertificateAssetEntity> {
     const scopedTenantId = effectiveTenantId(tenantId);
     const current = await this.getAssetOrThrow(id, scopedTenantId);
     const next = { ...current, ...patch, id };
+    if (next.currentVersionId) {
+      const currentVersion = await this.getVersion(next.currentVersionId, current.tenantId ?? scopedTenantId);
+      if (!currentVersion || currentVersion.certificateAssetId !== id) {
+        throw new Error(`certificate version not found for asset: ${next.currentVersionId}`);
+      }
+    }
     await this.db.query(
       `update pg_certificate_assets
           set name = $2,
@@ -83,7 +90,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
               tags = $8::jsonb,
               updated_at = $9::timestamptz
         where id = $1
-          and ($12::text is null or tenant_id = $12)`,
+          and ($10::text is null or tenant_id = $10)`,
       [
         id,
         next.name,
@@ -272,20 +279,22 @@ export class PgCertificatesRepository implements CertificatesRepository {
   }
 
   async createVersion(entity: CertificateVersionEntity): Promise<CertificateVersionEntity> {
+    const tenantId = await this.resolveWriteTenantId(entity.tenantId);
     await this.db.query(
       `insert into pg_certificate_versions (
-         id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
+         id, tenant_id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
          not_before, not_after, fingerprint_sha256, public_key_fingerprint_sha256, public_key_algorithm, signature_algorithm,
          leaf_storage_ref, private_key_secret_ref, chain_certificate_refs, chain_order, chain_diagnostics,
          chain_status, deployable, activation_state, source_type, status, created_by, created_at,
          issuing_ca_id, certificate_request_id, certificate_profile_version_id, key_reference_id, key_custody_mode
        ) values (
-         $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::timestamptz, $10::timestamptz,
-         $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24, $25, $26::timestamptz,
-         $27, $28, $29, $30, $31
+         $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::timestamptz, $11::timestamptz,
+         $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20::jsonb, $21, $22, $23, $24, $25, $26, $27::timestamptz,
+         $28, $29, $30, $31, $32
        )`,
       [
         entity.id,
+        tenantId,
         entity.certificateAssetId,
         entity.versionNo,
         entity.commonName ?? null,
@@ -318,55 +327,71 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.keyCustodyMode ?? null,
       ],
     );
-    return structuredClone(entity);
+    return { ...structuredClone(entity), tenantId };
   }
 
-  async getVersion(id: string): Promise<CertificateVersionEntity | undefined> {
-    const result = await this.db.query<CertificateVersionRow>(`select * from pg_certificate_versions where id = $1`, [id]);
+  async getVersion(id: string, tenantId?: string): Promise<CertificateVersionEntity | undefined> {
+    const result = await this.db.query<CertificateVersionRow>(
+      `select * from pg_certificate_versions
+        where id = $1
+          and ($2::text is null or tenant_id = $2)`,
+      [id, effectiveTenantId(tenantId) ?? null],
+    );
     return result.rows[0] ? toVersionEntity(result.rows[0]) : undefined;
   }
 
-  async getVersionByFingerprint(fingerprintSha256: string): Promise<CertificateVersionEntity | undefined> {
+  async getVersionByFingerprint(fingerprintSha256: string, tenantId?: string): Promise<CertificateVersionEntity | undefined> {
     const result = await this.db.query<CertificateVersionRow>(
       `select * from pg_certificate_versions
         where lower(fingerprint_sha256) = lower($1)
           and status <> 'deleted'
+          and ($2::text is null or tenant_id = $2)
         limit 1`,
-      [fingerprintSha256],
+      [fingerprintSha256, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows[0] ? toVersionEntity(result.rows[0]) : undefined;
   }
 
-  async countVersionsByAsset(certificateAssetId: string): Promise<number> {
+  async countVersionsByAsset(certificateAssetId: string, tenantId?: string): Promise<number> {
     const result = await this.db.query<{ count: string }>(
-      `select count(*)::text as count from pg_certificate_versions where certificate_asset_id = $1`,
-      [certificateAssetId],
+      `select count(*)::text as count
+         from pg_certificate_versions
+        where certificate_asset_id = $1
+          and ($2::text is null or tenant_id = $2)`,
+      [certificateAssetId, effectiveTenantId(tenantId) ?? null],
     );
     return Number(result.rows[0]?.count ?? 0);
   }
 
-  async listVersions(query: PageQuery): Promise<PageResponse<CertificateVersionEntity>> {
+  async listVersions(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionEntity>> {
+    const scopedTenantId = effectiveTenantId(tenantId);
     const versions = (await this.db.query<CertificateVersionRow>(
       `select * from pg_certificate_versions
         where status <> 'deleted'
+          and ($1::text is null or tenant_id = $1)
         order by created_at desc`,
+      [scopedTenantId ?? null],
     )).rows.map(toVersionEntity);
     const assets = new Map((await this.db.query<CertificateAssetRow>(
       `select * from pg_certificate_assets
-        where status <> 'deleted'`,
+        where status <> 'deleted'
+          and ($1::text is null or tenant_id = $1)`,
+      [scopedTenantId ?? null],
     )).rows.map((row) => [row.id, toAssetEntity(row)] as const));
     const visibleVersions = applyAuthorizationFilter(versions.filter((version) => assets.has(version.certificateAssetId)), query);
     return page(filterVersionRows(visibleVersions, assets, query.filter), query);
   }
 
   async createFormat(entity: CertificateVersionFormatEntity): Promise<CertificateVersionFormatEntity> {
+    const tenantId = await this.resolveWriteTenantId(entity.tenantId);
     await this.db.query(
       `insert into pg_certificate_version_formats (
-         id, certificate_version_id, format, artifact_ref, parameter_hash, parameters,
+         id, tenant_id, certificate_version_id, format, artifact_ref, parameter_hash, parameters,
          contains_private_key, password_secret_ref, created_by, created_at, expires_at
-       ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10::timestamptz, $11::timestamptz)`,
+       ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::timestamptz, $12::timestamptz)`,
       [
         entity.id,
+        tenantId,
         entity.certificateVersionId ?? null,
         entity.format,
         entity.artifactRef,
@@ -379,11 +404,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
         entity.expiresAt ?? null,
       ],
     );
-    return structuredClone(entity);
+    return { ...structuredClone(entity), tenantId };
   }
 
-  async updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>): Promise<CertificateVersionFormatEntity> {
-    const current = await this.getFormatOrThrow(id);
+  async updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>, tenantId?: string): Promise<CertificateVersionFormatEntity> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    const current = await this.getFormatOrThrow(id, scopedTenantId);
     const next = { ...current, ...patch, id };
     await this.db.query(
       `update pg_certificate_version_formats
@@ -397,7 +423,8 @@ export class PgCertificatesRepository implements CertificatesRepository {
               created_by = $9,
               created_at = $10::timestamptz,
               expires_at = $11::timestamptz
-        where id = $1`,
+        where id = $1
+          and ($12::text is null or tenant_id = $12)`,
       [
         id,
         next.certificateVersionId ?? null,
@@ -410,68 +437,101 @@ export class PgCertificatesRepository implements CertificatesRepository {
         next.createdBy,
         next.createdAt,
         next.expiresAt ?? null,
+        scopedTenantId ?? null,
       ],
     );
-    return next;
+    return { ...next, tenantId: current.tenantId ?? scopedTenantId };
   }
 
-  async deleteFormat(id: string): Promise<CertificateVersionFormatEntity> {
-    const current = await this.getFormatOrThrow(id);
-    await this.db.query(`delete from pg_certificate_version_formats where id = $1`, [id]);
+  async deleteFormat(id: string, tenantId?: string): Promise<CertificateVersionFormatEntity> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    const current = await this.getFormatOrThrow(id, scopedTenantId);
+    await this.db.query(
+      `delete from pg_certificate_version_formats
+        where id = $1
+          and ($2::text is null or tenant_id = $2)`,
+      [id, scopedTenantId ?? null],
+    );
     return current;
   }
 
-  async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatEntity>> {
-    const rows = (await this.db.query<CertificateVersionFormatRow>(`select * from pg_certificate_version_formats order by created_at desc`)).rows.map(toFormatEntity);
+  async listFormats(query: PageQuery, tenantId?: string): Promise<PageResponse<CertificateVersionFormatEntity>> {
+    const rows = (await this.db.query<CertificateVersionFormatRow>(
+      `select * from pg_certificate_version_formats
+        where ($1::text is null or tenant_id = $1)
+        order by created_at desc`,
+      [effectiveTenantId(tenantId) ?? null],
+    )).rows.map(toFormatEntity);
     return page(filterRows(applyAuthorizationFilter(rows, query), query.filter), query);
   }
 
-  async getFormat(id: string): Promise<CertificateVersionFormatEntity | undefined> {
+  async getFormat(id: string, tenantId?: string): Promise<CertificateVersionFormatEntity | undefined> {
     const result = await this.db.query<CertificateVersionFormatRow>(
-      `select * from pg_certificate_version_formats where id = $1 limit 1`,
-      [id],
+      `select * from pg_certificate_version_formats
+        where id = $1
+          and ($2::text is null or tenant_id = $2)
+        limit 1`,
+      [id, effectiveTenantId(tenantId) ?? null],
     );
     return result.rows[0] ? toFormatEntity(result.rows[0]) : undefined;
   }
 
-  async getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined> {
+  async getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string, tenantId?: string): Promise<CertificateVersionFormatEntity | undefined> {
+    const scopedTenantId = effectiveTenantId(tenantId);
     const result = certificateVersionId
       ? await this.db.query<CertificateVersionFormatRow>(
         `select * from pg_certificate_version_formats
           where certificate_version_id = $1 and format = $2 and parameter_hash = $3
+            and ($4::text is null or tenant_id = $4)
           limit 1`,
-        [certificateVersionId, format, parameterHash],
+        [certificateVersionId, format, parameterHash, scopedTenantId ?? null],
       )
       : await this.db.query<CertificateVersionFormatRow>(
         `select * from pg_certificate_version_formats
           where certificate_version_id is null and format = $1 and parameter_hash = $2
+            and ($3::text is null or tenant_id = $3)
           limit 1`,
-        [format, parameterHash],
+        [format, parameterHash, scopedTenantId ?? null],
       );
     return result.rows[0] ? toFormatEntity(result.rows[0]) : undefined;
   }
 
-  private async getAssetOrThrow(id: string): Promise<CertificateAssetEntity> {
-    const asset = await this.getAsset(id);
+  private async getAssetOrThrow(id: string, tenantId?: string): Promise<CertificateAssetEntity> {
+    const asset = await this.getAsset(id, tenantId);
     if (!asset) throw new Error(`certificate asset not found: ${id}`);
     return asset;
   }
 
-  private async getVersionOrThrow(id: string): Promise<CertificateVersionEntity> {
-    const version = await this.getVersion(id);
+  private async getVersionOrThrow(id: string, tenantId?: string): Promise<CertificateVersionEntity> {
+    const version = await this.getVersion(id, tenantId);
     if (!version) throw new Error(`certificate version not found: ${id}`);
     return version;
   }
 
-  private async getFormatOrThrow(id: string): Promise<CertificateVersionFormatEntity> {
-    const format = await this.getFormat(id);
+  private async getFormatOrThrow(id: string, tenantId?: string): Promise<CertificateVersionFormatEntity> {
+    const format = await this.getFormat(id, tenantId);
     if (!format) throw new Error(`certificate version format not found: ${id}`);
     return format;
+  }
+
+  private async resolveWriteTenantId(tenantId?: string): Promise<string> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    if (scopedTenantId) return scopedTenantId;
+    const result = await this.db.query<{ id: string }>(
+      `select id::text as id
+         from tenants
+        where code = 'default'
+          and deleted_at is null
+        limit 1`,
+    );
+    if (!result.rows[0]?.id) throw new Error('默认租户不存在，无法保存证书对象');
+    return result.rows[0].id;
   }
 }
 
 type CertificateAssetRow = {
   id: string;
+  tenant_id: string;
   name: string;
   primary_domain: string;
   sans: unknown;
@@ -486,6 +546,7 @@ type CertificateAssetRow = {
 
 type CertificateVersionRow = {
   id: string;
+  tenant_id: string;
   certificate_asset_id: string;
   version_no: number;
   common_name?: string | null;
@@ -520,6 +581,7 @@ type CertificateVersionRow = {
 
 type CertificateVersionFormatRow = {
   id: string;
+  tenant_id: string;
   certificate_version_id?: string | null;
   format: CertificateVersionFormatEntity['format'];
   artifact_ref: string;
@@ -537,6 +599,7 @@ type DbTime = string | Date;
 function toAssetEntity(row: CertificateAssetRow): CertificateAssetEntity {
   return {
     id: row.id,
+    tenantId: row.tenant_id,
     name: row.name,
     primaryDomain: row.primary_domain,
     sans: asStringArray(row.sans),
@@ -553,6 +616,7 @@ function toAssetEntity(row: CertificateAssetRow): CertificateAssetEntity {
 function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
   return {
     id: row.id,
+    tenantId: row.tenant_id,
     certificateAssetId: row.certificate_asset_id,
     versionNo: row.version_no,
     commonName: row.common_name ?? undefined,
@@ -589,6 +653,7 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
 function toFormatEntity(row: CertificateVersionFormatRow): CertificateVersionFormatEntity {
   return {
     id: row.id,
+    tenantId: row.tenant_id,
     certificateVersionId: row.certificate_version_id ?? undefined,
     format: row.format,
     artifactRef: row.artifact_ref,
@@ -671,4 +736,11 @@ function comparable(value: unknown): string {
 
 export function buildParameterHash(parameters: unknown): string {
   return createHash('sha256').update(canonicalize(parameters ?? {})).digest('hex');
+}
+
+function effectiveTenantId(tenantId?: string): string | undefined {
+  const explicit = tenantId?.trim();
+  if (explicit) return explicit;
+  const requestTenantId = getRequestContext()?.tenantId?.trim();
+  return requestTenantId || undefined;
 }

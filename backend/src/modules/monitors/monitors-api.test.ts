@@ -77,8 +77,8 @@ describe('监控风险 API', () => {
   it('生成证书到期、绑定漂移、未知证书和执行失败风险，并返回仪表盘聚合', async () => {
     const { app, assetsService, bindingsService, certificatesRepository, executionsRepository } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_monitor', 'x-actor-id': 'monitor_bot' };
-    await seedCertificate(certificatesRepository, { primaryDomain: 'expired.example.com', notAfter: '2026-01-01T00:00:00.000Z' });
-    const driftCertificateVersionId = await seedCertificate(certificatesRepository, { primaryDomain: 'expiring.example.com', notAfter: '2026-06-20T00:00:00.000Z' });
+    await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor', primaryDomain: 'expired.example.com', notAfter: '2026-01-01T00:00:00.000Z' });
+    const driftCertificateVersionId = await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor', primaryDomain: 'expiring.example.com', notAfter: '2026-06-20T00:00:00.000Z' });
 
     const host = await assetsService.createHost('tenant_monitor', {
       hostname: 'monitor-host.example.com',
@@ -180,7 +180,7 @@ describe('监控风险 API', () => {
   it('同一 dedupKey 重复扫描不会生成重复风险事件，只增加 occurrenceCount', async () => {
     const { app, certificatesRepository } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_monitor_dedup', 'x-actor-id': 'monitor_bot' };
-    await seedCertificate(certificatesRepository, { primaryDomain: 'dedup.example.com', notAfter: '2026-06-10T00:00:00.000Z' });
+    await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor_dedup', primaryDomain: 'dedup.example.com', notAfter: '2026-06-10T00:00:00.000Z' });
 
     const first = await app.inject({
       method: 'POST',
@@ -209,7 +209,7 @@ describe('监控风险 API', () => {
   it('告警规则支持阈值、范围、状态与静默，并只对命中规则返回 matchedRuleIds', async () => {
     const { app, certificatesRepository } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_monitor_rules', 'x-actor-id': 'monitor_bot' };
-    await seedCertificate(certificatesRepository, { primaryDomain: 'rule.example.com', notAfter: '2026-06-09T00:00:00.000Z' });
+    await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor_rules', primaryDomain: 'rule.example.com', notAfter: '2026-06-09T00:00:00.000Z' });
 
     const activeRule = await app.inject({
       method: 'POST',
@@ -526,15 +526,16 @@ describe('监控风险 API', () => {
         displayName: 'certificate recovered nginx',
       });
       const versionId = await seedCertificate(certificatesRepository, {
+        tenantId,
         primaryDomain: 'certificate-recovered.example.com',
         notAfter: '2026-10-30T00:00:00.000Z',
       });
-      const version = await certificatesRepository.getVersion(versionId);
+      const version = await certificatesRepository.getVersion(versionId, tenantId);
       assert.ok(version);
       const certificate = new X509Certificate(CERT_PEM);
       const fingerprint = createHash('sha256').update(certificate.raw).digest('hex').toUpperCase();
-      await certificatesRepository.updateVersion(version.id, { fingerprintSha256: fingerprint });
-      await certificatesRepository.updateAsset(version.certificateAssetId, { currentVersionId: version.id });
+      await certificatesRepository.updateVersion(version.id, { fingerprintSha256: fingerprint }, tenantId);
+      await certificatesRepository.updateAsset(version.certificateAssetId, { currentVersionId: version.id }, tenantId);
       const binding = await bindingsService.createCertificateBinding(tenantId, {
         serviceAssetId: asset.id,
         serviceInstanceId: service.id,
@@ -967,7 +968,7 @@ async function createMonitorHarness() {
   const db = new PgliteDatabase();
   await runMigrations(db);
 
-  const app = new App();
+  const app = new App({ allowLegacyHeaderContext: true });
   const assetsRepository = new PgAssetsRepository(db);
   const assetsService = new AssetsApplicationService(assetsRepository);
   const bindingsRepository = new PgBindingsRepository(assetsRepository, db);
@@ -999,11 +1000,12 @@ async function createMonitorHarness() {
 
 async function seedCertificate(
   repository: PgCertificatesRepository,
-  input: { primaryDomain: string; notAfter: string },
+  input: { tenantId: string; primaryDomain: string; notAfter: string },
 ): Promise<string> {
   const assetId = newId('certasset');
   await repository.createAsset({
     id: assetId,
+    tenantId: input.tenantId,
     name: input.primaryDomain,
     primaryDomain: input.primaryDomain,
     sans: [input.primaryDomain],
@@ -1017,6 +1019,7 @@ async function seedCertificate(
   const versionId = newId('certver');
   await repository.createVersion({
     id: versionId,
+    tenantId: input.tenantId,
     certificateAssetId: assetId,
     versionNo: 1,
     commonName: input.primaryDomain,
@@ -1040,7 +1043,7 @@ async function seedCertificate(
     createdBy: 'seed',
     createdAt: '2026-06-08T00:00:00.000Z',
   });
-  await repository.updateAsset(assetId, { currentVersionId: versionId });
+  await repository.updateAsset(assetId, { currentVersionId: versionId }, input.tenantId);
   return versionId;
 }
 

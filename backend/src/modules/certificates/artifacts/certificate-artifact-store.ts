@@ -1,8 +1,9 @@
 import { sha256Fingerprint } from '../../../common/crypto/fingerprint.js';
+import { getRequestContext } from '../../../common/tracing/request-context.js';
 import type { DatabasePort } from '../../../database/database-port.js';
-import { PgliteDatabase } from '../../../database/pglite-database.js';
 
 export interface CertificateArtifactRecord {
+  tenantId: string;
   artifactRef: string;
   content: Buffer;
   contentType: string;
@@ -13,6 +14,7 @@ export interface CertificateArtifactRecord {
 }
 
 export interface PutCertificateArtifactInput {
+  tenantId?: string;
   artifactRef: string;
   content: Buffer | string;
   contentType: string;
@@ -22,16 +24,18 @@ export interface PutCertificateArtifactInput {
 
 export interface CertificateArtifactStore {
   put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord>;
-  get(artifactRef: string): Promise<CertificateArtifactRecord | undefined>;
-  has(artifactRef: string): Promise<boolean>;
+  get(artifactRef: string, tenantId?: string): Promise<CertificateArtifactRecord | undefined>;
+  has(artifactRef: string, tenantId?: string): Promise<boolean>;
 }
 
 export class PgCertificateArtifactStore implements CertificateArtifactStore {
   constructor(private readonly db: DatabasePort) {}
 
   async put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord> {
+    const tenantId = await this.resolveWriteTenantId(input.tenantId);
     const content = Buffer.isBuffer(input.content) ? Buffer.from(input.content) : Buffer.from(input.content, 'utf8');
     const record: CertificateArtifactRecord = {
+      tenantId,
       artifactRef: input.artifactRef,
       content,
       contentType: input.contentType,
@@ -42,9 +46,9 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
     };
     await this.db.query(
       `insert into pg_certificate_artifacts (
-         artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
-      ) values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
-       on conflict (artifact_ref) do update set
+         tenant_id, artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
+      ) values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)
+       on conflict (tenant_id, artifact_ref) do update set
          content = excluded.content,
          content_type = excluded.content_type,
          sha256 = excluded.sha256,
@@ -52,6 +56,7 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
          created_at = excluded.created_at,
          expires_at = excluded.expires_at`,
       [
+        record.tenantId,
         record.artifactRef,
         record.content,
         record.contentType,
@@ -64,16 +69,18 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
     return { ...record, content: Buffer.from(record.content) };
   }
 
-  async get(artifactRef: string): Promise<CertificateArtifactRecord | undefined> {
+  async get(artifactRef: string, tenantId?: string): Promise<CertificateArtifactRecord | undefined> {
     const result = await this.db.query<CertificateArtifactRow>(
-      `select artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
+      `select tenant_id, artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
          from pg_certificate_artifacts
-        where artifact_ref = $1`,
-      [artifactRef],
+        where artifact_ref = $1
+          and ($2::text is null or tenant_id = $2)`,
+      [artifactRef, effectiveTenantId(tenantId) ?? null],
     );
     const row = result.rows[0];
     if (!row) return undefined;
     return {
+      tenantId: row.tenant_id,
       artifactRef: row.artifact_ref,
       content: Buffer.from(row.content as Buffer),
       contentType: row.content_type,
@@ -84,12 +91,27 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
     };
   }
 
-  async has(artifactRef: string): Promise<boolean> {
-    return Boolean(await this.get(artifactRef));
+  async has(artifactRef: string, tenantId?: string): Promise<boolean> {
+    return Boolean(await this.get(artifactRef, tenantId));
+  }
+
+  private async resolveWriteTenantId(tenantId?: string): Promise<string> {
+    const scopedTenantId = effectiveTenantId(tenantId);
+    if (scopedTenantId) return scopedTenantId;
+    const result = await this.db.query<{ id: string }>(
+      `select id::text as id
+         from tenants
+        where code = 'default'
+          and deleted_at is null
+        limit 1`,
+    );
+    if (!result.rows[0]?.id) throw new Error('默认租户不存在，无法保存证书产物');
+    return result.rows[0].id;
   }
 }
 
 type CertificateArtifactRow = {
+  tenant_id: string;
   artifact_ref: string;
   content: Buffer | Uint8Array | string;
   content_type: string;
@@ -98,3 +120,10 @@ type CertificateArtifactRow = {
   created_at: string;
   expires_at?: string | null;
 };
+
+function effectiveTenantId(tenantId?: string): string | undefined {
+  const explicit = tenantId?.trim();
+  if (explicit) return explicit;
+  const requestTenantId = getRequestContext()?.tenantId?.trim();
+  return requestTenantId || undefined;
+}

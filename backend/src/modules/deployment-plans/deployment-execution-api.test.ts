@@ -106,7 +106,7 @@ async function createMigratedTestApp(options: { security?: ReturnType<typeof cre
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
   grantDeploymentFixturePolicies(security, 'tenant_1');
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
   return {
     db,
@@ -123,7 +123,7 @@ async function createMigratedDeploymentService(options: {
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
   grantDeploymentFixturePolicies(security, 'tenant_1');
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
   const service = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
   const repository = service.getRepository();
   const assets = new PgAssetsRepository(db);
@@ -458,7 +458,7 @@ describe('部署计划与执行编排 API', () => {
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流部署'));
 
@@ -543,7 +543,7 @@ describe('部署计划与执行编排 API', () => {
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流实时版本'));
 
@@ -639,7 +639,7 @@ describe('部署计划与执行编排 API', () => {
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
     const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
     const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
 
@@ -740,7 +740,7 @@ describe('部署计划与执行编排 API', () => {
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const verifyServer = createServer((_request, response) => {
       response.setHeader('content-type', 'application/json');
