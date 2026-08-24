@@ -163,6 +163,44 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   assert.equal(verified.status, 'verified');
 });
 
+test('内置 CA 根 CA 单层拓扑保持兼容并明确风险确认', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-root-only-baseline';
+  const actorId = 'user-admin';
+  const provider = await service.createProvider(tenantId, {
+    name: 'GCAC 内置根 CA 基线',
+    type: 'gcac_builtin',
+    deploymentMode: 'builtin',
+    runtimePlatform: 'embedded',
+    availabilityMode: 'single',
+  }, actorId);
+  const input = {
+    providerId: provider.id,
+    name: '兼容根 CA',
+    commonName: 'GCAC Compatibility Root CA',
+    securityDomain: 'development',
+    topologyMode: 'root_only' as const,
+    deploymentMode: 'builtin' as const,
+    runtimePlatform: 'embedded' as const,
+    availabilityMode: 'single' as const,
+    keyBackend: 'secret' as const,
+  };
+  const preview = service.previewAuthority(input);
+  assert.equal(preview.blockers.length, 0);
+  assert.equal(preview.requiresApproval, true);
+  assert.ok(preview.warnings.some((warning) => warning.includes('根私钥')));
+
+  const authorities = await service.createAuthority(tenantId, {
+    ...input,
+    confirmationToken: preview.confirmationToken,
+    actorId,
+  });
+  assert.equal(authorities.length, 1);
+  assert.equal(authorities[0].role, 'root');
+  assert.equal(authorities[0].topologyMode, 'root_only');
+  assert.equal(authorities[0].pathLengthConstraint, 0);
+});
+
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-multi-root-ca';

@@ -75,3 +75,17 @@ test('AD CS、ACME、EST、SCEP 使用独立协议路径并保留 pending 状态
     globalThis.fetch = originalFetch;
   }
 });
+
+test('AD CS 基线记录 JSON 契约和当前尚未验证的能力声明', () => {
+  const registry = createDefaultCaProviderRegistry({} as SecretService);
+  const adapter = registry.get('microsoft_adcs');
+  const capabilities = adapter.getCapabilities();
+
+  assert.equal(capabilities.signCsr, true);
+  assert.equal(capabilities.queryIssuance, true);
+  assert.equal(capabilities.revokeCertificate, true);
+  assert.equal(capabilities.publishCrl, false);
+  assert.equal(capabilities.ocsp, false);
+  assert.equal(capabilities.hardwareBackedKey, true);
+  assert.equal(capabilities.highAvailability, true);
+});
