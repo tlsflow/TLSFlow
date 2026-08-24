@@ -1,21 +1,24 @@
 import { basename } from 'node:path';
 import type { ClientChannel } from 'ssh2';
 import { AppError } from '../../../common/errors/app-error.js';
-import type { RemoteFileClient, RemoteFileMetadata, FileTransferProtocol } from './ssh.file-transfer.js';
+import { normalizeRemotePath, type RemoteFileClient, type RemoteFileMetadata, type FileTransferProtocol } from './ssh.file-transfer.js';
+import { buildSafeFileInvocation } from './ssh.command-runner.js';
 import type { SshSession } from './ssh.connection-manager.js';
 
 export class SshScpRemoteFileClient implements RemoteFileClient {
   constructor(private readonly session: SshSession) {}
 
   async exists(remotePath: string): Promise<boolean> {
-    const result = await runShell(this.session, `test -e ${shellQuote(remotePath)}`);
+    remotePath = normalizeRemotePath(remotePath);
+    const result = await runFixedOperation(this.session, 'file.exists', [remotePath]);
     if (result.exitCode === 0) return true;
     if (result.exitCode === 1) return false;
     throw scpError('SCP 文件存在性检查失败', 'exists', remotePath, { stderr: result.stderr, exitCode: result.exitCode });
   }
 
   async stat(remotePath: string): Promise<RemoteFileMetadata> {
-    const result = await runShell(this.session, `LC_ALL=C stat -c '%s\t%a\t%U\t%G\t%Y' -- ${shellQuote(remotePath)}`);
+    remotePath = normalizeRemotePath(remotePath);
+    const result = await runFixedOperation(this.session, 'file.stat', [remotePath]);
     if (result.exitCode !== 0) {
       throw scpError('SCP 远端文件元数据读取失败', 'stat', remotePath, { stderr: result.stderr, exitCode: result.exitCode });
     }
@@ -33,7 +36,8 @@ export class SshScpRemoteFileClient implements RemoteFileClient {
   }
 
   async readFile(remotePath: string): Promise<Buffer> {
-    const channel = await openExecChannel(this.session, `scp -f -- ${shellQuote(remotePath)}`);
+    remotePath = normalizeRemotePath(remotePath);
+    const channel = await openExecChannel(this.session, 'scp.download', [remotePath]);
     try {
       channel.stream.write(Buffer.from([0]));
       const header = await readScpHeader(channel.reader, remotePath, channel.stderr);
@@ -54,7 +58,8 @@ export class SshScpRemoteFileClient implements RemoteFileClient {
   }
 
   async writeFile(remotePath: string, content: Buffer, _protocol: FileTransferProtocol): Promise<void> {
-    const channel = await openExecChannel(this.session, `scp -t -- ${shellQuote(remotePath)}`);
+    remotePath = normalizeRemotePath(remotePath);
+    const channel = await openExecChannel(this.session, 'scp.upload', [remotePath]);
     try {
       await readAck(channel.reader, remotePath, channel.stderr, 'upload_init');
       channel.stream.write(`C0644 ${content.byteLength} ${basename(remotePath)}\n`);
@@ -71,28 +76,38 @@ export class SshScpRemoteFileClient implements RemoteFileClient {
   }
 
   async rename(sourcePath: string, targetPath: string): Promise<void> {
-    await expectShellOk(this.session, `mv -f -- ${shellQuote(sourcePath)} ${shellQuote(targetPath)}`, 'rename', targetPath);
+    sourcePath = normalizeRemotePath(sourcePath);
+    targetPath = normalizeRemotePath(targetPath);
+    await expectFixedOperation(this.session, 'file.rename', [sourcePath, targetPath], 'rename', targetPath);
   }
 
   async deleteFile(remotePath: string): Promise<void> {
-    await expectShellOk(this.session, `rm -f -- ${shellQuote(remotePath)}`, 'delete', remotePath);
+    remotePath = normalizeRemotePath(remotePath);
+    await expectFixedOperation(this.session, 'file.delete', [remotePath], 'delete', remotePath);
   }
 
   async chmod(remotePath: string, mode: string): Promise<void> {
-    await expectShellOk(this.session, `chmod ${mode} -- ${shellQuote(remotePath)}`, 'chmod', remotePath);
+    remotePath = normalizeRemotePath(remotePath);
+    if (!/^[0-7]{3,4}$/.test(mode)) throw scpError('SCP chmod mode 不合法', 'chmod', remotePath, { mode });
+    await expectFixedOperation(this.session, 'file.chmod', [mode, '--', remotePath], 'chmod', remotePath);
   }
 
   async chown(remotePath: string, owner?: string, group?: string): Promise<void> {
+    remotePath = normalizeRemotePath(remotePath);
     if (owner && group) {
-      await expectShellOk(this.session, `chown ${shellQuote(`${owner}:${group}`)} -- ${shellQuote(remotePath)}`, 'chown', remotePath);
+      assertMetadataValue(owner, 'owner', remotePath);
+      assertMetadataValue(group, 'group', remotePath);
+      await expectFixedOperation(this.session, 'file.chown', [`${owner}:${group}`, '--', remotePath], 'chown', remotePath);
       return;
     }
     if (owner) {
-      await expectShellOk(this.session, `chown ${shellQuote(owner)} -- ${shellQuote(remotePath)}`, 'chown', remotePath);
+      assertMetadataValue(owner, 'owner', remotePath);
+      await expectFixedOperation(this.session, 'file.chown', [owner, '--', remotePath], 'chown', remotePath);
       return;
     }
     if (group) {
-      await expectShellOk(this.session, `chgrp ${shellQuote(group)} -- ${shellQuote(remotePath)}`, 'chown', remotePath);
+      assertMetadataValue(group, 'group', remotePath);
+      await expectFixedOperation(this.session, 'file.chgrp', [group, '--', remotePath], 'chown', remotePath);
     }
   }
 }
@@ -104,17 +119,18 @@ interface ExecChannel {
   closed: Promise<number | null>;
 }
 
-interface ShellResult {
+interface FixedOperationResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
 }
 
-async function openExecChannel(session: SshSession, command: string): Promise<ExecChannel> {
+async function openExecChannel(session: SshSession, templateName: Parameters<typeof buildSafeFileInvocation>[0], args: readonly string[]): Promise<ExecChannel> {
+  const command = buildSafeFileInvocation(templateName, args);
   return await new Promise<ExecChannel>((resolve, reject) => {
     session.client.exec(command, (error, stream) => {
       if (error) {
-        reject(scpError('SCP 会话启动失败', 'exec', undefined, { cause: error.message, command }));
+        reject(scpError('SCP 会话启动失败', 'exec', undefined, { cause: error.message, templateName }));
         return;
       }
       const stderr = { text: '' };
@@ -134,8 +150,8 @@ async function openExecChannel(session: SshSession, command: string): Promise<Ex
   });
 }
 
-async function runShell(session: SshSession, command: string): Promise<ShellResult> {
-  const channel = await openExecChannel(session, command);
+async function runFixedOperation(session: SshSession, templateName: Parameters<typeof buildSafeFileInvocation>[0], args: readonly string[]): Promise<FixedOperationResult> {
+  const channel = await openExecChannel(session, templateName, args);
   let stdout = '';
   channel.stream.on('data', (chunk: Buffer) => {
     stdout += chunk.toString('utf8');
@@ -144,10 +160,10 @@ async function runShell(session: SshSession, command: string): Promise<ShellResu
   return { stdout, stderr: channel.stderr.text, exitCode };
 }
 
-async function expectShellOk(session: SshSession, command: string, stage: string, remotePath: string): Promise<void> {
-  const result = await runShell(session, command);
+async function expectFixedOperation(session: SshSession, templateName: Parameters<typeof buildSafeFileInvocation>[0], args: readonly string[], stage: string, remotePath: string): Promise<void> {
+  const result = await runFixedOperation(session, templateName, args);
   if (result.exitCode !== 0) {
-    throw scpError('SCP shell 补偿操作失败', stage, remotePath, { stderr: result.stderr, exitCode: result.exitCode });
+    throw scpError('SCP 固定文件操作失败', stage, remotePath, { stderr: result.stderr, exitCode: result.exitCode, templateName });
   }
 }
 
@@ -193,12 +209,14 @@ function abortChannel(stream: ClientChannel): void {
   }
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 function scpError(message: string, stage: string, remotePath?: string, details: Record<string, unknown> = {}): AppError {
   return new AppError('EXECUTION_TARGET_UNAVAILABLE', message, { sshErrorCode: 'SCP_OPERATION_FAILED', stage, remotePath, ...details });
+}
+
+function assertMetadataValue(value: string, field: 'owner' | 'group', remotePath: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(value) && !/^\d+$/.test(value)) {
+    throw scpError('SCP 文件属主参数不合法', 'chown', remotePath, { field });
+  }
 }
 
 class ChannelReader {

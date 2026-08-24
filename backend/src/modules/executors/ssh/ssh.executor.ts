@@ -2,10 +2,10 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from '../../executions/application/executors.js';
 import { HostKeyVerifier, normalizeFingerprint } from './ssh.known-hosts.js';
 import { assertNoInlineSshSecret } from './ssh.redaction.js';
-import { SshCommandRunner } from './ssh.command-runner.js';
+import { buildSafeInvocation, SshCommandRunner } from './ssh.command-runner.js';
 import { SshConnectionManager } from './ssh.connection-manager.js';
-import type { SSHConnectionProfile, SshCommandBatchResult, SshSecretResolver, SshSecretResolverContext } from './ssh.types.js';
-import { FileTransferService, type FileTransferCapabilities, type FileTransferPlan, type FileTransferResult } from './ssh.file-transfer.js';
+import { SSH_ARGUMENT_TEMPLATES, type SSHConnectionProfile, type SshAllowedProgram, type SshArgumentTemplate, type SshCommandBatchResult, type SshSecretResolver, type SshSecretResolverContext } from './ssh.types.js';
+import { FileTransferService, normalizeRemotePath, type FileTransferCapabilities, type FileTransferPlan, type FileTransferResult } from './ssh.file-transfer.js';
 import { RemoteBackupService, type BackupManifest } from './ssh.remote-backup.js';
 import { RemoteRollbackService, type RollbackResult } from './ssh.rollback.js';
 import { SshRemoteFileClient } from './ssh.remote-file-client.js';
@@ -32,11 +32,9 @@ export interface ScpTransferPlan extends SftpTransferPlan {}
 export interface SSHExecutionRequest {
   idempotencyKey: string;
   connection: SSHConnectionProfile;
-  command?: string;
-  commands?: string[];
-  script?: string;
-  workingDirectory?: string;
-  environment?: Record<string, string>;
+  program?: SshAllowedProgram;
+  args?: string[];
+  argumentTemplate?: SshArgumentTemplate;
   sudo?: { enabled: boolean; passwordSecretRef?: string; requirePty?: boolean };
   sftp?: SftpTransferPlan[];
   scp?: ScpTransferPlan[];
@@ -159,7 +157,7 @@ export class SSHExecutor implements Executor {
     if (this.executed.has(request.idempotencyKey)) throw new AppError('IDEMPOTENCY_CONFLICT', 'SSH 请求幂等键已执行', { idempotencyKey: request.idempotencyKey });
     const dryRun = forceDryRun || request.dryRun === true;
     const plannedActions = buildPlannedActions(request);
-    const backupManifest = (request.backup ?? []).map((item) => ({ remotePath: normalizePath(item.remotePath), backupRef: item.backupRef }));
+    const backupManifest = (request.backup ?? []).map((item) => ({ remotePath: normalizeRemotePath(item.remotePath), backupRef: item.backupRef }));
     const hostKeyDecision = dryRun ? dryRunHostKeyDecision(request.connection) : 'verified';
 
     if (dryRun) {
@@ -177,7 +175,7 @@ export class SSHExecutor implements Executor {
     }
 
     const fileWork = await this.executeFileWork(request, context);
-    if (!request.command && !request.script) {
+    if (!request.program) {
       this.executed.add(request.idempotencyKey);
       return {
         success: fileWork.rollbackResult?.success ?? true,
@@ -196,11 +194,9 @@ export class SSHExecutor implements Executor {
     const session = await this.connectionManager.connect({ ...request.connection, connectTimeoutMs: request.connectTimeoutMs ?? request.connection.connectTimeoutMs }, context);
     try {
       const commandResult = await this.commandRunner.run(session, {
-        command: request.command,
-        commands: request.commands,
-        script: request.script,
-        workingDirectory: request.workingDirectory,
-        environment: request.environment,
+        program: request.program,
+        args: request.args ?? [],
+        argumentTemplate: request.argumentTemplate!,
         timeoutMs: request.timeoutMs ?? 30_000,
         successExitCodes: request.successExitCodes,
       });
@@ -315,27 +311,27 @@ function validateRequest(request: SSHExecutionRequest): void {
   if (request.timeoutMs !== undefined && (request.timeoutMs < 1 || request.timeoutMs > 300_000)) throw new AppError('VALIDATION_FAILED', 'timeoutMs 必须在 1-300000 之间');
   if (request.connectTimeoutMs !== undefined && (request.connectTimeoutMs < 1 || request.connectTimeoutMs > 120_000)) throw new AppError('VALIDATION_FAILED', 'connectTimeoutMs 必须在 1-120000 之间');
   if (request.sudo?.enabled && request.sudo.passwordSecretRef && !isSecretRef(request.sudo.passwordSecretRef)) throw new AppError('VALIDATION_FAILED', 'sudo 密码必须使用 SecretRef');
-  if (request.command) validateCommand(request.command);
-  for (const command of request.commands ?? []) validateCommand(command);
-  if (request.script) validateCommand(request.script);
+  const hasProgram = request.program !== undefined || request.args !== undefined || request.argumentTemplate !== undefined;
+  if (hasProgram) validateProgramRequest(request);
   const platformPolicy = sshPlatformPolicy(request.connection.platform);
-  if (platformPolicy.rejectsPosixCommands && (request.command || request.commands?.length || request.script) && /(systemctl|chmod|chown|\/etc\/|sudo\b)/.test(`${request.command ?? ''}\n${(request.commands ?? []).join('\n')}\n${request.script ?? ''}`)) {
-    throw new AppError('VALIDATION_FAILED', 'Windows OpenSSH 目标不允许执行 POSIX 专用步骤', { command: request.command });
+  if (platformPolicy.rejectsPosixCommands && hasProgram && request.program && ['systemctl', 'service'].includes(request.program)) {
+    throw new AppError('VALIDATION_FAILED', 'Windows OpenSSH 目标不允许执行 POSIX 专用步骤', { program: request.program });
   }
   for (const item of [...(request.sftp ?? []), ...(request.scp ?? [])]) {
-    normalizePath(item.remotePath);
+    normalizeRemotePath(item.remotePath);
     normalizePath(item.localPath);
+    if (item.temporaryPath) normalizeRemotePath(item.temporaryPath);
     assertNoInlineSshSecret({ ...item, content: undefined });
   }
   for (const item of request.backup ?? []) {
-    normalizePath(item.remotePath);
+    normalizeRemotePath(item.remotePath);
     if (!item.backupRef.trim()) throw new AppError('VALIDATION_FAILED', 'backupRef 必填');
   }
   for (const item of request.rollback ?? []) {
-    normalizePath(item.remotePath);
+    normalizeRemotePath(item.remotePath);
     if (!item.backupRef.trim()) throw new AppError('VALIDATION_FAILED', 'rollback backupRef 必填');
   }
-  if (!request.command && !request.commands?.length && !request.script && !hasFileWork(request) && !request.dryRun && request.allowMockExecution !== true) throw new AppError('VALIDATION_FAILED', '真实 SSH 执行必须提供 command、commands、script 或文件步骤');
+  if (!hasProgram && !hasFileWork(request) && !request.dryRun && request.allowMockExecution !== true) throw new AppError('VALIDATION_FAILED', '真实 SSH 执行必须提供结构化程序请求或文件步骤');
 }
 
 function hasFileWork(request: SSHExecutionRequest): boolean {
@@ -365,13 +361,11 @@ function toFileTransferPlan(plan: SftpTransferPlan): FileTransferPlan {
 function buildPlannedActions(request: SSHExecutionRequest): string[] {
   return [
     `hostkey:${dryRunHostKeyDecision(request.connection)}`,
-    ...(request.commands ?? []).map((command) => `exec:${command}`),
-    ...(request.command ? [`exec:${request.command}`] : []),
-    ...(request.script ? ['exec:script'] : []),
-    ...(request.sftp ?? []).map((item) => `sftp:${item.direction}:${normalizePath(item.remotePath)}`),
-    ...(request.scp ?? []).map((item) => `scp:${item.direction}:${normalizePath(item.remotePath)}`),
-    ...(request.backup ?? []).map((item) => `backup:${normalizePath(item.remotePath)}:${item.backupRef}`),
-    ...(request.rollback ?? []).map((item) => `rollback:${item.backupRef}:${normalizePath(item.remotePath)}`),
+    ...(request.program ? [`exec:${request.program}:${request.argumentTemplate}:${(request.args ?? []).join(',')}`] : []),
+    ...(request.sftp ?? []).map((item) => `sftp:${item.direction}:${normalizeRemotePath(item.remotePath)}`),
+    ...(request.scp ?? []).map((item) => `scp:${item.direction}:${normalizeRemotePath(item.remotePath)}`),
+    ...(request.backup ?? []).map((item) => `backup:${normalizeRemotePath(item.remotePath)}:${item.backupRef}`),
+    ...(request.rollback ?? []).map((item) => `rollback:${item.backupRef}:${normalizeRemotePath(item.remotePath)}`),
   ];
 }
 
@@ -388,9 +382,25 @@ function dryRunHostKeyDecision(connection: SSHConnectionProfile): SSHExecutionRe
   throw new AppError('VALIDATION_FAILED', 'strict Host Key 策略要求 expectedHostKeyFingerprint 或 Known Hosts 记录', { host: connection.host });
 }
 
-function validateCommand(command: string): void {
-  assertNoInlineSshSecret(command);
-  if (/(^|\s)(rm\s+-rf\s+\/|mkfs|dd\s+if=|shutdown|reboot)(\s|$)/i.test(command)) throw new AppError('VALIDATION_FAILED', '危险 SSH 命令被拒绝', { command });
+function validateProgramRequest(request: SSHExecutionRequest): void {
+  if (!request.program || !request.argumentTemplate || !Array.isArray(request.args)) {
+    throw new AppError('VALIDATION_FAILED', 'SSH 程序请求必须同时提供 program、args 和 argumentTemplate');
+  }
+  const template = SSH_ARGUMENT_TEMPLATES[request.argumentTemplate];
+  if (!template || template.program !== request.program) throw new AppError('VALIDATION_FAILED', 'SSH 程序与参数模板不匹配', { program: request.program, argumentTemplate: request.argumentTemplate });
+  if (request.args.length !== template.valueCount) throw new AppError('VALIDATION_FAILED', 'SSH 参数数量与参数模板不匹配', { argumentTemplate: request.argumentTemplate });
+  buildSafeInvocation({
+    program: request.program,
+    args: request.args,
+    argumentTemplate: request.argumentTemplate,
+    timeoutMs: request.timeoutMs ?? 30_000,
+  });
+  for (const arg of request.args) {
+    if (typeof arg !== 'string' || /[\0\r\n;&|`$()<>*?{}[\]\\!]/.test(arg) && !/^\{\{[a-zA-Z][a-zA-Z0-9_.]*\}\}$/.test(arg)) {
+      throw new AppError('VALIDATION_FAILED', 'SSH 参数包含 shell 元字符或控制字符');
+    }
+    assertNoInlineSshSecret(arg);
+  }
 }
 
 function normalizePath(path: string): string {

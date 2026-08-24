@@ -16,14 +16,16 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
       idempotencyKey: 'idem_ssh_1',
       dryRun: true,
       connection: { host: 'web-01', username: 'deploy', credentialSecretRef: 'secret://ssh/web-01#current', expectedHostKeyFingerprint: 'aabbccddeeff0011' },
-      command: 'nginx -t',
+      program: 'systemctl',
+      args: ['service-main'],
+      argumentTemplate: 'systemctl.reload',
       sftp: [{ direction: 'upload', localPath: '/artifact/cert.pem', remotePath: '/etc/nginx/cert.pem' }],
       backup: [{ remotePath: '/etc/nginx/cert.pem', backupRef: 'backup://cert.pem' }],
     });
     assert.equal(result.success, true);
     assert.equal(result.dryRun, true);
     assert.equal(result.mode, 'dry_run');
-    assert.deepEqual(result.plannedActions, ['hostkey:verified', 'exec:nginx -t', 'sftp:upload:/etc/nginx/cert.pem', 'backup:/etc/nginx/cert.pem:backup://cert.pem']);
+    assert.deepEqual(result.plannedActions, ['hostkey:verified', 'exec:systemctl:systemctl.reload:service-main', 'sftp:upload:/etc/nginx/cert.pem', 'backup:/etc/nginx/cert.pem:backup://cert.pem']);
     assert.equal(result.hostKeyDecision, 'verified');
     assert.deepEqual(result.backupManifest, [{ remotePath: '/etc/nginx/cert.pem', backupRef: 'backup://cert.pem' }]);
     assert.deepEqual(executor.getRequiredCapabilities(), ['ssh.connect', 'ssh.hostkey.verify', 'ssh.exec', 'ssh.sftp', 'ssh.scp', 'ssh.sudo', 'file.write', 'file.backup', 'file.rollback']);
@@ -31,11 +33,13 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
 
   it('拒绝明文凭据、危险命令、非法路径和重复幂等键', async () => {
     const executor = new SSHExecutor();
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_cred', connection: { host: 'h', username: 'u', credentialSecretRef: 'password=123' }, command: 'true' }), /SecretRef/);
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_hostkey', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current' }, command: 'true' }), /Host Key/);
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_cmd', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'rm -rf /' }), /危险/);
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_key_cmd', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'cat <<EOF\n-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----\nEOF' }), /敏感|Secret/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_cred', connection: { host: 'h', username: 'u', credentialSecretRef: 'password=123' }, program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload' }), /SecretRef/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_hostkey', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current' }, program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload' }), /Host Key/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_shell', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, program: 'systemctl', args: ['reload; sh -c id'], argumentTemplate: 'systemctl.reload' }), /元字符/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_interpreter', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, program: 'systemctl', args: ['powershell'], argumentTemplate: 'systemctl.reload' }), /解释器|服务名/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_template', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, program: 'systemctl', args: ['nginx'], argumentTemplate: 'systemctl.stop' as never }), /模板/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_path', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, sftp: [{ direction: 'upload', localPath: '../x', remotePath: '/tmp/x' }] }), /路径/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_relative_remote_path', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, dryRun: true, sftp: [{ direction: 'upload', localPath: '/tmp/x', remotePath: 'tmp/x' }] }), /远程路径/);
     const privateKeyTransfer = await executor.execute({
       idempotencyKey: 'private_key_file_transfer_ok',
       dryRun: true,
@@ -49,8 +53,8 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
     });
     assert.equal(privateKeyTransfer.success, true);
     assert.deepEqual(privateKeyTransfer.plannedActions, ['hostkey:verified', 'sftp:upload:/tmp/key.pem']);
-    await executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'true', allowMockExecution: true });
-    await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'true', allowMockExecution: true }), /幂等键/);
+    await executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', allowMockExecution: true });
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', allowMockExecution: true }), /幂等键/);
   });
 
   it('支持 HostKey 策略、sudo SecretRef、Windows OpenSSH 限制和能力探测', async () => {
@@ -59,7 +63,7 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
       idempotencyKey: 'idem_ssh_tofu',
       dryRun: true,
       connection: { host: 'web-02', username: 'deploy', credentialSecretRef: 'secret://ssh/web-02#current', hostKeyPolicy: 'trust_on_first_use' },
-      command: 'true',
+      program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload',
       sudo: { enabled: true, passwordSecretRef: 'secret://password/sudo-web-02#current' },
       rollback: [{ backupRef: 'backup://old-cert', remotePath: '/etc/nginx/cert.pem' }],
     });
@@ -68,7 +72,7 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
     await assert.rejects(() => executor.execute({
       idempotencyKey: 'idem_win_bad',
       connection: { host: 'win', username: 'deploy', credentialSecretRef: 'secret://ssh/win#current', expectedHostKeyFingerprint: 'aabbccddeeff0011', platform: 'WINDOWS_OPENSSH' },
-      command: 'systemctl reload nginx',
+      program: 'systemctl', args: ['nginx'], argumentTemplate: 'systemctl.reload',
     }), /Windows OpenSSH/);
 
     const probe = executor.probeCapabilities({ host: 'win', username: 'deploy', credentialSecretRef: 'secret://ssh/win#current', expectedHostKeyFingerprint: 'aabbccddeeff0011', platform: 'WINDOWS_OPENSSH' });
@@ -145,7 +149,9 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
   it('命令 runner 覆盖成功、失败、超时和 Secret 脱敏', async () => {
     const runner = new SshCommandRunner();
     const success = await runner.run(fakeSession(new FakeSshClient({ exitCode: 0, stdout: 'token=super-secret\n' })), {
-      command: 'echo token=super-secret',
+       program: 'systemctl',
+       args: ['service-main'],
+       argumentTemplate: 'systemctl.reload',
       timeoutMs: 100,
       sensitiveValues: ['super-secret'],
     });
@@ -153,37 +159,42 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
     assert.equal(success.exitCode, 0);
     assert.equal(success.stdout.includes('super-secret'), false);
     assert.equal(success.sanitizedCommand.includes('super-secret'), false);
+    assert.equal(success.audit?.program, 'systemctl');
+    assert.deepEqual(success.audit?.remotePaths, []);
 
-    const failure = await runner.run(fakeSession(new FakeSshClient({ exitCode: 9, stderr: 'no\n' })), { command: 'false', timeoutMs: 100 });
+    const failure = await runner.run(fakeSession(new FakeSshClient({ exitCode: 9, stderr: 'no\n' })), { program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutMs: 100 });
     assert.equal(failure.success, false);
     assert.equal(failure.errorCode, 'SSH_COMMAND_FAILED');
 
-    const timeout = await runner.run(fakeSession(new FakeSshClient({ neverClose: true })), { command: 'sleep 5', timeoutMs: 5 });
+    const timeout = await runner.run(fakeSession(new FakeSshClient({ neverClose: true })), { program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutMs: 5 });
     assert.equal(timeout.success, false);
     assert.equal(timeout.timedOut, true);
     assert.equal(timeout.errorCode, 'COMMAND_TIMEOUT');
   });
 
-  it('同一个 SSH 请求支持多条命令顺序执行并聚合结果', async () => {
+  it('SSH runner 只执行一个结构化白名单程序请求', async () => {
     const runner = new SshCommandRunner();
     const result = await runner.run(fakeSession(new FakeSshClient({ exitCode: 0, stdout: 'ok\n' })), {
-      commands: ['echo one', 'echo two'],
+      program: 'systemctl',
+      args: ['service-main'],
+      argumentTemplate: 'systemctl.reload',
       timeoutMs: 100,
     });
 
     assert.equal(result.success, true);
-    assert.equal(result.commandResults?.length, 2);
-    assert.match(result.sanitizedCommand, /echo one/);
-    assert.match(result.sanitizedCommand, /echo two/);
+    assert.equal(result.commandResults, undefined);
+    assert.match(result.sanitizedCommand, /^systemctl 'reload' 'service-main'$/);
 
     const executor = new SSHExecutor();
     const dryRun = await executor.execute({
       idempotencyKey: 'idem_ssh_commands',
       dryRun: true,
       connection: { host: 'web-03', username: 'deploy', credentialSecretRef: 'secret://ssh/web-03#current', expectedHostKeyFingerprint: 'aabbccddeeff0011' },
-      commands: ['echo one', 'echo two'],
+      program: 'systemctl',
+      args: ['service-main'],
+      argumentTemplate: 'systemctl.reload',
     });
-    assert.deepEqual(dryRun.plannedActions, ['hostkey:verified', 'exec:echo one', 'exec:echo two']);
+    assert.deepEqual(dryRun.plannedActions, ['hostkey:verified', 'exec:systemctl:systemctl.reload:service-main']);
   });
 });
 
@@ -191,7 +202,7 @@ function baseRequest(overrides: Partial<SSHExecutionRequest> = {}): SSHExecution
   return {
     idempotencyKey: 'idem_base',
     connection: { host: 'web', username: 'deploy', credentialSecretRef: 'secret://ssh/web#current', expectedHostKeyFingerprint: 'aabbccddeeff0011' },
-    command: 'true',
+      program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload',
     timeoutMs: 1000,
     ...overrides,
   };
@@ -233,7 +244,7 @@ class FakeCommandRunner {
       durationMs: 1,
       startedAt: now,
       endedAt: now,
-      sanitizedCommand: request.command ?? 'script',
+      sanitizedCommand: `${request.program} ${request.argumentTemplate} ${(request.args ?? []).join(' ')}`,
       errorCode: this.result.exitCode === 0 ? undefined : 'SSH_COMMAND_FAILED',
       errorMessage: this.result.exitCode === 0 ? undefined : `SSH 命令退出码非零：${this.result.exitCode}`,
     };

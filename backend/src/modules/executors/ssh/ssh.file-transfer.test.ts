@@ -285,7 +285,7 @@ describe('spec015 SSH 文件传输、备份和回滚服务', () => {
     assert.equal(sftp.closed, true);
   });
 
-  it('真实 SCP adapter 通过 scp 与 shell 补偿执行远端文件操作', async () => {
+  it('真实 SCP adapter 通过固定模板执行远端文件操作', async () => {
     const state = new FakeScpState();
     const client = new SshScpRemoteFileClient(fakeScpSession(state));
 
@@ -300,8 +300,17 @@ describe('spec015 SSH 文件传输、备份和回滚服务', () => {
     assert.equal(metadata.mode, '0644');
     assert.equal(metadata.owner, 'root');
     assert.equal(metadata.group, 'nginx');
-    assert.equal(state.execCommands.some((command) => command.startsWith("scp -t -- '/etc/nginx/cert.pem'")), true);
-    assert.equal(state.execCommands.some((command) => command.startsWith("scp -f -- '/etc/nginx/cert.pem'")), true);
+    assert.equal(state.execCommands.some((command) => command.startsWith("scp '-t' '--' '/etc/nginx/cert.pem'")), true);
+    assert.equal(state.execCommands.some((command) => command.startsWith("scp '-f' '--' '/etc/nginx/cert.pem'")), true);
+  });
+
+  it('SCP adapter 拒绝路径穿越、shell 元字符和非法文件属主', async () => {
+    const state = new FakeScpState();
+    const client = new SshScpRemoteFileClient(fakeScpSession(state));
+
+    await assert.rejects(() => client.readFile('/tmp/../etc/passwd'), /路径/);
+    await assert.rejects(() => client.chmod('/etc/nginx/cert.pem', '0644;id'), /mode 不合法/);
+    await assert.rejects(() => client.chown('/etc/nginx/cert.pem', 'root;id'), /属主参数不合法/);
   });
 
   it('SSHExecutor 未注入文件服务时默认创建真实 SCP 路径，并在 SFTP 不可用时闭环执行', async () => {
@@ -333,7 +342,7 @@ describe('spec015 SSH 文件传输、备份和回滚服务', () => {
     assert.equal(state.closed, true);
   });
 
-  it('混合 RemoteFileClient 优先 SFTP，失败后回退到 SCP/shell', async () => {
+  it('混合 RemoteFileClient 优先 SFTP，失败后回退到固定 SCP 文件操作', async () => {
     const state = new FakeScpState();
     state.files.set('/etc/nginx/cert.pem', { content: Buffer.from('hybrid-cert'), mode: '0640', owner: 'root', group: 'root', mtime: 1_783_036_800 });
     const client = new SshRemoteFileClient(fakeScpSession(state));
@@ -343,7 +352,7 @@ describe('spec015 SSH 文件传输、备份和回滚服务', () => {
 
     assert.equal(exists, true);
     assert.equal(content.toString('utf8'), 'hybrid-cert');
-    assert.equal(state.execCommands.some((command) => command.startsWith("scp -f -- '/etc/nginx/cert.pem'")), true);
+    assert.equal(state.execCommands.some((command) => command.startsWith("scp '-f' '--' '/etc/nginx/cert.pem'")), true);
   });
 });
 
@@ -574,15 +583,15 @@ class FakeScpClient {
 
   exec(command: string, callback: (error: Error | undefined, stream: FakeExecChannel) => void): void {
     this.state.execCommands.push(command);
-    if (command.startsWith('scp -t -- ')) {
-      callback(undefined, new FakeScpUploadChannel(this.state, parseQuoted(command)[0] ?? ''));
+    if (command.startsWith("scp '-t' '--' ")) {
+      callback(undefined, new FakeScpUploadChannel(this.state, parseQuoted(command).at(-1) ?? ''));
       return;
     }
-    if (command.startsWith('scp -f -- ')) {
-      callback(undefined, new FakeScpDownloadChannel(this.state, parseQuoted(command)[0] ?? ''));
+    if (command.startsWith("scp '-f' '--' ")) {
+      callback(undefined, new FakeScpDownloadChannel(this.state, parseQuoted(command).at(-1) ?? ''));
       return;
     }
-    callback(undefined, new FakeShellChannel(this.state, command));
+    callback(undefined, new FakeFixedOperationChannel(this.state, command));
   }
 }
 
@@ -612,11 +621,11 @@ class FakeExecChannel extends EventEmitter {
   }
 }
 
-class FakeShellChannel extends FakeExecChannel {
+class FakeFixedOperationChannel extends FakeExecChannel {
   constructor(state: FakeScpState, command: string) {
     super();
     setTimeout(() => {
-      const result = executeFakeShell(state, command);
+      const result = executeFakeFixedOperation(state, command);
       if (result.stdout) this.emit('data', Buffer.from(result.stdout));
       if (result.stderr) this.stderr.emit('data', Buffer.from(result.stderr));
       this.finish(result.exitCode);
@@ -723,12 +732,12 @@ class FakeScpDownloadChannel extends FakeExecChannel {
   }
 }
 
-function executeFakeShell(state: FakeScpState, command: string): { stdout: string; stderr: string; exitCode: number } {
+function executeFakeFixedOperation(state: FakeScpState, command: string): { stdout: string; stderr: string; exitCode: number } {
   const args = parseQuoted(command);
-  if (command.startsWith('test -e ')) {
-    return { stdout: '', stderr: '', exitCode: state.files.has(args[0] ?? '') ? 0 : 1 };
+  if (command.startsWith("test '-e' ")) {
+    return { stdout: '', stderr: '', exitCode: state.files.has(args.at(-1) ?? '') ? 0 : 1 };
   }
-  if (command.startsWith('LC_ALL=C stat -c ')) {
+  if (command.startsWith("stat '-c' ")) {
     const file = state.files.get(args.at(-1) ?? '');
     if (!file) return { stdout: '', stderr: 'missing', exitCode: 1 };
     return {
@@ -737,35 +746,37 @@ function executeFakeShell(state: FakeScpState, command: string): { stdout: strin
       exitCode: 0,
     };
   }
-  if (command.startsWith('mv -f -- ')) {
-    const [source, target] = args;
+  if (command.startsWith("mv '-f' '--' ")) {
+    const [, , source, target] = args;
     const file = state.files.get(source ?? '');
     if (!file || !target) return { stdout: '', stderr: 'missing source', exitCode: 1 };
     state.files.set(target, { ...file, content: Buffer.from(file.content) });
     state.files.delete(source ?? '');
     return { stdout: '', stderr: '', exitCode: 0 };
   }
-  if (command.startsWith('rm -f -- ')) {
-    state.files.delete(args[0] ?? '');
+  if (command.startsWith("rm '-f' '--' ")) {
+    state.files.delete(args.at(-1) ?? '');
     return { stdout: '', stderr: '', exitCode: 0 };
   }
   if (command.startsWith('chmod ')) {
-    const matched = /^chmod ([0-7]{3,4}) -- /.exec(command);
-    const file = state.files.get(args[0] ?? '');
-    if (!matched || !file) return { stdout: '', stderr: 'missing chmod target', exitCode: 1 };
-    file.mode = matched[1];
+    const [mode, , remotePath] = args;
+    const file = state.files.get(remotePath ?? '');
+    if (!mode || !/^[0-7]{3,4}$/.test(mode) || !file) return { stdout: '', stderr: 'missing chmod target', exitCode: 1 };
+    file.mode = mode;
     return { stdout: '', stderr: '', exitCode: 0 };
   }
   if (command.startsWith('chown ')) {
-    const file = state.files.get(args[1] ?? '');
+    const [ownerGroup, , remotePath] = args;
+    const file = state.files.get(remotePath ?? '');
     if (!file) return { stdout: '', stderr: 'missing chown target', exitCode: 1 };
-    const [owner, group] = (args[0] ?? '').split(':');
+    const [owner, group] = (ownerGroup ?? '').split(':');
     file.owner = owner || file.owner;
     file.group = group || file.group;
     return { stdout: '', stderr: '', exitCode: 0 };
   }
   if (command.startsWith('chgrp ')) {
-    const file = state.files.get(args[1] ?? '');
+    const [, , remotePath] = args;
+    const file = state.files.get(remotePath ?? '');
     if (!file) return { stdout: '', stderr: 'missing chgrp target', exitCode: 1 };
     file.group = args[0] ?? file.group;
     return { stdout: '', stderr: '', exitCode: 0 };

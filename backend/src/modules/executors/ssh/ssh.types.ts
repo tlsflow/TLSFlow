@@ -6,6 +6,45 @@ export type SshPlatform = 'LINUX' | 'WINDOWS_OPENSSH' | 'UNKNOWN';
 
 export type SshCredentialKind = 'password' | 'private_key';
 
+/** SSH 远端程序白名单。只保留操作系统通用服务原语，不能由工作流自由指定可执行文件。 */
+export const SSH_ALLOWED_PROGRAMS = ['systemctl', 'service', 'sc.exe'] as const;
+export type SshAllowedProgram = typeof SSH_ALLOWED_PROGRAMS[number];
+
+/** 参数模板白名单。模板只描述受控动作，不是可执行的 shell 文本。 */
+export const SSH_ARGUMENT_TEMPLATES = {
+  'systemctl.reload': { program: 'systemctl', fixedArgs: ['reload'], valueCount: 1, valueKind: 'service' },
+  'systemctl.restart': { program: 'systemctl', fixedArgs: ['restart'], valueCount: 1, valueKind: 'service' },
+  'service.reload': { program: 'service', fixedArgs: [], valueCount: 2, valueKind: 'serviceAction' },
+  'service.restart': { program: 'service', fixedArgs: [], valueCount: 2, valueKind: 'serviceAction' },
+  'sc.query': { program: 'sc.exe', fixedArgs: ['query'], valueCount: 1, valueKind: 'service' },
+} as const satisfies Record<string, { program: SshAllowedProgram; fixedArgs: readonly string[]; valueCount: number; valueKind?: 'service' | 'serviceAction' }>;
+export type SshArgumentTemplate = keyof typeof SSH_ARGUMENT_TEMPLATES;
+
+/** SCP fallback 只能使用这些固定的远端程序和参数模板。模板名不是 shell 文本。 */
+export const SSH_FILE_OPERATION_TEMPLATES = {
+  'file.exists': { program: 'test', fixedArgs: ['-e'], valueCount: 1, valueKind: 'path' },
+  'file.stat': { program: 'stat', fixedArgs: ['-c', '%s\t%a\t%U\t%G\t%Y', '--'], valueCount: 1, valueKind: 'path' },
+  'scp.download': { program: 'scp', fixedArgs: ['-f', '--'], valueCount: 1, valueKind: 'path' },
+  'scp.upload': { program: 'scp', fixedArgs: ['-t', '--'], valueCount: 1, valueKind: 'path' },
+  'file.rename': { program: 'mv', fixedArgs: ['-f', '--'], valueCount: 2, valueKind: 'path' },
+  'file.delete': { program: 'rm', fixedArgs: ['-f', '--'], valueCount: 1, valueKind: 'path' },
+  'file.chmod': { program: 'chmod', fixedArgs: [], valueCount: 3, valueKind: 'metadata' },
+  'file.chown': { program: 'chown', fixedArgs: [], valueCount: 3, valueKind: 'metadata' },
+  'file.chgrp': { program: 'chgrp', fixedArgs: [], valueCount: 3, valueKind: 'metadata' },
+} as const;
+export type SshFileOperationTemplate = keyof typeof SSH_FILE_OPERATION_TEMPLATES;
+
+export interface SshExecutionAudit {
+  operation: 'command' | 'file_transfer' | 'backup' | 'rollback';
+  target: string;
+  idempotencyKey?: string;
+  program?: string;
+  argumentTemplate?: string;
+  arguments: string[];
+  remotePaths: string[];
+  services: string[];
+}
+
 export type SshStructuredErrorCode =
   | 'SSH_CONNECT_FAILED'
   | 'SSH_AUTH_FAILED'
@@ -74,11 +113,9 @@ export interface KnownHostRecord {
 }
 
 export interface SshCommandRequest {
-  command?: string;
-  commands?: string[];
-  script?: string;
-  workingDirectory?: string;
-  environment?: Record<string, string>;
+  program: SshAllowedProgram;
+  args: string[];
+  argumentTemplate: SshArgumentTemplate;
   timeoutMs: number;
   successExitCodes?: number[];
   sensitiveValues?: string[];
@@ -96,6 +133,8 @@ export interface SshCommandResult {
   sanitizedCommand: string;
   errorCode?: SshStructuredErrorCode;
   errorMessage?: string;
+  /** 只记录固定程序、模板和脱敏后的参数摘要，不记录凭据。 */
+  audit?: SshExecutionAudit;
 }
 
 export interface SshCommandBatchResult extends SshCommandResult {
