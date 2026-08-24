@@ -290,15 +290,11 @@ func handleRun(args []string) error {
 	}
 	identity := collectRuntimeIdentity(config.AgentKey, config.ControlPlane)
 	runtimeStatePath := resolveRuntimeStatePath(config)
-	persisted := loadPersistedRuntimeState(runtimeStatePath)
 	if identity.StableAgentKey != "" {
 		config.AgentKey = identity.StableAgentKey
 	}
-	if persisted.EnrollmentCompleted {
-		config.EnrollmentToken = ""
-	}
-	if strings.TrimSpace(config.ControlPlane) == "" {
-		return errors.New("controlPlaneUrl 不能为空，Linux Agent 无法启动")
+	if !isValidControlPlaneURL(config.ControlPlane) {
+		return errors.New("controlPlaneUrl 无效或仍是模板占位值，Linux Agent 无法启动")
 	}
 	if strings.TrimSpace(config.AgentKey) == "" {
 		return errors.New("agentKey 不能为空，Linux Agent 无法启动")
