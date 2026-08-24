@@ -70,8 +70,8 @@ export class TasksApplicationService {
     return detail;
   }
 
-  async listActiveExecutionTasks(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
-    return this.repository.listActiveExecutionTasks(tenantId, requestedBy);
+  async listActiveExecutionTasks(tenantId: string, requestedBy?: string, includePendingApprovals = false): Promise<TaskRun[]> {
+    return this.repository.listActiveExecutionTasks(tenantId, requestedBy, includePendingApprovals);
   }
 
   async cancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {

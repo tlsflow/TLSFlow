@@ -2,11 +2,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { getAutomationRun, listAutomationRunTargets, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
+import { decideApproval } from '@/api/modules/audits.api'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { dispatchOpenDeploymentExecution, isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
+import { dispatchOpenDeploymentExecution, isAutomationApprovalTask, isExecutionTask, isQuickTask, isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -15,26 +17,12 @@ const route = useRoute()
 const router = useRouter()
 
 const PAGE_SIZE = 100
-const HISTORY_BATCH_SIZE = 20
 const RECENT_COMPLETED_COUNT = 5
 const TASK_FALLBACK_REFRESH_INTERVAL_MS = 15_000
-const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'])
-const COMPLETED_STATUSES: ReadonlySet<TaskStatus> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'])
-const EXECUTION_TASK_TYPES: ReadonlySet<string> = new Set([
-  'ACME_CERTIFICATE_ISSUE',
-  'ACME_CERTIFICATE_RENEWAL',
-  'ACME_CHALLENGE',
-  'CERTIFICATE_DRY_RUN',
-  'CERTIFICATE_DEPLOY',
-  'CERTIFICATE_VERIFY',
-  'CERTIFICATE_ROLLBACK',
-  'PROVIDER_OPERATION',
-  'AGENT_INSTALL',
-  'AGENT_UPDATE',
-  'AGENT_CAPABILITY_RESCAN',
-  'PLUGIN_REFERENCE_REFRESH',
-  'DEPLOYMENT_PLAN_REFRESH',
-])
+const QUICK_ACTIVE_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
+const QUICK_COMPLETED_STATUSES: readonly TaskStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED']
+const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(QUICK_ACTIVE_STATUSES)
+const COMPLETED_STATUSES: ReadonlySet<TaskStatus> = new Set(QUICK_COMPLETED_STATUSES)
 const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
   'MONITORING_BATCH',
   'MONITORING_PROBE',
@@ -64,14 +52,18 @@ const error = ref('')
 const detailError = ref('')
 const quickActiveTasks = ref<TaskRun[]>([])
 const quickRecentCompleted = ref<TaskRun[]>([])
-const quickHistoryBuffer = ref<TaskRun[]>([])
-const quickPage = ref(1)
-const quickHasMore = ref(true)
-const quickScroll = ref<HTMLElement | null>(null)
+const quickRefreshQueued = ref(false)
 const detail = ref<TaskDetail | null>(null)
 const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
+const automationRun = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
+const automationTargets = ref<AutomationRunTargetRecord[]>([])
+const taskApprovalPending = ref(false)
+const taskApprovalError = ref('')
+const approvalModalOpen = ref(false)
+const approvalTask = ref<TaskRun | null>(null)
+const approvalLoading = ref(false)
+const approvalLoadError = ref('')
 const keyword = ref('')
-const showAllTasks = ref(false)
 const allTasksModalOpen = ref(false)
 const switchingToAllTasks = ref(false)
 const allTasks = ref<TaskRun[]>([])
@@ -87,6 +79,7 @@ const realtimeConnected = ref(isTaskRealtimeConnected())
 const deploymentPlanNames = ref<Record<string, string>>({})
 const deploymentPlanNameRequests = new Set<string>()
 const deploymentPlanNameMisses = new Set<string>()
+let quickRealtimeVersion = 0
 let taskRefreshTimer: number | undefined
 let disposeGlobalTaskRefresh: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
@@ -114,11 +107,9 @@ watch(() => props.open, (open) => {
     window.removeEventListener('keydown', handleKeydown)
     if (!switchingToAllTasks.value) allTasksModalOpen.value = false
     detail.value = null
+    resetAutomationDetail()
   }
 }, { immediate: true })
-watch(showAllTasks, () => {
-  if (props.open) void refreshQuickTasks()
-})
 watch([() => props.open, allTasksModalOpen], ([popoverOpen, modalOpen]) => {
   updateRefreshTimer(popoverOpen || modalOpen)
   if (popoverOpen || modalOpen) refreshVisibleTasks()
@@ -133,6 +124,14 @@ watch(allTasksCategory, () => {
 })
 watch(realtimeConnected, () => {
   updateRefreshTimer(props.open || allTasksModalOpen.value)
+})
+watch(approvalModalOpen, (open) => {
+  if (!open) {
+    approvalTask.value = null
+    approvalLoading.value = false
+    approvalLoadError.value = ''
+    resetAutomationDetail()
+  }
 })
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -178,143 +177,69 @@ function prependTasks(incoming: readonly TaskRun[], existing: readonly TaskRun[]
 }
 
 function taskTabCategory(task: TaskRun): TaskTabCategory {
-  if (task.category === 'EXECUTION' || EXECUTION_TASK_TYPES.has(task.taskType)) return 'EXECUTION'
+  if (isExecutionTask(task)) return 'EXECUTION'
   if (task.category === 'MONITORING' || MONITORING_TASK_TYPES.has(task.taskType)) return 'MONITORING'
   if (task.category === 'SYSTEM' || SYSTEM_TASK_TYPES.has(task.taskType)) return 'SYSTEM'
   return 'OTHER'
-}
-
-function matchesQuickTaskScope(task: TaskRun): boolean {
-  return showAllTasks.value || taskTabCategory(task) === 'EXECUTION'
 }
 
 function matchesAllTaskScope(task: TaskRun): boolean {
   return taskTabCategory(task) === allTasksCategory.value
 }
 
-function quickQueryCategory(): TaskCategory | undefined {
-  return showAllTasks.value ? undefined : 'EXECUTION'
-}
-
 function allTasksQueryCategory(): TaskCategory | undefined {
   return allTasksCategory.value === 'OTHER' ? undefined : allTasksCategory.value
 }
 
-function applyQuickTasksState(next: {
-  active: TaskRun[]
-  recent: TaskRun[]
-  historyBuffer: TaskRun[]
-  page: number
-  hasMore: boolean
-}): void {
+function applyQuickTasksState(next: { active: TaskRun[]; recent: TaskRun[] }): void {
   if (!sameTaskList(quickActiveTasks.value, next.active)) quickActiveTasks.value = next.active
   if (!sameTaskList(quickRecentCompleted.value, next.recent)) quickRecentCompleted.value = next.recent
-  if (!sameTaskList(quickHistoryBuffer.value, next.historyBuffer)) quickHistoryBuffer.value = next.historyBuffer
-  quickPage.value = next.page
-  quickHasMore.value = next.hasMore
-  void resolveDeploymentPlanNames([...next.active, ...next.recent, ...next.historyBuffer])
+  void resolveDeploymentPlanNames([...next.active, ...next.recent])
 }
 
-function appendQuickHistoryBatch(size = HISTORY_BATCH_SIZE): void {
-  if (quickHistoryBuffer.value.length === 0) return
-  quickRecentCompleted.value = sortTasks([
-    ...quickRecentCompleted.value,
-    ...quickHistoryBuffer.value.splice(0, size),
-  ])
-}
-
-async function requestQuickPage(page: number): Promise<{
-  items: TaskRun[]
-  page: number
-  hasMore: boolean
-}> {
+async function requestQuickTasks(status: TaskStatus, pageSize: number, scope: 'execution' | 'automation' = 'execution'): Promise<TaskRun[]> {
   const result = await listTasks({
-    page,
-    pageSize: PAGE_SIZE,
+    page: 1,
+    pageSize,
     keyword: keyword.value.trim() || undefined,
-    filters: quickQueryCategory() ? { category: quickQueryCategory() } : undefined,
+    filters: scope === 'automation'
+      ? { status, taskType: 'AUTOMATION_RUN' }
+      : { status, category: 'EXECUTION' },
     includeAll: true,
   })
-  const data = result.data
-  const fetchedItems = (data?.items ?? []).filter(matchesQuickTaskScope)
-  const currentPage = data?.page ?? page
-  const pageSize = data?.pageSize ?? PAGE_SIZE
-  const total = data?.total ?? 0
-  return {
-    items: fetchedItems,
-    page: currentPage + 1,
-    hasMore: currentPage * pageSize < total && fetchedItems.length > 0,
-  }
+  return [...(result.data?.items ?? [])]
 }
 
 async function refreshQuickTasks(): Promise<void> {
-  if (loading.value) return
-  loading.value = true
-  error.value = ''
-  try {
-    let page = 1
-    let hasMore = true
-    let active: TaskRun[] = []
-    let recent: TaskRun[] = []
-    let historyBuffer: TaskRun[] = []
-    do {
-      const response = await requestQuickPage(page)
-      active = mergeTasks(active, response.items.filter((task) => ACTIVE_STATUSES.has(task.status)))
-      historyBuffer = mergeTasks(historyBuffer, response.items.filter((task) => COMPLETED_STATUSES.has(task.status)))
-      while (recent.length < RECENT_COMPLETED_COUNT && historyBuffer.length > 0) {
-        recent = sortTasks([
-          ...recent,
-          ...historyBuffer.splice(0, RECENT_COMPLETED_COUNT - recent.length),
-        ])
-      }
-      page = response.page
-      hasMore = response.hasMore
-    } while (hasMore && recent.length < RECENT_COMPLETED_COUNT)
-    applyQuickTasksState({ active, recent, historyBuffer, page, hasMore })
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadQuickTasks(reset = false): Promise<void> {
-  if (reset) {
-    await refreshQuickTasks()
+  if (loading.value) {
+    quickRefreshQueued.value = true
     return
   }
-  if (loading.value) return
-  if (!quickHasMore.value && hasQuickTasks.value) return
+  const requestRealtimeVersion = quickRealtimeVersion
   loading.value = true
   error.value = ''
   try {
-    if (quickHistoryBuffer.value.length > 0) {
-      appendQuickHistoryBatch()
-    } else {
-      const response = await requestQuickPage(quickPage.value)
-      quickActiveTasks.value = mergeTasks(
-        quickActiveTasks.value,
-        response.items.filter((task) => ACTIVE_STATUSES.has(task.status)),
-      )
-      quickHistoryBuffer.value = mergeTasks(
-        quickHistoryBuffer.value,
-        response.items.filter((task) => COMPLETED_STATUSES.has(task.status)),
-      )
-      quickPage.value = response.page
-      quickHasMore.value = response.hasMore
-      appendQuickHistoryBatch()
-    }
+    const [activeExecutionBatches, activeAutomationBatches, completedBatches] = await Promise.all([
+      Promise.all(QUICK_ACTIVE_STATUSES.map((status) => requestQuickTasks(status, PAGE_SIZE, 'execution'))),
+      Promise.all(QUICK_ACTIVE_STATUSES.map((status) => requestQuickTasks(status, PAGE_SIZE, 'automation'))),
+      Promise.all(QUICK_COMPLETED_STATUSES.map((status) => requestQuickTasks(status, RECENT_COMPLETED_COUNT))),
+    ])
+    const active = sortTasks([...activeExecutionBatches.flat(), ...activeAutomationBatches.flat()].filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task)))
+    const recent = sortTasks(completedBatches.flat().filter((task) => COMPLETED_STATUSES.has(task.status) && isQuickTask(task)))
+    applyQuickTasksState({
+      active: requestRealtimeVersion === quickRealtimeVersion ? mergeTasks([], active) : quickActiveTasks.value,
+      recent: mergeTasks([], recent).slice(0, RECENT_COMPLETED_COUNT),
+    })
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
   } finally {
     loading.value = false
-  }
-}
-
-function handleQuickScroll(event: Event): void {
-  const element = event.currentTarget as HTMLElement
-  if (element.scrollHeight - element.scrollTop - element.clientHeight < 80) {
-    void loadQuickTasks()
+    if (quickRefreshQueued.value && props.open && !allTasksModalOpen.value) {
+      quickRefreshQueued.value = false
+      void refreshQuickTasks()
+    } else {
+      quickRefreshQueued.value = false
+    }
   }
 }
 
@@ -361,7 +286,7 @@ async function requestAllTasksPage(page: number): Promise<{
   return {
     items: fetchedItems,
     page: currentPage + 1,
-    hasMore: currentPage * pageSize < total && fetchedItems.length > 0,
+    hasMore: currentPage * pageSize < total,
   }
 }
 
@@ -465,10 +390,15 @@ function handleAllTasksScroll(event: Event): void {
 }
 
 async function openTask(task: TaskRun): Promise<void> {
+  if (taskNeedsApproval(task)) {
+    await openApprovalTask(task)
+    return
+  }
   const executionOpenDetail = deploymentExecutionOpenDetail(task)
   if (executionOpenDetail) {
     detail.value = null
     monitoringProbes.value = []
+    resetAutomationDetail()
     allTasksModalOpen.value = false
     emit('close')
     dispatchOpenDeploymentExecution(executionOpenDetail)
@@ -479,6 +409,7 @@ async function openTask(task: TaskRun): Promise<void> {
   }
   detail.value = null
   monitoringProbes.value = []
+  resetAutomationDetail()
   allTasksModalOpen.value = false
   detailLoading.value = true
   detailError.value = ''
@@ -492,21 +423,53 @@ async function openTask(task: TaskRun): Promise<void> {
   }
 }
 
+async function openApprovalTask(task: TaskRun): Promise<void> {
+  detail.value = null
+  monitoringProbes.value = []
+  resetAutomationDetail()
+  approvalTask.value = task
+  approvalModalOpen.value = true
+  allTasksModalOpen.value = false
+  emit('close')
+  approvalLoading.value = true
+  approvalLoadError.value = ''
+  try {
+    await loadAutomationTaskDetail(task)
+  } catch (cause) {
+    approvalLoadError.value = cause instanceof Error ? cause.message : t('tasks.messages.detailFailed')
+  } finally {
+    approvalLoading.value = false
+  }
+}
+
 async function refreshTaskDetail(taskId: string): Promise<TaskDetail | null> {
   const result = await getTask(taskId)
   detail.value = result.data ?? null
+  resetAutomationDetail()
   if (detail.value?.task.category === 'MONITORING') {
     const probes = await listMonitoringProbes(taskId, { page: 1, pageSize: 20 })
     monitoringProbes.value = probes.data?.items ?? []
     return detail.value
   }
   monitoringProbes.value = []
+  if (detail.value?.task && isAutomationTask(detail.value.task)) {
+    await loadAutomationTaskDetail(detail.value.task)
+  }
   return detail.value
 }
 
 function closeDetail(): void {
   detail.value = null
   monitoringProbes.value = []
+  resetAutomationDetail()
+}
+
+function closeApprovalModal(): void {
+  approvalModalOpen.value = false
+  approvalTask.value = null
+  approvalLoading.value = false
+  approvalLoadError.value = ''
+  resetAutomationDetail()
 }
 
 function submitQuickSearch(): void {
@@ -517,12 +480,25 @@ function submitAllTasksSearch(): void {
   void loadAllTasks(true)
 }
 
-async function handleRealtimeMessage(message: TaskRealtimeMessage): Promise<void> {
-  if (message.type === 'task.changed' && detailTask.value?.id === message.task.id) {
-    await refreshTaskDetail(message.task.id)
-    return
+function applyRealtimeTaskSnapshot(message: TaskRealtimeMessage): void {
+  quickRealtimeVersion += 1
+  const incoming = message.type === 'snapshot'
+    ? message.activeTasks
+    : [message.task]
+  const next = message.type === 'snapshot'
+    ? sortTasks(incoming.filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task)))
+    : sortTasks([
+      ...quickActiveTasks.value.filter((task) => task.id !== message.task.id),
+      ...(ACTIVE_STATUSES.has(message.task.status) && isQuickTask(message.task) ? [message.task] : []),
+    ])
+  if (!sameTaskList(quickActiveTasks.value, next)) quickActiveTasks.value = next
+  void resolveDeploymentPlanNames(next)
+}
+
+function handleRealtimeMessage(message: TaskRealtimeMessage): void {
+  if (message.type === 'snapshot' || message.type === 'task.changed') {
+    applyRealtimeTaskSnapshot(message)
   }
-  refreshVisibleTasks()
 }
 
 function statusTone(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
@@ -602,6 +578,14 @@ function isDeploymentExecutionTask(task: TaskRun): boolean {
   return DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)
 }
 
+function isAutomationTask(task: TaskRun | null | undefined): task is TaskRun {
+  return task?.taskType === 'AUTOMATION_RUN'
+}
+
+function shouldRenderTaskProgress(task: TaskRun): boolean {
+  return isDeploymentExecutionTask(task) || isAutomationTask(task)
+}
+
 function taskProgressPercent(task: TaskRun): number {
   const explicit = firstFiniteNumber(
     recordNumberByKeys(task.progress, ['percent', 'percentage', 'progressPercent', 'progress', 'completedPercent']),
@@ -622,6 +606,76 @@ function taskProgressPercent(task: TaskRun): number {
   if (task.status === 'FAILED' || task.status === 'CANCELLED') return 100
   if (task.status === 'RUNNING') return 35
   return 0
+}
+
+function taskAutomationRunId(task: TaskRun): string | undefined {
+  return firstNonEmptyString(
+    stringFromRecord(task.payload, 'runId'),
+    stringFromRecord(task.progress, 'automationRunId'),
+    stringFromRecord(task.resourceSummary, 'automationRunId'),
+  )
+}
+
+function taskApprovalId(task: TaskRun): string | undefined {
+  return firstNonEmptyString(
+    stringFromRecord(task.progress, 'approvalId'),
+    stringFromRecord(task.resourceSummary, 'approvalId'),
+    stringFromRecord(task.payload, 'approvalId'),
+  )
+}
+
+function taskNeedsApproval(task: TaskRun | null | undefined): boolean {
+  return Boolean(task && taskApprovalId(task) && isAutomationApprovalTask(task))
+}
+
+function automationActionLabel(actionType?: string): string {
+  if (actionType === 'create_deployment_plan') return t('automations.editor.chain.createPlan')
+  if (actionType === 'execute_deployment_plan') return t('automations.editor.chain.executePlan')
+  if (actionType === 'send_notification') return t('reports.groups.values.send_notification')
+  return t('common.notAvailable')
+}
+
+function resetAutomationDetail(): void {
+  automationRun.value = null
+  automationTargets.value = []
+  taskApprovalPending.value = false
+  taskApprovalError.value = ''
+}
+
+async function loadAutomationTaskDetail(task: TaskRun): Promise<void> {
+  const runId = taskAutomationRunId(task)
+  if (!runId) return
+  const [runRecord, targetRecords] = await Promise.all([
+    getAutomationRun(runId),
+    listAutomationRunTargets(runId),
+  ])
+  automationRun.value = runRecord
+  automationTargets.value = targetRecords
+}
+
+async function decideDetailTaskApproval(decision: 'approved' | 'rejected'): Promise<void> {
+  const task = detailTask.value ?? approvalTask.value
+  if (!task) return
+  const approvalId = taskApprovalId(task)
+  if (!approvalId) {
+    taskApprovalError.value = t('deploymentPlans.approval.missingApprovalId')
+    return
+  }
+  taskApprovalPending.value = true
+  taskApprovalError.value = ''
+  try {
+    await decideApproval({ approvalId, decision })
+    await refreshVisibleTasks()
+    if (approvalModalOpen.value) {
+      closeApprovalModal()
+    } else {
+      await refreshTaskDetail(task.id)
+    }
+  } catch (cause) {
+    taskApprovalError.value = cause instanceof Error ? cause.message : t('deploymentPlans.approval.decisionFailed')
+  } finally {
+    taskApprovalPending.value = false
+  }
 }
 
 function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {
@@ -852,6 +906,43 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 </li>
               </ol>
             </section>
+            <section v-if="detailTask && isAutomationTask(detailTask) && automationRun" class="task-drawer__section">
+              <h4>{{ t('tasks.typeLabels.AUTOMATION_RUN') }}</h4>
+              <div class="task-drawer__automation-overview">
+                <p class="task-drawer__item-summary">{{ taskStatusSummary(detailTask) }}</p>
+                <span
+                  class="task-drawer__item-progress"
+                  :style="{ '--task-progress': `${taskProgressPercent(detailTask)}%` }"
+                >
+                  <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
+                  <span class="task-drawer__item-progress-text">{{ taskProgressPercent(detailTask) }}%</span>
+                </span>
+                <div v-if="taskNeedsApproval(detailTask)" class="task-drawer__automation-actions">
+                  <button class="gc-button gc-button--sm gc-button--primary" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+                    {{ t('deploymentPlans.actions.approve') }}
+                  </button>
+                  <button class="gc-button gc-button--sm" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+                    {{ t('deploymentPlans.actions.reject') }}
+                  </button>
+                  <span v-if="taskApprovalPending" class="task-drawer__item-meta">{{ t('deploymentPlans.approval.processing') }}</span>
+                </div>
+                <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
+              </div>
+              <div v-if="automationTargets.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+              <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record">
+                <div class="task-drawer__record-header">
+                  <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName }}</strong>
+                  <GcStatusTag :status="target.status" />
+                </div>
+                <span>{{ target.targetSnapshot.certificateName }} · {{ target.targetSnapshot.environment || t('common.notAvailable') }}</span>
+                <span>{{ automationActionLabel(target.currentAction) }}</span>
+                <p v-if="target.errorMessage">{{ target.errorCode }} · {{ target.errorMessage }}</p>
+                <div class="task-drawer__record-actions">
+                  <button v-if="target.deploymentPlanId" class="gc-button gc-button--sm" type="button" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
+                  <button v-if="target.executionRunId" class="gc-button gc-button--sm" type="button" @click="router.push(`/executions?id=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
+                </div>
+              </div>
+            </section>
             <section class="task-drawer__section">
               <h4>{{ t('tasks.sections.attempts') }}</h4>
               <div v-for="attempt in detail.attempts" :key="String(attempt.id)" class="task-drawer__record">
@@ -894,19 +985,9 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <span class="task-drawer__sr-only">{{ t('tasks.filters.keyword') }}</span>
               <input v-model="keyword" :placeholder="t('tasks.filters.keyword')" :aria-label="t('tasks.filters.keyword')" type="search">
             </label>
-            <label class="task-drawer__switch">
-              <input
-                v-model="showAllTasks"
-                type="checkbox"
-                role="switch"
-                :aria-checked="showAllTasks"
-              >
-              <span class="task-drawer__switch-track" aria-hidden="true"><span /></span>
-              <span>{{ t('tasks.filters.includeAll') }}</span>
-            </label>
           </form>
           <p v-if="error" class="gc-form-error">{{ error }}</p>
-          <div ref="quickScroll" class="task-drawer__scroll" @scroll="handleQuickScroll">
+          <div class="task-drawer__scroll">
             <div v-if="loading && !hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
             <div v-else class="task-drawer__quick-groups">
               <section class="task-drawer__group">
@@ -922,11 +1003,11 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                         <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
                       </span>
-                      <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                       <span class="task-drawer__item-meta-row">
                         <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                         <span
-                          v-if="isDeploymentExecutionTask(task)"
+                          v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
                           :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
                         >
@@ -952,11 +1033,11 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                         <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
                       </span>
-                      <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                       <span class="task-drawer__item-meta-row">
                         <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                         <span
-                          v-if="isDeploymentExecutionTask(task)"
+                          v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
                           :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
                         >
@@ -1007,11 +1088,11 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                 <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
               </span>
-              <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+              <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
               <span class="task-drawer__item-meta-row">
                 <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                 <span
-                  v-if="isDeploymentExecutionTask(task)"
+                  v-if="shouldRenderTaskProgress(task)"
                   class="task-drawer__item-progress"
                   :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
                 >
@@ -1025,6 +1106,70 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
         </div>
         <div v-if="allTasksLoading && allTasks.length > 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
       </div>
+    </div>
+  </GcModal>
+  <GcModal
+    v-model:open="approvalModalOpen"
+    size="lg"
+    max-height="75vh"
+    :title="t('deploymentPlans.approval.title')"
+    :description="t('deploymentPlans.approval.description')"
+  >
+    <div class="task-drawer__approval-view">
+      <div v-if="approvalLoading" class="task-drawer__loading">{{ t('common.loading') }}</div>
+      <p v-else-if="approvalLoadError" class="gc-form-error">{{ approvalLoadError }}</p>
+      <template v-else-if="approvalTask">
+        <header class="task-drawer__approval-header">
+          <div>
+            <small class="task-drawer__item-type">{{ taskTypeLabel(approvalTask) }}</small>
+            <h3>{{ automationRun?.automationNameSnapshot || taskRelatedName(approvalTask) }}</h3>
+            <p>{{ t('automations.runs.title') }} · {{ taskAutomationRunId(approvalTask) || t('common.notAvailable') }}</p>
+          </div>
+          <GcStatusTag :status="approvalTask.status" :tone="statusTone(approvalTask.status)" />
+        </header>
+        <div class="task-drawer__approval-summary">
+          <div class="task-drawer__record">
+            <span>{{ t('deploymentPlans.approval.requestedBy') }}</span>
+            <strong>{{ approvalTask.requestedBy || t('tasks.values.system') }}</strong>
+          </div>
+          <div class="task-drawer__record">
+            <span>{{ t('deploymentPlans.approval.riskLevel') }}</span>
+            <strong>{{ recordValue(approvalTask.resourceSummary || {}, 'riskLevel') }}</strong>
+          </div>
+          <div class="task-drawer__record">
+            <span>{{ t('tasks.fields.createdAt') }}</span>
+            <time>{{ localTime(approvalTask.createdAt) }}</time>
+          </div>
+          <div class="task-drawer__record">
+            <span>{{ t('automations.runs.progress', { succeeded: automationRun?.targetSummary.succeeded || 0, total: automationRun?.targetSummary.total || 0 }) }}</span>
+            <strong>{{ recordValue(approvalTask.resourceSummary || {}, 'summary') }}</strong>
+          </div>
+        </div>
+        <section class="task-drawer__section">
+          <h4>{{ t('automations.editor.sections.targets') }}</h4>
+          <div v-if="automationTargets.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
+          <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record task-drawer__approval-target">
+            <div class="task-drawer__record-header">
+              <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName || t('common.notAvailable') }}</strong>
+              <GcStatusTag :status="target.status" />
+            </div>
+            <span>{{ target.targetSnapshot.certificateName || t('common.notAvailable') }}</span>
+            <span>{{ target.targetSnapshot.environment || t('common.notAvailable') }}</span>
+          </div>
+        </section>
+        <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
+        <footer class="task-drawer__approval-actions">
+          <span>{{ t('deploymentPlans.approval.decisionHint') }}</span>
+          <div>
+            <button class="gc-button gc-button--primary" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+              {{ t('deploymentPlans.actions.approve') }}
+            </button>
+            <button class="gc-button" type="button" :disabled="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+              {{ t('deploymentPlans.actions.reject') }}
+            </button>
+          </div>
+        </footer>
+      </template>
     </div>
   </GcModal>
 </template>
@@ -1131,6 +1276,85 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 
 .task-drawer__detail {
   overflow: auto;
+}
+
+.task-drawer__approval-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-5);
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-drawer__approval-header,
+.task-drawer__approval-actions,
+.task-drawer__record-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+}
+
+.task-drawer__approval-header h3,
+.task-drawer__approval-header p {
+  margin: 0;
+}
+
+.task-drawer__approval-header h3 {
+  margin-top: var(--gc-space-1);
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-xl);
+}
+
+.task-drawer__approval-header p,
+.task-drawer__approval-actions > span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__approval-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__approval-summary .task-drawer__record {
+  gap: var(--gc-space-1);
+}
+
+.task-drawer__approval-target {
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__approval-actions {
+  align-items: center;
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
+}
+
+.task-drawer__approval-actions > div {
+  display: flex;
+  gap: var(--gc-space-2);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 42rem) {
+  .task-drawer__approval-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .task-drawer__approval-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .task-drawer__approval-actions > div {
+    width: 100%;
+  }
+
+  .task-drawer__approval-actions button {
+    flex: 1 1 0;
+  }
 }
 
 .task-drawer__toolbar {
@@ -1484,6 +1708,25 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 .task-drawer__record time {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__automation-overview {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-field);
+}
+
+.task-drawer__automation-actions,
+.task-drawer__record-actions,
+.task-drawer__record-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .task-drawer__json {

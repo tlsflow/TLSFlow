@@ -71,6 +71,29 @@ test('task.read.all 或 task.* 权限可以查询同租户全部用户任务', a
   assert.equal(receivedQuery?.requestedBy, 'user-2');
 });
 
+test('approval.decide users can query active pending approval tasks from other users', async () => {
+  let receivedQuery: Record<string, unknown> | undefined;
+  const service = {
+    list: async (query: Record<string, unknown>) => {
+      receivedQuery = query;
+      return { items: [], page: 1, pageSize: 20, total: 0 };
+    },
+  };
+  const security = createSecurityMock(['task.read', 'approval.decide']);
+  const app = new App({ allowLegacyHeaderContext: true });
+  new TasksController(service as never, security as never).register(app.router);
+
+  const response = await app.inject({
+    method: 'GET',
+    path: '/api/v1/tasks?filter[status]=RETRY_WAITING',
+    headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user-1' },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedQuery?.requestedBy, 'user-1');
+  assert.equal(receivedQuery?.includePendingApprovals, true);
+});
+
 function createSecurityMock(permissions: string[]) {
   return {
     rbac: {

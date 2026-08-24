@@ -15,6 +15,7 @@ import type { ReportExportService } from '../reports/application/report-export.s
 import type { CloudAccountAssetsApplicationService } from '../providers/application/cloud-account-assets.application-service.js';
 import type { ProviderOperationLedgerService } from '../providers/application/provider-operation-ledger.service.js';
 import type { ProviderTargetRef } from '../providers/dto/providers.dto.js';
+import { buildAutomationTaskProgress } from '../automations/application/automation-task-progress.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
 
@@ -39,7 +40,7 @@ export interface TaskWorkerAdapterDependencies {
   caSync?: Pick<CaSyncWorker, 'runRun'>;
   internalCa?: Pick<InternalCaApplicationService, 'getRepository'>;
   automation?: Pick<AutomationScheduler, 'runRun'>;
-  automationRuns?: Pick<AutomationsApplicationService, 'getRun'>;
+  automationRuns?: Pick<AutomationsApplicationService, 'getRun' | 'listRunTargets' | 'listRunActionResults'>;
   automationEvents?: Pick<AutomationEventDeliveryService, 'processDelivery'>;
   monitors?: Pick<MonitorsApplicationService, 'runMonitorBatch'>;
   notifications?: Pick<NotificationWorker, 'runDelivery' | 'getDelivery'>;
@@ -246,24 +247,27 @@ export function createTaskExecutorRegistry(
   registry.register('automation.run', dependencyExecutor('Automation Worker', dependencies.automation, async (task) => {
     const runId = requiredPayloadString(task, 'runId');
     const executed = await dependencies.automation!.runRun(runId, task.tenantId);
+    const current = await dependencies.automationRuns?.getRun(task.tenantId, runId);
+    const targets = current ? await dependencies.automationRuns?.listRunTargets(task.tenantId, runId) : [];
+    const actionResults = current ? await dependencies.automationRuns?.listRunActionResults(task.tenantId, runId) : [];
+    const detail = current ? buildAutomationTaskProgress({ run: current, targets, actionResults }) : { runId };
     if (!executed) {
       return {
         success: false,
         defer: true,
         errorCode: 'AUTOMATION_RUN_LEASE_UNAVAILABLE',
         errorMessage: '自动化运行租约暂不可用',
-        detail: { runId },
+        detail,
         retryAfterSeconds: 5,
       };
     }
-    const current = await dependencies.automationRuns?.getRun(task.tenantId, runId);
     if (!current || ['queued', 'running', 'waiting_approval'].includes(current.status)) {
       return {
         success: false,
         defer: true,
         errorCode: 'AUTOMATION_RUN_PENDING',
         errorMessage: '自动化运行仍未进入终态',
-        detail: { runId, status: current?.status ?? 'unknown' },
+        detail,
         retryAfterSeconds: 5,
       };
     }
@@ -272,10 +276,10 @@ export function createTaskExecutorRegistry(
         success: false,
         errorCode: current.failureCode ?? 'AUTOMATION_RUN_FAILED',
         errorMessage: current.failureMessage ?? `自动化运行以 ${current.status} 结束`,
-        detail: { runId, status: current.status },
+        detail,
       };
     }
-    return { success: true, detail: { runId, status: current.status } };
+    return { success: true, detail };
   }));
 
   registry.register('report.export', dependencyExecutor('报表导出 Worker', dependencies.reports, async (task) => {

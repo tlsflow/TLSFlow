@@ -8,7 +8,7 @@ import { validateObject } from '../../common/validation/schema-validation.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
 import { TasksApplicationService } from './task.application-service.js';
-import { taskCategories, taskStatuses, type TaskCategory, type TaskStatus } from './task.types.js';
+import { isPendingApprovalTask, taskCategories, taskStatuses, type TaskCategory, type TaskStatus } from './task.types.js';
 
 const tags = ['Tasks'];
 
@@ -41,6 +41,7 @@ export class TasksController {
     if (status && !taskStatuses.includes(status)) throw new AppError('VALIDATION_FAILED', '任务状态无效', { field: 'status' });
     const includeAll = readBoolean(request.query.includeAll);
     const canReadAll = await this.canReadAll(subject);
+    const canDecideApprovals = await this.canDecideApprovals(subject);
     const requestedBy = canReadAll ? query.filter.requestedBy : subject.id;
     if (!canReadAll && query.filter.requestedBy && query.filter.requestedBy !== subject.id) {
       await this.assertRead(subject, request, 'task.read.all');
@@ -54,6 +55,7 @@ export class TasksController {
       resourceType: query.filter.resourceType,
       resourceId: query.filter.resourceId,
       requestedBy,
+      includePendingApprovals: !canReadAll && canDecideApprovals,
       taskId: query.filter.taskId,
       keyword: readString(request.query.keyword),
       createdFrom: query.filter.createdFrom,
@@ -69,7 +71,10 @@ export class TasksController {
     await this.assertRead(subject, request, 'task.read');
     const taskId = readPathId(request);
     const detail = await this.service.detail(requireTenantId(request), taskId);
-    if (detail.task.requestedBy && detail.task.requestedBy !== subject.id) await this.assertRead(subject, request, 'task.read.all');
+    if (detail.task.requestedBy && detail.task.requestedBy !== subject.id) {
+      const canReadApproval = await this.canDecideApprovals(subject) && isPendingApprovalTask(detail.task);
+      if (!canReadApproval) await this.assertRead(subject, request, 'task.read.all');
+    }
     return detail;
   }
 
@@ -137,6 +142,11 @@ export class TasksController {
   private async canReadAll(subject: SecuritySubject): Promise<boolean> {
     const permissions = await this.security.rbac.permissionsForSubject(subject);
     return permissions.some((permission) => matchesPermission(permission, 'task.read.all'));
+  }
+
+  private async canDecideApprovals(subject: SecuritySubject): Promise<boolean> {
+    const permissions = await this.security.rbac.permissionsForSubject(subject);
+    return permissions.some((permission) => matchesPermission(permission, 'approval.decide'));
   }
 }
 

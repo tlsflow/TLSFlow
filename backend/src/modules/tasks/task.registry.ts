@@ -25,7 +25,8 @@ const defaultDefinitions: TaskDefinition[] = [
   ['GATEWAY_DELEGATION', 'SYSTEM', 'tasks.types.gatewayDelegation', 'gateway.delegate', 'gateway.read'],
   ['WORKFLOW_RUN', 'SYSTEM', 'tasks.types.workflowRun', 'workflow.run', 'workflow.read'],
   ['AUTOMATION_TRIGGER_DELIVERY', 'SYSTEM', 'tasks.types.automationTriggerDelivery', 'automation.trigger-delivery', 'automation.read'],
-  ['AUTOMATION_RUN', 'SYSTEM', 'tasks.types.automationRun', 'automation.run', 'automation.read'],
+  // 自动化运行属于执行类任务；等待审批只是执行前的活动状态，不应被后台任务过滤掉。
+  ['AUTOMATION_RUN', 'EXECUTION', 'tasks.types.automationRun', 'automation.run', 'automation.read'],
   ['REPORT_EXPORT', 'SYSTEM', 'tasks.types.reportExport', 'report.export', 'report.read'],
   ['NOTIFICATION_DELIVERY', 'SYSTEM', 'tasks.types.notificationDelivery', 'notification.delivery', 'notification.channel.read'],
 ].map(([taskType, category, displayKey, executorKey, permissionKey]) => ({

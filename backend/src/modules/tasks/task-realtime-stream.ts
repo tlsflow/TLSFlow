@@ -5,10 +5,10 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { SecuritySubject, TenantScope } from '../../shared/security-types.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import type { TasksApplicationService } from './task.application-service.js';
-import type { TaskRun } from './task.types.js';
+import { isPendingApprovalTask, type TaskRun } from './task.types.js';
 import { WebSocketServer, type WebSocket } from 'ws';
 
-const ACTIVE_EXECUTION_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']);
+const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']);
 
 export interface TaskRealtimeMessageSnapshot {
   type: 'snapshot';
@@ -33,6 +33,7 @@ interface TaskRealtimeClient {
   actorId: string;
   tenantScope?: TenantScope;
   canReadAll: boolean;
+  canDecideApprovals: boolean;
 }
 
 type TaskRealtimeListener = (message: TaskRealtimeMessageTaskChanged) => void;
@@ -138,6 +139,7 @@ export class TaskRealtimeGateway {
     const activeTasks = await this.tasks.listActiveExecutionTasks(
       client.tenantId,
       client.canReadAll ? undefined : client.actorId,
+      client.canDecideApprovals,
     );
     send({
       type: 'snapshot',
@@ -170,6 +172,7 @@ export class TaskRealtimeGateway {
       actorId: identity.actorId,
       tenantScope: identity.tenantScope,
       canReadAll: permissions.some((permission) => matchesPermission(permission, 'task.read.all')),
+      canDecideApprovals: permissions.some((permission) => matchesPermission(permission, 'approval.decide')),
     };
   }
 
@@ -192,7 +195,8 @@ function readTenantId(url: URL): string | undefined {
 function isTaskVisibleToClient(task: TaskRun, client: TaskRealtimeClient): boolean {
   if (task.tenantId !== client.tenantId) return false;
   if (client.canReadAll) return true;
-  return Boolean(task.requestedBy) && task.requestedBy === client.actorId;
+  return (Boolean(task.requestedBy) && task.requestedBy === client.actorId)
+    || (client.canDecideApprovals && isPendingApprovalTask(task));
 }
 
 function matchesPermission(candidate: string, required: string): boolean {
@@ -219,5 +223,5 @@ function statusText(statusCode: number): string {
 }
 
 export function isActiveExecutionTask(task: TaskRun): boolean {
-  return task.category === 'EXECUTION' && ACTIVE_EXECUTION_STATUSES.has(task.status);
+  return ACTIVE_TASK_STATUSES.has(task.status);
 }

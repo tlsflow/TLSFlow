@@ -13,7 +13,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { isQuickTask, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 
 type ToastTone = 'success' | 'warning' | 'danger' | 'info'
 
@@ -375,13 +375,24 @@ async function refreshTaskEntryCount(): Promise<void> {
   taskEntryRefreshPending = true
   try {
     const counts = await Promise.all(ACTIVE_TASK_STATUSES.map(async (status) => {
-      const result = await listTasks({
-        page: 1,
-        pageSize: 1,
-        filters: { category: 'EXECUTION', status },
-        includeAll: true,
-      })
-      return result.data?.total ?? 0
+      const [executionResult, automationResult] = await Promise.all([
+        listTasks({
+          page: 1,
+          pageSize: 100,
+          filters: { status, category: 'EXECUTION' },
+          includeAll: true,
+        }),
+        listTasks({
+          page: 1,
+          pageSize: 100,
+          filters: { status, taskType: 'AUTOMATION_RUN' },
+          includeAll: true,
+        }),
+      ])
+      return new Set([
+        ...(executionResult.data?.items ?? []),
+        ...(automationResult.data?.items ?? []),
+      ].filter(isQuickTask).map((task) => task.id)).size
     }))
     activeTaskCount.value = counts.reduce((sum, count) => sum + count, 0)
   } catch {

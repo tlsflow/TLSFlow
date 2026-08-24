@@ -145,7 +145,27 @@ export class TaskRepository {
     if (query.category) add('category = ?', query.category);
     if (query.taskType) add('task_type = ?', query.taskType);
     if (query.status) add('status = ?', query.status);
-    if (query.requestedBy) add('requested_by = ?', query.requestedBy);
+    if (query.requestedBy) {
+      params.push(query.requestedBy);
+      const requestedByPlaceholder = `$${params.length}`;
+      const requestedBySql = `requested_by = ${requestedByPlaceholder}`;
+      if (query.includePendingApprovals) {
+        where.push(`(${requestedBySql} or (
+          status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')
+          and nullif(coalesce(progress->>'approvalId', resource_summary->>'approvalId'), '') is not null
+          and (
+            progress->>'status' = 'waiting_approval'
+            or resource_summary->>'status' = 'waiting_approval'
+            or progress->>'approvalStatus' = 'pending'
+            or resource_summary->>'approvalStatus' = 'pending'
+            or progress->>'approvalPending' = 'true'
+            or resource_summary->>'approvalPending' = 'true'
+          )
+        ))`);
+      } else {
+        where.push(requestedBySql);
+      }
+    }
     if (query.taskId) add('id = ?', query.taskId);
     if (query.createdFrom) add('created_at >= ?', query.createdFrom);
     if (query.createdTo) add('created_at <= ?', query.createdTo);
@@ -176,14 +196,27 @@ export class TaskRepository {
     return { items: rows.rows.map(mapTaskRun), page, pageSize, total: count.rows[0]?.total ?? 0 };
   }
 
-  async listActiveExecutionTasks(tenantId: string, requestedBy?: string): Promise<TaskRun[]> {
+  async listActiveExecutionTasks(tenantId: string, requestedBy?: string, includePendingApprovals = false): Promise<TaskRun[]> {
     const params: unknown[] = [tenantId];
     const where = [
       'tenant_id = $1',
-      `category = 'EXECUTION'`,
       `status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')`,
     ];
-    if (requestedBy) {
+    if (requestedBy && includePendingApprovals) {
+      params.push(requestedBy);
+      where.push(`(requested_by = $${params.length} or (
+        status in ('QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING')
+        and nullif(coalesce(progress->>'approvalId', resource_summary->>'approvalId'), '') is not null
+        and (
+          progress->>'status' = 'waiting_approval'
+          or resource_summary->>'status' = 'waiting_approval'
+          or progress->>'approvalStatus' = 'pending'
+          or resource_summary->>'approvalStatus' = 'pending'
+          or progress->>'approvalPending' = 'true'
+          or resource_summary->>'approvalPending' = 'true'
+        )
+      ))`);
+    } else if (requestedBy) {
       params.push(requestedBy);
       where.push(`requested_by = $${params.length}`);
     }

@@ -11,6 +11,7 @@ export const taskStatuses = [
   'CANCELLED',
 ] as const;
 export type TaskStatus = typeof taskStatuses[number];
+const ACTIVE_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']);
 
 export const taskAttemptStatuses = ['RUNNING', 'SUCCEEDED', 'FAILED', 'EXPIRED', 'CANCELLED'] as const;
 export type TaskAttemptStatus = typeof taskAttemptStatuses[number];
@@ -93,6 +94,23 @@ export interface TaskRun {
   lastErrorMessage?: string;
 }
 
+export function isPendingApprovalTask(task: Pick<TaskRun, 'status' | 'resourceSummary' | 'progress'>): boolean {
+  if (!ACTIVE_TASK_STATUSES.has(task.status)) return false;
+  const approvalId = firstRecordString(task.progress, 'approvalId') ?? firstRecordString(task.resourceSummary, 'approvalId');
+  if (!approvalId) return false;
+  const status = firstRecordString(task.progress, 'status') ?? firstRecordString(task.resourceSummary, 'status');
+  const approvalStatus = firstRecordString(task.progress, 'approvalStatus') ?? firstRecordString(task.resourceSummary, 'approvalStatus');
+  return status === 'waiting_approval'
+    || approvalStatus === 'pending'
+    || task.progress?.approvalPending === true
+    || task.resourceSummary?.approvalPending === true;
+}
+
+function firstRecordString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 export interface TaskAttempt {
   id: string;
   taskRunId: string;
@@ -136,6 +154,7 @@ export interface TaskQuery {
   resourceType?: string;
   resourceId?: string;
   requestedBy?: string;
+  includePendingApprovals?: boolean;
   taskId?: string;
   keyword?: string;
   createdFrom?: string;
