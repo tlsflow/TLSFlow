@@ -538,6 +538,10 @@ export interface WorkflowExecutorDispatchInput {
   renderedPlan: unknown;
   attempt: number;
   rollback: boolean;
+  /**
+   * 调用方传入的 dry-run 上下文；只允许把计划提升为 dry-run，不能被 dispatcher 降级为真实执行。
+   */
+  dryRun?: boolean;
 }
 
 export interface WorkflowExecutorDispatchResult extends WorkflowMockStepOutput {

@@ -1,33 +1,38 @@
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { CurlExecutor, type CurlExecutionRequest } from '../../executors/curl/curl.executor.js';
-import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SSHExecutor, type SSHExecutionRequest } from '../../executors/ssh/ssh.executor.js';
-import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import type { WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult } from '../dto/workflow-templates.dto.js';
 
 export interface WorkflowStepDispatcherDependencies {
+  /**
+   * 仅接受调用方显式提供的受控旧执行能力；缺失时必须失败关闭。
+   * dispatcher 不再自行创建 Curl/SSH 执行器，避免能力缺失时静默落入旧路径。
+   */
+  curlExecutor?: Pick<CurlExecutor, 'execute'>;
+  sshExecutor?: Pick<SSHExecutor, 'execute'>;
+  /** 仅保留应用装配兼容字段；SecretService 不会自动生成执行能力。 */
   secrets?: SecretService;
-  curlExecutor?: CurlExecutor;
-  sshExecutor?: SSHExecutor;
 }
 
 export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatcherDependencies = {}): WorkflowExecutorDispatcher {
-  const curlExecutor = dependencies.curlExecutor ?? new CurlExecutor(
-    dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {},
-  );
-  const sshExecutor = dependencies.sshExecutor ?? new SSHExecutor(
-    dependencies.secrets ? { secretResolver: new SecretServiceSshResolver(dependencies.secrets) } : {},
-  );
+  const curlExecutor = dependencies.curlExecutor;
+  const sshExecutor = dependencies.sshExecutor;
 
   return async (input) => {
     const plan = asRecord(input.renderedPlan);
+    if (plan && isPluginWorkflowPlan(plan)) return pluginWorkflowLegacyExecutorFailure(plan);
+
     const executor = asString(plan?.executor);
+    if (!executor) return executorRequiredFailure();
+    const dryRun = input.dryRun === true || plan?.dryRun === true;
+
     if (executor === '017.CURL_HTTP') {
-      const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt);
+      if (!curlExecutor) return executionCapabilityMissing(executor);
+      const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt, dryRun);
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
       try {
-        const result = await curlExecutor.execute(request, false, {
+        const result = await curlExecutor.execute(request, request.dryRun === true, {
           runId: input.runId,
           stepId: input.step.name,
           actorId: 'workflow-step-test',
@@ -48,9 +53,10 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       }
     }
     if (executor === '015.SSH') {
-      const request = toSshExecutionRequest(plan, input.runId, input.step.name, input.attempt);
+      if (!sshExecutor) return executionCapabilityMissing(executor);
+      const request = toSshExecutionRequest(plan, input.runId, input.step.name, input.attempt, dryRun);
       try {
-        const result = await sshExecutor.execute(request, false, {
+        const result = await sshExecutor.execute(request, request.dryRun === true, {
           runId: input.runId,
           stepId: input.step.name,
           actorId: 'workflow-step-test',
@@ -76,12 +82,74 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
         return executorFailure('ssh', error, 'SSH_EXECUTION_FAILED');
       }
     }
+
+    if (plannedOnlyExecutorIds.has(executor)) {
+      return {
+        success: true,
+        body: { plannedOnly: true, executor },
+        logs: [`workflow:${executor}:planned`],
+      };
+    }
+
     return {
-      success: true,
-      body: { plannedOnly: true, executor: executor ?? 'workflow.internal' },
-      logs: [`workflow:${executor ?? 'workflow.internal'}:planned`],
+      success: false,
+      errorCode: 'WORKFLOW_EXECUTOR_NOT_REGISTERED',
+      errorMessage: `工作流执行器未注册：${executor}`,
+      body: { executor },
+      logs: [`workflow:${executor}:rejected:unregistered`],
     };
   };
+}
+
+const plannedOnlyExecutorIds = new Set([
+  'workflow.condition',
+  'workflow.wait',
+  'workflow.manual',
+  'workflow.checkpoint',
+  'workflow.checkpoint_verify',
+]);
+
+function executorRequiredFailure(): WorkflowExecutorDispatchResult {
+  return {
+    success: false,
+    errorCode: 'WORKFLOW_EXECUTOR_REQUIRED',
+    errorMessage: '工作流节点缺少 executor',
+    logs: ['workflow:error:executor_required'],
+  };
+}
+
+function executionCapabilityMissing(executor: string): WorkflowExecutorDispatchResult {
+  return {
+    success: false,
+    errorCode: 'CAPABILITY_MISSING',
+    errorMessage: `工作流执行器缺少受控执行能力：${executor}`,
+    body: { executor },
+    logs: [`workflow:${executor}:rejected:capability_missing`],
+  };
+}
+
+function pluginWorkflowLegacyExecutorFailure(plan: Record<string, unknown>): WorkflowExecutorDispatchResult {
+  return {
+    success: false,
+    errorCode: 'PLUGIN_WORKFLOW_LEGACY_EXECUTOR_FORBIDDEN',
+    errorMessage: 'PluginWorkflow 必须由独立 Plugin Runner 执行，旧 Curl/SSH 执行器已拒绝',
+    body: {
+      kind: asString(plan.kind),
+      executionMode: asString(plan.executionMode),
+      executor: asString(plan.executor),
+    },
+    logs: ['workflow:plugin-runner:legacy-executor:rejected'],
+  };
+}
+
+function isPluginWorkflowPlan(plan: Record<string, unknown> | undefined): boolean {
+  if (!plan) return false;
+  const executionBinding = asRecord(plan.executionBinding);
+  return plan.pluginWorkflow === true
+    || plan.kind === 'PluginWorkflow'
+    || plan.executionMode === 'PLUGIN_RUNNER'
+    || plan.runner === 'gcac.plugin-runner/v1'
+    || executionBinding?.runner === 'gcac.plugin-runner/v1';
 }
 
 function executorFailure(kind: 'curl' | 'ssh', error: unknown, fallbackCode: string): WorkflowExecutorDispatchResult {
@@ -120,17 +188,17 @@ function detailLogLines(kind: 'curl' | 'ssh', detail: Record<string, unknown> | 
     });
 }
 
-function toCurlExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number): CurlExecutionRequest | undefined {
+function toCurlExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number, dryRun: boolean): CurlExecutionRequest | undefined {
   const directRequest = asRecord(plan?.curlRequest);
   if (!directRequest) return undefined;
   return {
     ...(directRequest as Partial<CurlExecutionRequest>),
     idempotencyKey: `workflow-step:${runId}:${stepName}:curl:${attempt}`,
-    dryRun: false,
+    ...(dryRun || directRequest.dryRun === true ? { dryRun: true } : {}),
   } as CurlExecutionRequest;
 }
 
-function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number): SSHExecutionRequest {
+function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number, dryRun: boolean): SSHExecutionRequest {
   const connection = asRecord(plan?.connection);
   const directRequest = asRecord(plan?.sshRequest);
   const direct = directRequest as Partial<SSHExecutionRequest> | undefined;
@@ -142,7 +210,7 @@ function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId:
     args: asStringArray(plan?.args) ?? direct?.args,
     argumentTemplate: asString(plan?.argumentTemplate) as SSHExecutionRequest['argumentTemplate'] ?? direct?.argumentTemplate,
     timeoutMs: typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : direct?.timeoutMs,
-    dryRun: false,
+    dryRun: dryRun || direct?.dryRun === true,
   };
 }
 
