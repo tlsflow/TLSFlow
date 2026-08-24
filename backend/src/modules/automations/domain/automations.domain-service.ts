@@ -35,10 +35,17 @@ function validateCron(cron: string): void {
   if (fields.some((field) => !fieldPattern.test(field))) throw new AppError('VALIDATION_FAILED', 'Cron 包含不支持的字段', { cron });
 }
 
+function validateRunAt(runAt: string): void {
+  if (!runAt || Number.isNaN(Date.parse(runAt))) throw new AppError('VALIDATION_FAILED', '一次性执行时间无效', { runAt });
+}
+
 export class AutomationsDomainService {
   constructor(private readonly actionRegistry = new AutomationActionRegistry()) {}
 
   validateConfiguration(configuration: AutomationConfigurationDto): void {
+    if (configuration.trigger.type === 'once') {
+      validateRunAt(configuration.trigger.runAt);
+    }
     if (configuration.trigger.type === 'schedule') {
       validateCron(configuration.trigger.cron);
       validateTimeZone(configuration.trigger.timeZone);

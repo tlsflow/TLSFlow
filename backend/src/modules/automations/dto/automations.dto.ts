@@ -1,5 +1,5 @@
 export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted';
-export type AutomationTriggerType = 'schedule' | 'on_demand';
+export type AutomationTriggerType = 'api' | 'once' | 'schedule' | 'on_demand';
 export type AutomationRunTriggerType = AutomationTriggerType | 'retry';
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled';
 export type AutomationRunTargetStatus = 'pending' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
@@ -7,6 +7,8 @@ export type AutomationFailureStage = 'selection' | 'plan_creation' | 'dry_run' |
 export type AutomationActionType = 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification';
 
 export type AutomationTriggerDto =
+  | { type: 'api' }
+  | { type: 'once'; runAt: string }
   | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
   | { type: 'on_demand' };
 

@@ -1,5 +1,7 @@
 import { newId } from '../../../shared/id.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import { AutomationsDomainService } from '../domain/automations.domain-service.js';
+import { nextAutomationRunAt } from '../domain/automation-schedule.js';
 import type { AutomationConfigurationDto, AutomationRunDto, AutomationStatus, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
 import type { AutomationPreviewDto } from '../dto/automations.dto.js';
 import type { AutomationTargetSelector } from './automation-target-selector.js';
@@ -113,6 +115,7 @@ export class AutomationsApplicationService {
         name: input.name?.trim() || current.name,
         description: input.description === undefined ? current.description : input.description.trim() || undefined,
         currentVersion: nextVersionNumber,
+        ...(input.configuration && current.status === 'active' ? { nextRunAt: nextAutomationRunAt(configuration.trigger, this.clock()) } : {}),
         updatedAt: this.clock().toISOString(),
       });
       return { ...updated, configuration };
@@ -149,9 +152,12 @@ export class AutomationsApplicationService {
     const patch: Partial<AutomationEntity> = { status, updatedAt: this.clock().toISOString() };
     if (status === 'active') {
       const version = await this.repository.getVersion(id, current.currentVersion, tenantId);
-      if (version?.trigger.type === 'schedule' && !current.nextRunAt) {
-        patch.nextRunAt = new Date(this.clock().getTime() + 60_000).toISOString();
+      if (version?.trigger.type === 'once' && new Date(version.trigger.runAt) <= this.clock()) {
+        throw new AppError('VALIDATION_FAILED', '一次性执行时间必须晚于当前时间', { runAt: version.trigger.runAt });
       }
+      if (version) patch.nextRunAt = nextAutomationRunAt(version.trigger, this.clock());
+    } else if (status === 'disabled') {
+      patch.nextRunAt = undefined;
     }
     return this.repository.updateAutomation(id, tenantId, patch);
   }

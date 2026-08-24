@@ -50,3 +50,15 @@ test('无权限用户无法读取或创建自动化', async () => {
   await assert.rejects(() => router.match('GET', '/api/v1/automations')!.handler(request('GET', '/api/v1/automations', undefined, 'user_denied')) as Promise<unknown>);
   await assert.rejects(() => router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', createBody, 'user_denied')) as Promise<unknown>);
 });
+
+test('一次性自动化启用时写入固定执行时间，过期时间被拒绝', async () => {
+  const { router } = await setup();
+  const onceBody = { ...createBody, name: '一次性证书更新', trigger: { type: 'once' as const, runAt: '2026-07-23T01:00:00.000Z' } };
+  const created = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', onceBody)) as { body: { id: string; version: number } };
+  const enabled = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/enable`, { expectedVersion: created.body.version })) as { nextRunAt?: string };
+  assert.equal(enabled.nextRunAt, onceBody.trigger.runAt);
+
+  const expiredBody = { ...createBody, name: '过期一次性证书更新', trigger: { type: 'once' as const, runAt: '2026-07-20T01:00:00.000Z' } };
+  const expired = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', expiredBody)) as { body: { id: string; version: number } };
+  await assert.rejects(() => router.match('POST', `/api/v1/automations/${expired.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${expired.body.id}/actions/enable`, { expectedVersion: expired.body.version })) as Promise<unknown>);
+});

@@ -19,6 +19,7 @@ test('拒绝非法 Cron、时区、动作和护栏', () => {
   const domain = new AutomationsDomainService();
   assert.throws(() => domain.validateConfiguration({ ...configuration(), trigger: { type: 'schedule', cron: '* * *', timeZone: 'Asia/Shanghai' } }));
   assert.throws(() => domain.validateConfiguration({ ...configuration(), trigger: { type: 'schedule', cron: '0 2 * * *', timeZone: 'Mars/Base' } }));
+  assert.throws(() => domain.validateConfiguration({ ...configuration(), trigger: { type: 'once', runAt: 'not-a-date' } }));
   assert.throws(() => domain.validateConfiguration({ ...configuration(), guardrails: { ...configuration().guardrails, concurrencyLimit: 101 } }));
   assert.throws(() => domain.validateConfiguration({ ...configuration(), actions: [{ type: 'send_notification', position: 2, config: { templateKey: 'x', eventKey: 'x' } }] }));
 });
