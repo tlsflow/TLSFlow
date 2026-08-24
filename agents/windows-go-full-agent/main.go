@@ -35,7 +35,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.41"
+	agentVersion                = "0.1.42"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 60
@@ -110,6 +110,7 @@ type runtimeIdentity struct {
 	MachineID         string
 	PrimaryIPAddress  string
 	WindowsVersion    string
+	WindowsOSDetail   *windowsOSDetail
 	NetworkInterfaces []NetworkInterfaceInfo
 	AdapterSnapshot   windowsAdapterSnapshot
 }
@@ -1690,7 +1691,8 @@ func isInteractiveSession() bool {
 
 func collectRuntimeState(controlPlaneURL string) RuntimeState {
 	state := collectRuntimeStateBase(controlPlaneURL)
-	state.WindowsVersion = runtime.GOOS
+	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
+	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
 	return state
 }
 
@@ -1722,11 +1724,12 @@ func collectRuntimeStateBase(controlPlaneURL string) RuntimeState {
 func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 	state := collectRuntimeStateBase(controlPlaneURL)
 	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
-	state.WindowsVersion = runtime.GOOS
+	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
 	return runtimeIdentity{
 		MachineID:         state.MachineID,
 		PrimaryIPAddress:  state.PrimaryIPAddress,
 		WindowsVersion:    state.WindowsVersion,
+		WindowsOSDetail:   adapterSnapshot.OS,
 		NetworkInterfaces: state.Interfaces,
 		AdapterSnapshot:   adapterSnapshot,
 	}
@@ -1749,15 +1752,36 @@ func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory m
 }
 
 func collectCapabilityReportsWithFacts(identity runtimeIdentity, runtimeFacts map[string]any, inventory map[string]any) []reportedCapability {
+	osDetail := map[string]any{
+		"goos": runtime.GOOS, "goarch": runtime.GOARCH, "osVersion": identity.WindowsVersion,
+		"machineId": identity.MachineID, "primaryIp": identity.PrimaryIPAddress,
+		"runtime": "go", "hostType": "windows-service", "agentModel": "full-agent",
+	}
+	if identity.WindowsOSDetail != nil {
+		if value := strings.TrimSpace(identity.WindowsOSDetail.ProductName); value != "" {
+			osDetail["ProductName"] = value
+		}
+		if value := strings.TrimSpace(identity.WindowsOSDetail.DisplayVersion); value != "" {
+			osDetail["DisplayVersion"] = value
+		}
+		if value := strings.TrimSpace(identity.WindowsOSDetail.ReleaseID); value != "" {
+			osDetail["ReleaseId"] = value
+		}
+		if value := strings.TrimSpace(identity.WindowsOSDetail.CurrentBuild); value != "" {
+			osDetail["CurrentBuild"] = value
+		}
+		if value := strings.TrimSpace(identity.WindowsOSDetail.BuildRevision); value != "" {
+			osDetail["BuildRevision"] = value
+		}
+		if value := strings.TrimSpace(identity.WindowsOSDetail.Version); value != "" {
+			osDetail["Version"] = value
+		}
+	}
 	capabilities := []reportedCapability{
 		{
 			CapabilityKey: "windows.os.detail",
-			Value: map[string]any{
-				"goos": runtime.GOOS, "goarch": runtime.GOARCH, "osVersion": identity.WindowsVersion,
-				"machineId": identity.MachineID, "primaryIp": identity.PrimaryIPAddress,
-				"runtime": "go", "hostType": "windows-service", "agentModel": "full-agent",
-			},
-			Confidence: 0.98, Evidence: map[string]any{"source": "runtime-inspection"},
+			Value:         osDetail,
+			Confidence:    0.98, Evidence: map[string]any{"source": "runtime-inspection"},
 		},
 		{
 			CapabilityKey: "windows.network.adapters", Value: identity.NetworkInterfaces,
