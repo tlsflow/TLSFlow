@@ -1,0 +1,36 @@
+{
+  "apiVersion": "gcac.certificate-update-input/v1",
+  "pluginId": "web.iis",
+  "frameworkType": "web.iis",
+  "platform": "windows",
+  "artifactKind": "WINDOWS_CERTIFICATE_STORE",
+  "requiredFacts": ["frameworkType", "site", "tls.binding", "certificateLocation", "configFingerprint", "serviceName", "programPath"],
+  "deploymentInputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "binding_information" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "configPath": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "target.certificateLocation.sourceConfigPath" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "serviceName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "target.certificateLocation.serviceName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "programPath": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "target.certificateLocation.programPath" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "configFingerprint": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "target.certificateLocation.configFingerprint" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {
+      "certificateArtifact": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "pfxBase64": { "role": "pkcs12_bundle", "required": true, "format": "PKCS12", "encoding": "base64", "sensitive": true },
+            "pfxPassword": { "role": "pkcs12_password", "required": true, "sensitive": true },
+            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true }
+          }
+        }
+      }
+    }
+  }
+}

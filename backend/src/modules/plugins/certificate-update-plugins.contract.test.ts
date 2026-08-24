@@ -14,6 +14,7 @@ const certificatePluginProfiles = {
   'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'PEM_FILES' },
   'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', productFamily: 'LINUX_SERVER', artifactKind: 'KEYSTORE' },
   'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'KEYSTORE' },
+  'web.iis': { frameworkType: 'web.iis', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'WINDOWS_CERTIFICATE_STORE' },
 } as const;
 
 const capabilities = ['certificate.deploy', 'certificate.verify', 'certificate.rollback'] as const;
@@ -21,7 +22,7 @@ const requiredResourceKinds = ['inputContracts', 'workflows', 'agentPlans'] as c
 const workflowStages = ['prepare', 'backup', 'install', 'refresh', 'verify'] as const;
 type CertificatePluginProfile = Pick<CertificateUpdateInputContractV1, 'frameworkType' | 'platform' | 'artifactKind'> & { productFamily: 'LINUX_SERVER' | 'WINDOWS_SERVER' };
 
-test('六个证书更新包的 Manifest、Registry 和双资源合同彼此独立', async () => {
+test('证书更新包的 Manifest、Registry 和双资源合同彼此独立', async () => {
   const loader = new BuiltinUnifiedPluginLoader();
   const packages = await loader.loadPackages();
   const certificatePackages = packages.filter((item) => item.manifest && typeof item.manifest === 'object'
@@ -39,7 +40,7 @@ test('六个证书更新包的 Manifest、Registry 和双资源合同彼此独�
     const entry = entries.find((item) => item.pluginId === pluginId);
     assert.ok(entry, `${pluginId} 未进入 Registry`);
     assert.equal(entry.executionMode, 'AGENT_PLAN');
-    assert.equal(entry.runtimeEntrypoint, undefined);
+    assert.equal(entry.runtimeEntrypoint, pluginId === 'web.iis' ? 'runtime/index.js' : undefined);
     assert.equal(entry.resourceHash.startsWith('sha256:'), true);
     assert.ok(Object.keys(entry.resourceSha256).length >= 10);
   }
@@ -90,27 +91,33 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId === 'web.nginx.linux' ? '1.0.5' : pluginId === 'web.nginx.windows' ? '1.0.6' : pluginId === 'web.apache.linux' || pluginId === 'app.tomcat.linux' ? '1.0.3' : '1.0.4');
+  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.21' : pluginId === 'web.nginx.linux' ? '1.0.5' : pluginId === 'web.nginx.windows' ? '1.0.6' : pluginId === 'web.apache.linux' || pluginId === 'app.tomcat.linux' ? '1.0.3' : '1.0.4');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
   assert.equal(manifest.trust, 'OFFICIAL_SIGNED');
   assert.equal(manifest.support, 'OFFICIAL');
   assert.equal(manifest.resources && typeof manifest.resources === 'object'
-    ? Object.hasOwn(manifest.resources, 'runtimeEntrypoint') : false, false);
+    ? Object.hasOwn(manifest.resources, 'runtimeEntrypoint') : false, pluginId === 'web.iis');
   const normalizedResources = manifest.resources as Record<string, unknown>;
-  assert.deepEqual(normalizedResources.discoveryMappings ?? {}, {});
-  assert.deepEqual(normalizedResources.agentDiscoveryMappings ?? {}, {});
+  if (pluginId !== 'web.iis') {
+    assert.deepEqual(normalizedResources.discoveryMappings ?? {}, {});
+    assert.deepEqual(normalizedResources.agentDiscoveryMappings ?? {}, {});
+  }
 
   const manifestCapabilities = Array.isArray(manifest.capabilities) ? manifest.capabilities : [];
-  assert.deepEqual(manifestCapabilities.map((item) => (item as { key?: string }).key).sort(), [...capabilities].sort());
+  const certificateCapabilities = manifestCapabilities.filter((item) => (item as { key?: string }).key !== 'application.discover');
+  assert.deepEqual(certificateCapabilities.map((item) => (item as { key?: string }).key).sort(), [...capabilities].sort());
   for (const capability of manifestCapabilities) {
-    assert.deepEqual((capability as { executionLocations?: string[] }).executionLocations, ['AGENT']);
+    assert.deepEqual((capability as { executionLocations?: string[] }).executionLocations, pluginId === 'web.iis' ? ['CONTROL_PLANE', 'AGENT'] : ['AGENT']);
   }
   const resources = manifest.resources as Record<string, Record<string, string>>;
-  for (const resourceKind of requiredResourceKinds) assert.deepEqual(Object.keys(resources[resourceKind] ?? {}).sort(), [...capabilities].sort());
+  for (const resourceKind of requiredResourceKinds) {
+    const keys = Object.keys(resources[resourceKind] ?? {}).filter((key) => capabilities.includes(key as never)).sort();
+    assert.deepEqual(keys, [...capabilities].sort());
+  }
   assert.ok(Object.keys(resources.locales ?? {}).length >= 1);
-  assert.ok(Object.keys(resources.presentations ?? {}).length >= 2);
+  assert.ok(Object.keys(resources.presentations ?? {}).length >= (pluginId === 'web.iis' ? 1 : 2));
   for (const capability of capabilities) {
     const contractPath = resources.inputContracts[capability];
     const contract = parseResource(pluginPackage.resources, contractPath);
@@ -137,7 +144,7 @@ function assertCertificatePackage(
     assert.equal(workflow.apiVersion, 'gcac.workflow/v1');
     const steps = Array.isArray(workflow.steps) ? workflow.steps as Array<Record<string, unknown>> : [];
     if (capability === 'certificate.deploy') {
-      assert.deepEqual(steps.map((step) => step.stage), workflowStages);
+      if (pluginId !== 'web.iis') assert.deepEqual(steps.map((step) => step.stage), workflowStages);
       const rollback = Array.isArray(workflow.rollback) ? workflow.rollback as Array<Record<string, unknown>> : [];
       assert.equal(rollback.some((step) => step.name === 'backupLedger' || step.type === 'checkpoint'), false);
       if (profile.artifactKind === 'KEYSTORE') {
@@ -161,7 +168,7 @@ function assertCertificatePackage(
   const operationTypes = (deployPlan.operations as Array<Record<string, unknown>>).map((operation) => operation.operationType);
   const supportsLinuxReload = profile.platform === 'linux' && profile.frameworkType !== 'app.tomcat';
   const supportsWindowsNginxReload = profile.platform === 'windows' && profile.frameworkType === 'web.nginx';
-  const supportsRestart = profile.platform === 'windows';
+  const supportsRestart = profile.platform === 'windows' && pluginId !== 'web.iis';
   if (supportsLinuxReload) {
     assert.equal(operationTypes.includes('service.reload'), true);
     assert.equal(operationTypes.includes('service.stop'), false);
@@ -177,7 +184,7 @@ function assertCertificatePackage(
     assert.equal(operationTypes.includes('service.stop'), false);
     assert.equal(operationTypes.includes('service.start'), false);
     assert.equal(operationTypes.includes('service.reload'), false);
-  } else {
+  } else if (pluginId !== 'web.iis') {
     assert.equal(operationTypes.includes('service.restart'), false);
     assert.equal(operationTypes.includes('service.stop'), true);
     assert.equal(operationTypes.includes('service.start'), true);
@@ -190,7 +197,7 @@ function assertCertificatePackage(
   if (profile.artifactKind === 'KEYSTORE') {
     assert.equal((deployPlan.operations as Array<Record<string, unknown>>).filter((operation) => operation.expandPathRef === 'paths').length >= 3, true);
     assert.equal(JSON.stringify(deployPlan).includes('secretRefs.0'), true);
-  } else {
+  } else if (profile.artifactKind !== 'WINDOWS_CERTIFICATE_STORE') {
     assert.equal((deployPlan.operations as Array<Record<string, unknown>>).some((operation) => operation.expandPathRef === 'paths'), true);
   }
 

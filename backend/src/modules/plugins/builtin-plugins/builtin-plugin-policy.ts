@@ -106,17 +106,20 @@ export function validateBuiltinPluginPolicy(manifest: UnifiedPluginManifestV1): 
 }
 
 function validateCertificateUpdatePluginPolicy(manifest: UnifiedPluginManifestV1): BuiltinPluginPolicyDecision {
+  // web.iis 仍承载旧版 Runtime 发现工作流；证书写入已经切换到 Agent Plan，
+  // 两条链路必须在同一不可变包内共存，直到旧发现事实完成迁移。
+  const legacyRuntimeDiscovery = manifest.pluginId === 'web.iis';
   if (manifest.runtime !== 'WORKFLOW_DSL') {
     throw new AppError('VALIDATION_FAILED', '证书更新插件必须使用普通 WORKFLOW_DSL', { pluginId: manifest.pluginId });
   }
-  if (manifest.resources.runtimeEntrypoint !== undefined) {
+  if (!legacyRuntimeDiscovery && manifest.resources.runtimeEntrypoint !== undefined) {
     throw new AppError('PLUGIN_RUNNER_START_FAILED', '证书更新插件不得声明 Runner 入口', { pluginId: manifest.pluginId });
   }
   const forbiddenCapabilities = manifest.capabilities.filter((capability) => [
     'application.discover',
     'plugin.action',
     'certificate.discover',
-  ].includes(capability.key));
+  ].includes(capability.key) && !(legacyRuntimeDiscovery && capability.key === 'application.discover'));
   if (forbiddenCapabilities.length > 0) {
     throw new AppError('VALIDATION_FAILED', '证书更新插件不得声明发现或 plugin.action 能力', {
       pluginId: manifest.pluginId,
@@ -141,14 +144,14 @@ function validateCertificateUpdatePluginPolicy(manifest: UnifiedPluginManifestV1
       throw new AppError('VALIDATION_FAILED', '证书更新插件缺少独立输入合同资源', { pluginId: manifest.pluginId, capability: required });
     }
   }
-  if (manifest.resources.discoveryMappings && Object.keys(manifest.resources.discoveryMappings).length > 0) {
+  if (!legacyRuntimeDiscovery && manifest.resources.discoveryMappings && Object.keys(manifest.resources.discoveryMappings).length > 0) {
     throw new AppError('VALIDATION_FAILED', '证书更新插件不得声明 Discovery Profile', { pluginId: manifest.pluginId });
   }
-  if (manifest.resources.agentDiscoveryMappings && Object.keys(manifest.resources.agentDiscoveryMappings).length > 0) {
+  if (!legacyRuntimeDiscovery && manifest.resources.agentDiscoveryMappings && Object.keys(manifest.resources.agentDiscoveryMappings).length > 0) {
     throw new AppError('VALIDATION_FAILED', '证书更新插件不得声明 Agent Discovery Profile', { pluginId: manifest.pluginId });
   }
   const unknownPermissions = manifest.permissions.filter((permission) => !builtinPluginPermissionAllowlist.includes(permission));
-  if (unknownPermissions.length > 0 || manifest.permissions.some((permission) => ['agent.fact.collect', 'device.write'].includes(permission))) {
+  if (unknownPermissions.length > 0 || (!legacyRuntimeDiscovery && manifest.permissions.some((permission) => ['agent.fact.collect', 'device.write'].includes(permission)))) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', '证书更新插件声明了发现或宿主写入权限', { pluginId: manifest.pluginId, permissions: manifest.permissions });
   }
   const agentPlans = manifest.resources.agentPlans ?? {};
@@ -158,5 +161,8 @@ function validateCertificateUpdatePluginPolicy(manifest: UnifiedPluginManifestV1
   return {
     pluginId: manifest.pluginId as CanonicalPluginId,
     ...certificateUpdatePluginExecutionPolicy,
+    ...(legacyRuntimeDiscovery && manifest.resources.runtimeEntrypoint === builtinPluginExecutionPolicy.runtimeEntrypoint
+      ? { runtimeEntrypoint: builtinPluginExecutionPolicy.runtimeEntrypoint }
+      : {}),
   };
 }

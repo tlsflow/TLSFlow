@@ -1,13 +1,13 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.16", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-rollback", "displayName": "IIS certificate rollback", "category": "certificate", "version": "1.0.21", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
       "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
-      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "binding_information" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "previousBinding": { "type": "object", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.rollback.previousBinding" }, "lifecycle": "runtime_injected", "bindingPolicy": "fixed", "sensitive": false }
     },
     "connections": {},
@@ -22,7 +22,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.21", "operation": "rollback-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "previousBinding": "{{variables.previousBinding}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 131072,

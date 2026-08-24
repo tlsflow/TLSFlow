@@ -1,0 +1,43 @@
+{
+  "apiVersion": "gcac.certificate-update-plan/v1",
+  "pluginId": "web.iis",
+  "capability": "certificate.deploy",
+  "planId": "certificate.deploy",
+  "writeEffect": true,
+  "operations": [
+    {
+      "operationId": "update-iis-binding",
+      "operationType": "certificate.iis.binding.update",
+      "stage": "execute",
+      "timeoutSeconds": 300,
+      "input": {
+        "siteName": { "$ref": "siteName" },
+        "bindingInformation": { "$ref": "bindingInformation" },
+        "storeName": "My",
+        "storeLocation": "LocalMachine",
+        "pfxBase64": "AA==",
+        "pfxPassword": "placeholder",
+        "expectedFingerprintSha256": { "$ref": "expectedFingerprintSha256" },
+        "artifactDigest": { "$ref": "artifactDigest" },
+        "bindingKey": { "$ref": "targetId" },
+        "configFingerprint": { "$ref": "configFingerprint" }
+      }
+    },
+    {
+      "operationId": "verify-iis-binding",
+      "operationType": "certificate.iis.binding.verify",
+      "stage": "verify",
+      "timeoutSeconds": 120,
+      "input": {
+        "siteName": { "$ref": "siteName" },
+        "bindingInformation": { "$ref": "bindingInformation" },
+        "storeName": "My",
+        "storeLocation": "LocalMachine",
+        "expectedFingerprintSha256": { "$ref": "expectedFingerprintSha256" },
+        "artifactDigest": { "$ref": "artifactDigest" },
+        "bindingKey": { "$ref": "targetId" },
+        "configFingerprint": { "$ref": "configFingerprint" }
+      }
+    }
+  ]
+}

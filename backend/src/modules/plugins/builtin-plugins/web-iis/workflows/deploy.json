@@ -1,13 +1,13 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.16", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.21", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
       "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
-      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
-      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "binding_information" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
     },
     "connections": {},
     "credentials": {},
@@ -17,7 +17,7 @@
         "required": true,
         "configurationMode": "required",
         "lifecycle": "pre_execution",
-        "artifactContract": { "outputs": { "pfx": { "role": "certificate_private_key", "required": true, "sensitive": true }, "fingerprintSha256": { "role": "fingerprint_sha256", "required": true } } }
+        "artifactContract": { "outputs": { "pfxBase64": { "role": "pkcs12_bundle", "required": true, "format": "PKCS12", "encoding": "base64", "sensitive": true }, "fingerprintSha256": { "role": "fingerprint_sha256", "required": true } } }
       }
     }
   },
@@ -29,7 +29,7 @@
       "stage": "install",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "update-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "artifact": "{{artifacts.certificate.artifactRef}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.21", "operation": "update-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "artifact": "{{artifacts.certificate.artifactRef}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 131072,
@@ -42,7 +42,7 @@
       "stage": "verify",
       "transform": {
         "engine": "jsonata",
-        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.10", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}" },
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.21", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}" },
         "outputs": { "agentSideRequest": { "expression": "$" } },
         "timeoutMs": 1000,
         "maxInputBytes": 65536,

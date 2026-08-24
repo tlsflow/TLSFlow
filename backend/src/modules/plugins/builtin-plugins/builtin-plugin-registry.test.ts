@@ -159,7 +159,7 @@ test('全部内置横向 Logo 使用铺满 72×48 的内层画布', async () => 
     .map((manifest, index) => ({ manifest, pluginPackage: packages[index] }))
     .filter(({ manifest }) => manifest.resources?.logos?.horizontal);
 
-  assert.equal(horizontalLogos.length, 19);
+  assert.equal(horizontalLogos.length, 20);
   for (const { manifest, pluginPackage } of horizontalLogos) {
     const path = manifest.resources!.logos!.horizontal!;
     const content = pluginPackage.resources[path];

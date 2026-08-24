@@ -20,6 +20,7 @@ export const canonicalPluginIds = [
   'app.rabbitmq',
   'app.service-certificate-file',
   'device.citrix.netscaler-adc',
+  'device.f5.bigip',
   'device.synology-dsm',
   'device.chaitin-safeline-waf',
   'device.nginx-proxy-manager',
@@ -41,14 +42,15 @@ export const certificateUpdatePluginIds = [
   'web.apache.windows',
   'app.tomcat.linux',
   'app.tomcat.windows',
+  'web.iis',
 ] as const;
 
 export type CertificateUpdatePluginId = typeof certificateUpdatePluginIds[number];
 
 export const certificateUpdatePluginProfiles: Readonly<Record<CertificateUpdatePluginId, {
-  frameworkType: 'web.nginx' | 'web.apache' | 'app.tomcat';
+  frameworkType: 'web.nginx' | 'web.apache' | 'app.tomcat' | 'web.iis';
   platform: 'linux' | 'windows';
-  artifactKind: 'PEM_FILES' | 'KEYSTORE';
+  artifactKind: 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE';
 }>> = Object.freeze({
   'web.nginx.linux': { frameworkType: 'web.nginx', platform: 'linux', artifactKind: 'PEM_FILES' },
   'web.nginx.windows': { frameworkType: 'web.nginx', platform: 'windows', artifactKind: 'PEM_FILES' },
@@ -56,6 +58,7 @@ export const certificateUpdatePluginProfiles: Readonly<Record<CertificateUpdateP
   'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', artifactKind: 'PEM_FILES' },
   'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', artifactKind: 'KEYSTORE' },
   'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', artifactKind: 'KEYSTORE' },
+  'web.iis': { frameworkType: 'web.iis', platform: 'windows', artifactKind: 'WINDOWS_CERTIFICATE_STORE' },
 });
 
 export type CanonicalPluginId = typeof canonicalPluginIds[number];
@@ -109,6 +112,7 @@ export const canonicalPluginIdRegistry: CanonicalPluginIdRegistryV1 = {
     entry('app.rabbitmq', 'plugins.canonical.appRabbitmq', ['linux.agent_plan.pem']),
     entry('app.service-certificate-file', 'plugins.canonical.appServiceCertificateFile', ['windows.agent_plan.file']),
     entry('device.citrix.netscaler-adc', 'plugins.canonical.deviceCitrixNetscalerAdc', ['control-plane.gateway']),
+    entry('device.f5.bigip', 'plugins.canonical.deviceF5Bigip', ['control-plane.gateway']),
     entry('device.synology-dsm', 'plugins.canonical.deviceSynologyDsm', ['control-plane.gateway']),
     entry('device.chaitin-safeline-waf', 'plugins.canonical.deviceChaitinSafelineWaf', ['control-plane.gateway']),
     entry('device.nginx-proxy-manager', 'plugins.canonical.deviceNginxProxyManager', ['control-plane.gateway']),

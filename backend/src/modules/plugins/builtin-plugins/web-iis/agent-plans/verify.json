@@ -1,0 +1,25 @@
+{
+  "apiVersion": "gcac.certificate-update-plan/v1",
+  "pluginId": "web.iis",
+  "capability": "certificate.verify",
+  "planId": "certificate.verify",
+  "writeEffect": false,
+  "operations": [
+    {
+      "operationId": "verify-iis-binding",
+      "operationType": "certificate.iis.binding.verify",
+      "stage": "verify",
+      "timeoutSeconds": 120,
+      "input": {
+        "siteName": { "$ref": "siteName" },
+        "bindingInformation": { "$ref": "bindingInformation" },
+        "storeName": "My",
+        "storeLocation": "LocalMachine",
+        "expectedFingerprintSha256": { "$ref": "expectedFingerprintSha256" },
+        "artifactDigest": { "$ref": "artifactDigest" },
+        "bindingKey": { "$ref": "targetId" },
+        "configFingerprint": { "$ref": "configFingerprint" }
+      }
+    }
+  ]
+}

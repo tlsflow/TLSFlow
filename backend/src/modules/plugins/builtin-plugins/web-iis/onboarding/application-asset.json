@@ -8,14 +8,14 @@
     "requiredInformationKeys": ["plugin.webIis.onboarding.requiredHost", "plugin.webIis.onboarding.requiredTarget"]
   },
   "supportStatus": "SUPPORTED",
-  "deploymentMode": "DIRECT_WORKFLOW",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.windows-server",
   "deviceSelection": "EXISTING_OR_NEW",
   "newDeviceOnboarding": { "kind": "AGENT_INSTALL", "platformKey": "windows-server-2016-plus" },
   "forms": {},
   "capabilities": {
     "connectionTest": "application.discover",
-    "discovery": "application.discover",
-    "workflowExecution": "certificate.deploy"
+    "discovery": "application.discover"
   },
   "targetProjection": {
     "targetType": "tls.binding",
@@ -23,10 +23,17 @@
     "identityFields": ["managedTargetId", "configFingerprint"],
     "selectableWhen": "selectable"
   },
+  "deploymentDefaults": {
+    "capabilityKey": "certificate.deploy",
+    "certificateFormat": {
+      "format": "PFX",
+      "configName": "宿主默认 PFX 容器"
+    }
+  },
   "certificate": {
     "acceptedFormats": ["PFX"],
     "requiredArtifacts": ["leaf", "privateKey"],
     "defaultVersion": "LATEST_VALID"
   },
-  "commit": { "executionSource": "WORKFLOW", "inputContract": "certificate.deploy.v1" }
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
 }
