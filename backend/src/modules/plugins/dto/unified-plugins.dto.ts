@@ -20,6 +20,7 @@ export interface UnifiedPluginManifestV1 {
   version: string;
   displayNameKey: string;
   descriptionKey?: string;
+  defaultLocale?: string;
   publisher: string;
   runtime: UnifiedPluginRuntime;
   source: UnifiedPluginSource;
@@ -58,6 +59,7 @@ export interface UnifiedPluginVersionRecord {
   packageSha256: string;
   manifestSha256: string;
   resourceSha256: Record<string, string>;
+  resources: Record<string, string>;
   status: UnifiedPluginVersionStatus;
   permissionApprovalStatus: 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   approvedPermissions: string[];

@@ -725,6 +725,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: '接続アドレス', connectionPort: '接続ポート', basePath: 'ベースパス', timeoutSeconds: 'タイムアウト秒数', gateway: '実行 Gateway',
+      authenticationMode: '認証方式', username: 'ユーザー名', passwordSecret: 'パスワード SecretRef', apiTokenSecret: 'API トークン SecretRef', clientCertificate: 'クライアント証明書',
+      tlsEnabled: 'TLS を有効化', tlsVerifyPeer: 'サーバー証明書を検証', tlsServerName: 'TLS サーバー名', caSecret: 'CA SecretRef', tlsMinimumVersion: '最小 TLS バージョン',
+      deviceDisplayName: 'デバイス表示名', deviceDescription: 'デバイス説明', deviceTags: 'デバイスタグ', targetName: 'ターゲット名', targetLabels: 'ターゲットラベル'
+    },
+    forms: { loadOptions: '選択肢を読み込む', previewTitle: 'プラグイン設定フォーム', loading: 'プラグインフォームを読み込み中...', loadFailed: 'プラグインフォームの読み込みに失敗しました', empty: 'このプラグインは設定フォームを宣言していません。' },
+    presentation: { previewTitle: '標準デバイス表示プレビュー', sensitiveValue: '機密値は非表示です', tabsAriaLabel: 'デバイス情報タブ' },
     title: 'プラグイン',
     description: '管理プラグインパッケージ、Executor、権限宣言とサンドボックス隔離ステータス。',
     resourceName: 'プラグイン',
@@ -2400,7 +2408,8 @@ export default {
       workflowVersionSelection: 'ワークフローバージョンポリシー',
       publishedVersion: '公開済みバージョン',
       runner: '実行場所',
-      artifactFormat: '成果物形式設定'
+      artifactFormat: '成果物形式設定',
+      updatePlugin: '証明書更新プラグイン'
     },
     links: {
       certificateBindings: '表示証明書バインド',
@@ -2485,7 +2494,8 @@ export default {
       generic: '選択',
       artifactFormat: '形式設定を選択してください',
       output: '出力項目を選択してください',
-      optionalOutput: '選択しなくても構いません'
+      optionalOutput: '選択しなくても構いません',
+      updatePluginOptional: '任意。既存のワークフロー設定を継続します'
     },
     validation: {
       variableNameRequired: '変数名前できませんとして空',
@@ -2644,6 +2654,8 @@ export default {
       rollbackFailed: 'ロールバックの開始に失敗しました',
       loadTargetsFailed: 'サイトと管理対象ターゲットの読み込みに失敗しました',
       createAssetFailed: 'アプリケーションアセットの作成に失敗しました',
+      pluginFormLoadFailed: 'プラグイン設定フォームの読み込みに失敗しました',
+      pluginBindingCreateFailed: 'プラグインバインディングの保存に失敗しました',
       loadWorkflowCredentialsFailed: 'ワークフロー認証情報の読み込みに失敗しました',
       noAvailableSiteInstance: '利用可能なサイトインスタンスが見つかりません。先に Agent 詳細でフレームワークサイトが正常に報告されていることを確認してください。'
     },

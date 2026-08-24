@@ -8,11 +8,11 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
-import { listAgentPluginPackages, previewAgentPluginBinding } from '@/api/modules/plugins.api'
+import { assignPluginCapability, createPluginBinding, getPluginBinding, getUnifiedPluginUiResources, listAgentPluginPackages, listPluginCatalog, previewAgentPluginBinding, updatePluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcModal, GcPluginForm, GcStatusTag, GcTabs, type PluginFormSchema } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -56,6 +56,7 @@ interface AssetDraft {
   environment: string
   tagsText: string
   workflowId: string
+  workflowPluginVersionId: string
   workflowVersionSelection: WorkflowVersionSelection
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
@@ -126,7 +127,7 @@ interface WorkflowTargetInfo {
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
@@ -190,6 +191,15 @@ const agentPluginVariableBindings = ref<Record<string, string>>({})
 const agentPluginSecretBindings = ref<Record<string, string>>({})
 const agentPluginArtifactBindings = ref<Record<string, string>>({})
 const agentPluginPreviewError = ref('')
+const unifiedDeploymentPlugins = ref<ApiRecord[]>([])
+const pluginFormSchema = ref<PluginFormSchema | null>(null)
+const pluginFormMessages = ref<Record<string, string>>({})
+const pluginFormValues = ref<Record<string, unknown>>({})
+const pluginBindingId = ref('')
+const pluginBindingVersion = ref(0)
+const pluginBindingSecrets = ref<Record<string, string>>({})
+const pluginFormLoading = ref(false)
+const pluginFormError = ref('')
 let workflowVariableRowSeed = 1
 
 const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
@@ -239,6 +249,7 @@ const assetDraft = reactive<AssetDraft>({
   environment: '',
   tagsText: '',
   workflowId: '',
+  workflowPluginVersionId: '',
   workflowVersionSelection: 'PINNED',
   workflowVersionId: '',
   workflowRunner: 'CONTROL_PLANE',
@@ -636,7 +647,7 @@ async function openCreateDialog() {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -692,6 +703,7 @@ async function openEditDialog(row: ViewRow) {
       assetDraft.workflowTargetSniName = workflowTarget.sniName ?? ''
     }
     assetDraft.workflowId = String(readNested(deploymentStrategy, ['workflow', 'workflowId']) ?? '')
+    pluginBindingId.value = String(readNested(deploymentStrategy, ['workflow', 'pluginBindingId']) ?? '')
     assetDraft.workflowVersionSelection = readWorkflowVersionSelection(deploymentStrategy)
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
@@ -731,7 +743,8 @@ async function openEditDialog(row: ViewRow) {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow(), loadAgentPlugins()])
+  await Promise.all([loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow(), loadAgentPlugins()])
+  if (pluginBindingId.value) await loadExistingPluginBinding(pluginBindingId.value)
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   if (selectedWorkflowVersion.value) syncWorkflowVariableRowsFromVersion()
 }
@@ -792,6 +805,50 @@ async function loadWorkflowVersions(workflowId: string) {
   } finally {
     workflowVersionListLoading.value = false
   }
+}
+
+async function loadUnifiedDeploymentPlugins() {
+  try {
+    const result = await listPluginCatalog({ page: 1, pageSize: 500 })
+    unifiedDeploymentPlugins.value = (result.data?.items ?? []).filter((item) =>
+      item.catalogType === 'UNIFIED_PLUGIN'
+      && String(item.runtime ?? '') === 'WORKFLOW_DSL'
+      && String(item.status ?? '').toUpperCase() === 'ENABLED'
+      && Array.isArray(item.capabilities)
+      && item.capabilities.some((capability) => readNested(capability, ['key']) === 'certificate.deploy'),
+    )
+  } catch {
+    unifiedDeploymentPlugins.value = []
+  }
+}
+
+async function loadPluginForm(pluginVersionId: string) {
+  pluginFormSchema.value = null
+  pluginFormMessages.value = {}
+  pluginFormError.value = ''
+  if (!pluginVersionId) return
+  pluginFormLoading.value = true
+  try {
+    const result = await getUnifiedPluginUiResources(pluginVersionId, locale.value)
+    const payload = readRecord(result.data) ?? {}
+    const forms = readRecord(payload.forms) ?? {}
+    pluginFormSchema.value = Object.values(forms)[0] as PluginFormSchema | undefined ?? null
+    pluginFormMessages.value = (readRecord(readNested(payload, ['locale', 'messages'])) ?? {}) as Record<string, string>
+  } catch (cause) {
+    pluginFormError.value = cause instanceof Error ? cause.message : t('assets.errors.pluginFormLoadFailed')
+  } finally {
+    pluginFormLoading.value = false
+  }
+}
+
+async function loadExistingPluginBinding(bindingId: string) {
+  const result = await getPluginBinding(bindingId)
+  const binding = readRecord(result.data) ?? {}
+  assetDraft.workflowPluginVersionId = String(binding.pluginVersionId ?? '')
+  pluginBindingVersion.value = Number(binding.version ?? 0)
+  pluginBindingSecrets.value = (readRecord(binding.secretBindings) ?? {}) as Record<string, string>
+  pluginFormValues.value = { ...(readRecord(binding.variableBindings) ?? {}) }
+  await loadPluginForm(assetDraft.workflowPluginVersionId)
 }
 
 async function loadDevices() {
@@ -1085,6 +1142,9 @@ async function submitCreate() {
         ...(targetBinding ? { targetBinding } : {}),
         ...(workflowTarget ? { metadata: { ...(readRecord(readNested(editAssetDetail.value, ['metadata'])) ?? {}), workflowTarget } } : {}),
       })
+      if (assetDraft.managementMode === 'WORKFLOW' && assetDraft.workflowPluginVersionId) {
+        await persistWorkflowPluginBinding(editingServiceAssetId.value, workflowTarget ?? undefined)
+      }
       createRequestId.value = result.requestId
       createDialogOpen.value = false
       editingServiceAssetId.value = ''
@@ -1098,6 +1158,8 @@ async function submitCreate() {
         status: 'ACTIVE',
         metadata: workflowTarget ? { workflowTarget } : {},
       })
+      const createdAssetId = String(result.data?.id ?? '')
+      if (createdAssetId && assetDraft.workflowPluginVersionId) await persistWorkflowPluginBinding(createdAssetId, workflowTarget ?? undefined)
       createRequestId.value = result.requestId
       createDialogOpen.value = false
       await pageRef.value?.reload()
@@ -1125,6 +1187,35 @@ async function submitCreate() {
   }
 }
 
+async function persistWorkflowPluginBinding(applicationAssetId: string, workflowTarget?: WorkflowTargetInfo): Promise<void> {
+  const secretKeys = new Set((pluginFormSchema.value?.sections ?? []).flatMap((section) =>
+    section.fields.filter((field) => field.type === 'secret_ref').map((field) => field.key)))
+  const variableBindings = Object.fromEntries(Object.entries(pluginFormValues.value).filter(([key]) => !secretKeys.has(key)))
+  const enteredSecrets = Object.fromEntries(Object.entries(pluginFormValues.value)
+    .filter(([key, value]) => secretKeys.has(key) && typeof value === 'string' && value.trim())
+    .map(([key, value]) => [key, String(value)]))
+  const bindingPayload = {
+    variableBindings,
+    secretBindings: { ...pluginBindingSecrets.value, ...enteredSecrets },
+    certificateArtifactBindings: buildWorkflowCertificateArtifactBindings() ?? {},
+    connectionBindings: workflowConnectionBindings.value,
+  }
+  if (pluginBindingId.value) {
+    const updated = await updatePluginBinding({ bindingId: pluginBindingId.value, expectedVersion: pluginBindingVersion.value, ...bindingPayload })
+    pluginBindingVersion.value = Number(updated.data?.version ?? pluginBindingVersion.value + 1)
+  } else {
+    const created = await createPluginBinding({ pluginVersionId: assetDraft.workflowPluginVersionId, mode: 'STANDALONE', ...bindingPayload })
+    pluginBindingId.value = String(created.data?.id ?? '')
+    pluginBindingVersion.value = Number(created.data?.version ?? 1)
+  }
+  if (!pluginBindingId.value) throw new Error(t('assets.errors.pluginBindingCreateFailed'))
+  await updateServiceAsset(applicationAssetId, { deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget) })
+  await assignPluginCapability({
+    ownerType: 'APPLICATION_ASSET', ownerId: applicationAssetId, capabilityKey: 'certificate.deploy',
+    pluginVersionId: assetDraft.workflowPluginVersionId, pluginBindingId: pluginBindingId.value, precedence: 'ASSET_OVERRIDE',
+  })
+}
+
 function resetDraft() {
   editingServiceAssetId.value = ''
   editAssetDetail.value = null
@@ -1149,6 +1240,7 @@ function resetDraft() {
   assetDraft.environment = ''
   assetDraft.tagsText = ''
   assetDraft.workflowId = ''
+  assetDraft.workflowPluginVersionId = ''
   assetDraft.workflowVersionSelection = 'PINNED'
   assetDraft.workflowVersionId = ''
   assetDraft.workflowRunner = 'CONTROL_PLANE'
@@ -1160,6 +1252,13 @@ function resetDraft() {
   workflowVariableRows.value = []
   workflowBindingProjection.value = null
   workflowConnectionBindings.value = {}
+  pluginFormSchema.value = null
+  pluginFormMessages.value = {}
+  pluginFormValues.value = {}
+  pluginBindingId.value = ''
+  pluginBindingVersion.value = 0
+  pluginBindingSecrets.value = {}
+  pluginFormError.value = ''
   workflowAdvancedExpanded.value = false
   workflowTargetAdvancedExpanded.value = false
   workflowVariablePresetName.value = ''
@@ -1222,6 +1321,7 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     return {
       type: 'WORKFLOW',
       workflow: {
+        pluginBindingId: pluginBindingId.value || undefined,
         workflowId: assetDraft.workflowId.trim(),
         workflowVersionSelection: assetDraft.workflowVersionSelection,
         ...(assetDraft.workflowVersionSelection === 'PINNED'
@@ -1975,7 +2075,15 @@ watch(
       await loadDevices()
       return
     }
-    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+    await Promise.all([loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  },
+)
+
+watch(
+  () => assetDraft.workflowPluginVersionId,
+  async (pluginVersionId, previousPluginVersionId) => {
+    if (pluginVersionId !== previousPluginVersionId && !pluginBindingId.value) pluginFormValues.value = {}
+    await loadPluginForm(pluginVersionId)
   },
 )
 
@@ -2676,6 +2784,25 @@ async function previewSelectedAgentPlugin(): Promise<void> {
 
           <template v-else>
             <div class="asset-form__grid">
+              <label class="asset-form__field asset-form__field--wide">
+                <span>{{ t('assets.fields.updatePlugin') }}</span>
+                <select v-model="assetDraft.workflowPluginVersionId">
+                  <option value="">{{ t('assets.select.updatePluginOptional') }}</option>
+                  <option v-for="plugin in unifiedDeploymentPlugins" :key="String(plugin.id)" :value="String(plugin.id)">
+                    {{ String(plugin.name ?? plugin.pluginId ?? plugin.id ?? '') }} · {{ String(plugin.version ?? '') }}
+                  </option>
+                </select>
+              </label>
+              <section v-if="assetDraft.workflowPluginVersionId" class="asset-form__field--wide">
+                <p v-if="pluginFormLoading" class="asset-form__hint">{{ t('plugins.forms.loading') }}</p>
+                <p v-else-if="pluginFormError" class="asset-form__error">{{ pluginFormError }}</p>
+                <GcPluginForm
+                  v-else-if="pluginFormSchema"
+                  v-model="pluginFormValues"
+                  :schema="pluginFormSchema"
+                  :plugin-messages="pluginFormMessages"
+                />
+              </section>
               <label class="asset-form__field">
                 <span>{{ t('assets.fields.selectWorkflow') }} <strong>*</strong></span>
                 <select v-model="assetDraft.workflowId" :disabled="workflowListLoading">

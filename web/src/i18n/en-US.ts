@@ -732,6 +732,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: 'Connection address', connectionPort: 'Connection port', basePath: 'Base path', timeoutSeconds: 'Timeout seconds', gateway: 'Execution gateway',
+      authenticationMode: 'Authentication mode', username: 'Username', passwordSecret: 'Password SecretRef', apiTokenSecret: 'API token SecretRef', clientCertificate: 'Client certificate',
+      tlsEnabled: 'Enable TLS', tlsVerifyPeer: 'Verify server certificate', tlsServerName: 'TLS server name', caSecret: 'CA SecretRef', tlsMinimumVersion: 'Minimum TLS version',
+      deviceDisplayName: 'Device display name', deviceDescription: 'Device description', deviceTags: 'Device tags', targetName: 'Target name', targetLabels: 'Target labels'
+    },
+    forms: { loadOptions: 'Load options', previewTitle: 'Plugin configuration form', loading: 'Loading plugin form...', loadFailed: 'Failed to load plugin form', empty: 'This plugin does not declare a configuration form.' },
+    presentation: { previewTitle: 'Standard device presentation preview', sensitiveValue: 'Sensitive value hidden', tabsAriaLabel: 'Device information tabs' },
     title: 'Plugins',
     description: 'Browse built-in and user-defined DSL templates as versioned plugins with logos and capability metadata.',
     resourceName: 'Plugin',
@@ -2480,7 +2488,8 @@ export default {
       workflow: 'Workflow',
       publishedVersion: 'Published version',
       runner: 'Runner',
-      artifactFormat: 'Artifact format'
+      artifactFormat: 'Artifact format',
+      updatePlugin: 'Certificate update plugin'
     },
     links: {
       certificateBindings: 'View certificate bindings',
@@ -2561,7 +2570,8 @@ export default {
       generic: 'Select',
       artifactFormat: 'Select format config',
       output: 'Select output',
-      optionalOutput: 'Optional'
+      optionalOutput: 'Optional',
+      updatePluginOptional: 'Optional; keep the existing workflow configuration'
     },
     validation: {
       variableNameRequired: 'Variable name is required',
@@ -2720,6 +2730,8 @@ export default {
       rollbackFailed: 'Failed to start rollback',
       loadTargetsFailed: 'Failed to load sites and managed targets',
       createAssetFailed: 'Failed to create application asset',
+      pluginFormLoadFailed: 'Failed to load the plugin configuration form',
+      pluginBindingCreateFailed: 'Failed to save the plugin binding',
       loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
       noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
     },

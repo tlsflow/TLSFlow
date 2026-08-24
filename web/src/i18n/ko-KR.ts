@@ -699,6 +699,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: '연결 주소', connectionPort: '연결 포트', basePath: '기본 경로', timeoutSeconds: '시간 제한(초)', gateway: '실행 Gateway',
+      authenticationMode: '인증 방식', username: '사용자 이름', passwordSecret: '암호 SecretRef', apiTokenSecret: 'API 토큰 SecretRef', clientCertificate: '클라이언트 인증서',
+      tlsEnabled: 'TLS 사용', tlsVerifyPeer: '서버 인증서 검증', tlsServerName: 'TLS 서버 이름', caSecret: 'CA SecretRef', tlsMinimumVersion: '최소 TLS 버전',
+      deviceDisplayName: '장치 표시 이름', deviceDescription: '장치 설명', deviceTags: '장치 태그', targetName: '대상 이름', targetLabels: '대상 레이블'
+    },
+    forms: { loadOptions: '옵션 불러오기', previewTitle: '플러그인 구성 양식', loading: '플러그인 양식을 불러오는 중...', loadFailed: '플러그인 양식을 불러오지 못했습니다', empty: '이 플러그인은 구성 양식을 선언하지 않았습니다.' },
+    presentation: { previewTitle: '표준 장치 표시 미리보기', sensitiveValue: '민감한 값 숨김', tabsAriaLabel: '장치 정보 탭' },
     title: '플러그인',
     description: '플러그인 패키지, 실행기, 권한 선언, 샌드박스와 격리된 상태를 관리합니다.',
     resourceName: '플러그인',
@@ -2374,7 +2382,8 @@ export default {
       workflowVersionSelection: '워크플로 버전 정책',
       publishedVersion: '배포된 버전',
       runner: '실행 위치',
-      artifactFormat: '제품 형식 설정'
+      artifactFormat: '제품 형식 설정',
+      updatePlugin: '인증서 업데이트 플러그인'
     },
     links: {
       certificateBindings: '인증서 바인딩 보기',
@@ -2459,7 +2468,8 @@ export default {
       generic: '선택하세요',
       artifactFormat: '형식 설정을 선택하세요',
       output: '출력 항목을 선택하세요',
-      optionalOutput: '선택하지 않기'
+      optionalOutput: '선택하지 않기',
+      updatePluginOptional: '선택 사항이며 기존 워크플로 설정을 유지합니다'
     },
     validation: {
       variableNameRequired: '변수의 이름은 비어 있을 수 없습니다',
@@ -2618,6 +2628,8 @@ export default {
       rollbackFailed: '후퇴를 시작하는 데 실패하다',
       loadTargetsFailed: '웹 사이트와 관리하는 대상을 불러오는 데 실패했습니다',
       createAssetFailed: '애플리케이션 자산을 만들 수 없습니다',
+      pluginFormLoadFailed: '플러그인 설정 양식을 불러올 수 없습니다',
+      pluginBindingCreateFailed: '플러그인 바인딩을 저장할 수 없습니다',
       loadWorkflowCredentialsFailed: '워크플로 자격 증명을 불러오는 데 실패했습니다',
       noAvailableSiteInstance: '사용 가능한 사이트 인스턴스를 찾을 수 없습니다. 먼저 Agent 프레임워크 사이트가 성공적으로 보고되었는지 확인하세요.'
     },

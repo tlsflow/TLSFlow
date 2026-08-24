@@ -733,6 +733,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: 'Adresse de connexion', connectionPort: 'Port de connexion', basePath: 'Chemin de base', timeoutSeconds: 'Délai en secondes', gateway: 'Gateway d’exécution',
+      authenticationMode: 'Mode d’authentification', username: 'Nom d’utilisateur', passwordSecret: 'SecretRef du mot de passe', apiTokenSecret: 'SecretRef du jeton API', clientCertificate: 'Certificat client',
+      tlsEnabled: 'Activer TLS', tlsVerifyPeer: 'Vérifier le certificat serveur', tlsServerName: 'Nom du serveur TLS', caSecret: 'SecretRef de l’AC', tlsMinimumVersion: 'Version TLS minimale',
+      deviceDisplayName: 'Nom d’affichage de l’appareil', deviceDescription: 'Description de l’appareil', deviceTags: 'Étiquettes de l’appareil', targetName: 'Nom de la cible', targetLabels: 'Étiquettes de la cible'
+    },
+    forms: { loadOptions: 'Charger les options', previewTitle: 'Formulaire de configuration du plug-in', loading: 'Chargement du formulaire...', loadFailed: 'Échec du chargement du formulaire', empty: 'Ce plug-in ne déclare aucun formulaire de configuration.' },
+    presentation: { previewTitle: 'Aperçu standard de l’appareil', sensitiveValue: 'Valeur sensible masquée', tabsAriaLabel: 'Onglets d’informations de l’appareil' },
     title: 'Plugins',
     description: 'Plugin packages, providers, permission declarations, signature validation, sandbox status, and isolation entry points.',
     resourceName: 'Plugin',
@@ -2448,7 +2456,8 @@ export default {
       workflow: 'Workflow',
       publishedVersion: 'Published version',
       runner: 'Runner',
-      artifactFormat: 'Artifact format'
+      artifactFormat: 'Format de l’artéfact',
+      updatePlugin: 'Plugin de mise à jour du certificat'
     },
     links: {
       certificateBindings: 'View certificate bindings',
@@ -2529,7 +2538,8 @@ export default {
       generic: 'Select',
       artifactFormat: 'Select format config',
       output: 'Select output',
-      optionalOutput: 'Optional'
+      optionalOutput: 'Facultatif',
+      updatePluginOptional: 'Facultatif ; conserver la configuration du workflow existante'
     },
     validation: {
       variableNameRequired: 'Variable name is required',
@@ -2687,7 +2697,9 @@ export default {
       loadAssetDetailFailed: 'Failed to load application asset details',
       rollbackFailed: 'Failed to start rollback',
       loadTargetsFailed: 'Failed to load sites and managed targets',
-      createAssetFailed: 'Failed to create application asset',
+      createAssetFailed: 'Échec de la création de l’actif applicatif',
+      pluginFormLoadFailed: 'Échec du chargement du formulaire de configuration du plugin',
+      pluginBindingCreateFailed: 'Échec de l’enregistrement de la liaison du plugin',
       loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
       noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
     },

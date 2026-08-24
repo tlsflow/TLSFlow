@@ -699,6 +699,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: 'Адрес подключения', connectionPort: 'Порт подключения', basePath: 'Базовый путь', timeoutSeconds: 'Тайм-аут в секундах', gateway: 'Gateway выполнения',
+      authenticationMode: 'Способ аутентификации', username: 'Имя пользователя', passwordSecret: 'SecretRef пароля', apiTokenSecret: 'SecretRef API-токена', clientCertificate: 'Клиентский сертификат',
+      tlsEnabled: 'Включить TLS', tlsVerifyPeer: 'Проверять сертификат сервера', tlsServerName: 'Имя сервера TLS', caSecret: 'SecretRef центра сертификации', tlsMinimumVersion: 'Минимальная версия TLS',
+      deviceDisplayName: 'Отображаемое имя устройства', deviceDescription: 'Описание устройства', deviceTags: 'Теги устройства', targetName: 'Имя цели', targetLabels: 'Метки цели'
+    },
+    forms: { loadOptions: 'Загрузить варианты', previewTitle: 'Форма настройки плагина', loading: 'Загрузка формы плагина...', loadFailed: 'Не удалось загрузить форму плагина', empty: 'Плагин не объявляет форму настройки.' },
+    presentation: { previewTitle: 'Предпросмотр стандартного представления устройства', sensitiveValue: 'Секретное значение скрыто', tabsAriaLabel: 'Вкладки сведений об устройстве' },
     title: 'Плагины',
     description: 'Управление пакетами плагинов, исполнителями, декларациями прав и состоянием изоляции песочницы.',
     resourceName: 'Плагин',
@@ -2374,7 +2382,8 @@ export default {
       workflowVersionSelection: 'Политика версии рабочего процесса',
       publishedVersion: 'Опубликованная версия',
       runner: 'Место запуска',
-      artifactFormat: 'Конфигурация формата артефакта'
+      artifactFormat: 'Конфигурация формата артефакта',
+      updatePlugin: 'Плагин обновления сертификата'
     },
     links: {
       certificateBindings: 'Посмотреть привязки сертификатов',
@@ -2459,7 +2468,8 @@ export default {
       generic: 'Выберите',
       artifactFormat: 'Выберите конфигурацию формата',
       output: 'Выберите выход',
-      optionalOutput: 'Можно не выбирать'
+      optionalOutput: 'Можно не выбирать',
+      updatePluginOptional: 'Необязательно; сохранить текущую конфигурацию процесса'
     },
     validation: {
       variableNameRequired: 'Имя переменной не может быть пустым',
@@ -2618,6 +2628,8 @@ export default {
       rollbackFailed: 'Не удалось запустить откат',
       loadTargetsFailed: 'Не удалось загрузить сайты и управляемые цели',
       createAssetFailed: 'Не удалось создать актив приложения',
+      pluginFormLoadFailed: 'Не удалось загрузить форму настройки плагина',
+      pluginBindingCreateFailed: 'Не удалось сохранить привязку плагина',
       loadWorkflowCredentialsFailed: 'Не удалось загрузить учетные данные рабочего процесса',
       noAvailableSiteInstance: 'Доступный экземпляр сайта не найден; сначала убедитесь, что сайты фреймворка успешно отправлены в деталях Agent.'
     },

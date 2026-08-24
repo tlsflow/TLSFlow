@@ -11,9 +11,14 @@ import type {
 } from '../dto/unified-plugins.dto.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
+import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
+import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 
 export class UnifiedPluginsApplicationService {
-  constructor(private readonly repository: UnifiedPluginsRepository = new PgUnifiedPluginsRepository()) {}
+  constructor(
+    private readonly repository: UnifiedPluginsRepository = new PgUnifiedPluginsRepository(),
+    private readonly packageResources = new PluginPackageResourcesService(),
+  ) {}
 
   async importVersion(
     tenantId: string,
@@ -29,6 +34,7 @@ export class UnifiedPluginsApplicationService {
     }
     const resources = input.resources ?? {};
     assertUnifiedPluginResources(manifest, resources);
+    const validatedResources = this.packageResources.validate(manifest, resources);
     const manifestJson = stableJson(manifest);
     const manifestSha256 = sha256(manifestJson);
     const resourceSha256 = Object.fromEntries(Object.entries(resources).sort(([left], [right]) => left.localeCompare(right)).map(
@@ -46,7 +52,11 @@ export class UnifiedPluginsApplicationService {
     const validationReport: UnifiedPluginValidationReport = {
       valid: true,
       errors: [],
-      warnings: [],
+      warnings: validatedResources.locales
+        ? Object.entries(validatedResources.locales.coverage)
+          .filter(([, coverage]) => coverage < 100)
+          .map(([locale, coverage]) => ({ code: 'PLUGIN_LOCALE_COVERAGE_INCOMPLETE', path: `resources.locales.${locale}`, message: `翻译覆盖率 ${coverage}%` }))
+        : [],
       manifestSha256,
       resourceSha256,
     };
@@ -65,6 +75,7 @@ export class UnifiedPluginsApplicationService {
       packageSha256,
       manifestSha256,
       resourceSha256,
+      resources,
       status: permissionApprovalStatus === 'PENDING' ? 'PENDING_APPROVAL' : 'DISABLED',
       permissionApprovalStatus,
       approvedPermissions: [],
@@ -82,6 +93,33 @@ export class UnifiedPluginsApplicationService {
     const record = await this.repository.findVersion(id);
     if (!record) throw new AppError('RESOURCE_NOT_FOUND', '统一插件版本不存在', { id });
     return record;
+  }
+
+  async getUiResources(id: string, locale: string): Promise<{
+    pluginVersionId: string;
+    forms: ReturnType<PluginPackageResourcesService['validate']>['forms'];
+    presentations: ReturnType<PluginPackageResourcesService['validate']>['presentations'];
+    locale: { requested: string; resolved: string; defaultLocale: string; coverage: Record<string, number>; messages: Record<string, string> } | undefined;
+  }> {
+    const record = await this.getVersion(id);
+    const validated = this.packageResources.validate(record.manifest, record.resources);
+    const bundle = validated.locales;
+    const resolvedLocale = bundle?.messages[locale] ? locale : bundle?.defaultLocale;
+    return {
+      pluginVersionId: record.id,
+      forms: validated.forms,
+      presentations: validated.presentations,
+      locale: bundle && resolvedLocale ? {
+        requested: locale,
+        resolved: resolvedLocale,
+        defaultLocale: bundle.defaultLocale,
+        coverage: bundle.coverage,
+        messages: Object.fromEntries(Object.keys(bundle.messages[bundle.defaultLocale] ?? {}).map((key) => [
+          key,
+          new PluginLocaleService().resolve(bundle, locale, key) ?? key,
+        ])),
+      } : undefined,
+    };
   }
 
   async approvePermissions(id: string, permissions: string[]): Promise<UnifiedPluginVersionRecord> {

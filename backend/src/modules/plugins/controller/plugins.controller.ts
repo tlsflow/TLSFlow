@@ -8,6 +8,7 @@ import { AgentDeploymentPluginsApplicationService } from '../application/agent-d
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
+import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import type {
   PluginEnableInput,
   PluginExecutionRequest,
@@ -19,6 +20,7 @@ const tags = ['Plugins'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class PluginsController {
+  private readonly standardFields = new StandardPluginFieldRegistry();
   constructor(
     private readonly service = new PluginsApplicationService(),
     private readonly agentPlugins = new AgentDeploymentPluginsApplicationService(),
@@ -45,7 +47,11 @@ export class PluginsController {
     router.post('/api/v1/plugin-versions/disable', '禁用统一插件版本', tags, (request) => this.disableUnifiedPluginVersion(request));
     router.post('/api/v1/plugin-versions/retire', '退休统一插件版本', tags, (request) => this.retireUnifiedPluginVersion(request));
     router.get('/api/v1/plugin-versions/upgrade-diff', '查询统一插件升级差异', tags, (request) => this.getUnifiedPluginUpgradeDiff(request));
+    router.get('/api/v1/plugin-form/standard-fields', '查询插件标准字段', tags, () => ({ items: this.standardFields.list() }));
+    router.get('/api/v1/plugin-versions/ui-resources', '查询插件表单、展示和语言资源', tags, (request) => this.getUnifiedPluginUiResources(request));
     router.post('/api/v1/plugin-bindings', '创建统一插件绑定', tags, (request) => this.createPluginBinding(request));
+    router.get('/api/v1/plugin-bindings', '查询统一插件绑定', tags, (request) => this.getPluginBinding(request));
+    router.patch('/api/v1/plugin-bindings', '更新统一插件绑定', tags, (request) => this.updatePluginBinding(request));
     router.post('/api/v1/capability-assignments', '设置插件能力指派', tags, (request) => this.assignPluginCapability(request));
     router.post('/api/v1/capability-assignments/resolve', '解析插件能力来源', tags, (request) => this.resolvePluginCapability(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
@@ -199,6 +205,12 @@ export class PluginsController {
     return this.unifiedPlugins.getUpgradeDiff(fromVersionId, toVersionId);
   }
 
+  private getUnifiedPluginUiResources(request: HttpRequest) {
+    const pluginVersionId = typeof request.query.pluginVersionId === 'string' ? request.query.pluginVersionId : '';
+    const locale = typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN';
+    return this.unifiedPlugins.getUiResources(pluginVersionId, locale);
+  }
+
   private createPluginBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginVersionId: { type: 'string', required: true }, mode: { type: 'string', required: true },
@@ -213,6 +225,20 @@ export class PluginsController {
       connectionBindings: (body.connectionBindings ?? {}) as Record<string, unknown>,
       managedContext: body.managedContext as never,
     });
+  }
+
+  private getPluginBinding(request: HttpRequest) {
+    const bindingId = typeof request.query.bindingId === 'string' ? request.query.bindingId : '';
+    return this.pluginBindings.getTenantBinding(tenantId(request), bindingId);
+  }
+
+  private updatePluginBinding(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      bindingId: { type: 'string', required: true }, expectedVersion: { type: 'number', required: true },
+      variableBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
+      connectionBindings: { type: 'object' }, managedContext: { type: 'object' }, status: { type: 'string' },
+    });
+    return this.pluginBindings.updateBinding(tenantId(request), String(body.bindingId), body as never);
   }
 
   private assignPluginCapability(request: HttpRequest) {
@@ -358,6 +384,8 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-versions/retire', operationId: 'retireUnifiedPluginVersion', summary: '退休统一插件版本', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-versions/upgrade-diff', operationId: 'getUnifiedPluginUpgradeDiff', summary: '查询统一插件升级差异', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-bindings', operationId: 'createPluginBinding', summary: '创建统一插件绑定', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/plugin-bindings', operationId: 'getPluginBinding', summary: '查询统一插件绑定', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },

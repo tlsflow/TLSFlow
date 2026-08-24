@@ -18,6 +18,34 @@ export class PluginBindingsApplicationService {
     return this.repository.getBinding(bindingId);
   }
 
+  async getTenantBinding(tenantId: string, bindingId: string): Promise<PluginBindingV1> {
+    const binding = await this.repository.getBinding(bindingId);
+    if (!binding || binding.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', 'PluginBinding 不存在', { bindingId });
+    return binding;
+  }
+
+  async updateBinding(
+    tenantId: string,
+    bindingId: string,
+    input: Partial<Pick<PluginBindingV1, 'variableBindings' | 'secretBindings' | 'certificateArtifactBindings' | 'connectionBindings' | 'managedContext' | 'status'>> & { expectedVersion: number },
+  ): Promise<PluginBindingV1> {
+    const binding = await this.getTenantBinding(tenantId, bindingId);
+    if (binding.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'PluginBinding 版本冲突', { bindingId, expectedVersion: input.expectedVersion, actualVersion: binding.version });
+    if (binding.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
+    const next = {
+      ...binding,
+      variableBindings: input.variableBindings ?? binding.variableBindings,
+      secretBindings: input.secretBindings ?? binding.secretBindings,
+      certificateArtifactBindings: input.certificateArtifactBindings ?? binding.certificateArtifactBindings,
+      connectionBindings: input.connectionBindings ?? binding.connectionBindings,
+      managedContext: input.managedContext ?? binding.managedContext,
+      status: input.status ?? binding.status,
+      version: binding.version + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    return this.repository.saveBinding(next);
+  }
+
   async createBinding(tenantId: string, input: Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt'>): Promise<PluginBindingV1> {
     if (input.mode === 'MANAGED' && !input.managedContext?.hostId) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId');
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');

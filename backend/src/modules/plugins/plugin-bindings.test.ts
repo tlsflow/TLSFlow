@@ -35,6 +35,26 @@ test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖'
   assert.equal(resolved?.ownerType, 'APPLICATION_ASSET');
 });
 
+test('PluginBinding 支持乐观锁更新并保持 SecretRef', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  await database.query(`insert into unified_plugin_versions
+    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
+    values ('version-1','tenant-1','fixture-update','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
+  const service = new PluginBindingsApplicationService(new PluginBindingsRepository(database));
+  const created = await service.createBinding('tenant-1', {
+    pluginVersionId: 'version-1', mode: 'STANDALONE', variableBindings: { region: 'default' },
+    secretBindings: { auth: 'secret://device/1' }, certificateArtifactBindings: {}, connectionBindings: { address: '10.0.0.1' },
+  });
+  const updated = await service.updateBinding('tenant-1', created.id, {
+    expectedVersion: 1,
+    variableBindings: { region: 'partition-a' },
+  });
+  assert.equal(updated.version, 2);
+  assert.deepEqual(updated.secretBindings, { auth: 'secret://device/1' });
+  await assert.rejects(() => service.updateBinding('tenant-1', created.id, { expectedVersion: 1, variableBindings: {} }), /版本冲突/);
+});
+
 test('证书产物 Resolver 只返回 ArtifactRef、哈希和敏感标记', async () => {
   const resolver = new CertificateArtifactBindingResolver({ generateDeploymentArtifactFromFormat: async () => ({ certificateVersionId: 'cert-1', certificateFormatId: 'format-1', format: 'PEM', certificatePem: 'CERT', privateKeyPem: 'KEY', files: [] }) });
   const result = await resolver.resolve({ certificateVersionId: 'cert-1', createdBy: 'test', bindings: { material: { certificateFormatId: 'format-1', outputBindings: { certificate: 'certificatePem', privateKey: 'privateKeyPem' } } } });

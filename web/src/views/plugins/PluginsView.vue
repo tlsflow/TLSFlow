@@ -3,9 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import type { ApiRecord } from '@/api/modules/common'
-import { approveAgentPluginPermissions, disableAgentPluginPackage, disableUnifiedPluginVersion, disableWorkflowTemplatePlugin, enableAgentPluginPackage, enableUnifiedPluginVersion, enableWorkflowTemplatePlugin, listAgentPluginPackages, listPluginCatalog } from '@/api/modules/plugins.api'
+import { approveAgentPluginPermissions, disableAgentPluginPackage, disableUnifiedPluginVersion, disableWorkflowTemplatePlugin, enableAgentPluginPackage, enableUnifiedPluginVersion, enableWorkflowTemplatePlugin, getUnifiedPluginUiResources, listAgentPluginPackages, listPluginCatalog } from '@/api/modules/plugins.api'
 import { createWorkflowTemplateFromFile, listWorkflowFileTemplates, listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
-import { GcEmptyState, GcModal } from '@/design-system/components'
+import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 type PluginSource = 'builtin' | 'user'
@@ -49,7 +49,7 @@ interface PluginRecord {
   capabilities: string[]
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const loading = ref(false)
 const loadError = ref('')
@@ -65,6 +65,16 @@ const createError = ref('')
 const failedLogos = ref(new Set<string>())
 const agentActionError = ref('')
 const agentPackages = ref<ApiRecord[]>([])
+const pluginUiLoading = ref(false)
+const pluginUiError = ref('')
+const pluginForms = ref<Record<string, PluginFormSchema>>({})
+const pluginPresentations = ref<Record<string, DevicePresentationSchema>>({})
+const pluginMessages = ref<Record<string, string>>({})
+const pluginFormValues = ref<Record<string, unknown>>({})
+const activePresentationTab = ref('')
+
+const previewForm = computed(() => Object.values(pluginForms.value)[0])
+const previewPresentation = computed(() => Object.values(pluginPresentations.value)[0])
 
 const sourceOptions = computed(() => [
   { value: 'all' as const, label: t('plugins.filters.allSources') },
@@ -262,11 +272,31 @@ function markLogoFailed(pluginId: string): void {
   failedLogos.value = new Set([...failedLogos.value, pluginId])
 }
 
-function openDetail(plugin: PluginRecord): void {
+async function openDetail(plugin: PluginRecord): Promise<void> {
   selectedPlugin.value = plugin
   createError.value = ''
   agentActionError.value = ''
   detailOpen.value = true
+  pluginForms.value = {}
+  pluginPresentations.value = {}
+  pluginMessages.value = {}
+  pluginFormValues.value = {}
+  activePresentationTab.value = ''
+  pluginUiError.value = ''
+  if (plugin.catalogType !== 'UNIFIED_PLUGIN') return
+  pluginUiLoading.value = true
+  try {
+    const result = await getUnifiedPluginUiResources(plugin.id, locale.value)
+    const payload = readRecord(result.data)
+    pluginForms.value = readRecord(payload.forms) as Record<string, PluginFormSchema>
+    pluginPresentations.value = readRecord(payload.presentations) as Record<string, DevicePresentationSchema>
+    pluginMessages.value = readRecord(readRecord(payload.locale).messages) as Record<string, string>
+    activePresentationTab.value = Object.values(pluginPresentations.value)[0]?.tabs[0]?.id ?? ''
+  } catch (cause) {
+    pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+  } finally {
+    pluginUiLoading.value = false
+  }
 }
 
 async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
@@ -511,6 +541,27 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
           <div class="plugin-detail__fact-wide"><dt>{{ t('plugins.fields.homepage') }}</dt><dd>{{ selectedPlugin.metadata.homepage ?? '—' }}</dd></div>
           <div v-if="selectedPlugin.error" class="plugin-detail__fact-wide plugin-detail__error"><dt>{{ t('plugins.fields.validationError') }}</dt><dd>{{ selectedPlugin.error }}</dd></div>
         </dl>
+        <section v-if="selectedPlugin.catalogType === 'UNIFIED_PLUGIN'" class="plugin-detail__resource-preview">
+          <h3>{{ t('plugins.forms.previewTitle') }}</h3>
+          <p v-if="pluginUiLoading">{{ t('plugins.forms.loading') }}</p>
+          <p v-else-if="pluginUiError" class="market-error">{{ pluginUiError }}</p>
+          <GcPluginForm
+            v-else-if="previewForm"
+            v-model="pluginFormValues"
+            :schema="previewForm"
+            :plugin-messages="pluginMessages"
+          />
+          <p v-else>{{ t('plugins.forms.empty') }}</p>
+
+          <h3 v-if="previewPresentation">{{ t('plugins.presentation.previewTitle') }}</h3>
+          <GcDevicePresentation
+            v-if="previewPresentation"
+            v-model:active-tab="activePresentationTab"
+            :schema="previewPresentation"
+            :data="selectedPlugin as unknown as Record<string, unknown>"
+            :plugin-messages="pluginMessages"
+          />
+        </section>
         <p v-if="createError" class="market-error">{{ createError }}</p>
         <p v-if="agentActionError" class="market-error">{{ agentActionError }}</p>
       </section>
@@ -939,6 +990,9 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg) !important;
 }
+
+.plugin-detail__resource-preview { display: grid; gap: var(--gc-space-4); margin-top: var(--gc-space-4); }
+.plugin-detail__resource-preview h3, .plugin-detail__resource-preview p { margin: 0; }
 
 @media (max-width: 900px) {
   .market-stats {

@@ -31,18 +31,27 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
       JSON.stringify(record.resourceSha256), record.status, record.permissionApprovalStatus,
       JSON.stringify(record.approvedPermissions), JSON.stringify(record.validationReport), record.createdAt, record.updatedAt,
     ]);
+    for (const [path, content] of Object.entries(record.resources)) {
+      await this.db.query(`
+        insert into unified_plugin_resources (plugin_version_id, resource_path, resource_content, resource_sha256, created_at)
+        values ($1,$2,$3,$4,$5)
+        on conflict (plugin_version_id, resource_path) do nothing
+      `, [record.id, path, content, record.resourceSha256[path], record.createdAt]);
+    }
     return record;
   }
 
   async findVersion(id: string): Promise<UnifiedPluginVersionRecord | undefined> {
-    return toRecord((await this.db.query<UnifiedPluginVersionRow>('select * from unified_plugin_versions where id = $1', [id])).rows[0]);
+    const record = toRecord((await this.db.query<UnifiedPluginVersionRow>('select * from unified_plugin_versions where id = $1', [id])).rows[0]);
+    return record ? this.withResources(record) : undefined;
   }
 
   async findByIdentity(tenantId: string, pluginId: string, version: string): Promise<UnifiedPluginVersionRecord | undefined> {
-    return toRecord((await this.db.query<UnifiedPluginVersionRow>(
+    const record = toRecord((await this.db.query<UnifiedPluginVersionRow>(
       'select * from unified_plugin_versions where tenant_id = $1 and plugin_id = $2 and plugin_version = $3',
       [tenantId, pluginId, version],
     )).rows[0]);
+    return record ? this.withResources(record) : undefined;
   }
 
   async listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
@@ -50,7 +59,15 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
       'select * from unified_plugin_versions where tenant_id = $1 order by plugin_id, created_at desc',
       [tenantId],
     );
-    return result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record));
+    return Promise.all(result.rows.map(toRecord).filter((record): record is UnifiedPluginVersionRecord => Boolean(record)).map((record) => this.withResources(record)));
+  }
+
+  private async withResources(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord> {
+    const rows = (await this.db.query<{ resource_path: string; resource_content: string }>(
+      'select resource_path, resource_content from unified_plugin_resources where plugin_version_id = $1 order by resource_path',
+      [record.id],
+    )).rows;
+    return { ...record, resources: Object.fromEntries(rows.map((row) => [row.resource_path, row.resource_content])) };
   }
 }
 
@@ -92,6 +109,7 @@ function toRecord(row: UnifiedPluginVersionRow | undefined): UnifiedPluginVersio
     packageSha256: row.package_sha256,
     manifestSha256: row.manifest_sha256,
     resourceSha256: row.resource_sha256 ?? {},
+    resources: {},
     status: row.status,
     permissionApprovalStatus: row.permission_approval_status,
     approvedPermissions: row.approved_permissions ?? [],

@@ -699,6 +699,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: 'Endereço de conexão', connectionPort: 'Porta de conexão', basePath: 'Caminho base', timeoutSeconds: 'Tempo limite em segundos', gateway: 'Gateway de execução',
+      authenticationMode: 'Modo de autenticação', username: 'Nome de usuário', passwordSecret: 'SecretRef da senha', apiTokenSecret: 'SecretRef do token de API', clientCertificate: 'Certificado do cliente',
+      tlsEnabled: 'Ativar TLS', tlsVerifyPeer: 'Verificar certificado do servidor', tlsServerName: 'Nome do servidor TLS', caSecret: 'SecretRef da CA', tlsMinimumVersion: 'Versão TLS mínima',
+      deviceDisplayName: 'Nome de exibição do dispositivo', deviceDescription: 'Descrição do dispositivo', deviceTags: 'Tags do dispositivo', targetName: 'Nome do destino', targetLabels: 'Rótulos do destino'
+    },
+    forms: { loadOptions: 'Carregar opções', previewTitle: 'Formulário de configuração do plugin', loading: 'Carregando formulário do plugin...', loadFailed: 'Falha ao carregar o formulário do plugin', empty: 'Este plugin não declara um formulário de configuração.' },
+    presentation: { previewTitle: 'Prévia padrão do dispositivo', sensitiveValue: 'Valor sensível oculto', tabsAriaLabel: 'Abas de informações do dispositivo' },
     title: 'Plugins',
     description: 'Gerencie pacotes de plugins, executores, declarações de permissão e estado de isolamento do sandbox.',
     resourceName: 'Plugin',
@@ -2374,7 +2382,8 @@ export default {
       workflowVersionSelection: 'Política de versão do workflow',
       publishedVersion: 'Versão publicada',
       runner: 'Local de execução',
-      artifactFormat: 'Configuração de formato do artefato'
+      artifactFormat: 'Configuração de formato do artefato',
+      updatePlugin: 'Plugin de atualização de certificado'
     },
     links: {
       certificateBindings: 'Ver bindings de certificado',
@@ -2459,7 +2468,8 @@ export default {
       generic: 'Selecione',
       artifactFormat: 'Selecione a configuração de formato',
       output: 'Selecione a saída',
-      optionalOutput: 'Opcional'
+      optionalOutput: 'Opcional',
+      updatePluginOptional: 'Opcional; manter a configuração atual do fluxo de trabalho'
     },
     validation: {
       variableNameRequired: 'O nome da variável não pode ficar vazio',
@@ -2618,6 +2628,8 @@ export default {
       rollbackFailed: 'Falha ao iniciar reversão',
       loadTargetsFailed: 'Falha ao carregar sites e destinos gerenciados',
       createAssetFailed: 'Falha ao criar ativo de aplicação',
+      pluginFormLoadFailed: 'Falha ao carregar o formulário de configuração do plugin',
+      pluginBindingCreateFailed: 'Falha ao salvar a vinculação do plugin',
       loadWorkflowCredentialsFailed: 'Falha ao carregar credenciais do workflow',
       noAvailableSiteInstance: 'Nenhuma instância de site disponível encontrada. Confirme nos detalhes do Agent se os sites do framework foram reportados com sucesso.'
     },

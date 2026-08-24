@@ -14,6 +14,7 @@
     "pluginId": { "type": "string", "minLength": 1 },
     "version": { "type": "string", "minLength": 1 },
     "displayNameKey": { "type": "string", "minLength": 1 },
+    "defaultLocale": { "type": "string", "minLength": 2 },
     "descriptionKey": { "type": "string", "minLength": 1 },
     "publisher": { "type": "string", "minLength": 1 },
     "runtime": { "enum": ["AGENT_ATOMIC", "WORKFLOW_DSL"] },

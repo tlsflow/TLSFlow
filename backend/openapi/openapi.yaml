@@ -6319,6 +6319,44 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+    get:
+      operationId: "getPluginBinding"
+      summary: "查询统一插件绑定"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updatePluginBinding"
+      summary: "更新统一插件绑定"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/capability-assignments:
     post:
       operationId: "assignPluginCapability"
@@ -8305,4 +8343,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-24T05:53:09.339Z"
+x-generatedAt: "2026-07-24T07:14:15.833Z"

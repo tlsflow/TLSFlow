@@ -19,7 +19,7 @@ const forbiddenResourceExtensions = ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue
 const maximumResourceCount = 500;
 const maximumResourceBytes = 20 * 1024 * 1024;
 const manifestKeys = new Set([
-  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'publisher', 'runtime',
+  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'defaultLocale', 'publisher', 'runtime',
   'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'permissions', 'compatibility', 'resources',
 ]);
 
@@ -50,6 +50,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     version: requireString(manifest.version, 'version'),
     displayNameKey: requireString(manifest.displayNameKey, 'displayNameKey'),
     descriptionKey: optionalString(manifest.descriptionKey, 'descriptionKey'),
+    defaultLocale: optionalString(manifest.defaultLocale, 'defaultLocale'),
     publisher: requireString(manifest.publisher, 'publisher'),
     runtime,
     source,

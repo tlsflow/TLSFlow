@@ -724,6 +724,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: '連線位址', connectionPort: '連線連接埠', basePath: '基礎路徑', timeoutSeconds: '逾時秒數', gateway: '執行 Gateway',
+      authenticationMode: '驗證方式', username: '使用者名稱', passwordSecret: '密碼 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '用戶端憑證',
+      tlsEnabled: '啟用 TLS', tlsVerifyPeer: '驗證伺服器憑證', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
+      deviceDisplayName: '裝置顯示名稱', deviceDescription: '裝置說明', deviceTags: '裝置標籤', targetName: '目標名稱', targetLabels: '目標標籤'
+    },
+    forms: { loadOptions: '載入選項', previewTitle: '外掛設定表單', loading: '正在載入外掛表單...', loadFailed: '外掛表單載入失敗', empty: '此外掛未宣告設定表單。' },
+    presentation: { previewTitle: '裝置標準展示預覽', sensitiveValue: '敏感值已隱藏', tabsAriaLabel: '裝置資訊分頁' },
     title: "外掛",
     description: "管理外掛包、執行器、權限宣告與沙箱隔離狀態。",
     resourceName: "外掛",
@@ -2399,7 +2407,8 @@ export default {
       workflowVersionSelection: "工作流版本策略",
       publishedVersion: "已釋出版本",
       runner: "執行位置",
-      artifactFormat: "產物格式設定"
+      artifactFormat: "產物格式設定",
+      updatePlugin: "憑證更新外掛"
     },
     links: {
       certificateBindings: "檢視憑證繫結",
@@ -2484,7 +2493,8 @@ export default {
       generic: "請選擇",
       artifactFormat: "請選擇格式設定",
       output: "請選擇輸出項",
-      optionalOutput: "可不選擇"
+      optionalOutput: "可不選擇",
+      updatePluginOptional: "可不選擇，繼續使用原工作流程設定"
     },
     validation: {
       variableNameRequired: "變數名稱不能為空",
@@ -2643,6 +2653,8 @@ export default {
       rollbackFailed: "啟動回復失敗",
       loadTargetsFailed: "載入站點和受管目標失敗",
       createAssetFailed: "建立應用資產失敗",
+      pluginFormLoadFailed: "載入外掛設定表單失敗",
+      pluginBindingCreateFailed: "儲存外掛綁定失敗",
       loadWorkflowCredentialsFailed: "載入工作流憑據失敗",
       noAvailableSiteInstance: "未找到可用的站點例項，請先確認 Agent 詳情中的框架站點已成功上報。"
     },

@@ -732,6 +732,14 @@ export default {
     }
   },
   plugins: {
+    standardFields: {
+      connectionAddress: '连接地址', connectionPort: '连接端口', basePath: '基础路径', timeoutSeconds: '超时秒数', gateway: '执行 Gateway',
+      authenticationMode: '认证方式', username: '用户名', passwordSecret: '密码 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '客户端证书',
+      tlsEnabled: '启用 TLS', tlsVerifyPeer: '验证服务端证书', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
+      deviceDisplayName: '设备显示名称', deviceDescription: '设备说明', deviceTags: '设备标签', targetName: '目标名称', targetLabels: '目标标签'
+    },
+    forms: { loadOptions: '加载选项', previewTitle: '插件配置表单', loading: '正在加载插件表单...', loadFailed: '插件表单加载失败', empty: '此插件未声明配置表单。' },
+    presentation: { previewTitle: '设备标准展示预览', sensitiveValue: '敏感值已隐藏', tabsAriaLabel: '设备信息标签页' },
     title: '插件',
     description: '浏览内置与用户自定义 DSL 模板，并以插件形式统一管理版本、Logo 和模板能力。',
     resourceName: '插件',
@@ -2496,7 +2504,8 @@ export default {
       workflow: '工作流',
       publishedVersion: '已发布版本',
       runner: '运行位置',
-      artifactFormat: '产物格式配置'
+      artifactFormat: '产物格式配置',
+      updatePlugin: '证书更新插件'
     },
     links: {
       certificateBindings: '查看证书绑定',
@@ -2577,7 +2586,8 @@ export default {
       generic: '请选择',
       artifactFormat: '请选择格式配置',
       output: '请选择输出项',
-      optionalOutput: '可不选择'
+      optionalOutput: '可不选择',
+      updatePluginOptional: '可不选择，继续使用原工作流配置'
     },
     validation: {
       variableNameRequired: '变量名称不能为空',
@@ -2740,6 +2750,8 @@ export default {
       rollbackFailed: '发起回退失败',
       loadTargetsFailed: '加载站点和受管目标失败',
       createAssetFailed: '创建应用资产失败',
+      pluginFormLoadFailed: '加载插件配置表单失败',
+      pluginBindingCreateFailed: '保存插件绑定失败',
       loadWorkflowCredentialsFailed: '加载工作流凭据失败',
       noAvailableSiteInstance: '未找到可用的站点实例，请先确认 Agent 详情中的框架站点已成功上报。'
     },
