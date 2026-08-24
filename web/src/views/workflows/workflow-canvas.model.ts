@@ -1,7 +1,7 @@
 import { i18n } from '@/i18n'
 import type { CredentialProfileOption } from './credential-profiles'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual' | 'plugin.action'
+export type WorkflowCanvasNodeType = 'http' | 'browser' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual' | 'plugin.action'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -49,6 +49,13 @@ export interface WorkflowCanvasDefinition {
   readonly metadata: {
     readonly name: string
     readonly displayName?: string
+    readonly description?: string
+    readonly version?: string
+    readonly logoUrl?: string
+    readonly platforms?: readonly string[]
+    readonly updateMethods?: readonly ('ssh' | 'curl')[]
+    readonly maintainer?: string
+    readonly homepage?: string
     readonly category?: string
     readonly tags?: readonly string[]
   }
@@ -218,6 +225,17 @@ export type WorkflowDslStep =
     }
   | {
       readonly name: string
+      readonly type: 'browser'
+      readonly stage?: WorkflowCanvasStage
+      readonly browser: {
+        readonly action: 'navigate' | 'extract' | 'verify'
+        readonly url?: string
+        readonly extractions?: readonly { readonly name: string; readonly source: 'cookie' | 'header' | 'local_storage' | 'session_storage' | 'url' | 'text'; readonly key?: string; readonly optional?: boolean; readonly sensitive?: boolean }[]
+        readonly verification?: { readonly url?: string; readonly statusCode?: number; readonly textContains?: string }
+      }
+    }
+  | {
+      readonly name: string
       readonly type: 'ssh'
       readonly stage?: WorkflowCanvasStage
       readonly ssh: {
@@ -383,6 +401,25 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     ],
   },
   {
+    type: 'browser',
+    displayName: canvasModelText('nodeTypes.browser.displayName'),
+    category: 'http',
+    description: canvasModelText('nodeTypes.browser.description'),
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'action', label: canvasModelText('fields.browserAction'), kind: 'select', required: true, options: [
+        { label: 'navigate', value: 'navigate' },
+        { label: 'extract', value: 'extract' },
+        { label: 'verify', value: 'verify' },
+      ] },
+      { key: 'url', label: canvasModelText('fields.browserUrl'), kind: 'text' },
+      { key: 'extractions', label: canvasModelText('fields.browserExtractions'), kind: 'textarea' },
+      { key: 'verification', label: canvasModelText('fields.browserVerification'), kind: 'textarea' },
+    ],
+    produces: [{ name: 'extracted', type: 'object', sensitive: true }],
+  },
+  {
     type: 'ssh',
     displayName: canvasModelText('nodeTypes.ssh.displayName'),
     category: 'ssh',
@@ -501,6 +538,7 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     outputPorts: ['success', 'failure'],
     fields: [
       { key: 'input', label: canvasModelText('fields.transformInput'), kind: 'textarea' },
+      { key: 'outputName', label: canvasModelText('fields.variable'), kind: 'text', required: true },
       { key: 'expression', label: 'JSONata', kind: 'textarea', required: true },
       { key: 'format', label: canvasModelText('fields.outputFormat'), kind: 'select', options: [
         { label: canvasModelText('options.transformFormat.raw'), value: 'raw' },
@@ -542,6 +580,19 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
       ] },
     ],
     produces: [{ name: 'captureHash', type: 'string' }],
+  },
+  {
+    type: 'checkpoint_verify',
+    displayName: 'Checkpoint Verify',
+    category: 'verify',
+    description: canvasModelText('nodeTypes.checkpoint.description'),
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'valuePath', label: canvasModelText('fields.inputRef'), kind: 'text', required: true },
+      { key: 'expectedHash', label: canvasModelText('fields.expected'), kind: 'text', required: true },
+    ],
+    produces: [{ name: 'passed', type: 'boolean' }],
   },
   {
     type: 'plugin.action',
@@ -730,14 +781,16 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
   if (type === 'http') return { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', body: '', timeoutSeconds: 30 }
+  if (type === 'browser') return { action: 'navigate', url: '', extractions: '[]', verification: '{}' }
   if (type === 'ssh') return { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutSeconds: 60 }
   if (type === 'sftp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.certFile.content}}', '{{variables.certificatePaths.certPath}}', '{{variables.certificatePaths.tempCertPath}}', '0644')
   if (type === 'scp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.keyFile.content}}', '{{variables.certificatePaths.keyPath}}', '{{variables.certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', connectionRef: 'management', inputRef: '{{variables.verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'variables.verifyUrl', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
-  if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
+  if (type === 'transform') return { input: '{}', outputName: 'value', expression: '$', format: 'raw', timeoutMs: 200 }
   if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, continueOnError: false, steps: '[]' }
   if (type === 'checkpoint') return { checkpointName: 'before-write', capture: '{}', requiredForRollback: 'true' }
+  if (type === 'checkpoint_verify') return { valuePath: '', expectedHash: '' }
   if (type === 'plugin.action') return {
     pluginId: '',
     capability: '',
@@ -769,6 +822,18 @@ export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinitio
       importedRollback: cloneRecord(dsl.rollback ?? []),
     },
   })
+}
+
+/** 将单个 DSL step 映射为可编辑节点，供属性面板的完整 DSL 编辑器复用。 */
+export function workflowDslStepToCanvasNode(step: WorkflowDslStep, index = 0): WorkflowCanvasNode {
+  return dslStepToNode(step, index)
+}
+
+export function isWorkflowDslStep(value: unknown): value is WorkflowDslStep {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return typeof record.name === 'string'
+    && ['http', 'browser', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual', 'plugin.action'].includes(String(record.type))
 }
 
 export function isWorkflowDslV1(value: unknown): value is WorkflowDslV1 {
@@ -901,23 +966,35 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
 function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode {
   const stage = stageForDslStep(step, index)
   if (step.type === 'http') {
-    const isVerify = step.name.includes('verify')
     return {
-      id: `${isVerify ? 'verify' : 'http'}_${index + 1}`,
-      type: isVerify ? 'verify' : 'http',
+      id: `http_${index + 1}`,
+      type: 'http',
       position: { x: 80 + index * 260, y: 120 },
-      label: dslStepLabel(step, isVerify ? canvasModelText('nodeTypes.verify.displayName') : 'HTTP/CURL'),
+      label: dslStepLabel(step, 'HTTP/CURL'),
       ui: { stage, rawStep: cloneRecord(step) },
-      config: isVerify
-        ? { verifyType: 'httpStatus', inputRef: step.request.url, expected: String((step.assert?.[0] as { equals?: unknown } | undefined)?.equals ?? 200), timeoutSeconds: step.request.timeoutSeconds ?? 30 }
-        : {
-          method: step.request.method,
-          connectionRef: step.request.connectionRef,
-          url: step.request.url,
-            ...buildHttpNodeConfig(step.request.auth),
-            body: stringifyBody(step.request.body),
-            timeoutSeconds: step.request.timeoutSeconds ?? 30,
-          },
+      config: {
+        method: step.request.method,
+        connectionRef: step.request.connectionRef,
+        url: step.request.url,
+        ...buildHttpNodeConfig(step.request.auth),
+        body: stringifyBody(step.request.body),
+        timeoutSeconds: step.request.timeoutSeconds ?? 30,
+      },
+    }
+  }
+  if (step.type === 'browser') {
+    return {
+      id: `browser_${index + 1}`,
+      type: 'browser',
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, canvasModelText('nodeTypes.browser.displayName')),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: {
+        action: step.browser.action,
+        url: step.browser.url ?? '',
+        extractions: JSON.stringify(step.browser.extractions ?? [], null, 2),
+        verification: JSON.stringify(step.browser.verification ?? {}, null, 2),
+      },
     }
   }
   if (step.type === 'ssh') {
@@ -981,6 +1058,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         input: stringifyBody(step.transform.input ?? {}),
+        outputName: Object.keys(step.transform.outputs)[0] ?? 'value',
         expression: firstOutput?.expression ?? '$',
         format: firstOutput?.format ?? 'raw',
         timeoutMs: step.transform.timeoutMs ?? 200,
@@ -1043,7 +1121,10 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
     }
   }
   if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.wait.displayName')), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
-  return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
+  if (step.type === 'manual') {
+    return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
+  }
+  throw new Error(canvasModelText('errors.unknownNodeType', { type: String((step as { type?: unknown }).type ?? '') }))
 }
 
 function sortNodesByEdges(canvas: WorkflowCanvasDefinition): WorkflowCanvasNode[] {
@@ -1110,7 +1191,7 @@ function buildStageEdges(nodes: readonly WorkflowCanvasNode[]): WorkflowCanvasEd
 }
 
 function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage {
-  if (type === 'http' || type === 'condition') return 'prepare'
+  if (type === 'http' || type === 'browser' || type === 'condition') return 'prepare'
   if (type === 'checkpoint' || type === 'checkpoint_verify') return 'backup'
   if (type === 'transform' || type === 'foreach') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
@@ -1122,6 +1203,7 @@ function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage 
 
 function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasStage {
   if (step.stage && isWorkflowStage(step.stage)) return step.stage
+  if (step.type === 'browser') return 'prepare'
   if (step.type === 'http' && step.name.includes('verify')) return 'verify'
   if (step.type === 'http') return 'prepare'
   if (step.type === 'sftp' || step.type === 'scp') return 'install'

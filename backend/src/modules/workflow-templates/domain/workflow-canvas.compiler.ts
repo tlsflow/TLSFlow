@@ -7,12 +7,13 @@ import type {
   WorkflowStepType,
   WorkflowSshArgumentTemplate,
   WorkflowSshProgram,
+  WorkflowBrowserStepConfig,
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
-type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual' | 'plugin.action';
+type CanvasNodeType = 'http' | 'browser' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual' | 'plugin.action';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
 type CanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls';
 
@@ -64,7 +65,7 @@ export interface WorkflowCanvasCompileResult {
 }
 
 const workflowStages: readonly WorkflowStage[] = ['prepare', 'backup', 'install', 'refresh', 'verify'];
-const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual', 'plugin.action'];
+const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'browser', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual', 'plugin.action'];
 const requiredNodeTypes: readonly CanvasNodeType[] = ['http', 'ssh', 'sftp', 'verify'];
 
 export function compileWorkflowCanvas(input: unknown): WorkflowCanvasCompileResult {
@@ -154,9 +155,8 @@ function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): { content: Workf
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: {
+      ...cloneRecord(canvas.metadata ?? {}),
       name: normalizeIdentifier(String(canvas.metadata?.name ?? 'workflow-canvas-draft')),
-      displayName: canvas.metadata?.displayName,
-      category: canvas.metadata?.category,
       tags: [...(canvas.metadata?.tags ?? [])],
     },
     inputContract: cloneRecord(canvas.inputContract!),
@@ -187,6 +187,21 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       assert: [{ type: 'statusCode', equals: 200 }],
     });
   }
+  if (node.type === 'browser') {
+    const action = String(config.action ?? 'navigate');
+    if (!['navigate', 'extract', 'verify'].includes(action)) throw new AppError('VALIDATION_FAILED', 'browser action 不支持');
+    return mergeImportedDslStep(node, {
+      name,
+      type: 'browser',
+      stage: getNodeStage(node),
+      browser: {
+        action: action as WorkflowBrowserStepConfig['action'],
+        ...(isBlank(config.url) ? {} : { url: String(config.url) }),
+        ...(isBlank(config.extractions) ? {} : { extractions: parseBrowserExtractions(config.extractions) }),
+        ...(isBlank(config.verification) ? {} : { verification: parseBrowserVerification(config.verification) }),
+      },
+    });
+  }
   if (node.type === 'ssh') {
     const imported = readImportedStep(node);
     return {
@@ -212,7 +227,14 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
         name,
         type: 'http',
         stage: getNodeStage(node),
-        request: { method: 'GET', url: String(config.inputRef ?? '{{verifyUrl}}'), connectionRef: String(config.connectionRef ?? ''), timeoutSeconds: Number(config.timeoutSeconds ?? 30) },
+        request: {
+          method: readHttpMethod(config.method ?? 'GET'),
+          url: String(config.url ?? config.inputRef ?? '{{verifyUrl}}'),
+          connectionRef: String(config.connectionRef ?? ''),
+          ...(buildHttpRequestAuth(config) ? { auth: buildHttpRequestAuth(config) } : {}),
+          ...(isBlank(config.body) ? {} : { body: parseLooseJson(String(config.body)) }),
+          timeoutSeconds: Number(config.timeoutSeconds ?? 30),
+        },
         assert: [{ type: 'statusCode', equals: Number(config.expected ?? 200) }],
       });
     }
@@ -234,8 +256,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
   }
   if (node.type === 'transform') {
     const imported = readImportedStep(node);
-    if (imported?.type === 'transform') return { ...imported, name, stage: getNodeStage(node) };
-    return {
+    const generated: WorkflowStep = {
       name,
       type: 'transform',
       stage: getNodeStage(node),
@@ -243,7 +264,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
         engine: 'jsonata',
         input: parseLooseJson(String(config.input ?? '{}')),
         outputs: {
-          value: {
+          [String(config.outputName ?? 'value')]: {
             expression: String(config.expression ?? '$'),
             format: String(config.format ?? 'raw') === 'jsonString' ? 'jsonString' : 'raw',
           },
@@ -253,6 +274,18 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
         maxOutputBytes: Number(config.maxOutputBytes ?? 262144),
       },
     };
+    return imported?.type === 'transform' ? mergeImportedDslStep(node, generated) : generated;
+  }
+  if (node.type === 'checkpoint_verify') {
+    return mergeImportedDslStep(node, {
+      name,
+      type: 'checkpoint_verify',
+      stage: getNodeStage(node),
+      checkpointVerify: {
+        valuePath: String(config.valuePath ?? ''),
+        expectedHash: String(config.expectedHash ?? ''),
+      },
+    });
   }
   if (node.type === 'foreach') {
     return mergeImportedDslStep(node, {
@@ -341,12 +374,14 @@ function validateRequiredConfig(node: CanvasNode, issues: WorkflowCanvasValidati
 
 function requiredFieldsForType(type: CanvasNodeType): string[] {
   if (type === 'http') return ['method', 'url', 'connectionRef', 'timeoutSeconds'];
+  if (type === 'browser') return ['action'];
   if (type === 'ssh') return ['connectionRef', 'program', 'args', 'argumentTemplate', 'timeoutSeconds'];
   if (type === 'sftp' || type === 'scp') return ['direction', 'connectionRef', 'remotePath', 'timeoutSeconds'];
   if (type === 'verify') return ['verifyType', 'inputRef', 'expected', 'timeoutSeconds'];
   if (type === 'condition') return ['variable', 'operator'];
   if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'continueOnError', 'steps'];
   if (type === 'checkpoint') return ['checkpointName', 'capture', 'requiredForRollback'];
+  if (type === 'checkpoint_verify') return ['valuePath', 'expectedHash'];
   if (type === 'plugin.action') return ['pluginId', 'capability', 'actionId', 'actionContractVersion', 'input', 'inputSchemaSha256', 'outputSchemaSha256', 'timeoutSeconds', 'writeEffect', 'idempotencyKeyRef'];
   if (type === 'wait') return ['seconds'];
   if (type === 'manual') return ['instruction'];
@@ -523,8 +558,8 @@ function getNodeStage(node: CanvasNode): WorkflowStage {
 }
 
 function defaultStageForType(type: CanvasNodeType): WorkflowStage {
-  if (type === 'http' || type === 'condition') return 'prepare';
-  if (type === 'checkpoint') return 'backup';
+  if (type === 'http' || type === 'browser' || type === 'condition') return 'prepare';
+  if (type === 'checkpoint' || type === 'checkpoint_verify') return 'backup';
   if (type === 'transform' || type === 'foreach') return 'refresh';
   if (type === 'sftp' || type === 'scp') return 'install';
   if (type === 'ssh' || type === 'wait') return 'refresh';
@@ -598,6 +633,18 @@ function parseLooseJson(value: string): unknown {
   } catch {
     return trimmed;
   }
+}
+
+function parseBrowserExtractions(value: unknown): WorkflowBrowserStepConfig['extractions'] {
+  const parsed = typeof value === 'string' ? parseLooseJson(value) : value;
+  if (!Array.isArray(parsed)) throw new AppError('VALIDATION_FAILED', 'browser extractions 必须是 JSON 数组');
+  return parsed as WorkflowBrowserStepConfig['extractions'];
+}
+
+function parseBrowserVerification(value: unknown): WorkflowBrowserStepConfig['verification'] {
+  const parsed = typeof value === 'string' ? parseLooseJson(value) : value;
+  if (!isRecord(parsed)) throw new AppError('VALIDATION_FAILED', 'browser verification 必须是 JSON 对象');
+  return parsed as WorkflowBrowserStepConfig['verification'];
 }
 
 function readForeachSteps(value: unknown): WorkflowStep[] {

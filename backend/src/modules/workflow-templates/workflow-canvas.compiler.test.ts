@@ -78,6 +78,135 @@ describe('Workflow Canvas 正式输入契约', () => {
       idempotencyKeyRef: '{{variables.verifyUrl}}',
     });
   });
+
+  it('编译画布时保留 DSL metadata 扩展字段', () => {
+    const canvas = {
+      ...canvasFixture(),
+      metadata: {
+        name: 'metadata_preservation',
+        displayName: 'Metadata preservation',
+        description: '保留描述',
+        version: '1.2.3',
+        platforms: ['synology-dsm'],
+        updateMethods: ['curl'],
+        maintainer: 'GCAC',
+        homepage: 'https://example.com/workflows/metadata-preservation',
+        logoUrl: '/assets/workflow.svg',
+        category: 'certificate',
+        tags: ['certificate'],
+      },
+    };
+
+    const result = compileWorkflowCanvas({ canvas });
+
+    assert.equal(result.content.metadata.description, '保留描述');
+    assert.equal(result.content.metadata.version, '1.2.3');
+    assert.deepEqual(result.content.metadata.platforms, ['synology-dsm']);
+    assert.deepEqual(result.content.metadata.updateMethods, ['curl']);
+    assert.equal(result.content.metadata.homepage, 'https://example.com/workflows/metadata-preservation');
+  });
+
+  it('导入 transform 后修改首个输出时保留其余输出', () => {
+    const canvas = canvasFixture() as {
+      nodes: Array<Record<string, unknown>>;
+      metadata: Record<string, unknown>;
+      inputContract: unknown;
+      edges: unknown[];
+    };
+    canvas.nodes.push({
+      id: 'transform_imported',
+      type: 'transform',
+      label: 'build_context',
+      config: { input: '{}', outputName: 'first', expression: '$count($)', format: 'raw', timeoutMs: 300 },
+      ui: {
+        stage: 'refresh',
+        rawStep: {
+          name: 'build_context',
+          type: 'transform',
+          stage: 'refresh',
+          transform: {
+            engine: 'jsonata',
+            input: {},
+            outputs: {
+              first: { expression: '$', format: 'raw' },
+              second: { expression: '$string($)', format: 'jsonString' },
+            },
+          },
+        },
+      },
+    });
+
+    const result = compileWorkflowCanvas({ canvas });
+    const transform = result.content.steps.find((step) => step.type === 'transform');
+    assert.equal(transform?.type, 'transform');
+    if (transform?.type !== 'transform') return;
+    assert.equal(transform.transform.outputs.first?.expression, '$count($)');
+    assert.equal(transform.transform.outputs.second?.format, 'jsonString');
+    assert.equal(transform.transform.timeoutMs, 300);
+  });
+
+  it('编译 checkpoint_verify 节点时保留其 DSL 类型', () => {
+    const canvas = canvasFixture() as {
+      nodes: Array<Record<string, unknown>>;
+      metadata: Record<string, unknown>;
+      inputContract: unknown;
+      edges: unknown[];
+    };
+    canvas.nodes.push({
+      id: 'checkpoint_verify_imported',
+      type: 'checkpoint_verify',
+      label: 'verify_checkpoint',
+      config: { valuePath: 'variables.previousBinding', expectedHash: 'sha256:previous-binding' },
+      ui: { stage: 'backup' },
+    });
+
+    const result = compileWorkflowCanvas({ canvas });
+    const verify = result.content.steps.find((step) => step.type === 'checkpoint_verify');
+    assert.deepEqual(verify, {
+      name: 'checkpoint_verify_2_verify_checkpoint',
+      type: 'checkpoint_verify',
+      stage: 'backup',
+      checkpointVerify: {
+        valuePath: 'variables.previousBinding',
+        expectedHash: 'sha256:previous-binding',
+      },
+    });
+  });
+
+  it('编译 browser 节点时保留浏览器步骤结构', () => {
+    const canvas = canvasFixture() as {
+      nodes: Array<Record<string, unknown>>;
+      metadata: Record<string, unknown>;
+      inputContract: unknown;
+      edges: unknown[];
+    };
+    canvas.nodes.push({
+      id: 'browser_imported',
+      type: 'browser',
+      label: 'acquire_session',
+      config: {
+        action: 'extract',
+        url: '/login',
+        extractions: JSON.stringify([{ name: 'sid', source: 'cookie', key: 'sid', sensitive: true }]),
+        verification: JSON.stringify({ statusCode: 200 }),
+      },
+      ui: { stage: 'prepare' },
+    });
+
+    const result = compileWorkflowCanvas({ canvas });
+    const browser = result.content.steps.find((step) => step.type === 'browser');
+    assert.deepEqual(browser, {
+      name: 'browser_1_acquire_session',
+      type: 'browser',
+      stage: 'prepare',
+      browser: {
+        action: 'extract',
+        url: '/login',
+        extractions: [{ name: 'sid', source: 'cookie', key: 'sid', sensitive: true }],
+        verification: { statusCode: 200 },
+      },
+    });
+  });
 });
 
 function canvasFixture() {

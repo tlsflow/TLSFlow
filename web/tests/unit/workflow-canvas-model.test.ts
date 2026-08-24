@@ -134,6 +134,46 @@ describe('workflow canvas model', () => {
     expect(canvas.draftState?.importedRollback).toEqual(importedDsl.rollback)
   })
 
+  it('不会按步骤名称把 HTTP step 误判为验证节点，并支持 browser step', () => {
+    const importedDsl = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'browser_workflow' },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
+      steps: [
+        {
+          name: 'authenticateForVerification',
+          type: 'http',
+          stage: 'verify',
+          request: { method: 'GET', connectionRef: 'management', url: '/auth' },
+        },
+        {
+          name: 'acquire_session',
+          type: 'browser',
+          stage: 'prepare',
+          browser: {
+            action: 'extract',
+            url: '/login',
+            extractions: [{ name: 'sid', source: 'cookie', key: 'sid', sensitive: true }],
+            verification: { statusCode: 200 },
+          },
+        },
+      ],
+    } as const
+
+    const canvas = workflowDslToCanvas(importedDsl)
+
+    expect(canvas.nodes.find((node) => node.label === 'authenticateForVerification')?.type).toBe('http')
+    expect(canvas.nodes.find((node) => node.label === 'acquire_session')).toEqual(expect.objectContaining({
+      type: 'browser',
+      config: expect.objectContaining({
+        action: 'extract',
+        extractions: expect.stringContaining('"sid"'),
+        verification: expect.stringContaining('200'),
+      }),
+    }))
+  })
+
   it('导入 SSH 通用原语节点时保留固定程序和参数模板', () => {
     const importedDsl = {
       apiVersion: 'gcac.workflow/v1',
@@ -287,6 +327,34 @@ describe('workflow canvas model', () => {
     expect(rawStep?.type).toBe('transform')
     expect(rawStep?.type === 'transform' ? rawStep.transform.outputs.serviceBindingsJson?.format : undefined).toBe('jsonString')
     expect(rawStep?.type === 'transform' ? rawStep.transform.maxInputBytes : undefined).toBe(1048576)
+  })
+
+  it('导入 checkpoint_verify step 后生成可编辑节点', () => {
+    const importedDsl = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'checkpoint_verify_workflow' },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
+      steps: [{
+        name: 'verify_checkpoint',
+        type: 'checkpoint_verify',
+        stage: 'backup',
+        checkpointVerify: {
+          valuePath: 'variables.previousBinding',
+          expectedHash: 'sha256:previous-binding',
+        },
+      }],
+    } as const
+
+    const canvas = workflowDslToCanvas(importedDsl)
+
+    expect(canvas.nodes[0]).toEqual(expect.objectContaining({
+      type: 'checkpoint_verify',
+      config: {
+        valuePath: 'variables.previousBinding',
+        expectedHash: 'sha256:previous-binding',
+      },
+    }))
   })
 
   it('拒绝缺少当前输入契约的旧 DSL，不自动转换', () => {
