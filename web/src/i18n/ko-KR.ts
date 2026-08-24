@@ -558,7 +558,8 @@ export default {
       dryRunVerify: '읽기 전용 사전 점검: 검증인증서 자료, 대상 바인딩 및 도메인 일치.대상 {providerLabel} 바인딩 {binding}.{pendingText}',
       dryRunCreated: '읽기 전용 사전 점검이 생성되었습니다.{pendingText}',
       failure: {
-        emptyMessage: '구체적인 오류 메시지가 없습니다'
+        emptyMessage: '구체적인 오류 메시지가 없습니다',
+        issue: '유형 {category}, 슬롯 {slot}, 경로 {path}, 소스 {source}, 수정 위치 {remediation}'
       },
       running: {
         dispatched: 'Agent 미션이 이미 발송되었으며 ({taskId}) 실행 결과를 기다리고 있습니다.',

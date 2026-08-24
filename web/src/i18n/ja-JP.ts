@@ -558,7 +558,8 @@ export default {
       dryRunVerify: '読み取り専用事前チェック：検証証明書マテリアル、ターゲットバインドとドメイン名一致。ターゲット {providerLabel} バインド {binding}。{pendingText}',
       dryRunCreated: '読み取り専用事前チェック作成済み。{pendingText}',
       failure: {
-          emptyMessage: '具体的なエラー情報を受信していません'
+          emptyMessage: '具体的なエラー情報を受信していません',
+          issue: '分類 {category}、スロット {slot}、パス {path}、ソース {source}、修正箇所 {remediation}'
       },
       running: {
         dispatched: 'Agent タスクを配信しました（{taskId}）。実行結果を待っています。',

@@ -41,6 +41,7 @@ export interface ExecutionStepEntity extends IdentifiedEntity {
   lastFailureCategory?: ExecutionFailureCategory;
   lastErrorCode?: string;
   lastErrorMessage?: string;
+  lastErrorDetails?: Record<string, unknown>;
   inputSnapshot: Record<string, unknown>;
   status: ExecutionStepStatus;
   startedAt?: string;

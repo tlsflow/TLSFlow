@@ -557,7 +557,8 @@ export default {
       dryRunVerify: "唯讀預檢：驗證憑證材料、目標繫結和域名匹配。目標 {providerLabel} 繫結 {binding}。{pendingText}",
       dryRunCreated: "唯讀預檢已建立。{pendingText}",
       failure: {
-        emptyMessage: "未收到具體錯誤資訊"
+        emptyMessage: "未收到具體錯誤資訊",
+        issue: "類型 {category}，槽位 {slot}，路徑 {path}，來源 {source}，修復位置 {remediation}"
       },
       running: {
         dispatched: "Agent 任務已下發（{taskId}），等待執行結果。",

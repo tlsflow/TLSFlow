@@ -558,7 +558,8 @@ export default {
       dryRunVerify: 'Предпроверка только для чтения: проверены материалы сертификата, целевая привязка и соответствие домена. Цель {providerLabel}, привязка {binding}. {pendingText}',
       dryRunCreated: 'Предпроверка только для чтения создана. {pendingText}',
       failure: {
-        emptyMessage: 'Конкретное сообщение об ошибке не получено'
+        emptyMessage: 'Конкретное сообщение об ошибке не получено',
+        issue: 'Категория {category}, слот {slot}, путь {path}, источник {source}, исправление {remediation}'
       },
       running: {
         dispatched: 'Задача Agent отправлена ({taskId}), ожидание результата выполнения.',

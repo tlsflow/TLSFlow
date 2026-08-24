@@ -58,6 +58,7 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.step.dryRunVerify',
   'executionDetail.step.dryRunCreated',
   'executionDetail.step.failure.emptyMessage',
+  'executionDetail.step.failure.issue',
   'executionDetail.agent.taskSuffix',
   'executionDetail.step.running.dispatched',
   'executionDetail.step.running.waitingAgentResult',
@@ -441,6 +442,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   const stepStatus = String(readPath(record, 'status') ?? '').toUpperCase()
   const lastErrorCode = readString(record, ['lastErrorCode'], '')
   const lastErrorMessage = readString(record, ['lastErrorMessage'], '')
+  const lastErrorDetails = readObject(record, 'lastErrorDetails')
   const resultErrorCode = readString(resultDetail ?? {}, ['errorCode'], '')
   const resultErrorMessage = readString(resultDetail ?? {}, ['errorMessage', 'message', 'detail', 'summary'], '')
   const failureMessage = readString(failureDetail ?? {}, ['errorMessage', 'message'], '')
@@ -467,7 +469,9 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   if (['FAILED', 'TIMEOUT', 'CANCELLED'].includes(stepStatus)) {
     const code = lastErrorCode || resultErrorCode || stringValue(readPath(failureDetail ?? {}, 'errorCode'), 'STEP_FAILED')
     const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
-    return `${code}: ${message}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
+    const issues = readArray(lastErrorDetails, 'issues').map((issue) => formatExecutionInputIssue(issue, text))
+    const issueDetail = issues.length > 0 ? `；${issues.join('；')}` : ''
+    return `${code}: ${message}${issueDetail}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
   }
 
   if (readPath(record, 'inputSnapshot.dryRun') === true) {
@@ -526,6 +530,16 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   }
 
   return readString(record, ['message', 'detail', 'summary'], text('executionDetail.step.createdFallback', { index: index + 1 }))
+}
+
+function formatExecutionInputIssue(issue: Record<string, unknown>, text: ExecutionDetailText): string {
+  return text('executionDetail.step.failure.issue', {
+    category: stringValue(issue.category, '-'),
+    slot: stringValue(issue.slot, '-'),
+    path: stringValue(issue.path, '-'),
+    source: stringValue(issue.source ?? issue.bindingLayer, '-'),
+    remediation: stringValue(issue.remediation ?? issue.messageKey, '-'),
+  })
 }
 
 function buildLogLines(record: Record<string, unknown>, index: number, agentLogs: readonly ApiRecord[], text: ExecutionDetailText): ExecutionLogLine[] {

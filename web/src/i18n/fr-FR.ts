@@ -566,7 +566,8 @@ export default {
       dryRunVerify: 'Read-only precheck: validated certificate material, target binding, and domain match. Target {providerLabel} binding {binding}. {pendingText}',
       dryRunCreated: 'Read-only precheck has been created. {pendingText}',
       failure: {
-        emptyMessage: 'The backend did not receive a concrete error message'
+        emptyMessage: 'The backend did not receive a concrete error message',
+        issue: 'Catégorie {category}, emplacement {slot}, chemin {path}, source {source}, correction {remediation}'
       },
       running: {
         dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',

@@ -123,4 +123,47 @@ describe('useExecutionDetail', () => {
 
     wrapper.unmount()
   })
+
+  it('失败步骤展示结构化输入问题的槽位、路径、来源和修复位置', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-input-issues',
+      data: {
+        items: [{
+          id: 'step-input-issues',
+          name: 'INSTALL target-1',
+          status: 'FAILED',
+          lastErrorCode: 'VALIDATION_FAILED',
+          lastErrorMessage: '部署输入校验失败',
+          lastErrorDetails: {
+            issues: [{
+              category: 'CONNECTION',
+              slot: 'management',
+              path: 'connections.management.host',
+              bindingLayer: 'DEVICE',
+              messageKey: 'deploymentInputs.issues.CONNECTION_FIELD_MISSING',
+            }],
+          },
+          inputSnapshot: { dryRun: true },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({ id: 'run-input-issues', raw: { id: 'run-input-issues', status: 'FAILED' } })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.steps.value).toHaveLength(1))
+    expect(detail?.steps.value[0]?.detail).toContain('management')
+    expect(detail?.steps.value[0]?.detail).toContain('connections.management.host')
+    expect(detail?.steps.value[0]?.detail).toContain('DEVICE')
+    expect(detail?.steps.value[0]?.detail).toContain('deploymentInputs.issues.CONNECTION_FIELD_MISSING')
+
+    wrapper.unmount()
+  })
 })

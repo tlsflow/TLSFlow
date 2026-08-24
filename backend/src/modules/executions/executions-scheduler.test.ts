@@ -544,6 +544,39 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(service.getStep(cancelledStep.id, 'tenant_1').lastFailureCategory, 'cancelled');
   });
 
+  it('失败步骤完整保存四类输入问题并脱敏敏感详情', async () => {
+    const service = createService();
+    const created = await createRun(service, { idempotencyKey: 'idem_input_issue_details', targetIds: ['target_input_issue'], stepMaxAttempts: 1 });
+    const failedStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).find((step) => step.stepType === 'INSTALL');
+    assert.ok(failedStep);
+    const issues = ['VARIABLE', 'CONNECTION', 'CREDENTIAL', 'ARTIFACT'].map((category) => ({
+      category,
+      code: `DEPLOYMENT_INPUT_${category}_MISSING`,
+      slot: category.toLowerCase(),
+      path: `${category.toLowerCase()}s.slot`,
+      bindingLayer: 'DEVICE',
+      messageKey: `deploymentInputs.issues.${category}`,
+    }));
+    const executor = new TrackingExecutor(async (input) => input.step.id === failedStep.id
+      ? {
+          success: false,
+          errorCode: 'VALIDATION_FAILED',
+          errorMessage: '部署输入校验失败',
+          detail: { issues, password: 'plain-password', token: 'plain-token', privateKeyPem: 'plain-private-key', pfxBase64: 'plain-pfx' },
+        }
+      : { success: true });
+
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    const stored = await service.getStep(failedStep.id, 'tenant_1');
+
+    assert.equal(result.success, false);
+    assert.deepEqual(stored.lastErrorDetails.issues, issues);
+    assert.equal(JSON.stringify(stored.lastErrorDetails).includes('plain-password'), false);
+    assert.equal(JSON.stringify(stored.lastErrorDetails).includes('plain-token'), false);
+    assert.equal(JSON.stringify(stored.lastErrorDetails).includes('plain-private-key'), false);
+    assert.equal(JSON.stringify(stored.lastErrorDetails).includes('plain-pfx'), false);
+  });
+
   it('恢复 worker 会恢复 queued/dispatched/running run，但不会自动重跑不可幂等步骤', async () => {
     const service = createService();
     const queued = await createRun(service, { idempotencyKey: 'idem_recover_queued', targetIds: ['target_a'] });

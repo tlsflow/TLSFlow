@@ -565,7 +565,8 @@ export default {
       dryRunVerify: '只读预检：校验证书材料、目标绑定和域名匹配。目标 {providerLabel} 绑定 {binding}。{pendingText}',
       dryRunCreated: '只读预检已创建。{pendingText}',
       failure: {
-        emptyMessage: '未收到具体错误信息'
+        emptyMessage: '未收到具体错误信息',
+        issue: '类型 {category}，槽位 {slot}，路径 {path}，来源 {source}，修复位置 {remediation}'
       },
       running: {
         dispatched: 'Agent 任务已下发（{taskId}），等待执行结果。',

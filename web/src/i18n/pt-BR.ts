@@ -558,7 +558,8 @@ export default {
       dryRunVerify: 'Pré-verificação somente leitura: validação do material do certificado, do binding do alvo e da correspondência de domínio. Alvo {providerLabel}, binding {binding}. {pendingText}',
       dryRunCreated: 'Pré-verificação somente leitura criada. {pendingText}',
       failure: {
-        emptyMessage: 'Nenhuma mensagem de erro específica foi recebida'
+        emptyMessage: 'Nenhuma mensagem de erro específica foi recebida',
+        issue: 'Categoria {category}, slot {slot}, caminho {path}, origem {source}, correção {remediation}'
       },
       running: {
         dispatched: 'Tarefa do Agent enviada ({taskId}); aguardando o resultado da execução.',

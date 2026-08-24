@@ -21,6 +21,7 @@ import { RunRecoveryWorker } from './run-recovery-worker.js';
 import { Scheduler } from './scheduler.js';
 import { StepRunner } from './step-runner.js';
 import { StepGraphBuilder } from './step-graph-builder.js';
+import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
@@ -808,6 +809,7 @@ export class ExecutionsApplicationService {
         lastFailureCategory: decision.category,
         lastErrorCode: result.errorCode,
         lastErrorMessage: result.errorMessage,
+        lastErrorDetails: sanitizeExecutionErrorDetails(result.detail),
       });
       this.recordTransition('executionStep', runningStep.id, 'RUNNING', 'PENDING', 'step.retrying', actorId, runningStep.tenantId);
       this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
@@ -819,6 +821,7 @@ export class ExecutionsApplicationService {
       lastFailureCategory: decision.category,
       lastErrorCode: result.errorCode,
       lastErrorMessage: result.errorMessage,
+      lastErrorDetails: sanitizeExecutionErrorDetails(result.detail),
     });
     return { success: false, errorCode: result.errorCode, errorMessage: result.errorMessage, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
   }

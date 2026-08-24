@@ -12,6 +12,7 @@ import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executio
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import type { PluginCertificateResultService } from '../../plugins/results/plugin-certificate-result.service.js';
 import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
+import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
@@ -151,16 +152,18 @@ export class ExecutionResultSyncService {
 
     const now = new Date().toISOString();
     const nextStepStatus = effectiveSuccess ? 'SUCCESS' : 'FAILED';
+    const errorDetails = effectiveSuccess ? undefined : sanitizeExecutionErrorDetails(mergedDetail);
     await this.executions.updateStep(step.id, {
       status: nextStepStatus,
       lastErrorCode: effectiveErrorCode,
       lastErrorMessage: effectiveErrorMessage,
+      lastErrorDetails: errorDetails,
       finishedAt: now,
       updatedAt: now,
       updatedBy: input.actorId,
       inputSnapshot: {
         ...step.inputSnapshot,
-        resultDetail: mergedDetail,
+        resultDetail: effectiveSuccess ? mergedDetail : errorDetails ?? {},
       },
     });
     this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, input.tenantId));

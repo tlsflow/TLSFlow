@@ -117,14 +117,14 @@ export class ExecutionsRepository {
     await this.db.query(
       `insert into pg_execution_steps (
          id, tenant_id, execution_run_id, deployment_plan_target_id, step_no, step_type, name, depends_on, idempotent,
-         attempt_count, max_attempts, last_failure_category, last_error_code, last_error_message, input_snapshot,
+         attempt_count, max_attempts, last_failure_category, last_error_code, last_error_message, last_error_details, input_snapshot,
          status, started_at, finished_at, created_at, updated_at, created_by, updated_by, version
        ) values (
-         $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17::timestamptz,$18::timestamptz,$19::timestamptz,$20::timestamptz,$21,$22,$23
+         $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17,$18::timestamptz,$19::timestamptz,$20::timestamptz,$21::timestamptz,$22,$23,$24
        )`,
       [
         step.id, step.tenantId ?? null, step.executionRunId, step.deploymentPlanTargetId ?? null, step.stepNo, step.stepType, step.name, JSON.stringify(step.dependsOn ?? []), step.idempotent ?? null,
-        step.attemptCount, step.maxAttempts, step.lastFailureCategory ?? null, step.lastErrorCode ?? null, step.lastErrorMessage ?? null, JSON.stringify(step.inputSnapshot ?? {}),
+        step.attemptCount, step.maxAttempts, step.lastFailureCategory ?? null, step.lastErrorCode ?? null, step.lastErrorMessage ?? null, step.lastErrorDetails ? JSON.stringify(step.lastErrorDetails) : null, JSON.stringify(step.inputSnapshot ?? {}),
         step.status, step.startedAt ?? null, step.finishedAt ?? null, step.createdAt, step.updatedAt, step.createdBy ?? null, step.updatedBy ?? null, step.version,
       ],
     );
@@ -148,18 +148,19 @@ export class ExecutionsRepository {
               last_failure_category = $11,
               last_error_code = $12,
               last_error_message = $13,
-              input_snapshot = $14::jsonb,
-              status = $15,
-              started_at = $16::timestamptz,
-              finished_at = $17::timestamptz,
-              updated_at = $18::timestamptz,
-              created_by = $19,
-              updated_by = $20,
-              version = $21
+              last_error_details = $14::jsonb,
+              input_snapshot = $15::jsonb,
+              status = $16,
+              started_at = $17::timestamptz,
+              finished_at = $18::timestamptz,
+              updated_at = $19::timestamptz,
+              created_by = $20,
+              updated_by = $21,
+              version = $22
         where id = $1`,
       [
         updated.id, updated.executionRunId, updated.deploymentPlanTargetId ?? null, updated.stepNo, updated.stepType, updated.name, JSON.stringify(updated.dependsOn ?? []), updated.idempotent ?? null,
-        updated.attemptCount, updated.maxAttempts, updated.lastFailureCategory ?? null, updated.lastErrorCode ?? null, updated.lastErrorMessage ?? null, JSON.stringify(updated.inputSnapshot ?? {}),
+        updated.attemptCount, updated.maxAttempts, updated.lastFailureCategory ?? null, updated.lastErrorCode ?? null, updated.lastErrorMessage ?? null, updated.lastErrorDetails ? JSON.stringify(updated.lastErrorDetails) : null, JSON.stringify(updated.inputSnapshot ?? {}),
         updated.status, updated.startedAt ?? null, updated.finishedAt ?? null, updated.updatedAt, updated.createdBy ?? null, updated.updatedBy ?? null, updated.version,
       ],
     );
@@ -265,6 +266,7 @@ export class ExecutionsRepository {
         last_failure_category varchar(64),
         last_error_code varchar(128),
         last_error_message text,
+        last_error_details jsonb check (last_error_details is null or jsonb_typeof(last_error_details) = 'object'),
         input_snapshot jsonb not null default '{}'::jsonb,
         status varchar(32) not null,
         started_at timestamptz,
@@ -324,6 +326,7 @@ type ExecutionStepRow = {
   last_failure_category?: string | null;
   last_error_code?: string | null;
   last_error_message?: string | null;
+  last_error_details?: unknown;
   input_snapshot: unknown;
   status: ExecutionStepEntity['status'];
   started_at?: string | null;
@@ -379,6 +382,7 @@ function toStep(row: ExecutionStepRow): ExecutionStepEntity {
     lastFailureCategory: row.last_failure_category as ExecutionStepEntity['lastFailureCategory'] | undefined,
     lastErrorCode: row.last_error_code ?? undefined,
     lastErrorMessage: row.last_error_message ?? undefined,
+    lastErrorDetails: row.last_error_details === null || row.last_error_details === undefined ? undefined : asObject(row.last_error_details),
     inputSnapshot: asObject(row.input_snapshot),
     status: row.status,
     startedAt: row.started_at ?? undefined,
