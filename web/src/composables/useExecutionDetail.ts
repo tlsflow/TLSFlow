@@ -91,7 +91,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   }
 
   function recomputeView() {
-    const items = stepRecords.value
+    const items = expandWorkflowStepRecords(stepRecords.value)
     steps.value = items.map((record, index) => ({
       id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
       name: readString(record, ['name', 'stepName'], `步骤 ${index + 1}`),
@@ -275,7 +275,7 @@ function readDispatchTaskId(record: Record<string, unknown>): string {
 }
 
 function collectDryRunChecks(items: readonly Record<string, unknown>[]): ApiRecord[] {
-  const checks = items.flatMap((item) => {
+  const checks = expandWorkflowStepRecords(items).flatMap((item) => {
     const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
     return readArray(resultDetail, 'dryRunChecks')
   })
@@ -283,7 +283,7 @@ function collectDryRunChecks(items: readonly Record<string, unknown>[]): ApiReco
 }
 
 function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDryRunSummary | null {
-  const dryRunItems = items.filter((item) => readPath(item, 'inputSnapshot.dryRun') === true)
+  const dryRunItems = expandWorkflowStepRecords(items).filter((item) => readPath(item, 'inputSnapshot.dryRun') === true)
   if (dryRunItems.length === 0) return null
 
   let hasChecks = false
@@ -369,6 +369,8 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
 
 function buildStepDetail(record: Record<string, unknown>, index: number): string {
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
+  const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
+  if (workflowStepResult) return buildWorkflowStepDetail(workflowStepResult, index)
   const dispatchDetail = readObject(record, 'inputSnapshot.dispatchDetail')
   const failureDetail = readObject(resultDetail, 'failure')
   const verificationRecovery = readObject(resultDetail, 'verificationRecovery')
@@ -454,6 +456,8 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
   const baseStep = readString(record, ['name', 'stepName'], `步骤 ${index + 1}`)
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
+  const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
+  if (workflowStepResult) return buildWorkflowStepLogLines(record, workflowStepResult, baseId, baseTime, baseStep)
   const verificationRecovery = readObject(resultDetail, 'verificationRecovery')
   const dryRunChecks = readArray(resultDetail, 'dryRunChecks')
 
@@ -503,6 +507,99 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     requestId: readString(record, ['requestId'], ''),
   }] : []
   return [baseLine, ...recoveryLine, ...agentLines]
+}
+
+function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
+  return items.flatMap((item, index) => {
+    const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
+    const workflowRun = readObject(resultDetail, 'workflowRun')
+    const stepResults = readArray(workflowRun, 'stepResults')
+    const rollbackResults = readArray(workflowRun, 'rollbackResults')
+    const workflowResults = [
+      ...stepResults.map((step) => ({ step, rollback: false })),
+      ...rollbackResults.map((step) => ({ step, rollback: true })),
+    ]
+    if (workflowResults.length === 0) return [item]
+    const parentId = readString(item, ['id', 'stepId'], `workflow-${index + 1}`)
+    const workflowRunId = readString(workflowRun ?? {}, ['id'], '')
+    return workflowResults.map(({ step, rollback }, stepIndex) => {
+      const name = readString(step, ['name'], `${rollback ? 'rollback' : 'workflow'}-${stepIndex + 1}`)
+      const status = mapWorkflowStepStatus(readString(step, ['status'], ''))
+      return {
+        ...item,
+        id: `${parentId}:workflow:${rollback ? 'rollback:' : ''}${name}`,
+        name: rollback ? `rollback.${name}` : name,
+        status,
+        stepType: readString(step, ['type'], readString(item, ['stepType', 'type'], 'WORKFLOW')).toUpperCase(),
+        startedAt: readString(item, ['startedAt', 'createdAt'], ''),
+        finishedAt: readString(item, ['finishedAt', 'updatedAt'], ''),
+        inputSnapshot: {
+          ...(readObject(item, 'inputSnapshot') ?? {}),
+          resultDetail: {
+            workflowRunId,
+            workflowStepResult: step,
+            workflowRollback: rollback,
+          },
+        },
+      }
+    })
+  })
+}
+
+function mapWorkflowStepStatus(status: string): string {
+  const current = status.trim().toLowerCase()
+  if (current === 'success') return 'SUCCESS'
+  if (current === 'failed') return 'FAILED'
+  if (current === 'skipped') return 'SKIPPED'
+  return status.toUpperCase() || 'UNKNOWN'
+}
+
+function buildWorkflowStepDetail(step: Record<string, unknown>, index: number): string {
+  const status = readString(step, ['status'], '')
+  const errorCode = readString(step, ['errorCode'], '')
+  const errorMessage = readString(step, ['errorMessage'], '')
+  const assertions = readArray(step, 'assertions')
+  const failedAssertions = assertions.filter((item) => readPath(item, 'passed') === false)
+  if (status === 'failed') {
+    return `${errorCode || 'WORKFLOW_STEP_FAILED'}: ${errorMessage || failedAssertions[0]?.message || `工作流节点 ${index + 1} 执行失败`}`
+  }
+  if (status === 'skipped') return '工作流节点已跳过，条件未满足。'
+  if (assertions.length > 0) {
+    return `工作流节点执行成功，断言通过 ${assertions.length - failedAssertions.length}/${assertions.length}。`
+  }
+  return '工作流节点执行成功。'
+}
+
+function buildWorkflowStepLogLines(record: Record<string, unknown>, step: Record<string, unknown>, baseId: string, baseTime: string, baseStep: string): ExecutionLogLine[] {
+  const logs = readStringList(readPath(step, 'logs'))
+  const status = readString(step, ['status'], '')
+  const requestId = readString(record, ['requestId'], '')
+  const primary: ExecutionLogLine = {
+    id: `line-${baseId}`,
+    time: baseTime,
+    level: normalizeLevel(status),
+    step: baseStep,
+    message: buildWorkflowStepDetail(step, 0),
+    requestId,
+  }
+  return [
+    primary,
+    ...logs.map((message, index) => ({
+      id: `line-${baseId}-workflow-${index + 1}`,
+      time: baseTime,
+      level: normalizeLevel(status),
+      step: baseStep,
+      message,
+      requestId,
+    })),
+  ]
+}
+
+function readStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => typeof item === 'string' ? item.trim() : '')
+    .filter(Boolean)
 }
 
 function mergeDryRunChecks(checks: readonly ApiRecord[]): ApiRecord[] {

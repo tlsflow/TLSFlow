@@ -24,7 +24,7 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
     const plan = asRecord(input.renderedPlan);
     const executor = asString(plan?.executor);
     if (executor === '017.CURL_HTTP') {
-      const request = asRecord(plan?.curlRequest) as CurlExecutionRequest | undefined;
+      const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt);
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
       try {
         const result = await curlExecutor.execute(request, false, {
@@ -118,6 +118,16 @@ function detailLogLines(kind: 'curl' | 'ssh', detail: Record<string, unknown> | 
       const value = asString(detail[key]);
       return value ? [`${kind}:${key}:${value}`] : [];
     });
+}
+
+function toCurlExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number): CurlExecutionRequest | undefined {
+  const directRequest = asRecord(plan?.curlRequest);
+  if (!directRequest) return undefined;
+  return {
+    ...(directRequest as Partial<CurlExecutionRequest>),
+    idempotencyKey: `workflow-step:${runId}:${stepName}:curl:${attempt}`,
+    dryRun: false,
+  } as CurlExecutionRequest;
 }
 
 function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number): SSHExecutionRequest {

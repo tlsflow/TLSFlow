@@ -755,7 +755,7 @@ function curlWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispat
     headers: readRecord(response?.headers) as Record<string, string> | undefined,
     body: response?.bodyJson ?? response?.bodyText ?? detail,
     stdout: typeof response?.bodyText === 'string' ? response.bodyText : JSON.stringify(response?.bodyJson ?? detail ?? {}),
-    logs: readStringArray(detail?.logs),
+    logs: ['curl:runner:control_plane', ...readStringArray(detail?.logs)],
     raw: detail,
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,

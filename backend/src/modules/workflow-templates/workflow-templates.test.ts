@@ -318,6 +318,23 @@ describe('WorkflowTemplates', () => {
     assert.equal(applied.content.metadata.displayName, '文件模板覆盖');
     assert.deepEqual(applied.content.steps.map((step) => step.name), ['verify_manual']);
     assert.deepEqual(applied.content.rollback?.map((step) => step.name), ['rollback_manual']);
+
+    const appliedAgain = await service.applyFileTemplateToTemplate({
+      templateId: target.template.id,
+      fileTemplateId: 'apache/valid-overwrite.json',
+      changeSummary: '重复套用同一文件模板',
+    });
+    const targetVersions = await service.listVersions(target.template.id);
+    const currentTarget = (await service.listTemplates()).find((item) => item.id === target.template.id);
+
+    assert.equal(applied.version, 2);
+    assert.equal(appliedAgain.version, 3);
+    assert.notEqual(appliedAgain.id, applied.id);
+    assert.equal(appliedAgain.status, 'draft');
+    assert.equal(appliedAgain.contentHash, applied.contentHash);
+    assert.equal(targetVersions.length, 3);
+    assert.equal(currentTarget?.status, 'draft');
+    assert.equal(currentTarget?.currentVersionLabel, 'V3');
   });
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
@@ -634,6 +651,46 @@ describe('WorkflowTemplates', () => {
     assert.match(idempotencyKeys[1]!, /^workflow-step:wfstep_/);
   });
 
+  it('同一 CURL 节点连续真实试跑会使用不同幂等键', async () => {
+    const idempotencyKeys: string[] = [];
+    const dispatcher = createWorkflowStepDispatcher({
+      curlExecutor: {
+        execute: async (request: { idempotencyKey: string }) => {
+          idempotencyKeys.push(request.idempotencyKey);
+          return {
+            success: true,
+            statusCode: 200,
+            headers: {},
+            bodyJson: { token: 'runtime-token-secret' },
+            bodyText: '{"token":"runtime-token-secret"}',
+            logs: ['curl:ok'],
+          };
+        },
+      } as never,
+    });
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(),
+      { stepDispatcher: dispatcher },
+    );
+    const input = {
+      content: templateFixture(),
+      stepName: 'login',
+      mode: 'real_test' as const,
+      userVariables: runtimeInput('single').userVariables,
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+    };
+
+    const first = await service.testStep(input);
+    const second = await service.testStep(input);
+
+    assert.equal(first.stepResult.status, 'success');
+    assert.equal(second.stepResult.status, 'success');
+    assert.equal(idempotencyKeys.length, 2);
+    assert.notEqual(idempotencyKeys[0], idempotencyKeys[1]);
+    assert.match(idempotencyKeys[0]!, /^workflow-step:wfstep_.*:login:curl:1$/);
+    assert.match(idempotencyKeys[1]!, /^workflow-step:wfstep_.*:login:curl:1$/);
+  });
+
   it('单节点真实试跑 SSH 连接失败时返回结构化错误详情', async () => {
     const dispatcher = createWorkflowStepDispatcher({
       sshExecutor: {
@@ -945,5 +1002,37 @@ describe('WorkflowTemplates', () => {
     const realPlan = await service.testRun({ ...runtimeInput(version.id), mode: 'real_test' });
     assert.equal(realPlan.mode, 'real_test');
     assert.equal(realPlan.plannedOnly, false);
+  });
+
+  it('contains 断言会渲染变量并忽略大小写差异', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'contains-render' },
+        variables: {
+          expectedResponseContains: { type: 'string', required: true },
+        },
+        steps: [{
+          name: 'verify_body',
+          type: 'http',
+          request: { method: 'GET', url: 'https://example.com/' },
+          assert: [{ type: 'contains', value: '{{expectedResponseContains}}' }],
+        }],
+      },
+    });
+
+    const run = await service.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: { expectedResponseContains: 'apache test ok' },
+      mockResponses: {
+        verify_body: { statusCode: 200, body: 'Apache test ok' },
+      },
+    });
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]!.assertions[0]!.passed, true);
   });
 });

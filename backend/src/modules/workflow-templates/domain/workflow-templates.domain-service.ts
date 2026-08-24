@@ -95,19 +95,7 @@ export class WorkflowTemplatesDomainService {
     const template = await this.getTemplateOrThrow(input.templateId);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
-    const list = this.versions.get(template.id) ?? [];
-    const hash = digest(content);
-    if (list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
-    const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
-    const version = this.createVersion(template.id, versionNumber, content, 'draft', input.changeSummary);
-    this.versions.set(template.id, [...list, version]);
-    template.currentVersionId = version.id;
-    template.status = 'draft';
-    template.updatedAt = new Date().toISOString();
-    this.templates.set(template.id, template);
-    await this.templatesRepository.upsert(template);
-    await this.versionsRepository.upsert(version);
-    return clone(version);
+    return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true });
   }
 
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
@@ -135,19 +123,21 @@ export class WorkflowTemplatesDomainService {
   async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const imported = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
-    const content: WorkflowDslV1 = {
+    const content = workflowTemplatesSchemaRegistry.validate({
       ...clone(imported),
       metadata: {
         ...clone(imported.metadata),
         name: template.name,
       },
-    };
-    return await this.createDraftVersion({
-      templateId: input.templateId,
-      content,
-      changeSummary: input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 覆盖工作流草稿`,
     });
+    return await this.appendDraftVersion(
+      template,
+      content,
+      input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 覆盖工作流草稿`,
+      { rejectDuplicateContent: false },
+    );
   }
 
   async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
@@ -309,7 +299,13 @@ export class WorkflowTemplatesDomainService {
         : plan;
       const assertions = input.mode === 'render_only' || !dispatchSucceeded ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
       const success = input.mode === 'render_only' || dispatchSucceeded && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
-      const rawLogs = [`step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`, ...(dispatchOutput?.logs ?? [])];
+      const rawLogs = [
+        `step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`,
+        ...(dispatchOutput?.logs ?? []),
+        ...assertions
+          .filter((item) => !item.passed)
+          .map((item) => `assertion:${item.type}:failed:${item.message}`),
+      ];
       last = {
         name: step.name,
         type,
@@ -377,6 +373,22 @@ export class WorkflowTemplatesDomainService {
     return current ?? [...list]
       .filter((item) => item.status === 'draft')
       .sort((left, right) => right.version - left.version)[0];
+  }
+
+  private async appendDraftVersion(template: WorkflowTemplate, content: WorkflowDslV1, changeSummary: string | undefined, options: { rejectDuplicateContent: boolean }): Promise<WorkflowTemplateVersion> {
+    const list = this.versions.get(template.id) ?? [];
+    const hash = digest(content);
+    if (options.rejectDuplicateContent && list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
+    const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
+    const version = this.createVersion(template.id, versionNumber, content, 'draft', changeSummary);
+    this.versions.set(template.id, [...list, version]);
+    template.currentVersionId = version.id;
+    template.status = 'draft';
+    template.updatedAt = new Date().toISOString();
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
+    return clone(version);
   }
 
   private createVersion(templateId: string, versionNumber: number, content: WorkflowDslV1, status: WorkflowTemplateVersion['status'], changeSummary?: string): WorkflowTemplateVersion {
@@ -584,7 +596,12 @@ function evaluateAssertions(assertions: WorkflowAssertion[], output: WorkflowMoc
       const passed = assertion.equals !== undefined ? value === assertion.equals : (assertion.exists ?? true) === (value !== undefined);
       return assertionResult(assertion.type, passed, `header=${assertion.name}`);
     }
-    if (assertion.type === 'contains') return assertionResult(assertion.type, String(output.stdout ?? output.body ?? '').includes(assertion.value), 'contains');
+    if (assertion.type === 'contains') {
+      const actual = String(output.stdout ?? output.body ?? '');
+      const expected = renderString(assertion.value, values);
+      const passed = actual.includes(expected) || actual.toLowerCase().includes(expected.toLowerCase());
+      return assertionResult(assertion.type, passed, `contains expected="${expected}" actualLength=${actual.length}`);
+    }
     if (assertion.type === 'regex') return assertionResult(assertion.type, new RegExp(assertion.pattern).test(String(output.stdout ?? output.body ?? '')), 'regex');
     const actual = renderString(assertion.actual, values);
     const expected = renderString(assertion.expected, values);
