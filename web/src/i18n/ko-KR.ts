@@ -4,7 +4,6 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesKoKR } from './devices.locale'
 import { caOperationsKoKR } from './ca-operations.locale'
 import { credentialsKoKR } from './credentials.locale'
-import { acmeKoKR } from './acme.locale'
 import { providersKoKR } from './providers.locale'
 import { monitoringTlsKoKR } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
@@ -12,7 +11,6 @@ export default {
   credentials: credentialsKoKR,
   devices: devicesKoKR,
   caOperations: caOperationsKoKR,
-  acme: acmeKoKR,
   providers: providersKoKR,
   app: {
     brand: 'GCAC 콘솔',
@@ -446,9 +444,6 @@ export default {
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
     relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획' },
     typeLabels: {
-      ACME_CERTIFICATE_ISSUE: 'ACME 발급',
-      ACME_CERTIFICATE_RENEWAL: 'ACME 갱신',
-      ACME_CHALLENGE: 'ACME 챌린지',
       CERTIFICATE_DRY_RUN: '인증서 Dry-run',
       CERTIFICATE_DEPLOY: '인증서 배포',
       CERTIFICATE_VERIFY: '인증서 검증',
@@ -593,7 +588,7 @@ export default {
     emptyDescription: '설명 없음',
     common: { notAvailable: '없음', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: '외부 API로 실행', apiHelp: '외부 시스템이 자동화 실행 API를 호출합니다. 대상 미리보기, Dry Run 및 승인 규칙은 계속 적용됩니다.', once: '고정 시간에 한 번 실행', onceHelp: '브라우저 로컬 시간을 선택합니다. 실행 후 다시 예약되지 않습니다.', recurring: '정기 실행', scheduleHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringWarningTitle: '인증서 업데이트에는 정기 실행을 권장하지 않습니다', recurringWarning: '일반적으로 인증서 발급 후 외부 시스템에서 실행하거나 고정 시간에 한 번만 실행해야 합니다.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: '실행 시간', frequency: '실행 주기', daily: '매일', weekly: '매주', monthly: '매월', time: '시간', weekday: '요일', monthDay: '매월 날짜', legacyCustom: '기존 사용자 지정 일정 유지', legacyCron: '기존 Cron(읽기 전용)', weekdays: { 0: '일요일', 1: '월요일', 2: '화요일', 3: '수요일', 4: '목요일', 5: '금요일', 6: '토요일' } },
+    scheduleBuilder: { api: '외부 API로 실행', apiHelp: '외부 시스템이 자동화 실행 API를 호출합니다. 대상 미리보기, Dry Run 및 승인 규칙은 계속 적용됩니다.', once: '고정 시간에 한 번 실행', onceHelp: '브라우저 로컬 시간을 선택합니다. 실행 후 다시 예약되지 않습니다.', recurring: '정기 실행', scheduleHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringWarningTitle: '인증서 업데이트에는 정기 실행을 권장하지 않습니다', recurringWarning: '일반적으로 인증서 발급 후 외부 시스템에서 실행하거나 고정 시간에 한 번만 실행해야 합니다.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: '외부 소스 또는 수동 가져오기로 인증서 새 버전이 생성되면 자동화를 시작합니다.', runAt: '실행 시간', frequency: '실행 주기', daily: '매일', weekly: '매주', monthly: '매월', time: '시간', weekday: '요일', monthDay: '매월 날짜', legacyCustom: '기존 사용자 지정 일정 유지', legacyCron: '기존 Cron(읽기 전용)', weekdays: { 0: '일요일', 1: '월요일', 2: '화요일', 3: '수요일', 4: '목요일', 5: '금요일', 6: '토요일' } },
     form: { existingAssetTitle: '기존 애플리케이션 자산만 업데이트', existingAssetDescription: '기존 인증서 바인딩이 있는 애플리케이션 자산만 처리합니다. 최초 설치나 새 대상 추가는 수행하지 않습니다.', certificateDomains: '인증서 도메인', certificateDomainsPlaceholder: '인증서 도메인을 쉼표로 구분해 입력', certificateDomainsHelp: '지정한 도메인에 해당하는 기존 애플리케이션 자산 바인딩만 업데이트합니다.', versionSelection: '업데이트할 인증서 버전', versionSelectionLatest: '최신 인증서 버전 자동 사용', versionSelectionSpecific: '지정한 인증서 버전 사용', versionSelectionHelp: '실행 시작 시 버전을 확인하고 고정하므로 실행 중 새 버전으로 바뀌지 않습니다.', certificateVersionIds: '지정 인증서 버전', certificateVersionIdsPlaceholder: '인증서 버전 ID를 쉼표로 구분해 입력', certificateVersionIdsHelp: '각 버전은 위 도메인이 선택한 인증서에 속해야 합니다.', versionLoading: '선택 가능한 인증서 버전을 불러오는 중입니다.', versionLoadFailed: '인증서 버전을 불러오지 못했습니다. 나중에 다시 시도하세요.', versionEmpty: '이 도메인에 선택 가능한 인증서 버전이 없습니다.', schedule: '업데이트 시점', scheduleHelp: '요청 시 시작하거나 Cron과 시간대로 정기 실행할 수 있습니다.', execution: '실행 중 처리', executionHelp: '기존 바인딩마다 독립적인 업데이트 계획을 만들고 DeploymentPlan, Dry Run, 승인, ExecutionRun을 재사용합니다.', snapshot: '도메인, 자산 및 인증서 버전 스냅샷 고정' },
     fields: { name: '이름', description: '설명', trigger: '트리거', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 표현식', timeZone: '시간대', expiresWithinDays: '만료 예정 일수', environments: '대상 환경(쉼표로 구분)', certificateIds: '지정 인증서(선택)', certificateIdsPlaceholder: '인증서 ID를 쉼표로 구분해 입력', certificateIdsHelp: '입력하면 지정된 인증서만 처리하고, 비워두면 만료 기간과 환경으로 자동 선택합니다.', expiresWithinDaysHelp: '이 기간 내에 만료되는 인증서만 대상으로 합니다.', environmentsHelp: '지정한 환경의 인증서만 처리합니다.', planType: '배포 계획 유형', planTypeHelp: '일치하는 인증서 대상마다 실행 시 독립적인 DeploymentPlan을 만듭니다.', planTypeUpdate: '기존 인증서 바인딩 업데이트', planTypeInstall: '대상에 인증서 설치', planTypeVerifyOnly: '검증만 수행하고 인증서는 변경하지 않음', planMode: '실행 방식', planModeHelp: '기존 계획에 연결하지 않고 대상마다 실행 시 새 계획을 만듭니다.', planModeCreateAndExecute: '계획 생성 후 실행', planModeCreateOnly: '계획만 생성하고 실행하지 않음', maxTargets: '실행당 최대 대상 수', concurrency: '동시 실행 수', failureCount: '실패 수 임계값', requireDryRun: '실행 전 Dry Run 필수', requireApproval: '실행 전 승인 필수', startedAt: '시작 시간', finishedAt: '완료 시간', failureStage: '실패 단계', parentRun: '상위 실행' },
     actions: { create: '자동화 만들기', detail: 'Details', edit: '편집', delete: '삭제', cancel: '취소', save: '저장', copy: '복사', enable: '활성화', disable: '비활성화', runNow: 'Run now', preview: '대상 미리 보기', history: '실행 기록', confirmRun: '실행 확인', stop: '실행 중지', retryFailed: '실패 대상 재시도', openPlan: '배포 계획 보기', openExecution: '실행 기록 보기' },
@@ -601,7 +596,7 @@ export default {
     columns: { status: 'Status', trigger: '트리거', targets: '대상 한도', actions: '실행 작업', nextRun: '다음 실행', lastRun: '최근 실행' },
     triggers: { onDemand: '요청 시', schedule: '예약' },
     triggerTypes: { on_demand: '요청 시', schedule: '예약', certificate_version_created: 'Certificate new-version event', retry: '실패 대상 재시도' },
-    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    eventSources: { external_source: '외부 소스', manual_import: '수동 가져오기' },
     targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
     assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: '인증서 갱신 계획 만들기', execute_deployment_plan: '인증서 갱신 계획 실행', send_notification: '알림 보내기' },
@@ -907,6 +902,9 @@ export default {
       signatureStatus: '서명 상태',
       riskLevel: '위험수준', runtime: '런타임', executionMode: '실행 모델', scope: '적용 범위', support: '지원 수준', capabilities: '기능', frameworks: '대상 프레임워크', products: '지원 제품', operations: '지원 작업'
     },
+    labels: { permissions: '선언된 권한', runnerStatus: 'Runner 상태' },
+    permissionKeys: { network_http: '네트워크 요청', secret_read: '비밀 읽기', artifact_read: '아티팩트 읽기', device_write: '장치 쓰기' },
+    runnerStatuses: { ready: 'Runner 준비됨', busy: 'Runner 실행 중', unavailable: 'Runner 사용 불가', notObserved: 'Runner 관측되지 않음' },
     capabilityKeys: { device_connection_test: '연결 테스트', device_identity_detect: '장치 식별', device_discover: '장치 검색', device_logs_read: '장치 로그 읽기', certificate_discover: '인증서 검색', certificate_deploy: '인증서 배포', certificate_rollback: '인증서 롤백', certificate_verify: '인증서 검증' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '사용자 지정 런타임', runtime_custom: '사용자 지정 런타임', adc_load_balancer: 'ADC 로드 밸런서', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 원자 실행', workflow_dsl: '워크플로 DSL', trusted_js: 'Trusted JS' },
@@ -3336,7 +3334,9 @@ export default {
       },
       sourceTypes: {
         manual: '수동 가져오기',
-        acme: 'ACME',
+        internal_ca: '내부 CA',
+        enterprise_ca: '엔터프라이즈 CA',
+        external_api: '외부 API',
         unknown: '알 수 없음'
       },
       lifecycle: {
@@ -4199,12 +4199,6 @@ export default {
     submit: '덩 씨',
     policy: 'RBAC 권한 보호',
     audit: '전체 작업 감사'
-  },
-  compatibility: {
-    title: '호환성 카탈로그', description: '지원 범위, 제한 및 증거는 Compatibility Profile에서 가져옵니다.', generatedAt: '생성 시간: {time}', loading: '호환성 카탈로그를 불러오는 중…', loadFailed: '호환성 카탈로그를 불러오지 못했습니다', none: '없음',
-    columns: { profile: 'Profile', version: '버전', status: '상태', automation: '자동화', evidence: '증거', verifiedAt: '최근 검증', limitations: '제한' },
-    status: { certified: '인증됨', supported: '지원됨', compatible: '호환됨', experimental: '실험적', legacy: '레거시', unsupported: '지원 안 함' },
-    evidence: { current: '유효', expired: '만료됨', failed: '실패' }
   },
   internalCa: internalCaEnglish,
   errors: {

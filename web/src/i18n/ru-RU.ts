@@ -4,7 +4,6 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesRuRU } from './devices.locale'
 import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
-import { acmeRuRU } from './acme.locale'
 import { providersRuRU } from './providers.locale'
 import { monitoringTlsRuRU } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
@@ -12,7 +11,6 @@ export default {
   credentials: credentialsRuRU,
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
-  acme: acmeRuRU,
   providers: providersRuRU,
   app: {
     brand: 'Консоль GCAC',
@@ -446,9 +444,6 @@ export default {
     values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
     relatedNames: { builtinCatalog: 'Встроенный каталог плагинов', deploymentPlan: 'План развёртывания' },
     typeLabels: {
-      ACME_CERTIFICATE_ISSUE: 'Выпуск ACME',
-      ACME_CERTIFICATE_RENEWAL: 'Продление ACME',
-      ACME_CHALLENGE: 'Проверка ACME',
       CERTIFICATE_DRY_RUN: 'Dry-run сертификата',
       CERTIFICATE_DEPLOY: 'Развёртывание сертификата',
       CERTIFICATE_VERIFY: 'Проверка сертификата',
@@ -593,7 +588,7 @@ export default {
     emptyDescription: 'Нет описания',
     common: { notAvailable: 'Нет данных', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: 'Запуск через внешний API', apiHelp: 'Внешняя система вызывает API запуска. Предпросмотр, Dry Run и согласование применяются к каждому запросу.', once: 'Однократный запуск в заданное время', onceHelp: 'Выберите локальное время браузера. После выполнения задача не планируется повторно.', recurring: 'Периодический запуск', scheduleHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringWarningTitle: 'Периодический запуск не рекомендуется для сертификатов', recurringWarning: 'Обычно замену следует запускать после выпуска сертификата или назначать один фиксированный запуск.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: 'Время запуска', frequency: 'Периодичность', daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', time: 'Время', weekday: 'День недели', monthDay: 'День месяца', legacyCustom: 'Сохранить существующий пользовательский график', legacyCron: 'Существующий Cron (только чтение)', weekdays: { 0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота' } },
+    scheduleBuilder: { api: 'Запуск через внешний API', apiHelp: 'Внешняя система вызывает API запуска. Предпросмотр, Dry Run и согласование применяются к каждому запросу.', once: 'Однократный запуск в заданное время', onceHelp: 'Выберите локальное время браузера. После выполнения задача не планируется повторно.', recurring: 'Периодический запуск', scheduleHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringWarningTitle: 'Периодический запуск не рекомендуется для сертификатов', recurringWarning: 'Обычно замену следует запускать после выпуска сертификата или назначать один фиксированный запуск.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Автоматизация запускается после создания новой версии сертификата внешним источником или ручным импортом.', runAt: 'Время запуска', frequency: 'Периодичность', daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', time: 'Время', weekday: 'День недели', monthDay: 'День месяца', legacyCustom: 'Сохранить существующий пользовательский график', legacyCron: 'Существующий Cron (только чтение)', weekdays: { 0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота' } },
     form: { existingAssetTitle: 'Обновлять только существующие активы приложений', existingAssetDescription: 'Автоматизация обрабатывает только активы с существующими привязками сертификатов. Первичная установка и добавление целей не выполняются.', certificateDomains: 'Домены сертификата', certificateDomainsPlaceholder: 'Введите домены через запятую', certificateDomainsHelp: 'Обновляются только существующие привязки активов для этих доменов.', versionSelection: 'Версия сертификата для развертывания', versionSelectionLatest: 'Автоматически использовать последнюю версию', versionSelectionSpecific: 'Использовать указанные версии', versionSelectionHelp: 'Версия определяется и фиксируется в начале запуска.', certificateVersionIds: 'Указанные версии сертификата', certificateVersionIdsPlaceholder: 'Введите ID версий через запятую', certificateVersionIdsHelp: 'Каждая версия должна принадлежать сертификату, выбранному по доменам.', versionLoading: 'Загрузка доступных версий сертификата.', versionLoadFailed: 'Не удалось загрузить версии. Повторите попытку позже.', versionEmpty: 'Для этих доменов нет доступных версий.', schedule: 'Когда обновлять', scheduleHelp: 'Запускайте по запросу или периодически по Cron и часовому поясу.', execution: 'Что происходит при запуске', executionHelp: 'Для каждой существующей привязки создается отдельный план с повторным использованием DeploymentPlan, Dry Run, согласования и ExecutionRun.', snapshot: 'Зафиксировать снимок домена, актива и версии сертификата' },
     fields: { name: 'Название', description: 'Описание', trigger: 'Триггер', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Выражение Cron', timeZone: 'Часовой пояс', expiresWithinDays: 'Срок истечения в днях', environments: 'Целевые среды (через запятую)', certificateIds: 'Конкретные сертификаты (необязательно)', certificateIdsPlaceholder: 'Введите ID сертификатов через запятую', certificateIdsHelp: 'Если указано, обрабатываются только эти сертификаты; иначе применяются правила срока и среды.', expiresWithinDaysHelp: 'Выбирать только сертификаты, истекающие в этот период.', environmentsHelp: 'Обрабатывать сертификаты только из указанных сред.', planType: 'Тип плана развертывания', planTypeHelp: 'При запуске для каждой подходящей цели создается отдельный DeploymentPlan.', planTypeUpdate: 'Обновить существующую привязку сертификата', planTypeInstall: 'Установить сертификат на цель', planTypeVerifyOnly: 'Только проверить, без изменения сертификата', planMode: 'Режим запуска', planModeHelp: 'Автоматизация не связывается с существующим планом; для каждой цели создается новый план.', planModeCreateAndExecute: 'Создать и выполнить план', planModeCreateOnly: 'Только создать планы, без выполнения', maxTargets: 'Максимум целей за запуск', concurrency: 'Параллельность', failureCount: 'Порог количества ошибок', requireDryRun: 'Требовать Dry Run перед выполнением', requireApproval: 'Требовать согласование перед выполнением', startedAt: 'Время начала', finishedAt: 'Время завершения', failureStage: 'Этап ошибки', parentRun: 'Родительский запуск' },
     actions: { create: 'Создать автоматизацию', detail: 'Details', edit: 'Изменить', delete: 'Удалить', cancel: 'Отмена', save: 'Сохранить', copy: 'Копировать', enable: 'Включить', disable: 'Отключить', runNow: 'Run now', preview: 'Предпросмотр целей', history: 'История запусков', confirmRun: 'Подтвердить запуск', stop: 'Остановить запуск', retryFailed: 'Повторить ошибки', openPlan: 'Открыть план развертывания', openExecution: 'Открыть выполнение' },
@@ -601,7 +596,7 @@ export default {
     columns: { status: 'Status', trigger: 'Триггер', targets: 'Лимит целей', actions: 'Действия', nextRun: 'Следующий запуск', lastRun: 'Последний запуск' },
     triggers: { onDemand: 'По запросу', schedule: 'По расписанию' },
     triggerTypes: { on_demand: 'По запросу', schedule: 'По расписанию', certificate_version_created: 'Certificate new-version event', retry: 'Повтор ошибок' },
-    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    eventSources: { external_source: 'Внешний источник', manual_import: 'Ручной импорт' },
     targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
     assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: 'Создать план обновления сертификата', execute_deployment_plan: 'Выполнить план обновления сертификата', send_notification: 'Отправить уведомление' },
@@ -907,6 +902,9 @@ export default {
       signatureStatus: 'Статус подписи',
       riskLevel: 'Уровень риска', runtime: 'Среда выполнения', executionMode: 'Модель выполнения', scope: 'Область применения', support: 'Уровень поддержки', capabilities: 'Возможности', frameworks: 'Целевые фреймворки', products: 'Поддерживаемые продукты', operations: 'Поддерживаемые операции'
     },
+    labels: { permissions: 'Заявленные разрешения', runnerStatus: 'Состояние Runner' },
+    permissionKeys: { network_http: 'Сетевые запросы', secret_read: 'Чтение секретов', artifact_read: 'Чтение артефактов', device_write: 'Запись на устройства' },
+    runnerStatuses: { ready: 'Runner готов', busy: 'Runner занят', unavailable: 'Runner недоступен', notObserved: 'Runner не наблюдался' },
     capabilityKeys: { device_connection_test: 'Проверка подключения', device_identity_detect: 'Определение устройства', device_discover: 'Обнаружение устройства', device_logs_read: 'Чтение журналов устройства', certificate_discover: 'Обнаружение сертификатов', certificate_deploy: 'Развертывание сертификата', certificate_rollback: 'Откат сертификата', certificate_verify: 'Проверка сертификата' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Пользовательская среда', runtime_custom: 'Пользовательская среда', adc_load_balancer: 'ADC-балансировщик', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL', trusted_js: 'Trusted JS' },
@@ -3336,7 +3334,9 @@ export default {
       },
       sourceTypes: {
         manual: 'Ручной импорт',
-        acme: 'ACME',
+        internal_ca: 'Внутренний CA',
+        enterprise_ca: 'Корпоративный CA',
+        external_api: 'Внешний API',
         unknown: 'Неизвестно'
       },
       lifecycle: {
@@ -4199,12 +4199,6 @@ export default {
     submit: 'Войти',
     policy: 'Защита прав RBAC',
     audit: 'Полный аудит операций'
-  },
-  compatibility: {
-    title: 'Каталог совместимости', description: 'Поддержка, ограничения и доказательства берутся из профилей совместимости.', generatedAt: 'Сформировано: {time}', loading: 'Загрузка каталога…', loadFailed: 'Не удалось загрузить каталог', none: 'Нет',
-    columns: { profile: 'Профиль', version: 'Версия', status: 'Статус', automation: 'Автоматизация', evidence: 'Доказательство', verifiedAt: 'Последняя проверка', limitations: 'Ограничения' },
-    status: { certified: 'Сертифицировано', supported: 'Поддерживается', compatible: 'Совместимо', experimental: 'Экспериментально', legacy: 'Устаревшее', unsupported: 'Не поддерживается' },
-    evidence: { current: 'Актуально', expired: 'Просрочено', failed: 'Ошибка' }
   },
   internalCa: internalCaEnglish,
   errors: {

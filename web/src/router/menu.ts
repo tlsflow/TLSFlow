@@ -20,7 +20,6 @@ export const mainMenuItems: MenuItem[] = [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
       { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false },
       { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'internalCa.description' },
-      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'acme.description' },
       { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
     ]
   },
@@ -43,7 +42,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/deployment-plans',
     module: 'certificate-deployment',
     permissions: ['deployment.plan.read', 'workflow.read', 'automation.read', 'execution.run.read'],
-    activePaths: ['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'],
+    activePaths: ['/deployment-plans', '/workflows', '/automations', '/automation-runs', '/executions'],
     icon: 'bolt',
     descriptionKey: 'nav.deploymentsDesc',
     children: [

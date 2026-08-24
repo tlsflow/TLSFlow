@@ -34,19 +34,29 @@ for (const [path, methods] of Object.entries(paths)) {
 
 function schemaToTs(schema) {
   if (!schema || typeof schema !== 'object') return 'unknown'
+  if (schema.$ref) return typeNameFromSchemaName(schema.$ref.split('/').pop() ?? '')
+  if (Array.isArray(schema.oneOf) || Array.isArray(schema.anyOf)) {
+    const variants = schema.oneOf ?? schema.anyOf
+    return variants.map(schemaToTs).join(' | ') || 'unknown'
+  }
   if (Array.isArray(schema.enum)) return schema.enum.map((value) => JSON.stringify(value)).join(' | ')
   if (schema.type === 'string') return 'string'
   if (schema.type === 'number' || schema.type === 'integer') return 'number'
   if (schema.type === 'boolean') return 'boolean'
-  if (schema.type === 'array') return `readonly ${schemaToTs(schema.items)}[]`
-  if (schema.type === 'object' || schema.properties) {
+  if (schema.type === 'array') return `ReadonlyArray<${schemaToTs(schema.items)}>`
+  if (schema.type === 'object' || schema.properties || schema.additionalProperties) {
     const properties = schema.properties ?? {}
     const required = new Set(schema.required ?? [])
     const lines = Object.entries(properties).map(([name, property]) => {
       const optional = required.has(name) ? '' : '?'
       return `  readonly ${JSON.stringify(name)}${optional}: ${schemaToTs(property)}`
     })
-    if (lines.length === 0) return 'Record<string, unknown>'
+    if (lines.length === 0) {
+      if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+        return `Record<string, ${schemaToTs(schema.additionalProperties)}>`
+      }
+      return 'Record<string, unknown>'
+    }
     return `{\n${lines.join('\n')}\n}`
   }
   return 'unknown'
@@ -56,9 +66,31 @@ function typeNameFromSchemaName(name) {
   return name.replace(/[^a-zA-Z0-9_$]/g, '')
 }
 
+function responseSchema(operation) {
+  const response = Object.entries(operation?.responses ?? {})
+    .find(([status]) => status.startsWith('2'))?.[1]
+  return response?.content?.['application/json']?.schema
+}
+
+function responseItemSchema(operation) {
+  return responseSchema(operation)?.properties?.items?.items
+}
+
+// 中文说明：当前后端 OpenAPI 对插件接口使用内联响应模式，无法只从 components.schemas 取到这些类型。
+// 这里按接口契约提取列表项，保证前端生成类型仍然来自 backend/openapi/openapi.json。
+const inlineSchemas = {
+  PluginCatalogItem: responseItemSchema(paths['/api/v1/plugin-catalog']?.get),
+  PluginVersionRecord: responseItemSchema(paths['/api/v1/plugin-versions']?.get),
+  PluginRuntimeMetric: responseItemSchema(paths['/api/v1/plugin-runtime/metrics']?.get),
+}
+const generatedSchemas = {
+  ...schemas,
+  ...Object.fromEntries(Object.entries(inlineSchemas).filter(([, schema]) => schema)),
+}
+
 const schemaSource = [
   header,
-  ...Object.entries(schemas).map(([name, schema]) => `export type ${typeNameFromSchemaName(name)} = ${schemaToTs(schema)}\n`),
+  ...Object.entries(generatedSchemas).map(([name, schema]) => `export type ${typeNameFromSchemaName(name)} = ${schemaToTs(schema)}\n`),
 ].join('\n')
 
 const pathUnion = operations.length > 0

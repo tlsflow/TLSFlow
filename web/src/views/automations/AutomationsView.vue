@@ -490,20 +490,12 @@ function readStringArray(value: unknown): string[] {
   return value.map((item) => typeof item === 'string' || typeof item === 'number' ? String(item) : '').filter(Boolean)
 }
 
-function legacySelector(item: AutomationRecord): NonNullable<AutomationRecord['configuration']['targetSelector']> {
-  return item.configuration.targetResolver?.type === 'legacy_target_selector'
-    ? (item.configuration.targetResolver.selector ?? item.configuration.targetSelector ?? {})
-    : (item.configuration.targetSelector ?? {})
-}
-
 function readFilterValues(item: AutomationRecord, field: string): string[] {
   return readStringArray(item.configuration.filters?.find((filter) => filter.field === field)?.value)
 }
 
 function automationDomains(item: AutomationRecord): string[] {
-  const selector = legacySelector(item)
   return [...new Set([
-    ...readStringArray(selector.certificateDomains).map(normalizeDomain),
     ...readFilterValues(item, 'event.domains').map(normalizeDomain),
   ])].filter(Boolean)
 }
@@ -514,9 +506,8 @@ function domainSummary(item: AutomationRecord): string {
 }
 
 function selectedAssetIds(item: AutomationRecord): string[] {
-  const selector = legacySelector(item)
   return [...new Set([
-    ...readStringArray(selector.assetIds),
+    ...readStringArray(item.configuration.targetResolver.assetIds),
     ...readFilterValues(item, 'target.assetId'),
   ])]
 }
@@ -533,16 +524,15 @@ function actionSummary(item: AutomationRecord): string {
 
 function eventSourceSummary(item: AutomationRecord): string {
   if (item.configuration.trigger.type !== 'certificate_version_created') return t('automations.common.notAvailable')
-  const sources = item.configuration.trigger.sources?.length
-    ? item.configuration.trigger.sources
-    : ['acme', 'manual_import']
+  const sources = item.configuration.trigger.sources ?? []
+  if (sources.length === 0) return t('automations.common.notAvailable')
   return sources.map((source) => t(`automations.eventSources.${source}`)).join(' / ')
 }
 
 function versionSelectionSummary(item: AutomationRecord): string {
-  if (item.configuration.trigger.type === 'certificate_version_created') return t('automations.values.fixedByEvent')
-  const selection = legacySelector(item).certificateVersionSelection ?? 'latest'
-  return selection === 'specific' ? t('automations.values.specific') : t('automations.values.latest')
+  return item.configuration.trigger.type === 'certificate_version_created'
+    ? t('automations.values.fixedByEvent')
+    : t('automations.common.notAvailable')
 }
 
 function booleanSummary(value: boolean): string {

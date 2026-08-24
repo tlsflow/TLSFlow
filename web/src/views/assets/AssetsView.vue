@@ -220,7 +220,7 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'platform', title: t('assets.columns.platform'), candidates: ['platform'] },
     { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkDisplayName', 'targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
     { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBinding.siteName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'metadata.workflowTarget.siteName', 'deploymentStrategy.workflow.target.siteName', 'targetBinding.siteAssetId'] },
-    { key: 'deviceId', title: t('devices.page.title'), candidates: ['targetBinding.deviceDisplayName', 'deviceDisplayName', 'targetBinding.deviceId', 'hostId'] },
+    { key: 'deviceId', title: t('devices.unifiedDetail.nodeEyebrow'), candidates: ['targetBinding.deviceDisplayName', 'deviceDisplayName', 'targetBinding.deviceId', 'hostId'] },
     { key: 'status', title: t('assets.columns.status'), candidates: ['status'] },
     { key: 'actions', title: t('assets.columns.actions'), candidates: [] },
   ],

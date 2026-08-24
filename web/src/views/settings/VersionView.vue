@@ -8,6 +8,7 @@ const { t } = useI18n()
 <template>
   <section class="gc-page version-page">
     <section class="gc-card version-page__card" :aria-label="t('settings.version.currentVersion')">
+      <h2>{{ t('settings.version.title') }}</h2>
       <span class="version-page__label">{{ t('settings.version.currentVersion') }}</span>
       <strong class="version-page__value">{{ gcacVersion }}</strong>
       <dl class="version-page__details">

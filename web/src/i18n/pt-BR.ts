@@ -4,7 +4,6 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesPtBR } from './devices.locale'
 import { caOperationsPtBR } from './ca-operations.locale'
 import { credentialsPtBR } from './credentials.locale'
-import { acmePtBR } from './acme.locale'
 import { providersPtBR } from './providers.locale'
 import { monitoringTlsPtBR } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
@@ -12,7 +11,6 @@ export default {
   credentials: credentialsPtBR,
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
-  acme: acmePtBR,
   providers: providersPtBR,
   app: {
     brand: 'Console GCAC',
@@ -446,9 +444,6 @@ export default {
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
     relatedNames: { builtinCatalog: 'Catálogo interno de plugins', deploymentPlan: 'Plano de implantação' },
     typeLabels: {
-      ACME_CERTIFICATE_ISSUE: 'Emissão ACME',
-      ACME_CERTIFICATE_RENEWAL: 'Renovação ACME',
-      ACME_CHALLENGE: 'Desafio ACME',
       CERTIFICATE_DRY_RUN: 'Dry-run do certificado',
       CERTIFICATE_DEPLOY: 'Implantação do certificado',
       CERTIFICATE_VERIFY: 'Verificação do certificado',
@@ -593,7 +588,7 @@ export default {
     emptyDescription: 'Sem descrição',
     common: { notAvailable: 'Indisponível', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: 'Acionar por API externa', apiHelp: 'Um sistema externo chama a API de execução. A prévia, o Dry Run e a aprovação continuam sendo aplicados.', once: 'Executar uma vez em horário fixo', onceHelp: 'Escolha o horário local do navegador. A tarefa não será agendada novamente após a execução.', recurring: 'Executar periodicamente', scheduleHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringWarningTitle: 'Execução periódica não é recomendada para certificados', recurringWarning: 'Normalmente a troca deve ser acionada após a emissão do certificado ou agendada uma única vez.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: 'Horário de execução', frequency: 'Frequência', daily: 'Diariamente', weekly: 'Semanalmente', monthly: 'Mensalmente', time: 'Horário', weekday: 'Dia da semana', monthDay: 'Dia do mês', legacyCustom: 'Manter agenda personalizada existente', legacyCron: 'Cron existente (somente leitura)', weekdays: { 0: 'Domingo', 1: 'Segunda-feira', 2: 'Terça-feira', 3: 'Quarta-feira', 4: 'Quinta-feira', 5: 'Sexta-feira', 6: 'Sábado' } },
+    scheduleBuilder: { api: 'Acionar por API externa', apiHelp: 'Um sistema externo chama a API de execução. A prévia, o Dry Run e a aprovação continuam sendo aplicados.', once: 'Executar uma vez em horário fixo', onceHelp: 'Escolha o horário local do navegador. A tarefa não será agendada novamente após a execução.', recurring: 'Executar periodicamente', scheduleHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringHelp: 'Use uma agenda recorrente apenas quando a verificação contínua for realmente necessária.', recurringWarningTitle: 'Execução periódica não é recomendada para certificados', recurringWarning: 'Normalmente a troca deve ser acionada após a emissão do certificado ou agendada uma única vez.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'A automação começa quando uma fonte externa ou uma importação manual cria uma nova versão do certificado.', runAt: 'Horário de execução', frequency: 'Frequência', daily: 'Diariamente', weekly: 'Semanalmente', monthly: 'Mensalmente', time: 'Horário', weekday: 'Dia da semana', monthDay: 'Dia do mês', legacyCustom: 'Manter agenda personalizada existente', legacyCron: 'Cron existente (somente leitura)', weekdays: { 0: 'Domingo', 1: 'Segunda-feira', 2: 'Terça-feira', 3: 'Quarta-feira', 4: 'Quinta-feira', 5: 'Sexta-feira', 6: 'Sábado' } },
     form: { existingAssetTitle: 'Atualizar apenas ativos de aplicativos existentes', existingAssetDescription: 'A automação processa apenas ativos com vínculos de certificado existentes. Ela não instala certificados pela primeira vez nem adiciona destinos.', certificateDomains: 'Domínios do certificado', certificateDomainsPlaceholder: 'Informe os domínios separados por vírgulas', certificateDomainsHelp: 'Atualiza apenas os vínculos existentes dos ativos para estes domínios.', versionSelection: 'Versão do certificado para implantar', versionSelectionLatest: 'Usar automaticamente a versão mais recente', versionSelectionSpecific: 'Usar versões específicas', versionSelectionHelp: 'A versão é resolvida e congelada quando a execução começa.', certificateVersionIds: 'Versões específicas do certificado', certificateVersionIdsPlaceholder: 'Informe os IDs das versões separados por vírgulas', certificateVersionIdsHelp: 'Cada versão deve pertencer a um certificado selecionado pelos domínios.', versionLoading: 'Carregando versões de certificado disponíveis.', versionLoadFailed: 'Falha ao carregar versões. Tente novamente mais tarde.', versionEmpty: 'Nenhuma versão selecionável foi encontrada para estes domínios.', schedule: 'Quando atualizar', scheduleHelp: 'Inicie sob demanda ou execute periodicamente usando Cron e fuso horário.', execution: 'O que acontece na execução', executionHelp: 'O sistema cria um plano separado para cada vínculo existente e reutiliza DeploymentPlan, Dry Run, aprovação e ExecutionRun.', snapshot: 'Congelar o domínio, o ativo e a versão do certificado' },
     fields: { name: 'Nome', description: 'Descrição', trigger: 'Acionador', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Expressão Cron', timeZone: 'Fuso horário', expiresWithinDays: 'Janela de expiração em dias', environments: 'Ambientes de destino (separados por vírgula)', certificateIds: 'Certificados específicos (opcional)', certificateIdsPlaceholder: 'Informe os IDs separados por vírgulas', certificateIdsHelp: 'Quando preenchido, apenas esses certificados serão processados; caso contrário, usam-se validade e ambiente.', expiresWithinDaysHelp: 'Correspondem apenas certificados que expiram nesta janela.', environmentsHelp: 'Processar apenas certificados desses ambientes.', planType: 'Tipo de plano de implantação', planTypeHelp: 'Um DeploymentPlan separado é criado em tempo de execução para cada destino.', planTypeUpdate: 'Atualizar um vínculo de certificado existente', planTypeInstall: 'Instalar certificado no destino', planTypeVerifyOnly: 'Apenas verificar, sem alterar o certificado', planMode: 'Modo de execução', planModeHelp: 'A automação não vincula um plano existente; cria um novo plano para cada destino.', planModeCreateAndExecute: 'Criar e executar o plano', planModeCreateOnly: 'Criar apenas os planos, sem executar', maxTargets: 'Máximo de destinos por execução', concurrency: 'Concorrência', failureCount: 'Limite de quantidade de falhas', requireDryRun: 'Exigir Dry Run antes da execução', requireApproval: 'Exigir aprovação antes da execução', startedAt: 'Início', finishedAt: 'Término', failureStage: 'Etapa da falha', parentRun: 'Execução pai' },
     actions: { create: 'Criar automação', detail: 'Details', edit: 'Editar', delete: 'Excluir', cancel: 'Cancelar', save: 'Salvar', copy: 'Copiar', enable: 'Ativar', disable: 'Desativar', runNow: 'Run now', preview: 'Visualizar destinos', history: 'Histórico de execuções', confirmRun: 'Confirmar execução', stop: 'Parar execução', retryFailed: 'Repetir destinos com falha', openPlan: 'Abrir plano de implantação', openExecution: 'Abrir execução' },
@@ -601,7 +596,7 @@ export default {
     columns: { status: 'Status', trigger: 'Acionador', targets: 'Limite de destinos', actions: 'Ações', nextRun: 'Próxima execução', lastRun: 'Última execução' },
     triggers: { onDemand: 'Sob demanda', schedule: 'Agendada' },
     triggerTypes: { on_demand: 'Sob demanda', schedule: 'Agendada', certificate_version_created: 'Certificate new-version event', retry: 'Repetição de falhas' },
-    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    eventSources: { external_source: 'Fonte externa', manual_import: 'Importação manual' },
     targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
     assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: 'Criar plano de renovação de certificado', execute_deployment_plan: 'Executar plano de renovação de certificado', send_notification: 'Enviar notificação' },
@@ -907,6 +902,9 @@ export default {
       signatureStatus: 'Status da assinatura',
       riskLevel: 'Nível de risco', runtime: 'Runtime', executionMode: 'Modelo de execução', scope: 'Escopo', support: 'Nível de suporte', capabilities: 'Capacidades', frameworks: 'Frameworks alvo', products: 'Produtos suportados', operations: 'Operações suportadas'
     },
+    labels: { permissions: 'Permissões declaradas', runnerStatus: 'Status do Runner' },
+    permissionKeys: { network_http: 'Solicitações de rede', secret_read: 'Leitura de segredos', artifact_read: 'Leitura de artefatos', device_write: 'Escrita em dispositivos' },
+    runnerStatuses: { ready: 'Runner pronto', busy: 'Runner ocupado', unavailable: 'Runner indisponível', notObserved: 'Runner não observado' },
     capabilityKeys: { device_connection_test: 'Teste de conexão', device_identity_detect: 'Detecção de identidade do dispositivo', device_discover: 'Descoberta de dispositivo', device_logs_read: 'Leitura de logs do dispositivo', certificate_discover: 'Descoberta de certificados', certificate_deploy: 'Implantação de certificado', certificate_rollback: 'Rollback de certificado', certificate_verify: 'Verificação de certificado' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personalizado', runtime_custom: 'Runtime personalizado', adc_load_balancer: 'Balanceador ADC', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Execução atômica do Agent', workflow_dsl: 'Workflow DSL', trusted_js: 'Trusted JS' },
@@ -3336,7 +3334,9 @@ export default {
       },
       sourceTypes: {
         manual: 'Importação manual',
-        acme: 'ACME',
+        internal_ca: 'CA interno',
+        enterprise_ca: 'CA empresarial',
+        external_api: 'API externa',
         unknown: 'Desconhecido'
       },
       lifecycle: {
@@ -4199,12 +4199,6 @@ export default {
     submit: 'Entrar',
     policy: 'Proteção por permissões RBAC',
     audit: 'Auditoria completa das operações'
-  },
-  compatibility: {
-    title: 'Catálogo de compatibilidade', description: 'Suporte, limitações e evidências vêm dos Perfis de Compatibilidade.', generatedAt: 'Gerado em: {time}', loading: 'Carregando catálogo…', loadFailed: 'Falha ao carregar o catálogo', none: 'Nenhum',
-    columns: { profile: 'Perfil', version: 'Versão', status: 'Status', automation: 'Automação', evidence: 'Evidência', verifiedAt: 'Última verificação', limitations: 'Limitações' },
-    status: { certified: 'Certificado', supported: 'Suportado', compatible: 'Compatível', experimental: 'Experimental', legacy: 'Legado', unsupported: 'Não suportado' },
-    evidence: { current: 'Atual', expired: 'Expirada', failed: 'Falhou' }
   },
   internalCa: internalCaEnglish,
   errors: {

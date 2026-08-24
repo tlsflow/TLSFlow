@@ -33,7 +33,6 @@ describe('内部 CA 导航与国际化', () => {
       expect(locale.internalCa.wizard.intermediateTitle).toBeTruthy()
       expect(locale.internalCa.wizard.builtinTitle).toBeTruthy()
       expect(locale.internalCa.wizard.managedTitle).toBeTruthy()
-      expect(locale.internalCa.wizard.externalTitle).toBeTruthy()
       expect(locale.internalCa.sections.issuingBackends).toBeTruthy()
       expect(locale.internalCa.fields.issuingBackend).toBeTruthy()
       expect(locale.internalCa.topology.rootOnlyRisk).toBeTruthy()

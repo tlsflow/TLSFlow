@@ -1,15 +1,27 @@
 import { apiClient } from '@/api/client'
-import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
+import type { PageResult } from '@/api/generated/client-types'
+import type { PluginCatalogItem, PluginRuntimeMetric, PluginVersionRecord } from '@/api/generated/schemas'
+import { buildListPath, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 
 const PLUGIN_CATALOG_PATH = '/api/v1/plugin-catalog'
 const BUILTIN_PLUGIN_CATALOG_REFRESH_PATH = '/api/v1/plugin-catalog/refresh-builtins'
 const UNIFIED_PLUGIN_ENABLE_PATH = '/api/v1/plugin-versions/enable'
 const UNIFIED_PLUGIN_DISABLE_PATH = '/api/v1/plugin-versions/disable'
 const UNIFIED_PLUGIN_UI_RESOURCES_PATH = '/api/v1/plugin-versions/ui-resources'
+const UNIFIED_PLUGIN_VERSIONS_PATH = '/api/v1/plugin-versions'
+const PLUGIN_RUNTIME_METRICS_PATH = '/api/v1/plugin-runtime/metrics'
 const PLUGIN_BINDINGS_PATH = '/api/v1/plugin-bindings'
 
 export function listPluginCatalog(query?: BusinessListQuery) {
-  return listRecords(PLUGIN_CATALOG_PATH, query)
+  return apiClient.get<PageResult<PluginCatalogItem>>(buildListPath(PLUGIN_CATALOG_PATH, query))
+}
+
+export function listUnifiedPluginVersions(query?: BusinessListQuery) {
+  return apiClient.get<PageResult<PluginVersionRecord>>(buildListPath(UNIFIED_PLUGIN_VERSIONS_PATH, query))
+}
+
+export function listPluginRuntimeMetrics(query?: BusinessListQuery) {
+  return apiClient.get<PageResult<PluginRuntimeMetric>>(buildListPath(PLUGIN_RUNTIME_METRICS_PATH, query))
 }
 
 export function refreshBuiltinPluginCatalog() {

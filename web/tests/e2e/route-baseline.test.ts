@@ -7,7 +7,7 @@ describe('核心路由基线', () => {
     const paths = [...coreRoutes, ...businessRoutes].map((route) => route.path)
     expect(paths).toEqual(expect.arrayContaining([
       '/dashboard', '/certificates', '/assets', '/providers', '/bindings', '/deployment-plans', '/executions',
-      '/agents', '/gateways', '/plugins', '/workflows', '/workflow-templates', '/monitors', '/audits', '/settings',
+      '/agents', '/gateways', '/plugins', '/workflows', '/monitors', '/audits', '/settings',
       '/settings/version', '/settings/notifications',
       '/reports/incident-window', '/reports/risk-response', '/reports/automation-effectiveness'
     ]))

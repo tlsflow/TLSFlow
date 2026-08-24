@@ -392,7 +392,11 @@ async function loadPluginSources() {
   try {
     const result = await listPluginWorkflowSources(locale.value)
     pluginSourceItems.value = [...(result.data?.items ?? [])]
-    selectedPluginSourceId.value = ''
+    const preferred = pluginSourceItems.value.find((item) => readString(item, ['capabilityKey']) === 'certificate.deploy')
+      ?? pluginSourceItems.value[0]
+    selectedPluginSourceId.value = preferred
+      ? `${readString(preferred, ['pluginVersionId'])}:${readString(preferred, ['capabilityKey'])}`
+      : ''
   } catch (cause) {
     pluginSourceItems.value = []
     pluginSourceError.value = cause instanceof Error ? cause.message : t('workflows.templates.pluginSources.errors.loadFailed')
@@ -508,8 +512,8 @@ async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition }) {
   canvasMessage.value = ''
   try {
     const compiled = await compileCanvasOnBackend(payload.canvas)
-    const result = await updateCurrentWorkflowTemplateDraftVersion({
-      templateId: readString(editorRow.value.raw, ['id']),
+    const templateId = readString(editorRow.value.raw, ['id'])
+    const result = await updateCurrentWorkflowTemplateDraftVersion(templateId, {
       content: compiled.content,
       changeSummary: t('workflows.templates.changeSummaries.saveCanvasDraft'),
     })
@@ -533,8 +537,8 @@ async function createManagedVersion() {
   try {
     const sourceContent = resolveManagedVersionSourceContent(row)
     if (!sourceContent) throw new Error(t('workflows.templates.errors.missingWorkflowDsl'))
-    const result = await createWorkflowTemplateVersion({
-      templateId: readString(row.raw, ['id']),
+    const templateId = readString(row.raw, ['id'])
+    const result = await createWorkflowTemplateVersion(templateId, {
       content: sourceContent,
       changeSummary: t('workflows.templates.changeSummaries.createVersionDraft'),
       allowDuplicateContent: true,
@@ -936,7 +940,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         </p>
         <label v-if="pluginSourceMode === 'create'" class="workflow-file-template-modal__field gc-form-field">
           <span>{{ t('workflows.templates.fields.name') }} <strong aria-hidden="true">*</strong></span>
-          <input :value="pluginSourceWorkflowName" type="text" required aria-required="true" :placeholder="t('workflows.templates.pluginSources.namePlaceholder')" @input="updatePluginSourceWorkflowName" />
+          <input class="gc-input" :value="pluginSourceWorkflowName" type="text" required aria-required="true" :placeholder="t('workflows.templates.pluginSources.namePlaceholder')" @input="updatePluginSourceWorkflowName" />
         </label>
         <p v-if="pluginSourceError" class="workflow-file-template-modal__error">{{ pluginSourceError }}</p>
         <GcPluginWorkflowSourceSelector

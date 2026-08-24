@@ -4,7 +4,6 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesJaJP } from './devices.locale'
 import { caOperationsJaJP } from './ca-operations.locale'
 import { credentialsJaJP } from './credentials.locale'
-import { acmeJaJP } from './acme.locale'
 import { providersJaJP } from './providers.locale'
 import { monitoringTlsJaJP } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
@@ -12,7 +11,6 @@ export default {
   credentials: credentialsJaJP,
   devices: devicesJaJP,
   caOperations: caOperationsJaJP,
-  acme: acmeJaJP,
   providers: providersJaJP,
   app: {
     brand: 'GCAC コンソール',
@@ -446,9 +444,6 @@ export default {
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
     relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画' },
     typeLabels: {
-      ACME_CERTIFICATE_ISSUE: 'ACME発行',
-      ACME_CERTIFICATE_RENEWAL: 'ACME更新',
-      ACME_CHALLENGE: 'ACMEチャレンジ',
       CERTIFICATE_DRY_RUN: '証明書Dry-run',
       CERTIFICATE_DEPLOY: '証明書配備',
       CERTIFICATE_VERIFY: '証明書検証',
@@ -593,7 +588,7 @@ export default {
     emptyDescription: '説明なし',
     common: { notAvailable: 'なし', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: '外部 API でトリガー', apiHelp: '外部システムが自動化実行 API を呼び出します。対象プレビュー、Dry Run、承認ルールは毎回適用されます。', once: '指定時刻に一度だけ実行', onceHelp: 'ブラウザーのローカル時刻を選択します。実行後に再スケジュールされません。', recurring: '定期実行', scheduleHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringWarningTitle: '証明書更新での定期実行は推奨されません', recurringWarning: '通常は証明書発行後に外部システムから起動するか、固定時刻に一度だけ実行します。', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: '実行時刻', frequency: '実行周期', daily: '毎日', weekly: '毎週', monthly: '毎月', time: '時刻', weekday: '曜日', monthDay: '日付', legacyCustom: '既存のカスタム計画を保持', legacyCron: '既存 Cron（読み取り専用）', weekdays: { 0: '日曜日', 1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日' } },
+    scheduleBuilder: { api: '外部 API でトリガー', apiHelp: '外部システムが自動化実行 API を呼び出します。対象プレビュー、Dry Run、承認ルールは毎回適用されます。', once: '指定時刻に一度だけ実行', onceHelp: 'ブラウザーのローカル時刻を選択します。実行後に再スケジュールされません。', recurring: '定期実行', scheduleHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringHelp: '継続的な確認が本当に必要な場合だけ使用してください。', recurringWarningTitle: '証明書更新での定期実行は推奨されません', recurringWarning: '通常は証明書発行後に外部システムから起動するか、固定時刻に一度だけ実行します。', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: '外部ソースまたは手動インポートで証明書の新しいバージョンが作成された後に自動化を開始します。', runAt: '実行時刻', frequency: '実行周期', daily: '毎日', weekly: '毎週', monthly: '毎月', time: '時刻', weekday: '曜日', monthDay: '日付', legacyCustom: '既存のカスタム計画を保持', legacyCron: '既存 Cron（読み取り専用）', weekdays: { 0: '日曜日', 1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日' } },
     form: { existingAssetTitle: '既存アプリ資産のみを更新', existingAssetDescription: '既存の証明書バインドがあるアプリ資産だけを処理します。初回インストールや新しい対象の追加は行いません。', certificateDomains: '証明書ドメイン', certificateDomainsPlaceholder: '証明書ドメインをカンマ区切りで入力', certificateDomainsHelp: '指定したドメインに対応する既存のアプリ資産バインドだけを更新します。', versionSelection: '更新する証明書バージョン', versionSelectionLatest: '最新の証明書バージョンを自動使用', versionSelectionSpecific: '指定した証明書バージョンを使用', versionSelectionHelp: '実行開始時にバージョンを解決して固定します。', certificateVersionIds: '指定する証明書バージョン', certificateVersionIdsPlaceholder: '証明書バージョン ID をカンマ区切りで入力', certificateVersionIdsHelp: '各バージョンは上記ドメインの証明書に属している必要があります。', versionLoading: '選択可能な証明書バージョンを読み込んでいます。', versionLoadFailed: '証明書バージョンの読み込みに失敗しました。後で再試行してください。', versionEmpty: 'このドメインに選択可能な証明書バージョンはありません。', schedule: '更新するタイミング', scheduleHelp: 'オンデマンドで開始するか、Cron とタイムゾーンで定期実行します。', execution: '実行時の処理', executionHelp: '既存バインドごとに個別の更新計画を作成し、DeploymentPlan、Dry Run、承認、ExecutionRun を再利用します。', snapshot: 'ドメイン、資産、証明書バージョンのスナップショットを固定' },
     fields: { name: '名前', description: '説明', trigger: 'トリガー', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 式', timeZone: 'タイムゾーン', expiresWithinDays: '有効期限までの日数', environments: '対象環境（カンマ区切り）', certificateIds: '指定証明書（任意）', certificateIdsPlaceholder: '証明書 ID をカンマ区切りで入力', certificateIdsHelp: '入力した場合は指定証明書だけを処理し、空欄の場合は期限と環境で自動選択します。', expiresWithinDaysHelp: 'この期間内に期限切れとなる証明書だけを対象にします。', environmentsHelp: '指定した環境の証明書だけを処理します。', planType: 'デプロイ計画の種類', planTypeHelp: '一致した証明書対象ごとに実行時に独立した DeploymentPlan を作成します。', planTypeUpdate: '既存の証明書バインドを更新', planTypeInstall: '対象へ証明書をインストール', planTypeVerifyOnly: '検証のみ、証明書は変更しない', planMode: '実行方式', planModeHelp: '既存計画には紐付けず、対象ごとに実行時に新しい計画を作成します。', planModeCreateAndExecute: '計画を作成して実行', planModeCreateOnly: '計画だけ作成して実行しない', maxTargets: '1 回の最大対象数', concurrency: '同時実行数', failureCount: '失敗件数しきい値', requireDryRun: '実行前に Dry Run を必須にする', requireApproval: '実行前に承認を必須にする', startedAt: '開始時刻', finishedAt: '終了時刻', failureStage: '失敗段階', parentRun: '親実行' },
     actions: { create: '自動化を作成', detail: 'Details', edit: '編集', delete: '削除', cancel: 'キャンセル', save: '保存', copy: '複製', enable: '有効化', disable: '無効化', runNow: 'Run now', preview: '対象をプレビュー', history: '実行履歴', confirmRun: '実行を確認', stop: '実行を停止', retryFailed: '失敗対象を再試行', openPlan: 'デプロイ計画を表示', openExecution: '実行記録を表示' },
@@ -601,7 +596,7 @@ export default {
     columns: { status: 'Status', trigger: 'トリガー', targets: '対象上限', actions: '実行アクション', nextRun: '次回実行', lastRun: '前回実行' },
     triggers: { onDemand: 'オンデマンド', schedule: 'スケジュール' },
     triggerTypes: { on_demand: 'オンデマンド', schedule: 'スケジュール', certificate_version_created: 'Certificate new-version event', retry: '失敗対象の再試行' },
-    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    eventSources: { external_source: '外部ソース', manual_import: '手動インポート' },
     targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
     assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: '証明書更新計画を作成', execute_deployment_plan: '証明書更新計画を実行', send_notification: '通知を送信' },
@@ -933,6 +928,9 @@ export default {
       signatureStatus: '署名ステータス',
       riskLevel: 'リスク等级', runtime: 'ランタイム', executionMode: '実行モデル', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ', frameworks: '対象フレームワーク', products: '対応製品', operations: '対応操作'
     },
+    labels: { permissions: '宣言された権限', runnerStatus: 'Runner の状態' },
+    permissionKeys: { network_http: 'ネットワーク要求', secret_read: 'Secret の読み取り', artifact_read: '成果物の読み取り', device_write: 'デバイスへの書き込み' },
+    runnerStatuses: { ready: 'Runner 準備完了', busy: 'Runner 実行中', unavailable: 'Runner 使用不可', notObserved: 'Runner 未観測' },
     capabilityKeys: { device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り', certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL', trusted_js: 'Trusted JS' },
@@ -3362,7 +3360,9 @@ export default {
       },
       sourceTypes: {
         manual: '手動インポート',
-        acme: 'ACME',
+        internal_ca: '内部 CA',
+        enterprise_ca: 'エンタープライズ CA',
+        external_api: '外部 API',
         unknown: '不明'
       },
       lifecycle: {
@@ -4225,12 +4225,6 @@ export default {
     submit: 'ログイン',
     policy: 'RBAC 権限保護',
     audit: '操作の全過程を監査'
-  },
-  compatibility: {
-    title: '互換性カタログ', description: '対応範囲、制限、証拠は Compatibility Profile から取得します。', generatedAt: '生成日時: {time}', loading: '互換性カタログを読み込み中…', loadFailed: '互換性カタログの読み込みに失敗しました', none: 'なし',
-    columns: { profile: 'Profile', version: 'バージョン', status: '状態', automation: '自動化', evidence: '証拠', verifiedAt: '最終確認', limitations: '制限' },
-    status: { certified: '認証済み', supported: 'サポート', compatible: '互換', experimental: '実験的', legacy: 'レガシー', unsupported: '非対応' },
-    evidence: { current: '有効', expired: '期限切れ', failed: '失敗' }
   },
   internalCa: internalCaEnglish,
   errors: {

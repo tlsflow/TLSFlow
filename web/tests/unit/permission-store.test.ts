@@ -50,7 +50,7 @@ describe('权限 Store', () => {
     expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.deployments'])
     const deployments = store.visibleMenuItems.find((item) => item.titleKey === 'nav.deployments')
     expect(deployments?.path).toBe('/executions')
-    expect(deployments?.activePaths).toEqual(['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'])
+    expect(deployments?.activePaths).toEqual(['/deployment-plans', '/workflows', '/automations', '/automation-runs', '/executions'])
     expect(deployments?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
 
     store.setPermissions(['plugin.read'])

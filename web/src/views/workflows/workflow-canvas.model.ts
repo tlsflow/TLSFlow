@@ -11,6 +11,8 @@ export type WorkflowDslCredentialValue = string
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime'
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output'
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding'
+export type WorkflowSshProgram = 'systemctl' | 'service' | 'sc.exe'
+export type WorkflowSshArgumentTemplate = 'systemctl.reload' | 'systemctl.restart' | 'service.reload' | 'service.restart' | 'sc.query'
 
 function canvasModelText(key: string, params?: Record<string, string | number>): string {
   const fullKey = `workflows.canvasModel.${key}`
@@ -179,41 +181,6 @@ export interface WorkflowDslV1 {
   readonly rollback?: readonly WorkflowDslStep[]
 }
 
-interface LegacyWorkflowVariableDefinition extends Record<string, unknown> {
-  readonly type?: unknown
-  readonly required?: unknown
-  readonly configurationMode?: unknown
-  readonly default?: unknown
-  readonly enum?: unknown
-  readonly sensitive?: unknown
-  readonly description?: unknown
-  readonly source?: unknown
-  readonly lifecycle?: unknown
-  readonly bindingPolicy?: unknown
-  readonly artifactContract?: unknown
-  readonly ui?: unknown
-}
-
-interface LegacyWorkflowConnectionDefinition extends Record<string, unknown> {
-  readonly protocol?: unknown
-  readonly host?: unknown
-  readonly port?: unknown
-  readonly username?: unknown
-  readonly credential?: unknown
-  readonly hostKey?: unknown
-  readonly tls?: unknown
-}
-
-interface LegacyWorkflowDsl extends Record<string, unknown> {
-  readonly apiVersion: 'gcac.workflow/v1'
-  readonly kind: 'CurlSshWorkflow'
-  readonly metadata: WorkflowCanvasDefinition['metadata']
-  readonly variables?: Record<string, LegacyWorkflowVariableDefinition>
-  readonly connections?: Record<string, LegacyWorkflowConnectionDefinition>
-  readonly steps: readonly Record<string, unknown>[]
-  readonly rollback?: readonly Record<string, unknown>[]
-}
-
 export type WorkflowDslStep =
   | {
       readonly name: string
@@ -254,11 +221,10 @@ export type WorkflowDslStep =
       readonly type: 'ssh'
       readonly stage?: WorkflowCanvasStage
       readonly ssh: {
-        readonly mode: 'command' | 'script' | 'interactive'
         readonly connectionRef: string
-        readonly command?: string
-        readonly commands?: readonly string[]
-        readonly script?: string
+        readonly program: WorkflowSshProgram
+        readonly args: readonly string[]
+        readonly argumentTemplate: WorkflowSshArgumentTemplate
         readonly timeoutSeconds?: number
       }
       readonly retry?: { readonly count?: number; readonly intervalSeconds?: number }
@@ -410,7 +376,9 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     outputPorts: ['success', 'failure'],
     fields: [
       { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
-      { key: 'command', label: canvasModelText('fields.command'), kind: 'textarea', required: true },
+      { key: 'program', label: canvasModelText('fields.command'), kind: 'select', required: true, options: ['systemctl', 'service', 'sc.exe'].map((value) => ({ label: value, value })) },
+      { key: 'args', label: canvasModelText('fields.command'), kind: 'textarea', required: true },
+      { key: 'argumentTemplate', label: canvasModelText('fields.command'), kind: 'select', required: true, options: ['systemctl.reload', 'systemctl.restart', 'service.reload', 'service.restart', 'sc.query'].map((value) => ({ label: value, value })) },
       { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
@@ -609,11 +577,9 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
       label: canvasModelText('defaults.nodes.backupExistingCertificate'),
       config: {
         ...createDefaultConfig('ssh'),
-        command: [
-          'mkdir -p {{variables.certificatePaths.backupDir}}',
-          'cp -f {{variables.certificatePaths.certPath}} {{variables.certificatePaths.backupCertPath}}',
-          'cp -f {{variables.certificatePaths.keyPath}} {{variables.certificatePaths.backupKeyPath}}',
-        ].join('\n'),
+        program: 'systemctl',
+        args: ['service-main'],
+        argumentTemplate: 'systemctl.reload',
       },
     },
     createCanvasNode('sftp', 2, undefined, 'install'),
@@ -623,7 +589,9 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
       label: canvasModelText('defaults.nodes.reloadService'),
       config: {
         ...createDefaultConfig('ssh'),
-        command: 'nginx -t\nsystemctl reload nginx',
+        program: 'systemctl',
+        args: ['service-main'],
+        argumentTemplate: 'systemctl.reload',
       },
     },
     createCanvasNode('verify', 5, undefined, 'verify'),
@@ -723,7 +691,7 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
   if (type === 'http') return { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', body: '', timeoutSeconds: 30 }
-  if (type === 'ssh') return { connectionRef: 'targetSsh', command: 'systemctl reload nginx', timeoutSeconds: 60 }
+  if (type === 'ssh') return { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutSeconds: 60 }
   if (type === 'sftp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.certFile.content}}', '{{variables.certificatePaths.certPath}}', '{{variables.certificatePaths.tempCertPath}}', '0644')
   if (type === 'scp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.keyFile.content}}', '{{variables.certificatePaths.keyPath}}', '{{variables.certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', connectionRef: 'management', inputRef: '{{variables.verifyUrl}}', expected: '200', timeoutSeconds: 30 }
@@ -735,19 +703,19 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   return { instruction: canvasModelText('defaults.config.manualInstruction') }
 }
 
-export function workflowDslToCanvas(dsl: WorkflowDslV1 | LegacyWorkflowDsl): WorkflowCanvasDefinition {
-  const normalizedDsl = normalizeWorkflowDslImport(dsl)
-  const nodes = normalizedDsl.steps.map((step, index) => dslStepToNode(step, index))
+export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinition {
+  if (!isWorkflowDslV1(dsl)) throw new Error(canvasModelText('errors.missingWorkflowDsl'))
+  const nodes = dsl.steps.map((step, index) => dslStepToNode(step, index))
   return normalizeWorkflowCanvasFlow({
     schemaVersion: 'gcac.workflow.canvas/v1',
     dslVersion: 'gcac.workflow/v1',
-    metadata: normalizedDsl.metadata,
-    inputContract: cloneRecord(normalizedDsl.inputContract),
+    metadata: dsl.metadata,
+    inputContract: cloneRecord(dsl.inputContract),
     nodes,
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
     draftState: {
-      importedRollback: cloneRecord(normalizedDsl.rollback ?? []),
+      importedRollback: cloneRecord(dsl.rollback ?? []),
     },
   })
 }
@@ -766,15 +734,8 @@ export function isWorkflowDslV1(value: unknown): value is WorkflowDslV1 {
   return true
 }
 
-export function isWorkflowDslCanvasImportable(value: unknown): value is WorkflowDslV1 | LegacyWorkflowDsl {
-  if (isWorkflowDslV1(value)) return true
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const record = value as Record<string, unknown>
-  if (record.apiVersion !== 'gcac.workflow/v1' || record.kind !== 'CurlSshWorkflow') return false
-  if (!record.metadata || typeof record.metadata !== 'object' || Array.isArray(record.metadata)) return false
-  if (!Array.isArray(record.steps) || record.steps.length === 0) return false
-  if (record.rollback !== undefined && !Array.isArray(record.rollback)) return false
-  return true
+export function isWorkflowDslCanvasImportable(value: unknown): value is WorkflowDslV1 {
+  return isWorkflowDslV1(value)
 }
 
 export function cloneCanvas(canvas: WorkflowCanvasDefinition): WorkflowCanvasDefinition {
@@ -909,24 +870,6 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
     }
   }
   if (step.type === 'ssh') {
-    const command = sshConfigText(step)
-    if (command.startsWith('SFTP_')) {
-      const [, direction = 'UPLOAD', localArtifactRef = '{{serverCert.outputs.certFile.content}}', remotePath = '/tmp/cert.pem'] = command.split(/\s+/)
-      return {
-        id: `sftp_${index + 1}`,
-        type: 'sftp',
-        position: { x: 80 + index * 260, y: 120 },
-        label: dslStepLabel(step, canvasModelText('nodeTypes.sftp.displayName')),
-        ui: { stage, rawStep: cloneRecord(step) },
-        config: {
-          direction: direction.toLowerCase() === 'download' ? 'download' : 'upload',
-          connectionRef: step.ssh.connectionRef,
-          localArtifactRef,
-          remotePath,
-          timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
-        },
-      }
-    }
     return {
       id: `ssh_${index + 1}`,
       type: 'ssh',
@@ -935,7 +878,9 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         connectionRef: step.ssh.connectionRef,
-        command,
+        program: step.ssh.program,
+        args: [...step.ssh.args],
+        argumentTemplate: step.ssh.argumentTemplate,
         timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
       },
     }
@@ -1109,7 +1054,6 @@ function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasSt
   if (step.type === 'sftp' || step.type === 'scp') return 'install'
   if (step.type === 'checkpoint' || step.type === 'checkpoint_verify') return 'backup'
   if (step.type === 'transform' || step.type === 'foreach') return 'refresh'
-  if (step.type === 'ssh' && (step.ssh.command ?? '').startsWith('SFTP_')) return 'install'
   if (step.type === 'ssh' || step.type === 'wait') return 'refresh'
   if (step.type === 'manual' && index > 0) return 'verify'
   if (step.type === 'condition') return 'prepare'
@@ -1152,12 +1096,6 @@ function stringifyBody(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
-function sshConfigText(step: Extract<WorkflowDslStep, { type: 'ssh' }>): string {
-  if (step.ssh.mode === 'script') return step.ssh.script ?? ''
-  if (step.ssh.commands?.length) return step.ssh.commands.join('\n')
-  return step.ssh.command ?? ''
-}
-
 function dslStepLabel(step: WorkflowDslStep, fallback: string): string {
   return step.name?.trim() || fallback
 }
@@ -1196,238 +1134,6 @@ function createDefaultFileTransferConfig(contentRef: string, remotePath: string,
     mode,
     timeoutSeconds: 60,
   }
-}
-
-function normalizeWorkflowDslImport(dsl: WorkflowDslV1 | LegacyWorkflowDsl): WorkflowDslV1 {
-  if (isWorkflowDslV1(dsl)) return dsl
-  return {
-    apiVersion: 'gcac.workflow/v1',
-    kind: 'CurlSshWorkflow',
-    metadata: cloneRecord(dsl.metadata),
-    inputContract: buildLegacyInputContract(dsl),
-    steps: cloneRecord(dsl.steps) as WorkflowDslV1['steps'],
-    ...(Array.isArray(dsl.rollback) ? { rollback: cloneRecord(dsl.rollback) as WorkflowDslV1['rollback'] } : {}),
-  }
-}
-
-function buildLegacyInputContract(dsl: LegacyWorkflowDsl): DeploymentInputContractV1 {
-  const variables: Record<string, WorkflowVariableDefinition> = {}
-  const connections: Record<string, DeploymentConnectionDefinitionV1> = {}
-  const credentials: Record<string, DeploymentCredentialSlotV1> = {}
-  const artifacts: Record<string, DeploymentArtifactSlotV1> = {}
-
-  for (const [name, rawDefinition] of Object.entries(dsl.variables ?? {})) {
-    const definition = isRecord(rawDefinition) ? rawDefinition : {}
-    if (isLegacyArtifactVariable(definition)) {
-      artifacts[name] = normalizeLegacyArtifactDefinition(definition)
-      continue
-    }
-    variables[name] = normalizeLegacyVariableDefinition(definition)
-  }
-
-  for (const [name, rawConnection] of Object.entries(dsl.connections ?? {})) {
-    const definition = isRecord(rawConnection) ? rawConnection : {}
-    const normalizedConnection = normalizeLegacyConnectionDefinition(definition)
-    connections[name] = normalizedConnection.connection
-    if (normalizedConnection.credentialSlot) {
-      credentials[normalizedConnection.credentialSlot] = normalizedConnection.credential
-    }
-  }
-
-  return {
-    apiVersion: 'gcac.deployment-input/v1',
-    variables,
-    connections,
-    credentials,
-    artifacts,
-  }
-}
-
-function normalizeLegacyVariableDefinition(definition: Record<string, unknown>): WorkflowVariableDefinition {
-  const type = normalizeLegacyVariableType(definition.type)
-  const lifecycle = normalizeLifecycle(definition.lifecycle)
-  const configurationMode = normalizeConfigurationMode(definition.configurationMode)
-  return sanitizeVariableDefinition({
-    type,
-    required: definition.required !== false,
-    configurationMode,
-    ...(definition.default !== undefined ? { default: cloneRecord(definition.default) } : {}),
-    ...(Array.isArray(definition.enum) ? { enum: cloneRecord(definition.enum) } : {}),
-    sensitive: definition.sensitive === true,
-    ...(typeof definition.description === 'string' && definition.description.trim() ? { descriptionKey: definition.description } : {}),
-    source: normalizeLegacyVariableSource(definition.source, definition.default),
-    lifecycle,
-    bindingPolicy: normalizeBindingPolicy(definition.bindingPolicy, configurationMode),
-    ...(isRecord(definition.ui) ? { ui: cloneRecord(definition.ui) } : {}),
-  })
-}
-
-function normalizeLegacyArtifactDefinition(definition: Record<string, unknown>): DeploymentArtifactSlotV1 {
-  const artifactContract = isRecord(definition.artifactContract) ? definition.artifactContract : {}
-  const outputsRecord = isRecord(artifactContract.outputs) ? artifactContract.outputs : {}
-  return {
-    kind: normalizeLegacyArtifactKind(definition.type),
-    required: definition.required !== false,
-    configurationMode: normalizeOwnedConfigurationMode(definition.configurationMode, 'required'),
-    lifecycle: normalizeArtifactLifecycle(definition.lifecycle),
-    artifactContract: {
-      outputs: Object.fromEntries(Object.entries(outputsRecord).map(([outputName, rawOutput]) => {
-        const output = isRecord(rawOutput) ? rawOutput : {}
-        return [outputName, {
-          role: typeof output.role === 'string' && output.role.trim() ? output.role : outputName,
-          required: output.required !== false,
-          ...(typeof output.format === 'string' && output.format.trim() ? { format: output.format } : {}),
-          ...(typeof output.encoding === 'string' && output.encoding.trim() ? { encoding: output.encoding } : {}),
-          ...(output.sensitive === true ? { sensitive: true } : {}),
-        }]
-      })),
-    },
-  }
-}
-
-function normalizeLegacyConnectionDefinition(definition: Record<string, unknown>): {
-  readonly connection: DeploymentConnectionDefinitionV1
-  readonly credentialSlot?: string
-  readonly credential: DeploymentCredentialSlotV1
-} {
-  const transport = definition.protocol === 'http' ? 'http' : 'ssh'
-  const credentialField = isRecord(definition.credential) ? definition.credential : {}
-  const credentialSlot = typeof credentialField.slot === 'string' && credentialField.slot.trim()
-    ? credentialField.slot.trim()
-    : undefined
-  return {
-    connection: {
-      transport,
-      host: normalizeLegacyConnectionField(definition.host, 'string'),
-      port: normalizeLegacyConnectionField(definition.port, 'number'),
-      ...(isRecord(definition.username) ? { username: normalizeLegacyConnectionField(definition.username, 'string') } : {}),
-      ...(credentialSlot ? { credentialSlot } : {}),
-      ...(isRecord(definition.tls) ? { tls: normalizeLegacyTls(definition.tls) } : {}),
-      ...(isRecord(definition.hostKey) ? { hostKey: normalizeLegacyHostKey(definition.hostKey) } : {}),
-    },
-    ...(credentialSlot ? { credentialSlot } : {}),
-    credential: {
-      allowedKinds: transport === 'http' ? ['BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'USERNAME_PASSWORD'] : ['SSH_KEY', 'USERNAME_PASSWORD'],
-      required: true,
-      configurationMode: normalizeOwnedConfigurationMode(credentialField.configurationMode, 'required'),
-      lifecycle: 'pre_execution',
-    },
-  }
-}
-
-function normalizeLegacyConnectionField(
-  definition: unknown,
-  type: DeploymentConnectionFieldV1['type'],
-): DeploymentConnectionFieldV1 {
-  const field = isRecord(definition) ? definition : {}
-  const configurationMode = normalizeConfigurationMode(field.configurationMode, 'required')
-  return {
-    type,
-    required: configurationMode === 'required',
-    configurationMode,
-    source: normalizeLegacyConnectionSource(field.source, field.default),
-    lifecycle: 'pre_execution',
-    bindingPolicy: configurationMode === 'advanced' ? 'default_overridable' : 'required_binding',
-    ...(field.default !== undefined ? { default: normalizeConnectionDefault(type, field.default) } : {}),
-  }
-}
-
-function normalizeLegacyTls(definition: Record<string, unknown>): DeploymentConnectionDefinitionV1['tls'] {
-  return {
-    verifyPeer: normalizeLegacyConnectionField(definition.verifyPeer, 'boolean'),
-    ...(isRecord(definition.serverName) ? { serverName: normalizeLegacyConnectionField(definition.serverName, 'string') } : {}),
-  }
-}
-
-function normalizeLegacyHostKey(definition: Record<string, unknown>): DeploymentConnectionDefinitionV1['hostKey'] {
-  return {
-    policy: definition.policy === 'strict' || definition.policy === 'manual_approval_required'
-      ? definition.policy
-      : 'trust_on_first_use',
-    ...(isRecord(definition.expectedFingerprint) ? { expectedFingerprint: normalizeLegacyConnectionField(definition.expectedFingerprint, 'string') } : {}),
-  }
-}
-
-function isLegacyArtifactVariable(definition: Record<string, unknown>): boolean {
-  return (definition.type === 'certificate' || definition.type === 'file')
-    && isRecord(definition.artifactContract)
-}
-
-function normalizeLegacyVariableType(value: unknown): WorkflowVariableDefinition['type'] {
-  return value === 'number'
-    || value === 'boolean'
-    || value === 'enum'
-    || value === 'object'
-    || value === 'array'
-    || value === 'file'
-    ? value
-    : 'string'
-}
-
-function normalizeLegacyArtifactKind(value: unknown): DeploymentArtifactSlotV1['kind'] {
-  return value === 'file' ? 'file' : 'certificate'
-}
-
-function normalizeLegacyVariableSource(source: unknown, defaultValue: unknown): WorkflowVariableDefinition['source'] {
-  const record = isRecord(source) ? source : {}
-  if (record.kind === 'asset_ssl' && typeof record.path === 'string') {
-    return { kind: 'asset', path: record.path }
-  }
-  if (record.kind === 'step_output' && typeof record.step === 'string' && typeof record.output === 'string') {
-    return { kind: 'step_output', step: record.step, output: record.output }
-  }
-  if (record.kind === 'execution_context' && typeof record.path === 'string') {
-    return { kind: 'system', key: record.path }
-  }
-  if (record.kind === 'derived' && typeof record.resolver === 'string') {
-    return { kind: 'derived', resolver: record.resolver }
-  }
-  if (defaultValue !== undefined || record.kind === 'dsl') {
-    return { kind: 'default' }
-  }
-  return { kind: 'binding' }
-}
-
-function normalizeLegacyConnectionSource(source: unknown, defaultValue: unknown): DeploymentConnectionFieldV1['source'] {
-  if (source === 'binding') return { kind: 'binding' }
-  if (defaultValue !== undefined || source === 'dsl_default') return { kind: 'default' }
-  if (source === 'credential') return { kind: 'binding' }
-  return { kind: 'binding' }
-}
-
-function normalizeConfigurationMode(value: unknown, fallback: WorkflowConfigurationMode = 'advanced'): WorkflowConfigurationMode {
-  return value === 'required' || value === 'advanced' || value === 'runtime' ? value : fallback
-}
-
-function normalizeOwnedConfigurationMode(
-  value: unknown,
-  fallback: Exclude<WorkflowConfigurationMode, 'runtime'> = 'advanced',
-): Exclude<WorkflowConfigurationMode, 'runtime'> {
-  const normalized = normalizeConfigurationMode(value, fallback)
-  return normalized === 'runtime' ? fallback : normalized
-}
-
-function normalizeLifecycle(value: unknown): WorkflowVariableLifecycle {
-  return value === 'runtime_injected' || value === 'step_output' ? value : 'pre_execution'
-}
-
-function normalizeArtifactLifecycle(value: unknown): Exclude<WorkflowVariableLifecycle, 'step_output'> {
-  return value === 'runtime_injected' ? 'runtime_injected' : 'pre_execution'
-}
-
-function normalizeBindingPolicy(value: unknown, configurationMode: WorkflowConfigurationMode): WorkflowBindingPolicy {
-  if (value === 'fixed' || value === 'default_overridable' || value === 'required_binding') return value
-  return configurationMode === 'advanced' ? 'default_overridable' : 'fixed'
-}
-
-function normalizeConnectionDefault(type: DeploymentConnectionFieldV1['type'], value: unknown): string | number | boolean {
-  if (type === 'number') return typeof value === 'number' ? value : Number(value ?? 0)
-  if (type === 'boolean') return value === true || value === 'true'
-  return String(value ?? '')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
 function requiredVariable(type: WorkflowVariableDefinition['type']): WorkflowVariableDefinition {

@@ -176,31 +176,8 @@ export function createAgentEnrollmentToken(payload: ApiBody) {
   return postAction(`${AGENTS_PATH}/enrollment-tokens`, payload, 'agent_enrollment_token')
 }
 
-export function createLinuxGoInstallSession(payload: ApiBody) {
-  return postAction(
-    `${AGENTS_PATH}/install-sessions/linux-go`,
-    payload,
-    'agent_linux_go_install_session',
-    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
-  )
-}
-
-export function createWindowsPowerShellInstallSession(payload: ApiBody) {
-  return postAction(
-    `${AGENTS_PATH}/install-sessions/windows-powershell`,
-    payload,
-    'agent_windows_ps_install',
-    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
-  )
-}
-
-export function createGatewayEnableSession(payload: ApiBody) {
-  return postAction(
-    `${AGENTS_PATH}/gateway-enable-sessions`,
-    payload,
-    'agent_gateway_enable_session',
-    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
-  )
+export function createAgentInstallMaterials(payload: ApiBody) {
+  return postAction(`${AGENTS_PATH}/install-materials`, payload, 'agent_install_materials')
 }
 
 export function startDiscovery(payload: ApiBody) {

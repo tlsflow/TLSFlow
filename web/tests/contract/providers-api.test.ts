@@ -2,12 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createCloudAccountAsset,
   deleteCloudAccountAsset,
-  discoverCloudAccountAsset,
-  executeProviderCapability,
   listCloudAccountAssets,
-  listProviderCapabilities,
-  listProviders,
-  testCloudAccountAsset,
   updateCloudAccountAsset,
 } from '@/api/modules/providers.api'
 
@@ -22,34 +17,28 @@ function mockResponse(): void {
 describe('云服务 API modules', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('所有云服务请求都使用单层 /api/v1 路径', async () => {
+  it('云账号 CRUD 只访问资源接口，不暴露旧 Provider Action', async () => {
     mockResponse()
-    await listProviders()
-    await listProviderCapabilities('cloud.aliyun')
     await listCloudAccountAssets()
-    await createCloudAccountAsset({ displayName: '阿里云生产账号' })
+    await createCloudAccountAsset({ displayName: '阿里云生产账号', providerKey: 'cloud.aliyun' })
     await updateCloudAccountAsset({ id: 'asset-1', displayName: '阿里云生产账号' })
     await deleteCloudAccountAsset('asset-1')
-    await testCloudAccountAsset('asset-1')
-    await discoverCloudAccountAsset('asset-1')
-    await executeProviderCapability('asset-1', {
-      frameworkType: 'cloud.aliyun.cdn',
-      operationKey: 'certificate.deploy',
-      target: {},
-    })
 
-    const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
+    const calls = vi.mocked(fetch).mock.calls
+    const urls = calls.map((call) => String(call[0]))
     expect(urls).toEqual([
-      '/api/v1/providers',
-      '/api/v1/providers/cloud.aliyun/capabilities',
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets/delete',
-      '/api/v1/cloud-account-assets/asset-1/connection-test',
-      '/api/v1/cloud-account-assets/asset-1/discover',
-      '/api/v1/cloud-account-assets/asset-1/execute',
+    ])
+    expect(calls.map((call) => (call[1] as RequestInit | undefined)?.method ?? 'GET')).toEqual([
+      'GET',
+      'POST',
+      'PATCH',
+      'POST',
     ])
     expect(urls.some((url) => url.includes('/api/api/'))).toBe(false)
+    expect(urls.some((url) => /connection-test|discover|execute|capabilities/.test(url))).toBe(false)
   })
 })

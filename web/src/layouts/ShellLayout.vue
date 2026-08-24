@@ -111,7 +111,6 @@ let taskEntryRefreshPending = false
 let toastSequence = 0
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
-const acmeIssueTaskTerminalToastIds = new Set<string>()
 const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
   'CERTIFICATE_DRY_RUN',
   'CERTIFICATE_DEPLOY',
@@ -298,7 +297,6 @@ onBeforeUnmount(() => {
   disposeTaskRealtime = undefined
   disposeTaskRefresh = undefined
   executionTaskSuccessToastIds.clear()
-  acmeIssueTaskTerminalToastIds.clear()
   toastTimers.forEach((timer) => window.clearTimeout(timer))
   toastTimers.clear()
 })
@@ -323,18 +321,6 @@ function handleToastEvent(event: Event): void {
 function handleTaskRealtime(message: TaskRealtimeMessage): void {
   if (message.type !== 'task.changed') return
   const task = message.task
-  if (task.taskType === 'ACME_CERTIFICATE_ISSUE') {
-    if (task.status !== 'SUCCEEDED' && task.status !== 'FAILED') return
-    if (acmeIssueTaskTerminalToastIds.has(task.id)) return
-    acmeIssueTaskTerminalToastIds.add(task.id)
-    window.dispatchEvent(new CustomEvent('gcac:toast', {
-      detail: {
-        message: t(task.status === 'SUCCEEDED' ? 'acme.messages.issueTaskSucceeded' : 'acme.messages.issueTaskFailed'),
-        tone: task.status === 'SUCCEEDED' ? 'success' : 'danger',
-      },
-    }))
-    return
-  }
   if (task.status !== 'SUCCEEDED' || !DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) return
   if (executionTaskSuccessToastIds.has(task.id)) return
   executionTaskSuccessToastIds.add(task.id)

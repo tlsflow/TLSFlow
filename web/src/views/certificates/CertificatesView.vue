@@ -59,7 +59,7 @@ interface CertificateVersionRow extends Record<string, string> {
 type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
 type VersionSortOrder = 'asc' | 'desc'
 type LifecycleStatusKey = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
-type CertificateSourceTypeKey = 'manual' | 'acme' | 'unknown'
+type CertificateSourceTypeKey = 'manual' | 'internal_ca' | 'enterprise_ca' | 'external_api' | 'unknown'
 const EXPIRING_SOON_DAYS = 10
 
 const route = useRoute()
@@ -263,7 +263,9 @@ function readAssetName(record: ApiRecord) {
 }
 
 function readAssetSubtitle(record: ApiRecord) {
-  return readString(record, ['sourceType', 'currentVersion.notAfter', 'updatedAt'], t('certificates.list.fallbacks.noSupplement'))
+  const sourceType = resolveCertificateSourceTypeKey(readString(record, ['sourceType'], ''))
+  const sourceTypeLabel = t(`certificates.list.sourceTypes.${sourceType}`)
+  return readString(record, ['currentVersion.notAfter', 'updatedAt'], sourceTypeLabel)
 }
 
 function buildCertificateRouteQuery() {
@@ -582,13 +584,12 @@ function formatLifecycleStatus(status: LifecycleStatusKey) {
 
 function resolveCertificateSourceTypeKey(value: string): CertificateSourceTypeKey {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'manual' || normalized === 'acme') return normalized
+  if (normalized === 'manual' || normalized === 'internal_ca' || normalized === 'enterprise_ca' || normalized === 'external_api') return normalized
   return 'unknown'
 }
 
 function certificateSourceTypeTone(sourceType: CertificateSourceTypeKey): StatusTone {
-  if (sourceType === 'acme') return 'info'
-  return 'muted'
+  return sourceType === 'manual' || sourceType === 'unknown' ? 'muted' : 'info'
 }
 
 function lifecycleStatusTone(status: LifecycleStatusKey): StatusTone {

@@ -49,6 +49,10 @@ vi.mock('@/design-system/components', () => ({
     name: 'GcConfirmActionStub',
     template: '<button type="button"><slot /></button>',
   }),
+  GcPageToolbar: defineComponent({
+    name: 'GcPageToolbarStub',
+    template: '<div class="gc-page-toolbar-stub"><slot name="actions" /><slot name="primary" /></div>',
+  }),
 }))
 
 function mountView() {

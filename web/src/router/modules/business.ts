@@ -15,22 +15,6 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: { title: 'Automation Effectiveness Report', titleKey: 'reports.automationEffectiveness.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.automationEffectiveness.title'], keepAlive: true }
   },
   {
-    path: '/compatibility',
-    name: 'compatibility.catalog',
-    component: () => import('@/views/compatibility/CompatibilityCatalogView.vue'),
-    meta: {
-      title: 'Compatibility Catalog',
-      titleKey: 'compatibility.title',
-      module: 'compatibility',
-      requiresAuth: true,
-      permission: 'dashboard.read',
-      resourceType: 'dashboard',
-      riskLevel: 'low',
-      breadcrumbKeys: ['compatibility.title'],
-      keepAlive: true
-    }
-  },
-  {
     path: '/certificates',
     name: 'certificate.list',
     component: () => import('@/views/certificates/CertificatesView.vue'),
@@ -80,24 +64,6 @@ export const businessRoutes: GcRouteRecord[] = [
       resourceType: 'certificate_authority',
       riskLevel: 'high',
       breadcrumbKeys: ['nav.certificates', 'internalCa.title'],
-      keepAlive: true
-    }
-  },
-  {
-    path: '/acme',
-    name: 'acme.operations',
-    component: () => import('@/views/acme/AcmeOperationsView.vue'),
-    meta: {
-      title: 'ACME Operations',
-      titleKey: 'acme.title',
-      heroTitle: true,
-      module: 'certificate',
-      requiresAuth: true,
-      permission: 'ca.operations.read',
-      allowInferredPermission: false,
-      resourceType: 'certificate_authority',
-      riskLevel: 'high',
-      breadcrumbKeys: ['nav.certificates', 'acme.title'],
       keepAlive: true
     }
   },
@@ -345,22 +311,6 @@ export const businessRoutes: GcRouteRecord[] = [
       riskLevel: 'high',
       breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
       keepAlive: true
-    }
-  },
-  {
-    path: '/workflow-templates',
-    name: 'workflow.template.legacyRedirect',
-    redirect: (to) => ({ path: '/workflows', query: to.query, hash: to.hash }),
-    meta: {
-      title: 'Workflows',
-      titleKey: 'nav.workflowTemplates',
-      module: 'workflow',
-      requiresAuth: true,
-      permission: 'workflow.read',
-      resourceType: 'workflowTemplate',
-      riskLevel: 'high',
-      breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
-      hiddenInMenu: true
     }
   },
   {

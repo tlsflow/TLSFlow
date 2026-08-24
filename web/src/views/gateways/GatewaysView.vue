@@ -5,10 +5,7 @@ import { RouterLink } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import {
-  createGatewayEnableSession,
-  createLinuxGoInstallSession,
-  createWindowsPowerShellInstallSession,
-  listAgents,
+  createAgentInstallMaterials,
 } from '@/api/modules/assets.api'
 import { listGateways, probeGateway } from '@/api/modules/gateways.api'
 import { readNumber, readPath, readString, type ViewRow } from '@/composables/useBusinessPage'
@@ -16,62 +13,42 @@ import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { formatBrowserLocalTime, formatMaybeLocalTimeByCandidates } from '@/utils/browser-local-time'
 
-type GatewayPlatform = 'linux_go_systemd' | 'windows_powershell_service'
-type CopiedKind = 'install' | 'enable' | null
+type GatewayPlatform = 'linux_go' | 'windows_go'
 
 const gatewayPlatformProfiles: Record<GatewayPlatform, {
   labelKey: 'devices.platforms.linux' | 'devices.platforms.windows'
-  install: (payload: Record<string, unknown>) => ReturnType<typeof createLinuxGoInstallSession>
-  installCommand: (url: string, fallback: string) => string
-  enableCommand: (url: string, fallback: string) => string
 }> = {
-  linux_go_systemd: {
+  linux_go: {
     labelKey: 'devices.platforms.linux',
-    install: (payload) => createLinuxGoInstallSession(payload),
-    installCommand: (url, fallback) => url ? `curl -fsSL '${url}' | sudo bash` : fallback,
-    enableCommand: (url, fallback) => url ? `curl -fsSL '${url}' | sudo bash` : fallback,
   },
-  windows_powershell_service: {
+  windows_go: {
     labelKey: 'devices.platforms.windows',
-    install: (payload) => createWindowsPowerShellInstallSession(payload),
-    installCommand: (url, fallback) => url ? `irm '${url}' | iex` : fallback,
-    enableCommand: (url, fallback) => url ? `irm '${url}' | iex` : fallback,
   },
 }
 
-interface CommandSession {
+interface InstallMaterialSession {
   platform: GatewayPlatform
   zone: string
-  command: string
-  code?: string
+  enrollmentToken: string
   expiresAt?: string
-  serviceName?: string
-  configPath?: string
+  materials: unknown[]
+  task: unknown
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const selectedGateway = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const installModalOpen = ref(false)
-const enableModalOpen = ref(false)
 const installPending = ref(false)
-const enablePending = ref(false)
 const installError = ref('')
-const enableError = ref('')
-const selectedInstallPlatform = ref<GatewayPlatform>('linux_go_systemd')
-const selectedEnablePlatform = ref<GatewayPlatform>('linux_go_systemd')
+const selectedInstallPlatform = ref<GatewayPlatform>('linux_go')
 const installZone = ref('default')
-const enableZone = ref('default')
-const enableAgentId = ref('')
-const enableAgents = ref<ApiRecord[]>([])
-const installSession = ref<CommandSession | null>(null)
-const enableSession = ref<CommandSession | null>(null)
-const copiedKind = ref<CopiedKind>(null)
+const installSession = ref<InstallMaterialSession | null>(null)
 const { t } = useI18n()
 
 const platformOptions = computed<Array<{ value: GatewayPlatform; label: string; description: string }>>(() => [
-  { value: 'linux_go_systemd', label: t(gatewayPlatformProfiles.linux_go_systemd.labelKey), description: t('gateways.platforms.linuxSystemd.description') },
-  { value: 'windows_powershell_service', label: t(gatewayPlatformProfiles.windows_powershell_service.labelKey), description: t('gateways.platforms.windowsService.description') },
+  { value: 'linux_go', label: t(gatewayPlatformProfiles.linux_go.labelKey), description: t('gateways.platforms.linuxSystemd.description') },
+  { value: 'windows_go', label: t(gatewayPlatformProfiles.windows_go.labelKey), description: t('gateways.platforms.windowsService.description') },
 ])
 
 const gatewayRaw = computed<ApiRecord | null>(() => selectedGateway.value?.raw ?? null)
@@ -121,82 +98,34 @@ function openGatewayInstallModal() {
   installModalOpen.value = true
   installError.value = ''
   installSession.value = null
-  copiedKind.value = null
 }
 
-async function openGatewayEnableModal() {
-  enableModalOpen.value = true
-  enableError.value = ''
-  enableSession.value = null
-  copiedKind.value = null
-  await loadEnableAgents()
-}
-
-async function loadEnableAgents() {
-  const result = await listAgents({ page: 1, pageSize: 100, sort: 'updatedAt:desc' })
-  enableAgents.value = extractItems(result.data)
-  if (!enableAgentId.value && enableAgents.value[0]) {
-    enableAgentId.value = String(readPath(enableAgents.value[0], 'id') ?? '')
-  }
-}
-
-async function generateGatewayInstallCommand() {
+async function requestGatewayInstallMaterials() {
   installPending.value = true
   installError.value = ''
-  copiedKind.value = null
   try {
-    const payload = { zone: installZone.value || 'default', role: 'gateway', startAfterInstall: true }
-    const platformProfile = gatewayPlatformProfiles[selectedInstallPlatform.value]
-    const result = await platformProfile.install(payload)
+    const result = await createAgentInstallMaterials({
+      platform: selectedInstallPlatform.value,
+      zone: installZone.value || 'default',
+      role: 'gateway',
+    })
     const data = result.data ?? {}
-    const rawBootstrapUrl = typeof data.bootstrapUrl === 'string' ? data.bootstrapUrl : ''
-    const bootstrapUrl = rewriteUrlWithBrowserOrigin(rawBootstrapUrl)
-    const fallback = typeof data.installCommand === 'string' ? data.installCommand : ''
-    const command = platformProfile.installCommand(bootstrapUrl, fallback)
-    if (!command) throw new Error(t('gateways.errors.missingInstallCommand'))
+    const materials = Array.isArray(data.materials) ? data.materials : []
+    if (!materials.length || !isRecord(materials[0]) || !isRecord(data.task)) {
+      throw new Error(t('api.errors.requestFailed'))
+    }
     installSession.value = {
       platform: selectedInstallPlatform.value,
       zone: readString(data, ['zone']) || installZone.value || 'default',
-      command,
-      code: readString(data, ['bootstrapTokenPreview']),
+      enrollmentToken: readString(data, ['enrollmentToken']) || '',
       expiresAt: readString(data, ['expiresAt']),
-      serviceName: readString(data, ['serviceName']),
-      configPath: readString(data, ['configDir']),
+      materials,
+      task: data.task,
     }
   } catch (cause) {
-    installError.value = cause instanceof Error ? cause.message : t('gateways.errors.generateInstallCommandFailed')
+    installError.value = cause instanceof Error ? cause.message : t('api.errors.requestFailed')
   } finally {
     installPending.value = false
-  }
-}
-
-async function generateGatewayEnableCommand() {
-  enablePending.value = true
-  enableError.value = ''
-  copiedKind.value = null
-  try {
-    const result = await createGatewayEnableSession({
-      platform: selectedEnablePlatform.value,
-      agentId: enableAgentId.value || undefined,
-      zone: enableZone.value || 'default',
-    })
-    const data = result.data ?? {}
-    const rawEnableUrl = typeof data.enableUrl === 'string' ? data.enableUrl : ''
-    const enableUrl = rewriteUrlWithBrowserOrigin(rawEnableUrl)
-    const fallback = typeof data.enableCommand === 'string' ? data.enableCommand : ''
-    const command = gatewayPlatformProfiles[selectedEnablePlatform.value].enableCommand(enableUrl, fallback)
-    if (!command) throw new Error(t('gateways.errors.missingEnableCommand'))
-    enableSession.value = {
-      platform: selectedEnablePlatform.value,
-      zone: readString(data, ['zone']) || enableZone.value || 'default',
-      command,
-      serviceName: readString(data, ['serviceName']),
-      configPath: readString(data, ['configPath']),
-    }
-  } catch (cause) {
-    enableError.value = cause instanceof Error ? cause.message : t('gateways.errors.generateEnableCommandFailed')
-  } finally {
-    enablePending.value = false
   }
 }
 
@@ -295,50 +224,8 @@ function renderValue(value: unknown): string {
   return String(value)
 }
 
-function extractItems(value: unknown): ApiRecord[] {
-  if (Array.isArray(value)) return value.filter(isRecord)
-  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isRecord)
-  return []
-}
-
 function isRecord(value: unknown): value is ApiRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function rewriteUrlWithBrowserOrigin(rawUrl: string): string {
-  if (!rawUrl || typeof window === 'undefined' || !window.location?.origin) return rawUrl
-  try {
-    const parsed = new URL(rawUrl, window.location.origin)
-    return `${window.location.origin}${parsed.pathname}${parsed.search}`
-  } catch {
-    return rawUrl
-  }
-}
-
-async function copyCommand(kind: Exclude<CopiedKind, null>, command: string | undefined) {
-  if (!command) return
-  if (await copyToClipboard(command)) copiedKind.value = kind
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      // 中文说明：浏览器权限拒绝时回退到旧复制路径。
-    }
-  }
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.select()
-  const ok = document.execCommand('copy')
-  document.body.removeChild(textarea)
-  return ok
 }
 
 function linkTarget(link: NonNullable<BusinessPageConfig['contextLinks']>[number]) {
@@ -389,13 +276,7 @@ const config = computed<BusinessPageConfig>(() => ({
   emptyTitle: t('gateways.empty.title'),
   emptyDescription: t('gateways.empty.description'),
   load: () => listGateways({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
-  actions: [
-    {
-      label: t('gateways.actions.enableExistingAgent'),
-      permission: 'gateway.write',
-      run: openGatewayEnableModal,
-    },
-  ],
+  actions: [],
   rowActions: [
     {
       label: t('gateways.actions.detail'),
@@ -421,7 +302,7 @@ const config = computed<BusinessPageConfig>(() => ({
     <BusinessResourcePage ref="pageRef" :config="config" />
 
     <GcModal v-model:open="installModalOpen" :title="t('gateways.modals.install.title')" size="lg" width="58vw" :close-on-backdrop="false">
-      <section class="gateway-command-modal">
+      <section class="gateway-material-modal">
         <div class="gateway-command-modal__field">
           <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
           <div class="gateway-command-modal__platforms">
@@ -444,101 +325,23 @@ const config = computed<BusinessPageConfig>(() => ({
           <input v-model.trim="installZone" type="text" placeholder="default">
         </label>
 
-        <button class="gc-button gateway-command-modal__primary" type="button" :disabled="installPending" @click="generateGatewayInstallCommand">
-          {{ installPending ? t('gateways.actions.generating') : t('gateways.actions.generateInstallCommand') }}
+        <button class="gc-button gateway-command-modal__primary" type="button" :disabled="installPending" @click="requestGatewayInstallMaterials">
+          {{ installPending ? t('gateways.actions.generating') : t('gateways.modals.install.title') }}
         </button>
         <p v-if="installError" class="gateway-command-modal__error">{{ installError }}</p>
 
-        <div v-if="installSession" class="gateway-command-modal__result">
+        <div v-if="installSession" class="gateway-material-modal__result">
           <dl class="gateway-command-modal__meta">
             <div><dt>{{ t('gateways.fields.platform') }}</dt><dd>{{ platformLabel(installSession.platform) }}</dd></div>
-            <div><dt>{{ t('gateways.fields.installCode') }}</dt><dd>{{ installSession.code || '-' }}</dd></div>
             <div><dt>{{ t('gateways.fields.region') }}</dt><dd>{{ installSession.zone }}</dd></div>
             <div><dt>{{ t('gateways.fields.expiresAt') }}</dt><dd>{{ formatBrowserLocalTime(installSession.expiresAt) || '-' }}</dd></div>
           </dl>
-          <label class="gateway-command-modal__field">
-            <span class="gateway-command-modal__label">{{ t('gateways.fields.installCommand') }}</span>
-            <textarea readonly :value="installSession.command" rows="3" />
-          </label>
+          <pre class="gateway-material-modal__payload">{{ JSON.stringify({ enrollmentToken: installSession.enrollmentToken, materials: installSession.materials, task: installSession.task }, null, 2) }}</pre>
         </div>
       </section>
 
       <template #actions>
         <button class="gc-button" type="button" @click="installModalOpen = false">{{ t('gateways.actions.close') }}</button>
-        <button
-          v-if="installSession"
-          class="gc-button gateway-command-modal__primary"
-          type="button"
-          @click="copyCommand('install', installSession.command)"
-        >
-          {{ copiedKind === 'install' ? t('gateways.actions.copied') : t('gateways.actions.copyInstallCommand') }}
-        </button>
-      </template>
-    </GcModal>
-
-    <GcModal v-model:open="enableModalOpen" :title="t('gateways.modals.enable.title')" size="lg" width="58vw" :close-on-backdrop="false">
-      <section class="gateway-command-modal">
-        <div class="gateway-command-modal__field">
-          <p class="gateway-command-modal__label">{{ t('gateways.fields.platform') }}</p>
-          <div class="gateway-command-modal__platforms">
-            <button
-              v-for="option in platformOptions"
-              :key="option.value"
-              class="gateway-command-modal__platform"
-              :data-active="selectedEnablePlatform === option.value"
-              type="button"
-              @click="selectedEnablePlatform = option.value"
-            >
-              <strong>{{ option.label }}</strong>
-              <span>{{ option.description }}</span>
-            </button>
-          </div>
-        </div>
-
-        <label class="gateway-command-modal__field">
-          <span class="gateway-command-modal__label">Agent</span>
-          <select v-model="enableAgentId">
-            <option value="">{{ t('gateways.fields.unboundAgent') }}</option>
-            <option v-for="agent in enableAgents" :key="String(readPath(agent, 'id'))" :value="String(readPath(agent, 'id'))">
-              {{ readString(agent, ['agentKey', 'descriptor.agentKey', 'name', 'id']) }}
-            </option>
-          </select>
-        </label>
-
-        <label class="gateway-command-modal__field">
-          <span class="gateway-command-modal__label">{{ t('gateways.fields.region') }}</span>
-          <input v-model.trim="enableZone" type="text" placeholder="default">
-        </label>
-
-        <button class="gc-button gateway-command-modal__primary" type="button" :disabled="enablePending" @click="generateGatewayEnableCommand">
-          {{ enablePending ? t('gateways.actions.generating') : t('gateways.actions.generateEnableCommand') }}
-        </button>
-        <p v-if="enableError" class="gateway-command-modal__error">{{ enableError }}</p>
-
-        <div v-if="enableSession" class="gateway-command-modal__result">
-          <dl class="gateway-command-modal__meta">
-            <div><dt>{{ t('gateways.fields.platform') }}</dt><dd>{{ platformLabel(enableSession.platform) }}</dd></div>
-            <div><dt>{{ t('gateways.fields.region') }}</dt><dd>{{ enableSession.zone }}</dd></div>
-            <div><dt>{{ t('gateways.fields.service') }}</dt><dd>{{ enableSession.serviceName || '-' }}</dd></div>
-            <div><dt>{{ t('gateways.fields.config') }}</dt><dd>{{ enableSession.configPath || '-' }}</dd></div>
-          </dl>
-          <label class="gateway-command-modal__field">
-            <span class="gateway-command-modal__label">{{ t('gateways.fields.enableCommand') }}</span>
-            <textarea readonly :value="enableSession.command" rows="3" />
-          </label>
-        </div>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" @click="enableModalOpen = false">{{ t('gateways.actions.close') }}</button>
-        <button
-          v-if="enableSession"
-          class="gc-button gateway-command-modal__primary"
-          type="button"
-          @click="copyCommand('enable', enableSession.command)"
-        >
-          {{ copiedKind === 'enable' ? t('gateways.actions.copied') : t('gateways.actions.copyEnableCommand') }}
-        </button>
       </template>
     </GcModal>
 

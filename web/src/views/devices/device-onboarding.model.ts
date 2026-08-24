@@ -16,9 +16,17 @@ export interface DeviceOnboardingPlatform {
   readonly pluginId?: string
 }
 
+export interface AgentInstallMaterialsView {
+  readonly installationId: string
+  readonly expiresAt: string
+  readonly enrollmentToken: string
+  readonly materials: readonly Readonly<Record<string, unknown>>[]
+  readonly task: Readonly<Record<string, unknown>>
+}
+
 export interface DeviceOnboardingResultView {
   readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION' | 'PLUGIN_MANAGED'
-  readonly installCommand: string
+  readonly installMaterials?: AgentInstallMaterialsView
   readonly connectionSucceeded: boolean
   readonly connectionErrorCode: string
 }
@@ -27,16 +35,15 @@ export function normalizeDeviceOnboardingResult(
   platform: DeviceOnboardingPlatform,
   response: Readonly<Record<string, unknown>>,
 ): DeviceOnboardingResultView {
-  const installSession = asRecord(response.installSession)
+  const installMaterials = normalizeAgentInstallMaterials(response.installMaterials)
   const connection = asRecord(response.connection)
-  const installCommand = text(installSession.installCommand ?? response.installCommand)
   const connectionSucceeded = connection.reachable === true
     && connection.authenticated === true
     && connection.productMatched === true
 
   return {
     onboardingKind: response.onboardingKind === 'PLUGIN_MANAGED' ? 'PLUGIN_MANAGED' : platform.onboardingKind,
-    installCommand,
+    installMaterials,
     connectionSucceeded: response.onboardingKind === 'PLUGIN_MANAGED' || connectionSucceeded,
     connectionErrorCode: text(connection.errorCode),
   }
@@ -45,7 +52,6 @@ export function normalizeDeviceOnboardingResult(
 export function buildDeviceOnboardingPayload(
   platform: DeviceOnboardingPlatform,
   values: Readonly<Record<string, unknown>>,
-  baseUrl: string,
 ): Record<string, unknown> {
   if (platform.pluginVersionId) {
     return { platformKey: 'plugin', pluginVersionId: platform.pluginVersionId, formValues: values }
@@ -56,7 +62,6 @@ export function buildDeviceOnboardingPayload(
     if (value === undefined || value === '') continue
     payload[field.key] = value
   }
-  if (platform.onboardingKind === 'AGENT_INSTALL') payload.baseUrl = baseUrl
   if (platform.onboardingKind === 'API_CONNECTION' && values.tlsVerify === false) {
     payload.insecureTlsAcknowledged = values.insecureTlsAcknowledged === true
   }
@@ -80,6 +85,21 @@ export function validateDeviceOnboarding(
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function normalizeAgentInstallMaterials(value: unknown): AgentInstallMaterialsView | undefined {
+  const record = asRecord(value)
+  const materials = Array.isArray(record.materials) ? record.materials.filter(isRecord) : []
+  const task = asRecord(record.task)
+  const installationId = text(record.installationId)
+  const expiresAt = text(record.expiresAt)
+  const enrollmentToken = text(record.enrollmentToken)
+  if (!installationId || !expiresAt || !enrollmentToken || materials.length === 0 || Object.keys(task).length === 0) return undefined
+  return { installationId, expiresAt, enrollmentToken, materials, task }
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function text(value: unknown): string {

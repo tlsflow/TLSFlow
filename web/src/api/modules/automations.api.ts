@@ -5,10 +5,9 @@ export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted'
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled'
 
 export interface AutomationConfiguration {
-  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'acme' | 'manual_import'> }
+  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import'> }
   filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
-  targetResolver?: { type: 'legacy_target_selector'; selector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] } } | { type: 'certificate_version_targets'; assetIds?: string[] }
-  targetSelector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
+  targetResolver: { type: 'certificate_version_targets'; assetIds?: string[] }
   approvalStage?: { type: 'run'; mode?: 'before_actions'; operationType?: string; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; expiresInHours?: number }
   actions: Array<{ type: 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification'; position: number; config: Record<string, unknown> }>
   guardrails: { maxTargetsPerRun: number; concurrencyLimit: number; requirePreview: boolean; requireDryRun: boolean; requireApproval: boolean; allowManualWhenDisabled?: boolean; allowedEnvironments?: string[]; failureCountThreshold?: number; failureRateThreshold?: number }

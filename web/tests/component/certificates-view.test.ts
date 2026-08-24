@@ -46,17 +46,18 @@ describe('CertificatesView', () => {
     document.body.innerHTML = '<div id="gc-shell-hero-actions"></div>'
 
     const wrapper = mount(CertificatesView, { attachTo: document.body })
+    const filterToggleSelector = '.certificate-page__toolbar-actions .gc-button'
     await waitFor(() => {
-      expect(document.querySelector('.certificate-page__filter-toggle')).not.toBeNull()
+      expect(document.querySelector(filterToggleSelector)).not.toBeNull()
     })
 
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
 
-    document.querySelector<HTMLButtonElement>('.certificate-page__filter-toggle')?.click()
+    document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()
     await flushPromises()
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(true)
 
-    document.querySelector<HTMLButtonElement>('.certificate-page__filter-toggle')?.click()
+    document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()
     await flushPromises()
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
   })
@@ -107,7 +108,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'GeoTrust TLS RSA CA G1' },
                   subject: { commonName: 'beta.weichai.com' },
                   status: 'MANAGED',
-                  sourceType: 'acme',
+                  sourceType: 'external_api',
                 },
                 {
                   id: 'certver-new',
@@ -118,7 +119,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'GeoTrust TLS RSA CA G1' },
                   subject: { commonName: 'zeta.weichai.com' },
                   status: 'MANAGED',
-                  sourceType: 'acme',
+                  sourceType: 'external_api',
                 },
               ],
               page: 1,
@@ -185,7 +186,7 @@ describe('CertificatesView', () => {
     expect(rows[1]?.text()).toContain('2026-06-01')
     expect(rows[1]?.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
     expect(rows[1]?.text()).toContain('即将过期')
-    expect(rows[1]?.text()).toContain('ACME')
+    expect(rows[1]?.text()).toContain('外部 API')
     expect(rows[1]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
       expect.arrayContaining([
         expect.arrayContaining(['gc-tag--info']),
@@ -195,7 +196,7 @@ describe('CertificatesView', () => {
     expect(rows[2]?.text()).toContain('2026-06-10')
     expect(rows[2]?.text()).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
     expect(rows[2]?.text()).toContain('有效')
-    expect(rows[2]?.text()).toContain('ACME')
+    expect(rows[2]?.text()).toContain('外部 API')
     expect(rows[2]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
       expect.arrayContaining([
         expect.arrayContaining(['gc-tag--info']),

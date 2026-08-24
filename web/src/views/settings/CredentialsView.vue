@@ -26,7 +26,6 @@ import { formatBrowserLocalTime, formatMaybeLocalTime, getExpiryRemaining } from
 
 type EditorMode = 'create' | 'edit'
 type UsageItem = CredentialUsage['items'][number]
-type CloudProviderKey = 'cloud.aliyun' | 'cloud.tencent' | 'cloud.huawei' | 'cloud.volcengine'
 type DurationInput = string | number
 
 interface CredentialFormState {
@@ -37,7 +36,6 @@ interface CredentialFormState {
   username: string
   deliveryLocation: 'header' | 'query'
   deliveryName: string
-  cloudProviderKey: CloudProviderKey
   primarySecret: string
   secondarySecret: string
   validityDays: DurationInput
@@ -72,14 +70,12 @@ const now = ref(Date.now())
 let remainingTimer: ReturnType<typeof setInterval> | undefined
 let browserPollTimer: number | undefined
 
-const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER', 'BROWSER_SESSION']
+const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'BROWSER_SESSION']
 const scopes: CredentialProfileSummary['scopeType'][] = ['global', 'team', 'zone', 'host', 'plugin']
 const isEditing = computed(() => editorMode.value === 'edit')
 const requiresUsername = computed(() => requiresUsernameFor(form.value.kind))
-const isCloudProviderCredential = computed(() => form.value.kind === 'CLOUD_PROVIDER')
 const isBrowserSessionCredential = computed(() => form.value.kind === 'BROWSER_SESSION')
-const requiresSecondarySecret = computed(() => form.value.kind === 'CLIENT_CERTIFICATE' || isCloudProviderCredential.value)
-const cloudProviderFields = computed(() => CLOUD_PROVIDER_SECRET_FIELDS[form.value.cloudProviderKey])
+const requiresSecondarySecret = computed(() => form.value.kind === 'CLIENT_CERTIFICATE')
 const editorTitle = computed(() => t(isEditing.value ? 'credentials.edit.title' : 'credentials.create.title'))
 const editorDescription = computed(() => t('credentials.create.description'))
 const validityDurationValid = computed(() => {
@@ -143,7 +139,6 @@ function emptyForm(): CredentialFormState {
     username: '',
     deliveryLocation: 'header',
     deliveryName: 'X-API-Key',
-    cloudProviderKey: 'cloud.aliyun',
     primarySecret: '',
     secondarySecret: '',
     validityDays: '',
@@ -354,7 +349,6 @@ function editForm(detail: CredentialProfileDetail): CredentialFormState {
     username: detail.username ?? '',
     deliveryLocation: detail.delivery?.location === 'query' ? 'query' : 'header',
     deliveryName: detail.delivery?.name ?? 'X-API-Key',
-    cloudProviderKey: cloudProviderKey(detail.metadata.providerKey),
     primarySecret: '',
     secondarySecret: '',
     ...expiryToDuration(detail.expiresAt, detail.kind),
@@ -426,35 +420,25 @@ function buildSecretValues(
   kind: CredentialKind,
   primary: string,
   secondary: string,
-  providerKey: CloudProviderKey,
 ): Record<string, CredentialSecretValueInput> {
   const values: Record<string, CredentialSecretValueInput> = {}
   if (primary) {
-    const slot = kind === 'CLOUD_PROVIDER'
-      ? CLOUD_PROVIDER_SECRET_FIELDS[providerKey].primary.slot
-      : kind === 'USERNAME_PASSWORD'
+    const slot = kind === 'USERNAME_PASSWORD'
       ? 'password'
       : kind === 'SSH_KEY'
         ? 'privateKey'
         : kind === 'CLIENT_CERTIFICATE'
           ? 'certificate'
-          : kind === 'DNS_PROVIDER'
-            ? 'config'
-            : 'token'
+          : 'token'
     values[slot] = { plainText: primary }
   }
-  if (secondary && kind === 'CLOUD_PROVIDER') {
-    values[CLOUD_PROVIDER_SECRET_FIELDS[providerKey].secondary.slot] = { plainText: secondary }
-  } else if (kind === 'CLIENT_CERTIFICATE' && secondary) {
+  if (kind === 'CLIENT_CERTIFICATE' && secondary) {
     values.privateKey = { plainText: secondary }
   }
   return values
 }
 
 function createMetadata(): Record<string, unknown> | undefined {
-  if (isCloudProviderCredential.value) {
-    return { providerKey: form.value.cloudProviderKey }
-  }
   if (isBrowserSessionCredential.value) {
     const metadata: Record<string, unknown> = isEditing.value
       ? { ...(selected.value?.metadata ?? {}) }
@@ -468,12 +452,6 @@ function createMetadata(): Record<string, unknown> | undefined {
     return metadata
   }
   return undefined
-}
-
-function cloudProviderKey(value: unknown): CloudProviderKey {
-  return typeof value === 'string' && value in CLOUD_PROVIDER_SECRET_FIELDS
-    ? value as CloudProviderKey
-    : 'cloud.aliyun'
 }
 
 function usageItemName(item: UsageItem): string {
@@ -556,7 +534,6 @@ async function submitEditor(): Promise<void> {
       form.value.kind,
       form.value.primarySecret,
       form.value.secondarySecret,
-      form.value.cloudProviderKey,
     )
     const commonInput = {
       name: form.value.name.trim(),
@@ -585,28 +562,6 @@ async function submitEditor(): Promise<void> {
   } finally {
     saving.value = false
   }
-}
-
-const CLOUD_PROVIDER_SECRET_FIELDS: Record<CloudProviderKey, {
-  primary: { slot: string; labelKey: string }
-  secondary: { slot: string; labelKey: string }
-}> = {
-  'cloud.aliyun': {
-    primary: { slot: 'accessKeyId', labelKey: 'credentials.cloudProviders.fields.aliyun.accessKeyId' },
-    secondary: { slot: 'accessKeySecret', labelKey: 'credentials.cloudProviders.fields.aliyun.accessKeySecret' },
-  },
-  'cloud.tencent': {
-    primary: { slot: 'secretId', labelKey: 'credentials.cloudProviders.fields.tencent.secretId' },
-    secondary: { slot: 'secretKey', labelKey: 'credentials.cloudProviders.fields.tencent.secretKey' },
-  },
-  'cloud.huawei': {
-    primary: { slot: 'accessKey', labelKey: 'credentials.cloudProviders.fields.huawei.accessKey' },
-    secondary: { slot: 'secretKey', labelKey: 'credentials.cloudProviders.fields.huawei.secretKey' },
-  },
-  'cloud.volcengine': {
-    primary: { slot: 'accessKeyId', labelKey: 'credentials.cloudProviders.fields.volcengine.accessKeyId' },
-    secondary: { slot: 'secretAccessKey', labelKey: 'credentials.cloudProviders.fields.volcengine.secretAccessKey' },
-  },
 }
 
 async function toggleStatus(): Promise<void> {
@@ -702,7 +657,7 @@ onUnmounted(() => {
               </td>
               <td><span class="credential-kind">{{ t(`credentials.kinds.${item.kind}`) }}</span></td>
               <td>{{ t(`credentials.scopes.${item.scopeType}`) }}</td>
-              <td>{{ item.username ?? '—' }}</td>
+              <td>{{ item.username ?? t('common.notAvailable') }}</td>
               <td>
                 <div v-if="item.status === 'error'" class="credential-status credential-status--repair" :title="t('credentials.status.errorHint')">
                   <span>{{ t('credentials.status.errorLabel') }}</span>
@@ -752,19 +707,6 @@ onUnmounted(() => {
             <label v-if="form.scopeType !== 'global'" class="credentials-field gc-form-field"><span>{{ t('credentials.fields.scopeId') }}</span><input v-model="form.scopeId" required></label>
             <label v-if="requiresUsername" class="credentials-field gc-form-field"><span>{{ t('credentials.fields.username') }}</span><input v-model="form.username" autocomplete="username" required></label>
             <label v-if="form.kind === 'API_KEY'" class="credentials-field gc-form-field"><span>{{ t('credentials.fields.deliveryName') }}</span><input v-model="form.deliveryName" required></label>
-            <label v-if="isCloudProviderCredential" class="credentials-field gc-form-field">
-              <span>{{ t('credentials.cloudProviders.provider') }}</span>
-              <span class="credentials-select">
-                <select v-model="form.cloudProviderKey" :disabled="isEditing">
-                  <option value="cloud.aliyun">{{ t('credentials.cloudProviders.providers.aliyun') }}</option>
-                  <option value="cloud.tencent">{{ t('credentials.cloudProviders.providers.tencent') }}</option>
-                  <option value="cloud.huawei">{{ t('credentials.cloudProviders.providers.huawei') }}</option>
-                  <option value="cloud.volcengine">{{ t('credentials.cloudProviders.providers.volcengine') }}</option>
-                </select>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-              </span>
-              <small>{{ t('credentials.cloudProviders.hint') }}</small>
-            </label>
             <label v-if="isBrowserSessionCredential" class="credentials-field gc-form-field credentials-editor__field--wide">
               <span>{{ t('credentials.browser.fields.loginUrl') }}</span>
               <input v-model="form.browserLoginUrl" type="url" required autocomplete="url">
@@ -796,13 +738,8 @@ onUnmounted(() => {
         <section v-if="!isBrowserSessionCredential" class="credentials-editor__section credentials-editor__section--secret">
           <header><h3>{{ t('credentials.form.secretTitle') }}</h3><p v-if="!isEditing">{{ t('credentials.form.secretCreateDescription') }}</p></header>
           <div class="credentials-editor__grid">
-            <label v-if="form.kind === 'DNS_PROVIDER'" class="credentials-dns-config gc-form-field">
-              <span>{{ t('credentials.secretLabels.DNS_PROVIDER') }}</span>
-              <textarea v-model="form.primarySecret" rows="8" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" autocomplete="off" />
-              <small>{{ t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted') }}</small>
-            </label>
-            <GcSecretInput v-else v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.primary.labelKey) : t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
-            <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.secondary.labelKey) : t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
+            <GcSecretInput v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
+            <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
           </div>
         </section>
         <section v-else class="credentials-editor__section credentials-editor__section--secret">
@@ -1025,11 +962,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .credentials-select select { appearance: none; padding-right: var(--gc-space-8); cursor: pointer; }
 .credentials-select select:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .credentials-select svg { position: absolute; top: 50%; right: var(--gc-space-3); width: var(--gc-space-4); height: var(--gc-space-4); transform: translateY(-50%); fill: none; stroke: var(--gc-color-text-muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.credentials-dns-config { display: grid; gap: var(--gc-space-2); }
-.credentials-dns-config span { color: var(--gc-color-text); }
-.credentials-dns-config textarea { width: 100%; min-height: var(--gc-control-height-xl); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-field); padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text); font-family: var(--gc-font-family); resize: vertical; }
-.credentials-dns-config textarea:focus { border-color: var(--gc-color-focus); background: var(--gc-color-surface-solid); box-shadow: var(--gc-shadow-focus); outline: none; }
-.credentials-dns-config small { color: var(--gc-color-text-muted); }
 .credentials-editor :deep(.credentials-secret-field input) { width: 100%; height: var(--gc-control-height-md); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-field); padding: 0 var(--gc-space-3); color: var(--gc-color-text); outline: none; box-shadow: inset 0 var(--gc-space-hairline) var(--gc-space-hairline) var(--gc-color-border-subtle); }
 .credentials-editor :deep(.credentials-secret-field input:focus) { border-color: var(--gc-color-focus); background: var(--gc-color-surface-solid); box-shadow: var(--gc-shadow-focus); }
 .usage-summary { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-md); background: var(--gc-color-warning-bg); color: var(--gc-color-warning); }

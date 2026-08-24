@@ -8,9 +8,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 const apiMocks = vi.hoisted(() => ({
   listGateways: vi.fn(),
   probeGateway: vi.fn(),
-  createLinuxGoInstallSession: vi.fn(),
-  createWindowsPowerShellInstallSession: vi.fn(),
-  createGatewayEnableSession: vi.fn(),
+  createAgentInstallMaterials: vi.fn(),
   listAgents: vi.fn()
 }))
 
@@ -20,9 +18,7 @@ vi.mock('@/api/modules/gateways.api', () => ({
 }))
 
 vi.mock('@/api/modules/assets.api', () => ({
-  createLinuxGoInstallSession: apiMocks.createLinuxGoInstallSession,
-  createWindowsPowerShellInstallSession: apiMocks.createWindowsPowerShellInstallSession,
-  createGatewayEnableSession: apiMocks.createGatewayEnableSession,
+  createAgentInstallMaterials: apiMocks.createAgentInstallMaterials,
   listAgents: apiMocks.listAgents
 }))
 
@@ -70,10 +66,33 @@ describe('GatewaysView', () => {
       }
     ]))
     apiMocks.probeGateway.mockResolvedValue({ data: {}, requestId: 'req_probe', timestamp: '2026-06-09T00:00:00.000Z' })
-    apiMocks.createLinuxGoInstallSession.mockResolvedValue({
+    apiMocks.createAgentInstallMaterials.mockResolvedValue({
       data: {
-        installCommand: 'install gateway now',
-        bootstrapTokenPreview: 'gateway-code',
+        installationId: 'aginst_gateway_test',
+        enrollmentToken: 'enrollment-gateway-once',
+        materials: [{
+          platform: 'linux_go',
+          arch: 'amd64',
+          artifactRef: 'artifact://gcac/agents/linux-go-full-agent/0.1.10/linux-amd64/gcac-agent',
+          version: '0.1.10',
+          digest: 'a'.repeat(64),
+          signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.10/linux-amd64.sig',
+          signatureAlgorithm: 'Ed25519',
+          signingKeyId: 'gcac-agent-release-v1',
+        }],
+        task: {
+          type: 'agent.plan.execute',
+          contractVersion: 'gcac.agent-security/v1',
+          taskId: 'aginst_gateway_test',
+          version: '0.1.10',
+          artifactRefs: ['artifact://gcac/agents/linux-go-full-agent/0.1.10/linux-amd64/gcac-agent'],
+          expiresAt: '2026-06-09T01:00:00.000Z',
+          digest: 'b'.repeat(64),
+          signature: 'artifact://gcac/signatures/agents/linux-go-full-agent/0.1.10/linux-amd64.sig',
+          signatureAlgorithm: 'Ed25519',
+          signingKeyId: 'gcac-agent-release-v1',
+          input: { role: 'gateway', zone: 'default', agentKey: 'linux.gateway', serviceName: 'gcac-gateway-agent' },
+        },
         zone: 'default',
         expiresAt: '2026-06-09T01:00:00.000Z',
       },
@@ -81,14 +100,9 @@ describe('GatewaysView', () => {
       timestamp: '2026-06-09T00:00:00.000Z'
     })
     apiMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', agentKey: 'linux-agent-1' }]))
-    apiMocks.createGatewayEnableSession.mockResolvedValue({
-      data: { enableCommand: 'enable gateway now', zone: 'default', serviceName: 'gcac-agent' },
-      requestId: 'req_enable',
-      timestamp: '2026-06-09T00:00:00.000Z'
-    })
   })
 
-  it('新增 Gateway Agent 会生成标准安装命令', async () => {
+  it('新增 Gateway Agent 只请求固定安装材料', async () => {
     const router = createRouterForGateway()
     const wrapper = mount(GatewaysView, {
       global: {
@@ -99,16 +113,17 @@ describe('GatewaysView', () => {
 
     await wrapper.findAll('button').find((button) => button.text() === '新增 Gateway Agent')?.trigger('click')
     await flushPromises()
-    ;(Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.trim() === '生成安装命令') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.gateway-command-modal__primary') as HTMLButtonElement).click()
     await flushPromises()
 
-    expect(apiMocks.createLinuxGoInstallSession).toHaveBeenCalledWith({
+    expect(apiMocks.createAgentInstallMaterials).toHaveBeenCalledWith({
+      platform: 'linux_go',
       zone: 'default',
       role: 'gateway',
-      startAfterInstall: true
     })
-    expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toContain('install gateway now')
-    expect(document.body.textContent).toContain('gateway-code')
+    expect(document.body.textContent).toContain('artifact://gcac/agents/linux-go-full-agent/0.1.10/linux-amd64/gcac-agent')
+    expect(document.body.textContent).toContain('enrollment-gateway-once')
+    expect(document.body.textContent).not.toContain('installCommand')
   })
 
   it('Gateway 详情展示标准转发能力', async () => {

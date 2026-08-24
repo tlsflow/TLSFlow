@@ -7,22 +7,19 @@ import { i18n } from '@/i18n'
 import { usePermissionStore } from '@/stores/permission.store'
 import CloudProvidersView from '@/views/providers/CloudProvidersView.vue'
 
+const pageState = vi.hoisted(() => ({
+  config: null as Record<string, any> | null,
+}))
+
 const providerApiMocks = vi.hoisted(() => ({
-  listProviders: vi.fn(),
-  listProviderCapabilities: vi.fn(),
-  previewProviderDraftDiscovery: vi.fn(),
   listCloudAccountAssets: vi.fn(),
   createCloudAccountAsset: vi.fn(),
   updateCloudAccountAsset: vi.fn(),
   deleteCloudAccountAsset: vi.fn(),
-  testCloudAccountAsset: vi.fn(),
-  discoverCloudAccountAsset: vi.fn(),
-  executeProviderCapability: vi.fn(),
 }))
 
 const credentialApiMocks = vi.hoisted(() => ({
   listCredentials: vi.fn(),
-  createCredential: vi.fn(),
 }))
 
 vi.mock('@/api/modules/providers.api', () => providerApiMocks)
@@ -31,7 +28,6 @@ vi.mock('@/api/modules/credentials.api', async () => {
   return {
     ...actual,
     listCredentials: credentialApiMocks.listCredentials,
-    createCredential: credentialApiMocks.createCredential,
   }
 })
 
@@ -45,6 +41,7 @@ vi.mock('@/views/BusinessResourcePage.vue', () => ({
       },
     },
     setup(props) {
+      pageState.config = props.config as Record<string, any>
       return () => h('div', { class: 'business-resource-page-stub' }, [
         h('button', {
           type: 'button',
@@ -63,18 +60,9 @@ vi.mock('@/design-system/components', async () => {
     GcModal: defineComponent({
       name: 'GcModalStub',
       props: {
-        open: {
-          type: Boolean,
-          default: false,
-        },
-        title: {
-          type: String,
-          default: '',
-        },
-        description: {
-          type: String,
-          default: '',
-        },
+        open: { type: Boolean, default: false },
+        title: { type: String, default: '' },
+        description: { type: String, default: '' },
       },
       emits: ['update:open'],
       setup(props, { slots }) {
@@ -115,313 +103,71 @@ async function clickButton(wrapper: VueWrapper, text: string): Promise<void> {
   await flushPromises()
 }
 
-async function openAccountWizard(wrapper: VueWrapper): Promise<void> {
-  await clickButton(wrapper, '添加云账号')
-  await vi.waitFor(() => expect(wrapper.text()).toContain('选择云服务提供商'))
-}
-
 describe('CloudProvidersView', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    pageState.config = null
     usePermissionStore().setPermissions([
       'cloud_account_asset.read',
       'cloud_account_asset.create',
       'cloud_account_asset.update',
-      'cloud_account_asset.control',
       'cloud_account_asset.delete',
-      'credential.create',
     ])
-    providerApiMocks.listProviders.mockResolvedValue({
-      data: {
-        items: [
-          {
-            providerKey: 'cloud.aliyun',
-            signerType: 'sdk',
-            supportedProducts: ['cloud.aliyun.cdn', 'cloud.aliyun.oss'],
-          },
-          {
-            providerKey: 'cloud.tencent',
-            signerType: 'hmac',
-            supportedProducts: ['cloud.tencent.cdn'],
-          },
-        ],
-      },
-    })
-    providerApiMocks.listProviderCapabilities.mockResolvedValue({
-      data: {
-        items: [],
-      },
-    })
     providerApiMocks.listCloudAccountAssets.mockResolvedValue({
-      data: {
-        items: [],
-        page: 1,
-        pageSize: 20,
-        total: 0,
-      },
-      requestId: 'req_providers_ok',
-      timestamp: '2026-08-06T00:00:00.000Z',
+      data: { items: [], page: 1, pageSize: 20, total: 0 },
     })
-    providerApiMocks.createCloudAccountAsset.mockResolvedValue({
-      data: { id: 'asset-1' },
-      requestId: 'req_create_ok',
-      timestamp: '2026-08-06T00:00:00.000Z',
-    })
-    providerApiMocks.previewProviderDraftDiscovery.mockResolvedValue({
-      data: {
-        providerKey: 'cloud.aliyun',
-        availableFrameworks: ['cloud.aliyun.cdn', 'cloud.aliyun.oss'],
-        connection: {
-          reachable: true,
-          accountId: 'detected-account',
-        },
-        discovery: {
-          frameworks: [
-            { stableKey: 'cloud.aliyun.cdn', frameworkType: 'cloud.aliyun.cdn', displayName: 'CDN' },
-          ],
-          sites: [
-            { stableKey: 'site-1', displayName: 'cdn.example.com', addresses: ['cdn.example.com'] },
-          ],
-          managedTargets: [
-            { stableKey: 'target-1', bindingKey: 'cdn.example.com', targetType: 'cloud.aliyun.cdn.domain' },
-          ],
-          warnings: [],
-        },
-        summary: {
-          frameworks: 1,
-          sites: 1,
-          managedTargets: 1,
-        },
-      },
-      requestId: 'req_preview_ok',
-      timestamp: '2026-08-06T00:00:00.000Z',
-    })
+    providerApiMocks.createCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
+    providerApiMocks.updateCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
+    providerApiMocks.deleteCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
     credentialApiMocks.listCredentials.mockResolvedValue({
       data: {
-        items: [
-          {
-            id: 'cred-aliyun',
-            name: '阿里云 AK',
-            kind: 'CLOUD_PROVIDER',
-            scopeType: 'global',
-            status: 'active',
-            version: 1,
-            updatedAt: '2026-08-06T00:00:00.000Z',
-            metadata: { providerKey: 'cloud.aliyun' },
-          },
-          {
-            id: 'cred-tencent',
-            name: '腾讯云 Secret',
-            kind: 'CLOUD_PROVIDER',
-            scopeType: 'global',
-            status: 'active',
-            version: 1,
-            updatedAt: '2026-08-06T00:00:00.000Z',
-            metadata: { providerKey: 'cloud.tencent' },
-          },
-        ],
+        items: [{
+          id: 'cred-aliyun',
+          name: '阿里云凭据',
+          kind: 'CLOUD_PROVIDER',
+          scopeType: 'global',
+          status: 'active',
+          metadata: { providerKey: 'cloud.aliyun' },
+        }],
       },
     })
-    credentialApiMocks.createCredential.mockResolvedValue({
-      data: { id: 'cred-inline-aliyun' },
-      requestId: 'req_credential_create_ok',
-      timestamp: '2026-08-06T00:00:00.000Z',
-    })
   })
 
-  it('点击添加云账号后展示第一步 Provider 选择卡片', async () => {
+  it('页面只配置 Cloud Account CRUD 行为', async () => {
     const wrapper = mountView()
-
     await flushPromises()
-    await openAccountWizard(wrapper)
 
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('选择云服务提供商')
-    expect(wrapper.text()).toContain('阿里云')
-    expect(wrapper.text()).toContain('腾讯云')
-    expect(wrapper.text()).toContain('SDK')
-    expect(wrapper.text()).toContain('HMAC')
-    expect(wrapper.findAll('.provider-card img')).toHaveLength(2)
+    expect(pageState.config).not.toBeNull()
+    expect(pageState.config!.actions).toEqual([])
+    expect(pageState.config!.rowActions.map((action: { label: string }) => action.label)).toEqual(['编辑', '删除'])
+    expect(pageState.config!.rowActions.map((action: { label: string }) => action.label).join('|'))
+      .not.toMatch(/测试|发现|执行/)
+    expect(providerApiMocks.listCloudAccountAssets).not.toHaveBeenCalled()
+    await pageState.config!.load()
+    expect(providerApiMocks.listCloudAccountAssets).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toMatch(/测试连接|发现资源|执行操作|Provider 操作/)
   })
 
-  it('阿里云向导保存时只提交凭据引用和阿里云高级作用域字段', async () => {
+  it('创建云账号时只提交 Cloud Account CRUD 载荷', async () => {
     const wrapper = mountView()
-
     await flushPromises()
-    await openAccountWizard(wrapper)
-
+    await clickButton(wrapper, '添加云账号')
     await clickButton(wrapper, '下一步')
 
-    expect(wrapper.text()).toContain('云 Provider 凭据')
-    expect(wrapper.text()).toContain('AccessKey ID')
-    expect(wrapper.text()).toContain('AccessKey Secret')
-
-    const displayNameInput = wrapper.get('input[placeholder="例如：生产阿里云账号"]')
-    await displayNameInput.setValue('生产阿里云账号')
-    await flushPromises()
-
-    const credentialSelect = wrapper.get('.provider-credential-select select')
-    await credentialSelect.setValue('cred-aliyun')
-    await flushPromises()
-
-    await clickButton(wrapper, '下一步')
-
-    expect(wrapper.text()).toContain('选择要探测的产品')
-    expect(wrapper.text()).toContain('CDN')
-    expect(wrapper.text()).toContain('OSS')
-
-    await clickButton(wrapper, '高级作用域')
-
-    expect(wrapper.text()).toContain('资源组 ID')
-    expect(wrapper.text()).toContain('企业项目 ID')
-    expect(wrapper.text()).not.toContain('可用区')
-
-    await wrapper.get('input[placeholder="可选，填写资源组 ID"]').setValue('rg-prod')
-    await wrapper.get('input[placeholder="可选，填写企业项目 ID"]').setValue('ep-prod')
-    await wrapper.get('input[placeholder="可选，填写自定义 API Endpoint"]').setValue('https://aliyun.example.com')
-    await flushPromises()
-
+    await wrapper.get('input[placeholder="例如：生产云账号"]').setValue('生产阿里云账号')
+    await wrapper.get('.provider-credential-select select').setValue('cred-aliyun')
     await clickButton(wrapper, '保存')
 
-    expect(providerApiMocks.createCloudAccountAsset).toHaveBeenCalledTimes(1)
     expect(providerApiMocks.createCloudAccountAsset).toHaveBeenCalledWith({
       displayName: '生产阿里云账号',
       providerKey: 'cloud.aliyun',
       accountId: undefined,
       credentialRef: 'credential://cred-aliyun',
-      scope: {
-        resourceGroupId: 'rg-prod',
-        enterpriseProjectId: 'ep-prod',
-        endpoint: 'https://aliyun.example.com',
-      },
-    })
-  })
-
-  it('腾讯云第三步通过高级作用域展示项目和可用区字段，并按腾讯云作用域提交', async () => {
-    const wrapper = mountView()
-
-    await flushPromises()
-    await openAccountWizard(wrapper)
-
-    const tencentCard = wrapper.findAll('.provider-card').find((item) => item.text().includes('腾讯云'))
-    expect(tencentCard).toBeTruthy()
-    await tencentCard!.trigger('click')
-    await flushPromises()
-
-    await clickButton(wrapper, '下一步')
-
-    await wrapper.get('input[placeholder="例如：生产阿里云账号"]').setValue('生产腾讯云账号')
-    await flushPromises()
-
-    await wrapper.get('.provider-credential-select select').setValue('cred-tencent')
-    await flushPromises()
-
-    await clickButton(wrapper, '下一步')
-    await clickButton(wrapper, '高级作用域')
-
-    expect(wrapper.text()).toContain('项目 ID')
-    expect(wrapper.text()).toContain('可用区')
-    expect(wrapper.text()).not.toContain('资源组 ID')
-    expect(wrapper.text()).not.toContain('企业项目 ID')
-
-    await wrapper.get('input[placeholder="需要项目隔离时填写项目 ID"]').setValue('project-1')
-    await wrapper.get('input[placeholder="例如：ap-guangzhou-3"]').setValue('ap-guangzhou-3')
-    await flushPromises()
-
-    await clickButton(wrapper, '保存')
-
-    expect(providerApiMocks.createCloudAccountAsset).toHaveBeenCalledTimes(1)
-    expect(providerApiMocks.createCloudAccountAsset).toHaveBeenCalledWith({
-      displayName: '生产腾讯云账号',
-      providerKey: 'cloud.tencent',
-      accountId: undefined,
-      credentialRef: 'credential://cred-tencent',
-      scope: {
-        projectId: 'project-1',
-        availabilityZone: 'ap-guangzhou-3',
-      },
-    })
-  })
-
-  it('第三步可基于草稿凭据执行资源探测并展示结果', async () => {
-    const wrapper = mountView()
-
-    await flushPromises()
-    await openAccountWizard(wrapper)
-    await clickButton(wrapper, '下一步')
-    await wrapper.get('input[placeholder="例如：生产阿里云账号"]').setValue('探测阿里云账号')
-    await wrapper.get('.provider-credential-select select').setValue('cred-aliyun')
-    await flushPromises()
-
-    await clickButton(wrapper, '下一步')
-    await clickButton(wrapper, '执行探测')
-
-    expect(providerApiMocks.previewProviderDraftDiscovery).toHaveBeenCalledWith('cloud.aliyun', {
-      assetId: undefined,
-      displayName: '探测阿里云账号',
-      accountId: undefined,
-      credentialRef: 'credential://cred-aliyun',
       scope: {},
-      frameworkTypes: ['cloud.aliyun.cdn'],
     })
-    expect(wrapper.text()).toContain('凭据校验结果')
-    expect(wrapper.text()).toContain('detected-account')
-    expect(wrapper.text()).toContain('cdn.example.com')
-    expect(wrapper.text()).toContain('受管目标数')
-  })
-
-  it('可在云账号向导内创建当前 Provider 的专用凭据并自动选中', async () => {
-    credentialApiMocks.listCredentials.mockReset()
-    credentialApiMocks.listCredentials
-      .mockResolvedValueOnce({
-        data: {
-          items: [],
-        },
-      })
-      .mockResolvedValue({
-        data: {
-          items: [{
-            id: 'cred-inline-aliyun',
-            name: '生产阿里云 AK',
-            kind: 'CLOUD_PROVIDER',
-            scopeType: 'global',
-            status: 'active',
-            version: 1,
-            updatedAt: '2026-08-06T00:00:00.000Z',
-            metadata: { providerKey: 'cloud.aliyun' },
-          }],
-        },
-      })
-
-    const wrapper = mountView()
-    await flushPromises()
-    await openAccountWizard(wrapper)
-    await clickButton(wrapper, '下一步')
-    await clickButton(wrapper, '添加凭据')
-
-    expect(wrapper.text()).toContain('添加专用凭据')
-    await wrapper.get('input[placeholder="例如：生产云服务凭据"]').setValue('生产阿里云 AK')
-    const secretInputs = wrapper.findAll('.provider-inline-credential input[type="password"]')
-    expect(secretInputs).toHaveLength(2)
-    await secretInputs[0]!.setValue('LTAI5t-test')
-    await secretInputs[1]!.setValue('secret-test')
-    await clickButton(wrapper, '保存凭据')
-
-    expect(credentialApiMocks.createCredential).toHaveBeenCalledWith({
-      name: '生产阿里云 AK',
-      kind: 'CLOUD_PROVIDER',
-      scopeType: 'global',
-      metadata: { providerKey: 'cloud.aliyun' },
-      secretValues: {
-        accessKeyId: { plainText: 'LTAI5t-test' },
-        accessKeySecret: { plainText: 'secret-test' },
-      },
-    })
-
-    await vi.waitFor(() => {
-      expect((wrapper.get('.provider-credential-select select').element as HTMLSelectElement).value).toBe('cred-inline-aliyun')
-    })
+    expect(providerApiMocks.updateCloudAccountAsset).not.toHaveBeenCalled()
+    expect(providerApiMocks.deleteCloudAccountAsset).not.toHaveBeenCalled()
   })
 })

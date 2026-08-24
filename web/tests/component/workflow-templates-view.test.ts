@@ -184,8 +184,8 @@ describe('WorkflowTemplatesView', () => {
     await flushPromises()
     const initialLoadCalls = vi.mocked(listWorkflowTemplates).mock.calls.length
 
-    const toolbarButtons = [...document.body.querySelectorAll('.business-page__toolbar-actions button')].map((item) => item.textContent?.trim())
-    expect(toolbarButtons).toEqual(['从插件新建工作流', '刷新'])
+    const toolbarButtons = [...document.body.querySelectorAll('.business-page__hero-toolbar button')].map((item) => item.textContent?.trim())
+    expect(toolbarButtons).toEqual(['刷新', '从插件新建工作流'])
     expect(document.body.textContent).not.toContain('工作流总数')
     expect(document.body.textContent).not.toContain('待发布草稿')
     expect(document.body.textContent).not.toContain('按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。')
@@ -310,22 +310,16 @@ describe('WorkflowTemplatesView', () => {
     expect(listWorkflowTemplates).toHaveBeenCalledTimes(2)
   })
 
-  it('详情版本列表不会因旧 DSL 无法转换画布而加载失败', async () => {
+  it('详情版本列表只展示当前 Workflow DSL 合同', async () => {
     vi.mocked(listWorkflowTemplateVersions).mockResolvedValueOnce({
       data: {
         items: [{
-          id: 'ver-legacy',
+          id: 'ver-current',
           version: '1',
           status: 'draft',
-          changeSummary: '旧版本草稿',
+          changeSummary: '当前版本草稿',
           createdAt: '2026-07-03T00:00:00.000Z',
-          content: {
-            apiVersion: 'gcac.workflow/v1',
-            kind: 'CurlSshWorkflow',
-            metadata: { name: 'legacy-workflow' },
-            variables: {},
-            steps: [{ name: 'legacy-ssh', type: 'ssh', ssh: { mode: 'command', command: 'reload' } }],
-          },
+          content: workflowDslFixture('current-workflow'),
         }],
       },
       requestId: 'req_ok',
@@ -342,8 +336,8 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('版本')
     await flushPromises()
 
-    expect(document.body.textContent).toContain('旧版本草稿')
-    expect(document.body.textContent).not.toContain("Cannot read properties of undefined (reading 'host')")
+    expect(document.body.textContent).toContain('当前版本草稿')
+    expect(document.body.textContent).not.toContain('legacy-workflow')
   })
 
   it('编辑器保存草稿只更新当前草稿版本，不创建新版本', async () => {
@@ -358,8 +352,7 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('保存草稿')
     await flushPromises()
 
-    expect(updateCurrentWorkflowTemplateDraftVersion).toHaveBeenCalledWith(expect.objectContaining({
-      templateId: 'tpl-1',
+    expect(updateCurrentWorkflowTemplateDraftVersion).toHaveBeenCalledWith('tpl-1', expect.objectContaining({
       changeSummary: '画布编辑器保存草稿版本',
     }))
     expect(createWorkflowTemplateVersion).not.toHaveBeenCalled()
@@ -397,8 +390,7 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('新增版本')
     await flushPromises()
 
-    expect(createWorkflowTemplateVersion).toHaveBeenCalledWith(expect.objectContaining({
-      templateId: 'tpl-1',
+    expect(createWorkflowTemplateVersion).toHaveBeenCalledWith('tpl-1', expect.objectContaining({
       content: workflowDslFixture(),
       changeSummary: '版本管理创建新版本草稿',
       allowDuplicateContent: true,

@@ -1,23 +1,20 @@
 import { apiClient, createIdempotencyKey } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 
-const WORKFLOW_TEMPLATES_PATH = '/api/v1/workflow-templates'
-const WORKFLOW_CANVAS_COMPILE_PATH = '/api/v1/workflow-templates/canvas/compile'
-const WORKFLOW_CANVAS_VALIDATE_PATH = '/api/v1/workflow-templates/canvas/validate'
-const WORKFLOW_TEMPLATE_VERSIONS_PATH = '/api/v1/workflow-template-versions'
-const WORKFLOW_TEMPLATE_DRAFT_PATH = '/api/v1/workflow-template-versions/draft'
-const WORKFLOW_TEMPLATE_NOTE_PATH = '/api/v1/workflow-template-versions/note'
-const WORKFLOW_TEMPLATE_PUBLISH_PATH = '/api/v1/workflow-template-versions/publish'
-const WORKFLOW_TEMPLATE_STEP_TEST_PATH = '/api/v1/workflow-template-runs/test-step'
 const WORKFLOWS_PATH = '/api/v1/workflows'
-const WORKFLOW_RUNS_PATH = '/api/v1/workflow-runs'
+const WORKFLOW_CANVAS_COMPILE_PATH = `${WORKFLOWS_PATH}/canvas/compile`
+const WORKFLOW_CANVAS_VALIDATE_PATH = `${WORKFLOWS_PATH}/canvas/validate`
 
 export function listWorkflowTemplates(query?: BusinessListQuery) {
   return listRecords(WORKFLOWS_PATH, query)
 }
 
 export function renameWorkflowTemplate(templateId: string, name: string) {
-  return postAction(`${WORKFLOW_TEMPLATES_PATH}/rename`, { templateId, name }, 'workflow_template_rename')
+  return apiClient.request<ApiRecord>(toClientPath(`${WORKFLOWS_PATH}/${encodeURIComponent(templateId)}`), {
+    method: 'PATCH',
+    body: { name },
+    idempotencyKey: createIdempotencyKey('workflow_rename'),
+  })
 }
 
 export function compileWorkflowCanvas(payload: ApiBody) {
@@ -29,7 +26,11 @@ export function validateWorkflowCanvasOnBackend(payload: ApiBody) {
 }
 
 export function deleteWorkflowTemplate(templateId: string, payload: ApiBody = {}) {
-  return postAction(`${WORKFLOW_TEMPLATES_PATH}/delete`, { ...payload, id: templateId }, 'workflow_template_delete')
+  return apiClient.request<ApiRecord>(toClientPath(`${WORKFLOWS_PATH}/${encodeURIComponent(templateId)}`), {
+    method: 'DELETE',
+    ...(Object.keys(payload).length > 0 ? { body: payload } : {}),
+    idempotencyKey: createIdempotencyKey('workflow_delete'),
+  })
 }
 
 export function listPluginWorkflowSources(locale = 'zh-CN') {
@@ -50,53 +51,33 @@ export function createWorkflowDraftFromPlugin(workflowId: string, payload: ApiBo
 }
 
 export function listWorkflowTemplateVersions(templateId: string) {
-  const query = new URLSearchParams({ templateId }).toString()
-  return apiClient.get<{ items?: readonly ApiRecord[] }>(`${toClientPath(WORKFLOW_TEMPLATE_VERSIONS_PATH)}?${query}`)
+  return apiClient.get<{ items?: readonly ApiRecord[] }>(toClientPath(`${WORKFLOWS_PATH}/${encodeURIComponent(templateId)}/versions`))
 }
 
-export function createWorkflowTemplateVersion(payload: ApiBody) {
-  return postAction(WORKFLOW_TEMPLATE_VERSIONS_PATH, payload, 'workflow_template_version_create')
+export function createWorkflowTemplateVersion(templateId: string, payload: ApiBody) {
+  return postAction(`${WORKFLOWS_PATH}/${encodeURIComponent(templateId)}/versions`, payload, 'workflow_version_create')
 }
 
-export function updateCurrentWorkflowTemplateDraftVersion(payload: ApiBody) {
-  return postAction(WORKFLOW_TEMPLATE_DRAFT_PATH, payload, 'workflow_template_draft_update')
-}
-
-export function updateWorkflowTemplateVersionNote(versionId: string, changeSummary: string) {
-  return postAction(WORKFLOW_TEMPLATE_NOTE_PATH, { versionId, changeSummary }, 'workflow_template_version_note')
-}
-
-export function publishWorkflowTemplateVersion(versionId: string, payload: ApiBody = {}) {
-  return postAction(WORKFLOW_TEMPLATE_PUBLISH_PATH, { ...payload, versionId }, 'workflow_template_publish')
-}
-
-export function testWorkflowTemplateStep(payload: ApiBody) {
-  return postAction(WORKFLOW_TEMPLATE_STEP_TEST_PATH, payload, 'workflow_template_step_test')
-}
-
-// 中文说明：新产品语义叫“工作流”，迁移期仍保留上面的 workflow-template 旧接口命名。
-// 后端新 /workflows API 完成前，页面保存草稿会继续通过 createWorkflowTemplateVersion 兼容落 DSL。
-export function saveWorkflowDraftCanvas(workflowId: string, canvas: ApiBody) {
-  return apiClient.request<ApiRecord>(toClientPath(`${WORKFLOWS_PATH}/${workflowId}/draft/canvas`), {
-    method: 'PUT',
-    body: canvas,
-    idempotencyKey: createIdempotencyKey('workflow_canvas_save'),
+export function updateCurrentWorkflowTemplateDraftVersion(templateId: string, payload: ApiBody) {
+  return apiClient.request<ApiRecord>(toClientPath(`${WORKFLOWS_PATH}/${encodeURIComponent(templateId)}/draft`), {
+    method: 'PATCH',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('workflow_draft_update'),
   })
 }
 
-export function validateWorkflowDraftCanvas(workflowId: string, canvas: ApiBody) {
-  return postAction(`${WORKFLOWS_PATH}/${workflowId}/draft/validate`, canvas, 'workflow_canvas_validate')
+export function updateWorkflowTemplateVersionNote(versionId: string, changeSummary: string) {
+  return apiClient.request<ApiRecord>(toClientPath(`${WORKFLOWS_PATH}/versions/${encodeURIComponent(versionId)}`), {
+    method: 'PATCH',
+    body: { changeSummary },
+    idempotencyKey: createIdempotencyKey('workflow_version_note'),
+  })
 }
 
-export function preflightWorkflowVersion(workflowId: string, versionId: string, payload: ApiBody = {}) {
-  return postAction(`${WORKFLOWS_PATH}/${workflowId}/versions/${versionId}/preflight`, payload, 'workflow_preflight')
+export function publishWorkflowTemplateVersion(versionId: string, payload: ApiBody = {}) {
+  return postAction(`${WORKFLOWS_PATH}/versions/${encodeURIComponent(versionId)}/publish`, payload, 'workflow_version_publish')
 }
 
-export function diffWorkflowVersions(workflowId: string, fromVersionId: string, toVersionId: string) {
-  const query = new URLSearchParams({ from: fromVersionId, to: toVersionId }).toString()
-  return apiClient.get<ApiRecord>(`${toClientPath(`${WORKFLOWS_PATH}/${workflowId}/versions/diff`)}?${query}`)
-}
-
-export function getWorkflowRuntimeGraph(runId: string) {
-  return apiClient.get<ApiRecord>(toClientPath(`${WORKFLOW_RUNS_PATH}/${runId}/runtime-graph`))
+export function testWorkflowTemplateStep(payload: ApiBody) {
+  return postAction(`${WORKFLOWS_PATH}/runs/test-step`, payload, 'workflow_step_test')
 }

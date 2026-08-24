@@ -348,7 +348,10 @@ function isCurrentVersionUsage(record: ApiRecord, versionId: string, versionFing
     readString(record, ['observedFingerprintSha256'], '')
     || readString(bindingRecord, ['observedFingerprintSha256'], ''),
   )
-  return Boolean(versionFingerprint) && observedFingerprint === versionFingerprint
+  if (observedFingerprint) return Boolean(versionFingerprint) && observedFingerprint === versionFingerprint
+
+  // 中文说明：版本 usage 接口本身已经按 versionId 过滤；旧数据没有回传版本标识时仍应展示关联资产。
+  return true
 }
 
 function readVersionFingerprint() {

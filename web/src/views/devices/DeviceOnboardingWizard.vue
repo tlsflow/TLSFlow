@@ -5,6 +5,7 @@ import { GcModal, GcPluginForm, GcStatusTag, type PluginFormSchema } from '@/des
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { ApiRecord } from '@/api/modules/common'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { buildDeviceOnboardingPayload, normalizeDeviceOnboardingResult, validateDeviceOnboarding, type DeviceOnboardingPlatform, type DeviceOnboardingResultView } from './device-onboarding.model'
 
 const props = defineProps<{ open: boolean }>()
@@ -19,7 +20,6 @@ const pluginDisplayNames = ref<Record<string, string>>({})
 const pending = ref(false)
 const error = ref('')
 const result = ref<DeviceOnboardingResultView | null>(null)
-const commandCopied = ref(false)
 const step = ref<1 | 2 | 3>(1)
 
 const selected = computed(() => platforms.value.find((item) => item.key === selectedKey.value))
@@ -37,7 +37,6 @@ watch(() => props.open, async (open) => {
   selectedKey.value = ''
   values.value = { tlsVerify: true }
   result.value = null
-  commandCopied.value = false
   if (platforms.value.length > 0) return
   error.value = ''
   try {
@@ -77,10 +76,9 @@ async function submit(platform = selected.value) {
   pending.value = true
   error.value = ''
   try {
-    const payload = buildDeviceOnboardingPayload(platform, values.value, window.location.origin)
+    const payload = buildDeviceOnboardingPayload(platform, values.value)
     const response = await onboardManagedDevice(payload)
     result.value = normalizeDeviceOnboardingResult(platform, response.data ?? {})
-    commandCopied.value = false
     step.value = 3
     emit('completed')
   } catch (cause) {
@@ -97,7 +95,6 @@ async function selectPlatform(platformKey: string) {
   pluginForm.value = null
   pluginMessages.value = {}
   result.value = null
-  commandCopied.value = false
   error.value = ''
   if (!platform) return
   if (platform.pluginVersionId) {
@@ -171,7 +168,6 @@ function asRecord(value: unknown): Record<string, unknown> {
 function previousStep() {
   if (step.value === 3) {
     result.value = null
-    commandCopied.value = false
     if (isAgentInstall.value) {
       selectedKey.value = ''
       step.value = 1
@@ -184,33 +180,6 @@ function previousStep() {
   step.value = 1
 }
 
-async function copyInstallCommand() {
-  const command = result.value?.installCommand
-  if (!command) return
-  commandCopied.value = await copyToClipboard(command)
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      // 回退到旧浏览器兼容方案。
-    }
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.select()
-  const copied = document.execCommand('copy')
-  document.body.removeChild(textarea)
-  return copied
-}
 </script>
 
 <template>
@@ -290,26 +259,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
       <section v-if="step === 3 && selected && result" class="device-wizard__result">
         <strong>{{ isAgentInstall ? t('devices.onboarding.installReady') : t('devices.onboarding.completed') }}</strong>
         <p v-if="isAgentInstall">{{ t('devices.onboarding.installDescription') }}</p>
-        <div v-if="isAgentInstall" class="device-wizard__command">
-          <pre><code>{{ result.installCommand }}</code></pre>
-          <button
-            class="device-wizard__copy-button"
-            :class="{ 'device-wizard__copy-button--copied': commandCopied }"
-            type="button"
-            :disabled="!result.installCommand"
-            :aria-label="commandCopied ? t('devices.actions.copied') : t('devices.actions.copyCommand')"
-            :title="commandCopied ? t('devices.actions.copied') : t('devices.actions.copyCommand')"
-            @click="copyInstallCommand"
-          >
-            <svg v-if="commandCopied" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="m5 12 4 4L19 6" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <rect x="8" y="8" width="11" height="11" rx="2" />
-              <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-            </svg>
-            <span class="device-wizard__sr-only" aria-live="polite">{{ commandCopied ? t('devices.actions.copied') : '' }}</span>
-          </button>
+        <div v-if="isAgentInstall && result.installMaterials" class="device-wizard__materials">
+          <dl>
+            <div><dt>{{ t('devices.onboarding.installationId') }}</dt><dd>{{ result.installMaterials.installationId }}</dd></div>
+            <div><dt>{{ t('devices.onboarding.expiresAt') }}</dt><dd>{{ formatBrowserLocalTime(result.installMaterials.expiresAt) || '-' }}</dd></div>
+          </dl>
+          <pre><code>{{ JSON.stringify(result.installMaterials, null, 2) }}</code></pre>
         </div>
         <dl v-else>
           <div><dt>{{ t('devices.onboarding.connectionStatus') }}</dt><dd>{{ result.onboardingKind === 'PLUGIN_MANAGED' ? t('devices.onboarding.completed') : result.connectionSucceeded ? t('devices.onboarding.connectionTested') : t('devices.onboarding.connectionTestFailed') }}</dd></div>
@@ -321,7 +276,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
       <button class="gc-button" type="button" @click="emit('update:open', false)">{{ t('devices.actions.cancel') }}</button>
       <button v-if="step > 1" class="gc-button" type="button" @click="previousStep">{{ t('devices.actions.previous') }}</button>
       <button v-if="step === 2" class="gc-button gc-button--primary" type="button" :disabled="!canSubmit" @click="submit()">
-        {{ pending ? t('common.loading') : isAgentInstall ? t('devices.actions.generateCommand') : t('devices.actions.add') }}
+        {{ pending ? t('common.loading') : isAgentInstall ? t('devices.actions.prepareMaterials') : t('devices.actions.add') }}
       </button>
       <button v-if="step === 3" class="gc-button gc-button--primary" type="button" @click="emit('update:open', false)">{{ t('devices.actions.finish') }}</button>
     </template>
@@ -349,15 +304,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
 .device-wizard__notice { color: var(--gc-color-warning); background: var(--gc-color-warning-soft); border: var(--gc-space-hairline) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-sm); padding: var(--gc-space-3); }
 .device-wizard__error { color: var(--gc-color-danger); }
 .device-wizard__result { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); background: var(--gc-color-success-soft); border: var(--gc-space-hairline) solid var(--gc-color-success-border); border-radius: var(--gc-radius-sm); }
-.device-wizard__command { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gc-space-3); }
+.device-wizard__materials { display: grid; gap: var(--gc-space-3); }
+.device-wizard__materials dl { display: grid; gap: var(--gc-space-2); margin: 0; }
+.device-wizard__materials dl > div { display: grid; grid-template-columns: minmax(8rem, auto) minmax(0, 1fr); gap: var(--gc-space-3); }
+.device-wizard__materials dt { color: var(--gc-color-text-muted); }
+.device-wizard__materials dd { margin: 0; overflow-wrap: anywhere; }
 .device-wizard__result pre { overflow: auto; margin: 0; padding: var(--gc-space-3); color: var(--gc-color-text-inverse); background: var(--gc-color-code-bg); border-radius: var(--gc-radius-sm); white-space: pre-wrap; }
 .device-wizard__result code { overflow-wrap: anywhere; }
 .device-wizard__result dl, .device-wizard__result p { margin: 0; }
-.device-wizard__copy-button { display: grid; place-items: center; padding: var(--gc-space-3); color: var(--gc-color-text-inverse); cursor: pointer; background: var(--gc-gradient-primary); border: var(--gc-space-hairline) solid var(--gc-color-primary-border-strong); border-radius: var(--gc-radius-md); box-shadow: var(--gc-shadow-primary); }
-.device-wizard__copy-button:hover { background: var(--gc-color-primary-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
-.device-wizard__copy-button:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
-.device-wizard__copy-button:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); transform: none; }
-.device-wizard__copy-button--copied { color: var(--gc-color-text-inverse); background: var(--gc-color-success); border-color: var(--gc-color-success-border); box-shadow: var(--gc-shadow-sm); }
-.device-wizard__copy-button svg { inline-size: var(--gc-space-5); block-size: var(--gc-space-5); stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.device-wizard__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

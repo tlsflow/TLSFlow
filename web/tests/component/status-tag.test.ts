@@ -23,10 +23,10 @@ describe('GcStatusTag', () => {
 
   it('支持业务页面覆盖标签文案和色调', () => {
     const wrapper = mount(GcStatusTag, {
-      props: { status: 'unknown', label: 'ACME', tone: 'info' },
+      props: { status: 'unknown', label: '外部来源', tone: 'info' },
       global: { plugins: [i18n] },
     })
-    expect(wrapper.text()).toBe('ACME')
+    expect(wrapper.text()).toBe('外部来源')
     expect(wrapper.classes()).toContain('gc-tag--info')
   })
 })

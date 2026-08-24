@@ -330,6 +330,13 @@ function updateField(field: WorkflowNodeFieldDefinition, event: Event) {
   commit(setNodeConfigValue(canvas.value, selectedNode.value.id, field.key, value))
 }
 
+function updateSshArgs(event: Event) {
+  if (!selectedNode.value) return
+  const target = event.target as HTMLTextAreaElement
+  const args = target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  commit(setNodeConfigValue(canvas.value, selectedNode.value.id, 'args', args))
+}
+
 function updateLabel(event: Event) {
   if (!selectedNode.value) return
   const target = event.target as HTMLInputElement
@@ -896,7 +903,19 @@ function firstNumber(...values: unknown[]): number | undefined {
             <template v-if="selectedNode.type === 'ssh'">
               <label>
                 <span>{{ t('workflows.canvasEditor.fields.command') }}</span>
-                <textarea :value="String(selectedNode.config.command ?? '')" :disabled="!canEdit" rows="5" @input="updateField({ key: 'command', label: t('workflows.canvasEditor.fields.command'), kind: 'textarea' }, $event)" />
+                <select :value="String(selectedNode.config.program ?? '')" :disabled="!canEdit" @change="updateField({ key: 'program', label: t('workflows.canvasEditor.fields.command'), kind: 'select' }, $event)">
+                  <option v-for="program in ['systemctl', 'service', 'sc.exe']" :key="program" :value="program">{{ program }}</option>
+                </select>
+              </label>
+              <label>
+                <span>{{ t('workflows.canvasEditor.fields.command') }}</span>
+                <textarea :value="Array.isArray(selectedNode.config.args) ? selectedNode.config.args.join('\n') : ''" :disabled="!canEdit" rows="3" @input="updateSshArgs" />
+              </label>
+              <label>
+                <span>{{ t('workflows.canvasEditor.fields.command') }}</span>
+                <select :value="String(selectedNode.config.argumentTemplate ?? '')" :disabled="!canEdit" @change="updateField({ key: 'argumentTemplate', label: t('workflows.canvasEditor.fields.command'), kind: 'select' }, $event)">
+                  <option v-for="template in ['systemctl.reload', 'systemctl.restart', 'service.reload', 'service.restart', 'sc.query']" :key="template" :value="template">{{ template }}</option>
+                </select>
               </label>
             </template>
             <template v-else>
