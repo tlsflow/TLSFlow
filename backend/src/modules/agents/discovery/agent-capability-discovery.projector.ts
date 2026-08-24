@@ -287,7 +287,7 @@ function addWebSite(
     ?? stringValue(site.metadata?.certificatePath);
   const certificateThumbprint = listenersOf(site).map((item) => stringValue(item.certificateThumbprint)).find((thumbprint) => Boolean(thumbprint && certificateReference(certificateByReference, `thumbprint:${thumbprint}`)));
   const certificate = certificateThumbprint
-    ? certificateReference(certificateByReference, `thumbprint:${certificateThumbprint}`)
+    ? certificateReference(certificateByReference, `thumbprint:${certificateThumbprint}`) ?? certificateFromThumbprint(certificateThumbprint, site)
     : certificatePath ? certificateReference(certificateByReference, certificatePath) : undefined;
   if (certificate && !certificates.some((item) => item.stableKey === certificate.stableKey)) certificates.push(certificate);
   if (certificate && !certificateBindings.some((item) => item.managedTargetStableKey === target!.stableKey && item.certificateStableKey === certificate.stableKey)) {
@@ -373,6 +373,17 @@ function certificateThumbprint(value: Record<string, any>): string | undefined {
 function certificateReference(index: Map<string, StandardDeviceDiscoveryV2['certificates'][number]>, value: string): StandardDeviceDiscoveryV2['certificates'][number] | undefined {
   const normalized = normalizePath(value);
   return index.get(normalized) ?? index.get(`basename:${pathBasename(normalized).toLowerCase()}`) ?? index.get(value.toLowerCase());
+}
+
+function certificateFromThumbprint(thumbprint: string, site: StandardDeviceDiscoveryV2['sites'][number]): StandardDeviceDiscoveryV2['certificates'][number] {
+  return {
+    stableKey: `CERT:SHA1:${thumbprint}`,
+    metadata: {
+      thumbprint,
+      source: 'iis-binding',
+      ...(stringValue(site.metadata?.certificateStoreName) ? { store: stringValue(site.metadata?.certificateStoreName) } : {}),
+    },
+  };
 }
 
 function frameworkDisplayName(frameworkType: string): string {
