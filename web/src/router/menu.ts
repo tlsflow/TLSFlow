@@ -60,22 +60,20 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.pluginsDesc'
   },
   {
-    titleKey: 'nav.monitoring',
+    titleKey: 'nav.monitoringAnalysis',
     path: '/monitors',
     module: 'monitoring',
     permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
     icon: 'activity',
-    descriptionKey: 'nav.monitoringDesc',
-    children: [
-      {
-        titleKey: 'nav.monitorAlerts',
-        path: '/monitors',
-        module: 'monitoring',
-        permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
-        descriptionKey: 'nav.monitorAlertsDesc',
-      },
-      { titleKey: 'nav.audits', path: '/audits', module: 'audit', permission: 'audit.read', descriptionKey: 'nav.auditsDesc' }
-    ]
+    descriptionKey: 'nav.monitoringAnalysisDesc',
+  },
+  {
+    titleKey: 'nav.logAudit',
+    path: '/audits',
+    module: 'audit',
+    permission: 'audit.read',
+    icon: 'document',
+    descriptionKey: 'nav.logAuditDesc',
   },
   {
     titleKey: 'nav.settings',

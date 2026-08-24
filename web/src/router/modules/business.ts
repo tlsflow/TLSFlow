@@ -374,13 +374,13 @@ export const businessRoutes: GcRouteRecord[] = [
     component: () => import('@/views/monitoring/MonitorsView.vue'),
     meta: {
       title: 'Monitor Alerts',
-      titleKey: 'nav.monitorAlerts',
+      titleKey: 'nav.monitoringAnalysis',
       module: 'monitoring',
       requiresAuth: true,
       permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
       resourceType: 'monitor',
       riskLevel: 'medium',
-      breadcrumbKeys: ['nav.monitorAlerts'],
+      breadcrumbKeys: ['nav.monitoringAnalysis'],
       keepAlive: true
     }
   },
@@ -390,13 +390,13 @@ export const businessRoutes: GcRouteRecord[] = [
     component: () => import('@/views/audit/AuditsView.vue'),
     meta: {
       title: 'Audit Logs',
-      titleKey: 'nav.audits',
+      titleKey: 'nav.logAudit',
       module: 'audit',
       requiresAuth: true,
       permission: 'audit.read',
       resourceType: 'auditLog',
       riskLevel: 'low',
-      breadcrumbKeys: ['nav.audits'],
+      breadcrumbKeys: ['nav.logAudit'],
       keepAlive: true
     }
   },
