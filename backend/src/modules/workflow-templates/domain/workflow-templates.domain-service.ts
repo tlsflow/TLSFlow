@@ -432,13 +432,8 @@ export class WorkflowTemplatesDomainService {
         logs: rawLogs.map((line) => maskText(line, context.secretPaths, localValues)),
       };
       if (success || attempt === attempts) {
-        for (const [key, value] of Object.entries(extracted)) {
-          // 已发布 DSL 允许后续步骤直接引用提取变量；同时保留 steps 命名空间供新 DSL 使用。
-          context.values[key] = value;
-          context.outputs[`${step.name}.${key}`] = value;
-        }
+        for (const [key, value] of Object.entries(extracted)) context.outputs[`${step.name}.${key}`] = value;
         const snapshot = stepSnapshot(step, last, structuredOutput, extracted);
-        context.values.previous = snapshot;
         context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: snapshot };
         return {
           rendered: { name: step.name, type, stage: step.stage, request: maskUnknown(finalPlan, context.secretPaths, context.values), preview: maskUnknown(finalPlan, context.secretPaths, context.values) },
@@ -557,7 +552,6 @@ export class WorkflowTemplatesDomainService {
       }))),
     };
     const snapshot = stepSnapshot(step, result, output, {});
-    context.values.previous = snapshot;
     context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: snapshot };
 
     return {
@@ -692,20 +686,12 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
   if (!input.resolvedInput.executable) {
     throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
   }
-  const artifactValues = Object.fromEntries(
-    Object.entries(input.resolvedInput.artifacts).map(([name, artifact]) => [name, artifact.outputs]),
-  );
   const values: Record<string, unknown> = {
-    // 已发布 DSL 直接按声明名引用变量。输入来源已经统一解析，这里只做运行时投影，不重新解析绑定。
-    ...input.resolvedInput.variables,
-    ...input.resolvedInput.credentials,
-    ...artifactValues,
     variables: input.resolvedInput.variables,
     connections: input.resolvedInput.connections,
     credentials: input.resolvedInput.credentials,
-    artifacts: artifactValues,
+    artifacts: input.resolvedInput.artifacts,
     asset: input.resolvedInput.assetContext,
-    previous: {},
     steps: { ...(input.stepOutputs ?? {}) },
     system: { ...(input.systemValues ?? {}) },
   };
@@ -996,7 +982,7 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, conte
     if ((value === undefined || value === null) && !extractor.optional) throw buildWorkflowExtractorError(step, extractor, output);
     if (value !== undefined && value !== null) {
       extracted[extractor.name] = value;
-      if (extractor.sensitive) collectValuePaths(extractor.name, value, context.secretPaths);
+      if (extractor.sensitive) collectValuePaths(`steps.${step.name}.extracted.${extractor.name}`, value, context.secretPaths);
     }
   }
   return extracted;

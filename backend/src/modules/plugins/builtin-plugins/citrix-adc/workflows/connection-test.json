@@ -15,9 +15,9 @@
       "stage": "prepare",
       "request": {
         "method": "GET",
-        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion",
-        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
-        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "url": "https://{{variables.deviceHost}}:{{variables.managementPort}}/nitro/v1/config/nsversion",
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
+        "tls": { "verify": "{{variables.tlsVerify}}", "allowInsecure": true },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,
         "successStatusCodes": [200]

@@ -46,7 +46,14 @@ function resolvedWorkflowInput(input: Partial<Pick<ResolvedDeploymentInputV1, 'v
 }
 
 function withResolvedVariables(base: ResolvedDeploymentInputV1, variables: Record<string, unknown>): ResolvedDeploymentInputV1 {
-  return { ...base, variables: { ...base.variables, ...variables } };
+  return {
+    ...base,
+    variables: { ...base.variables, ...variables },
+    sensitivePaths: [
+      ...base.sensitivePaths,
+      ...Object.keys(variables).filter((name) => /token|password|secret/i.test(name)).map((name) => `variables.${name}`),
+    ],
+  };
 }
 
 function resolvedInputWithTargets(targets: Array<{ host: string }>): ResolvedDeploymentInputV1 {
@@ -146,7 +153,7 @@ function runtimeInput(versionId: string) {
     templateVersionId: versionId,
     mode: 'mock' as const,
     resolvedInput: resolvedWorkflowInput({
-      variables: { deviceHost: 'edge-01.example.com' },
+      variables: { deviceHost: 'edge-01.example.com', shouldUpload: true },
       credentials: { credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
       artifacts: { cert: { outputs: { pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----', privateKey: 'super-private-key', fingerprintSha256: 'ff'.repeat(32) } } },
     }),
@@ -558,7 +565,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [{ name: 'accessToken', type: 'outputPath', path: '$.body.token', sensitive: true }],
           assert: [{ type: 'statusCode', equals: 200 }],
         },
@@ -569,12 +576,12 @@ describe('WorkflowTemplates', () => {
           ssh: {
             mode: 'command',
             connection: {
-              host: '{{deviceHost}}',
-              username: '{{credential.username}}',
-              credential: '{{credential}}',
+              host: '{{variables.deviceHost}}',
+              username: '{{credentials.credential.username}}',
+              credential: '{{credentials.credential}}',
               hostKeyPolicy: 'trust_on_first_use',
             },
-            command: 'echo {{accessToken}} {{previous.extracted.accessToken}} {{steps.prepare_auth.output.body.token}}',
+            command: 'echo {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.extracted.accessToken}} {{steps.prepare_auth.output.body.token}}',
           },
         },
       ],
