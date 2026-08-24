@@ -59,6 +59,7 @@ import { PluginPromotionService, PluginsController, getPluginsRouteContracts } f
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
+import { BuiltinPluginCompatibilityUpgradeService } from './modules/plugins/application/builtin-plugin-compatibility-upgrade.service.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
@@ -415,6 +416,11 @@ export async function createAppAsync(
   if (unifiedPlugins && pluginWorkflowPublisher) {
     const installed = await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
     for (const plugin of installed) await pluginWorkflowPublisher.publishPlugin(plugin);
+    const citrixAdc = installed.find((plugin) => plugin.pluginId === 'citrix.netscaler-adc');
+    if (citrixAdc) {
+      const database = app.getResource<DatabasePort>('database');
+      if (database) await new BuiltinPluginCompatibilityUpgradeService(database).upgradeCitrixAdc(citrixAdc.tenantId, citrixAdc.id, citrixAdc.version);
+    }
   }
   return app;
 }

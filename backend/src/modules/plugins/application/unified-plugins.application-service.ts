@@ -271,7 +271,7 @@ function readStringField(value: unknown, key: string): string | undefined {
     : undefined;
 }
 
-function compareSemanticVersions(left: string, right: string): number {
+export function compareSemanticVersions(left: string, right: string): number {
   const leftParts = left.split(/[.-]/).map((part) => Number.parseInt(part, 10));
   const rightParts = right.split(/[.-]/).map((part) => Number.parseInt(part, 10));
   for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
