@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "0.5.1",
+    "ali-oss": "^6.23.0",
     "jsonata": "^2.2.1",
     "ldapts": "^8.1.8",
     "pg": "8.21.0",

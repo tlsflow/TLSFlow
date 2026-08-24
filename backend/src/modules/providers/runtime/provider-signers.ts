@@ -17,7 +17,9 @@ export function signAliyunRpc(input: {
   params?: Record<string, unknown>;
   scope: ProviderScope;
   endpoint?: string;
+  method?: 'GET' | 'POST';
 }): SignedRequest {
+  const method = input.method ?? 'GET';
   const aliyunParams = normalizeAliyunRpcParams(input.params);
   const params: Record<string, string> = {
     Format: 'JSON',
@@ -35,13 +37,21 @@ export function signAliyunRpc(input: {
     .sort()
     .map((key) => `${percentEncode(key)}=${percentEncode(params[key]!)}`)
     .join('&');
-  const stringToSign = `GET&%2F&${percentEncode(canonicalized)}`;
+  const stringToSign = `${method}&%2F&${percentEncode(canonicalized)}`;
   params.Signature = createHmac('sha1', `${input.accessKeySecret}&`).update(stringToSign).digest('base64');
   const query = Object.keys(params).sort().map((key) => `${percentEncode(key)}=${percentEncode(params[key]!)}`).join('&');
   return {
-    method: 'GET',
-    url: `${scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.aliyuncs.com')}?${query}`,
-    headers: { accept: 'application/json' },
+    method,
+    url: method === 'GET'
+      ? `${scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.aliyuncs.com')}?${query}`
+      : scopeEndpoint(input.scope, input.endpoint ?? 'https://cdn.aliyuncs.com'),
+    headers: method === 'GET'
+      ? { accept: 'application/json' }
+      : {
+        accept: 'application/json',
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+    ...(method === 'POST' ? { body: query } : {}),
   };
 }
 

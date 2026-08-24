@@ -9,10 +9,12 @@ class FixtureTransport implements ProviderTransport {
 
   async request(request: ProviderHttpRequest): Promise<ProviderHttpResponse> {
     this.requests.push(request);
-    const body = request.body ? JSON.parse(request.body) as Record<string, unknown> : {};
+    const body = parseRequestBody(request);
     if (request.url.includes('aliyuncs.com')) {
-      const action = new URL(request.url).searchParams.get('Action');
-      if (action === 'DescribeDomainCertificateInfo') return response({ CertId: 'old-cert', FingerprintSha256: 'old-fp' });
+      const action = readAliyunAction(request);
+      if (action === 'DescribeDomainCertificateInfo' || action === 'DescribeLiveDomainDetail') {
+        return response({ CertId: 'old-cert', FingerprintSha256: 'old-fp' });
+      }
       return response({ RequestId: 'req-1', CertId: 'new-cert' });
     }
     if (body.certificateId === 'new-cert') return response({ certificateId: 'new-cert' });
@@ -68,7 +70,22 @@ test('阿里云扩展部署结果包含可用于回滚的 checkpoint', async () 
   );
   assert.equal(result.status, 'SUCCESS');
   assert.equal((result.resultSummary?.checkpoint as { previous: { certificateId: string } }).previous.certificateId, 'old-cert');
-  assert.equal(transport.requests.length, 2);
+  assert.equal(transport.requests.length, 3);
+});
+
+test('阿里云 Live 扩展会先上传证书到 CAS，再绑定到直播域名', async () => {
+  const transport = new FixtureTransport();
+  const extension = new AliyunProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.aliyun'), requestId: 'req' },
+    { frameworkType: 'cloud.aliyun.live', resourceId: 'live.example.com', domain: 'live.example.com' },
+    { certificatePem: '-----BEGIN CERTIFICATE-----', privateKeyPem: 'private-key' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  assert.match(transport.requests[0]!.url, /live\.aliyuncs\.com/);
+  assert.match(transport.requests[1]!.url, /cas\.aliyuncs\.com/);
+  assert.match(transport.requests[2]!.url, /live\.aliyuncs\.com/);
 });
 
 test('华为云扩展读取旧配置后保留旧配置字段再提交', async () => {
@@ -99,6 +116,22 @@ test('腾讯云 CLB 扩展会按监听器路由证书并返回回滚点', async 
   assert.equal((result.resultSummary?.checkpoint as { previous: { certificateId: string } }).previous.certificateId, 'cert-old');
 });
 
+test('腾讯云 Live 扩展会走 SSL 上传与 Live 绑定两套接口', async () => {
+  const transport = new TencentFixtureTransport();
+  const extension = new TencentProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.tencent') },
+    { frameworkType: 'cloud.tencent.live', resourceId: 'live.example.com', domain: 'live.example.com' },
+    { certificatePem: 'pem', privateKeyPem: 'private-key' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  assert.match(transport.requests[0]!.url, /live\.tencentcloudapi\.com/);
+  assert.match(transport.requests[1]!.url, /ssl\.tencentcloudapi\.com/);
+  assert.match(transport.requests[2]!.url, /live\.tencentcloudapi\.com/);
+  assert.equal(transport.requests[2]!.headers?.['x-tc-action'], 'ModifyLiveDomainCertBindings');
+});
+
 test('火山引擎 CLB 扩展会按监听器更新证书', async () => {
   const transport = new VolcengineFixtureTransport();
   const extension = new VolcengineProviderExtension(credentials, transport);
@@ -113,6 +146,40 @@ test('火山引擎 CLB 扩展会按监听器更新证书', async () => {
   assert.equal(requestBody.CertificateId, 'cert-new');
 });
 
+test('火山引擎 Live 扩展会先创建证书再绑定直播域名', async () => {
+  const transport = new VolcengineFixtureTransport();
+  const extension = new VolcengineProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.volcengine') },
+    { frameworkType: 'cloud.volcengine.live', resourceId: 'live.example.com', domain: 'live.example.com' },
+    { certificatePem: 'pem', privateKeyPem: 'private-key' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  assert.match(transport.requests[0]!.url, /open\.volcengineapi\.com/);
+  assert.match(transport.requests[1]!.url, /open\.volcengineapi\.com/);
+  assert.match(transport.requests[2]!.url, /open\.volcengineapi\.com/);
+  assert.equal(transport.requests[1]!.headers?.['x-action'], 'CreateCert');
+  assert.equal(transport.requests[2]!.headers?.['x-action'], 'BindCert');
+});
+
+test('火山引擎 VOD 扩展会使用证书中心上传并回写点播域名配置', async () => {
+  const transport = new VolcengineFixtureTransport();
+  const extension = new VolcengineProviderExtension(credentials, transport);
+  const result = await extension.execute(
+    'certificate.deploy',
+    { tenantId: 'tenant_test', asset: asset('cloud.volcengine') },
+    { frameworkType: 'cloud.volcengine.vod', resourceId: 'vod.example.com', domain: 'vod.example.com', metadata: { spaceName: 'space-a', domainType: 'vod_play' } },
+    { certificatePem: 'pem', privateKeyPem: 'private-key' },
+  );
+  assert.equal(result.status, 'SUCCESS');
+  assert.match(transport.requests[0]!.url, /open\.volcengineapi\.com/);
+  assert.match(transport.requests[1]!.url, /open\.volcengineapi\.com/);
+  assert.match(transport.requests[2]!.url, /open\.volcengineapi\.com/);
+  assert.equal(transport.requests[1]!.headers?.['x-action'], 'ImportCertificate');
+  assert.equal(transport.requests[2]!.headers?.['x-action'], 'UpdateVodDomainConfig');
+});
+
 function response(payload: Record<string, unknown>): ProviderHttpResponse {
   return { status: 200, headers: {}, body: JSON.stringify(payload), json: payload };
 }
@@ -123,6 +190,15 @@ class TencentFixtureTransport implements ProviderTransport {
   async request(request: ProviderHttpRequest): Promise<ProviderHttpResponse> {
     this.requests.push(request);
     const action = request.headers?.['x-tc-action'];
+    if (action === 'DescribeLiveDomains') {
+      return response({ DomainList: [{ Name: 'live.example.com', CloudCertId: 'live-cert-old' }] });
+    }
+    if (action === 'UploadCertificate') {
+      return response({ Response: { CertificateId: 'live-cert-new' }, CertificateId: 'live-cert-new' });
+    }
+    if (action === 'ModifyLiveDomainCertBindings') {
+      return response({ RequestId: 'req-live' });
+    }
     if (action === 'DescribeLoadBalancers') {
       return response({ Response: { LoadBalancerSet: [{ LoadBalancerId: 'lb-1', LoadBalancerName: 'lb-one' }] } });
     }
@@ -145,6 +221,24 @@ class VolcengineFixtureTransport implements ProviderTransport {
   async request(request: ProviderHttpRequest): Promise<ProviderHttpResponse> {
     this.requests.push(request);
     const action = request.headers?.['x-action'];
+    if (action === 'ListDomainDetail') {
+      return response({ Result: { DomainList: [{ Domain: 'live.example.com', ChainID: 'volc-live-cert-old' }] } });
+    }
+    if (action === 'CreateCert') {
+      return response({ Result: { ChainID: 'volc-live-cert-new' } });
+    }
+    if (action === 'BindCert') {
+      return response({ Result: { RequestId: 'req-bind-live' } });
+    }
+    if (action === 'ListVodDomains') {
+      return response({ Result: { VodInfo: { Domains: [{ Domain: 'vod.example.com', CertId: 'volc-vod-cert-old' }] } } });
+    }
+    if (action === 'ImportCertificate') {
+      return response({ Result: { InstanceId: 'volc-vod-cert-new' } });
+    }
+    if (action === 'UpdateVodDomainConfig') {
+      return response({ Result: { RequestId: 'req-vod' } });
+    }
     if (action === 'DescribeLoadBalancers') {
       return response({ Result: { LoadBalancers: [{ LoadBalancerId: 'lb-1', LoadBalancerName: 'lb-one' }] } });
     }
@@ -156,4 +250,20 @@ class VolcengineFixtureTransport implements ProviderTransport {
     }
     return response({});
   }
+}
+
+function parseRequestBody(request: ProviderHttpRequest): Record<string, unknown> {
+  if (!request.body) return {};
+  if ((request.headers?.['content-type'] ?? '').includes('application/x-www-form-urlencoded')) {
+    const params = new URLSearchParams(request.body);
+    return Object.fromEntries(params.entries());
+  }
+  return JSON.parse(request.body) as Record<string, unknown>;
+}
+
+function readAliyunAction(request: ProviderHttpRequest): string | undefined {
+  const urlAction = new URL(request.url).searchParams.get('Action');
+  if (urlAction) return urlAction;
+  const body = parseRequestBody(request);
+  return typeof body.Action === 'string' ? body.Action : undefined;
 }

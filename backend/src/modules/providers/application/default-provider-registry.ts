@@ -11,10 +11,25 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import type { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
 
 const providerDefinitions: ProviderDefinition[] = [
-  definition('cloud.aliyun', 'aliyun', 'V4', ['cloud.aliyun.cdn', 'cloud.aliyun.alb', 'cloud.aliyun.clb']),
-  definition('cloud.tencent', 'tencent', 'V4', ['cloud.tencent.cdn', 'cloud.tencent.clb']),
+  definition('cloud.aliyun', 'aliyun', 'V4', [
+    'cloud.aliyun.cdn',
+    'cloud.aliyun.alb',
+    'cloud.aliyun.clb',
+    'cloud.aliyun.oss',
+    'cloud.aliyun.waf-cname',
+    'cloud.aliyun.waf-cloud',
+    'cloud.aliyun.live',
+    'cloud.aliyun.vod',
+  ]),
+  definition('cloud.tencent', 'tencent', 'V4', ['cloud.tencent.cdn', 'cloud.tencent.clb', 'cloud.tencent.live']),
   definition('cloud.huawei', 'huawei', 'HMAC', ['cloud.huawei.cdn', 'cloud.huawei.elb']),
-  definition('cloud.volcengine', 'volcengine', 'HMAC', ['cloud.volcengine.cdn', 'cloud.volcengine.alb', 'cloud.volcengine.clb']),
+  definition('cloud.volcengine', 'volcengine', 'HMAC', [
+    'cloud.volcengine.cdn',
+    'cloud.volcengine.alb',
+    'cloud.volcengine.clb',
+    'cloud.volcengine.live',
+    'cloud.volcengine.vod',
+  ]),
 ];
 
 const capabilities: ProviderCapabilityPlugin[] = providerDefinitions.flatMap((provider) =>
