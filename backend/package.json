@@ -19,6 +19,7 @@
     "check:plugin-vendor-neutrality": "node ../scripts/check-plugin-vendor-neutrality.mjs",
     "check:utf8-mojibake": "node ../scripts/check-utf8-mojibake.mjs && node --test ../scripts/check-utf8-mojibake.test.mjs",
     "check:builtin-plugin-versions": "node ../scripts/check-builtin-plugin-versions.mjs && node --test ../scripts/check-builtin-plugin-versions.test.mjs && tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts && tsx --test src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.test.ts",
+    "update:plugin-version": "node ../scripts/update-plugin-version.mjs",
     "update:builtin-plugin-package-ledger": "tsx src/modules/plugins/builtin-plugins/builtin-plugin-package-ledger.ts --update",
     "audit:managed-target-baseline": "node ../scripts/audit-unified-managed-target-baseline.mjs",
     "audit:plugin-product-families": "node ../scripts/audit-plugin-product-families.mjs",
