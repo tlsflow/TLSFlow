@@ -12,6 +12,12 @@ import { ProductionDeploymentInputResolverService } from '../deployment-inputs/a
 import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 import { evaluatePluginCompatibility } from './capabilities/plugin-compatibility.evaluator.js';
 import type { UnifiedPluginManifestV1 } from './dto/unified-plugins.dto.js';
+import { createWorkflowStepDispatcher } from '../workflow-templates/application/workflow-step-dispatcher.js';
+import { CurlExecutor } from '../executors/curl/curl.executor.js';
+import type { CurlHttpClient } from '../executors/curl/curl.http-client.js';
+import type { CurlSecretResolver, CurlSecretResolverContext } from '../executors/curl/curl.secret-resolver.js';
+import type { ExecutionGrantService } from '../executions/execution-grant.service.js';
+import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
 
 const DERIVED_CERTKEY_NAME = 'gcac-aaaaaaaaaaaaaaaa';
 const ACTUAL_EXISTING_CERTKEY_NAME = 'gcac-5579902569';
@@ -26,7 +32,10 @@ class BuiltinUnifiedPluginLoader extends BaseBuiltinUnifiedPluginLoader {
   }
 }
 
-function resolvedWorkflowInput(variables: Record<string, unknown> = {}): ResolvedDeploymentInputV1 {
+function resolvedWorkflowInput(
+  variables: Record<string, unknown> = {},
+  connection: { port?: number; tlsVerify?: boolean } = {},
+): ResolvedDeploymentInputV1 {
   const credential = variables.credential ?? fixtureCredential();
   const certificate = variables.certificate;
   const resolvedVariables = { ...variables };
@@ -45,9 +54,9 @@ function resolvedWorkflowInput(variables: Record<string, unknown> = {}): Resolve
       management: {
         transport: 'http',
         host: '10.0.0.1',
-        port: 443,
+        port: connection.port ?? 443,
         credentialSlot: 'credential',
-        tls: { verifyPeer: false },
+        tls: { verifyPeer: connection.tlsVerify ?? false },
       },
     },
     credentials: { credential: credential as ResolvedDeploymentInputV1['credentials'][string] },
@@ -194,6 +203,154 @@ test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
   assert.equal(result.status, 'success');
   assert.equal(result.stepResults[0]?.extracted.productVersion, 'NetScaler NS13.1: Build 55.29.nc');
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
+});
+
+test('Citrix ADC 连接测试真实执行：HTTP 200 且 errorcode=0 时成功，请求来自统一部署输入', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+
+  const requests: Array<{ url: string; method: string; headers: Record<string, string>; tlsVerify: boolean }> = [];
+  const secretCalls: Array<{ ref: string; purpose: string; tenantId?: string }> = [];
+  const httpClient: CurlHttpClient = {
+    async send(input) {
+      requests.push({
+        url: input.url,
+        method: input.method,
+        headers: input.headers,
+        tlsVerify: input.tls?.verify !== false,
+      });
+      return { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } };
+    },
+  };
+  const secretResolver: CurlSecretResolver = {
+    async resolveSecret(ref: string, purpose: string, context: CurlSecretResolverContext = {}) {
+      secretCalls.push({ ref, purpose, tenantId: context.tenantId });
+      return 'fixture-only-password';
+    },
+  };
+  const dispatcher = createWorkflowStepDispatcher({ curlExecutor: new CurlExecutor({ httpClient, secretResolver }) });
+
+  const result = await workflows.runWithDispatcher({
+    templateVersionId: version.id,
+    mode: 'real_test',
+    resolvedInput: resolvedWorkflowInput({}, { port: 8443, tlsVerify: true }),
+    tenantId: 'tenant-citrix-real',
+  }, dispatcher);
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.stepResults[0]?.extracted.productVersion, 'NetScaler NS13.1: Build 55.29.nc');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, 'https://10.0.0.1:8443/nitro/v1/config/nsversion');
+  assert.equal(requests[0]?.method, 'GET');
+  assert.equal(requests[0]?.headers['Accept'], 'application/json');
+  assert.equal(requests[0]?.headers['X-NITRO-USER'], 'fixture');
+  assert.equal(requests[0]?.headers['X-NITRO-PASS'], 'fixture-only-password');
+  assert.equal(requests[0]?.tlsVerify, true);
+  assert.deepEqual(secretCalls, [{ ref: 'secret://password/fixture-secret#v1', purpose: 'http.header', tenantId: 'tenant-citrix-real' }]);
+  assert.equal(JSON.stringify(result).includes('fixture-only-password'), false);
+});
+
+test('Citrix ADC 连接测试真实执行：HTTP 非 200 时失败并报告真实状态错误', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+
+  const httpClient: CurlHttpClient = {
+    async send() {
+      return { statusCode: 500, body: { errorcode: 0 } };
+    },
+  };
+  const secretResolver: CurlSecretResolver = { async resolveSecret() { return 'fixture-only-password'; } };
+  const dispatcher = createWorkflowStepDispatcher({ curlExecutor: new CurlExecutor({ httpClient, secretResolver }) });
+
+  const result = await workflows.runWithDispatcher({
+    templateVersionId: version.id,
+    mode: 'real_test',
+    resolvedInput: resolvedWorkflowInput({}, { tlsVerify: true }),
+    tenantId: 'tenant-citrix-real',
+  }, dispatcher);
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.stepResults[0]?.status, 'failed');
+  assert.equal(result.stepResults[0]?.errorCode, 'HTTP_NON_SUCCESS_STATUS');
+  assert.match(result.stepResults[0]?.errorMessage ?? '', /未满足成功策略/);
+  assert.match(result.stepResults[0]?.logs.join('\n') ?? '', /response:status:500/);
+});
+
+test('Citrix ADC 连接测试真实执行：errorcode != 0 时失败并报告 Citrix 错误', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+
+  const httpClient: CurlHttpClient = {
+    async send() {
+      return { statusCode: 200, body: { errorcode: 7, message: 'NITRO authentication failed', nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } };
+    },
+  };
+  const secretResolver: CurlSecretResolver = { async resolveSecret() { return 'fixture-only-password'; } };
+  const dispatcher = createWorkflowStepDispatcher({ curlExecutor: new CurlExecutor({ httpClient, secretResolver }) });
+
+  const result = await workflows.runWithDispatcher({
+    templateVersionId: version.id,
+    mode: 'real_test',
+    resolvedInput: resolvedWorkflowInput({}, { tlsVerify: true }),
+    tenantId: 'tenant-citrix-real',
+  }, dispatcher);
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.stepResults[0]?.status, 'failed');
+  assert.equal(result.stepResults[0]?.errorCode, 'WORKFLOW_ASSERTION_FAILED');
+  assert.match(result.stepResults[0]?.errorMessage ?? '', /errorcode/);
+  assert.equal(result.stepResults[0]?.extracted.nitroErrorCode, 7);
+  assert.match(result.stepResults[0]?.logs.join('\n') ?? '', /response:nitroErrorCode:7/);
+  assert.match(result.stepResults[0]?.logs.join('\n') ?? '', /assertion:jsonPath:failed/);
+});
+
+test('Citrix ADC 连接测试真实执行：设备关闭 TLS 校验时按 ExecutionGrant 授权链放行，缺失宿主授权时失败关闭', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+
+  const grantStore = new InMemoryCitrixExecutionGrantService();
+  const grants = grantStore as unknown as ExecutionGrantService;
+  let tlsVerify = true;
+  const httpClient: CurlHttpClient = {
+    async send(input) {
+      tlsVerify = input.tls?.verify !== false;
+      return { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } };
+    },
+  };
+  const secretResolver: CurlSecretResolver = { async resolveSecret() { return 'fixture-only-password'; } };
+
+  // 授权条件齐备：宿主签发 Grant 后允许 TLS 例外。
+  const authorizedDispatcher = createWorkflowStepDispatcher({ curlExecutor: new CurlExecutor({ httpClient, secretResolver, executionGrantService: grants }), executionGrantService: grants });
+  const authorized = await workflows.runWithDispatcher({
+    templateVersionId: version.id,
+    mode: 'real_test',
+    resolvedInput: resolvedWorkflowInput({}, { tlsVerify: false }),
+    tenantId: 'tenant-citrix-tls',
+  }, authorizedDispatcher);
+  assert.equal(authorized.status, 'success');
+  assert.equal(tlsVerify, false);
+  assert.equal(grantStore.createdCount(), 1);
+  assert.equal(grantStore.activeCount(), 0, '执行结束后 Grant 必须立即撤销');
+
+  // 宿主未装配 Grant 服务：失败关闭，不静默放行。
+  const deniedDispatcher = createWorkflowStepDispatcher({ curlExecutor: new CurlExecutor({ httpClient, secretResolver }) });
+  const denied = await workflows.runWithDispatcher({
+    templateVersionId: version.id,
+    mode: 'real_test',
+    resolvedInput: resolvedWorkflowInput({}, { tlsVerify: false }),
+    tenantId: 'tenant-citrix-tls',
+  }, deniedDispatcher);
+  assert.equal(denied.status, 'failed');
+  assert.equal(denied.stepResults[0]?.errorCode, 'VALIDATION_FAILED');
+  assert.match(denied.stepResults[0]?.errorMessage ?? '', /allowInsecureTls/);
 });
 
 test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
@@ -1051,4 +1208,72 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(',')}}`;
   return JSON.stringify(value);
+}
+
+class InMemoryCitrixExecutionGrantService {
+  private readonly grants = new Map<string, ExecutionGrantEntity>();
+  private created = 0;
+
+  async create(input: {
+    tenantId: string;
+    runId: string;
+    stepId: string;
+    workflowVersionId?: string;
+    executorType: string;
+    allowedSecretRefs: string[];
+    allowedActions: string[];
+    expiresAt: string;
+  }): Promise<ExecutionGrantEntity> {
+    this.created += 1;
+    const grant: ExecutionGrantEntity = {
+      id: `grant-citrix-${this.created}`,
+      tenantId: input.tenantId,
+      runId: input.runId,
+      stepId: input.stepId,
+      workflowVersionId: input.workflowVersionId,
+      executorType: input.executorType,
+      allowedSecretRefs: input.allowedSecretRefs,
+      allowedActions: input.allowedActions,
+      expiresAt: input.expiresAt,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.grants.set(grant.id, grant);
+    return grant;
+  }
+
+  async validate(input: { grantId: string; tenantId?: string; runId: string; stepId: string; workflowVersionId?: string; executorType: string; action?: string }): Promise<ExecutionGrantEntity> {
+    const grant = this.grants.get(input.grantId);
+    if (!grant || grant.status !== 'active') throw new Error('grant invalid');
+    if (grant.runId !== input.runId || grant.stepId !== input.stepId || grant.executorType !== input.executorType) {
+      throw new Error('grant context mismatch');
+    }
+    if (input.tenantId !== undefined && grant.tenantId !== input.tenantId) throw new Error('grant tenant mismatch');
+    if (input.workflowVersionId !== undefined && grant.workflowVersionId !== input.workflowVersionId) throw new Error('grant workflow version mismatch');
+    if (input.action && !grant.allowedActions.includes(input.action)) throw new Error('action not allowed');
+    return grant;
+  }
+
+  async get(id: string): Promise<ExecutionGrantEntity | undefined> {
+    return this.grants.get(id);
+  }
+
+  async revoke(id: string): Promise<ExecutionGrantEntity> {
+    const grant = this.grants.get(id);
+    if (grant) {
+      const updated = { ...grant, status: 'revoked' as const, updatedAt: new Date().toISOString() };
+      this.grants.set(id, updated);
+      return updated;
+    }
+    throw new Error('grant not found');
+  }
+
+  createdCount(): number {
+    return this.created;
+  }
+
+  activeCount(): number {
+    return [...this.grants.values()].filter((grant) => grant.status === 'active').length;
+  }
 }

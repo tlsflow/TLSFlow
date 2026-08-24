@@ -25,7 +25,7 @@
     "selectableWhen": "selectable"
   },
   "certificate": {
-    "acceptedFormats": ["PEM", "PFX"],
+    "acceptedFormats": ["PEM"],
     "requiredArtifacts": ["leaf", "privateKey"],
     "defaultVersion": "LATEST_VALID"
   },

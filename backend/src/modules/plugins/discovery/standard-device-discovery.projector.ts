@@ -209,7 +209,10 @@ export class StandardDeviceDiscoveryProjector {
             ? certificateFingerprints.get(observedCertificate.stableKey) ?? normalizeFingerprint(observedCertificate.sha256Fingerprint)
             : null;
           const deploymentTarget = binding.deploymentTarget;
-          const bindingType = deploymentTarget ? deploymentBindingType(deploymentTarget.storageKind) : 'CUSTOM';
+          // 设备插件没有文件/证书库位置时仍是设备 API 绑定；只有无设备资产的通用来源才是 CUSTOM。
+          const bindingType = deploymentTarget
+            ? deploymentBindingType(deploymentTarget.storageKind)
+            : context.deviceAssetId ? 'DEVICE_API' : 'CUSTOM';
           const driftStatus = configuredFingerprint && observedFingerprint
             ? configuredFingerprint.toUpperCase() === observedFingerprint.toUpperCase() ? 'SYNCED' : 'DRIFTED'
             : 'UNKNOWN';

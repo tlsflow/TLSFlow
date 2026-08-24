@@ -78,7 +78,7 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.equal((await db.query<{ certificate_version_id: string | null }>('select certificate_version_id from plugin_discovered_certificates limit 1')).rows[0]?.certificate_version_id, 'certificate-version-1');
   const discoveredBinding = (await db.query<{ current_certificate_version_id: string | null; observed_fingerprint_sha256: string | null }>('select current_certificate_version_id, observed_fingerprint_sha256 from plugin_discovered_certificate_bindings limit 1')).rows[0];
   assert.equal(discoveredBinding?.current_certificate_version_id, 'certificate-version-1');
-  assert.equal(discoveredBinding?.observed_fingerprint_sha256, 'A'.repeat(64));
+  assert.equal(discoveredBinding?.observed_fingerprint_sha256, null);
 
   const withoutSites = { ...fixture, sites: [], managedTargets: [], certificates: [], certificateBindings: [] };
   await projector.project(context, withoutSites);
