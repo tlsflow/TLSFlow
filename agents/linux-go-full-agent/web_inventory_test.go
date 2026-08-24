@@ -53,6 +53,17 @@ func TestCollectLinuxWebCertificateFilesReadsTomcatPKCS12AndPreservesConfiguredP
 	}
 }
 
+func TestCollectLinuxWebInventoryDeclaresFullDiscoveryScope(t *testing.T) {
+	previousRoots := webDiscoveryRoots
+	webDiscoveryRoots = []string{t.TempDir()}
+	t.Cleanup(func() { webDiscoveryRoots = previousRoots })
+
+	inventory := collectLinuxWebInventory()
+	if inventory["scope"] != fullWebDiscoveryScope {
+		t.Fatalf("Linux Web 库存必须声明完整发现 scope: %#v", inventory["scope"])
+	}
+}
+
 func TestReadLinuxPublicCertificateReadsTomcatJKS(t *testing.T) {
 	certificate, _ := testCertificate(t)
 	root := t.TempDir()

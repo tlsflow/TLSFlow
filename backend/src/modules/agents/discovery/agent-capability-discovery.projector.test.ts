@@ -289,6 +289,7 @@ test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报�
   }]));
 
   const projected = fixture.projected() as {
+    frameworks: Array<{ frameworkType: string; metadata?: { source?: string } }>;
     sites: Array<{ displayName: string; addresses: string[]; port?: number; protocol?: string; metadata: { listeners?: unknown[] } }>;
     managedTargets: Array<{ stableKey: string; siteStableKey?: string }>;
     certificates: Array<{ sha256Fingerprint?: string; subject?: string }>;
@@ -300,6 +301,7 @@ test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报�
   assert.equal(projected.sites[0]?.port, 443);
   assert.equal(projected.sites[0]?.protocol, 'HTTPS');
   assert.equal(projected.sites[0]?.metadata.listeners?.length, 2);
+  assert.equal(projected.frameworks[0]?.metadata?.source, 'host.web-config');
   assert.equal(projected.managedTargets.length, 1);
   assert.deepEqual(projected.certificates, [{ sha256Fingerprint: 'A'.repeat(64), stableKey: `CERT:${'A'.repeat(64)}`, subject: 'CN=test.local', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00.000Z', notAfter: '2027-08-01T00:00:00.000Z', metadata: { path: '/etc/nginx/certs/test.pem', name: 'test.local' } }]);
   assert.equal(projected.certificateBindings.length, 1);

@@ -18,7 +18,7 @@ interface AgentHostAnchor extends Record<string, unknown> {
  *
  * Windows Full Agent 的成熟运行态扫描器会直接给出框架、站点和精确配置绑定；
  * 宿主必须原样投影，不能再让插件配置解析、端口或 TLS 观察改写该事实。没有
- * 权威站点事实的旧 Agent 才保留插件配置解析的兼容入口。
+ * 权威站点事实的旧 Agent 才保留宿主通用配置解析的兼容入口。
  */
 export class AgentCapabilityDiscoveryProjector {
   constructor(
@@ -45,7 +45,7 @@ export class AgentCapabilityDiscoveryProjector {
     }, discovery);
     if (!preserveEmptyWeb) {
       await this.markAgentFallbackStale(snapshot.tenantId, host.id, agent.id);
-      await this.markLegacyPluginDiscoveryStale(snapshot.tenantId, host.id, discovery.frameworks.map((framework) => framework.frameworkType));
+      await this.markLegacyDiscoveryStale(snapshot.tenantId, host.id, discovery.frameworks.map((framework) => framework.frameworkType));
     }
     return summary;
   }
@@ -66,7 +66,7 @@ export class AgentCapabilityDiscoveryProjector {
    * 新 Web 事实成功解析后，只淘汰同一框架的旧 Plugin Runner 投影。
    * 框架类型来自本次插件解析结果，宿主不维护厂商产品清单；空结果不会进入这里。
    */
-  private async markLegacyPluginDiscoveryStale(tenantId: string, hostId: string, frameworkTypes: string[]): Promise<void> {
+  private async markLegacyDiscoveryStale(tenantId: string, hostId: string, frameworkTypes: string[]): Promise<void> {
     const types = [...new Set(frameworkTypes.filter((item) => typeof item === 'string' && item.trim()))];
     if (types.length === 0) return;
     const now = new Date().toISOString();
@@ -220,11 +220,11 @@ function projectWebFacts(
   const targetByKey = new Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>();
   const certificateByReference = buildCertificateIndex(inventory);
   // Windows Full Agent 已经在本机按运行中的框架和实际配置完成解析。这里再次调用
-  // 插件配置解析器会重新引入默认路径、候选文件和端口猜测，最终把错误证书投影回来。
+  // 通用配置解析器会重新引入默认路径、候选文件和端口猜测，最终把错误证书投影回来。
   if (hasAuthoritativeAgentWebInventory(inventory)) {
     projectAuthoritativeAgentWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, frameworkWorkingDirectories, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
   } else {
-    // 兼容尚未升级的其他 Agent；它们没有权威站点事实时才保留旧解析入口。
+    // 兼容尚未升级的其他 Agent；它们没有权威站点事实时才使用宿主通用解析入口。
     projectGenericWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
   }
   return { frameworks, sites, managedTargets, certificates, certificateBindings };
@@ -363,7 +363,7 @@ function projectGenericWebInventory(
       if (!frameworkType || frameworkSeen.has(`framework:${frameworkType}`)) continue;
       const frameworkStableKey = `framework:${frameworkType}`;
       frameworkSeen.add(frameworkStableKey);
-      frameworks.push({ stableKey: frameworkStableKey, frameworkType, displayName: stringValue(framework.displayName) ?? frameworkType, metadata: { source: 'plugin.web-config' } });
+      frameworks.push({ stableKey: frameworkStableKey, frameworkType, displayName: stringValue(framework.displayName) ?? frameworkType, metadata: { source: 'host.web-config' } });
     }
     for (const site of parsed.sites) {
       const frameworkType = stringValue(site.frameworkType);

@@ -1,8 +1,9 @@
 /**
  * Web 配置事实解析器。
  *
- * Agent 只负责回传受控目录中的原始配置文本；这里按固定插件语法解析，
+ * Agent 只负责回传受控目录中的原始配置文本；这里按固定产品配置语法解析，
  * 不依赖进程名或监听端口猜测产品，也不会执行配置中的任何内容。
+ * 该解析器属于宿主发现链，不属于任何产品插件包。
  */
 export interface WebConfigDiscoveryResult {
   frameworks: Array<Record<string, unknown>>;

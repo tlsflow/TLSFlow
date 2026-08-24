@@ -149,6 +149,8 @@ type directDiscoveryResponse struct {
 	Detail       map[string]any `json:"detail,omitempty"`
 }
 
+const fullWebDiscoveryScope = "FULL_WEB_DISCOVERY"
+
 type ackTaskRequest struct {
 	AgentID string `json:"agentId"`
 	TaskID  string `json:"taskId"`
@@ -1351,6 +1353,7 @@ func collectLinuxWebInventory() map[string]any {
 	configFiles := collectLinuxWebConfigFiles()
 	certificateFiles := collectLinuxWebCertificateFiles(configFiles)
 	return map[string]any{
+		"scope":              fullWebDiscoveryScope,
 		"processExecutables": processPaths,
 		"listeningPorts":     collectLinuxListeningPorts(),
 		"configFiles":        sanitizeLinuxWebConfigFiles(configFiles),

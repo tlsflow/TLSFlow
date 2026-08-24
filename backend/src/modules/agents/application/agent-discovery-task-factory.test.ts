@@ -208,13 +208,13 @@ test('非 Canonical 内置插件不能成为 Agent 发现授权锚点', async ()
   assert.equal(request.payload.pluginId, 'web.iis');
 });
 
-test('Windows 不下发插件 profile，Linux 保留既有 profile 合同', async () => {
+test('Windows 和 Linux 发现请求都不下发插件 profile', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: {
       listAccessibleVersions: async () => [
-        plugin('web.apache', { discoveryProfiles: linuxDiscoveryProfiles('web.apache', ['apache2', 'httpd']) }),
-        plugin('web.nginx', { discoveryProfiles: linuxDiscoveryProfiles('web.nginx', ['nginx']) }),
-        plugin('app.tomcat', { discoveryProfiles: linuxDiscoveryProfiles('app.tomcat', ['java']) }),
+        plugin('web.apache'),
+        plugin('web.nginx'),
+        plugin('app.tomcat'),
       ],
     },
     policyAuthority: {
@@ -240,20 +240,12 @@ test('Windows 不下发插件 profile，Linux 保留既有 profile 合同', asyn
     requestedBy: 'user-1',
     requestId: 'request-linux-web-apps',
   } as never);
-  const linuxProfiles = (linuxRequest.payload.discoverySpec as { profiles: Array<{ pluginId: string; processNames: string[] }> }).profiles;
-  const linuxByPlugin = new Map(linuxProfiles.map((profile) => [profile.pluginId, profile]));
-  assert.ok(linuxByPlugin.get('web.apache')?.processNames.includes('apache2'));
-  assert.ok(!linuxByPlugin.get('web.apache')?.processNames.includes('httpd.exe'));
-  assert.ok(linuxByPlugin.get('web.nginx')?.processNames.includes('nginx'));
-  assert.ok(!linuxByPlugin.get('web.nginx')?.processNames.includes('nginx.exe'));
-  assert.ok(linuxByPlugin.get('app.tomcat')?.processNames.includes('java'));
-  assert.ok(!linuxByPlugin.get('app.tomcat')?.processNames.includes('java.exe'));
+  assert.equal('discoverySpec' in linuxRequest.payload, false);
 });
 
 function plugin(pluginId: string, overrides: Partial<{
   source: 'BUILTIN' | 'USER';
   trust: 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED';
-  discoveryProfiles: string;
 }> = {}) {
   const source = overrides.source ?? 'BUILTIN';
   const trust = overrides.trust ?? 'OFFICIAL_SIGNED';
@@ -267,42 +259,10 @@ function plugin(pluginId: string, overrides: Partial<{
       trust,
       capabilities: [{ key: 'application.discover', executionLocations: ['AGENT'] }],
       permissions: [],
-      resources: { discoveryMappings: { profiles: 'discovery/profiles.json' } },
+      resources: {},
     },
-    resources: {
-      'discovery/profiles.json': overrides.discoveryProfiles ?? JSON.stringify({
-        profiles: [{
-          sources: ['windows'],
-          frameworkType: pluginId,
-          processExecutables: pluginId === 'web.nginx' ? ['nginx.exe', 'nginx'] : [`${pluginId}.exe`],
-          serviceNames: [pluginId],
-          configArgKeys: ['-c'],
-          rootArgKeys: ['-p'],
-          defaultConfigRelativePaths: ['conf/app.conf'],
-          configFileNames: ['app.conf'],
-          certificateFileExtensions: ['.pem'],
-          listeningPorts: [443],
-        }],
-      }),
-    },
+    resources: {},
   };
-}
-
-function linuxDiscoveryProfiles(pluginId: string, processExecutables: string[]) {
-  return JSON.stringify({
-    profiles: [{
-      sources: ['linux'],
-      frameworkType: pluginId,
-      processExecutables,
-      serviceNames: [pluginId],
-      configArgKeys: ['-c'],
-      rootArgKeys: ['-p'],
-      defaultConfigRelativePaths: ['conf/app.conf'],
-      configFileNames: ['app.conf'],
-      certificateFileExtensions: ['.pem'],
-      listeningPorts: [443],
-    }],
-  });
 }
 
 function digest(value: unknown): string {

@@ -6,33 +6,6 @@ import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugi
 import { canonicalPluginIds } from '../../plugins/canonical-plugin-id/canonical-plugin-id.registry.js';
 import type { AgentRegistration } from '../schema/agents.schema.js';
 
-const DISCOVERY_SPEC_VERSION = 'gcac.agent-web-discovery/v1';
-const DEFAULT_CERTIFICATE_FILE_EXTENSIONS = ['.cer', '.crt', '.der', '.pem'];
-
-interface AgentWebDiscoverySpecProfile {
-  pluginId: string;
-  frameworkType: string;
-  parserKind: string;
-  processNames: string[];
-  serviceNames: string[];
-  commandLineContains: string[];
-  configArgKeys: string[];
-  rootArgKeys: string[];
-  /** 仅保留旧 Agent 签名合同形状；重新发现永远不下发绝对路径提示。 */
-  configPathHints: string[];
-  targetPathHints: string[];
-  defaultConfigRelativePaths: string[];
-  configFileNames: string[];
-  certificateFileExtensions: string[];
-  listeningPorts: number[];
-}
-
-interface AgentWebDiscoverySpec {
-  specVersion: typeof DISCOVERY_SPEC_VERSION;
-  source: 'declarative-plugin-metadata';
-  profiles: AgentWebDiscoverySpecProfile[];
-}
-
 export interface AgentDiscoveryRequestFactory {
   createForAgent(input: {
     tenantId: string;
@@ -69,16 +42,11 @@ async function createDiscoveryRequest(
   dependencies: Parameters<typeof createAgentDiscoveryTaskFactory>[0],
   input: Parameters<AgentDiscoveryRequestFactory['createForAgent']>[0],
 ): Promise<AgentDirectDiscoveryRequest> {
-  const versions = await dependencies.plugins.listAccessibleVersions(input.tenantId);
-  const anchor = selectAuthorizationAnchor(versions);
+  const anchor = selectAuthorizationAnchor(await dependencies.plugins.listAccessibleVersions(input.tenantId));
   if (!anchor) throw new AppError('CAPABILITY_MISSING', '没有启用且支持 Agent 发现授权的 Canonical 插件版本');
 
   const paths = discoveryPathsFor(input.agent);
   const refreshWebInventory = input.refreshWebInventory ?? true;
-  const isWindows = input.agent.descriptor.osType.toLowerCase().includes('windows');
-  // Windows Full Agent 已内置成熟扫描器；插件 Profile 不能再决定扫描入口、默认
-  // 配置路径或站点证书关联。Linux 仍沿用既有合同，避免扩大这次修复的影响范围。
-  const discoverySpec = !refreshWebInventory || isWindows ? undefined : buildAgentWebDiscoverySpec(versions, input.agent.descriptor.osType);
   const planDigest = digest({
     actionType: 'agent.fact.collect',
     agentId: input.agent.id,
@@ -87,7 +55,6 @@ async function createDiscoveryRequest(
     pluginVersionId: anchor.id,
     capability: 'application.discover',
     paths,
-    ...(discoverySpec ? { discoverySpec } : {}),
     refreshWebInventory,
   });
   dependencies.policyAuthority.assertReady();
@@ -131,7 +98,6 @@ async function createDiscoveryRequest(
       planDigest,
       token: authorization.token,
       policyDecision: authorization.decision,
-      ...(discoverySpec ? { discoverySpec } : {}),
       refreshWebInventory,
       requestedBy: input.requestedBy,
     },
@@ -155,23 +121,6 @@ function discoveryPathsFor(agent: AgentRegistration): string[] {
 	return [];
 }
 
-function buildAgentWebDiscoverySpec(versions: UnifiedPluginVersionRecord[], osType: string): AgentWebDiscoverySpec {
-  const source = osType.toLowerCase().includes('windows') ? 'windows' : 'linux';
-  const profiles = versions
-    .filter(isTrustedBuiltinDiscoveryPlugin)
-    .flatMap((version) => discoveryProfilesForVersion(version, source));
-  return {
-    specVersion: DISCOVERY_SPEC_VERSION,
-    source: 'declarative-plugin-metadata',
-    profiles: dedupeProfiles(profiles),
-  };
-}
-
-/**
- * 发现 profile 是插件的静态声明，不应再由宿主维护产品 ID 白名单。
- * 安全边界由四件事共同构成：Canonical 注册表、内置来源、官方签名信任、Agent 发现能力。
- * 用户插件即使伪造同名 capability，也不能进入 Agent 单轮扫描。
- */
 function isTrustedBuiltinDiscoveryPlugin(version: UnifiedPluginVersionRecord): boolean {
   return version.status === 'ENABLED'
     && version.source === 'BUILTIN'
@@ -181,126 +130,6 @@ function isTrustedBuiltinDiscoveryPlugin(version: UnifiedPluginVersionRecord): b
     && version.manifest.source === 'BUILTIN'
     && version.manifest.trust === 'OFFICIAL_SIGNED'
     && version.manifest.capabilities.some((capability) => capability.key === 'application.discover' && capability.executionLocations.includes('AGENT'));
-}
-
-function discoveryProfilesForVersion(version: UnifiedPluginVersionRecord, source: 'windows' | 'linux'): AgentWebDiscoverySpecProfile[] {
-  const resourcePath = version.manifest.resources?.discoveryMappings?.profiles;
-  const raw = resourcePath ? version.resources?.[resourcePath] : undefined;
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    // 早期 profile 资源是数组根节点，IIS 等新资源使用 { profiles: [] }。
-    // 两种格式都属于同一份声明式合同，不能因为宿主只认一种形状而丢弃真实插件。
-    const profiles = Array.isArray(parsed)
-      ? parsed
-      : parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray((parsed as { profiles?: unknown }).profiles)
-        ? (parsed as { profiles: unknown[] }).profiles
-        : undefined;
-    return profiles
-      ? profiles.flatMap((profile) => normalizeDiscoveryProfile(version.pluginId, profile, source))
-      : [];
-  } catch {
-    // 插件发现资源坏了不能扩大扫描范围。
-  }
-  return [];
-}
-
-function normalizeDiscoveryProfile(pluginId: string, raw: unknown, source: 'windows' | 'linux'): AgentWebDiscoverySpecProfile[] {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-  const profile = raw as Record<string, unknown>;
-  const sources = stringArray(profile.sources);
-  if (sources.length > 0 && !sources.includes(source)) return [];
-  return [{
-    pluginId,
-    frameworkType: safeIdentifier(stringValue(profile.frameworkType) ?? pluginId) ?? pluginId,
-    parserKind: safeParserKind(stringValue(profile.parserKind)),
-    processNames: basenames(stringArray(profile.processExecutables)),
-    serviceNames: safeStrings(stringArray(profile.serviceNames), 32),
-    commandLineContains: safeStrings(stringArray(profile.commandLineContains), 16),
-    configArgKeys: safeStrings(stringArray(profile.configArgKeys), 16),
-    rootArgKeys: safeStrings(stringArray(profile.rootArgKeys), 16),
-    configPathHints: [],
-    targetPathHints: [],
-    defaultConfigRelativePaths: safeRelativePaths(stringArray(profile.defaultConfigRelativePaths)),
-    configFileNames: safeStrings(stringArray(profile.configFileNames), 32),
-    certificateFileExtensions: unique([
-      ...DEFAULT_CERTIFICATE_FILE_EXTENSIONS,
-      ...safeStrings(stringArray(profile.certificateFileExtensions), 16),
-    ]),
-    listeningPorts: ports(profile.listeningPorts),
-  }];
-}
-
-function mergeDiscoveryProfile(
-  fallback: AgentWebDiscoverySpecProfile | undefined,
-  current: AgentWebDiscoverySpecProfile,
-): AgentWebDiscoverySpecProfile {
-  if (!fallback) return current;
-  return {
-    ...current,
-    parserKind: current.parserKind || fallback.parserKind,
-    processNames: unique([...fallback.processNames, ...current.processNames]),
-    serviceNames: unique([...fallback.serviceNames, ...current.serviceNames]),
-    commandLineContains: unique([...fallback.commandLineContains, ...current.commandLineContains]),
-    configArgKeys: unique([...fallback.configArgKeys, ...current.configArgKeys]),
-    rootArgKeys: unique([...fallback.rootArgKeys, ...current.rootArgKeys]),
-    configPathHints: [],
-    targetPathHints: [],
-    defaultConfigRelativePaths: unique([...fallback.defaultConfigRelativePaths, ...current.defaultConfigRelativePaths]),
-    configFileNames: unique([...fallback.configFileNames, ...current.configFileNames]),
-    certificateFileExtensions: unique([...fallback.certificateFileExtensions, ...current.certificateFileExtensions]),
-    listeningPorts: [...new Set([...fallback.listeningPorts, ...current.listeningPorts])].sort((left, right) => left - right),
-  };
-}
-
-function dedupeProfiles(profiles: AgentWebDiscoverySpecProfile[]): AgentWebDiscoverySpecProfile[] {
-  const byPlugin = new Map<string, AgentWebDiscoverySpecProfile>();
-  for (const item of profiles) {
-    const current = byPlugin.get(item.pluginId);
-    byPlugin.set(item.pluginId, current ? mergeDiscoveryProfile(current, item) : item);
-  }
-  return [...byPlugin.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId));
-}
-
-function basenames(paths: string[]): string[] {
-  return unique(paths.map((item) => item.replaceAll('\\', '/').split('/').pop() ?? '').filter(Boolean));
-}
-
-function safeRelativePaths(paths: string[]): string[] {
-  return unique(paths.filter((item) => item.length <= 260 && !/^[A-Za-z]:[\\/]/.test(item) && !item.startsWith('/') && !item.replaceAll('\\', '/').split('/').includes('..')).slice(0, 16));
-}
-
-function safeStrings(values: string[], limit: number): string[] {
-  return unique(values.filter((item) => /^[A-Za-z0-9._*:-]{1,128}$/.test(item)).slice(0, limit));
-}
-
-function safeIdentifier(value: string | undefined): string | undefined {
-  return value && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : undefined;
-}
-
-function safeParserKind(value: string | undefined): string {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === 'iis' || normalized === 'nginx' || normalized === 'apache' || normalized === 'tomcat'
-    ? normalized
-    : '';
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim()) : [];
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function ports(value: unknown): number[] {
-  return Array.isArray(value)
-    ? [...new Set(value.filter((item): item is number => Number.isInteger(item) && item > 0 && item <= 65535))].slice(0, 32).sort((left, right) => left - right)
-    : [];
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values.map((item) => item.trim()).filter(Boolean))].slice(0, 64);
 }
 
 function digest(value: unknown): string {
