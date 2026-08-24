@@ -49,6 +49,8 @@ const config: BusinessPageConfig = {
   resourceName: '绑定',
   defaultStatus: 'DRIFTED',
   defaultRisk: 'HIGH',
+  showDetailPanel: true,
+  showActionPanel: true,
   columns: [
     { key: 'name', title: '域名/绑定', candidates: ['domainName', 'name', 'bindingName'] },
     { key: 'status', title: '漂移状态', candidates: ['driftStatus', 'status', 'state'] },

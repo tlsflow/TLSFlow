@@ -128,6 +128,8 @@ const config: BusinessPageConfig = {
   resourceName: '网关',
   defaultStatus: 'ONLINE',
   defaultRisk: 'MEDIUM',
+  showDetailPanel: true,
+  showActionPanel: true,
   columns: [
     { key: 'name', title: '网关名称', candidates: ['name', 'gatewayName', 'id'] },
     { key: 'status', title: '状态', candidates: ['status', 'state', 'onlineStatus'] },

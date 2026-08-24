@@ -21,6 +21,8 @@ const config: BusinessPageConfig = {
   resourceName: '执行运行',
   defaultStatus: 'RUNNING',
   defaultRisk: 'MEDIUM',
+  showDetailPanel: true,
+  showActionPanel: true,
   columns: [
     { key: 'name', title: '执行编号', candidates: ['runNo', 'name', 'id'] },
     { key: 'status', title: '状态', candidates: ['status', 'state', 'result'] },

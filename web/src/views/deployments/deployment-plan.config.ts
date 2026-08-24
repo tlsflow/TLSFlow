@@ -40,6 +40,7 @@ export const deploymentPlansPageConfig: BusinessPageConfig = {
   resourceName: '部署计划',
   defaultStatus: 'PENDING_APPROVAL',
   defaultRisk: 'HIGH',
+  showDetailPanel: true,
   columns: [
     { key: 'name', title: '计划名称', candidates: ['name', 'title', 'planName'] },
     { key: 'status', title: '状态', candidates: ['status', 'state'] },

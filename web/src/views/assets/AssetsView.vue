@@ -58,6 +58,7 @@ const config: BusinessPageConfig = {
   resourceName: '应用资产',
   defaultStatus: 'ACTIVE',
   defaultRisk: 'MEDIUM',
+  showDetailPanel: true,
   columns: [
     { key: 'name', title: '访问域名', candidates: ['address', 'displayName', 'domainName'] },
     { key: 'port', title: '端口', candidates: ['port'] },

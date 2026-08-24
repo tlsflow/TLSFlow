@@ -22,6 +22,8 @@ const config: BusinessPageConfig = {
   resourceName: '风险事件',
   defaultStatus: 'READY',
   defaultRisk: 'HIGH',
+  showDetailPanel: true,
+  showActionPanel: true,
   columns: [
     { key: 'name', title: '监控目标', candidates: ['name', 'targetName', 'resourceName'] },
     { key: 'status', title: '状态', candidates: ['status', 'state'] },
