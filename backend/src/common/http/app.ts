@@ -25,7 +25,9 @@ export interface InjectResponse {
 export type AuthTokenResolver = (
   authorization: string | undefined,
   cookie: string | undefined,
-) => Promise<{ actorId: string; tenantId?: string } | undefined> | { actorId: string; tenantId?: string } | undefined;
+) => Promise<{ actorId: string; tenantId?: string; contextVersion?: string } | undefined>
+  | { actorId: string; tenantId?: string; contextVersion?: string }
+  | undefined;
 export type PersistenceFlusher = { flush: () => Promise<void> };
 
 export class App {
@@ -76,7 +78,17 @@ export class App {
 
   async inject(input: InjectRequest): Promise<InjectResponse> {
     const url = new URL(input.path, 'http://localhost');
-    const context = await this.createContext(input.headers ?? {}, '127.0.0.1');
+    const requestId = input.headers ? readHeader(input.headers, 'x-request-id') ?? generateRequestId() : generateRequestId();
+    let context: RequestContext;
+    try {
+      context = await this.createContext(input.headers ?? {}, '127.0.0.1');
+    } catch (error) {
+      const handled = toErrorResponse(error, requestId);
+      return this.respond(handled.statusCode, handled.body, {
+        requestId,
+        traceId: input.headers ? readHeader(input.headers, 'x-trace-id') ?? generateTraceId() : generateTraceId(),
+      });
+    }
     return this.handle({
       method: input.method.toUpperCase(),
       path: url.pathname,
@@ -92,7 +104,16 @@ export class App {
       const body = await readJsonBody(req);
       const host = req.headers.host ?? 'localhost';
       const url = new URL(req.url ?? '/', `http://${host}`);
-      const context = await this.createContext(req.headers, req.socket.remoteAddress);
+      let context: RequestContext;
+      try {
+        context = await this.createContext(req.headers, req.socket.remoteAddress);
+      } catch (error) {
+        const requestId = readHeader(req.headers, 'x-request-id') ?? generateRequestId();
+        const traceId = readHeader(req.headers, 'x-trace-id') ?? generateTraceId();
+        const handled = toErrorResponse(error, requestId);
+        writeNodeResponse(res, this.respond(handled.statusCode, handled.body, { requestId, traceId }));
+        return;
+      }
       const response = await this.handle({
         method: req.method ?? 'GET',
         path: url.pathname,
@@ -119,6 +140,7 @@ export class App {
       requestId,
       traceId,
       tenantId: tokenIdentity?.tenantId ?? readHeader(headers, 'x-tenant-id'),
+      tenantContextVersion: tokenIdentity?.contextVersion,
       actorId: tokenIdentity?.actorId ?? readHeader(headers, 'x-actor-id'),
       actorType: readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
       ip,

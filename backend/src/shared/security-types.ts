@@ -33,6 +33,29 @@ export interface ResourceScope {
   ownerId?: string;
 }
 
+export type TenantMode = 'single' | 'hierarchical';
+
+export interface TenantContext {
+  mode: TenantMode;
+  actorId: string;
+  currentTenantId: string;
+  homeTenantId: string;
+  accessibleTenantIds: string[];
+  version: string;
+}
+
+export interface AccessibleTenant {
+  tenantId: string;
+  name: string;
+  code: string;
+  type: 'GROUP' | 'COMPANY';
+  parentTenantId?: string;
+  membershipType: 'owner' | 'admin' | 'operator' | 'auditor' | 'member';
+  membershipStatus: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+  current: boolean;
+  mode: TenantMode;
+}
+
 export interface ResourceDescriptor {
   type: string;
   id?: string;

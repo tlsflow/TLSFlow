@@ -6,11 +6,12 @@ import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../
 import type { PermissionPolicyEntity, RoleEntity, UserEntity } from '../../persistence/entities/rbac.entity.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
-import type { SecuritySubject } from '../../shared/security-types.js';
+import type { SecuritySubject, TenantContext } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { RBACService } from '../rbac/rbac.service.js';
 import type { ObjectPermissionService } from './object-permission.service.js';
+import type { TenantContextService } from './tenant-context.service.js';
 import type { TenantIdentityResolver } from './tenant-identity.service.js';
 
 export interface AuthenticatedUser {
@@ -43,6 +44,7 @@ interface PasswordCredential {
 interface TokenPayload {
   userId: string;
   tenantId: string;
+  contextVersion?: string;
   issuedAt: number;
   expiresAt: number;
   nonce: string;
@@ -79,6 +81,7 @@ export class AuthService {
     private readonly browserSessions: AsyncRepositoryPort<AuthBrowserSessionEntity> = AuthService.createDefaultBrowserSessionsRepository(),
     private readonly objectPermissions?: ObjectPermissionService,
     private readonly tenantIdentity?: TenantIdentityResolver,
+    private readonly tenantContext?: TenantContextService,
   ) {
     this.seedReady = this.seedDefaultAdmin();
   }
@@ -147,14 +150,15 @@ export class AuthService {
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
     const id = `sess_${randomBytes(16).toString('hex')}`;
     const secret = randomBytes(32).toString('base64url');
-    const tenantId = await this.resolveTenantId(user.tenantId);
+    const tenantContext = await this.resolveContext(user.id, user.tenantId);
     await this.browserSessions.create({
       id,
       userId: user.id,
-      tenantId,
+      tenantId: tenantContext.currentTenantId,
       secretHash: this.digestSessionSecret(secret),
       createdAt: now.toISOString(),
       expiresAt,
+      contextVersion: tenantContext.version,
       userAgent: context.userAgent,
       ip: context.ip,
     });
@@ -217,26 +221,34 @@ export class AuthService {
     return this.createSession(user);
   }
 
-  parseAuthorizationHeader(authorization: string | undefined): { actorId: string; tenantId: string } | undefined {
+  parseAuthorizationHeader(authorization: string | undefined): { actorId: string; tenantId: string; contextVersion?: string } | undefined {
     if (!authorization?.startsWith('Bearer ')) return undefined;
     const token = authorization.slice('Bearer '.length).trim();
     const payload = this.verifyToken(token);
-    return payload ? { actorId: payload.userId, tenantId: payload.tenantId } : undefined;
+    return payload
+      ? { actorId: payload.userId, tenantId: payload.tenantId, contextVersion: payload.contextVersion }
+      : undefined;
   }
 
   async parseRequestIdentity(
     authorization: string | undefined,
     cookieHeader: string | undefined,
-  ): Promise<{ actorId: string; tenantId: string } | undefined> {
+  ): Promise<{ actorId: string; tenantId: string; contextVersion?: string } | undefined> {
     const bearer = this.parseAuthorizationHeader(authorization);
-    if (bearer) return { actorId: bearer.actorId, tenantId: await this.resolveTenantId(bearer.tenantId) };
+    if (bearer) {
+      const context = await this.resolveContext(bearer.actorId, bearer.tenantId, bearer.contextVersion);
+      return { actorId: bearer.actorId, tenantId: context.currentTenantId, contextVersion: context.version };
+    }
     const parsed = parseSessionCookie(cookieHeader);
     if (!parsed) return undefined;
     const session = await this.browserSessions.get(parsed.id);
     if (!session || session.revokedAt) return undefined;
     if (Date.parse(session.expiresAt) <= Date.now()) return undefined;
     if (!safeEqualHex(session.secretHash, this.digestSessionSecret(parsed.secret))) return undefined;
-    return { actorId: session.userId, tenantId: await this.resolveTenantId(session.tenantId) };
+    // 浏览器 Session 代表登录身份；当前租户版本由服务端 actor 上下文决定，
+    // 切换后同一浏览器 Session 应自动跟随新上下文，而不是复用旧租户。
+    const context = await this.resolveContext(session.userId);
+    return { actorId: session.userId, tenantId: context.currentTenantId, contextVersion: context.version };
   }
 
   buildSessionSetCookie(cookieValue: string, expiresAt: string): string {
@@ -266,10 +278,11 @@ export class AuthService {
   }
 
   private async createSession(user: UserEntity): Promise<AuthSessionResponse> {
-    const tenantId = await this.resolveTenantId(user.tenantId);
+    const context = await this.resolveContext(user.id, user.tenantId);
     const token = this.signToken({
       userId: user.id,
-      tenantId,
+      tenantId: context.currentTenantId,
+      contextVersion: context.version,
       issuedAt: Date.now(),
       expiresAt: Date.now() + browserSessionTtlSeconds() * 1000,
       nonce: randomBytes(8).toString('hex'),
@@ -277,7 +290,7 @@ export class AuthService {
     const subject = await this.subjectForUser(user);
     return {
       token,
-      user: await this.toAuthenticatedUser(user, tenantId),
+      user: await this.toAuthenticatedUser(user, context.currentTenantId),
       permissions: await this.rbac.permissionsForSubject(subject),
     };
   }
@@ -297,11 +310,46 @@ export class AuthService {
 
   private async subjectForUser(user: UserEntity): Promise<SecuritySubject> {
     const roles = await this.rbac.rolesForUser(user.id);
+    const context = await this.resolveContext(user.id, user.tenantId);
     return {
       id: user.id,
       type: 'user',
       roleIds: roles.map((role) => role.id),
-      scope: { tenantId: await this.resolveTenantId(user.tenantId) },
+      scope: { tenantId: context.currentTenantId },
+    };
+  }
+
+  async issueTokenForContext(actorId: string, context: TenantContext): Promise<string> {
+    const user = await this.rbac.getUser(actorId);
+    if (!user || user.status !== 'active') {
+      throw new AppError('AUTH_UNAUTHENTICATED', '当前登录状态无效');
+    }
+    return this.signToken({
+      userId: actorId,
+      tenantId: context.currentTenantId,
+      contextVersion: context.version,
+      issuedAt: Date.now(),
+      expiresAt: Date.now() + browserSessionTtlSeconds() * 1000,
+      nonce: randomBytes(8).toString('hex'),
+    });
+  }
+
+  private async resolveContext(
+    actorId: string,
+    tenantIdentifier?: string,
+    expectedVersion?: string,
+  ): Promise<TenantContext> {
+    if (this.tenantContext) {
+      return this.tenantContext.resolve(actorId, tenantIdentifier, expectedVersion);
+    }
+    const tenantId = await this.resolveTenantId(tenantIdentifier);
+    return {
+      mode: 'single',
+      actorId,
+      currentTenantId: tenantId,
+      homeTenantId: tenantId,
+      accessibleTenantIds: [tenantId],
+      version: 'legacy',
     };
   }
 

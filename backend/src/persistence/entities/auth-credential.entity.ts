@@ -14,6 +14,7 @@ export interface AuthBrowserSessionEntity {
   secretHash: string;
   createdAt: string;
   expiresAt: string;
+  contextVersion?: string;
   revokedAt?: string;
   userAgent?: string;
   ip?: string;

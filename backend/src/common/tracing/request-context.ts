@@ -5,6 +5,7 @@ export interface RequestContext {
   requestId: string;
   traceId: string;
   tenantId?: string;
+  tenantContextVersion?: string;
   actorId?: string;
   actorType?: 'USER' | 'AGENT' | 'SYSTEM';
   ip?: string;

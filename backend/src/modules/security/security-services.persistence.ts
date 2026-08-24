@@ -29,6 +29,7 @@ import { ObjectPermissionService } from './object-permission.service.js';
 import { TenantIdentityService } from './tenant-identity.service.js';
 import { PgTenantRepository } from './repository/tenant.repository.js';
 import { TenantHierarchyService } from './domain/tenant.domain-service.js';
+import { TenantContextService, type TenantContextStateEntity } from './tenant-context.service.js';
 
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
@@ -52,6 +53,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const authBrowserSessions = new PgDocumentRepository<AuthBrowserSessionEntity>(db, 'security.auth_browser_sessions');
   const identitySources = new PgDocumentRepository<IdentitySource>(db, 'security.identity_sources');
   const externalGroupRoleMappings = new PgDocumentRepository<ExternalGroupRoleMapping>(db, 'security.external_group_role_mappings');
+  const tenantContextStates = new PgDocumentRepository<TenantContextStateEntity>(db, 'security.tenant_context_states');
   const groups = new PgDocumentRepository<GroupEntity>(db, 'security.groups');
   const groupMembers = new PgDocumentRepository<GroupMemberEntity>(db, 'security.group_members');
   const roleBindings = new PgDocumentRepository<RoleBindingEntity>(db, 'security.role_bindings');
@@ -69,12 +71,13 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
-  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity);
-  const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
   const tenantHierarchy = new TenantHierarchyService(new PgTenantRepository(db), audit);
+  const tenantContext = new TenantContextService(tenantIdentity, tenantHierarchy, tenantContextStates);
+  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity, tenantContext);
+  const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
-    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy },
+    services: { rbac, objectPermissions, audit, approvals, grants, secrets, auth, externalIdentity, tenantHierarchy, tenantContext },
     flushers: [],
   };
 }

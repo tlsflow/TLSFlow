@@ -24,6 +24,7 @@ import { ExternalIdentityService, type IdentitySourceTlsMode, type IdentitySourc
 import { ObjectPermissionService, type ObjectRef } from './object-permission.service.js';
 import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMemberEntity, ObjectSetEntity, ObjectSetKind, ObjectSetMemberEntity, ObjectTypeEntity, PrincipalType, RoleBindingEntity } from '../../persistence/entities/object-permission.entity.js';
 import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
+import type { TenantContextService } from './tenant-context.service.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -40,6 +41,7 @@ export interface SecurityServices {
   externalIdentity: ExternalIdentityService;
   // 默认内存工厂未执行数据库迁移，不提供租户持久化服务。
   tenantHierarchy?: TenantHierarchyService;
+  tenantContext?: TenantContextService;
 }
 
 export interface AuditPresentationPort {
@@ -89,6 +91,10 @@ export class SecurityController {
     router.put('/api/v1/auth/password', '修改当前用户密码', ['Auth'], (request) => this.changeMyPassword(request));
     router.get('/api/v1/auth/preferences', '获取当前用户偏好', ['Auth'], (request) => this.getMyPreferences(request));
     router.put('/api/v1/auth/preferences', '保存当前用户偏好', ['Auth'], (request) => this.updateMyPreferences(request));
+    if (this.services.tenantContext) {
+      router.get('/api/v1/tenants/accessible', '查询可访问租户', ['Security'], (request) => this.listAccessibleTenants(request));
+      router.post('/api/v1/tenant-context/switch', '切换当前租户', ['Security'], (request) => this.switchTenant(request));
+    }
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '创建 Secret', ['Security'], (request) => this.createSecret(request));
     router.get('/api/v1/secrets/metadata', '查询 Secret 元数据', ['Security'], (request) => this.getSecretMetadata(request));
@@ -245,6 +251,62 @@ export class SecurityController {
       headers: { 'Set-Cookie': this.services.auth.buildSessionSetCookie(cookieSession.cookieValue, cookieSession.expiresAt) },
       body: session,
     };
+  }
+
+  private async listAccessibleTenants(request: HttpRequest) {
+    const tenantContext = this.requireTenantContext();
+    const subject = await this.subjectFromRequest(request);
+    const context = await tenantContext.resolve(
+      subject.id,
+      request.context.tenantId,
+      request.context.tenantContextVersion,
+    );
+    return {
+      items: await tenantContext.listAccessibleTenants(subject.id, context.homeTenantId),
+      currentTenantId: context.currentTenantId,
+      homeTenantId: context.homeTenantId,
+      accessibleTenantIds: context.accessibleTenantIds,
+      mode: context.mode,
+      version: context.version,
+    };
+  }
+
+  private async switchTenant(request: HttpRequest) {
+    const tenantContext = this.requireTenantContext();
+    const subject = await this.subjectFromRequest(request);
+    const body = validateObject(request.body, {
+      tenantId: { type: 'string', required: true },
+      contextVersion: { type: 'string' },
+      sessionVersion: { type: 'string' },
+    });
+    const expectedVersion = body.contextVersion === undefined
+      ? body.sessionVersion === undefined
+        ? request.context.tenantContextVersion
+        : String(body.sessionVersion)
+      : String(body.contextVersion);
+    if (!expectedVersion) {
+      throw new AppError('TENANT_CONTEXT_STALE', '缺少租户上下文版本');
+    }
+    const context = await tenantContext.switchTenant({
+      actorId: subject.id,
+      tenantId: String(body.tenantId),
+      expectedVersion,
+    });
+    return {
+      currentTenantId: context.currentTenantId,
+      homeTenantId: context.homeTenantId,
+      accessibleTenantIds: context.accessibleTenantIds,
+      mode: context.mode,
+      version: context.version,
+      token: await this.services.auth.issueTokenForContext(subject.id, context),
+    };
+  }
+
+  private requireTenantContext(): TenantContextService {
+    if (!this.services.tenantContext) {
+      throw new AppError('TENANT_CONTEXT_INVALID', '租户上下文服务未配置');
+    }
+    return this.services.tenantContext;
   }
 
   private async createSecret(request: HttpRequest) {
@@ -1176,6 +1238,8 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'PUT', path: '/api/v1/auth/password', operationId: 'changeCurrentUserPassword', summary: '修改当前用户密码', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/preferences', operationId: 'getCurrentUserPreferences', summary: '获取当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PUT', path: '/api/v1/auth/preferences', operationId: 'updateCurrentUserPreferences', summary: '保存当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenants/accessible', operationId: 'listAccessibleTenants', summary: '查询可访问租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/tenant-context/switch', operationId: 'switchTenant', summary: '切换当前租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '创建 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '查询 Secret 元数据', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
