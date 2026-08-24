@@ -1278,11 +1278,20 @@ export class InternalCaApplicationService {
 
   async enqueueNodeTask(tenantId: string, providerId: string, taskType: CaNodeTaskEntity['taskType'], payload: Record<string, unknown>, idempotencyKey: string): Promise<CaNodeTaskEntity> {
     await this.requireProvider(tenantId, providerId);
+    const existing = await this.repository.getNodeTaskByIdempotencyKey(tenantId, idempotencyKey);
+    if (existing) return existing;
     const now = new Date().toISOString();
-    const task = await this.repository.saveNodeTask({
-      id: newId('cantask'), tenantId, providerId, taskType, payload, idempotencyKey,
-      status: 'queued', createdAt: now, updatedAt: now,
-    });
+    let task: CaNodeTaskEntity;
+    try {
+      task = await this.repository.saveNodeTask({
+        id: newId('cantask'), tenantId, providerId, taskType, payload, idempotencyKey,
+        status: 'queued', createdAt: now, updatedAt: now,
+      });
+    } catch (error) {
+      const raced = await this.repository.getNodeTaskByIdempotencyKey(tenantId, idempotencyKey);
+      if (!raced) throw error;
+      task = raced;
+    }
     this.nodeTaskChannel.notify(providerId);
     return task;
   }
@@ -1295,7 +1304,7 @@ export class InternalCaApplicationService {
     const node = await this.repository.getNode(tenantId, nodeId);
     if (!node || node.healthStatus !== 'online') throw new AppError('CA_PROVIDER_UNAVAILABLE', 'CA Node 不在线', { nodeId });
     if (node.role === 'standby') return undefined;
-    return this.repository.leaseNodeTask(tenantId, node.providerId, node.id, new Date(Date.now() + 60_000).toISOString());
+    return this.repository.leaseNodeTask(tenantId, node.providerId, node.id, new Date(Date.now() + 120_000).toISOString());
   }
 
   async waitForNodeTaskResult(tenantId: string, taskId: string, timeoutMs = 90_000): Promise<CaNodeTaskEntity> {

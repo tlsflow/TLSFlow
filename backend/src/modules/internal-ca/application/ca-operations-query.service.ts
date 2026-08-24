@@ -81,7 +81,7 @@ export class CaOperationsQueryService {
       nextCursor: hasNext && pageRows.length ? encodeCursor(pageRows[pageRows.length - 1]!) : undefined,
       total: rows[0]?.total ?? 0,
       integrity,
-      lastSuccessfulSyncAt: syncState.status === 'succeeded' ? syncState.completedAt : undefined,
+      lastSuccessfulSyncAt: syncState.completedAt,
     };
   }
 

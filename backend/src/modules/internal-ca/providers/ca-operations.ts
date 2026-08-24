@@ -21,6 +21,7 @@ export interface CaOperationsCapabilities {
 }
 
 export interface ListCaOperationRecordsInput {
+  syncRunId?: string;
   provider: CaProviderEntity;
   authority: CertificateAuthorityEntity;
   objectType: CaOperationObjectType;
@@ -105,6 +106,9 @@ export function assertCaOperationListInput(input: ListCaOperationRecordsInput): 
   }
   if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 500) {
     throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'CA 运营查询批量大小必须在 1 到 500 之间', { limit: input.limit });
+  }
+  if (input.syncRunId !== undefined && (!input.syncRunId.trim() || input.syncRunId.length > 128)) {
+    throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'CA 同步运行 ID 无效');
   }
   if (input.changedAfter && Number.isNaN(Date.parse(input.changedAfter))) {
     throw new AppError('CA_OPERATIONS_QUERY_INVALID', 'changedAfter 必须是有效时间', { changedAfter: input.changedAfter });

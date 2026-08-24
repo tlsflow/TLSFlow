@@ -5,6 +5,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { CaSyncCoordinator } from './application/ca-sync-coordinator.js';
 import { CaOperationsAdapterRegistry, type CaOperationRecordBatch, type CaOperationsAdapter } from './providers/ca-operations.js';
+import { CaOperationsRepository } from './repository/ca-operations.repository.js';
 import { InternalCaRepository } from './repository/internal-ca.repository.js';
 
 const tenantId = 'tenant-sync';
@@ -62,7 +63,7 @@ async function fixture(adapter = new FakeSyncAdapter()) {
       auditEvents.push(input as unknown as Record<string, unknown>);
     },
   });
-  return { coordinator, adapter, auditEvents };
+  return { database, coordinator, adapter, auditEvents };
 }
 
 test('同步协调器拒绝重复活动范围并逐批原子推进游标', async () => {
@@ -107,4 +108,70 @@ test('Agent 离线后运行进入指数退避，并在到期后使用同一运�
   assert.equal(recovered.cursorAfter, 'cursor:1');
   assert.equal(recovered.attemptCount, 0);
   assert.deepEqual(auditEvents.map((event) => event.eventType), ['ca.operations.sync.started', 'ca.operations.sync.failed']);
+});
+
+test('多 Worker 竞争同一运行时只有租约持有者调用 Adapter', async () => {
+  const { coordinator, adapter } = await fixture();
+  const [run] = await coordinator.createRuns({
+    tenantId, providerId, caId, objectTypes: ['request'], mode: 'incremental', actor: { id: 'admin-1', type: 'user' },
+  });
+  assert.ok(run);
+
+  const results = await Promise.allSettled([
+    coordinator.processNextBatch(tenantId, run.id, 'worker-1', new Date('2026-07-24T12:01:00.000Z')),
+    coordinator.processNextBatch(tenantId, run.id, 'worker-2', new Date('2026-07-24T12:01:00.000Z')),
+  ]);
+
+  assert.equal(adapter.calls, 1);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  assert.ok(rejected?.status === 'rejected');
+  assert.ok(rejected.reason instanceof AppError);
+  assert.equal(rejected.reason.errorCode, 'CA_SYNC_ALREADY_RUNNING');
+});
+
+test('服务重启后的 Worker 可以接管过期租约并继续原运行', async () => {
+  const { database, coordinator, adapter } = await fixture();
+  const [run] = await coordinator.createRuns({
+    tenantId, providerId, caId, objectTypes: ['request'], mode: 'incremental', actor: { id: 'admin-1', type: 'user' },
+  });
+  assert.ok(run);
+  const operationsRepository = new CaOperationsRepository(database);
+  await operationsRepository.updateSyncRun({
+    ...run,
+    status: 'running',
+    leaseOwner: 'stopped-worker',
+    leaseExpiresAt: '2026-07-24T12:00:30.000Z',
+    startedAt: '2026-07-24T12:00:00.000Z',
+    updatedAt: '2026-07-24T12:00:00.000Z',
+  });
+
+  const recovered = await coordinator.processNextBatch(
+    tenantId,
+    run.id,
+    'replacement-worker',
+    new Date('2026-07-24T12:01:00.000Z'),
+  );
+
+  assert.equal(adapter.calls, 1);
+  assert.equal(recovered.status, 'queued');
+  assert.equal(recovered.cursorAfter, 'cursor:1');
+  assert.equal(recovered.leaseOwner, undefined);
+});
+
+test('带 changedAfter 的状态回查从空游标开始并在分页期间保持固定窗口', async () => {
+  const adapter = new FakeSyncAdapter();
+  const { coordinator } = await fixture(adapter);
+  const [run] = await coordinator.createRuns({
+    tenantId, providerId, caId, objectTypes: ['request'], mode: 'incremental',
+    changedAfter: '2026-07-24T11:55:00.000Z', actor: { id: 'system_ca_auto_sync', type: 'system' },
+  });
+  assert.ok(run);
+  assert.equal(run.cursorBefore, undefined);
+  assert.equal(run.cursorAfter, undefined);
+  assert.equal(run.changedAfter, '2026-07-24T11:55:00.000Z');
+
+  const first = await coordinator.processNextBatch(tenantId, run.id, 'worker-1', new Date('2026-07-24T12:01:00.000Z'));
+  assert.equal(first.cursorAfter, 'cursor:1');
+  assert.equal(first.changedAfter, '2026-07-24T11:55:00.000Z');
 });

@@ -19,7 +19,7 @@ import type {
 } from '../schema/internal-ca.schema.js';
 
 const batchLimit = 500;
-const leaseDurationMs = 60_000;
+const leaseDurationMs = 120_000;
 const maxAttempts = 5;
 
 export interface CreateCaSyncRunsInput {
@@ -28,6 +28,7 @@ export interface CreateCaSyncRunsInput {
   caId: string;
   objectTypes: CaOperationObjectType[];
   mode: CaSyncMode;
+  changedAfter?: string;
   actor: SecuritySubject;
   context?: RequestContext;
 }
@@ -67,12 +68,13 @@ export class CaSyncCoordinator {
     const now = new Date().toISOString();
     const created: CaSyncRunEntity[] = [];
     for (const objectType of objectTypes) {
-      const previousCursor = input.mode === 'incremental'
+      const previousCursor = input.mode === 'incremental' && !input.changedAfter
         ? previousRuns.find((run) => run.objectType === objectType && ['succeeded', 'partial'].includes(run.status))?.cursorAfter
         : undefined;
       const run: CaSyncRunEntity = {
         id: newId('casync'), tenantId: input.tenantId, providerId: provider.id, caId: authority.id,
         objectType, mode: input.mode, status: 'queued', cursorBefore: previousCursor, cursorAfter: previousCursor,
+        changedAfter: input.changedAfter,
         readCount: 0, upsertedCount: 0, skippedCount: 0, failedCount: 0, attemptCount: 0,
         requestedBy: input.actor.id, createdAt: now, updatedAt: now,
       };
@@ -110,8 +112,8 @@ export class CaSyncCoordinator {
     try {
       const adapter = this.adapters.get(provider.type);
       const adapterInput = {
-        provider, authority, objectType: run.objectType,
-        cursor: run.cursorAfter ?? run.cursorBefore, limit: batchLimit,
+        syncRunId: run.id, provider, authority, objectType: run.objectType,
+        cursor: run.cursorAfter ?? run.cursorBefore, changedAfter: run.changedAfter, limit: batchLimit,
       };
       assertCaOperationListInput(adapterInput);
       const batch = await adapter.listOperationRecords(adapterInput);

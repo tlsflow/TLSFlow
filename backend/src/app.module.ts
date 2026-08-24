@@ -1,4 +1,5 @@
 import { App } from './common/http/app.js';
+import { structuredLogger } from './common/logging/structured-logger.js';
 import type { RouteContract } from './common/openapi/route-contract.js';
 import { generateOpenApiDocument } from './common/openapi/openapi-generator.js';
 import type { DatabasePort } from './database/database-port.js';
@@ -24,7 +25,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
-import { getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
+import { CaAutoSyncScheduler, CaOperationsRepository, CaSyncWorker, getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
@@ -177,6 +178,37 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
   app.setResource('internalCaService', internalCaService);
+  app.setResource('caSyncWorker', new CaSyncWorker(
+    new CaOperationsRepository(appDb),
+    internalCaService,
+    `ca-sync-worker-${process.pid}`,
+    ({ run, error }) => {
+      structuredLogger.warn('CA sync run failed', {
+        error: error instanceof Error ? error.message : String(error),
+        status: run.status,
+      }, {
+        module: 'ca-sync-worker',
+        tenantId: run.tenantId,
+        resourceType: 'caSyncRun',
+        resourceId: run.id,
+      });
+    },
+  ));
+  app.setResource('caAutoSyncScheduler', new CaAutoSyncScheduler(
+    new CaOperationsRepository(appDb),
+    internalCaService,
+    ({ target, error }) => {
+      structuredLogger.warn('CA automatic sync scheduling failed', {
+        error: error instanceof Error ? error.message : String(error),
+        objectType: target.objectType,
+      }, {
+        module: 'ca-auto-sync-scheduler',
+        tenantId: target.tenantId,
+        resourceType: 'certificateAuthority',
+        resourceId: target.caId,
+      });
+    },
+  ));
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);

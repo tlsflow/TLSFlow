@@ -280,7 +280,7 @@ export class InternalCaRepository {
   }
 
   async saveNodeTask(entity: CaNodeTaskEntity): Promise<CaNodeTaskEntity> {
-    await this.db.query(
+    const result = await this.db.query<Record<string, unknown>>(
       `insert into pg_ca_node_tasks (
          id, tenant_id, provider_id, node_id, task_type, idempotency_key, payload, status,
          lease_expires_at, result, error_code, error_message, created_at, updated_at
@@ -288,7 +288,8 @@ export class InternalCaRepository {
        on conflict (id) do update set
          node_id = excluded.node_id, status = excluded.status, lease_expires_at = excluded.lease_expires_at,
          result = excluded.result, error_code = excluded.error_code, error_message = excluded.error_message,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at
+       returning *`,
       [
         entity.id, entity.tenantId, entity.providerId, entity.nodeId ?? null, entity.taskType, entity.idempotencyKey,
         JSON.stringify(entity.payload), entity.status, entity.leaseExpiresAt ?? null,
@@ -296,7 +297,15 @@ export class InternalCaRepository {
         entity.createdAt, entity.updatedAt,
       ],
     );
-    return structuredClone(entity);
+    return nodeTaskFromRow(result.rows[0]!);
+  }
+
+  async getNodeTaskByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CaNodeTaskEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      'select * from pg_ca_node_tasks where tenant_id = $1 and idempotency_key = $2',
+      [tenantId, idempotencyKey],
+    );
+    return result.rows[0] ? nodeTaskFromRow(result.rows[0]) : undefined;
   }
 
   async leaseNodeTask(tenantId: string, providerId: string, nodeId: string, leaseExpiresAt: string): Promise<CaNodeTaskEntity | undefined> {

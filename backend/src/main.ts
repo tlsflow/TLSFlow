@@ -10,6 +10,8 @@ import type { MonitorsApplicationService } from './modules/monitors/application/
 import type { NotificationWorker } from './modules/notifications/application/notification-worker.js';
 import type { ReportExportService } from './modules/reports/application/report-export.service.js';
 import type { AutomationScheduler } from './modules/automations/application/automation-scheduler.js';
+import type { CaSyncWorker } from './modules/internal-ca/application/ca-sync-worker.js';
+import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -165,6 +167,50 @@ async function start(): Promise<void> {
     };
     tick();
     setInterval(tick, automationIntervalMs);
+  }
+
+  const caSyncWorker = app.getResource<CaSyncWorker>('caSyncWorker');
+  if (caSyncWorker) {
+    const workerIntervalMs = Number(process.env.CA_SYNC_WORKER_INTERVAL_MS ?? '2000');
+    const maxRunsPerTick = Number(process.env.CA_SYNC_WORKER_MAX_RUNS_PER_TICK ?? '4');
+    let syncing = false;
+    const tick = () => {
+      if (syncing) return;
+      syncing = true;
+      void caSyncWorker.runOnce(maxRunsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('CA sync worker failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'ca-sync-worker' });
+        })
+        .finally(() => {
+          syncing = false;
+        });
+    };
+    tick();
+    setInterval(tick, workerIntervalMs);
+  }
+
+  const caAutoSyncScheduler = app.getResource<CaAutoSyncScheduler>('caAutoSyncScheduler');
+  if (caAutoSyncScheduler) {
+    const schedulerIntervalMs = Number(process.env.CA_AUTO_SYNC_SCHEDULER_INTERVAL_MS ?? '5000');
+    const maxTargetsPerTick = Number(process.env.CA_AUTO_SYNC_SCHEDULER_MAX_TARGETS_PER_TICK ?? '8');
+    let schedulingCaSync = false;
+    const tick = () => {
+      if (schedulingCaSync) return;
+      schedulingCaSync = true;
+      void caAutoSyncScheduler.runOnce(maxTargetsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('CA automatic sync scheduler failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'ca-auto-sync-scheduler' });
+        })
+        .finally(() => {
+          schedulingCaSync = false;
+        });
+    };
+    tick();
+    setInterval(tick, schedulerIntervalMs);
   }
 
   const server = app.createNodeServer();

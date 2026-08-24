@@ -47,11 +47,24 @@ test('统一运营查询合并原生与外部事实，使用稳定游标且拒�
     observedAt: '2026-07-24T12:02:00.000Z', firstObservedAt: '2026-07-24T12:02:00.000Z',
     createdAt: '2026-07-24T12:02:00.000Z', updatedAt: '2026-07-24T12:02:00.000Z',
   });
+  await observations.createSyncRun({
+    id: 'sync-succeeded', tenantId, providerId, caId, objectType: 'issuance', mode: 'incremental', status: 'succeeded',
+    readCount: 2, upsertedCount: 2, skippedCount: 0, failedCount: 0, attemptCount: 0, requestedBy: 'system',
+    startedAt: '2026-07-24T12:02:30.000Z', completedAt: '2026-07-24T12:03:00.000Z',
+    createdAt: '2026-07-24T12:02:30.000Z', updatedAt: '2026-07-24T12:03:00.000Z',
+  });
+  await observations.createSyncRun({
+    id: 'sync-queued', tenantId, providerId, caId, objectType: 'issuance', mode: 'incremental', status: 'queued',
+    readCount: 0, upsertedCount: 0, skippedCount: 0, failedCount: 0, attemptCount: 0, requestedBy: 'system',
+    createdAt: '2026-07-24T12:04:00.000Z', updatedAt: '2026-07-24T12:04:00.000Z',
+  });
 
   const service = new CaOperationsQueryService(database, undefined, undefined, internalRepository);
   const firstPage = await service.records(tenantId, { caId, view: 'issuance', limit: 2, sort: 'observedAt:desc' });
   assert.equal(firstPage.total, 3);
   assert.equal(firstPage.items.length, 2);
+  assert.equal(firstPage.integrity, 'syncing');
+  assert.equal(firstPage.lastSuccessfulSyncAt, '2026-07-24T12:03:00.000Z');
   assert.deepEqual(firstPage.items.map((item) => item.recordKey), ['external:external-new', 'gcac:issuance:native-issuance']);
   assert.ok(firstPage.nextCursor);
 

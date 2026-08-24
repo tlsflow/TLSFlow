@@ -129,9 +129,21 @@ export class CaOperationsQueryRepository {
     completedAt?: string;
   }> {
     const result = await this.db.query<Record<string, unknown>>(
-      `select status, completed_at from pg_ca_sync_runs
-       where tenant_id = $1 and ca_id = $2 and object_type = $3
-       order by created_at desc limit 1`,
+      `select
+         latest.status,
+         successful.completed_at
+       from (
+         select status
+         from pg_ca_sync_runs
+         where tenant_id = $1 and ca_id = $2 and object_type = $3
+         order by created_at desc limit 1
+       ) latest
+       left join lateral (
+         select completed_at
+         from pg_ca_sync_runs
+         where tenant_id = $1 and ca_id = $2 and object_type = $3 and status = 'succeeded'
+         order by completed_at desc nulls last, created_at desc limit 1
+       ) successful on true`,
       [tenantId, caId, objectType],
     );
     const row = result.rows[0];

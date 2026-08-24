@@ -50,7 +50,10 @@ export class MicrosoftAdcsOperationsAdapter implements CaOperationsAdapter {
         limit: input.limit,
         ...(input.changedAfter ? { changedAfter: input.changedAfter } : {}),
       },
-      idempotencyKey: `sync-adcs-records:${input.authority.id}:${input.objectType}:${input.cursor ?? 'initial'}`,
+      idempotencyKey: [
+        'sync-adcs-records', input.syncRunId ?? 'direct', input.authority.id, input.objectType,
+        input.changedAfter ?? 'history', input.cursor ?? 'initial',
+      ].join(':'),
     });
     const completed = await this.tasks.waitForResult(input.provider.tenantId, task.id);
     if (completed.status !== 'succeeded' || !completed.result) {

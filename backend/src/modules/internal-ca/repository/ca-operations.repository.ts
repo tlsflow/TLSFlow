@@ -67,12 +67,12 @@ export class CaOperationsRepository {
     await this.db.query(
       `insert into pg_ca_sync_runs (
         id, tenant_id, provider_id, ca_id, object_type, mode, status, cursor_before, cursor_after,
-        source_watermark, read_count, upserted_count, skipped_count, failed_count, attempt_count,
+        changed_after, source_watermark, read_count, upserted_count, skipped_count, failed_count, attempt_count,
         next_attempt_at, error_code, error_message, lease_owner, lease_expires_at, requested_by,
         started_at, completed_at, created_at, updated_at
       ) values (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-        $19, $20, $21, $22, $23, $24, $25
+        $19, $20, $21, $22, $23, $24, $25, $26
       )`,
       syncRunValues(entity),
     );
@@ -192,6 +192,109 @@ export class CaOperationsRepository {
     );
     return result.rows.map(syncRunFromRow);
   }
+
+  async listRunnableSyncRuns(now: string, limit: number): Promise<CaSyncRunEntity[]> {
+    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1;
+    const result = await this.db.query<Record<string, unknown>>(
+      `select * from pg_ca_sync_runs
+       where status in ('queued', 'running')
+         and (next_attempt_at is null or next_attempt_at <= $1)
+         and (lease_expires_at is null or lease_expires_at <= $1)
+       order by
+         case object_type when 'request' then 1 when 'issuance' then 2 when 'revocation' then 3 else 4 end,
+         created_at asc, id asc
+       limit $2`,
+      [now, normalizedLimit],
+    );
+    return result.rows.map(syncRunFromRow);
+  }
+
+  async listDueAutomaticSyncTargets(now: string, limit: number): Promise<CaAutomaticSyncTarget[]> {
+    const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 1;
+    const result = await this.db.query<Record<string, unknown>>(
+      `with candidates as (
+         select
+           authority.tenant_id, authority.id as ca_id, authority.provider_id, schedule.object_type,
+           successful.source_watermark, successful.completed_at, schedule.priority,
+           row_number() over (
+             partition by authority.tenant_id, authority.provider_id
+             order by
+               case when latest.updated_at is null then 1 else 0 end desc,
+               case
+                 when latest.updated_at is null then 0
+                 else extract(epoch from ($1::timestamptz - latest.updated_at)) / schedule.interval_seconds
+               end desc,
+               schedule.priority,
+               authority.id
+           ) as provider_rank
+         from pg_certificate_authorities authority
+         join pg_ca_providers provider on provider.id = authority.provider_id and provider.tenant_id = authority.tenant_id
+         cross join (values
+           ('request'::text, interval '10 seconds', 10::numeric, 1),
+           ('issuance'::text, interval '30 seconds', 30::numeric, 2),
+           ('revocation'::text, interval '30 seconds', 30::numeric, 3),
+           ('template'::text, interval '5 minutes', 300::numeric, 4)
+         ) schedule(object_type, sync_interval, interval_seconds, priority)
+         left join lateral (
+           select status, updated_at
+           from pg_ca_sync_runs
+           where tenant_id = authority.tenant_id and ca_id = authority.id and object_type = schedule.object_type
+           order by created_at desc limit 1
+         ) latest on true
+         left join lateral (
+           select source_watermark, completed_at
+           from pg_ca_sync_runs
+           where tenant_id = authority.tenant_id and ca_id = authority.id and object_type = schedule.object_type
+             and status = 'succeeded'
+           order by completed_at desc nulls last, created_at desc limit 1
+         ) successful on true
+         where provider.type = 'microsoft_adcs'
+           and provider.status = 'active'
+           and authority.status = 'active'
+           and case
+             when schedule.object_type = 'template'
+               then coalesce((provider.capabilities ->> 'listProfiles')::boolean, false)
+             else coalesce((provider.capabilities ->> 'queryIssuance')::boolean, false)
+           end
+           and not exists (
+             select 1 from pg_ca_sync_runs active
+             where active.tenant_id = authority.tenant_id and active.provider_id = authority.provider_id
+               and active.status in ('queued', 'running')
+           )
+           and (
+             latest.updated_at is null
+             or latest.updated_at <= $1::timestamptz - case
+               when latest.status = 'failed' then interval '5 minutes'
+               when latest.status = 'partial' then interval '1 minute'
+               else schedule.sync_interval
+             end
+           )
+       )
+       select tenant_id, ca_id, provider_id, object_type, source_watermark, completed_at
+       from candidates
+       where provider_rank = 1
+       order by priority, ca_id
+       limit $2`,
+      [now, normalizedLimit],
+    );
+    return result.rows.map((row) => ({
+      tenantId: String(row.tenant_id),
+      providerId: String(row.provider_id),
+      caId: String(row.ca_id),
+      objectType: row.object_type as CaSyncRunEntity['objectType'],
+      sourceWatermark: optionalIso(row.source_watermark),
+      completedAt: optionalIso(row.completed_at),
+    }));
+  }
+}
+
+export interface CaAutomaticSyncTarget {
+  tenantId: string;
+  providerId: string;
+  caId: string;
+  objectType: CaSyncRunEntity['objectType'];
+  sourceWatermark?: string;
+  completedAt?: string;
 }
 
 function observationValues(entity: ExternalCaObservationEntity): unknown[] {
@@ -208,7 +311,7 @@ function observationValues(entity: ExternalCaObservationEntity): unknown[] {
 function syncRunValues(entity: CaSyncRunEntity): unknown[] {
   return [
     entity.id, entity.tenantId, entity.providerId, entity.caId, entity.objectType, entity.mode, entity.status,
-    entity.cursorBefore ?? null, entity.cursorAfter ?? null, entity.sourceWatermark ?? null, entity.readCount,
+    entity.cursorBefore ?? null, entity.cursorAfter ?? null, entity.changedAfter ?? null, entity.sourceWatermark ?? null, entity.readCount,
     entity.upsertedCount, entity.skippedCount, entity.failedCount, entity.attemptCount ?? 0,
     entity.nextAttemptAt ?? null, entity.errorCode ?? null, entity.errorMessage ?? null, entity.leaseOwner ?? null,
     entity.leaseExpiresAt ?? null, entity.requestedBy, entity.startedAt ?? null, entity.completedAt ?? null,
@@ -244,7 +347,7 @@ function syncRunFromRow(row: Record<string, unknown>): CaSyncRunEntity {
     id: String(row.id), tenantId: String(row.tenant_id), providerId: String(row.provider_id), caId: String(row.ca_id),
     objectType: row.object_type as CaSyncRunEntity['objectType'], mode: row.mode as CaSyncRunEntity['mode'],
     status: row.status as CaSyncRunEntity['status'], cursorBefore: optionalString(row.cursor_before),
-    cursorAfter: optionalString(row.cursor_after), sourceWatermark: optionalString(row.source_watermark),
+    cursorAfter: optionalString(row.cursor_after), changedAfter: optionalIso(row.changed_after), sourceWatermark: optionalString(row.source_watermark),
     readCount: Number(row.read_count), upsertedCount: Number(row.upserted_count), skippedCount: Number(row.skipped_count),
     failedCount: Number(row.failed_count), attemptCount: Number(row.attempt_count ?? 0), nextAttemptAt: optionalIso(row.next_attempt_at),
     errorCode: optionalString(row.error_code), errorMessage: optionalString(row.error_message),

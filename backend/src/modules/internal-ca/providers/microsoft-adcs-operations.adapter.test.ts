@@ -46,13 +46,18 @@ test('AD CS 运营适配器只投递固定同步合同并转换 Agent 记录', a
     },
   };
   const batch = await new MicrosoftAdcsOperationsAdapter(client).listOperationRecords({
-    provider, authority, objectType: 'request', cursor: '1', limit: 100, changedAfter: '2026-07-25T00:00:00.000Z',
+    syncRunId: 'sync-run-1', provider, authority, objectType: 'request', cursor: '1', limit: 100,
+    changedAfter: '2026-07-25T00:00:00.000Z',
   });
   assert.deepEqual(queued?.payload, {
     caConfig: 'host\\Contoso CA', objectType: 'request', cursor: '1', limit: 100,
     changedAfter: '2026-07-25T00:00:00.000Z',
   });
   assert.equal(queued?.taskType, 'sync_adcs_records');
+  assert.equal(
+    queued?.idempotencyKey,
+    'sync-adcs-records:sync-run-1:ca-adcs:request:2026-07-25T00:00:00.000Z:1',
+  );
   assert.equal(batch.complete, false);
   assert.equal(batch.nextCursor, '2');
   assert.deepEqual(batch.records[0], {

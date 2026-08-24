@@ -128,6 +128,7 @@ export interface CaSyncRunEntity {
   status: CaSyncRunStatus;
   cursorBefore?: string;
   cursorAfter?: string;
+  changedAfter?: string;
   sourceWatermark?: string;
   readCount: number;
   upsertedCount: number;
