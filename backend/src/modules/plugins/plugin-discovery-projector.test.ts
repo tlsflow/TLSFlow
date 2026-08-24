@@ -14,7 +14,7 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
   const plugin = await new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db)).importVersion('tenant-1', {
     manifest: {
-      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'test.mock.device', version: '1.0.0',
+      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'device.citrix.netscaler-adc', version: '1.0.0',
       displayNameKey: 'plugin.test.name', publisher: 'test', runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'BOTH',
       trust: 'UNSIGNED', support: 'SELF_MANAGED', permissions: [],
       capabilities: [{ key: 'device.discover', contractVersion: 'v1', actionContractId: 'device.discover.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] }],
@@ -213,4 +213,20 @@ test('并发重复发现只提交一次标准快照和业务投影', async () =>
   ]);
   assert.deepEqual(right, left);
   assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots where device_id=$1 and status=$2', ['host-concurrent', 'SUCCEEDED'])).rows[0]?.count, '1');
+});
+
+test('标准发现投影缺少插件版本和显式来源时拒绝运行期回退', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const projector = new StandardDeviceDiscoveryProjector(db);
+  const discovery = {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'device:missing-source', displayName: 'Device', productFamily: 'generic.device' },
+    capabilities: [], frameworks: [], sites: [], managedTargets: [], certificates: [], certificateBindings: [], warnings: [],
+  };
+
+  await assert.rejects(
+    () => projector.project({ tenantId: 'tenant-missing-source', hostId: 'host-missing-source' }, discovery),
+    /缺少插件版本或显式来源标识/,
+  );
 });

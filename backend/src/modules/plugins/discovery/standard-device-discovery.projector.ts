@@ -335,7 +335,13 @@ async function markStale(db: DatabasePort, context: StandardDiscoveryProjectionC
   }
 }
 
-async function upsertFallbackFramework(db: DatabasePort, context: StandardDiscoveryProjectionContext, discoveryProviderKey: string, discovery: StandardDeviceDiscoveryV2, now: string) {
+async function upsertFallbackFramework(
+  db: DatabasePort,
+  context: StandardDiscoveryProjectionContext,
+  discoveryProviderKey: string,
+  discovery: StandardDeviceDiscoveryV2,
+  now: string,
+): Promise<string> {
   const id = stableId('psi', context.deviceAssetId ?? context.hostId, 'device');
   await db.query(
     `insert into pg_framework_instances (id, tenant_id, device_id, discovery_provider_key, service_name, display_name, ports, framework_key,
@@ -453,12 +459,19 @@ function normalizeFingerprint(value: string | undefined) {
   return value?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase() || null;
 }
 
-function providerKey(pluginVersionId: string) {
+function pluginDiscoveryKey(pluginVersionId: string) {
   return `plugin-version:${pluginVersionId}`.slice(0, 192);
 }
 
 function resolveProviderKey(context: StandardDiscoveryProjectionContext): string {
-  return context.discoveryProviderKey ?? (context.pluginVersionId ? providerKey(context.pluginVersionId) : `host:${context.hostId}`);
+  const discoveryProviderKey = context.discoveryProviderKey
+    ?? (context.pluginVersionId ? pluginDiscoveryKey(context.pluginVersionId) : undefined);
+  if (!discoveryProviderKey) {
+    throw new AppError('VALIDATION_FAILED', '标准发现投影缺少插件版本或显式来源标识', {
+      hostId: context.hostId,
+    });
+  }
+  return discoveryProviderKey;
 }
 
 function stableId(prefix: string, ...parts: string[]) {
