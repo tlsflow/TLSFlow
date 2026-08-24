@@ -47,6 +47,27 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.deployment.targets[0]?.port, 443);
   });
 
+  it('兼容 PostgreSQL 返回的 Date 类型受管目标更新时间', () => {
+    const topology = managedTargetContext();
+    topology.managedTarget.metadata = {
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'WINDOWS_CERTIFICATE_STORE',
+        storeName: 'My',
+        storeThumbprint: '4865D416CD00954798D8793FEA6050F43D6EAED4',
+        confidence: 'EXACT',
+      },
+    };
+    topology.managedTarget.updatedAt = new Date('2026-08-01T13:31:13.224Z') as unknown as string;
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.observedAt, '2026-08-01T13:31:13.224Z');
+  });
+
   it('无受管目标时生成可重放的应用资产部署目标', () => {
     const first = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });
     const second = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });

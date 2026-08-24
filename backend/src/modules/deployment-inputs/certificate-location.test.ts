@@ -26,3 +26,17 @@ test('KeyStore 和 Windows Store 使用独立存储类型', () => {
   assert.equal(readCertificateLocation({ keystorePath: '/opt/tomcat/conf/server.p12' }, '2026-08-01T00:00:00.000Z')?.storageKind, 'KEYSTORE');
   assert.equal(readCertificateLocation({ storeThumbprint: 'ABCDEF', storeName: 'My' }, '2026-08-01T00:00:00.000Z')?.storageKind, 'WINDOWS_CERTIFICATE_STORE');
 });
+
+test('PostgreSQL Date 类型的受管目标更新时间会规范化为 observedAt 字符串', () => {
+  const location = readCertificateLocation({
+    certificateLocation: {
+      apiVersion: 'gcac.certificate-location/v1',
+      storageKind: 'WINDOWS_CERTIFICATE_STORE',
+      storeName: 'My',
+      storeThumbprint: '4865D416CD00954798D8793FEA6050F43D6EAED4',
+      confidence: 'EXACT',
+    },
+  }, new Date('2026-08-01T13:31:13.224Z'));
+
+  assert.equal(location?.observedAt, '2026-08-01T13:31:13.224Z');
+});

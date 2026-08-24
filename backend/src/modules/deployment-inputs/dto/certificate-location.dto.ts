@@ -26,7 +26,7 @@ export interface CertificateLocationV1 {
   warnings?: string[];
 }
 
-export function readCertificateLocation(metadata: Record<string, unknown>, observedAtFallback: string): CertificateLocationV1 | undefined {
+export function readCertificateLocation(metadata: Record<string, unknown>, observedAtFallback: unknown): CertificateLocationV1 | undefined {
   const current = readRecord(metadata.certificateLocation);
   if (current) return normalizeCurrentLocation(current, observedAtFallback);
 
@@ -55,11 +55,11 @@ export function readCertificateLocation(metadata: Record<string, unknown>, obser
     reloadCommand: readString(metadata.reloadCommand),
     configFingerprint: readString(metadata.configFingerprint),
     confidence: 'EXACT',
-    observedAt: readString(metadata.observedAt) ?? observedAtFallback,
+    observedAt: readString(metadata.observedAt) ?? normalizeObservedAt(observedAtFallback),
   });
 }
 
-function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFallback: string): CertificateLocationV1 | undefined {
+function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFallback: unknown): CertificateLocationV1 | undefined {
   const certificatePath = readString(value.certificatePath);
   const privateKeyPath = readString(value.privateKeyPath);
   const keystorePath = readString(value.keystorePath);
@@ -86,7 +86,7 @@ function normalizeCurrentLocation(value: Record<string, unknown>, observedAtFall
     reloadCommand: readString(value.reloadCommand),
     configFingerprint: readString(value.configFingerprint),
     confidence: normalizeConfidence(readString(value.confidence)),
-    observedAt: readString(value.observedAt) ?? observedAtFallback,
+    observedAt: readString(value.observedAt) ?? normalizeObservedAt(observedAtFallback),
     warnings: readStrings(value.warnings),
   });
 }
@@ -119,4 +119,10 @@ function readStrings(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const items = value.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim());
   return items.length > 0 ? items : undefined;
+}
+
+function normalizeObservedAt(value: unknown): string {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
+  return new Date(0).toISOString();
 }
