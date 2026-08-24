@@ -7,6 +7,7 @@ import test from 'node:test';
 import { BuiltinPluginRegistry } from './builtin-plugin-registry.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-unified-plugin-loader.js';
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
+import { AppError } from '../../../common/errors/app-error.js';
 
 test('Registry 直接从 Manifest 派生版本和 Runner 入口，不加载插件模块', async () => {
   const root = await createPackageRoot();
@@ -105,6 +106,39 @@ test('同一插件版本摘要不同只跳过冲突插件', async () => {
 
   assert.deepEqual(await registry.refresh(), []);
   assert.throws(() => registry.get('web.nginx', '1.0.0'), /固定的 Manifest PluginVersion/);
+});
+
+test('内置插件历史记录为 DISABLED 时重新扫描会恢复为 ENABLED', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const [pluginPackage] = await loader.loadPackages();
+  assert.ok(pluginPackage);
+  const registry = new BuiltinPluginRegistry(loader);
+  const existing = {
+    id: 'builtin-web-nginx-100',
+    pluginId: 'web.nginx',
+    version: '1.0.0',
+    source: 'BUILTIN',
+    status: 'DISABLED',
+    permissionApprovalStatus: 'APPROVED',
+    manifest: pluginPackage.manifest,
+  };
+  const transitions: string[] = [];
+  const service = {
+    listBuiltinVersions: async () => [existing],
+    importVersion: async () => { throw new AppError('RESOURCE_VERSION_CONFLICT', '模拟历史包摘要冲突'); },
+    approvePermissions: async () => existing,
+    enableVersion: async (id: string) => {
+      transitions.push(id);
+      return { ...existing, id, status: 'ENABLED' };
+    },
+  } as unknown as Parameters<typeof registry.registerAll>[0];
+
+  const installed = await registry.registerAll(service);
+
+  assert.equal(installed[0]?.id, existing.id);
+  assert.equal(installed[0]?.status, 'ENABLED');
+  assert.deepEqual(transitions, [existing.id]);
 });
 
 test('Registry 在 Manifest 边界跳过非法 SemVer 插件', async () => {
