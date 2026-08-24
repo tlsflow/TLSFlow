@@ -10,6 +10,7 @@ const CERTIFICATE_FORMATS_PATH = '/api/v1/certificate-version-formats'
 const CERTIFICATE_IMPORT_PATH = '/api/v1/certificate-versions/import'
 const CERTIFICATE_VALIDATE_IMPORT_PATH = '/api/v1/certificate-versions/validate-import'
 const CERTIFICATE_USAGES_PATH = '/api/v1/certificate-bindings'
+const CERTIFICATE_TRUST_ROOTS_PATH = '/api/v1/certificate-trust-roots'
 
 export function listCertificates(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_ASSETS_PATH, query)
@@ -45,6 +46,14 @@ export function listCertificateFormatsByVersionId(versionId: string, query: Busi
 
 export function listCertificateUsages(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_USAGES_PATH, query)
+}
+
+export function listCertificateTrustRoots(query?: BusinessListQuery) {
+  return listRecords(CERTIFICATE_TRUST_ROOTS_PATH, query)
+}
+
+export function getCertificateTrustRootDetail(rootId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(`${CERTIFICATE_TRUST_ROOTS_PATH}/${encodeURIComponent(rootId)}`)}`)
 }
 
 export function importCertificate(payload: ApiBody) {

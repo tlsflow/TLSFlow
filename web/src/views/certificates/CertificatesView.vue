@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
+import { listAssets } from '@/api/modules/assets.api'
+import { listAutomations } from '@/api/modules/automations.api'
 import {
   deleteCertificateVersion,
   importCertificate,
@@ -21,9 +23,11 @@ import {
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { StatusTone } from '@/design-system/status/status-map'
+import { useAppStore } from '@/stores/app.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
 import CertificateImportForm from './CertificateImportForm.vue'
+import CertificateTrustRootsModalContent from './CertificateTrustRootsModalContent.vue'
 import {
   buildCertificateImportPayload,
   type CertificateImportValidationResult,
@@ -60,6 +64,7 @@ const EXPIRING_SOON_DAYS = 10
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const appStore = useAppStore()
 const permissionStore = usePermissionStore()
 const initialQuery = route.query ?? {}
 const filters = reactive<Record<string, string>>({
@@ -83,6 +88,7 @@ const versionSortField = ref<VersionSortField>('notAfter')
 const versionSortOrder = ref<VersionSortOrder>('asc')
 
 const importDialogOpen = ref(false)
+const trustRootsDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
 const importLoading = ref(false)
 const importValidating = ref(false)
@@ -94,6 +100,9 @@ const importValidationResult = ref<CertificateImportValidationResult | null>(nul
 const detailVersionId = ref('')
 const detailAssetId = ref('')
 const draft = reactive(createCertificateImportDraft())
+const applicationAssetCount = ref<number | null>(null)
+const automationPlanCount = ref<number | null>(null)
+const activeAutomationPlanCount = ref<number | null>(null)
 
 const assetDomainGroups = computed(() => {
   const groups = new Map<string, ApiRecord[]>()
@@ -125,6 +134,29 @@ const selectedAssetMemberIds = computed(() => {
     .filter(Boolean)
 })
 const assetCount = computed(() => displayedAssets.value.length)
+const isProfessionalView = computed(() => appStore.viewMode === 'professional')
+const canReadApplicationAssets = computed(() => permissionStore.hasPermission('service_asset.read'))
+const canManageApplicationAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
+const canReadAutomationPlans = computed(() => permissionStore.hasPermission('automation.read'))
+const expiredAssetCount = computed(() => displayedAssets.value.filter((item) => readAssetLifecycleStatusKey(item) === 'expired').length)
+const expiringSoonAssetCount = computed(() => displayedAssets.value.filter((item) => readAssetLifecycleStatusKey(item) === 'expiringSoon').length)
+const attentionAssets = computed(() =>
+  displayedAssets.value
+    .map((record) => {
+      const lifecycleKey = readAssetLifecycleStatusKey(record)
+      return {
+        id: readId(record),
+        name: readAssetName(record),
+        lifecycleKey,
+        lifecycle: formatLifecycleStatus(lifecycleKey),
+        expiresAt: readAssetExpiry(record),
+      }
+    })
+    .filter((item) => item.id && (item.lifecycleKey === 'expired' || item.lifecycleKey === 'expiringSoon'))
+    .sort((left, right) => compareAttentionAssets(left, right))
+    .slice(0, 4),
+)
+const selectedAssetExpiryLabel = computed(() => formatAssetExpiry(selectedAsset.value))
 const rawVersionRows = computed<CertificateVersionRow[]>(() =>
   versions.value.map((record, index) => {
     const id = readString(record, ['id', 'certificateVersionId'], `certver-${index + 1}`)
@@ -216,7 +248,7 @@ watch(
 )
 
 onMounted(async () => {
-  await loadAssets()
+  await Promise.all([loadAssets(), loadGuideContext()])
 })
 
 function readId(record: ApiRecord) {
@@ -231,8 +263,53 @@ function readAssetSubtitle(record: ApiRecord) {
   return readString(record, ['sourceType', 'currentVersion.notAfter', 'updatedAt'], t('certificates.list.fallbacks.noSupplement'))
 }
 
+function buildCertificateRouteQuery() {
+  const query: Record<string, string> = {}
+  const keyword = filters.keyword.trim()
+  const primaryDomain = filters.primaryDomain.trim()
+  const status = filters.status.trim()
+  if (keyword) query.keyword = keyword
+  if (primaryDomain) query.primaryDomain = primaryDomain
+  if (status) query.status = status
+  return query
+}
+
+function syncCertificateRouteQuery() {
+  void router.replace({ path: '/certificates', query: buildCertificateRouteQuery() })
+}
+
 function formatDateOnly(value: string) {
   return formatBrowserLocalTime(value, { includeTime: false }) || value
+}
+
+function readAssetExpiry(record: ApiRecord | null) {
+  return readString(record, ['currentVersion.notAfter', 'expiresAt', 'notAfter'], '')
+}
+
+function formatAssetExpiry(record: ApiRecord | null) {
+  const expiry = readAssetExpiry(record)
+  return expiry ? formatDateOnly(expiry) : t('certificates.userView.common.notAvailable')
+}
+
+function compareAttentionAssets(
+  left: { readonly lifecycleKey: LifecycleStatusKey; readonly expiresAt: string; readonly id: string },
+  right: { readonly lifecycleKey: LifecycleStatusKey; readonly expiresAt: string; readonly id: string },
+) {
+  const priorityDiff = attentionAssetPriority(left.lifecycleKey) - attentionAssetPriority(right.lifecycleKey)
+  if (priorityDiff !== 0) return priorityDiff
+  const leftTime = Date.parse(left.expiresAt)
+  const rightTime = Date.parse(right.expiresAt)
+  const normalizedLeftTime = Number.isNaN(leftTime) ? Number.MAX_SAFE_INTEGER : leftTime
+  const normalizedRightTime = Number.isNaN(rightTime) ? Number.MAX_SAFE_INTEGER : rightTime
+  if (normalizedLeftTime !== normalizedRightTime) return normalizedLeftTime - normalizedRightTime
+  return left.id.localeCompare(right.id)
+}
+
+function attentionAssetPriority(status: LifecycleStatusKey) {
+  if (status === 'expired') return 0
+  if (status === 'expiringSoon') return 1
+  if (status === 'valid') return 2
+  return 3
 }
 
 async function loadAssets() {
@@ -328,8 +405,7 @@ async function loadVersions(assetIds: string[]) {
 }
 
 function updateFilters() {
-  const query = Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
-  void router.replace({ path: '/certificates', query })
+  syncCertificateRouteQuery()
   void loadAssets()
 }
 
@@ -356,6 +432,64 @@ function openImportDialog() {
 function closeImportDialog() {
   if (importLoading.value) return
   importDialogOpen.value = false
+}
+
+function openTrustRootsDialog() {
+  trustRootsDialogOpen.value = true
+}
+
+async function loadGuideContext() {
+  const tasks: Array<Promise<void>> = []
+  applicationAssetCount.value = null
+  automationPlanCount.value = null
+  activeAutomationPlanCount.value = null
+
+  if (canReadApplicationAssets.value) {
+    tasks.push(
+      listAssets({ page: 1, pageSize: 1, sort: 'updatedAt:desc' })
+        .then((result) => {
+          applicationAssetCount.value = Number(result.data?.total ?? 0)
+        })
+        .catch(() => {
+          applicationAssetCount.value = null
+        }),
+    )
+  }
+
+  if (canReadAutomationPlans.value) {
+    tasks.push(
+      listAutomations()
+        .then((items) => {
+          automationPlanCount.value = items.length
+          activeAutomationPlanCount.value = items.filter((item) => item.status === 'active').length
+        })
+        .catch(() => {
+          automationPlanCount.value = null
+          activeAutomationPlanCount.value = null
+        }),
+    )
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks)
+  }
+}
+
+function formatGuideCount(value: number | null) {
+  return value === null ? t('certificates.userView.common.notAvailable') : String(value)
+}
+
+function openApplicationWorkspace() {
+  void router.push({ name: 'asset.list', query: { entry: 'certificate-user-view', action: 'create' } })
+}
+
+function openAutomationWorkspace() {
+  void router.push({ name: 'automation.list', query: { entry: 'certificate-user-view', action: 'create' } })
+}
+
+function openProfessionalDetail(assetId: string) {
+  selectAsset(assetId)
+  appStore.setViewMode('professional')
 }
 
 async function submitImport() {
@@ -557,199 +691,387 @@ async function removeVersion(row: CertificateVersionRow) {
 
 <template>
   <section class="gc-page certificate-page">
-    <section class="certificate-page__toolbar">
-      <section class="gc-card certificate-page__filters">
-        <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
-          <input v-model="filters.keyword" :placeholder="t('certificates.list.placeholders.assetKeyword')" @change="updateFilters" />
-        </label>
-        <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.domain') }}</span>
-          <input v-model="filters.primaryDomain" placeholder="example.com" @change="updateFilters" />
-        </label>
-        <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.status') }}</span>
-          <select v-model="filters.status" @change="updateFilters">
-            <option value="">{{ t('businessPage.all') }}</option>
-            <option value="MANAGED">MANAGED</option>
-            <option value="EXPIRED">EXPIRED</option>
-            <option value="REVOKED">REVOKED</option>
-          </select>
-        </label>
-        <div class="certificate-page__filter-actions">
-          <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
+    <div v-if="importResultId" class="certificate-page__inline-success" role="status">
+      <strong>{{ t('certificates.banners.importSucceeded', { id: importResultId }) }}</strong>
+    </div>
+
+    <template v-if="isProfessionalView">
+      <section class="certificate-page__toolbar">
+        <section class="gc-card certificate-page__filters">
+          <label class="certificate-page__filter">
+            <span class="certificate-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
+            <input v-model="filters.keyword" :placeholder="t('certificates.list.placeholders.assetKeyword')" @change="updateFilters" />
+          </label>
+          <label class="certificate-page__filter">
+            <span class="certificate-page__filter-label">{{ t('certificates.list.filters.domain') }}</span>
+            <input v-model="filters.primaryDomain" :placeholder="t('certificates.list.placeholders.primaryDomain')" @change="updateFilters" />
+          </label>
+          <label class="certificate-page__filter">
+            <span class="certificate-page__filter-label">{{ t('certificates.list.filters.status') }}</span>
+            <select v-model="filters.status" @change="updateFilters">
+              <option value="">{{ t('businessPage.all') }}</option>
+              <option value="MANAGED">MANAGED</option>
+              <option value="EXPIRED">EXPIRED</option>
+              <option value="REVOKED">REVOKED</option>
+            </select>
+          </label>
+          <div class="certificate-page__filter-actions">
+            <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
+          </div>
+        </section>
+
+        <div class="certificate-page__toolbar-actions">
+          <GcPermissionButton class="gc-button certificate-page__trust-roots-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
+            {{ t('certificates.trustRoots.actions.open') }}
+          </GcPermissionButton>
+          <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
+            {{ t('certificates.import.title') }}
+          </GcPermissionButton>
         </div>
       </section>
 
-      <div class="certificate-page__toolbar-actions">
-        <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
-          {{ t('certificates.import.title') }}
-        </GcPermissionButton>
-      </div>
-    </section>
-
-    <section class="certificate-page__workspace">
-      <aside class="certificate-page__assets">
-        <header class="certificate-page__panel-header">
-          <div>
-            <h2>{{ t('certificates.list.assets.title') }}</h2>
-          </div>
-          <span>{{ t('businessPage.total', { count: assetCount }) }}</span>
-        </header>
-
-        <GcEmptyState v-if="assetsError" class="certificate-page__empty-state" :title="t('certificates.list.assets.loadFailed')" :description="assetsError.message">
-          <p>{{ t('businessPage.errorCode', { code: assetsError.errorCode }) }}</p>
-          <button class="gc-button" type="button" @click="loadAssets">{{ t('businessPage.retry') }}</button>
-        </GcEmptyState>
-
-        <div v-else-if="assetsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
-
-        <GcEmptyState v-else-if="displayedAssets.length === 0" class="certificate-page__empty-state" :title="t('certificates.list.assets.empty')" />
-
-        <div v-else class="certificate-page__asset-list">
-          <button
-            v-for="asset in displayedAssets"
-            :key="readId(asset)"
-            class="certificate-page__asset-item"
-            :class="{ 'certificate-page__asset-item--active': readId(asset) === selectedAssetId }"
-            type="button"
-            @click="selectAsset(readId(asset))"
-          >
-            <div class="certificate-page__asset-main">
-              <strong>{{ readAssetName(asset) }}</strong>
-              <span>{{ readAssetSubtitle(asset) }}</span>
+      <section class="certificate-page__workspace">
+        <aside class="certificate-page__assets">
+          <header class="certificate-page__panel-header">
+            <div>
+              <h2>{{ t('certificates.list.assets.title') }}</h2>
             </div>
-            <div class="certificate-page__asset-side">
-              <span class="certificate-page__lifecycle">{{ readAssetLifecycleStatus(asset) }}</span>
-            </div>
-          </button>
-        </div>
-      </aside>
+            <span>{{ t('businessPage.total', { count: assetCount }) }}</span>
+          </header>
 
-      <section class="certificate-page__versions">
-        <header class="certificate-page__panel-header">
-          <div>
-            <h2>{{ selectedAsset ? t('certificates.list.versions.titleWithDomain', { domain: selectedDomainName }) : t('certificates.list.versions.title') }}</h2>
-            <p>{{ t('certificates.list.versions.description') }}</p>
-          </div>
-        </header>
-
-        <div class="certificate-page__versions-body">
-          <div v-if="versionActionError" class="certificate-page__inline-error" role="alert">
-            <strong>{{ t('certificates.list.errors.deleteFailed') }}</strong>
-            <span>{{ versionActionError.message }}</span>
-            <span v-if="versionActionError.errorCode">{{ t('businessPage.errorCode', { code: versionActionError.errorCode }) }}</span>
-          </div>
-          <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" :title="t('certificates.list.versions.loadFailed')" :description="versionsError.message">
-            <p>{{ t('businessPage.errorCode', { code: versionsError.errorCode }) }}</p>
-            <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">{{ t('businessPage.retry') }}</button>
+          <GcEmptyState v-if="assetsError" class="certificate-page__empty-state" :title="t('certificates.list.assets.loadFailed')" :description="assetsError.message">
+            <p>{{ t('businessPage.errorCode', { code: assetsError.errorCode }) }}</p>
+            <button class="gc-button" type="button" @click="loadAssets">{{ t('businessPage.retry') }}</button>
           </GcEmptyState>
 
-          <div v-else-if="versionsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
+          <div v-else-if="assetsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
 
-          <GcEmptyState
-            v-else-if="!selectedAsset"
-            class="certificate-page__empty-state"
-            :title="t('certificates.list.assets.unselectedTitle')"
-            :description="t('certificates.list.assets.unselectedDescription')"
-          />
+          <GcEmptyState v-else-if="displayedAssets.length === 0" class="certificate-page__empty-state" :title="t('certificates.list.assets.empty')" />
 
-          <GcEmptyState
-            v-else-if="versionRows.length === 0"
-            class="certificate-page__empty-state"
-            :title="t('certificates.list.versions.emptyForDomain')"
-            :description="t('certificates.list.versions.emptyForDomainDescription')"
-          />
+          <div v-else class="certificate-page__asset-list">
+            <button
+              v-for="asset in displayedAssets"
+              :key="readId(asset)"
+              class="certificate-page__asset-item"
+              :class="{ 'certificate-page__asset-item--active': readId(asset) === selectedAssetId }"
+              type="button"
+              @click="selectAsset(readId(asset))"
+            >
+              <div class="certificate-page__asset-main">
+                <strong>{{ readAssetName(asset) }}</strong>
+                <span>{{ readAssetSubtitle(asset) }}</span>
+              </div>
+              <div class="certificate-page__asset-side">
+                <span class="certificate-page__lifecycle">{{ readAssetLifecycleStatus(asset) }}</span>
+              </div>
+            </button>
+          </div>
+        </aside>
 
-          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" :empty-text="t('certificates.list.versions.empty')">
-            <template #toolbar>
-              <div class="certificate-page__table-toolbar">
-                <div class="certificate-page__table-heading">
-                  <strong>{{ t('certificates.list.versions.toolbar') }}</strong>
-                  <span>{{ t('certificates.list.versions.currentCount', { count: versionCount }) }}</span>
+        <section class="certificate-page__versions">
+          <header class="certificate-page__panel-header">
+            <div>
+              <h2>{{ selectedAsset ? t('certificates.list.versions.titleWithDomain', { domain: selectedDomainName }) : t('certificates.list.versions.title') }}</h2>
+              <p>{{ t('certificates.list.versions.description') }}</p>
+            </div>
+          </header>
+
+          <div class="certificate-page__versions-body">
+            <div v-if="versionActionError" class="certificate-page__inline-error" role="alert">
+              <strong>{{ t('certificates.list.errors.deleteFailed') }}</strong>
+              <span>{{ versionActionError.message }}</span>
+              <span v-if="versionActionError.errorCode">{{ t('businessPage.errorCode', { code: versionActionError.errorCode }) }}</span>
+            </div>
+            <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" :title="t('certificates.list.versions.loadFailed')" :description="versionsError.message">
+              <p>{{ t('businessPage.errorCode', { code: versionsError.errorCode }) }}</p>
+              <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">{{ t('businessPage.retry') }}</button>
+            </GcEmptyState>
+
+            <div v-else-if="versionsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
+
+            <GcEmptyState
+              v-else-if="!selectedAsset"
+              class="certificate-page__empty-state"
+              :title="t('certificates.list.assets.unselectedTitle')"
+              :description="t('certificates.list.assets.unselectedDescription')"
+            />
+
+            <GcEmptyState
+              v-else-if="versionRows.length === 0"
+              class="certificate-page__empty-state"
+              :title="t('certificates.list.versions.emptyForDomain')"
+              :description="t('certificates.list.versions.emptyForDomainDescription')"
+            />
+
+            <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" :empty-text="t('certificates.list.versions.empty')">
+              <template #toolbar>
+                <div class="certificate-page__table-toolbar">
+                  <div class="certificate-page__table-heading">
+                    <strong>{{ t('certificates.list.versions.toolbar') }}</strong>
+                    <span>{{ t('certificates.list.versions.currentCount', { count: versionCount }) }}</span>
+                  </div>
+                  <div class="certificate-page__table-controls">
+                    <label class="certificate-page__table-filter">
+                      <span>{{ t('certificates.list.filters.keyword') }}</span>
+                      <input v-model="versionFilterKeyword" :placeholder="t('certificates.list.placeholders.versionKeyword')" />
+                    </label>
+                    <label class="certificate-page__table-filter">
+                      <span>{{ t('certificates.list.filters.status') }}</span>
+                      <select v-model="versionFilterStatus">
+                        <option value="">{{ t('businessPage.all') }}</option>
+                        <option value="valid">{{ t('certificates.list.lifecycle.valid') }}</option>
+                        <option value="expiringSoon">{{ t('certificates.list.lifecycle.expiringSoon') }}</option>
+                        <option value="expired">{{ t('certificates.list.lifecycle.expired') }}</option>
+                        <option value="MANAGED">MANAGED</option>
+                        <option value="EXPIRED">EXPIRED</option>
+                        <option value="REVOKED">REVOKED</option>
+                      </select>
+                    </label>
+                    <button class="gc-button" type="button" @click="clearVersionFilters">{{ t('certificates.list.actions.clear') }}</button>
+                  </div>
                 </div>
-                <div class="certificate-page__table-controls">
-                  <label class="certificate-page__table-filter">
-                    <span>{{ t('certificates.list.filters.keyword') }}</span>
-                    <input v-model="versionFilterKeyword" :placeholder="t('certificates.list.placeholders.versionKeyword')" />
-                  </label>
-                  <label class="certificate-page__table-filter">
-                    <span>{{ t('certificates.list.filters.status') }}</span>
-                    <select v-model="versionFilterStatus">
-                      <option value="">{{ t('businessPage.all') }}</option>
-                      <option value="valid">{{ t('certificates.list.lifecycle.valid') }}</option>
-                      <option value="expiringSoon">{{ t('certificates.list.lifecycle.expiringSoon') }}</option>
-                      <option value="expired">{{ t('certificates.list.lifecycle.expired') }}</option>
-                      <option value="MANAGED">MANAGED</option>
-                      <option value="EXPIRED">EXPIRED</option>
-                      <option value="REVOKED">REVOKED</option>
-                    </select>
-                  </label>
-                  <button class="gc-button" type="button" @click="clearVersionFilters">{{ t('certificates.list.actions.clear') }}</button>
+              </template>
+              <template #header-certificateName>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('certificateName')">
+                  {{ t('certificates.detailPanel.summary.certificateName') }} {{ sortIndicator('certificateName') }}
+                </button>
+              </template>
+              <template #header-notBefore>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notBefore')">
+                  {{ t('certificates.list.columns.notBefore') }} {{ sortIndicator('notBefore') }}
+                </button>
+              </template>
+              <template #header-notAfter>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notAfter')">
+                  {{ t('certificates.list.columns.notAfter') }} {{ sortIndicator('notAfter') }}
+                </button>
+              </template>
+              <template #header-issuer>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('issuer')">
+                  {{ t('certificates.detailPanel.summary.issuer') }} {{ sortIndicator('issuer') }}
+                </button>
+              </template>
+              <template #header-subject>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('subject')">
+                  {{ t('certificates.detailPanel.summary.subject') }} {{ sortIndicator('subject') }}
+                </button>
+              </template>
+              <template #header-status>
+                <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('status')">
+                  {{ t('certificates.list.columns.status') }} {{ sortIndicator('status') }}
+                </button>
+              </template>
+              <template #cell-certificateName="{ row }">
+                <div class="certificate-page__cell-main">
+                  <strong>{{ row.certificateName }}</strong>
                 </div>
-              </div>
-            </template>
-            <template #header-certificateName>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('certificateName')">
-                {{ t('certificates.detailPanel.summary.certificateName') }} {{ sortIndicator('certificateName') }}
-              </button>
-            </template>
-            <template #header-notBefore>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notBefore')">
-                {{ t('certificates.list.columns.notBefore') }} {{ sortIndicator('notBefore') }}
-              </button>
-            </template>
-            <template #header-notAfter>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notAfter')">
-                {{ t('certificates.list.columns.notAfter') }} {{ sortIndicator('notAfter') }}
-              </button>
-            </template>
-            <template #header-issuer>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('issuer')">
-                {{ t('certificates.detailPanel.summary.issuer') }} {{ sortIndicator('issuer') }}
-              </button>
-            </template>
-            <template #header-subject>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('subject')">
-                {{ t('certificates.detailPanel.summary.subject') }} {{ sortIndicator('subject') }}
-              </button>
-            </template>
-            <template #header-status>
-              <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('status')">
-                {{ t('certificates.list.columns.status') }} {{ sortIndicator('status') }}
-              </button>
-            </template>
-            <template #cell-certificateName="{ row }">
-              <div class="certificate-page__cell-main">
-                <strong>{{ row.certificateName }}</strong>
-              </div>
-            </template>
-            <template #cell-status="{ row }">
-              <GcStatusTag :status="row.lifecycleKey" :label="row.lifecycle" :tone="lifecycleStatusTone(row.lifecycleKey)" />
-            </template>
-            <template #cell-sourceType="{ row }">
-              <GcStatusTag :status="row.sourceType" :label="row.sourceTypeLabel" :tone="row.sourceTypeTone" />
-            </template>
-            <template #cell-id="{ row }">
-              <code class="certificate-page__version-id">{{ row.id }}</code>
-            </template>
-            <template #cell-actions="{ row }">
-              <div class="certificate-page__row-actions">
-                <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">{{ t('agents.actions.detail') }}</button>
-                <GcConfirmAction
-                  v-if="canDeleteVersion"
-                  :action-name="t('agents.actions.delete')"
-                  :impact-count="1"
-                  :risk-text="t('certificates.list.actions.deleteRisk')"
-                  confirm-text="DELETE"
-                  @confirm="removeVersion(row as CertificateVersionRow)"
-                />
-              </div>
-            </template>
-          </GcDataTable>
+              </template>
+              <template #cell-status="{ row }">
+                <GcStatusTag :status="row.lifecycleKey" :label="row.lifecycle" :tone="lifecycleStatusTone(row.lifecycleKey)" />
+              </template>
+              <template #cell-sourceType="{ row }">
+                <GcStatusTag :status="row.sourceType" :label="row.sourceTypeLabel" :tone="row.sourceTypeTone" />
+              </template>
+              <template #cell-id="{ row }">
+                <code class="certificate-page__version-id">{{ row.id }}</code>
+              </template>
+              <template #cell-actions="{ row }">
+                <div class="certificate-page__row-actions">
+                  <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">{{ t('agents.actions.detail') }}</button>
+                  <GcConfirmAction
+                    v-if="canDeleteVersion"
+                    :action-name="t('agents.actions.delete')"
+                    :impact-count="1"
+                    :risk-text="t('certificates.list.actions.deleteRisk')"
+                    confirm-text="DELETE"
+                    @confirm="removeVersion(row as CertificateVersionRow)"
+                  />
+                </div>
+              </template>
+            </GcDataTable>
+          </div>
+        </section>
+      </section>
+    </template>
+
+    <section v-else class="certificate-user-view">
+      <section class="gc-card certificate-user-view__hero">
+        <div class="certificate-user-view__hero-copy">
+          <span class="certificate-user-view__eyebrow">{{ t('certificates.userView.hero.eyebrow') }}</span>
+          <h2>{{ t('certificates.userView.hero.title') }}</h2>
+          <p>{{ t('certificates.userView.hero.description') }}</p>
+        </div>
+        <div class="certificate-user-view__hero-actions">
+          <GcPermissionButton class="certificate-page__import-button certificate-user-view__hero-action" permission="certificate.import" @click="openImportDialog">
+            {{ t('certificates.userView.hero.primaryAction') }}
+          </GcPermissionButton>
         </div>
       </section>
+
+      <section class="certificate-user-view__metrics" :aria-label="t('certificates.userView.summary.ariaLabel')">
+        <article class="gc-card certificate-user-view__metric">
+          <span>{{ t('certificates.userView.summary.managedCertificates') }}</span>
+          <strong>{{ assetCount }}</strong>
+        </article>
+        <article class="gc-card certificate-user-view__metric">
+          <span>{{ t('certificates.userView.summary.expiredCertificates') }}</span>
+          <strong>{{ expiredAssetCount }}</strong>
+        </article>
+        <article class="gc-card certificate-user-view__metric">
+          <span>{{ t('certificates.userView.summary.expiringSoonCertificates') }}</span>
+          <strong>{{ expiringSoonAssetCount }}</strong>
+        </article>
+        <article class="gc-card certificate-user-view__metric">
+          <span>{{ t('certificates.userView.summary.connectedApplications') }}</span>
+          <strong>{{ formatGuideCount(applicationAssetCount) }}</strong>
+        </article>
+        <article class="gc-card certificate-user-view__metric">
+          <span>{{ t('certificates.userView.summary.activeAutomationPlans') }}</span>
+          <strong>{{ formatGuideCount(activeAutomationPlanCount) }}</strong>
+        </article>
+      </section>
+
+      <section class="certificate-user-view__section">
+        <header class="certificate-user-view__section-head">
+          <div>
+            <h3>{{ t('certificates.userView.steps.title') }}</h3>
+            <p>{{ t('certificates.userView.steps.description') }}</p>
+          </div>
+        </header>
+
+        <div class="certificate-user-view__step-grid">
+          <article class="gc-card certificate-user-view__step">
+            <div class="certificate-user-view__step-head">
+              <span class="certificate-user-view__step-index">1</span>
+              <span class="certificate-user-view__step-state" :data-state="assetCount > 0 ? 'done' : 'todo'">
+                {{ assetCount > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
+              </span>
+            </div>
+            <h4>{{ t('certificates.userView.steps.import.title') }}</h4>
+            <p>{{ t('certificates.userView.steps.import.description') }}</p>
+            <small class="certificate-user-view__step-helper">
+              {{ assetCount > 0
+                ? t('certificates.userView.steps.import.helperCompleted', { count: assetCount })
+                : t('certificates.userView.steps.import.helperEmpty') }}
+            </small>
+            <div class="certificate-user-view__step-actions">
+              <GcPermissionButton permission="certificate.import" @click="openImportDialog">
+                {{ t('certificates.userView.steps.import.action') }}
+              </GcPermissionButton>
+            </div>
+          </article>
+
+          <article class="gc-card certificate-user-view__step">
+            <div class="certificate-user-view__step-head">
+              <span class="certificate-user-view__step-index">2</span>
+              <span class="certificate-user-view__step-state" :data-state="(applicationAssetCount ?? 0) > 0 ? 'done' : 'todo'">
+                {{ (applicationAssetCount ?? 0) > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
+              </span>
+            </div>
+            <h4>{{ t('certificates.userView.steps.applications.title') }}</h4>
+            <p>{{ t('certificates.userView.steps.applications.description') }}</p>
+            <small class="certificate-user-view__step-helper">
+              {{ (applicationAssetCount ?? 0) > 0
+                ? t('certificates.userView.steps.applications.helperCompleted', { count: applicationAssetCount ?? 0 })
+                : t('certificates.userView.steps.applications.helperEmpty') }}
+            </small>
+            <div class="certificate-user-view__step-actions">
+              <GcPermissionButton v-if="canManageApplicationAssets" permission="service_asset.manage" @click="openApplicationWorkspace">
+                {{ t('certificates.userView.steps.applications.action') }}
+              </GcPermissionButton>
+              <small v-else class="certificate-user-view__step-helper">{{ t('certificates.userView.common.permissionRequired') }}</small>
+            </div>
+          </article>
+
+          <article class="gc-card certificate-user-view__step">
+            <div class="certificate-user-view__step-head">
+              <span class="certificate-user-view__step-index">3</span>
+              <span class="certificate-user-view__step-state" :data-state="(activeAutomationPlanCount ?? 0) > 0 ? 'done' : 'todo'">
+                {{ (activeAutomationPlanCount ?? 0) > 0 ? t('certificates.userView.steps.status.done') : t('certificates.userView.steps.status.todo') }}
+              </span>
+            </div>
+            <h4>{{ t('certificates.userView.steps.automations.title') }}</h4>
+            <p>{{ t('certificates.userView.steps.automations.description') }}</p>
+            <small class="certificate-user-view__step-helper">
+              {{ (activeAutomationPlanCount ?? 0) > 0
+                ? t('certificates.userView.steps.automations.helperCompleted', { count: activeAutomationPlanCount ?? 0 })
+                : t('certificates.userView.steps.automations.helperEmpty') }}
+            </small>
+            <div class="certificate-user-view__step-actions">
+              <GcPermissionButton v-if="canReadAutomationPlans" permission="automation.read" @click="openAutomationWorkspace">
+                {{ t('certificates.userView.steps.automations.action') }}
+              </GcPermissionButton>
+              <small v-else class="certificate-user-view__step-helper">{{ t('certificates.userView.common.permissionRequired') }}</small>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="certificate-user-view__focus-grid">
+        <article class="gc-card certificate-user-view__focus-card">
+          <header class="certificate-user-view__section-head">
+            <div>
+              <h3>{{ t('certificates.userView.focus.currentSelectionTitle') }}</h3>
+              <p>{{ t('certificates.userView.focus.currentSelectionDescription') }}</p>
+            </div>
+          </header>
+          <div class="certificate-user-view__selection-summary">
+            <strong>{{ selectedAsset ? selectedDomainName : t('certificates.userView.focus.currentSelectionEmpty') }}</strong>
+            <p v-if="selectedAsset">{{ t('certificates.userView.focus.validUntil', { value: selectedAssetExpiryLabel }) }}</p>
+            <p v-else>{{ t('certificates.userView.focus.currentSelectionHint') }}</p>
+            <div class="certificate-user-view__selection-actions">
+              <GcStatusTag
+                v-if="selectedAsset"
+                :status="readAssetLifecycleStatusKey(selectedAsset)"
+                :label="readAssetLifecycleStatus(selectedAsset)"
+                :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(selectedAsset))"
+              />
+              <button class="gc-button" type="button" @click="appStore.setViewMode('professional')">
+                {{ t('certificates.userView.focus.openProfessional') }}
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="gc-card certificate-user-view__focus-card">
+          <header class="certificate-user-view__section-head">
+            <div>
+              <h3>{{ t('certificates.userView.focus.attentionTitle') }}</h3>
+              <p>{{ t('certificates.userView.focus.attentionDescription') }}</p>
+            </div>
+          </header>
+          <ul v-if="attentionAssets.length" class="certificate-user-view__attention-list">
+            <li v-for="asset in attentionAssets" :key="asset.id" class="certificate-user-view__attention-item">
+              <div class="certificate-user-view__attention-copy">
+                <strong>{{ asset.name }}</strong>
+                <p>{{ t('certificates.userView.focus.validUntil', { value: asset.expiresAt ? formatDateOnly(asset.expiresAt) : t('certificates.userView.common.notAvailable') }) }}</p>
+              </div>
+              <div class="certificate-user-view__attention-actions">
+                <GcStatusTag :status="asset.lifecycleKey" :label="asset.lifecycle" :tone="lifecycleStatusTone(asset.lifecycleKey)" />
+                <button class="gc-button" type="button" @click="openProfessionalDetail(asset.id)">
+                  {{ t('certificates.userView.focus.assetAction') }}
+                </button>
+              </div>
+            </li>
+          </ul>
+          <GcEmptyState
+            v-else
+            class="certificate-page__empty-state"
+            :title="t('certificates.userView.focus.emptyTitle')"
+            :description="t('certificates.userView.focus.emptyDescription')"
+          />
+        </article>
+      </section>
     </section>
+
+    <GcModal
+      v-model:open="trustRootsDialogOpen"
+      :title="t('certificates.trustRoots.title')"
+      :description="t('certificates.trustRoots.description')"
+      size="xxl"
+    >
+      <CertificateTrustRootsModalContent :open="trustRootsDialogOpen" />
+    </GcModal>
 
     <GcModal
       v-model:open="detailDialogOpen"
@@ -782,6 +1104,218 @@ async function removeVersion(row: CertificateVersionRow) {
 </template>
 
 <style scoped>
+.certificate-user-view__eyebrow {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.certificate-page__inline-success {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-success-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-success-soft);
+  color: var(--gc-color-success);
+}
+
+.certificate-user-view {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.certificate-user-view__hero,
+.certificate-user-view__section,
+.certificate-user-view__focus-card {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.certificate-user-view__hero {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background:
+    radial-gradient(circle at top right, var(--gc-color-warning-soft), transparent 24%),
+    linear-gradient(135deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
+}
+
+.certificate-user-view__hero-copy,
+.certificate-user-view__hero-actions,
+.certificate-user-view__section-head,
+.certificate-user-view__selection-summary,
+.certificate-user-view__attention-copy,
+.certificate-user-view__attention-actions,
+.certificate-user-view__step {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.certificate-user-view__hero-copy h2,
+.certificate-user-view__hero-copy p,
+.certificate-user-view__section-head h3,
+.certificate-user-view__section-head p,
+.certificate-user-view__step h4,
+.certificate-user-view__step p,
+.certificate-user-view__selection-summary p,
+.certificate-user-view__attention-copy p {
+  margin: 0;
+}
+
+.certificate-user-view__hero-copy h2 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-2xl);
+  line-height: var(--gc-line-height-tight);
+}
+
+.certificate-user-view__hero-copy p,
+.certificate-user-view__section-head p,
+.certificate-user-view__step p,
+.certificate-user-view__step-helper,
+.certificate-user-view__selection-summary p,
+.certificate-user-view__attention-copy p {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.certificate-user-view__hero-actions {
+  justify-items: end;
+}
+
+.certificate-user-view__hero-action {
+  min-width: calc(var(--gc-space-10) * 2);
+}
+
+.certificate-user-view__metrics,
+.certificate-user-view__step-grid,
+.certificate-user-view__focus-grid {
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.certificate-user-view__metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.certificate-user-view__metric,
+.certificate-user-view__step,
+.certificate-user-view__focus-card {
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+}
+
+.certificate-user-view__metric span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 800;
+}
+
+.certificate-user-view__metric strong,
+.certificate-user-view__selection-summary strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xl);
+  line-height: var(--gc-line-height-tight);
+}
+
+.certificate-user-view__step-grid,
+.certificate-user-view__focus-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.certificate-user-view__step-grid {
+  align-items: stretch;
+}
+
+.certificate-user-view__step-head,
+.certificate-user-view__selection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.certificate-user-view__step-index {
+  display: grid;
+  place-items: center;
+  width: var(--gc-space-8);
+  height: var(--gc-space-8);
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-primary-soft);
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 900;
+}
+
+.certificate-user-view__step-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
+  border-radius: var(--gc-radius-full);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+}
+
+.certificate-user-view__step-state[data-state='done'] {
+  background: var(--gc-color-success-bg);
+  color: var(--gc-color-success);
+}
+
+.certificate-user-view__step-state[data-state='todo'] {
+  background: var(--gc-color-warning-soft);
+  color: var(--gc-color-warning);
+}
+
+.certificate-user-view__step h4 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-lg);
+}
+
+.certificate-user-view__step-actions {
+  margin-top: auto;
+}
+
+.certificate-user-view__selection-summary,
+.certificate-user-view__attention-list {
+  min-height: 100%;
+}
+
+.certificate-user-view__attention-list {
+  display: grid;
+  gap: var(--gc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.certificate-user-view__attention-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gc-space-3);
+  align-items: center;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-hover);
+}
+
+.certificate-user-view__attention-copy strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+}
+
+.certificate-user-view__attention-actions {
+  justify-items: end;
+}
+
 .certificate-page {
   display: flex;
   flex-direction: column;
@@ -847,6 +1381,14 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__toolbar-actions {
   display: flex;
   align-items: stretch;
+  gap: 10px;
+}
+
+.certificate-page__trust-roots-button {
+  min-height: 100%;
+  padding: 0 18px;
+  border-radius: 16px;
+  white-space: nowrap;
 }
 
 .certificate-page__import-button {
@@ -1200,6 +1742,13 @@ async function removeVersion(row: CertificateVersionRow) {
 }
 
 @media (max-width: 1200px) {
+  .certificate-user-view__hero,
+  .certificate-user-view__focus-grid,
+  .certificate-user-view__step-grid,
+  .certificate-user-view__metrics {
+    grid-template-columns: 1fr;
+  }
+
   .certificate-page {
     height: auto;
     min-height: 0;
@@ -1245,6 +1794,17 @@ async function removeVersion(row: CertificateVersionRow) {
 }
 
 @media (max-width: 900px) {
+  .certificate-user-view__hero-actions,
+  .certificate-user-view__attention-actions {
+    justify-items: stretch;
+  }
+
+  .certificate-user-view__step-head,
+  .certificate-user-view__selection-actions,
+  .certificate-user-view__attention-item {
+    display: grid;
+  }
+
   .certificate-page__filter-actions {
     justify-content: flex-start;
     flex-wrap: wrap;

@@ -6,6 +6,7 @@ import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
 import { acmeRuRU } from './acme.locale'
 import { providersRuRU } from './providers.locale'
+import { monitoringTlsRuRU } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsRuRU,
@@ -517,6 +518,16 @@ export default {
     tooShort: 'Новый пароль должен быть не короче 8 символов'
   },
   nav: {
+    viewMode: {
+      switchLabel: 'Application view mode',
+      user: 'User view',
+      professional: 'Professional view',
+      steps: {
+        certificates: 'Certificates',
+        applications: 'Applications',
+        deployments: 'Deployments'
+      }
+    },
     dashboard: 'Обзор',
     dashboardDesc: 'Обзор состояния приложений, сертификатов, Agent, шлюзов и аудита',
     certificates: 'Сертификаты',
@@ -571,26 +582,29 @@ export default {
     description: 'Управление плановыми, ручными и пакетными запусками обновления сертификатов.',
     empty: 'Автоматизации отсутствуют.',
     emptyDescription: 'Нет описания',
-    common: { notAvailable: 'Нет данных' },
-    formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'The automation will process {domains} using: {version}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: 'Запуск через внешний API', apiHelp: 'Внешняя система вызывает API запуска. Предпросмотр, Dry Run и согласование применяются к каждому запросу.', once: 'Однократный запуск в заданное время', onceHelp: 'Выберите локальное время браузера. После выполнения задача не планируется повторно.', recurring: 'Периодический запуск', scheduleHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringWarningTitle: 'Периодический запуск не рекомендуется для сертификатов', recurringWarning: 'Обычно замену следует запускать после выпуска сертификата или назначать один фиксированный запуск.', runAt: 'Время запуска', frequency: 'Периодичность', daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', time: 'Время', weekday: 'День недели', monthDay: 'День месяца', legacyCustom: 'Сохранить существующий пользовательский график', legacyCron: 'Существующий Cron (только чтение)', weekdays: { 0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота' } },
+    common: { notAvailable: 'Нет данных', allRelated: 'All related targets' },
+    formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; condition scope: {domains}. The target snapshot is frozen when the run starts.' },
+    scheduleBuilder: { api: 'Запуск через внешний API', apiHelp: 'Внешняя система вызывает API запуска. Предпросмотр, Dry Run и согласование применяются к каждому запросу.', once: 'Однократный запуск в заданное время', onceHelp: 'Выберите локальное время браузера. После выполнения задача не планируется повторно.', recurring: 'Периодический запуск', scheduleHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringHelp: 'Используйте периодический график только при реальной необходимости постоянной проверки.', recurringWarningTitle: 'Периодический запуск не рекомендуется для сертификатов', recurringWarning: 'Обычно замену следует запускать после выпуска сертификата или назначать один фиксированный запуск.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: 'Время запуска', frequency: 'Периодичность', daily: 'Ежедневно', weekly: 'Еженедельно', monthly: 'Ежемесячно', time: 'Время', weekday: 'День недели', monthDay: 'День месяца', legacyCustom: 'Сохранить существующий пользовательский график', legacyCron: 'Существующий Cron (только чтение)', weekdays: { 0: 'Воскресенье', 1: 'Понедельник', 2: 'Вторник', 3: 'Среда', 4: 'Четверг', 5: 'Пятница', 6: 'Суббота' } },
     form: { existingAssetTitle: 'Обновлять только существующие активы приложений', existingAssetDescription: 'Автоматизация обрабатывает только активы с существующими привязками сертификатов. Первичная установка и добавление целей не выполняются.', certificateDomains: 'Домены сертификата', certificateDomainsPlaceholder: 'Введите домены через запятую', certificateDomainsHelp: 'Обновляются только существующие привязки активов для этих доменов.', versionSelection: 'Версия сертификата для развертывания', versionSelectionLatest: 'Автоматически использовать последнюю версию', versionSelectionSpecific: 'Использовать указанные версии', versionSelectionHelp: 'Версия определяется и фиксируется в начале запуска.', certificateVersionIds: 'Указанные версии сертификата', certificateVersionIdsPlaceholder: 'Введите ID версий через запятую', certificateVersionIdsHelp: 'Каждая версия должна принадлежать сертификату, выбранному по доменам.', versionLoading: 'Загрузка доступных версий сертификата.', versionLoadFailed: 'Не удалось загрузить версии. Повторите попытку позже.', versionEmpty: 'Для этих доменов нет доступных версий.', schedule: 'Когда обновлять', scheduleHelp: 'Запускайте по запросу или периодически по Cron и часовому поясу.', execution: 'Что происходит при запуске', executionHelp: 'Для каждой существующей привязки создается отдельный план с повторным использованием DeploymentPlan, Dry Run, согласования и ExecutionRun.', snapshot: 'Зафиксировать снимок домена, актива и версии сертификата' },
-    fields: { name: 'Название', description: 'Описание', trigger: 'Триггер', cron: 'Выражение Cron', timeZone: 'Часовой пояс', expiresWithinDays: 'Срок истечения в днях', environments: 'Целевые среды (через запятую)', certificateIds: 'Конкретные сертификаты (необязательно)', certificateIdsPlaceholder: 'Введите ID сертификатов через запятую', certificateIdsHelp: 'Если указано, обрабатываются только эти сертификаты; иначе применяются правила срока и среды.', expiresWithinDaysHelp: 'Выбирать только сертификаты, истекающие в этот период.', environmentsHelp: 'Обрабатывать сертификаты только из указанных сред.', planType: 'Тип плана развертывания', planTypeHelp: 'При запуске для каждой подходящей цели создается отдельный DeploymentPlan.', planTypeUpdate: 'Обновить существующую привязку сертификата', planTypeInstall: 'Установить сертификат на цель', planTypeVerifyOnly: 'Только проверить, без изменения сертификата', planMode: 'Режим запуска', planModeHelp: 'Автоматизация не связывается с существующим планом; для каждой цели создается новый план.', planModeCreateAndExecute: 'Создать и выполнить план', planModeCreateOnly: 'Только создать планы, без выполнения', maxTargets: 'Максимум целей за запуск', concurrency: 'Параллельность', failureCount: 'Порог количества ошибок', requireDryRun: 'Требовать Dry Run перед выполнением', requireApproval: 'Требовать согласование перед выполнением', startedAt: 'Время начала', finishedAt: 'Время завершения', failureStage: 'Этап ошибки', parentRun: 'Родительский запуск' },
+    fields: { name: 'Название', description: 'Описание', trigger: 'Триггер', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Выражение Cron', timeZone: 'Часовой пояс', expiresWithinDays: 'Срок истечения в днях', environments: 'Целевые среды (через запятую)', certificateIds: 'Конкретные сертификаты (необязательно)', certificateIdsPlaceholder: 'Введите ID сертификатов через запятую', certificateIdsHelp: 'Если указано, обрабатываются только эти сертификаты; иначе применяются правила срока и среды.', expiresWithinDaysHelp: 'Выбирать только сертификаты, истекающие в этот период.', environmentsHelp: 'Обрабатывать сертификаты только из указанных сред.', planType: 'Тип плана развертывания', planTypeHelp: 'При запуске для каждой подходящей цели создается отдельный DeploymentPlan.', planTypeUpdate: 'Обновить существующую привязку сертификата', planTypeInstall: 'Установить сертификат на цель', planTypeVerifyOnly: 'Только проверить, без изменения сертификата', planMode: 'Режим запуска', planModeHelp: 'Автоматизация не связывается с существующим планом; для каждой цели создается новый план.', planModeCreateAndExecute: 'Создать и выполнить план', planModeCreateOnly: 'Только создать планы, без выполнения', maxTargets: 'Максимум целей за запуск', concurrency: 'Параллельность', failureCount: 'Порог количества ошибок', requireDryRun: 'Требовать Dry Run перед выполнением', requireApproval: 'Требовать согласование перед выполнением', startedAt: 'Время начала', finishedAt: 'Время завершения', failureStage: 'Этап ошибки', parentRun: 'Родительский запуск' },
     actions: { create: 'Создать автоматизацию', edit: 'Изменить', delete: 'Удалить', cancel: 'Отмена', save: 'Сохранить', copy: 'Копировать', enable: 'Включить', disable: 'Отключить', preview: 'Предпросмотр целей', history: 'История запусков', confirmRun: 'Подтвердить запуск', stop: 'Остановить запуск', retryFailed: 'Повторить ошибки', openPlan: 'Открыть план развертывания', openExecution: 'Открыть выполнение' },
     columns: { trigger: 'Триггер', targets: 'Лимит целей', actions: 'Действия', nextRun: 'Следующий запуск', lastRun: 'Последний запуск' },
     triggers: { onDemand: 'По запросу', schedule: 'По расписанию' },
-    triggerTypes: { on_demand: 'По запросу', schedule: 'По расписанию', retry: 'Повтор ошибок' },
+    triggerTypes: { on_demand: 'По запросу', schedule: 'По расписанию', certificate_version_created: 'Certificate new-version event', retry: 'Повтор ошибок' },
+    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
+    assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: 'Создать план обновления сертификата', execute_deployment_plan: 'Выполнить план обновления сертификата', send_notification: 'Отправить уведомление' },
     summaries: { targets: 'До {count} целей' },
     preview: { title: 'Предпросмотр целей', description: 'Проверьте снимок целей и исключения, которые будут зафиксированы при запуске.', matched: 'Совпадений: {count}', executable: 'Можно выполнить: {count}', excluded: 'Исключено: {count}', ready: 'Готово' },
-    exclusions: { permission_denied: 'Нет доступа к цели', missing_version: 'Версия сертификата отсутствует', version_not_deployable: 'Версия сертификата недоступна для развертывания', binding_not_managed: 'Привязка не управляется', environment_not_allowed: 'Среда не разрешена', unknown: 'Неизвестная причина исключения' },
+    exclusions: { permission_denied: 'Нет доступа к цели', missing_version: 'Версия сертификата отсутствует', version_not_deployable: 'Версия сертификата недоступна для развертывания', binding_not_managed: 'Привязка не управляется', environment_not_allowed: 'Среда не разрешена', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Неизвестная причина исключения' },
     failureStages: { selection: 'Выбор целей', plan_creation: 'Создание плана', dry_run: 'Dry Run', approval: 'Согласование', execution: 'Выполнение', verification: 'Проверка', rollback: 'Откат', notification: 'Уведомление' },
     progress: { total: 'Всего', pending: 'Ожидание', running: 'Выполняется', waitingApproval: 'Ожидает согласования', succeeded: 'Успешно', failed: 'Ошибка', skipped: 'Пропущено', cancelled: 'Отменено' },
-    editor: { createTitle: 'Создать автоматизацию', editTitle: 'Изменить автоматизацию', description: 'Настройте время запуска, сертификаты, создание планов и поведение при ошибке.', sections: { basic: 'Основная информация', basicHelp: 'Укажите понятное имя автоматизации и опишите изменения сертификатов.', targets: 'Обрабатываемые сертификаты', targetsHelp: 'Выбираются цели-сертификаты, а не существующие планы; снимок целей фиксируется при запуске.', plan: 'План развертывания сертификата', planRelationTitle: 'Существующий план развертывания не привязывается', planRelationDescription: 'План создается во время запуска по фильтрам сертификатов.', planRelationHelp: 'Для каждой цели создается собственный DeploymentPlan, его ID отображается в деталях запуска.', guardrails: 'Контроль безопасности', guardrailsHelp: 'Эти ограничения управляют размером пакета, проверкой, согласованием и остановкой при ошибках.' }, chain: { createPlan: 'Создать DeploymentPlan для каждой цели', dryRun: 'Выполнить предварительную проверку Dry Run', approval: 'Дождаться согласования', executePlan: 'Выполнить DeploymentPlan цели' } },
+    editor: { createTitle: 'Создать автоматизацию', editTitle: 'Изменить автоматизацию', description: 'Настройте время запуска, сертификаты, создание планов и поведение при ошибке.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Основная информация', basicHelp: 'Укажите понятное имя автоматизации и опишите изменения сертификатов.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Обрабатываемые сертификаты', targetsHelp: 'Выбираются цели-сертификаты, а не существующие планы; снимок целей фиксируется при запуске.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'План развертывания сертификата', planRelationTitle: 'Существующий план развертывания не привязывается', planRelationDescription: 'План создается во время запуска по фильтрам сертификатов.', planRelationHelp: 'Для каждой цели создается собственный DeploymentPlan, его ID отображается в деталях запуска.', guardrails: 'Контроль безопасности', guardrailsHelp: 'Эти ограничения управляют размером пакета, проверкой, согласованием и остановкой при ошибках.' }, chain: { createPlan: 'Создать DeploymentPlan для каждой цели', dryRun: 'Выполнить предварительную проверку Dry Run', approval: 'Дождаться согласования', executePlan: 'Выполнить DeploymentPlan цели' } },
     runs: { title: 'История автоматизаций', description: 'Просмотр состояния запуска, неизменяемых снимков целей и этапов ошибок.', progress: 'Успешно {succeeded}/{total}' },
-    runDetail: { title: 'Детали запуска автоматизации', description: 'Версия конфигурации {version}', noFailure: 'Ошибок нет' },
+    runDetail: { title: 'Детали запуска автоматизации', description: 'Версия конфигурации {version}', noFailure: 'Ошибок нет', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: 'Предпросмотр целей автоматизации', runs: 'Список запусков автоматизации', progress: 'Ход выполнения автоматизации' },
-    errors: { loadFailed: 'Не удалось загрузить автоматизации' }
+    errors: { loadFailed: 'Не удалось загрузить автоматизации', applicationAssetsLoadFailed: 'Failed to load application assets. Try again later.' }
   },
   routes: {
     certificateImport: 'Импорт сертификата',
@@ -898,6 +912,23 @@ export default {
     changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
   },
   deploymentPlans: {
+    userView: {
+      stepLabel: 'Step 3 of 3 · Deploy',
+      title: 'Deploy the certificate to an application',
+      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      createAction: 'Start deployment',
+      listTitle: 'Deployment tasks',
+      listDescription: 'Only the next action and business status are shown here.',
+      loadFailed: 'Failed to load deployment tasks',
+      emptyTitle: 'No deployment task yet',
+      emptyDescription: 'Create the first deployment task after adding an application.',
+      unnamedPlan: 'Unnamed deployment task',
+      pendingCertificate: 'Certificate pending',
+      pendingApplication: 'Application pending',
+      nextActionHint: 'The next action follows the current approval and preview status.',
+      prepareAction: 'Prepare deployment',
+      waiting: 'Waiting for approval or execution'
+    },
     title: 'Планы развертывания',
     description: 'Предпросмотр плана, область влияния, согласование, партии выполнения, проверка и входы отката.',
     resourceName: 'План развертывания',
@@ -2564,6 +2595,34 @@ export default {
     }
   },
   assets: {
+    userView: {
+      stepLabel: 'Step 2 of 3 · Application',
+      title: 'Connect an application',
+      description: 'Add the application that should receive the certificate. Technical deployment details stay hidden unless the selected target requires them.',
+      addAction: 'Add application',
+      listTitle: 'Connected applications',
+      listDescription: 'These applications can be selected in the deployment step.',
+      continueToDeployment: 'Continue to deployment',
+      loadFailed: 'Failed to load applications',
+      emptyTitle: 'No application connected yet',
+      emptyDescription: 'Add an application so a certificate can be deployed to it.',
+      deploymentLocation: 'Deployment location',
+      targetPending: 'Deployment location pending',
+      form: {
+        eyebrow: 'Simple setup',
+        title: 'Add the application to update',
+        description: 'Provide the application address and choose where GCAC should deploy the certificate.',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: 'Where should it be updated?',
+        locationDescription: 'Choose the existing device, service, and deployment target. The underlying binding logic remains unchanged.',
+        device: 'Device',
+        service: 'Service',
+        site: 'Site',
+        target: 'Deployment target',
+        certificateFormat: 'Certificate format'
+      }
+    },
     title: 'Активы приложений',
     description: 'Управление входами приложений по домену или IP с фокусом на адрес, порт, протокол, сайт и позиционирование выполнения.',
     resourceName: 'Актив приложения',
@@ -2908,6 +2967,84 @@ export default {
     errors: {
       requestFailed: 'Запрос не выполнен'
     },
+    banners: {
+      importSucceeded: 'Certificate imported. New certificate version ID: {id}'
+    },
+    views: {
+      eyebrow: 'Page mode',
+      switchLabel: 'Certificate page view switch',
+      modes: {
+        user: 'User view',
+        professional: 'Professional view'
+      },
+      descriptions: {
+        user: 'Keep only the common flow: import a certificate, attach applications, and set automatic updates.',
+        professional: 'Show certificate versions, chain state, and full technical details.'
+      }
+    },
+    userView: {
+      hero: {
+        eyebrow: 'Common flow',
+        title: 'Handle certificate updates by business flow',
+        description: 'Import or replace the certificate first, then attach applications, and finally configure an automatic update plan. Most daily work does not need low-level technical details.',
+        primaryAction: 'Import or replace certificate',
+        secondaryAction: 'Switch to professional view'
+      },
+      summary: {
+        ariaLabel: 'Certificate user view overview',
+        managedCertificates: 'Managed certificates',
+        expiredCertificates: 'Expired certificates',
+        expiringSoonCertificates: 'Expiring soon',
+        connectedApplications: 'Connected applications',
+        activeAutomationPlans: 'Active automation plans'
+      },
+      steps: {
+        title: 'Common flow',
+        description: 'Follow this order. Most certificate updates do not require technical details.',
+        status: {
+          done: 'Done',
+          todo: 'Pending'
+        },
+        import: {
+          title: 'Import or replace certificate',
+          description: 'Bring the new certificate material into the system. Application attachment and update plans continue from this certificate.',
+          helperCompleted: '{count} certificate domains are already managed. You can keep replacing or adding certificate versions.',
+          helperEmpty: 'Import the current certificate first. Application attachment and automatic plans depend on this step.',
+          action: 'Start import'
+        },
+        applications: {
+          title: 'Add application',
+          description: 'Tell the system which application or site should use this certificate so deployment knows what to update.',
+          helperCompleted: '{count} applications are already connected to the certificate flow.',
+          helperEmpty: 'No applications are connected yet. Add them right after importing the certificate.',
+          action: 'Add application'
+        },
+        automations: {
+          title: 'Set automatic update plan',
+          description: 'Arrange certificate updates to run automatically so renewals do not depend on manual work every time.',
+          helperCompleted: '{count} active automatic plans are already enabled.',
+          helperEmpty: 'No active automatic plan is enabled yet. Add one during a low-risk business window.',
+          action: 'Set plan'
+        }
+      },
+      common: {
+        notAvailable: 'Not available',
+        permissionRequired: 'Your current account does not have the required permission.'
+      },
+      focus: {
+        currentSelectionTitle: 'Current certificate in focus',
+        currentSelectionDescription: 'Switch to professional view to inspect versions, issuer, and the full chain details.',
+        currentSelectionEmpty: 'No certificate domain selected yet',
+        currentSelectionHint: 'Open the professional view from the attention list below, or switch directly to browse all certificates.',
+        validUntil: 'Expires at: {value}',
+        openProfessional: 'Open professional view',
+        attentionTitle: 'Handle first',
+        attentionDescription: 'Resolve expired or soon-to-expire certificates first, then finish application attachment and automatic plans.',
+        assetAction: 'Open professional details',
+        emptyTitle: 'No urgent certificate right now',
+        emptyDescription: 'All imported certificates are currently still within their validity period.'
+      }
+    },
     detail: {
       backList: 'Вернуться к списку',
       description: 'Показывает детали версии сертификата, форматные артефакты и связанные активы.',
@@ -2959,6 +3096,8 @@ export default {
         deployable: 'Можно развернуть',
         leafStorageRef: 'Ссылка на leaf-сертификат',
         chainCertificateCount: 'Количество сертификатов в цепочке',
+        trustRootCertificate: 'Целевой корневой сертификат',
+        trustRootStatus: 'Состояние корневого сертификата',
         chainDiagnostics: 'Диагностика цепочки'
       },
       fallbacks: {
@@ -2982,6 +3121,9 @@ export default {
       separators: {
         diagnostic: '; ',
         list: ', '
+      },
+      diagnostics: {
+        rootResolvedFromLibrary: 'Импортированный материал не содержит корневой сертификат: {root}. Хранилище корневых сертификатов проекта уже разрешило его и сможет дополнить полную цепочку при развёртывании.'
       },
       chain: {
         roles: {
@@ -3166,6 +3308,7 @@ export default {
       },
       placeholders: {
         assetKeyword: 'Домен / SAN / отпечаток',
+        primaryDomain: 'example.com',
         versionKeyword: 'Имя / издатель / субъект / ID версии'
       },
       columns: {
@@ -3222,6 +3365,96 @@ export default {
       },
       import: {
         description: 'Сейчас поддерживаются только PEM + KEY и PFX; каждый импорт должен включать серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ. Корневой сертификат не обязателен, при отсутствии будет предупреждение. Закрытый ключ сохраняется только в системном хранилище Secret и не возвращается в API-ответах.'
+      }
+    },
+    trustRoots: {
+      title: 'Root certificate management',
+      description: 'View the project root certificate inventory, source observations, and leaf-version relations in a modal without leaving the certificate assets page.',
+      actions: {
+        open: 'Root certificates',
+        refresh: 'Refresh',
+        expandVersions: 'Expand related versions',
+        collapseVersions: 'Collapse related versions'
+      },
+      toolbar: {
+        title: 'Root certificate inventory',
+        description: '{count} root views are currently detected.'
+      },
+      summary: {
+        managedVersions: 'Root views',
+        resolvedVersions: 'Root acquired',
+        missingVersions: 'Root missing',
+        invalidChainVersions: 'Invalid chains',
+        targetRoot: 'Target root fingerprint: {fingerprint}',
+        rootFingerprintUnavailable: 'Target root fingerprint is not available yet',
+        relatedAssetCount: '{count} related assets'
+      },
+      detail: {
+        subtitle: 'Shows the root certificate summary, source observations, and related leaf certificate versions.'
+      },
+      fields: {
+        fingerprintSha256: 'SHA-256 fingerprint',
+        serialNumber: 'Serial number',
+        subject: 'Subject',
+        issuer: 'Issuer',
+        notBefore: 'Valid from',
+        notAfter: 'Valid until',
+        relatedAssets: 'Related certificate assets',
+        relatedVersions: 'Related certificate versions'
+      },
+      sections: {
+        observations: 'Source observations',
+        relatedAssets: 'Related certificate assets',
+        versionRelations: 'Leaf certificate relations',
+        managedCertificates: 'Managed certificate root status'
+      },
+      states: {
+        loadFailed: 'Failed to load root certificate records',
+        detailFailed: 'Failed to load root certificate details',
+        assetLoadFailed: 'Failed to load related certificate assets',
+        emptyTitle: 'No root certificate records',
+        emptyDescription: 'The current project does not have any imported root certificates yet.',
+        unselectedTitle: 'No root certificate selected',
+        unselectedDescription: 'Select a root certificate record from the list on the left first.',
+        rootNotInLibrary: 'This root certificate is not in the library yet. The related assets and statuses below are inferred from managed certificate chains.',
+        emptyObservations: 'No source observations yet',
+        emptyRelations: 'No related leaf certificate versions',
+        emptyAssets: 'No certificate assets are currently related to this root'
+      },
+      validationStatus: {
+        pending: 'Pending',
+        verified: 'Verified',
+        rejected: 'Rejected',
+        expired: 'Expired'
+      },
+      sourceTypes: {
+        control_plane_node: 'Control plane Node Root Store',
+        openssl: 'Control plane OpenSSL store',
+        windows: 'Control plane Windows Root Store',
+        internet: 'Controlled internet source',
+        manual: 'Manual import',
+        managed_host_inspect: 'Managed host targeted inspect'
+      },
+      observationStatus: {
+        candidate: 'Candidate',
+        accepted: 'Accepted',
+        rejected: 'Rejected',
+        failed: 'Failed'
+      },
+      relations: {
+        selected_root: 'Selected root',
+        candidate: 'Candidate root'
+      },
+      resolutionStatus: {
+        resolved: 'Resolved',
+        ambiguous: 'Ambiguous',
+        missing: 'Missing',
+        invalid: 'Invalid'
+      },
+      rootStatus: {
+        resolved: 'Root acquired',
+        missing: 'Root missing',
+        invalid_chain: 'Invalid chain'
       }
     },
     usages: {
@@ -3802,6 +4035,7 @@ export default {
     }
   },
   monitoring: {
+    tls: monitoringTlsRuRU,
     actions: {
       add: 'Добавить мониторинг',
       probe: 'Проверить сайт',

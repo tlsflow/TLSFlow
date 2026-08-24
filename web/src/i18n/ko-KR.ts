@@ -6,6 +6,7 @@ import { caOperationsKoKR } from './ca-operations.locale'
 import { credentialsKoKR } from './credentials.locale'
 import { acmeKoKR } from './acme.locale'
 import { providersKoKR } from './providers.locale'
+import { monitoringTlsKoKR } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsKoKR,
@@ -517,6 +518,16 @@ export default {
     tooShort: '새 비밀번호는 8자리 이상이여야 한다'
   },
   nav: {
+    viewMode: {
+      switchLabel: 'Application view mode',
+      user: 'User view',
+      professional: 'Professional view',
+      steps: {
+        certificates: 'Certificates',
+        applications: 'Applications',
+        deployments: 'Deployments'
+      }
+    },
     dashboard: '개요',
     dashboardDesc: '애플리케이션, 인증서, Agent, 게이트웨이 및 감사 상태 요약',
     certificates: '인증서',
@@ -571,26 +582,29 @@ export default {
     description: '인증서 갱신 계획의 예약, 요청 및 일괄 실행을 관리합니다.',
     empty: '자동화가 없습니다.',
     emptyDescription: '설명 없음',
-    common: { notAvailable: '없음' },
-    formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'The automation will process {domains} using: {version}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: '외부 API로 실행', apiHelp: '외부 시스템이 자동화 실행 API를 호출합니다. 대상 미리보기, Dry Run 및 승인 규칙은 계속 적용됩니다.', once: '고정 시간에 한 번 실행', onceHelp: '브라우저 로컬 시간을 선택합니다. 실행 후 다시 예약되지 않습니다.', recurring: '정기 실행', scheduleHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringWarningTitle: '인증서 업데이트에는 정기 실행을 권장하지 않습니다', recurringWarning: '일반적으로 인증서 발급 후 외부 시스템에서 실행하거나 고정 시간에 한 번만 실행해야 합니다.', runAt: '실행 시간', frequency: '실행 주기', daily: '매일', weekly: '매주', monthly: '매월', time: '시간', weekday: '요일', monthDay: '매월 날짜', legacyCustom: '기존 사용자 지정 일정 유지', legacyCron: '기존 Cron(읽기 전용)', weekdays: { 0: '일요일', 1: '월요일', 2: '화요일', 3: '수요일', 4: '목요일', 5: '금요일', 6: '토요일' } },
+    common: { notAvailable: '없음', allRelated: 'All related targets' },
+    formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; condition scope: {domains}. The target snapshot is frozen when the run starts.' },
+    scheduleBuilder: { api: '외부 API로 실행', apiHelp: '외부 시스템이 자동화 실행 API를 호출합니다. 대상 미리보기, Dry Run 및 승인 규칙은 계속 적용됩니다.', once: '고정 시간에 한 번 실행', onceHelp: '브라우저 로컬 시간을 선택합니다. 실행 후 다시 예약되지 않습니다.', recurring: '정기 실행', scheduleHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringHelp: '지속적인 확인이 실제로 필요한 경우에만 사용하세요.', recurringWarningTitle: '인증서 업데이트에는 정기 실행을 권장하지 않습니다', recurringWarning: '일반적으로 인증서 발급 후 외부 시스템에서 실행하거나 고정 시간에 한 번만 실행해야 합니다.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'Start the automation after ACME renewal or a manual import creates a new certificate version.', runAt: '실행 시간', frequency: '실행 주기', daily: '매일', weekly: '매주', monthly: '매월', time: '시간', weekday: '요일', monthDay: '매월 날짜', legacyCustom: '기존 사용자 지정 일정 유지', legacyCron: '기존 Cron(읽기 전용)', weekdays: { 0: '일요일', 1: '월요일', 2: '화요일', 3: '수요일', 4: '목요일', 5: '금요일', 6: '토요일' } },
     form: { existingAssetTitle: '기존 애플리케이션 자산만 업데이트', existingAssetDescription: '기존 인증서 바인딩이 있는 애플리케이션 자산만 처리합니다. 최초 설치나 새 대상 추가는 수행하지 않습니다.', certificateDomains: '인증서 도메인', certificateDomainsPlaceholder: '인증서 도메인을 쉼표로 구분해 입력', certificateDomainsHelp: '지정한 도메인에 해당하는 기존 애플리케이션 자산 바인딩만 업데이트합니다.', versionSelection: '업데이트할 인증서 버전', versionSelectionLatest: '최신 인증서 버전 자동 사용', versionSelectionSpecific: '지정한 인증서 버전 사용', versionSelectionHelp: '실행 시작 시 버전을 확인하고 고정하므로 실행 중 새 버전으로 바뀌지 않습니다.', certificateVersionIds: '지정 인증서 버전', certificateVersionIdsPlaceholder: '인증서 버전 ID를 쉼표로 구분해 입력', certificateVersionIdsHelp: '각 버전은 위 도메인이 선택한 인증서에 속해야 합니다.', versionLoading: '선택 가능한 인증서 버전을 불러오는 중입니다.', versionLoadFailed: '인증서 버전을 불러오지 못했습니다. 나중에 다시 시도하세요.', versionEmpty: '이 도메인에 선택 가능한 인증서 버전이 없습니다.', schedule: '업데이트 시점', scheduleHelp: '요청 시 시작하거나 Cron과 시간대로 정기 실행할 수 있습니다.', execution: '실행 중 처리', executionHelp: '기존 바인딩마다 독립적인 업데이트 계획을 만들고 DeploymentPlan, Dry Run, 승인, ExecutionRun을 재사용합니다.', snapshot: '도메인, 자산 및 인증서 버전 스냅샷 고정' },
-    fields: { name: '이름', description: '설명', trigger: '트리거', cron: 'Cron 표현식', timeZone: '시간대', expiresWithinDays: '만료 예정 일수', environments: '대상 환경(쉼표로 구분)', certificateIds: '지정 인증서(선택)', certificateIdsPlaceholder: '인증서 ID를 쉼표로 구분해 입력', certificateIdsHelp: '입력하면 지정된 인증서만 처리하고, 비워두면 만료 기간과 환경으로 자동 선택합니다.', expiresWithinDaysHelp: '이 기간 내에 만료되는 인증서만 대상으로 합니다.', environmentsHelp: '지정한 환경의 인증서만 처리합니다.', planType: '배포 계획 유형', planTypeHelp: '일치하는 인증서 대상마다 실행 시 독립적인 DeploymentPlan을 만듭니다.', planTypeUpdate: '기존 인증서 바인딩 업데이트', planTypeInstall: '대상에 인증서 설치', planTypeVerifyOnly: '검증만 수행하고 인증서는 변경하지 않음', planMode: '실행 방식', planModeHelp: '기존 계획에 연결하지 않고 대상마다 실행 시 새 계획을 만듭니다.', planModeCreateAndExecute: '계획 생성 후 실행', planModeCreateOnly: '계획만 생성하고 실행하지 않음', maxTargets: '실행당 최대 대상 수', concurrency: '동시 실행 수', failureCount: '실패 수 임계값', requireDryRun: '실행 전 Dry Run 필수', requireApproval: '실행 전 승인 필수', startedAt: '시작 시간', finishedAt: '완료 시간', failureStage: '실패 단계', parentRun: '상위 실행' },
+    fields: { name: '이름', description: '설명', trigger: '트리거', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron 표현식', timeZone: '시간대', expiresWithinDays: '만료 예정 일수', environments: '대상 환경(쉼표로 구분)', certificateIds: '지정 인증서(선택)', certificateIdsPlaceholder: '인증서 ID를 쉼표로 구분해 입력', certificateIdsHelp: '입력하면 지정된 인증서만 처리하고, 비워두면 만료 기간과 환경으로 자동 선택합니다.', expiresWithinDaysHelp: '이 기간 내에 만료되는 인증서만 대상으로 합니다.', environmentsHelp: '지정한 환경의 인증서만 처리합니다.', planType: '배포 계획 유형', planTypeHelp: '일치하는 인증서 대상마다 실행 시 독립적인 DeploymentPlan을 만듭니다.', planTypeUpdate: '기존 인증서 바인딩 업데이트', planTypeInstall: '대상에 인증서 설치', planTypeVerifyOnly: '검증만 수행하고 인증서는 변경하지 않음', planMode: '실행 방식', planModeHelp: '기존 계획에 연결하지 않고 대상마다 실행 시 새 계획을 만듭니다.', planModeCreateAndExecute: '계획 생성 후 실행', planModeCreateOnly: '계획만 생성하고 실행하지 않음', maxTargets: '실행당 최대 대상 수', concurrency: '동시 실행 수', failureCount: '실패 수 임계값', requireDryRun: '실행 전 Dry Run 필수', requireApproval: '실행 전 승인 필수', startedAt: '시작 시간', finishedAt: '완료 시간', failureStage: '실패 단계', parentRun: '상위 실행' },
     actions: { create: '자동화 만들기', edit: '편집', delete: '삭제', cancel: '취소', save: '저장', copy: '복사', enable: '활성화', disable: '비활성화', preview: '대상 미리 보기', history: '실행 기록', confirmRun: '실행 확인', stop: '실행 중지', retryFailed: '실패 대상 재시도', openPlan: '배포 계획 보기', openExecution: '실행 기록 보기' },
     columns: { trigger: '트리거', targets: '대상 한도', actions: '실행 작업', nextRun: '다음 실행', lastRun: '최근 실행' },
     triggers: { onDemand: '요청 시', schedule: '예약' },
-    triggerTypes: { on_demand: '요청 시', schedule: '예약', retry: '실패 대상 재시도' },
+    triggerTypes: { on_demand: '요청 시', schedule: '예약', certificate_version_created: 'Certificate new-version event', retry: '실패 대상 재시도' },
+    eventSources: { acme: 'ACME', manual_import: 'Manual import' },
+    targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'Resolve every bound and deployable application asset automatically after the event or filters match.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for manually selected application assets.' },
+    assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
     actionTypes: { create_deployment_plan: '인증서 갱신 계획 만들기', execute_deployment_plan: '인증서 갱신 계획 실행', send_notification: '알림 보내기' },
     summaries: { targets: '최대 {count}개 대상' },
     preview: { title: '대상 미리 보기', description: '시작 시 고정되는 대상 스냅샷과 제외 이유를 확인합니다.', matched: '{count}개 일치', executable: '{count}개 실행 가능', excluded: '{count}개 제외', ready: '실행 가능' },
-    exclusions: { permission_denied: '대상 권한 없음', missing_version: '인증서 버전 없음', version_not_deployable: '인증서 버전을 배포할 수 없음', binding_not_managed: '바인딩이 관리되지 않음', environment_not_allowed: '허용되지 않은 환경', unknown: '알 수 없는 제외 이유' },
+    exclusions: { permission_denied: '대상 권한 없음', missing_version: '인증서 버전 없음', version_not_deployable: '인증서 버전을 배포할 수 없음', binding_not_managed: '바인딩이 관리되지 않음', environment_not_allowed: '허용되지 않은 환경', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: '알 수 없는 제외 이유' },
     failureStages: { selection: '대상 선택', plan_creation: '계획 생성', dry_run: 'Dry Run', approval: '승인', execution: '실행', verification: '검증', rollback: '롤백', notification: '알림' },
     progress: { total: '전체', pending: '대기 중', running: '실행 중', waitingApproval: '승인 대기', succeeded: '성공', failed: '실패', skipped: '건너뜀', cancelled: '취소됨' },
-    editor: { createTitle: '자동화 만들기', editTitle: '자동화 편집', description: '실행 시점, 대상 인증서, 계획 생성 방식과 실패 시 안전 경계를 설정합니다.', sections: { basic: '기본 정보', basicHelp: '자동화 이름과 처리할 인증서 변경을 설명합니다.', targets: '처리할 인증서', targetsHelp: '기존 배포 계획이 아니라 인증서 대상을 선택하며, 실행 시작 시 스냅샷을 고정합니다.', plan: '인증서 배포 계획', planRelationTitle: '기존 배포 계획에 연결하지 않습니다', planRelationDescription: '위 인증서 조건에 따라 실행 시 계획을 생성합니다.', planRelationHelp: '대상마다 별도의 DeploymentPlan을 만들고 계획 ID를 실행 상세에 표시합니다.', guardrails: '실행 안전 제어', guardrailsHelp: '배치 수, 사전 점검, 승인 및 실패 중지 조건을 제어합니다.' }, chain: { createPlan: '대상별 DeploymentPlan 생성', dryRun: 'Dry Run 사전 점검 실행', approval: '승인 대기', executePlan: '대상 DeploymentPlan 실행' } },
+    editor: { createTitle: '자동화 만들기', editTitle: '자동화 편집', description: '실행 시점, 대상 인증서, 계획 생성 방식과 실패 시 안전 경계를 설정합니다.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '기본 정보', basicHelp: '자동화 이름과 처리할 인증서 변경을 설명합니다.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '처리할 인증서', targetsHelp: '기존 배포 계획이 아니라 인증서 대상을 선택하며, 실행 시작 시 스냅샷을 고정합니다.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: '인증서 배포 계획', planRelationTitle: '기존 배포 계획에 연결하지 않습니다', planRelationDescription: '위 인증서 조건에 따라 실행 시 계획을 생성합니다.', planRelationHelp: '대상마다 별도의 DeploymentPlan을 만들고 계획 ID를 실행 상세에 표시합니다.', guardrails: '실행 안전 제어', guardrailsHelp: '배치 수, 사전 점검, 승인 및 실패 중지 조건을 제어합니다.' }, chain: { createPlan: '대상별 DeploymentPlan 생성', dryRun: 'Dry Run 사전 점검 실행', approval: '승인 대기', executePlan: '대상 DeploymentPlan 실행' } },
     runs: { title: '자동화 실행 기록', description: '실행 상태, 변경 불가능한 대상 스냅샷 및 실패 단계를 확인합니다.', progress: '{succeeded}/{total} 성공' },
-    runDetail: { title: '자동화 실행 상세', description: '구성 버전 {version}', noFailure: '실패 없음' },
+    runDetail: { title: '자동화 실행 상세', description: '구성 버전 {version}', noFailure: '실패 없음', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: '자동화 대상 미리 보기', runs: '자동화 실행 목록', progress: '자동화 실행 진행률' },
-    errors: { loadFailed: '자동화 목록을 불러오지 못했습니다' }
+    errors: { loadFailed: '자동화 목록을 불러오지 못했습니다', applicationAssetsLoadFailed: 'Failed to load application assets. Try again later.' }
   },
   routes: {
     certificateImport: '인증서 가져오기',
@@ -898,6 +912,23 @@ export default {
     changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
   },
   deploymentPlans: {
+    userView: {
+      stepLabel: 'Step 3 of 3 · Deploy',
+      title: 'Deploy the certificate to an application',
+      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      createAction: 'Start deployment',
+      listTitle: 'Deployment tasks',
+      listDescription: 'Only the next action and business status are shown here.',
+      loadFailed: 'Failed to load deployment tasks',
+      emptyTitle: 'No deployment task yet',
+      emptyDescription: 'Create the first deployment task after adding an application.',
+      unnamedPlan: 'Unnamed deployment task',
+      pendingCertificate: 'Certificate pending',
+      pendingApplication: 'Application pending',
+      nextActionHint: 'The next action follows the current approval and preview status.',
+      prepareAction: 'Prepare deployment',
+      waiting: 'Waiting for approval or execution'
+    },
     title: '계획을 배포하다.',
     description: '계획 미리보기, 영향 범위, 승인, 배포 실행, 인증 및 롤백 항목.',
     resourceName: '계획을 배포하다.',
@@ -2564,6 +2595,34 @@ export default {
     }
   },
   assets: {
+    userView: {
+      stepLabel: 'Step 2 of 3 · Application',
+      title: 'Connect an application',
+      description: 'Add the application that should receive the certificate. Technical deployment details stay hidden unless the selected target requires them.',
+      addAction: 'Add application',
+      listTitle: 'Connected applications',
+      listDescription: 'These applications can be selected in the deployment step.',
+      continueToDeployment: 'Continue to deployment',
+      loadFailed: 'Failed to load applications',
+      emptyTitle: 'No application connected yet',
+      emptyDescription: 'Add an application so a certificate can be deployed to it.',
+      deploymentLocation: 'Deployment location',
+      targetPending: 'Deployment location pending',
+      form: {
+        eyebrow: 'Simple setup',
+        title: 'Add the application to update',
+        description: 'Provide the application address and choose where GCAC should deploy the certificate.',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: 'Where should it be updated?',
+        locationDescription: 'Choose the existing device, service, and deployment target. The underlying binding logic remains unchanged.',
+        device: 'Device',
+        service: 'Service',
+        site: 'Site',
+        target: 'Deployment target',
+        certificateFormat: 'Certificate format'
+      }
+    },
     title: '응용자산',
     description: '도메인 네임 또는 IP를 주요 객체로 응용 프로그램의 포털을 관리하여 주소, 포트, 프로토콜, 웹 사이트에 초점을 맞추고 위치추적 작업을 수행합니다.',
     resourceName: '응용자산',
@@ -2908,6 +2967,84 @@ export default {
     errors: {
       requestFailed: '요청 실패'
     },
+    banners: {
+      importSucceeded: 'Certificate imported. New certificate version ID: {id}'
+    },
+    views: {
+      eyebrow: 'Page mode',
+      switchLabel: 'Certificate page view switch',
+      modes: {
+        user: 'User view',
+        professional: 'Professional view'
+      },
+      descriptions: {
+        user: 'Keep only the common flow: import a certificate, attach applications, and set automatic updates.',
+        professional: 'Show certificate versions, chain state, and full technical details.'
+      }
+    },
+    userView: {
+      hero: {
+        eyebrow: 'Common flow',
+        title: 'Handle certificate updates by business flow',
+        description: 'Import or replace the certificate first, then attach applications, and finally configure an automatic update plan. Most daily work does not need low-level technical details.',
+        primaryAction: 'Import or replace certificate',
+        secondaryAction: 'Switch to professional view'
+      },
+      summary: {
+        ariaLabel: 'Certificate user view overview',
+        managedCertificates: 'Managed certificates',
+        expiredCertificates: 'Expired certificates',
+        expiringSoonCertificates: 'Expiring soon',
+        connectedApplications: 'Connected applications',
+        activeAutomationPlans: 'Active automation plans'
+      },
+      steps: {
+        title: 'Common flow',
+        description: 'Follow this order. Most certificate updates do not require technical details.',
+        status: {
+          done: 'Done',
+          todo: 'Pending'
+        },
+        import: {
+          title: 'Import or replace certificate',
+          description: 'Bring the new certificate material into the system. Application attachment and update plans continue from this certificate.',
+          helperCompleted: '{count} certificate domains are already managed. You can keep replacing or adding certificate versions.',
+          helperEmpty: 'Import the current certificate first. Application attachment and automatic plans depend on this step.',
+          action: 'Start import'
+        },
+        applications: {
+          title: 'Add application',
+          description: 'Tell the system which application or site should use this certificate so deployment knows what to update.',
+          helperCompleted: '{count} applications are already connected to the certificate flow.',
+          helperEmpty: 'No applications are connected yet. Add them right after importing the certificate.',
+          action: 'Add application'
+        },
+        automations: {
+          title: 'Set automatic update plan',
+          description: 'Arrange certificate updates to run automatically so renewals do not depend on manual work every time.',
+          helperCompleted: '{count} active automatic plans are already enabled.',
+          helperEmpty: 'No active automatic plan is enabled yet. Add one during a low-risk business window.',
+          action: 'Set plan'
+        }
+      },
+      common: {
+        notAvailable: 'Not available',
+        permissionRequired: 'Your current account does not have the required permission.'
+      },
+      focus: {
+        currentSelectionTitle: 'Current certificate in focus',
+        currentSelectionDescription: 'Switch to professional view to inspect versions, issuer, and the full chain details.',
+        currentSelectionEmpty: 'No certificate domain selected yet',
+        currentSelectionHint: 'Open the professional view from the attention list below, or switch directly to browse all certificates.',
+        validUntil: 'Expires at: {value}',
+        openProfessional: 'Open professional view',
+        attentionTitle: 'Handle first',
+        attentionDescription: 'Resolve expired or soon-to-expire certificates first, then finish application attachment and automatic plans.',
+        assetAction: 'Open professional details',
+        emptyTitle: 'No urgent certificate right now',
+        emptyDescription: 'All imported certificates are currently still within their validity period.'
+      }
+    },
     detail: {
       backList: '반환 목록',
       description: '인증서 버전 정보, 형식 산출물 및 관련 자산을 표시합니다.',
@@ -2959,6 +3096,8 @@ export default {
         deployable: '배포 가능',
         leafStorageRef: '잎 인증서 참조',
         chainCertificateCount: '체인 인증서 개수',
+        trustRootCertificate: '대상 루트 인증서',
+        trustRootStatus: '루트 인증서 상태',
         chainDiagnostics: '연쇄 진단'
       },
       fallbacks: {
@@ -2982,6 +3121,9 @@ export default {
       separators: {
         diagnostic: ';',
         list: ','
+      },
+      diagnostics: {
+        rootResolvedFromLibrary: '가져온 자료에는 루트 인증서 {root} 가 포함되어 있지 않습니다. 프로젝트 루트 인증서 저장소에서 이미 해석되었으므로 배포 시 전체 체인을 보완할 수 있습니다.'
       },
       chain: {
         roles: {
@@ -3166,6 +3308,7 @@ export default {
       },
       placeholders: {
         assetKeyword: '도메인/SAN/지문',
+        primaryDomain: 'example.com',
         versionKeyword: '이름/발행자/사용자/버전 ID'
       },
       columns: {
@@ -3222,6 +3365,96 @@ export default {
       },
       import: {
         description: '현재 PEM + KEY와 PFX만 지원된다.가져올 때마다 서버 인증서, 전체 중간 인증서 체인, 개인 키를 포함해야 합니다.루트 인증서는 필수 항목이 아닙니다. 루트 인증서가 없으면 경고를 표시합니다.개인 전용 키는 시스템 Secret 에만 저장되며 API 응답으로 반환되지 않는다.'
+      }
+    },
+    trustRoots: {
+      title: 'Root certificate management',
+      description: 'View the project root certificate inventory, source observations, and leaf-version relations in a modal without leaving the certificate assets page.',
+      actions: {
+        open: 'Root certificates',
+        refresh: 'Refresh',
+        expandVersions: 'Expand related versions',
+        collapseVersions: 'Collapse related versions'
+      },
+      toolbar: {
+        title: 'Root certificate inventory',
+        description: '{count} root views are currently detected.'
+      },
+      summary: {
+        managedVersions: 'Root views',
+        resolvedVersions: 'Root acquired',
+        missingVersions: 'Root missing',
+        invalidChainVersions: 'Invalid chains',
+        targetRoot: 'Target root fingerprint: {fingerprint}',
+        rootFingerprintUnavailable: 'Target root fingerprint is not available yet',
+        relatedAssetCount: '{count} related assets'
+      },
+      detail: {
+        subtitle: 'Shows the root certificate summary, source observations, and related leaf certificate versions.'
+      },
+      fields: {
+        fingerprintSha256: 'SHA-256 fingerprint',
+        serialNumber: 'Serial number',
+        subject: 'Subject',
+        issuer: 'Issuer',
+        notBefore: 'Valid from',
+        notAfter: 'Valid until',
+        relatedAssets: 'Related certificate assets',
+        relatedVersions: 'Related certificate versions'
+      },
+      sections: {
+        observations: 'Source observations',
+        relatedAssets: 'Related certificate assets',
+        versionRelations: 'Leaf certificate relations',
+        managedCertificates: 'Managed certificate root status'
+      },
+      states: {
+        loadFailed: 'Failed to load root certificate records',
+        detailFailed: 'Failed to load root certificate details',
+        assetLoadFailed: 'Failed to load related certificate assets',
+        emptyTitle: 'No root certificate records',
+        emptyDescription: 'The current project does not have any imported root certificates yet.',
+        unselectedTitle: 'No root certificate selected',
+        unselectedDescription: 'Select a root certificate record from the list on the left first.',
+        rootNotInLibrary: 'This root certificate is not in the library yet. The related assets and statuses below are inferred from managed certificate chains.',
+        emptyObservations: 'No source observations yet',
+        emptyRelations: 'No related leaf certificate versions',
+        emptyAssets: 'No certificate assets are currently related to this root'
+      },
+      validationStatus: {
+        pending: 'Pending',
+        verified: 'Verified',
+        rejected: 'Rejected',
+        expired: 'Expired'
+      },
+      sourceTypes: {
+        control_plane_node: 'Control plane Node Root Store',
+        openssl: 'Control plane OpenSSL store',
+        windows: 'Control plane Windows Root Store',
+        internet: 'Controlled internet source',
+        manual: 'Manual import',
+        managed_host_inspect: 'Managed host targeted inspect'
+      },
+      observationStatus: {
+        candidate: 'Candidate',
+        accepted: 'Accepted',
+        rejected: 'Rejected',
+        failed: 'Failed'
+      },
+      relations: {
+        selected_root: 'Selected root',
+        candidate: 'Candidate root'
+      },
+      resolutionStatus: {
+        resolved: 'Resolved',
+        ambiguous: 'Ambiguous',
+        missing: 'Missing',
+        invalid: 'Invalid'
+      },
+      rootStatus: {
+        resolved: 'Root acquired',
+        missing: 'Root missing',
+        invalid_chain: 'Invalid chain'
       }
     },
     usages: {
@@ -3802,6 +4035,7 @@ export default {
     }
   },
   monitoring: {
+    tls: monitoringTlsKoKR,
     actions: {
       add: '모니터 추가',
       probe: '검사 사이트',

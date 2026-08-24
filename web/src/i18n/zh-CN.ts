@@ -5,6 +5,7 @@ import { caOperationsZhCN } from './ca-operations.locale'
 import { credentialsZhCN } from './credentials.locale'
 import { acmeZhCN } from './acme.locale'
 import { providersZhCN } from './providers.locale'
+import { monitoringTlsZhCN } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsZhCN,
@@ -515,6 +516,16 @@ export default {
     mismatch: '两次输入的新密码不一致',
     tooShort: '新密码长度不能少于 8 位'
   },
+  viewMode: {
+    switchLabel: '全局页面视图切换',
+    user: '用户视图',
+    professional: '专业视图',
+    steps: {
+      certificates: '证书',
+      applications: '应用',
+      deployments: '部署'
+    }
+  },
   nav: {
     dashboard: '总览',
     dashboardDesc: '应用、证书、Agent、网关和审计状态总览',
@@ -578,26 +589,30 @@ export default {
     description: '集中管理证书更新计划的定时、按需和批量执行。',
     empty: '暂无自动化配置。',
     emptyDescription: '未填写说明',
-    common: { notAvailable: '暂无' },
-    formStep: { stepProgress: '第 {current} 步，共 {total} 步', previous: '上一步', next: '下一步', reviewTitle: '配置摘要', reviewText: '将处理 {domains}，证书版本策略为：{version}。运行开始后会冻结目标快照。' },
-    scheduleBuilder: { api: '通过外部 API 触发', apiHelp: '保存后由外部系统调用自动化运行 API。每次调用仍会执行目标预览、Dry Run 和审批规则。', once: '在固定时间执行一次', onceHelp: '选择浏览器本地时间。任务执行一次后不会再次排期。', recurring: '定期执行', scheduleHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringWarningTitle: '证书更新不建议使用定期执行', recurringWarning: '证书换证通常应由外部系统在证书签发后触发，或安排一次固定时间执行。只有明确需要周期检查时才使用此选项。', runAt: '执行时间', frequency: '执行周期', daily: '每天', weekly: '每周', monthly: '每月', time: '执行时刻', weekday: '星期', monthDay: '每月日期', legacyCustom: '保留原有自定义计划', legacyCron: '原有 Cron（只读）', weekdays: { 0: '星期日', 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六' } },
+    common: { notAvailable: '暂无', allRelated: '全部关联目标' },
+    formStep: { stepProgress: '第 {current} 步，共 {total} 步', previous: '上一步', next: '下一步', reviewTitle: '配置摘要', reviewText: '触发器：{trigger}；执行范围：{scope}；条件范围：{domains}。运行开始后会冻结目标快照。' },
+    scheduleBuilder: { api: '通过外部 API 触发', apiHelp: '保存后由外部系统调用自动化运行 API。每次调用仍会执行目标预览、Dry Run 和审批规则。', once: '在固定时间执行一次', onceHelp: '选择浏览器本地时间。任务执行一次后不会再次排期。', recurring: '定期执行', scheduleHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringWarningTitle: '证书更新不建议使用定期执行', recurringWarning: '证书换证通常应由外部系统在证书签发后触发，或安排一次固定时间执行。只有明确需要周期检查时才使用此选项。', certificateVersionCreated: '证书新版本事件', certificateVersionCreatedHelp: '证书通过 ACME 或导入产生新版本后，由平台事件触发自动化。', runAt: '执行时间', frequency: '执行周期', daily: '每天', weekly: '每周', monthly: '每月', time: '执行时刻', weekday: '星期', monthDay: '每月日期', legacyCustom: '保留原有自定义计划', legacyCron: '原有 Cron（只读）', weekdays: { 0: '星期日', 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六' } },
     form: { existingAssetTitle: '只更新现有应用资产', existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。', certificateDomains: '证书域名', certificateDomainsPlaceholder: '输入证书域名，多个用逗号分隔', certificateDomainsHelp: '只更新这些域名对应证书的现有应用资产绑定。', versionSelection: '更新到哪个证书版本', versionSelectionLatest: '自动使用最新证书版本', versionSelectionSpecific: '使用指定证书版本', versionSelectionHelp: '运行开始时解析并冻结版本，运行期间不会因新增版本而改变。', certificateVersionIds: '指定证书版本', certificateVersionIdsPlaceholder: '输入证书版本 ID，多个用逗号分隔', certificateVersionIdsHelp: '每个版本必须属于上面所选域名对应的证书。', versionLoading: '正在加载可选证书版本。', versionLoadFailed: '证书版本加载失败，请稍后重试。', versionEmpty: '没有找到这些域名对应的可选证书版本。', schedule: '什么时候更新', scheduleHelp: '可由管理员按需启动，也可以按 Cron 和时区定期检查并更新。', execution: '运行时会做什么', executionHelp: '系统为每个现有资产绑定创建独立更新计划，并复用 DeploymentPlan、Dry Run、审批和 ExecutionRun。', snapshot: '冻结域名、资产和证书版本快照' },
-    fields: { name: '名称', description: '说明', trigger: '触发方式', cron: 'Cron 表达式', timeZone: '时区', expiresWithinDays: '到期天数范围', environments: '目标环境（逗号分隔）', certificateIds: '指定证书（可选）', certificateIdsPlaceholder: '输入证书 ID，多个用逗号分隔', certificateIdsHelp: '填写后只处理指定证书；留空则按到期范围和环境自动匹配。', expiresWithinDaysHelp: '只匹配在此天数内到期的证书。', environmentsHelp: '只处理这些环境中的证书，例如 production, staging。', planType: '部署计划类型', planTypeHelp: '每个命中的证书目标都会在运行时创建一份独立的 DeploymentPlan。', planTypeUpdate: '更新现有证书绑定', planTypeInstall: '安装证书到目标', planTypeVerifyOnly: '只验证，不变更证书', planMode: '运行方式', planModeHelp: '自动化不绑定已有计划；运行时会为每个目标创建新计划。', planModeCreateAndExecute: '创建计划并执行', planModeCreateOnly: '只创建计划，暂不执行', maxTargets: '单次最大目标数', concurrency: '并发数', failureCount: '失败数量阈值', requireDryRun: '执行前必须完成 Dry Run', requireApproval: '执行前必须审批', startedAt: '开始时间', finishedAt: '结束时间', failureStage: '失败阶段', parentRun: '父运行' },
+    fields: { name: '名称', description: '说明', trigger: '触发方式', targetResolver: '目标解析器', targetResolverHelp: '旧模式继续按证书绑定解析；新模式按证书新版本事件解析。', eventSources: '事件来源', eventSourcesHelp: '选择证书事件从哪里进入平台。', targetScope: '更新范围', selectedAssets: '指定应用资产', selectedAssetsHelp: '请选择至少一个已纳管的应用资产。', certificateTags: '证书标签（逗号分隔）', certificateTagsHelp: '按证书标签过滤事件或轮询范围。', targetEnvironments: '目标环境（逗号分隔）', targetEnvironmentsHelp: '按目标资产环境过滤。', targetOwners: '目标负责人（逗号分隔）', targetOwnersHelp: '按目标资产负责人过滤。', cron: 'Cron 表达式', timeZone: '时区', expiresWithinDays: '到期天数范围', environments: '目标环境（逗号分隔）', certificateIds: '指定证书（可选）', certificateIdsPlaceholder: '输入证书 ID，多个用逗号分隔', certificateIdsHelp: '填写后只处理指定证书；留空则按到期范围和环境自动匹配。', expiresWithinDaysHelp: '只匹配在此天数内到期的证书。', environmentsHelp: '只处理这些环境中的证书，例如 production, staging。', planType: '部署计划类型', planTypeHelp: '每个命中的证书目标都会在运行时创建一份独立的 DeploymentPlan。', planTypeUpdate: '更新现有证书绑定', planTypeInstall: '安装证书到目标', planTypeVerifyOnly: '只验证，不变更证书', planMode: '运行方式', planModeHelp: '自动化不绑定已有计划；运行时会为每个目标创建新计划。', planModeCreateAndExecute: '创建计划并执行', planModeCreateOnly: '只创建计划，暂不执行', maxTargets: '单次最大目标数', concurrency: '并发数', failureCount: '失败数量阈值', requireDryRun: '执行前必须完成 Dry Run', requireApproval: '执行前必须审批', startedAt: '开始时间', finishedAt: '结束时间', failureStage: '失败阶段', parentRun: '父运行' },
     actions: { create: '新建自动化', edit: '编辑', delete: '删除', cancel: '取消', save: '保存', copy: '复制', enable: '启用', disable: '停用', preview: '预览目标', history: '运行历史', confirmRun: '确认执行', stop: '停止运行', retryFailed: '重试失败目标', openPlan: '查看部署计划', openExecution: '查看执行记录' },
     columns: { trigger: '触发方式', targets: '目标上限', actions: '执行动作', nextRun: '下次运行', lastRun: '最近运行' },
     triggers: { onDemand: '按需执行', schedule: '定时执行' },
-    triggerTypes: { on_demand: '按需执行', schedule: '定时执行', retry: '失败重试' },
+    triggerTypes: { on_demand: '按需执行', schedule: '定时执行', certificate_version_created: '证书新版本事件', retry: '失败重试' },
+    eventSources: { acme: 'ACME', manual_import: '手工导入' },
+    targetScopes: { allRelatedAssets: '更新关联的全部应用资产', allRelatedAssetsHelp: '命中事件或条件后，系统自动解析所有已绑定且可部署的应用资产。', selectedAssets: '只更新指定应用资产', selectedAssetsHelp: '只在手动选中的应用资产范围内创建和执行 DeploymentPlan。' },
+    assetPicker: { available: '可选资产', selected: '已选资产', add: '添加', remove: '移除', clear: '清空选择', emptyAvailable: '当前没有可添加的应用资产。', emptySelected: '尚未选择应用资产。' },
+    targetResolvers: { legacy_target_selector: '旧式证书选择器', certificate_version_targets: '证书版本目标解析器' },
     actionTypes: { create_deployment_plan: '创建证书更新计划', execute_deployment_plan: '执行证书更新计划', send_notification: '发送通知' },
     summaries: { targets: '最多 {count} 个目标' },
     preview: { title: '目标预览', description: '确认启动时将被冻结的目标快照及排除原因。', matched: '匹配 {count} 项', executable: '可执行 {count} 项', excluded: '排除 {count} 项', ready: '可执行' },
-    exclusions: { permission_denied: '无目标权限', missing_version: '缺少证书版本', version_not_deployable: '证书版本不可部署', binding_not_managed: '绑定未纳管', environment_not_allowed: '环境不在允许范围', unknown: '未知排除原因' },
+    exclusions: { permission_denied: '无目标权限', missing_version: '缺少证书版本', version_not_deployable: '证书版本不可部署', binding_not_managed: '绑定未纳管', environment_not_allowed: '环境不在允许范围', binding_missing: '缺少绑定', asset_missing_deployment_capability: '目标资产不支持部署', filter_not_matched: '不满足过滤条件', runtime_context_required: '缺少运行时上下文', unknown: '未知排除原因' },
     failureStages: { selection: '目标选择', plan_creation: '计划创建', dry_run: 'Dry Run', approval: '审批', execution: '执行', verification: '验证', rollback: '回滚', notification: '通知' },
     progress: { total: '总数', pending: '等待中', running: '执行中', waitingApproval: '等待审批', succeeded: '成功', failed: '失败', skipped: '已跳过', cancelled: '已取消' },
-    editor: { createTitle: '新建自动化', editTitle: '编辑自动化', description: '配置何时运行、处理哪些证书、如何创建部署计划以及失败时的安全边界。', sections: { basic: '基本信息', basicHelp: '给自动化一个容易识别的名称，说明它负责哪类证书变更。', targets: '处理哪些证书', targetsHelp: '这里选择的是证书目标，不是已有部署计划；运行开始时会冻结目标快照。', plan: '证书部署计划', planRelationTitle: '不会绑定已有部署计划', planRelationDescription: '自动化会根据上面的证书筛选条件，在每次运行时创建部署计划。', planRelationHelp: '每个命中的证书目标对应一份独立 DeploymentPlan，计划 ID 会在运行详情中显示；这样不同证书不会共用错误的目标快照。', guardrails: '执行安全控制', guardrailsHelp: '这些限制决定一次最多处理多少目标、是否先预检/审批，以及失败后何时停止。' }, chain: { createPlan: '按目标创建 DeploymentPlan', dryRun: '执行 Dry Run 预检', approval: '等待审批通过', executePlan: '执行该目标的 DeploymentPlan' } },
+    editor: { createTitle: '新建自动化', editTitle: '编辑自动化', description: '配置何时运行、处理哪些证书、如何创建部署计划以及失败时的安全边界。', exactVersionFromEvent: '证书新版本事件会把本次产生的精确证书版本固定到运行快照里，审批恢复后也不会漂移到后续版本。', sections: { basic: '基本信息', basicHelp: '给自动化一个容易识别的名称，说明它负责哪类证书变更。', trigger: '触发器', triggerHelp: '先定义自动化由什么事实触发，再决定后续的执行和条件。', targets: '处理哪些证书', targetsHelp: '这里选择的是证书目标，不是已有部署计划；运行开始时会冻结目标快照。', execution: '执行器', executionHelp: '先确定这条自动化会如何更新资产，再决定额外条件和安全控制。', conditions: '条件与安全', conditionsHelp: '这里同时定义命中条件、范围过滤、审批和并发等护栏。', plan: '证书部署计划', planRelationTitle: '不会绑定已有部署计划', planRelationDescription: '自动化会根据上面的证书筛选条件，在每次运行时创建部署计划。', planRelationHelp: '每个命中的证书目标对应一份独立 DeploymentPlan，计划 ID 会在运行详情中显示；这样不同证书不会共用错误的目标快照。', guardrails: '执行安全控制', guardrailsHelp: '这些限制决定一次最多处理多少目标、是否先预检/审批，以及失败后何时停止。' }, chain: { createPlan: '按目标创建 DeploymentPlan', dryRun: '执行 Dry Run 预检', approval: '等待审批通过', executePlan: '执行该目标的 DeploymentPlan' } },
     runs: { title: '自动化运行历史', description: '查看运行级状态、不可变目标快照和失败阶段。', progress: '{succeeded}/{total} 成功' },
-    runDetail: { title: '自动化运行详情', description: '配置版本 {version}', noFailure: '未发生失败' },
+    runDetail: { title: '自动化运行详情', description: '配置版本 {version}', noFailure: '未发生失败', triggerContext: '触发上下文', sourceType: '来源类型', certificateVersion: '精确证书版本', approvalId: '审批 ID', deliveryId: '投递 ID', excludedReasons: '排除原因' },
     aria: { preview: '自动化目标预览', runs: '自动化运行列表', progress: '自动化运行进度' },
-    errors: { loadFailed: '自动化列表加载失败' }
+    errors: { loadFailed: '自动化列表加载失败', applicationAssetsLoadFailed: '应用资产列表加载失败，请稍后重试。' }
   },
   routes: {
     certificateImport: '导入证书',
@@ -988,6 +1003,23 @@ export default {
     }
   },
   deploymentPlans: {
+    userView: {
+      stepLabel: '第 3 步 / 3 · 部署',
+      title: '把证书部署到应用',
+      description: '选择证书和已接入的应用。系统仍会在后台执行预览、审批和执行保护，只是不把技术细节放在前台。',
+      createAction: '开始部署',
+      listTitle: '部署任务',
+      listDescription: '这里只显示当前业务状态和下一步动作。',
+      loadFailed: '部署任务加载失败',
+      emptyTitle: '还没有部署任务',
+      emptyDescription: '添加应用后，就可以创建第一个部署任务。',
+      unnamedPlan: '未命名部署任务',
+      pendingCertificate: '等待选择证书',
+      pendingApplication: '等待选择应用',
+      nextActionHint: '下一步动作会根据当前预览和审批状态决定。',
+      prepareAction: '准备部署',
+      waiting: '等待审批或执行'
+    },
     title: '部署计划',
     description: '计划预览、影响范围、审批、执行批次、验证和回滚入口。',
     resourceName: '部署计划',
@@ -1543,8 +1575,36 @@ export default {
         title: 'Agent',
         description: '查看在线状态和任务能力。'
       },
-      assets: {
-        title: '应用资产',
+  assets: {
+    userView: {
+      stepLabel: '第 2 步 / 3 · 应用',
+      title: '接入一个应用',
+      description: '添加要接收证书的应用。除非所选目标确实需要额外参数，否则不会显示技术部署细节。',
+      addAction: '添加应用',
+      listTitle: '已接入应用',
+      listDescription: '这些应用可以在部署步骤中被选择。',
+      continueToDeployment: '继续部署',
+      loadFailed: '应用加载失败',
+      emptyTitle: '还没有接入应用',
+      emptyDescription: '先添加一个应用，证书才能部署到它。',
+      deploymentLocation: '部署位置',
+      targetPending: '等待配置部署位置',
+      form: {
+        eyebrow: '简化设置',
+        title: '添加需要更新的应用',
+        description: '填写应用地址并选择证书应该部署到哪里。',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: '证书要更新到哪里？',
+        locationDescription: '选择已有的设备、服务和部署目标，底层绑定逻辑保持不变。',
+        device: '设备',
+        service: '服务',
+        site: '站点',
+        target: '部署目标',
+        certificateFormat: '证书格式'
+      }
+    },
+    title: '应用资产',
         description: '维护域名、端口和部署目标。'
       },
       audits: {
@@ -3048,6 +3108,84 @@ export default {
     errors: {
       requestFailed: '请求失败'
     },
+    banners: {
+      importSucceeded: '证书已导入，新证书版本 ID：{id}'
+    },
+    views: {
+      eyebrow: '页面模式',
+      switchLabel: '证书页面视图切换',
+      modes: {
+        user: '用户视图',
+        professional: '专业视图'
+      },
+      descriptions: {
+        user: '只保留导入证书、接入应用和设置自动更新这条常见流程。',
+        professional: '展示证书版本、链状态和完整技术细节。'
+      }
+    },
+    userView: {
+      hero: {
+        eyebrow: '常见流程',
+        title: '按业务流程处理证书更新',
+        description: '先导入或替换证书，再接入应用，最后设置自动更新计划。大多数日常操作不需要看底层技术细节。',
+        primaryAction: '导入或替换证书',
+        secondaryAction: '切到专业视图'
+      },
+      summary: {
+        ariaLabel: '证书用户视图概览',
+        managedCertificates: '已管理证书',
+        expiredCertificates: '已过期证书',
+        expiringSoonCertificates: '即将到期证书',
+        connectedApplications: '已接入应用',
+        activeAutomationPlans: '启用中的自动计划'
+      },
+      steps: {
+        title: '常用流程',
+        description: '按这个顺序处理，大多数证书更新不需要关注技术细节。',
+        status: {
+          done: '已完成',
+          todo: '待处理'
+        },
+        import: {
+          title: '导入或替换证书',
+          description: '把新的证书材料导入系统，后续应用接入和计划都会基于这里的证书继续。',
+          helperCompleted: '当前已管理 {count} 个证书域名，可以继续替换或补充证书版本。',
+          helperEmpty: '先导入当前证书，后面的应用接入和自动计划才能继续。',
+          action: '开始导入'
+        },
+        applications: {
+          title: '添加应用',
+          description: '告诉系统这张证书要给哪个应用或站点使用，部署时才知道要更新哪里。',
+          helperCompleted: '当前已有 {count} 个应用接入证书流程。',
+          helperEmpty: '还没有应用接入，导入证书后建议马上补齐这一步。',
+          action: '去添加应用'
+        },
+        automations: {
+          title: '设置自动更新计划',
+          description: '把证书更新安排成自动执行，避免每次到期前都手工处理。',
+          helperCompleted: '当前已有 {count} 个启用中的自动计划。',
+          helperEmpty: '还没有启用中的自动计划，建议在业务低峰时补上。',
+          action: '去设置计划'
+        }
+      },
+      common: {
+        notAvailable: '暂不可用',
+        permissionRequired: '当前账号没有对应权限，请联系管理员。'
+      },
+      focus: {
+        currentSelectionTitle: '当前关注的证书',
+        currentSelectionDescription: '切到专业视图后，可以查看版本、签发方和完整链路细节。',
+        currentSelectionEmpty: '还没有选中证书域名',
+        currentSelectionHint: '先从下方待处理列表进入专业视图，或直接切到专业视图浏览全部证书。',
+        validUntil: '到期时间：{value}',
+        openProfessional: '打开专业视图',
+        attentionTitle: '优先处理',
+        attentionDescription: '先处理已经过期或即将到期的证书，再补应用接入和自动计划。',
+        assetAction: '查看专业详情',
+        emptyTitle: '当前没有紧急证书',
+        emptyDescription: '所有已导入证书暂时都在有效期内。'
+      }
+    },
     detail: {
       backList: '返回列表',
       description: '展示证书版本详情、格式产物和关联资产。',
@@ -3099,6 +3237,8 @@ export default {
         deployable: '可部署',
         leafStorageRef: '叶子证书引用',
         chainCertificateCount: '链证书数量',
+        trustRootCertificate: '目标根证书',
+        trustRootStatus: '根证书状态',
         chainDiagnostics: '链诊断'
       },
       fallbacks: {
@@ -3122,6 +3262,9 @@ export default {
       separators: {
         diagnostic: '；',
         list: '，'
+      },
+      diagnostics: {
+        rootResolvedFromLibrary: '导入材料未包含根证书：{root}。平台根证书库已解析到该根证书，部署时可补齐。'
       },
       chain: {
         roles: {
@@ -3306,6 +3449,7 @@ export default {
       },
       placeholders: {
         assetKeyword: '域名 / SAN / 指纹',
+        primaryDomain: 'example.com',
         versionKeyword: '名称 / 颁发者 / 使用者 / 版本 ID'
       },
       columns: {
@@ -3362,6 +3506,96 @@ export default {
       },
       import: {
         description: '当前仅支持 PEM + KEY 和 PFX；每次导入都必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会显示警告。私钥仅保存到系统 Secret 存储，不会在 API 响应中返回。'
+      }
+    },
+    trustRoots: {
+      title: '根证书管理',
+      description: '在当前页面内查看根证书库、来源观察记录和叶子证书关联关系，不跳转到独立页面。',
+      actions: {
+        open: '根证书管理',
+        refresh: '刷新',
+        expandVersions: '展开关联版本',
+        collapseVersions: '收起关联版本'
+      },
+      toolbar: {
+        title: '根证书库',
+        description: '当前已识别 {count} 个目标根视图。'
+      },
+      summary: {
+        managedVersions: '目标根视图',
+        resolvedVersions: '已获得根证书',
+        missingVersions: '未获得根证书',
+        invalidChainVersions: '证书链无效',
+        targetRoot: '目标根指纹：{fingerprint}',
+        rootFingerprintUnavailable: '当前还无法确定目标根指纹',
+        relatedAssetCount: '关联资产 {count} 个'
+      },
+      detail: {
+        subtitle: '展示根证书基本信息、来源观察和叶子版本关联。'
+      },
+      fields: {
+        fingerprintSha256: 'SHA-256 指纹',
+        serialNumber: '序列号',
+        subject: '主体',
+        issuer: '签发者',
+        notBefore: '生效时间',
+        notAfter: '到期时间',
+        relatedAssets: '关联证书资产',
+        relatedVersions: '关联证书版本'
+      },
+      sections: {
+        observations: '来源观察',
+        relatedAssets: '关联证书资产',
+        versionRelations: '叶子证书关联',
+        managedCertificates: '已纳管证书根状态'
+      },
+      states: {
+        loadFailed: '根证书列表加载失败',
+        detailFailed: '根证书详情加载失败',
+        assetLoadFailed: '关联证书资产加载失败',
+        emptyTitle: '暂无根证书记录',
+        emptyDescription: '当前项目内还没有收录根证书，可以后续再通过后端 API 导入。',
+        unselectedTitle: '未选择根证书',
+        unselectedDescription: '请先在左侧选择一条根证书记录。',
+        rootNotInLibrary: '当前根证书还未入库，以下关联资产与状态来自已纳管证书的根链推断结果。',
+        emptyObservations: '暂无来源观察记录',
+        emptyRelations: '暂无叶子证书关联',
+        emptyAssets: '当前根证书暂未关联任何证书资产'
+      },
+      validationStatus: {
+        pending: '待验证',
+        verified: '已验证',
+        rejected: '已拒绝',
+        expired: '已过期'
+      },
+      sourceTypes: {
+        control_plane_node: '控制面 Node Root Store',
+        openssl: '控制面 OpenSSL 根库',
+        windows: '控制面 Windows Root Store',
+        internet: '受控互联网来源',
+        manual: '手动导入',
+        managed_host_inspect: '受管宿主定向检查'
+      },
+      observationStatus: {
+        candidate: '候选',
+        accepted: '已接受',
+        rejected: '已拒绝',
+        failed: '失败'
+      },
+      relations: {
+        selected_root: '已选根证书',
+        candidate: '候选根证书'
+      },
+      resolutionStatus: {
+        resolved: '已解析',
+        ambiguous: '存在歧义',
+        missing: '缺失',
+        invalid: '无效'
+      },
+      rootStatus: {
+        resolved: '已获得根证书',
+        missing: '未获得根证书',
+        invalid_chain: '证书链无效'
       }
     },
     usages: {
@@ -3953,6 +4187,7 @@ export default {
     }
   },
   monitoring: {
+    tls: monitoringTlsZhCN,
     actions: {
       add: '添加监控',
       probe: '检测站点',

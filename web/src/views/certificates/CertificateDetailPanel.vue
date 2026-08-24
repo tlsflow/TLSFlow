@@ -68,6 +68,12 @@ const mergedUsages = computed<CertificateUsageRow[]>(() => {
   return [...deduped.values()]
 })
 
+const currentVersionUsages = computed<CertificateUsageRow[]>(() =>
+  mergedUsages.value.filter((item) =>
+    isCurrentVersionUsage(item, props.versionId, readVersionFingerprint()),
+  ),
+)
+
 const usageColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'domainName', title: detailPanelT('usage.columns.domainName') },
   { key: 'agentName', title: detailPanelT('usage.columns.agentName'), width: '160px' },
@@ -82,30 +88,84 @@ const validityRange = computed(() => ({
   end: formatToMinute(readString(version.value, ['notAfter'], '')),
 }))
 
+const trustRoots = computed<ApiRecord[]>(() => {
+  const value = readPath(version.value, 'trustRoots')
+  return Array.isArray(value) ? value.filter((item): item is ApiRecord => Boolean(item) && typeof item === 'object') : []
+})
+
+const selectedTrustRoot = computed<ApiRecord | null>(() =>
+  trustRoots.value.find((item) => readString(item, ['relation'], '') === 'selected_root')
+  ?? trustRoots.value.find((item) => readString(item, ['resolutionStatus'], '') === 'resolved')
+  ?? trustRoots.value[0]
+  ?? null,
+)
+
+const selectedTrustRootRecord = computed<ApiRecord | null>(() => {
+  const root = readPath(selectedTrustRoot.value, 'root')
+  return root && typeof root === 'object' ? root as ApiRecord : null
+})
+
+const selectedTrustRootName = computed(() =>
+  readString(
+    selectedTrustRootRecord.value,
+    ['subject.commonName', 'subject.organization', 'subject.raw', 'fingerprintSha256'],
+    detailPanelT('fallbacks.unknownCertificate'),
+  ),
+)
+
+const isMissingIssuerOnlyResolvedByTrustRoot = computed(() => {
+  if (readString(selectedTrustRoot.value, ['resolutionStatus'], '') !== 'resolved') return false
+  return readString(version.value, ['chainStatus'], '') === 'incomplete'
+})
+
 const chainCertificates = computed<CertificateChainItem[]>(() => {
   const items = readPath(version.value, 'chainCertificates')
-  if (!Array.isArray(items)) return []
   const normalized: CertificateChainItem[] = []
-  for (const item of items) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as ApiRecord
-    const displayName = readString(record, ['displayName', 'commonName', 'subject.commonName'], detailPanelT('fallbacks.unknownCertificate'))
-    const subjectText = readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], displayName)
-    const issuerText = readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], detailPanelT('fallbacks.unknownIssuer'))
-    normalized.push({
-      fingerprintSha256: readString(record, ['fingerprintSha256'], displayName),
-      displayName,
-      subjectText,
-      issuerText,
-      role: (readString(record, ['role'], 'intermediate') || 'intermediate') as CertificateChainItem['role'],
-    })
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue
+      const record = item as ApiRecord
+      const displayName = readString(record, ['displayName', 'commonName', 'subject.commonName'], detailPanelT('fallbacks.unknownCertificate'))
+      const subjectText = readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], displayName)
+      const issuerText = readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], detailPanelT('fallbacks.unknownIssuer'))
+      normalized.push({
+        fingerprintSha256: readString(record, ['fingerprintSha256'], displayName),
+        displayName,
+        subjectText,
+        issuerText,
+        role: (readString(record, ['role'], 'intermediate') || 'intermediate') as CertificateChainItem['role'],
+      })
+    }
+  }
+  if (isMissingIssuerOnlyResolvedByTrustRoot.value && selectedTrustRootRecord.value) {
+    const fingerprint = readString(selectedTrustRootRecord.value, ['fingerprintSha256'], '')
+    const exists = normalized.some((item) => item.fingerprintSha256 === fingerprint)
+    if (!exists) {
+      const displayName = selectedTrustRootName.value
+      normalized.push({
+        fingerprintSha256: fingerprint || displayName,
+        displayName,
+        subjectText: readString(selectedTrustRootRecord.value, ['subject.commonName', 'subject.organization', 'subject.raw'], displayName),
+        issuerText: readString(selectedTrustRootRecord.value, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], displayName),
+        role: 'root',
+      })
+    }
   }
   return normalized
 })
 
-const chainDiagnostics = computed<string[]>(() => {
+const chainDiagnosticsRaw = computed<string[]>(() => {
   const diagnostics = readPath(version.value, 'chainDiagnostics')
   return Array.isArray(diagnostics) ? diagnostics.map((item) => String(item)) : []
+})
+
+const chainDiagnostics = computed<string[]>(() => {
+  if (!isMissingIssuerOnlyResolvedByTrustRoot.value) return chainDiagnosticsRaw.value
+  return [
+    detailPanelT('diagnostics.rootResolvedFromLibrary', {
+      root: selectedTrustRootName.value,
+    }),
+  ]
 })
 
 const summaryFields = computed<DetailField[]>(() => [
@@ -156,6 +216,8 @@ const detailSections = computed<Array<{ title: string; fields: DetailField[] }>>
     fields: [
       { label: detailPanelT('fields.leafStorageRef'), value: readString(version.value, ['leafStorageRef'], detailPanelT('fallbacks.unknown')) },
       { label: detailPanelT('fields.chainCertificateCount'), value: String(chainCertificates.value.length > 0 ? Math.max(chainCertificates.value.length - 1, 0) : 0) },
+      { label: detailPanelT('fields.trustRootCertificate'), value: selectedTrustRootName.value },
+      { label: detailPanelT('fields.trustRootStatus'), value: selectedTrustRoot.value ? trustRootStatusLabel(selectedTrustRoot.value) : detailPanelT('fallbacks.none') },
       { label: detailPanelT('fields.chainDiagnostics'), value: chainDiagnostics.value.length > 0 ? chainDiagnostics.value.join(detailPanelT('separators.diagnostic')) : detailPanelT('fallbacks.none') },
     ],
   },
@@ -274,6 +336,30 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
   }
 }
 
+function isCurrentVersionUsage(record: ApiRecord, versionId: string, versionFingerprint: string) {
+  const binding = readPath(record, 'binding')
+  const bindingRecord = binding && typeof binding === 'object' ? binding as ApiRecord : null
+
+  const currentVersionId = readString(record, ['certificateVersionId'], '')
+    || readString(bindingRecord, ['certificateVersionId', 'localCertificateVersionId'], '')
+  if (currentVersionId && currentVersionId === versionId) return true
+
+  const observedFingerprint = normalizeSha256(
+    readString(record, ['observedFingerprintSha256'], '')
+    || readString(bindingRecord, ['observedFingerprintSha256'], ''),
+  )
+  return Boolean(versionFingerprint) && observedFingerprint === versionFingerprint
+}
+
+function readVersionFingerprint() {
+  return normalizeSha256(readString(version.value, ['fingerprintSha256'], ''))
+}
+
+function normalizeSha256(value: string) {
+  const normalized = value.trim().toLowerCase()
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : ''
+}
+
 function roleLabel(role: CertificateChainItem['role']) {
   if (role === 'leaf') return detailPanelT('chain.roles.leaf')
   if (role === 'root') return detailPanelT('chain.roles.root')
@@ -282,6 +368,12 @@ function roleLabel(role: CertificateChainItem['role']) {
 
 function shouldShowSubject(item: CertificateChainItem) {
   return item.subjectText && item.subjectText !== item.displayName
+}
+
+function trustRootStatusLabel(record: ApiRecord) {
+  const resolutionStatus = readString(record, ['resolutionStatus'], '')
+  if (!resolutionStatus) return detailPanelT('fallbacks.none')
+  return t(`certificates.trustRoots.resolutionStatus.${resolutionStatus}`)
 }
 
 async function loadDetail() {
@@ -384,7 +476,7 @@ async function loadDetail() {
       </section>
 
       <section v-else class="certificate-detail-panel__tab-panel">
-        <GcDataTable :columns="usageColumns" :rows="mergedUsages" :empty-text="detailPanelT('usage.empty')">
+        <GcDataTable :columns="usageColumns" :rows="currentVersionUsages" :empty-text="detailPanelT('usage.empty')">
           <template #toolbar><strong>{{ detailPanelT('usage.toolbar') }}</strong></template>
           <template #cell-domainName="{ row }">
             {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], detailPanelT('fallbacks.unknownTarget')) }}

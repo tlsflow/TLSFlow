@@ -5,6 +5,7 @@ import { caOperationsZhTW } from './ca-operations.locale'
 import { credentialsZhTW } from './credentials.locale'
 import { acmeZhTW } from './acme.locale'
 import { providersZhTW } from './providers.locale'
+import { monitoringTlsZhTW } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsZhTW,
@@ -516,6 +517,16 @@ export default {
     tooShort: "新密碼長度不能少於 8 位"
   },
   nav: {
+    viewMode: {
+      switchLabel: 'Application view mode',
+      user: 'User view',
+      professional: 'Professional view',
+      steps: {
+        certificates: 'Certificates',
+        applications: 'Applications',
+        deployments: 'Deployments'
+      }
+    },
     dashboard: "總覽",
     dashboardDesc: "應用、憑證、Agent、閘道和審計狀態總覽",
     certificates: "憑證",
@@ -570,26 +581,29 @@ export default {
     description: "集中管理憑證更新計畫的定時、按需和批次執行。",
     empty: "暫無自動化設定。",
     emptyDescription: "未填寫說明",
-    common: { notAvailable: "暫無" },
-    formStep: { stepProgress: "第 {current} 步，共 {total} 步", previous: "上一步", next: "下一步", reviewTitle: "設定摘要", reviewText: "將處理 {domains}，憑證版本策略為：{version}。執行開始後會凍結目標快照。" },
-    scheduleBuilder: { api: "透過外部 API 觸發", apiHelp: "儲存後由外部系統呼叫自動化執行 API。每次呼叫仍會執行目標預覽、Dry Run 和審批規則。", once: "在固定時間執行一次", onceHelp: "選擇瀏覽器本地時間。任務執行一次後不會再次排程。", recurring: "定期執行", scheduleHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringWarningTitle: "憑證更新不建議使用定期執行", recurringWarning: "憑證更新通常應由外部系統在憑證簽發後觸發，或安排一次固定時間執行。只有明確需要週期檢查時才使用此選項。", runAt: "執行時間", frequency: "執行週期", daily: "每天", weekly: "每週", monthly: "每月", time: "執行時刻", weekday: "星期", monthDay: "每月日期", legacyCustom: "保留原有自訂計畫", legacyCron: "原有 Cron（唯讀）", weekdays: { 0: "星期日", 1: "星期一", 2: "星期二", 3: "星期三", 4: "星期四", 5: "星期五", 6: "星期六" } },
+    common: { notAvailable: "暫無", allRelated: "全部關聯目標" },
+    formStep: { stepProgress: "第 {current} 步，共 {total} 步", previous: "上一步", next: "下一步", reviewTitle: "設定摘要", reviewText: "觸發器：{trigger}；執行範圍：{scope}；條件範圍：{domains}。執行開始後會凍結目標快照。" },
+    scheduleBuilder: { api: "透過外部 API 觸發", apiHelp: "儲存後由外部系統呼叫自動化執行 API。每次呼叫仍會執行目標預覽、Dry Run 和審批規則。", once: "在固定時間執行一次", onceHelp: "選擇瀏覽器本地時間。任務執行一次後不會再次排程。", recurring: "定期執行", scheduleHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringHelp: "依計畫週期執行。僅建議用於確實需要持續輪詢的情境。", recurringWarningTitle: "憑證更新不建議使用定期執行", recurringWarning: "憑證更新通常應由外部系統在憑證簽發後觸發，或安排一次固定時間執行。只有明確需要週期檢查時才使用此選項。", certificateVersionCreated: "憑證新版本事件", certificateVersionCreatedHelp: "憑證透過 ACME 或匯入產生新版本後，由平台事件觸發自動化。", runAt: "執行時間", frequency: "執行週期", daily: "每天", weekly: "每週", monthly: "每月", time: "執行時刻", weekday: "星期", monthDay: "每月日期", legacyCustom: "保留原有自訂計畫", legacyCron: "原有 Cron（唯讀）", weekdays: { 0: "星期日", 1: "星期一", 2: "星期二", 3: "星期三", 4: "星期四", 5: "星期五", 6: "星期六" } },
     form: { existingAssetTitle: "只更新現有應用資產", existingAssetDescription: "自動化只處理已建立憑證繫結的應用資產，不負責首次安裝憑證或新增部署目標。", certificateDomains: "憑證網域", certificateDomainsPlaceholder: "輸入憑證網域，多個以逗號分隔", certificateDomainsHelp: "只更新這些網域對應憑證的現有應用資產繫結。", versionSelection: "要更新到哪個憑證版本", versionSelectionLatest: "自動使用最新憑證版本", versionSelectionSpecific: "使用指定憑證版本", versionSelectionHelp: "執行開始時解析並凍結版本，執行期間不會因新增版本而改變。", certificateVersionIds: "指定憑證版本", certificateVersionIdsPlaceholder: "輸入憑證版本 ID，多個以逗號分隔", certificateVersionIdsHelp: "每個版本都必須屬於上方選取網域對應的憑證。", versionLoading: "正在載入可選憑證版本。", versionLoadFailed: "憑證版本載入失敗，請稍後再試。", versionEmpty: "找不到這些網域對應的可選憑證版本。", schedule: "何時更新", scheduleHelp: "管理員可按需啟動，也可以依 Cron 和時區定期檢查並更新。", execution: "執行時會做什麼", executionHelp: "系統為每個現有資產繫結建立獨立更新計畫，並重用 DeploymentPlan、Dry Run、審批和 ExecutionRun。", snapshot: "凍結網域、資產和憑證版本快照" },
-    fields: { name: "名稱", description: "說明", trigger: "觸發方式", cron: "Cron 運算式", timeZone: "時區", expiresWithinDays: "到期天數範圍", environments: "目標環境（逗號分隔）", certificateIds: "指定憑證（可選）", certificateIdsPlaceholder: "輸入憑證 ID，多個以逗號分隔", certificateIdsHelp: "填寫後只處理指定憑證；留空則按到期範圍和環境自動匹配。", expiresWithinDaysHelp: "只匹配在此天數內到期的憑證。", environmentsHelp: "只處理這些環境中的憑證，例如 production、staging。", planType: "部署計畫類型", planTypeHelp: "每個命中的憑證目標都會在執行時建立獨立的 DeploymentPlan。", planTypeUpdate: "更新現有憑證繫結", planTypeInstall: "在目標安裝憑證", planTypeVerifyOnly: "只驗證，不變更憑證", planMode: "執行方式", planModeHelp: "自動化不繫結既有計畫；執行時會為每個目標建立新計畫。", planModeCreateAndExecute: "建立計畫並執行", planModeCreateOnly: "只建立計畫，暫不執行", maxTargets: "單次最大目標數", concurrency: "並行數", failureCount: "失敗數量閾值", requireDryRun: "執行前必須完成 Dry Run", requireApproval: "執行前必須審批", startedAt: "開始時間", finishedAt: "結束時間", failureStage: "失敗階段", parentRun: "父執行" },
+    fields: { name: "名稱", description: "說明", trigger: "觸發方式", eventSources: "事件來源", eventSourcesHelp: "選擇哪些憑證版本事件可以啟動這條自動化。", targetScope: "更新範圍", selectedAssets: "指定應用資產", selectedAssetsHelp: "請至少選擇一個已納管的應用資產。", certificateTags: "憑證標籤（逗號分隔）", certificateTagsHelp: "依憑證標籤過濾事件或輪詢範圍。", targetEnvironments: "目標環境（逗號分隔）", targetEnvironmentsHelp: "依目標應用環境過濾。", targetOwners: "目標負責人（逗號分隔）", targetOwnersHelp: "依目標負責人過濾。", cron: "Cron 運算式", timeZone: "時區", expiresWithinDays: "到期天數範圍", environments: "目標環境（逗號分隔）", certificateIds: "指定憑證（可選）", certificateIdsPlaceholder: "輸入憑證 ID，多個以逗號分隔", certificateIdsHelp: "填寫後只處理指定憑證；留空則按到期範圍和環境自動匹配。", expiresWithinDaysHelp: "只匹配在此天數內到期的憑證。", environmentsHelp: "只處理這些環境中的憑證，例如 production、staging。", planType: "部署計畫類型", planTypeHelp: "每個命中的憑證目標都會在執行時建立獨立的 DeploymentPlan。", planTypeUpdate: "更新現有憑證繫結", planTypeInstall: "在目標安裝憑證", planTypeVerifyOnly: "只驗證，不變更憑證", planMode: "執行方式", planModeHelp: "自動化不繫結既有計畫；執行時會為每個目標建立新計畫。", planModeCreateAndExecute: "建立計畫並執行", planModeCreateOnly: "只建立計畫，暫不執行", maxTargets: "單次最大目標數", concurrency: "並行數", failureCount: "失敗數量閾值", requireDryRun: "執行前必須完成 Dry Run", requireApproval: "執行前必須審批", startedAt: "開始時間", finishedAt: "結束時間", failureStage: "失敗階段", parentRun: "父執行" },
     actions: { create: "新增自動化", edit: "編輯", delete: "刪除", cancel: "取消", save: "儲存", copy: "複製", enable: "啟用", disable: "停用", preview: "預覽目標", history: "執行歷史", confirmRun: "確認執行", stop: "停止執行", retryFailed: "重試失敗目標", openPlan: "查看部署計畫", openExecution: "查看執行記錄" },
     columns: { trigger: "觸發方式", targets: "目標上限", actions: "執行動作", nextRun: "下次執行", lastRun: "最近執行" },
     triggers: { onDemand: "按需執行", schedule: "定時執行" },
-    triggerTypes: { on_demand: "按需執行", schedule: "定時執行", retry: "失敗重試" },
+    triggerTypes: { on_demand: "按需執行", schedule: "定時執行", certificate_version_created: "憑證新版本事件", retry: "失敗重試" },
+    eventSources: { acme: "ACME", manual_import: "手動匯入" },
+    targetScopes: { allRelatedAssets: "更新關聯的全部應用資產", allRelatedAssetsHelp: "命中事件或條件後，系統自動解析所有已綁定且可部署的應用資產。", selectedAssets: "只更新指定應用資產", selectedAssetsHelp: "只對手動選中的應用資產建立並執行 DeploymentPlan。" },
+    assetPicker: { available: "可選資產", selected: "已選資產", add: "添加", remove: "移除", clear: "清空選擇", emptyAvailable: "目前沒有可添加的應用資產。", emptySelected: "尚未選擇應用資產。" },
     actionTypes: { create_deployment_plan: "建立憑證更新計畫", execute_deployment_plan: "執行憑證更新計畫", send_notification: "傳送通知" },
     summaries: { targets: "最多 {count} 個目標" },
     preview: { title: "目標預覽", description: "確認啟動時將被凍結的目標快照及排除原因。", matched: "符合 {count} 項", executable: "可執行 {count} 項", excluded: "排除 {count} 項", ready: "可執行" },
-    exclusions: { permission_denied: "無目標權限", missing_version: "缺少憑證版本", version_not_deployable: "憑證版本不可部署", binding_not_managed: "綁定未納管", environment_not_allowed: "環境不在允許範圍", unknown: "未知排除原因" },
+    exclusions: { permission_denied: "無目標權限", missing_version: "缺少憑證版本", version_not_deployable: "憑證版本不可部署", binding_not_managed: "綁定未納管", environment_not_allowed: "環境不在允許範圍", binding_missing: "缺少綁定", asset_missing_deployment_capability: "目標資產不支援部署", filter_not_matched: "不符合過濾條件", runtime_context_required: "缺少執行期上下文", unknown: "未知排除原因" },
     failureStages: { selection: "目標選擇", plan_creation: "計畫建立", dry_run: "Dry Run", approval: "審批", execution: "執行", verification: "驗證", rollback: "回滾", notification: "通知" },
     progress: { total: "總數", pending: "等待中", running: "執行中", waitingApproval: "等待審批", succeeded: "成功", failed: "失敗", skipped: "已跳過", cancelled: "已取消" },
-    editor: { createTitle: "新增自動化", editTitle: "編輯自動化", description: "設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。", sections: { basic: "基本資料", basicHelp: "為自動化命名，說明它負責哪類憑證變更。", targets: "處理哪些憑證", targetsHelp: "這裡選擇的是憑證目標，不是既有部署計畫；執行開始時會固定目標快照。", plan: "憑證部署計畫", planRelationTitle: "不會繫結既有部署計畫", planRelationDescription: "自動化會根據上面的憑證篩選條件，在每次執行時建立部署計畫。", planRelationHelp: "每個命中的憑證目標都有自己的 DeploymentPlan，計畫 ID 會顯示在執行詳情中。", guardrails: "執行安全控制", guardrailsHelp: "這些限制決定單次最多處理多少目標、是否預檢/審批，以及失敗何時停止。" }, chain: { createPlan: "按目標建立 DeploymentPlan", dryRun: "執行 Dry Run 預檢", approval: "等待審批通過", executePlan: "執行該目標的 DeploymentPlan" } },
+    editor: { createTitle: "新增自動化", editTitle: "編輯自動化", description: "設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。", exactVersionFromEvent: "憑證新版本事件會把這次產生的精確憑證版本固定到執行快照中，審批恢復後也不會漂移到後續版本。", sections: { basic: "基本資料", basicHelp: "為自動化命名，說明它負責哪類憑證變更。", trigger: "觸發器", triggerHelp: "先定義由什麼事實啟動自動化，再決定後續的執行和條件。", targets: "處理哪些憑證", targetsHelp: "這裡選擇的是憑證目標，不是既有部署計畫；執行開始時會固定目標快照。", execution: "執行器", executionHelp: "先決定自動化如何更新資產，再追加條件與安全護欄。", conditions: "條件與安全", conditionsHelp: "這一步同時定義命中條件、範圍過濾、審批與並行等護欄。", plan: "憑證部署計畫", planRelationTitle: "不會繫結既有部署計畫", planRelationDescription: "自動化會根據上面的憑證篩選條件，在每次執行時建立部署計畫。", planRelationHelp: "每個命中的憑證目標都有自己的 DeploymentPlan，計畫 ID 會顯示在執行詳情中。", guardrails: "執行安全控制", guardrailsHelp: "這些限制決定單次最多處理多少目標、是否預檢/審批，以及失敗何時停止。" }, chain: { createPlan: "按目標建立 DeploymentPlan", dryRun: "執行 Dry Run 預檢", approval: "等待審批通過", executePlan: "執行該目標的 DeploymentPlan" } },
     runs: { title: "自動化執行歷史", description: "查看執行級狀態、不可變目標快照和失敗階段。", progress: "{succeeded}/{total} 成功" },
-    runDetail: { title: "自動化執行詳情", description: "設定版本 {version}", noFailure: "未發生失敗" },
+    runDetail: { title: "自動化執行詳情", description: "設定版本 {version}", noFailure: "未發生失敗", triggerContext: "觸發上下文", sourceType: "來源類型", certificateVersion: "精確憑證版本", approvalId: "審批 ID", deliveryId: "投遞 ID", excludedReasons: "排除原因" },
     aria: { preview: "自動化目標預覽", runs: "自動化執行列表", progress: "自動化執行進度" },
-    errors: { loadFailed: "自動化列表載入失敗" }
+    errors: { loadFailed: "自動化列表載入失敗", applicationAssetsLoadFailed: "應用資產列表載入失敗，請稍後再試。" }
   },
   routes: {
     certificateImport: "匯入憑證",
@@ -923,6 +937,23 @@ export default {
     changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
   },
   deploymentPlans: {
+    userView: {
+      stepLabel: 'Step 3 of 3 · Deploy',
+      title: 'Deploy the certificate to an application',
+      description: 'Choose a certificate and a connected application. GCAC keeps the same preview, approval, and execution safeguards in the background.',
+      createAction: 'Start deployment',
+      listTitle: 'Deployment tasks',
+      listDescription: 'Only the next action and business status are shown here.',
+      loadFailed: 'Failed to load deployment tasks',
+      emptyTitle: 'No deployment task yet',
+      emptyDescription: 'Create the first deployment task after adding an application.',
+      unnamedPlan: 'Unnamed deployment task',
+      pendingCertificate: 'Certificate pending',
+      pendingApplication: 'Application pending',
+      nextActionHint: 'The next action follows the current approval and preview status.',
+      prepareAction: 'Prepare deployment',
+      waiting: 'Waiting for approval or execution'
+    },
     title: "部署計畫",
     description: "計畫預覽、影響範圍、審核、執行批次、驗證和復原入口。",
     resourceName: "部署計畫",
@@ -2589,6 +2620,34 @@ export default {
     }
   },
   assets: {
+    userView: {
+      stepLabel: 'Step 2 of 3 · Application',
+      title: 'Connect an application',
+      description: 'Add the application that should receive the certificate. Technical deployment details stay hidden unless the selected target requires them.',
+      addAction: 'Add application',
+      listTitle: 'Connected applications',
+      listDescription: 'These applications can be selected in the deployment step.',
+      continueToDeployment: 'Continue to deployment',
+      loadFailed: 'Failed to load applications',
+      emptyTitle: 'No application connected yet',
+      emptyDescription: 'Add an application so a certificate can be deployed to it.',
+      deploymentLocation: 'Deployment location',
+      targetPending: 'Deployment location pending',
+      form: {
+        eyebrow: 'Simple setup',
+        title: 'Add the application to update',
+        description: 'Provide the application address and choose where GCAC should deploy the certificate.',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: 'Where should it be updated?',
+        locationDescription: 'Choose the existing device, service, and deployment target. The underlying binding logic remains unchanged.',
+        device: 'Device',
+        service: 'Service',
+        site: 'Site',
+        target: 'Deployment target',
+        certificateFormat: 'Certificate format'
+      }
+    },
     title: "應用資產",
     description: "以域名或 IP 為主物件管理應用入口，聚焦位址、埠、協議、站點與執行定位。",
     resourceName: "應用資產",
@@ -2933,6 +2992,84 @@ export default {
     errors: {
       requestFailed: "請求失敗"
     },
+    banners: {
+      importSucceeded: "證書已匯入，新證書版本 ID：{id}"
+    },
+    views: {
+      eyebrow: "頁面模式",
+      switchLabel: "證書頁面視圖切換",
+      modes: {
+        user: "使用者視圖",
+        professional: "專業視圖"
+      },
+      descriptions: {
+        user: "只保留匯入證書、接入應用與設定自動更新這條常見流程。",
+        professional: "展示證書版本、鏈狀態與完整技術細節。"
+      }
+    },
+    userView: {
+      hero: {
+        eyebrow: "常見流程",
+        title: "依業務流程處理證書更新",
+        description: "先匯入或替換證書，再接入應用，最後設定自動更新計畫。大多數日常操作不需要看底層技術細節。",
+        primaryAction: "匯入或替換證書",
+        secondaryAction: "切到專業視圖"
+      },
+      summary: {
+        ariaLabel: "證書使用者視圖總覽",
+        managedCertificates: "已管理證書",
+        expiredCertificates: "已過期證書",
+        expiringSoonCertificates: "即將到期證書",
+        connectedApplications: "已接入應用",
+        activeAutomationPlans: "啟用中的自動計畫"
+      },
+      steps: {
+        title: "常用流程",
+        description: "照這個順序處理，大多數證書更新不需要關注技術細節。",
+        status: {
+          done: "已完成",
+          todo: "待處理"
+        },
+        import: {
+          title: "匯入或替換證書",
+          description: "把新的證書材料匯入系統，後續的應用接入與更新計畫都會基於這裡的證書繼續。",
+          helperCompleted: "目前已管理 {count} 個證書網域，可以繼續替換或補充證書版本。",
+          helperEmpty: "先匯入目前證書，後面的應用接入與自動計畫才能繼續。",
+          action: "開始匯入"
+        },
+        applications: {
+          title: "新增應用",
+          description: "告訴系統這張證書要給哪個應用或站點使用，部署時才知道要更新哪裡。",
+          helperCompleted: "目前已有 {count} 個應用接入證書流程。",
+          helperEmpty: "還沒有應用接入，匯入證書後建議馬上補上這一步。",
+          action: "去新增應用"
+        },
+        automations: {
+          title: "設定自動更新計畫",
+          description: "把證書更新安排成自動執行，避免每次到期前都要手動處理。",
+          helperCompleted: "目前已有 {count} 個啟用中的自動計畫。",
+          helperEmpty: "還沒有啟用中的自動計畫，建議在業務低峰時補上。",
+          action: "去設定計畫"
+        }
+      },
+      common: {
+        notAvailable: "暫不可用",
+        permissionRequired: "目前帳號沒有對應權限，請聯絡管理員。"
+      },
+      focus: {
+        currentSelectionTitle: "目前關注的證書",
+        currentSelectionDescription: "切到專業視圖後，可以查看版本、簽發者與完整鏈路細節。",
+        currentSelectionEmpty: "還沒有選中證書網域",
+        currentSelectionHint: "先從下方待處理清單進入專業視圖，或直接切到專業視圖瀏覽全部證書。",
+        validUntil: "到期時間：{value}",
+        openProfessional: "打開專業視圖",
+        attentionTitle: "優先處理",
+        attentionDescription: "先處理已過期或即將到期的證書，再補應用接入與自動計畫。",
+        assetAction: "查看專業詳情",
+        emptyTitle: "目前沒有緊急證書",
+        emptyDescription: "所有已匯入證書暫時都還在有效期內。"
+      }
+    },
     detail: {
       backList: "返回列表",
       description: "展示憑證版本詳情、格式產物和關聯資產。",
@@ -2984,6 +3121,8 @@ export default {
         deployable: "可部署",
         leafStorageRef: "葉子憑證引用",
         chainCertificateCount: "鏈憑證數量",
+        trustRootCertificate: "目標根憑證",
+        trustRootStatus: "根憑證狀態",
         chainDiagnostics: "鏈診斷"
       },
       fallbacks: {
@@ -3007,6 +3146,9 @@ export default {
       separators: {
         diagnostic: "；",
         list: "，"
+      },
+      diagnostics: {
+        rootResolvedFromLibrary: "匯入材料未包含根憑證：{root}。平台根憑證庫已解析到該根憑證，部署時可補齊。"
       },
       chain: {
         roles: {
@@ -3191,6 +3333,7 @@ export default {
       },
       placeholders: {
         assetKeyword: "域名 / SAN / 指紋",
+        primaryDomain: "example.com",
         versionKeyword: "名稱 / 簽發者 / 使用者 / 版本 ID"
       },
       columns: {
@@ -3247,6 +3390,96 @@ export default {
       },
       import: {
         description: "目前僅支援 PEM + KEY 和 PFX；每次匯入都必須包含伺服器憑證、完整中間憑證鏈和私密金鑰。根憑證不是強制項，缺少時會顯示警告。私密金鑰僅儲存到系統 Secret 儲存，不會在 API 回應中返回。"
+      }
+    },
+    trustRoots: {
+      title: "根憑證管理",
+      description: "在目前頁面內查看根憑證庫、來源觀察記錄與葉子憑證關聯，不跳轉到獨立頁面。",
+      actions: {
+        open: "根憑證管理",
+        refresh: "重新整理",
+        expandVersions: "展開關聯版本",
+        collapseVersions: "收起關聯版本"
+      },
+      toolbar: {
+        title: "根憑證庫",
+        description: "目前已識別 {count} 個目標根視圖。"
+      },
+      summary: {
+        managedVersions: "目標根視圖",
+        resolvedVersions: "已取得根憑證",
+        missingVersions: "尚未取得根憑證",
+        invalidChainVersions: "憑證鏈無效",
+        targetRoot: "目標根指紋：{fingerprint}",
+        rootFingerprintUnavailable: "目前還無法確定目標根指紋",
+        relatedAssetCount: "關聯資產 {count} 個"
+      },
+      detail: {
+        subtitle: "展示根憑證基本資訊、來源觀察與葉子版本關聯。"
+      },
+      fields: {
+        fingerprintSha256: "SHA-256 指紋",
+        serialNumber: "序號",
+        subject: "主體",
+        issuer: "簽發者",
+        notBefore: "生效時間",
+        notAfter: "到期時間",
+        relatedAssets: "關聯憑證資產",
+        relatedVersions: "關聯憑證版本"
+      },
+      sections: {
+        observations: "來源觀察",
+        relatedAssets: "關聯憑證資產",
+        versionRelations: "葉子憑證關聯",
+        managedCertificates: "已納管憑證根狀態"
+      },
+      states: {
+        loadFailed: "根憑證列表載入失敗",
+        detailFailed: "根憑證詳情載入失敗",
+        assetLoadFailed: "關聯憑證資產載入失敗",
+        emptyTitle: "暫無根憑證記錄",
+        emptyDescription: "目前專案內尚未收錄根憑證，後續可再透過後端 API 匯入。",
+        unselectedTitle: "尚未選擇根憑證",
+        unselectedDescription: "請先在左側選擇一筆根憑證記錄。",
+        rootNotInLibrary: "目前根憑證尚未入庫，以下關聯資產與狀態來自已納管憑證根鏈的推斷結果。",
+        emptyObservations: "暫無來源觀察記錄",
+        emptyRelations: "暫無葉子憑證關聯",
+        emptyAssets: "目前根憑證尚未關聯任何憑證資產"
+      },
+      validationStatus: {
+        pending: "待驗證",
+        verified: "已驗證",
+        rejected: "已拒絕",
+        expired: "已過期"
+      },
+      sourceTypes: {
+        control_plane_node: "控制面 Node Root Store",
+        openssl: "控制面 OpenSSL 根庫",
+        windows: "控制面 Windows Root Store",
+        internet: "受控網際網路來源",
+        manual: "手動匯入",
+        managed_host_inspect: "受管宿主定向檢查"
+      },
+      observationStatus: {
+        candidate: "候選",
+        accepted: "已接受",
+        rejected: "已拒絕",
+        failed: "失敗"
+      },
+      relations: {
+        selected_root: "已選根憑證",
+        candidate: "候選根憑證"
+      },
+      resolutionStatus: {
+        resolved: "已解析",
+        ambiguous: "存在歧義",
+        missing: "缺失",
+        invalid: "無效"
+      },
+      rootStatus: {
+        resolved: "已取得根憑證",
+        missing: "尚未取得根憑證",
+        invalid_chain: "憑證鏈無效"
       }
     },
     usages: {
@@ -3827,6 +4060,7 @@ export default {
     }
   },
   monitoring: {
+    tls: monitoringTlsZhTW,
     actions: {
       add: "新增監控",
       probe: "檢測站點",
