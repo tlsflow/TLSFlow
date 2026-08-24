@@ -10,6 +10,7 @@ import { CertificateFormatExporter } from './application/certificate-format-expo
 import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
 import { createCertificateTestFixture } from './certificate-test-fixtures.js';
 import { generateJksKeystore } from './codecs/jks-keystore.js';
+import forge from 'node-forge';
 
 const DEFAULT_CERTIFICATE_FIXTURE = createCertificateTestFixture();
 const CERT_PEM = DEFAULT_CERTIFICATE_FIXTURE.pem;
@@ -303,15 +304,15 @@ describe('证书资产 API', () => {
 
 
 
-  it('格式能力声明对未接入的容器格式失败关闭', async () => {
+  it('格式能力声明准确区分宿主 PFX 导入和未实现的容器能力', async () => {
     const { app } = await createAuthorizedApp('user_formats');
     const capabilities = await app.inject({ method: 'GET', path: '/api/v1/certificate-formats/capabilities', headers: headers('user_formats') });
     assert.equal(capabilities.statusCode, 200);
     const formats = new Map((capabilities.body as any).formats.map((item: any) => [item.format, item]));
     assert.equal((formats.get('pem') as any).importSupported, true);
-    assert.equal((formats.get('pfx') as any).importSupported, false);
+    assert.equal((formats.get('pfx') as any).importSupported, true);
     assert.equal((formats.get('pfx') as any).exportSupported, false);
-    assert.equal((formats.get('pfx') as any).implementation, 'controlled_error');
+    assert.equal((formats.get('pfx') as any).implementation, 'node_crypto');
     assert.equal((formats.get('jks') as any).importSupported, true);
     assert.equal((formats.get('jks') as any).exportSupported, true);
     assert.equal((formats.get('jks') as any).implementation, 'node_crypto');
@@ -333,6 +334,34 @@ describe('证书资产 API', () => {
     });
     assert.ok([400, 422].includes(invalidJks.statusCode));
     assert.notEqual((invalidJks.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+  });
+
+  it('PFX 由宿主解析并保存证书链与私钥，错误密码不会创建半成品', async () => {
+    const fixture = createPfxFixture();
+    const { app } = await createAuthorizedApp('user_pfx');
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_pfx'),
+      body: { declaredFormat: 'pfx', pfxBase64: fixture.pfxBase64, pfxPassword: fixture.password },
+    });
+    assert.equal(imported.statusCode, 201, JSON.stringify(imported.body));
+    assert.equal((imported.body as any).diagnostics.sourceFormat, 'pfx');
+    assert.equal((imported.body as any).version.hasPrivateKey, true);
+    assert.equal(JSON.stringify(imported.body).includes(fixture.password), false);
+    assert.equal(JSON.stringify(imported.body).includes('BEGIN PRIVATE KEY'), false);
+
+    const { app: failedApp } = await createAuthorizedApp('user_pfx_bad_password');
+    const failed = await failedApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_pfx_bad_password'),
+      body: { declaredFormat: 'pfx', pfxBase64: fixture.pfxBase64, pfxPassword: 'wrong-password' },
+    });
+    assert.equal(failed.statusCode, 422, JSON.stringify(failed.body));
+    assert.equal((failed.body as any).errorCode, 'CERT_PARSE_FAILED');
+    const assets = await failedApp.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: headers('user_pfx_bad_password') });
+    assert.equal((assets.body as any).total, 0);
   });
 
   it('JKS 能导入证书和私钥，密码或 alias 错误不会创建半成品', async () => {
@@ -892,4 +921,14 @@ function createJksFixture(): { jksBase64: string; password: string; alias: strin
     .map((match) => Buffer.from(match[0].replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, ''), 'base64'));
   const jks = generateJksKeystore({ alias, password, privateKeyPem: chain.privateKeyPem, certificateDers });
   return { jksBase64: jks.toString('base64'), password, alias };
+}
+
+function createPfxFixture(): { pfxBase64: string; password: string } {
+  const chain = createPemChainFixture();
+  const password = 'pfx-test-password';
+  const privateKey = forge.pki.privateKeyFromPem(chain.privateKeyPem);
+  const certificates = [...chain.pem.matchAll(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g)]
+    .map((match) => forge.pki.certificateFromPem(match[0]));
+  const pfx = forge.pkcs12.toPkcs12Asn1(privateKey, certificates, password, { algorithm: 'aes256' });
+  return { pfxBase64: Buffer.from(forge.asn1.toDer(pfx).getBytes(), 'binary').toString('base64'), password };
 }

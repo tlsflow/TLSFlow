@@ -47,7 +47,7 @@ export class FormatCodecRegistry {
       return codec.format;
     }
     const matched = this.codecs.find((codec) => codec.detect(input));
-    if (!matched) throw new AppError('CERT_FORMAT_UNSUPPORTED', '无法识别证书格式；当前入口支持 PEM、DER、JKS', { supportedFormats: this.supportedFormats() });
+    if (!matched) throw new AppError('CERT_FORMAT_UNSUPPORTED', '无法识别证书格式；当前入口支持 PEM、DER、PFX、JKS', { supportedFormats: this.supportedFormats() });
     return matched.format;
   }
 

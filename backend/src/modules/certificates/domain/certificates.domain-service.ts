@@ -71,11 +71,11 @@ export class CertificatesDomainService {
         },
         {
           format: 'pfx',
-          importSupported: false,
+          importSupported: true,
           exportSupported: false,
           containsPrivateKey: 'required',
-          implementation: 'controlled_error',
-          limitations: ['宿主不解析 PKCS#12；必须由已批准的 Plugin Runner 插件处理，当前没有可用的生产插件。'],
+          implementation: 'node_crypto',
+          limitations: ['宿主在进程内解析 PFX/PKCS#12；必须提供密码、服务器证书、中间证书链和私钥。PFX 导出仍未实现。'],
         },
         {
           format: 'der',
