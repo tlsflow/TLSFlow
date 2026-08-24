@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import type { ApiRecord } from '@/api/modules/common'
+import { listAgents } from '@/api/modules/assets.api'
+import { approveAgentPluginPermissions, createAgentPluginMount, enableAgentPluginPackage, listAgentPluginPackages, listPluginCatalog, validateAgentPluginMount } from '@/api/modules/plugins.api'
 import { createWorkflowTemplateFromFile, listWorkflowFileTemplates, listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
 import { GcEmptyState, GcModal } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -10,6 +12,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 type PluginSource = 'builtin' | 'user'
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
+type PluginCatalogType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT'
 
 interface PluginMetadata {
   name: string
@@ -37,6 +40,10 @@ interface PluginRecord {
   rollbackCount: number
   used: boolean
   error?: string
+  catalogType: PluginCatalogType
+  pluginPackageId?: string
+  workflowFileTemplateId?: string
+  status: string
 }
 
 const { t } = useI18n()
@@ -52,6 +59,12 @@ const detailOpen = ref(false)
 const creatingPluginId = ref('')
 const createError = ref('')
 const failedLogos = ref(new Set<string>())
+const agents = ref<ApiRecord[]>([])
+const mountAgentId = ref('')
+const mountingPluginId = ref('')
+const activatingPluginId = ref('')
+const mountError = ref('')
+const agentPackages = ref<ApiRecord[]>([])
 
 const sourceOptions = computed(() => [
   { value: 'all' as const, label: t('plugins.filters.allSources') },
@@ -97,12 +110,18 @@ async function loadPlugins(): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    const [fileResult, workflowResult] = await Promise.all([
+    const [fileResult, workflowResult, catalogResult, agentResult, packageResult] = await Promise.all([
       listWorkflowFileTemplates(),
       listWorkflowTemplates({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
+      listPluginCatalog({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
+      listAgents({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
+      listAgentPluginPackages({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
     ])
     const usedPluginNames = new Set((workflowResult.data?.items ?? []).map((item) => readString(item.name)).filter(Boolean))
-    plugins.value = (fileResult.data?.items ?? []).map((item) => toPluginRecord(item, usedPluginNames))
+    const workflowFiles = new Map((fileResult.data?.items ?? []).map((item) => [readString(item.id), item]))
+    plugins.value = (catalogResult.data?.items ?? []).map((item) => toCatalogPluginRecord(item, usedPluginNames, workflowFiles))
+    agents.value = [...(agentResult.data?.items ?? [])]
+    agentPackages.value = [...(packageResult.data?.items ?? [])]
   } catch (cause) {
     plugins.value = []
     loadError.value = cause instanceof Error ? cause.message : t('plugins.errors.loadFailed')
@@ -137,6 +156,43 @@ function toPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>)
     rollbackCount: readNumber(record.rollbackCount),
     used: usedPluginNames.has(readString(metadata.name)),
     error: readOptionalString(record.error),
+    catalogType: 'WORKFLOW_TEMPLATE',
+    workflowFileTemplateId: readString(record.id),
+    status: record.valid === true ? 'valid' : 'invalid',
+  }
+}
+
+function toCatalogPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>, workflowFiles: ReadonlyMap<string, ApiRecord>): PluginRecord {
+  const detailRef = readRecord(record.detailRef)
+  const catalogType = record.catalogType === 'AGENT_DEPLOYMENT' ? 'AGENT_DEPLOYMENT' : 'WORKFLOW_TEMPLATE'
+  const workflowFileTemplateId = readOptionalString(detailRef.workflowFileTemplateId)
+  if (catalogType === 'WORKFLOW_TEMPLATE' && workflowFileTemplateId) {
+    const source = workflowFiles.get(workflowFileTemplateId)
+    if (source) return { ...toPluginRecord(source, usedPluginNames), id: readString(record.id, workflowFileTemplateId), workflowFileTemplateId }
+  }
+  return {
+    id: readString(record.id),
+    source: record.source === 'USER' ? 'user' : 'builtin',
+    fileName: '',
+    relativePath: '',
+    valid: !['INVALID', 'DISABLED', 'REJECTED'].includes(readString(record.status).toUpperCase()),
+    updatedAt: readString(record.updatedAt),
+    metadata: {
+      name: readString(record.name),
+      displayName: readOptionalString(record.displayName),
+      description: readOptionalString(record.description),
+      tags: readStringArray(record.tags),
+      version: readOptionalString(record.version),
+      platforms: readStringArray(record.platforms),
+      updateMethods: [],
+    },
+    stepCount: 0,
+    rollbackCount: 0,
+    used: false,
+    catalogType,
+    pluginPackageId: readOptionalString(detailRef.pluginPackageId),
+    workflowFileTemplateId,
+    status: readString(record.status),
   }
 }
 
@@ -199,12 +255,12 @@ function openDetail(plugin: PluginRecord): void {
 }
 
 async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
-  if (!plugin.valid || creatingPluginId.value) return
+  if (!plugin.valid || creatingPluginId.value || !plugin.workflowFileTemplateId) return
   creatingPluginId.value = plugin.id
   createError.value = ''
   try {
     await createWorkflowTemplateFromFile({
-      fileTemplateId: plugin.id,
+      fileTemplateId: plugin.workflowFileTemplateId,
       changeSummary: t('plugins.changeSummaries.createWorkflow'),
     })
     detailOpen.value = false
@@ -214,6 +270,58 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
   } finally {
     creatingPluginId.value = ''
   }
+}
+
+
+function openAgentMount(plugin: PluginRecord): void {
+  selectedPlugin.value = plugin
+  mountAgentId.value = ''
+  mountError.value = ''
+  detailOpen.value = true
+}
+
+async function mountAgentPlugin(plugin: PluginRecord): Promise<void> {
+  if (!plugin.pluginPackageId || !mountAgentId.value || mountingPluginId.value) return
+  mountingPluginId.value = plugin.id
+  mountError.value = ''
+  try {
+    await validateAgentPluginMount(mountAgentId.value, plugin.pluginPackageId)
+    await createAgentPluginMount(mountAgentId.value, plugin.pluginPackageId)
+    detailOpen.value = false
+    await loadPlugins()
+  } catch (cause) {
+    mountError.value = cause instanceof Error ? cause.message : t('plugins.agentDeployment.mountFailed')
+  } finally {
+    mountingPluginId.value = ''
+  }
+}
+
+async function activateAgentPlugin(plugin: PluginRecord): Promise<void> {
+  if (!plugin.pluginPackageId || activatingPluginId.value) return
+  const record = agentPackages.value.find((item) => String(item.id ?? '') === plugin.pluginPackageId)
+  const permissions = Array.isArray(readNestedRecord(record, ['manifest', 'permissions']))
+    ? (readNestedRecord(record, ['manifest', 'permissions']) as unknown[]).map((item) => readString(readRecord(item).name)).filter(Boolean)
+    : []
+  activatingPluginId.value = plugin.id
+  mountError.value = ''
+  try {
+    await approveAgentPluginPermissions(plugin.pluginPackageId, permissions)
+    await enableAgentPluginPackage(plugin.pluginPackageId)
+    await loadPlugins()
+  } catch (cause) {
+    mountError.value = cause instanceof Error ? cause.message : t('plugins.agentDeployment.activateFailed')
+  } finally {
+    activatingPluginId.value = ''
+  }
+}
+
+function readNestedRecord(value: unknown, path: string[]): unknown {
+  return path.reduce<unknown>((current, key) => readRecord(current)[key], value)
+}
+
+function agentLabel(agent: ApiRecord): string {
+  const descriptor = readRecord(agent.descriptor)
+  return readString(agent.displayName, readString(descriptor.hostname, readString(agent.id)))
 }
 </script>
 
@@ -266,6 +374,7 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
             <span v-else aria-hidden="true">{{ pluginInitial(plugin) }}</span>
           </div>
           <div class="plugin-card__badges">
+            <span class="plugin-source">{{ t(`plugins.agentDeployment.types.${plugin.catalogType}`) }}</span>
             <span class="plugin-source" :class="`plugin-source--${plugin.source}`">{{ t(`plugins.sources.${plugin.source}`) }}</span>
             <span class="plugin-state" :class="plugin.used ? 'plugin-state--using' : plugin.valid ? 'plugin-state--available' : 'plugin-state--invalid'">
               {{ plugin.used ? t('plugins.statuses.inUse') : plugin.valid ? t('plugins.statuses.available') : t('plugins.statuses.invalid') }}
@@ -295,9 +404,9 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
               class="gc-button gc-button--primary"
               type="button"
               :disabled="!plugin.valid || Boolean(creatingPluginId)"
-              @click="createWorkflowFromPlugin(plugin)"
+              @click="plugin.catalogType === 'AGENT_DEPLOYMENT' ? openAgentMount(plugin) : createWorkflowFromPlugin(plugin)"
             >
-              {{ creatingPluginId === plugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.create') }}
+              {{ plugin.catalogType === 'AGENT_DEPLOYMENT' ? t('plugins.agentDeployment.mount') : creatingPluginId === plugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.create') }}
             </button>
           </div>
         </footer>
@@ -336,6 +445,7 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
 
         <dl class="plugin-detail__facts">
           <div><dt>{{ t('plugins.fields.pluginId') }}</dt><dd>{{ selectedPlugin.metadata.name }}</dd></div>
+          <div><dt>{{ t('plugins.agentDeployment.type') }}</dt><dd>{{ t(`plugins.agentDeployment.types.${selectedPlugin.catalogType}`) }}</dd></div>
           <div><dt>{{ t('plugins.fields.version') }}</dt><dd>{{ pluginVersion(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.source') }}</dt><dd>{{ t(`plugins.sources.${selectedPlugin.source}`) }}</dd></div>
           <div><dt>{{ t('plugins.fields.category') }}</dt><dd>{{ selectedPlugin.metadata.category ?? '—' }}</dd></div>
@@ -352,17 +462,36 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
           <div v-if="selectedPlugin.error" class="plugin-detail__fact-wide plugin-detail__error"><dt>{{ t('plugins.fields.validationError') }}</dt><dd>{{ selectedPlugin.error }}</dd></div>
         </dl>
         <p v-if="createError" class="market-error">{{ createError }}</p>
+        <div v-if="selectedPlugin.catalogType === 'AGENT_DEPLOYMENT'" class="plugin-mount-form">
+          <label>
+            <span>{{ t('plugins.agentDeployment.targetAgent') }}</span>
+            <select v-model="mountAgentId">
+              <option value="">{{ t('plugins.agentDeployment.selectAgent') }}</option>
+              <option v-for="agent in agents" :key="String(agent.id)" :value="String(agent.id)">{{ agentLabel(agent) }}</option>
+            </select>
+          </label>
+          <p v-if="mountError" class="market-error">{{ mountError }}</p>
+        </div>
       </section>
 
       <template #actions>
         <button
-          v-if="selectedPlugin"
+          v-if="selectedPlugin && selectedPlugin.catalogType === 'WORKFLOW_TEMPLATE'"
           class="gc-button gc-button--primary"
           type="button"
           :disabled="!selectedPlugin.valid || Boolean(creatingPluginId)"
           @click="createWorkflowFromPlugin(selectedPlugin)"
         >
           {{ creatingPluginId === selectedPlugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.createWorkflow') }}
+        </button>
+        <button
+          v-if="selectedPlugin && selectedPlugin.catalogType === 'AGENT_DEPLOYMENT'"
+          class="gc-button gc-button--primary"
+          type="button"
+          :disabled="selectedPlugin.status === 'enabled' ? !mountAgentId || Boolean(mountingPluginId) : Boolean(activatingPluginId)"
+          @click="selectedPlugin.status === 'enabled' ? mountAgentPlugin(selectedPlugin) : activateAgentPlugin(selectedPlugin)"
+        >
+          {{ selectedPlugin.status === 'enabled' ? (mountingPluginId === selectedPlugin.id ? t('plugins.agentDeployment.mounting') : t('plugins.agentDeployment.mount')) : (activatingPluginId === selectedPlugin.id ? t('plugins.agentDeployment.activating') : t('plugins.agentDeployment.approveAndEnable')) }}
         </button>
         <button class="gc-button" type="button" @click="detailOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
       </template>
@@ -374,6 +503,26 @@ async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
 .plugins-page {
   display: grid;
   gap: var(--gc-space-5);
+}
+
+.plugin-mount-form {
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.plugin-mount-form label {
+  display: grid;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+}
+
+.plugin-mount-form select {
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-3);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
 }
 
 .market-hero__eyebrow {

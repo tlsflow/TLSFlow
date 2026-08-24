@@ -815,6 +815,13 @@ export default {
       loadFailed: 'Failed to load the plugin market',
       createFailed: 'Failed to create a workflow from the plugin'
     },
+    agentDeployment: {
+      mount: 'Mount to Agent', mounting: 'Mounting...', selectAgent: 'Select target Agent', type: 'Plugin type', targetAgent: 'Target Agent', mountFailed: 'Failed to mount Agent plugin',
+      executionMode: 'Agent execution mode', nativeHandler: 'Native handler', pluginMode: 'Agent plugin', mountedPlugin: 'Mounted plugin', selectMountedPlugin: 'Select a mounted plugin',
+      secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
+      approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin',
+      types: { WORKFLOW_TEMPLATE: 'Workflow template', AGENT_DEPLOYMENT: 'Agent deployment plugin' }
+    },
     changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
   },
   deploymentPlans: {

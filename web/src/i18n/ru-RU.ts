@@ -748,6 +748,13 @@ export default {
     },
     aria: { filters: 'Фильтры каталога плагинов', list: 'Список DSL-плагинов', logo: 'Логотип {name}' },
     errors: { loadFailed: 'Не удалось загрузить каталог плагинов', createFailed: 'Не удалось создать процесс из плагина' },
+    agentDeployment: {
+      mount: 'Подключить к Agent', mounting: 'Подключение...', selectAgent: 'Выберите целевой Agent', type: 'Тип плагина', targetAgent: 'Целевой Agent', mountFailed: 'Не удалось подключить плагин Agent',
+      executionMode: 'Режим выполнения Agent', nativeHandler: 'Встроенный обработчик', pluginMode: 'Плагин Agent', mountedPlugin: 'Подключенный плагин', selectMountedPlugin: 'Выберите подключенный плагин',
+      secretRefPlaceholder: 'Введите идентификатор SecretRef', artifactBinding: 'Артефакт сертификата {name}', artifactBindingPlaceholder: 'Пример: value=fullchain,key=private', preview: 'Проверить настройки', previewFailed: 'Не удалось проверить настройки плагина Agent',
+      approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent',
+      types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', AGENT_DEPLOYMENT: 'Плагин развертывания Agent' }
+    },
     changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
   },
   deploymentPlans: {

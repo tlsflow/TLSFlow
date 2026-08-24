@@ -748,6 +748,13 @@ export default {
     },
     aria: { filters: '플러그인 마켓 필터', list: 'DSL 플러그인 목록', logo: '{name} Logo' },
     errors: { loadFailed: '플러그인 마켓을 불러오지 못했습니다', createFailed: '플러그인에서 워크플로를 만들지 못했습니다' },
+    agentDeployment: {
+      mount: 'Agent에 마운트', mounting: '마운트 중...', selectAgent: '대상 Agent 선택', type: '플러그인 유형', targetAgent: '대상 Agent', mountFailed: 'Agent 플러그인을 마운트하지 못했습니다',
+      executionMode: 'Agent 실행 모드', nativeHandler: '기본 핸들러', pluginMode: 'Agent 플러그인', mountedPlugin: '마운트된 플러그인', selectMountedPlugin: '마운트된 플러그인 선택',
+      secretRefPlaceholder: 'SecretRef 식별자 입력', artifactBinding: '인증서 산출물 {name}', artifactBindingPlaceholder: '예: value=fullchain,key=private', preview: '플러그인 설정 검증', previewFailed: 'Agent 플러그인 설정 검증에 실패했습니다',
+      approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다',
+      types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', AGENT_DEPLOYMENT: 'Agent 배포 플러그인' }
+    },
     changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
   },
   deploymentPlans: {

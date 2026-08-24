@@ -159,6 +159,15 @@ export function createWindowsPowerShellInstallSession(payload: ApiBody) {
   )
 }
 
+export function createWindowsCompatibilityInstallSession(payload: ApiBody) {
+  return postAction(
+    `${AGENTS_PATH}/install-sessions/windows-compatibility`,
+    payload,
+    'agent_windows_compatibility_install',
+    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
+  )
+}
+
 export function createGatewayEnableSession(payload: ApiBody) {
   return postAction(
     `${AGENTS_PATH}/gateway-enable-sessions`,

@@ -748,6 +748,13 @@ export default {
     },
     aria: { filters: 'Filtros do mercado de plugins', list: 'Lista de plugins DSL', logo: 'Logo de {name}' },
     errors: { loadFailed: 'Falha ao carregar o mercado de plugins', createFailed: 'Falha ao criar o fluxo a partir do plugin' },
+    agentDeployment: {
+      mount: 'Montar no Agent', mounting: 'Montando...', selectAgent: 'Selecione o Agent de destino', type: 'Tipo de plugin', targetAgent: 'Agent de destino', mountFailed: 'Falha ao montar o plugin do Agent',
+      executionMode: 'Modo de execução do Agent', nativeHandler: 'Manipulador nativo', pluginMode: 'Plugin do Agent', mountedPlugin: 'Plugin montado', selectMountedPlugin: 'Selecione um plugin montado',
+      secretRefPlaceholder: 'Informe um identificador SecretRef', artifactBinding: 'Artefato de certificado {name}', artifactBindingPlaceholder: 'Exemplo: value=fullchain,key=private', preview: 'Validar configuração', previewFailed: 'Falha ao validar a configuração do plugin do Agent',
+      approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent',
+      types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', AGENT_DEPLOYMENT: 'Plugin de implantação do Agent' }
+    },
     changeSummaries: { createWorkflow: 'Criar fluxo a partir do modelo do mercado de plugins' }
   },
   deploymentPlans: {

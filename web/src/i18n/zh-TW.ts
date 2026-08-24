@@ -774,6 +774,13 @@ export default {
     },
     aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },
     errors: { loadFailed: "外掛市場載入失敗", createFailed: "依外掛建立工作流程失敗" },
+    agentDeployment: {
+      mount: '掛載到 Agent', mounting: '掛載中...', selectAgent: '請選擇目標 Agent', type: '外掛類型', targetAgent: '目標 Agent', mountFailed: 'Agent 外掛掛載失敗',
+      executionMode: 'Agent 執行模式', nativeHandler: '原生處理器', pluginMode: 'Agent 外掛', mountedPlugin: '已掛載外掛', selectMountedPlugin: '請選擇已掛載外掛',
+      secretRefPlaceholder: '輸入 SecretRef 識別碼', artifactBinding: '憑證產物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '驗證外掛設定', previewFailed: 'Agent 外掛設定驗證失敗',
+      approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗',
+      types: { WORKFLOW_TEMPLATE: '工作流程範本', AGENT_DEPLOYMENT: 'Agent 部署外掛' }
+    },
     changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
   },
   deploymentPlans: {

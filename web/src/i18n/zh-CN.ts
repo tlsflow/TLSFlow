@@ -824,6 +824,13 @@ export default {
       loadFailed: '插件市场加载失败',
       createFailed: '基于插件创建工作流失败'
     },
+    agentDeployment: {
+      mount: '挂载到 Agent', mounting: '挂载中...', selectAgent: '请选择目标 Agent', type: '插件类型', targetAgent: '目标 Agent', mountFailed: 'Agent 插件挂载失败',
+      executionMode: 'Agent 执行模式', nativeHandler: '原生处理器', pluginMode: 'Agent 插件', mountedPlugin: '已挂载插件', selectMountedPlugin: '请选择已挂载插件',
+      secretRefPlaceholder: '输入 SecretRef 标识', artifactBinding: '证书产物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '校验插件配置', previewFailed: 'Agent 插件配置校验失败',
+      approveAndEnable: '审批权限并启用', activating: '启用中...', activateFailed: 'Agent 插件审批或启用失败',
+      types: { WORKFLOW_TEMPLATE: '工作流模板', AGENT_DEPLOYMENT: 'Agent 部署插件' }
+    },
     changeSummaries: {
       createWorkflow: '从插件市场模板创建工作流'
     }

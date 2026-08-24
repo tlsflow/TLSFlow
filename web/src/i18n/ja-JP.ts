@@ -774,6 +774,13 @@ export default {
     },
     aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },
     errors: { loadFailed: 'プラグインマーケットの読み込みに失敗しました', createFailed: 'プラグインからワークフローを作成できませんでした' },
+    agentDeployment: {
+      mount: 'Agent にマウント', mounting: 'マウント中...', selectAgent: '対象 Agent を選択', type: 'プラグイン種別', targetAgent: '対象 Agent', mountFailed: 'Agent プラグインのマウントに失敗しました',
+      executionMode: 'Agent 実行モード', nativeHandler: 'ネイティブハンドラー', pluginMode: 'Agent プラグイン', mountedPlugin: 'マウント済みプラグイン', selectMountedPlugin: 'マウント済みプラグインを選択',
+      secretRefPlaceholder: 'SecretRef 識別子を入力', artifactBinding: '証明書成果物 {name}', artifactBindingPlaceholder: '例: value=fullchain,key=private', preview: 'プラグイン設定を検証', previewFailed: 'Agent プラグイン設定の検証に失敗しました',
+      approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました',
+      types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', AGENT_DEPLOYMENT: 'Agent デプロイプラグイン' }
+    },
     changeSummaries: { createWorkflow: 'プラグインマーケットのテンプレートからワークフローを作成' }
   },
   deploymentPlans: {

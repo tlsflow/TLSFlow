@@ -8,6 +8,7 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
+import { listAgentPluginMounts, listAgentPluginPackages, previewAgentPluginBinding } from '@/api/modules/plugins.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
@@ -26,6 +27,7 @@ type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
 type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM'
 type AssetManagementMode = 'AGENT' | 'WORKFLOW'
+type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
@@ -39,6 +41,8 @@ interface AssetDraft {
   platform: AssetPlatform
   verifyUrl: string
   agentId: string
+  agentDeploymentMode: AgentDeploymentMode
+  agentPluginMountId: string
   frameworkType: FrameworkType
   siteAssetId: string
   managedTargetId: string
@@ -211,6 +215,12 @@ const gatewayListError = ref('')
 const workflowCredentialError = ref('')
 const certificateFormatError = ref('')
 const workflowCertificateArtifactBindings = ref<Record<string, WorkflowCertificateArtifactBinding>>({})
+const agentPluginMountItems = ref<ApiRecord[]>([])
+const agentPluginPackageItems = ref<ApiRecord[]>([])
+const agentPluginVariableBindings = ref<Record<string, string>>({})
+const agentPluginSecretBindings = ref<Record<string, string>>({})
+const agentPluginArtifactBindings = ref<Record<string, string>>({})
+const agentPluginPreviewError = ref('')
 let workflowVariableRowSeed = 1
 
 const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
@@ -247,6 +257,8 @@ const assetDraft = reactive<AssetDraft>({
   platform: 'LINUX',
   verifyUrl: '',
   agentId: '',
+  agentDeploymentMode: 'NATIVE_HANDLER',
+  agentPluginMountId: '',
   frameworkType: 'NGINX',
   siteAssetId: '',
   managedTargetId: '',
@@ -570,6 +582,9 @@ const commonStepReady = computed(() => {
 
 const agentStepReady = computed(() => {
   if (assetDraft.managementMode !== 'AGENT') return true
+  if (assetDraft.agentDeploymentMode === 'PLUGIN') {
+    return Boolean(assetDraft.agentId.trim() && assetDraft.agentPluginMountId.trim() && assetDraft.agentCertificateFormatId.trim())
+  }
   return Boolean(
     assetDraft.agentId.trim()
     && assetDraft.siteAssetId.trim()
@@ -577,6 +592,19 @@ const agentStepReady = computed(() => {
     && assetDraft.agentCertificateFormatId.trim(),
   )
 })
+
+const selectedAgentPluginMount = computed(() =>
+  agentPluginMountItems.value.find((item) => String(item.id ?? '') === assetDraft.agentPluginMountId) ?? null,
+)
+
+const selectedAgentPluginPackage = computed(() => {
+  const packageId = String(selectedAgentPluginMount.value?.pluginPackageId ?? '')
+  return agentPluginPackageItems.value.find((item) => String(item.id ?? '') === packageId) ?? null
+})
+
+const selectedAgentPluginManifest = computed(() => readRecord(selectedAgentPluginPackage.value?.manifest) ?? {})
+const selectedAgentPluginVariables = computed(() => Object.entries(readRecord(selectedAgentPluginManifest.value.variables) ?? {}))
+const selectedAgentPluginArtifacts = computed(() => Object.entries(readRecord(selectedAgentPluginManifest.value.artifactInputs) ?? {}))
 
 const workflowStepReady = computed(() => {
   if (assetDraft.managementMode !== 'WORKFLOW') return true
@@ -697,14 +725,19 @@ async function openEditDialog(row: ViewRow) {
   } else {
     assetDraft.managementMode = 'AGENT'
     assetDraft.agentId = String(readNested(deploymentStrategy, ['agent', 'agentId']) ?? assetDraft.agentId)
+    assetDraft.agentDeploymentMode = String(readNested(deploymentStrategy, ['agent', 'mode']) ?? 'NATIVE_HANDLER') as AgentDeploymentMode
+    assetDraft.agentPluginMountId = String(readNested(deploymentStrategy, ['agent', 'plugin', 'mountId']) ?? '')
     assetDraft.siteAssetId = String(readNested(deploymentStrategy, ['agent', 'siteAssetId']) ?? assetDraft.siteAssetId)
     assetDraft.managedTargetId = String(readNested(deploymentStrategy, ['agent', 'managedTargetId']) ?? assetDraft.managedTargetId)
     assetDraft.agentCertificateFormatId = String(readNested(deploymentStrategy, ['agent', 'certificateFormatId']) ?? '')
+    agentPluginVariableBindings.value = stringifyBindingValues(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'variableBindings'])) ?? {})
+    agentPluginSecretBindings.value = stringifyBindingValues(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'secretBindings'])) ?? {})
+    agentPluginArtifactBindings.value = stringifyArtifactBindings(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'certificateArtifactBindings'])) ?? {})
   }
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow(), loadAgentPlugins()])
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   if (selectedWorkflowVersion.value) syncWorkflowVariableRowsFromVersion()
 }
@@ -1082,6 +1115,8 @@ function resetDraft() {
   assetDraft.platform = 'LINUX'
   assetDraft.verifyUrl = ''
   assetDraft.agentId = ''
+  assetDraft.agentDeploymentMode = 'NATIVE_HANDLER'
+  assetDraft.agentPluginMountId = ''
   assetDraft.frameworkType = 'NGINX'
   assetDraft.siteAssetId = ''
   assetDraft.managedTargetId = ''
@@ -1117,6 +1152,12 @@ function resetDraft() {
   workflowCredentialError.value = ''
   certificateFormatError.value = ''
   workflowCertificateArtifactBindings.value = {}
+  agentPluginMountItems.value = []
+  agentPluginPackageItems.value = []
+  agentPluginVariableBindings.value = {}
+  agentPluginSecretBindings.value = {}
+  agentPluginArtifactBindings.value = {}
+  agentPluginPreviewError.value = ''
 }
 
 function splitCsv(value: string): string[] {
@@ -1175,9 +1216,29 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     }
   }
 
+  if (assetDraft.agentDeploymentMode === 'PLUGIN') {
+    const mount = selectedAgentPluginMount.value
+    return {
+      type: 'AGENT',
+      agent: {
+        mode: 'PLUGIN',
+        agentId: assetDraft.agentId.trim(),
+        certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
+        plugin: {
+          mountId: assetDraft.agentPluginMountId.trim(),
+          pluginPackageId: String(mount?.pluginPackageId ?? ''),
+          pluginVersionId: String(mount?.pluginVersionId ?? ''),
+          variableBindings: buildAgentPluginVariableBindings(),
+          secretBindings: buildAgentPluginSecretBindings(),
+          certificateArtifactBindings: buildAgentPluginCertificateBindings(),
+        },
+      },
+    }
+  }
   return {
     type: 'AGENT',
     agent: {
+      mode: 'NATIVE_HANDLER',
       agentId: assetDraft.agentId.trim(),
       siteAssetId: assetDraft.siteAssetId.trim(),
       managedTargetId: assetDraft.managedTargetId.trim(),
@@ -2278,7 +2339,17 @@ watch(
     assetDraft.managedTargetId = ''
     managedTargetItems.value = []
     fallbackManagedTargetItems.value = []
-    await refreshAssetTargets()
+    if (assetDraft.agentDeploymentMode === 'PLUGIN') await loadAgentPlugins()
+    else await refreshAssetTargets()
+  },
+)
+
+watch(() => assetDraft.agentPluginMountId, syncAgentPluginDefaults)
+
+watch(
+  () => assetDraft.agentDeploymentMode,
+  async (mode) => {
+    if (mode === 'PLUGIN' && assetDraft.agentId) await loadAgentPlugins()
   },
 )
 
@@ -2314,6 +2385,95 @@ watch(
     }
   },
 )
+
+async function loadAgentPlugins(): Promise<void> {
+  const [mountResult, packageResult] = await Promise.all([
+    listAgentPluginMounts({ page: 1, pageSize: 500, filters: { agentId: assetDraft.agentId } }),
+    listAgentPluginPackages({ page: 1, pageSize: 500 }),
+  ])
+  agentPluginMountItems.value = [...(mountResult.data?.items ?? [])]
+    .filter((item) => item.status === 'MOUNTED' && String(item.agentId ?? '') === assetDraft.agentId)
+  agentPluginPackageItems.value = [...(packageResult.data?.items ?? [])]
+}
+
+function syncAgentPluginDefaults(): void {
+  const variables = readRecord(selectedAgentPluginManifest.value.variables) ?? {}
+  const nextVariables: Record<string, string> = {}
+  const nextSecrets: Record<string, string> = {}
+  for (const [name, rawDefinition] of Object.entries(variables)) {
+    const definition = readRecord(rawDefinition) ?? {}
+    if (definition.sensitive === true || definition.type === 'credential') nextSecrets[name] = agentPluginSecretBindings.value[name] ?? ''
+    else nextVariables[name] = agentPluginVariableBindings.value[name] ?? formatPluginVariableValue(definition.default)
+  }
+  agentPluginVariableBindings.value = nextVariables
+  agentPluginSecretBindings.value = nextSecrets
+  agentPluginArtifactBindings.value = Object.fromEntries(selectedAgentPluginArtifacts.value.map(([name, rawDefinition]) => [
+    name,
+    agentPluginArtifactBindings.value[name] || `value=${defaultArtifactOutputKey(readRecord(rawDefinition)?.type)}`,
+  ]))
+}
+
+function buildAgentPluginVariableBindings(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(agentPluginVariableBindings.value).map(([name, value]) => {
+    const definition = readRecord(readRecord(selectedAgentPluginManifest.value.variables)?.[name]) ?? {}
+    if (definition.type === 'number') return [name, Number(value)]
+    if (definition.type === 'boolean') return [name, value === 'true']
+    if (definition.type === 'object') {
+      try { return [name, JSON.parse(value)] } catch { return [name, value] }
+    }
+    return [name, value]
+  }))
+}
+
+function buildAgentPluginSecretBindings(): Record<string, string> {
+  return Object.fromEntries(Object.entries(agentPluginSecretBindings.value).filter(([, value]) => value.trim()).map(([name, value]) => [name, value.trim()]))
+}
+
+function buildAgentPluginCertificateBindings(): Record<string, WorkflowCertificateArtifactBinding> {
+  return Object.fromEntries(Object.entries(agentPluginArtifactBindings.value).map(([name, value]) => [name, {
+    certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
+    outputBindings: parseArtifactOutputBindings(value),
+  }]))
+}
+
+function parseArtifactOutputBindings(value: string): Record<string, string> {
+  return Object.fromEntries(value.split(',').map((item) => item.split('=').map((part) => part.trim())).filter((parts) => parts.length === 2 && parts[0] && parts[1]).map(([slot, output]) => [slot!, output!]))
+}
+
+function defaultArtifactOutputKey(type: unknown): string {
+  if (type === 'private_key') return 'private'
+  if (type === 'certificate_chain') return 'chain'
+  if (type === 'certificate') return 'fullchain'
+  return 'bundle'
+}
+
+function formatPluginVariableValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
+
+function stringifyBindingValues(value: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, formatPluginVariableValue(item)]))
+}
+
+function stringifyArtifactBindings(value: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(Object.entries(value).map(([name, item]) => {
+    const outputs = readRecord(readRecord(item)?.outputBindings) ?? {}
+    return [name, Object.entries(outputs).map(([slot, output]) => `${slot}=${String(output)}`).join(', ')]
+  }))
+}
+
+async function previewSelectedAgentPlugin(): Promise<void> {
+  const strategy = buildDeploymentStrategyPayload()
+  const plugin = readRecord(readRecord(strategy.agent)?.plugin)
+  if (!plugin) return
+  agentPluginPreviewError.value = ''
+  try {
+    await previewAgentPluginBinding(assetDraft.agentId, plugin)
+  } catch (cause) {
+    agentPluginPreviewError.value = cause instanceof Error ? cause.message : t('plugins.agentDeployment.previewFailed')
+  }
+}
 </script>
 
 <template>
@@ -2638,6 +2798,13 @@ watch(
           <template v-if="assetDraft.managementMode === 'AGENT'">
             <div class="asset-form__grid">
               <label class="asset-form__field">
+                <span>{{ t('plugins.agentDeployment.executionMode') }} <strong>*</strong></span>
+                <select v-model="assetDraft.agentDeploymentMode">
+                  <option value="NATIVE_HANDLER">{{ t('plugins.agentDeployment.nativeHandler') }}</option>
+                  <option value="PLUGIN">{{ t('plugins.agentDeployment.pluginMode') }}</option>
+                </select>
+              </label>
+              <label v-if="assetDraft.agentDeploymentMode === 'NATIVE_HANDLER'" class="asset-form__field">
                 <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.frameworkType || '—' }}</div>
                 <select v-else v-model="assetDraft.frameworkType">
@@ -2646,7 +2813,7 @@ watch(
                   </option>
                 </select>
               </label>
-              <label class="asset-form__field">
+              <label v-if="assetDraft.agentDeploymentMode === 'NATIVE_HANDLER'" class="asset-form__field">
                 <span>Agent <strong>*</strong></span>
                 <div v-if="isEditMode" class="asset-form__readonly">{{ editAgentLabel }}</div>
                 <select v-else v-model="assetDraft.agentId" :disabled="agentListLoading">
@@ -2686,6 +2853,35 @@ watch(
                 </select>
                 <small>{{ t('assets.form.agentCertificateFormatHint') }}</small>
               </label>
+              <label v-if="assetDraft.agentDeploymentMode === 'PLUGIN'" class="asset-form__field">
+                <span>{{ t('plugins.agentDeployment.mountedPlugin') }} <strong>*</strong></span>
+                <select v-model="assetDraft.agentPluginMountId" :disabled="!assetDraft.agentId">
+                  <option value="">{{ t('plugins.agentDeployment.selectMountedPlugin') }}</option>
+                  <option v-for="mount in agentPluginMountItems" :key="String(mount.id)" :value="String(mount.id)">
+                    {{ String(readNested(mount, ['compatibilitySnapshot', 'pluginName']) ?? mount.pluginPackageId ?? mount.id) }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div v-if="assetDraft.agentDeploymentMode === 'PLUGIN' && selectedAgentPluginPackage" class="asset-form__grid">
+              <label v-for="([name, rawDefinition]) in selectedAgentPluginVariables" :key="name" class="asset-form__field">
+                <span>{{ name }} <strong v-if="readRecord(rawDefinition)?.required">*</strong></span>
+                <select v-if="Array.isArray(readRecord(rawDefinition)?.enum)" v-model="agentPluginVariableBindings[name]">
+                  <option v-for="option in readRecord(rawDefinition)?.enum as unknown[]" :key="String(option)" :value="String(option)">{{ String(option) }}</option>
+                </select>
+                <select v-else-if="readRecord(rawDefinition)?.type === 'boolean'" v-model="agentPluginVariableBindings[name]">
+                  <option value="true">true</option><option value="false">false</option>
+                </select>
+                <input v-else-if="readRecord(rawDefinition)?.sensitive !== true && readRecord(rawDefinition)?.type !== 'credential'" v-model="agentPluginVariableBindings[name]" type="text">
+                <input v-else v-model="agentPluginSecretBindings[name]" type="text" :placeholder="t('plugins.agentDeployment.secretRefPlaceholder')">
+                <small>{{ String(readRecord(rawDefinition)?.description ?? '') }}</small>
+              </label>
+              <label v-for="([name]) in selectedAgentPluginArtifacts" :key="name" class="asset-form__field">
+                <span>{{ t('plugins.agentDeployment.artifactBinding', { name }) }}</span>
+                <input v-model="agentPluginArtifactBindings[name]" type="text" :placeholder="t('plugins.agentDeployment.artifactBindingPlaceholder')">
+              </label>
+              <button class="gc-button" type="button" @click="previewSelectedAgentPlugin">{{ t('plugins.agentDeployment.preview') }}</button>
+              <p v-if="agentPluginPreviewError" class="asset-form__error">{{ agentPluginPreviewError }}</p>
             </div>
             <div class="asset-form__binding-summary">
               <div>
