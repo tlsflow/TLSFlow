@@ -32,6 +32,11 @@ import type { WorkflowTemplatesApplicationService } from '../../workflow-templat
 import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
+import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
+import {
+  getDeploymentStrategyPluginBindingId,
+  validateDeploymentStrategyPluginBinding,
+} from '../../assets/application/deployment-strategy.service.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -80,6 +85,7 @@ export interface DeploymentPlansApplicationDependencies {
   deviceAssets?: DeviceAssetsRepository;
   managedTargetContextResolver?: ManagedTargetContextResolver;
   workflows?: WorkflowTemplatesApplicationService;
+  pluginBindings?: PluginBindingsApplicationService;
 }
 
 export class DeploymentPlansApplicationService {
@@ -98,6 +104,7 @@ export class DeploymentPlansApplicationService {
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
   private readonly workflows?: WorkflowTemplatesApplicationService;
+  private readonly pluginBindings?: PluginBindingsApplicationService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -119,6 +126,7 @@ export class DeploymentPlansApplicationService {
     this.managedTargetContextResolver = dependencies.managedTargetContextResolver
       ?? (dependencies.deviceAssets ? new ManagedTargetContextResolver(this.assets, this.agents, dependencies.deviceAssets) : undefined);
     this.workflows = dependencies.workflows;
+    this.pluginBindings = dependencies.pluginBindings;
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -503,7 +511,10 @@ export class DeploymentPlansApplicationService {
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
-    const strategyAsset = applicationAssetDetail ?? applicationAsset;
+    const strategyAsset = await this.validateStrategyPluginBinding(
+      input.tenantId,
+      applicationAssetDetail ?? applicationAsset,
+    );
     const strategyCertificateFormatId = strategyAsset.deploymentStrategy?.type === 'AGENT'
       ? strategyAsset.deploymentStrategy.agent?.certificateFormatId
       : strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
@@ -554,6 +565,24 @@ export class DeploymentPlansApplicationService {
       actorId: input.actorId,
       tenantId: input.tenantId,
     };
+  }
+
+  private async validateStrategyPluginBinding(tenantId: string, asset: ServiceAssetDto): Promise<ServiceAssetDto> {
+    const strategy = asset.deploymentStrategy;
+    if (!strategy) return asset;
+    const pluginBindingId = getDeploymentStrategyPluginBindingId(strategy);
+    if (!pluginBindingId) return asset;
+    if (!this.pluginBindings) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'PluginBinding 服务未接入，不能创建统一插件部署计划', {
+        code: 'PLUGIN_BINDING_VALIDATOR_MISSING',
+        pluginBindingId,
+      });
+    }
+    const binding = await this.pluginBindings.getBinding(pluginBindingId);
+    if (!binding || binding.tenantId !== tenantId) {
+      throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
+    }
+    return { ...asset, deploymentStrategy: validateDeploymentStrategyPluginBinding(strategy, binding) };
   }
 
   private async resolveManagedTargetContext(tenantId: string, managedTargetId?: string) {

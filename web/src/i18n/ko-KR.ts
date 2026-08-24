@@ -2345,6 +2345,7 @@ export default {
       verifyUrl: 'URL 인증',
       platform: '플랫폼',
       frameworkType: '프레임 형식',
+      deploymentStrategyCompatibility: '배포 전략 호환 모드',
       serviceInstanceId: '서비스 인스턴스 ID',
       siteId: '사이트 ID',
       managedTargetId: '관리 대상대상 ID',
@@ -2419,6 +2420,11 @@ export default {
           description: '배포 전후와 후퇴 후의 현장 상태는 반드시 직접 볼 수 있어야 하며, 임무기록만 남겨둬서는 안 된다.'
         }
       }
+    },
+    compatibilityModes: {
+      unified: '통합 플러그인 바인딩',
+      legacy: '레거시 호환',
+      legacyAdapted: '통합 바인딩과 레거시 설정 이중 읽기'
     },
     managementModes: {
       agent: 'Agent 모드',

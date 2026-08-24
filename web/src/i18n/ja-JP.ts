@@ -2371,6 +2371,7 @@ export default {
       verifyUrl: '検証 URL',
       platform: 'プラットフォーム',
       frameworkType: 'フレームワークタイプ',
+      deploymentStrategyCompatibility: 'デプロイ戦略の互換モード',
       serviceInstanceId: 'サービスインスタンス ID',
       siteId: 'サイト ID',
       managedTargetId: '管理対象ターゲット ID',
@@ -2445,6 +2446,11 @@ export default {
           description: 'デプロイ前後とロールバック後の現場状態を直接確認できる必要があります。タスク記録だけを残してはいけません。'
         }
       }
+    },
+    compatibilityModes: {
+      unified: '統一プラグインバインド',
+      legacy: 'レガシー互換',
+      legacyAdapted: '統一バインドとレガシー設定の二重読み取り'
     },
     managementModes: {
       agent: 'Agent モード',

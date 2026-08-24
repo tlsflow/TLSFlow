@@ -286,6 +286,7 @@ const config = computed<BusinessPageConfig>(() => ({
     { label: t('assets.fields.verifyUrl'), candidates: ['verifyUrl', 'metadata.verifyUrl'] },
     { label: t('assets.fields.platform'), candidates: ['platform'] },
     { label: t('assets.fields.frameworkType'), candidates: ['targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
+    { label: t('assets.fields.deploymentStrategyCompatibility'), candidates: ['deploymentStrategyCompatibilityLabel'] },
     { label: 'Agent ID', candidates: ['agentId'] },
     { label: 'SNI', candidates: ['sniName', 'metadata.workflowTarget.sniName', 'deploymentStrategy.workflow.target.sniName'] },
     { label: t('assets.fields.serviceInstanceId'), candidates: ['serviceInstanceId'] },
@@ -1928,6 +1929,9 @@ function detailFieldValue(candidates: readonly string[]): unknown {
   const source = selectedAssetDetail.value ?? selectedServiceAsset.value?.raw ?? null
   if (!source) return undefined
   for (const candidate of candidates) {
+    if (candidate === 'deploymentStrategyCompatibilityLabel') {
+      return deploymentStrategyCompatibilityLabel(readNested(source, ['deploymentStrategy', 'compatibilityMode']))
+    }
     const value = readNested(source, candidate.split('.'))
     if (value !== undefined && value !== null && value !== '') return value
   }
@@ -2120,6 +2124,12 @@ async function loadAgentPlugins(): Promise<void> {
   const packageResult = await listAgentPluginPackages({ page: 1, pageSize: 500 })
   agentPluginPackageItems.value = [...(packageResult.data?.items ?? [])]
   clearIncompatibleAgentPluginSelection()
+}
+
+function deploymentStrategyCompatibilityLabel(value: unknown): string {
+  if (value === 'UNIFIED') return t('assets.compatibilityModes.unified')
+  if (value === 'LEGACY_ADAPTED') return t('assets.compatibilityModes.legacyAdapted')
+  return t('assets.compatibilityModes.legacy')
 }
 
 function deviceLabel(device: ApiRecord): string {

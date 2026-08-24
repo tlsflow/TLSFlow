@@ -2466,6 +2466,7 @@ export default {
       verifyUrl: '验证 URL',
       platform: '平台',
       frameworkType: '框架类型',
+      deploymentStrategyCompatibility: '部署策略兼容模式',
       selectWorkflow: '选择工作流',
       workflowVersionSelection: '版本更新方式',
       serviceInstanceId: '服务实例 ID',
@@ -2541,6 +2542,11 @@ export default {
           description: '部署前后与回退后的现场状态必须能直接看到，不能只剩任务记录。'
         }
       }
+    },
+    compatibilityModes: {
+      unified: '统一插件绑定',
+      legacy: '历史兼容',
+      legacyAdapted: '统一绑定与历史配置双读'
     },
     managementModes: {
       agent: 'Agent 模式',

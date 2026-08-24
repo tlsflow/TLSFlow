@@ -173,6 +173,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
   assetsService.setWorkflowTemplatesService(workflowTemplatesService);
+  assetsService.setPluginBindingsService(pluginBindingsService);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -206,6 +207,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
     workflows: workflowTemplatesService,
+    pluginBindings: pluginBindingsService,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new SecurityController(security, new AuditPresentationService({

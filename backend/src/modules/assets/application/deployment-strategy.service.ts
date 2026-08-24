@@ -5,6 +5,7 @@ import type {
   ManagedDeploymentIntentDto,
   ServiceAssetDto,
 } from '../dto/assets.dto.js';
+import type { PluginBindingV1 } from '../../plugins/dto/plugin-bindings.dto.js';
 
 export interface DeploymentStrategyContext {
   asset: Pick<ServiceAssetDto, 'id' | 'agentId' | 'metadata'>;
@@ -19,13 +20,18 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'MANAGED_TARGET') {
     const managedTarget = input.managedTarget;
     if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
+    const pluginBindingId = optionalNonEmpty(managedTarget.pluginBindingId);
     return {
       type: 'MANAGED_TARGET',
       managedTarget: {
         managedTargetId: requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId'),
+        pluginBindingId,
         certificateFormatId: optionalNonEmpty(managedTarget.certificateFormatId),
         deploymentMode: optionalNonEmpty(managedTarget.deploymentMode),
       },
+      compatibilityMode: resolveCompatibilityMode(pluginBindingId, Boolean(
+        optionalNonEmpty(managedTarget.certificateFormatId) || optionalNonEmpty(managedTarget.deploymentMode),
+      )),
       updatedAt: now,
       updatedBy: context.actorId,
     };
@@ -35,10 +41,14 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (!agent) throw strategyError('AGENT 策略必须提供 agent 配置');
     const mode = agent.mode ?? 'NATIVE_HANDLER';
     if (mode !== 'NATIVE_HANDLER' && mode !== 'PLUGIN') throw strategyError('agent.mode 只支持 NATIVE_HANDLER/PLUGIN');
-    const plugin = mode === 'PLUGIN' ? normalizeAgentPluginBinding(agent.plugin) : undefined;
+    const pluginBindingId = optionalNonEmpty(agent.pluginBindingId);
+    const plugin = mode === 'PLUGIN' && agent.plugin ? normalizeAgentPluginBinding(agent.plugin) : undefined;
+    if (mode === 'PLUGIN' && !plugin && !pluginBindingId) strategyError('PLUGIN 模式必须提供 pluginBindingId 或历史 agent.plugin 配置');
+    if (mode === 'NATIVE_HANDLER' && pluginBindingId) pluginBindingConflict('NATIVE_HANDLER 不能引用统一 PluginBinding');
     assertLegacyTargetRelation(agent, context.targetBinding);
     const normalized = {
       mode,
+      pluginBindingId,
       agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
       siteAssetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId') : optionalNonEmpty(agent.siteAssetId),
       managedTargetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId') : optionalNonEmpty(agent.managedTargetId),
@@ -46,12 +56,19 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
       deploymentMode: optionalNonEmpty(agent.deploymentMode),
       plugin,
     };
-    return { type: 'AGENT', agent: normalized, updatedAt: now, updatedBy: context.actorId };
+    return {
+      type: 'AGENT',
+      agent: normalized,
+      compatibilityMode: resolveCompatibilityMode(pluginBindingId, Boolean(plugin)),
+      updatedAt: now,
+      updatedBy: context.actorId,
+    };
   }
 
   if (input.type === 'WORKFLOW') {
     const workflow = input.workflow;
     if (!workflow) throw strategyError('WORKFLOW 策略必须提供 workflow 配置');
+    const pluginBindingId = optionalNonEmpty(workflow.pluginBindingId);
     const runner = workflow.runner;
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
@@ -60,6 +77,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     return {
       type: 'WORKFLOW',
       workflow: {
+        pluginBindingId,
         workflowId: requireNonEmpty(workflow.workflowId, 'workflow.workflowId'),
         workflowVersionSelection,
         workflowVersionId: workflowVersionSelection === 'PINNED'
@@ -75,12 +93,117 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         variableBindings: isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
+      compatibilityMode: resolveCompatibilityMode(pluginBindingId, true),
       updatedAt: now,
       updatedBy: context.actorId,
     };
   }
 
   throw strategyError('deploymentStrategy.type 只支持 MANAGED_TARGET/AGENT/WORKFLOW');
+}
+
+export function getDeploymentStrategyPluginBindingId(strategy: DeploymentStrategyDto): string | undefined {
+  if (strategy.type === 'AGENT') return optionalNonEmpty(strategy.agent?.pluginBindingId);
+  if (strategy.type === 'MANAGED_TARGET') return optionalNonEmpty(strategy.managedTarget?.pluginBindingId);
+  if (strategy.type === 'WORKFLOW') return optionalNonEmpty(strategy.workflow?.pluginBindingId);
+  return undefined;
+}
+
+export function validateDeploymentStrategyPluginBinding(
+  strategy: DeploymentStrategyDto,
+  binding: PluginBindingV1,
+): DeploymentStrategyDto {
+  const pluginBindingId = getDeploymentStrategyPluginBindingId(strategy);
+  if (!pluginBindingId) return strategy;
+  if (binding.id !== pluginBindingId || binding.status !== 'ACTIVE') {
+    pluginBindingConflict('部署策略引用的 PluginBinding 不可用', { pluginBindingId, bindingStatus: binding.status });
+  }
+  if (strategy.type === 'MANAGED_TARGET') assertManagedTargetBindingCompatibility(strategy, binding);
+  if (strategy.type === 'AGENT') assertAgentBindingCompatibility(strategy, binding);
+  if (strategy.type === 'WORKFLOW') assertWorkflowBindingCompatibility(strategy, binding);
+  return strategy;
+}
+
+function assertManagedTargetBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
+  const managedTarget = strategy.managedTarget!;
+  if (binding.mode !== 'MANAGED') pluginBindingConflict('MANAGED_TARGET 策略只能引用 Managed PluginBinding');
+  if (binding.managedContext?.managedTargetId && binding.managedContext.managedTargetId !== managedTarget.managedTargetId) {
+    pluginBindingConflict('PluginBinding 与受管目标不一致', {
+      strategyManagedTargetId: managedTarget.managedTargetId,
+      bindingManagedTargetId: binding.managedContext.managedTargetId,
+    });
+  }
+  if (managedTarget.certificateFormatId) {
+    const formatIds = [...new Set(Object.values(binding.certificateArtifactBindings).map((item) => item.certificateFormatId))];
+    if (formatIds.length !== 1 || formatIds[0] !== managedTarget.certificateFormatId) {
+      certificateArtifactBindingConflict('历史 certificateFormatId 与统一证书产物绑定不一致', {
+        legacyCertificateFormatId: managedTarget.certificateFormatId,
+        bindingCertificateFormatIds: formatIds,
+      });
+    }
+  }
+}
+
+function assertAgentBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
+  const agent = strategy.agent!;
+  if ((agent.mode ?? 'NATIVE_HANDLER') !== 'PLUGIN') pluginBindingConflict('统一 PluginBinding 只能用于 Agent Plugin 模式');
+  if (binding.mode !== 'MANAGED') pluginBindingConflict('Agent Plugin 策略只能引用 Managed PluginBinding');
+  if (binding.managedContext?.agentId && binding.managedContext.agentId !== agent.agentId) {
+    pluginBindingConflict('PluginBinding 与 Agent 不一致', { strategyAgentId: agent.agentId, bindingAgentId: binding.managedContext.agentId });
+  }
+  if (!agent.plugin) return;
+  if (agent.plugin.pluginVersionId !== binding.pluginVersionId) {
+    pluginBindingConflict('历史 Agent Plugin 版本与统一 PluginBinding 不一致', {
+      legacyPluginVersionId: agent.plugin.pluginVersionId,
+      bindingPluginVersionId: binding.pluginVersionId,
+    });
+  }
+  assertRecordCompatibility('agent.plugin.variableBindings', agent.plugin.variableBindings, binding.variableBindings);
+  assertRecordCompatibility('agent.plugin.secretBindings', agent.plugin.secretBindings, binding.secretBindings);
+  assertArtifactBindingsCompatibility(agent.plugin.certificateArtifactBindings, binding.certificateArtifactBindings);
+}
+
+function assertWorkflowBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
+  const workflow = strategy.workflow!;
+  assertRecordCompatibility('workflow.variableBindings', workflow.variableBindings, binding.variableBindings);
+  assertRecordCompatibility('workflow.parameterBindings', workflow.parameterBindings, binding.variableBindings);
+  assertRecordCompatibility('workflow.credentialRefs', workflow.credentialRefs, binding.secretBindings);
+  assertRecordCompatibility('workflow.connectionBindings', workflow.connectionBindings, binding.connectionBindings);
+  if (workflow.certificateArtifactBindings) {
+    assertArtifactBindingsCompatibility(workflow.certificateArtifactBindings, binding.certificateArtifactBindings);
+  }
+}
+
+function assertRecordCompatibility(path: string, legacy: Record<string, unknown> | undefined, unified: Record<string, unknown>): void {
+  if (legacy === undefined) return;
+  if (stableStringify(legacy) !== stableStringify(unified)) {
+    pluginBindingConflict(`${path} 与统一 PluginBinding 不一致`, { path });
+  }
+}
+
+function assertArtifactBindingsCompatibility(
+  legacy: NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'],
+  unified: PluginBindingV1['certificateArtifactBindings'],
+): void {
+  if (stableStringify(legacy ?? {}) !== stableStringify(unified)) {
+    certificateArtifactBindingConflict('历史证书产物绑定与统一 PluginBinding 不一致');
+  }
+}
+
+function resolveCompatibilityMode(pluginBindingId: string | undefined, hasLegacyConfiguration: boolean): NonNullable<DeploymentStrategyDto['compatibilityMode']> {
+  if (!pluginBindingId) return 'LEGACY';
+  return hasLegacyConfiguration ? 'LEGACY_ADAPTED' : 'UNIFIED';
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (isRecord(value)) {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto, context: DeploymentStrategyContext): ManagedDeploymentIntentDto | undefined {
@@ -292,4 +415,12 @@ function strategyError(message: string): never {
 
 function legacyRelationError(message: string, detail: Record<string, unknown> = {}): never {
   throw new AppError('VALIDATION_FAILED', message, { code: 'LEGACY_TARGET_RELATION_CONFLICT', ...detail });
+}
+
+function pluginBindingConflict(message: string, detail: Record<string, unknown> = {}): never {
+  throw new AppError('VALIDATION_FAILED', message, { code: 'PLUGIN_BINDING_CONFLICT', ...detail });
+}
+
+function certificateArtifactBindingConflict(message: string, detail: Record<string, unknown> = {}): never {
+  throw new AppError('VALIDATION_FAILED', message, { code: 'CERTIFICATE_ARTIFACT_BINDING_CONFLICT', ...detail });
 }

@@ -14,6 +14,10 @@ export interface CertificateArtifactGeneratorPort {
 export class PluginBindingsApplicationService {
   constructor(private readonly repository = new PluginBindingsRepository()) {}
 
+  async getBinding(bindingId: string): Promise<PluginBindingV1 | undefined> {
+    return this.repository.getBinding(bindingId);
+  }
+
   async createBinding(tenantId: string, input: Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt'>): Promise<PluginBindingV1> {
     if (input.mode === 'MANAGED' && !input.managedContext?.hostId) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId');
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');

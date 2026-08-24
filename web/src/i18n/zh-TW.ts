@@ -2370,6 +2370,7 @@ export default {
       verifyUrl: "驗證 URL",
       platform: "平台",
       frameworkType: "框架型別",
+      deploymentStrategyCompatibility: "部署策略相容模式",
       serviceInstanceId: "服務例項 ID",
       siteId: "站點 ID",
       managedTargetId: "受管目標 ID",
@@ -2444,6 +2445,11 @@ export default {
           description: "部署前後與回復後的現場狀態必須能直接看到，不能只剩任務記錄。"
         }
       }
+    },
+    compatibilityModes: {
+      unified: "統一外掛繫結",
+      legacy: "歷史相容",
+      legacyAdapted: "統一繫結與歷史設定雙讀"
     },
     managementModes: {
       agent: "Agent 模式",

@@ -25,6 +25,7 @@ export type DeploymentStrategyType = 'AGENT' | 'MANAGED_TARGET' | 'WORKFLOW';
 export type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
+export type DeploymentStrategyCompatibilityMode = 'UNIFIED' | 'LEGACY' | 'LEGACY_ADAPTED';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
@@ -35,6 +36,7 @@ export interface ManagementChannelDto {
 
 export interface AgentDeploymentStrategyDto {
   mode?: AgentDeploymentMode;
+  pluginBindingId?: string;
   agentId: string;
   siteAssetId?: string;
   managedTargetId?: string;
@@ -55,11 +57,13 @@ export interface AgentDeploymentStrategyDto {
 
 export interface ManagedTargetDeploymentStrategyDto {
   managedTargetId: string;
+  pluginBindingId?: string;
   certificateFormatId?: string;
   deploymentMode?: string;
 }
 
 export interface WorkflowDeploymentStrategyDto {
+  pluginBindingId?: string;
   workflowId: string;
   workflowVersionSelection?: WorkflowVersionSelection;
   workflowVersionId?: string;
@@ -116,6 +120,7 @@ export interface DeploymentStrategyDto {
   agent?: AgentDeploymentStrategyDto;
   managedTarget?: ManagedTargetDeploymentStrategyDto;
   workflow?: WorkflowDeploymentStrategyDto;
+  compatibilityMode?: DeploymentStrategyCompatibilityMode;
   updatedAt?: string;
   updatedBy?: string;
 }

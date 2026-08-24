@@ -2345,6 +2345,7 @@ export default {
       verifyUrl: 'URL de verificação',
       platform: 'Plataforma',
       frameworkType: 'Tipo de framework',
+      deploymentStrategyCompatibility: 'Modo de compatibilidade da implantação',
       serviceInstanceId: 'ID da instância de serviço',
       siteId: 'ID do site',
       managedTargetId: 'ID do destino gerenciado',
@@ -2419,6 +2420,11 @@ export default {
           description: 'O estado antes da implantação, depois da implantação e após a reversão deve ser visível diretamente, não apenas como registro de tarefa.'
         }
       }
+    },
+    compatibilityModes: {
+      unified: 'Binding unificado de plugin',
+      legacy: 'Compatibilidade legada',
+      legacyAdapted: 'Leitura dupla unificada e legada'
     },
     managementModes: {
       agent: 'Modo Agent',

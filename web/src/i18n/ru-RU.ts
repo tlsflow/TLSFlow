@@ -2345,6 +2345,7 @@ export default {
       verifyUrl: 'URL проверки',
       platform: 'Платформа',
       frameworkType: 'Тип фреймворка',
+      deploymentStrategyCompatibility: 'Режим совместимости стратегии развертывания',
       serviceInstanceId: 'ID экземпляра сервиса',
       siteId: 'ID сайта',
       managedTargetId: 'ID управляемой цели',
@@ -2419,6 +2420,11 @@ export default {
           description: 'Состояние до развертывания, после развертывания и после отката должно быть видно напрямую, а не только через записи задач.'
         }
       }
+    },
+    compatibilityModes: {
+      unified: 'Единая привязка плагина',
+      legacy: 'Историческая совместимость',
+      legacyAdapted: 'Двойное чтение единой и исторической конфигурации'
     },
     managementModes: {
       agent: 'Режим Agent',

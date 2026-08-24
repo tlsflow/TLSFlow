@@ -42,8 +42,14 @@ import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { AgentDirectClient } from '../../agents/application/agent-direct-client.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
+import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { buildWorkflowAssetContext, buildWorkflowBindingProjection } from '../../workflow-templates/domain/workflow-variable-resolver.js';
-import { normalizeDeploymentStrategy, resolveDeploymentStrategy } from './deployment-strategy.service.js';
+import {
+  getDeploymentStrategyPluginBindingId,
+  normalizeDeploymentStrategy,
+  resolveDeploymentStrategy,
+  validateDeploymentStrategyPluginBinding,
+} from './deployment-strategy.service.js';
 
 export class AssetsApplicationService {
   constructor(
@@ -53,6 +59,7 @@ export class AssetsApplicationService {
     private agentsService?: AgentsApplicationService,
     private readonly directClient = new AgentDirectClient(),
     private workflowTemplates?: WorkflowTemplatesApplicationService,
+    private pluginBindings?: PluginBindingsApplicationService,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -65,6 +72,10 @@ export class AssetsApplicationService {
 
   setWorkflowTemplatesService(workflowTemplates: WorkflowTemplatesApplicationService): void {
     this.workflowTemplates = workflowTemplates;
+  }
+
+  setPluginBindingsService(pluginBindings: PluginBindingsApplicationService): void {
+    this.pluginBindings = pluginBindings;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -103,10 +114,10 @@ export class AssetsApplicationService {
     const resolvedInput = await this.resolveSiteAssetCreationInput(tenantId, input);
     const normalized = this.domain.normalizeServiceAsset(resolvedInput);
     if (normalized.deploymentStrategy) {
-      const strategy = normalizeDeploymentStrategy(normalized.deploymentStrategy, {
+      const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(normalized.deploymentStrategy, {
         asset: { id: '', agentId: normalized.agentId, metadata: normalized.metadata },
         targetBinding: normalized.targetBinding,
-      });
+      }));
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
       normalized.deploymentStrategy = strategy;
     }
@@ -182,10 +193,10 @@ export class AssetsApplicationService {
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
     if (normalized.deploymentStrategy) {
       const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
-      const strategy = normalizeDeploymentStrategy(normalized.deploymentStrategy, {
+      const strategy = await this.applyPluginBindingCompatibility(tenantId, normalizeDeploymentStrategy(normalized.deploymentStrategy, {
         asset: current,
         targetBinding,
-      });
+      }));
       await this.validateDeploymentStrategyReferences(tenantId, strategy);
       normalized.deploymentStrategy = strategy;
     }
@@ -216,7 +227,10 @@ export class AssetsApplicationService {
     const asset = await this.repository.getServiceAsset(tenantId, serviceAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
     const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
-    const normalized = normalizeDeploymentStrategy(strategy, { asset, targetBinding, actorId });
+    const normalized = await this.applyPluginBindingCompatibility(
+      tenantId,
+      normalizeDeploymentStrategy(strategy, { asset, targetBinding, actorId }),
+    );
     await this.validateDeploymentStrategyReferences(tenantId, normalized);
     const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, {
       metadata: { ...asset.metadata, deploymentStrategy: normalized },
@@ -1102,10 +1116,27 @@ export class AssetsApplicationService {
 
   private async hydrateServiceAssetStrategy<T extends ServiceAssetDto>(tenantId: string, asset: T): Promise<T> {
     const targetBinding = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, asset.id);
+    const strategy = resolveDeploymentStrategy({ asset, targetBinding });
     return {
       ...asset,
-      deploymentStrategy: resolveDeploymentStrategy({ asset, targetBinding }),
+      deploymentStrategy: strategy ? await this.applyPluginBindingCompatibility(tenantId, strategy) : undefined,
     };
+  }
+
+  private async applyPluginBindingCompatibility(tenantId: string, strategy: DeploymentStrategyDto): Promise<DeploymentStrategyDto> {
+    const pluginBindingId = getDeploymentStrategyPluginBindingId(strategy);
+    if (!pluginBindingId) return strategy;
+    if (!this.pluginBindings) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'PluginBinding 服务未接入，不能校验统一部署策略', {
+        code: 'PLUGIN_BINDING_VALIDATOR_MISSING',
+        pluginBindingId,
+      });
+    }
+    const binding = await this.pluginBindings.getBinding(pluginBindingId);
+    if (!binding || binding.tenantId !== tenantId) {
+      throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
+    }
+    return validateDeploymentStrategyPluginBinding(strategy, binding);
   }
 
   private async validateDeploymentStrategyReferences(tenantId: string, strategy: DeploymentStrategyDto): Promise<void> {
@@ -1113,7 +1144,7 @@ export class AssetsApplicationService {
       const agent = strategy.agent;
       if (!agent) throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agent 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
       if ((agent.mode ?? 'NATIVE_HANDLER') === 'PLUGIN') {
-        if (!agent.plugin) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
+        if (!agent.plugin && !agent.pluginBindingId) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
         return;
       }
       if (!agent.siteAssetId || !agent.managedTargetId) {

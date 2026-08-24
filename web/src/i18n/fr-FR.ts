@@ -2420,6 +2420,7 @@ export default {
       verifyUrl: 'Verify URL',
       platform: 'Platform',
       frameworkType: 'Framework type',
+      deploymentStrategyCompatibility: 'Mode de compatibilité du déploiement',
       serviceInstanceId: 'Service instance ID',
       siteId: 'Site ID',
       managedTargetId: 'Managed target ID',
@@ -2493,6 +2494,11 @@ export default {
           description: 'Pre-deploy, post-deploy, and rollback state must be visible directly, not only as task records.'
         }
       }
+    },
+    compatibilityModes: {
+      unified: 'Liaison de plug-in unifiée',
+      legacy: 'Compatibilité historique',
+      legacyAdapted: 'Double lecture unifiée et historique'
     },
     managementModes: {
       agent: 'Agent mode',

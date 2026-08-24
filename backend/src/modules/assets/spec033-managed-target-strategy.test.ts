@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeDeploymentStrategy, normalizeManagedDeploymentIntent } from './application/deployment-strategy.service.js';
+import {
+  normalizeDeploymentStrategy,
+  normalizeManagedDeploymentIntent,
+  validateDeploymentStrategyPluginBinding,
+} from './application/deployment-strategy.service.js';
+import type { PluginBindingV1 } from '../plugins/dto/plugin-bindings.dto.js';
 
 const context = {
   asset: { id: 'asset_spec033_strategy', agentId: 'agent_spec033_strategy', metadata: {} },
@@ -19,8 +24,91 @@ test('Spec033 新 MANAGED_TARGET 策略只要求目标 ID', () => {
     type: 'MANAGED_TARGET',
     managedTarget: { managedTargetId: 'target_spec033_strategy' },
   }, context);
-  assert.deepEqual(strategy.managedTarget, { managedTargetId: 'target_spec033_strategy', certificateFormatId: undefined, deploymentMode: undefined });
+  assert.deepEqual(strategy.managedTarget, {
+    managedTargetId: 'target_spec033_strategy',
+    pluginBindingId: undefined,
+    certificateFormatId: undefined,
+    deploymentMode: undefined,
+  });
+  assert.equal(strategy.compatibilityMode, 'LEGACY');
   assert.equal(strategy.agent, undefined);
+});
+
+test('Spec033.2 统一 PluginBinding 策略标记为 UNIFIED', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: {
+      managedTargetId: 'target_spec033_strategy',
+      pluginBindingId: 'plgb_spec033_strategy',
+    },
+  }, context);
+
+  const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding());
+  assert.equal(validated.compatibilityMode, 'UNIFIED');
+});
+
+test('Spec033.2 新旧证书产物配置一致时标记为 LEGACY_ADAPTED', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: {
+      managedTargetId: 'target_spec033_strategy',
+      pluginBindingId: 'plgb_spec033_strategy',
+      certificateFormatId: 'format_spec033_strategy',
+    },
+  }, context);
+
+  const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
+    certificateArtifactBindings: {
+      certificate: {
+        certificateFormatId: 'format_spec033_strategy',
+        outputBindings: { certificatePem: 'certificatePem' },
+      },
+    },
+  }));
+  assert.equal(validated.compatibilityMode, 'LEGACY_ADAPTED');
+});
+
+test('Spec033.2 新旧证书产物配置冲突时失败关闭', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: {
+      managedTargetId: 'target_spec033_strategy',
+      pluginBindingId: 'plgb_spec033_strategy',
+      certificateFormatId: 'format_legacy',
+    },
+  }, context);
+
+  assert.throws(() => validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
+    certificateArtifactBindings: {
+      certificate: {
+        certificateFormatId: 'format_unified',
+        outputBindings: { certificatePem: 'certificatePem' },
+      },
+    },
+  })), (error: unknown) => typeof error === 'object' && error !== null
+    && (error as { details?: { code?: string } }).details?.code === 'CERTIFICATE_ARTIFACT_BINDING_CONFLICT');
+});
+
+test('Spec033.2 Agent Plugin 版本冲突时失败关闭', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'AGENT',
+    agent: {
+      mode: 'PLUGIN',
+      pluginBindingId: 'plgb_spec033_strategy',
+      agentId: 'agent_spec033_strategy',
+      plugin: {
+        pluginPackageId: 'plugin_spec033_strategy',
+        pluginVersionId: 'version_legacy',
+        variableBindings: {},
+        secretBindings: {},
+        certificateArtifactBindings: {},
+      },
+    },
+  }, context);
+
+  assert.throws(() => validateDeploymentStrategyPluginBinding(strategy, pluginBinding({ pluginVersionId: 'version_unified' })),
+    (error: unknown) => typeof error === 'object' && error !== null
+      && (error as { details?: { code?: string } }).details?.code === 'PLUGIN_BINDING_CONFLICT');
 });
 
 test('Spec033 旧 AGENT 策略归一为统一受管意图且保持原策略兼容', () => {
@@ -44,3 +132,26 @@ test('Spec033 拒绝旧 AGENT 冗余关系与真实目标冲突', () => {
       && (error as { details?: { code?: string } }).details?.code === 'LEGACY_TARGET_RELATION_CONFLICT';
   });
 });
+
+function pluginBinding(patch: Partial<PluginBindingV1> = {}): PluginBindingV1 {
+  return {
+    id: 'plgb_spec033_strategy',
+    tenantId: 'tenant_spec033_strategy',
+    pluginVersionId: 'version_spec033_strategy',
+    mode: 'MANAGED',
+    variableBindings: {},
+    secretBindings: {},
+    certificateArtifactBindings: {},
+    connectionBindings: {},
+    managedContext: {
+      hostId: 'host_spec033_strategy',
+      agentId: 'agent_spec033_strategy',
+      managedTargetId: 'target_spec033_strategy',
+    },
+    status: 'ACTIVE',
+    version: 1,
+    createdAt: '2026-07-24T00:00:00.000Z',
+    updatedAt: '2026-07-24T00:00:00.000Z',
+    ...patch,
+  };
+}
