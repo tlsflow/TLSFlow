@@ -186,9 +186,25 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/devices',
+    name: 'device.list',
+    component: () => import('@/views/devices/DevicesView.vue'),
+    meta: {
+      title: 'Devices',
+      titleKey: 'devices.page.title',
+      module: 'device',
+      requiresAuth: true,
+      permission: 'host.read',
+      resourceType: 'host',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['devices.page.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/agents',
     name: 'agent.list',
-    component: () => import('@/views/agents/AgentsView.vue'),
+    redirect: (to) => ({ path: '/devices', query: to.query, hash: to.hash }),
     meta: {
       title: 'Agent',
       titleKey: 'nav.agents',
@@ -198,7 +214,7 @@ export const businessRoutes: GcRouteRecord[] = [
       resourceType: 'agent',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.agents'],
-      keepAlive: true
+      keepAlive: false
     }
   },
   {

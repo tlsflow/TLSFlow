@@ -31,7 +31,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.assetsDesc',
     children: [
       { titleKey: 'nav.assets', path: '/assets', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
-      { titleKey: 'nav.agents', path: '/agents', module: 'agent', permission: 'agent.read', descriptionKey: 'nav.agentsDesc' },
+      { titleKey: 'devices.page.title', path: '/devices', module: 'device', permission: 'host.read', descriptionKey: 'devices.page.description' },
       { titleKey: 'nav.gateways', path: '/gateways', module: 'gateway', permission: 'gateway.read', descriptionKey: 'nav.gatewaysDesc' }
     ]
   },

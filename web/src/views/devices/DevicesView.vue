@@ -1,0 +1,68 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
+import type { BusinessPageConfig } from '@/views/business-page.types'
+import { listManagedDevices } from '@/api/modules/devices.api'
+
+const { t } = useI18n()
+const filters = ref<Record<string, string>>({})
+
+const config = computed<BusinessPageConfig>(() => ({
+  title: t('devices.page.title'),
+  description: t('devices.page.description'),
+  readPermission: 'host.read',
+  primaryPermission: 'host.create',
+  primaryActionLabel: t('devices.actions.add'),
+  moduleName: 'devices',
+  resourceName: 'Device',
+  defaultStatus: 'UNKNOWN',
+  defaultRisk: 'MEDIUM',
+  showMetrics: true,
+  showDetailPanel: false,
+  showActionPanel: false,
+  columns: [
+    { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'] },
+    { key: 'category', title: t('devices.columns.category'), candidates: ['category'] },
+    { key: 'productFamily', title: t('devices.columns.productFamily'), candidates: ['productFamily'] },
+    { key: 'managementMethod', title: t('devices.columns.managementMethod'), candidates: ['managementMethod'] },
+    { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'] },
+    { key: 'status', title: t('devices.columns.health'), candidates: ['health', 'sourceStatus'], kind: 'status' },
+    { key: 'version', title: t('devices.columns.version'), candidates: ['softwareVersion'] },
+    { key: 'applicationAssetCount', title: t('devices.columns.applications'), candidates: ['applicationAssetCount'], kind: 'count' },
+    { key: 'lastSeenAt', title: t('devices.columns.lastContact'), candidates: ['lastContactAt'], kind: 'date' },
+  ],
+  metrics: [
+    { title: t('devices.metrics.total'), description: t('devices.metrics.totalDescription'), status: 'HEALTHY', risk: 'MEDIUM', kind: 'total' },
+    { title: t('devices.metrics.abnormal'), description: t('devices.metrics.abnormalDescription'), status: 'UNREACHABLE', risk: 'HIGH' },
+  ],
+  filters: [
+    { key: 'category', label: t('devices.filters.category'), type: 'select', options: [
+      { label: t('devices.categories.server'), value: 'SERVER' },
+      { label: t('devices.categories.networkAppliance'), value: 'NETWORK_APPLIANCE' },
+      { label: t('devices.categories.securityAppliance'), value: 'SECURITY_APPLIANCE' },
+    ] },
+    { key: 'managementMethod', label: t('devices.filters.managementMethod'), type: 'select', options: [
+      { label: t('devices.managementMethods.agent'), value: 'AGENT' },
+      { label: t('devices.managementMethods.api'), value: 'API' },
+    ] },
+    { key: 'health', label: t('devices.filters.health'), type: 'select', options: [
+      { label: t('devices.health.healthy'), value: 'HEALTHY' },
+      { label: t('devices.health.degraded'), value: 'DEGRADED' },
+      { label: t('devices.health.unreachable'), value: 'UNREACHABLE' },
+      { label: t('devices.health.disabled'), value: 'DISABLED' },
+      { label: t('devices.health.unknown'), value: 'UNKNOWN' },
+    ] },
+  ],
+  filterValues: filters.value,
+  onFiltersChange: (next) => { filters.value = next },
+  emptyTitle: t('devices.empty.title'),
+  emptyDescription: t('devices.empty.description'),
+  load: () => listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value }),
+  actions: [],
+}))
+</script>
+
+<template>
+  <BusinessResourcePage :config="config" />
+</template>
