@@ -15,6 +15,7 @@ let hostCallRequestId: string | undefined;
 let childProcess: ReturnType<typeof spawn> | undefined;
 let drainingRequested = false;
 
+if (mode === 'startup-failure') process.exit(23);
 if (mode === 'stderr-overflow') process.stderr.write('x'.repeat(40 * 1024));
 if (mode === 'stderr-secret') {
   process.stderr.write('runner Bearer super-');

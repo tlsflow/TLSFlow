@@ -22,6 +22,7 @@ interface RunnerRecord {
  */
 export class PluginRunnerSupervisor {
   private readonly records = new Map<string, RunnerRecord>();
+  private readonly retiredRunnerKeys = new Set<string>();
   private readonly maxRestarts: number;
 
   constructor(options: PluginRunnerSupervisorOptions = {}) {
@@ -36,6 +37,7 @@ export class PluginRunnerSupervisor {
 
   async start(spec: PluginRunnerLaunchSpec): Promise<PluginRunnerClient> {
     const key = runnerKey(spec.pluginVersionId, spec.tenantId);
+    if (this.retiredRunnerKeys.has(key)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '已退休的 PluginVersion 不能重新启动', { pluginVersionId: spec.pluginVersionId, tenantId: spec.tenantId });
     const existing = this.records.get(key);
     if (existing) {
       assertImmutableSpec(existing.spec, spec);
@@ -59,6 +61,7 @@ export class PluginRunnerSupervisor {
 
   async restart(pluginVersionId: string, tenantId: string): Promise<PluginRunnerClient> {
     const key = runnerKey(pluginVersionId, tenantId);
+    if (this.retiredRunnerKeys.has(key)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '已退休的 PluginVersion 不能重启', { pluginVersionId, tenantId });
     const record = this.records.get(key);
     if (!record) throw new AppError('RESOURCE_NOT_FOUND', '没有可重启的 Runner', { pluginVersionId, tenantId });
     if (record.restartPromise) return record.restartPromise;
@@ -80,7 +83,9 @@ export class PluginRunnerSupervisor {
   }
 
   get(pluginVersionId: string, tenantId: string): PluginRunnerClient {
-    const record = this.records.get(runnerKey(pluginVersionId, tenantId));
+    const key = runnerKey(pluginVersionId, tenantId);
+    if (this.retiredRunnerKeys.has(key)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '已退休的 PluginVersion 不能使用', { pluginVersionId, tenantId });
+    const record = this.records.get(key);
     if (!record) throw new AppError('RESOURCE_NOT_FOUND', 'Plugin Runner 未注册', { pluginVersionId, tenantId });
     return record.client;
   }
@@ -102,14 +107,16 @@ export class PluginRunnerSupervisor {
     if (next.pluginVersionId === oldPluginVersionId) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '版本切换必须使用不同的 PluginVersionId');
     const oldRecord = this.records.get(runnerKey(oldPluginVersionId, tenantId));
     const client = await this.start(next);
+    const oldKey = runnerKey(oldPluginVersionId, tenantId);
+    this.retiredRunnerKeys.add(oldKey);
     if (oldRecord) {
       try {
-        await oldRecord.client.drain();
+        await oldRecord.client.retire();
       } catch (error) {
         await client.stop(true);
         throw error;
       }
-      if (this.records.get(oldRecord.key) === oldRecord) this.records.delete(oldRecord.key);
+      if (this.records.get(oldKey) === oldRecord) this.records.delete(oldKey);
     }
     return client;
   }

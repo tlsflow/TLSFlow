@@ -150,6 +150,7 @@ export class PluginRunnerClient {
   private stateValue: PluginRunnerState = 'STOPPED';
   private failure?: Error;
   private resourceMonitor?: NodeJS.Timeout;
+  private retiredValue = false;
 
   constructor(spec: PluginRunnerLaunchSpec, private readonly onProgress?: (message: PluginRunnerProgress) => void) {
     this.spec = immutableLaunchSpec(spec);
@@ -169,8 +170,10 @@ export class PluginRunnerClient {
   get pid(): number | undefined { return this.child?.pid; }
   get activeRequestId(): string | undefined { return this.activeExecution?.requestId; }
   get stderrLog(): string { return redactRunnerLog(this.stderrRaw); }
+  get retired(): boolean { return this.retiredValue; }
 
   async start(): Promise<void> {
+    if (this.retiredValue) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner PluginVersion 已退休，不能重新启动');
     if (this.stateValue === 'READY') return;
     if (this.stateValue === 'CRASHED') throw this.failure ?? new AppError('PLUGIN_RUNNER_CRASHED', 'Runner 已崩溃，需要显式重启');
     if (this.startPromise) return this.startPromise;
@@ -269,6 +272,22 @@ export class PluginRunnerClient {
     }
   }
 
+  /**
+   * 退休是版本切换后的终态；与普通 drain 不同，退休后的 Client 永远不能重新启动。
+   */
+  async retire(): Promise<void> {
+    this.retiredValue = true;
+    const startPromise = this.startPromise;
+    if (startPromise) {
+      try { await startPromise; } catch { return; }
+    }
+    if (this.stateValue === 'READY' || this.stateValue === 'DRAINING') {
+      await this.drain();
+      return;
+    }
+    if (this.child) await this.stop(true);
+  }
+
   private async shutdownInternal(reason: 'DRAIN' | 'HOST_EXIT' | 'VERSION_SWITCH' | 'DOCKER_STOP'): Promise<PluginRunnerShutdownResult> {
     this.stateValue = 'DRAINING';
     const graceMs = this.spec.shutdownGraceMs ?? pluginRunnerLimits.shutdownGraceMs;
@@ -334,8 +353,12 @@ export class PluginRunnerClient {
         windowsHide: true,
       });
     } catch (error) {
+      const failure = new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 进程启动失败', { error: error instanceof Error ? error.message : String(error) });
+      this.failure = failure;
       this.stateValue = 'CRASHED';
-      throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 进程启动失败', { error: error instanceof Error ? error.message : String(error) });
+      this.resolveExit?.();
+      this.resolveExit = undefined;
+      throw failure;
     }
     this.child = child;
     child.stdout.on('data', (chunk: Buffer) => { if (generation === this.connectionGeneration) this.handleStdout(chunk); });
@@ -345,8 +368,11 @@ export class PluginRunnerClient {
     child.on('close', (code, signal) => this.handleExit(code, signal, generation));
     this.resourceMonitor = setInterval(() => this.checkResourceLimits(generation), pluginRunnerLimits.resourcePollIntervalMs);
     if (!child.pid) {
+      const failure = new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 未获得有效进程 ID');
+      this.failure = failure;
+      this.stateValue = 'CRASHED';
       await terminateProcessTree(child, true);
-      throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 未获得有效进程 ID');
+      throw failure;
     }
     const hello = {
       protocolVersion: 'gcac.plugin-runner/v1' as const, messageType: 'hello' as const, requestId: newId('plugin-hello'), sentAt: new Date().toISOString(),
@@ -623,7 +649,9 @@ export class PluginRunnerClient {
 
   private handleChildError(error: Error): void {
     if (this.stateValue === 'STOPPED') return;
-    const failure = new AppError('PLUGIN_RUNNER_CRASHED', 'Runner 进程错误', { error: String(redactSensitive(error.message)) });
+    const errorCode = this.stateValue === 'STARTING' ? 'PLUGIN_RUNNER_START_FAILED' : 'PLUGIN_RUNNER_CRASHED';
+    const message = errorCode === 'PLUGIN_RUNNER_START_FAILED' ? 'Runner 进程启动失败' : 'Runner 进程错误';
+    const failure = new AppError(errorCode, message, { error: String(redactSensitive(error.message)) });
     this.failure = failure;
     this.stateValue = 'CRASHED';
     this.rejectPending(failure);
@@ -636,7 +664,11 @@ export class PluginRunnerClient {
     try { this.decoder.finish(); } catch (error) { protocolError = error instanceof Error ? error : new Error(String(error)); }
     if (protocolError && this.stateValue !== 'STOPPED') this.failure = protocolError;
     const intentional = this.stateValue === 'STOPPED' || !protocolError && this.stateValue === 'DRAINING' && code === 0;
-    if (!intentional && !this.failure) this.failure = new AppError('PLUGIN_RUNNER_CRASHED', 'Runner 异常退出', { code, signal });
+    if (!intentional && !this.failure) {
+      const errorCode = this.stateValue === 'STARTING' ? 'PLUGIN_RUNNER_START_FAILED' : 'PLUGIN_RUNNER_CRASHED';
+      const message = errorCode === 'PLUGIN_RUNNER_START_FAILED' ? 'Runner 在握手前退出' : 'Runner 异常退出';
+      this.failure = new AppError(errorCode, message, { code, signal });
+    }
     if (this.failure) this.rejectPending(this.failure);
     if (this.stateValue !== 'CRASHED') this.stateValue = intentional ? 'STOPPED' : 'CRASHED';
     this.resolveExit?.();

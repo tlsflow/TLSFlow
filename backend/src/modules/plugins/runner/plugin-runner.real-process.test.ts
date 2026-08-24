@@ -89,6 +89,11 @@ test('取消与 execute_result 竞态只完成一次并返回 CANCELLED', async 
 });
 
 test('Runner 启动、握手、stdout/stderr 和崩溃故障真实失败', async () => {
+  const missingExecutable = resolve(process.cwd(), 'dist/modules/plugins/runner/fixtures/missing-runner.js');
+  assert.throws(() => new PluginRunnerClient(spec('echo', { executablePath: missingExecutable })), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_START_FAILED'));
+  const startupFailure = new PluginRunnerClient(spec('startup-failure'));
+  await assert.rejects(startupFailure.start(), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_START_FAILED'));
+
   const helloTimeout = new PluginRunnerClient(spec('hello-timeout', { helloTimeoutMs: 50, startupTimeoutMs: 50 }));
   await assert.rejects(helloTimeout.start(), /超时|Runner/);
   const helloMismatch = new PluginRunnerClient(spec('hello-mismatch'));
@@ -120,6 +125,8 @@ test('Runner 启动、握手、stdout/stderr 和崩溃故障真实失败', async
   assert.doesNotMatch(stderrSecret.stderrLog, /secret-value/);
   const timeout = new PluginRunnerClient(spec('timeout', { executeTimeoutMs: 40 }));
   await timeout.start();
+  await assert.rejects(timeout.execute(executionInput(false)), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_TIMEOUT'));
+  await timeout.ping();
   const timeoutResult = await timeout.execute(executionInput(true));
   assert.equal(timeoutResult.status, 'UNKNOWN');
   assert.equal(timeoutResult.error?.code, 'PLUGIN_OPERATION_UNKNOWN_STATE');
@@ -127,6 +134,8 @@ test('Runner 启动、握手、stdout/stderr 和崩溃故障真实失败', async
   await late.start();
   const lateResult = await late.execute(executionInput(true));
   assert.equal(lateResult.status, 'UNKNOWN');
+  await delay(220);
+  assert.equal(late.state, 'READY');
   await late.ping();
   const failedWrite = new PluginRunnerClient(spec('write-failed'));
   await failedWrite.start();
@@ -148,6 +157,7 @@ test('Runner 启动、握手、stdout/stderr 和崩溃故障真实失败', async
   await close(helloTimeout);
   await close(helloMismatch);
   await close(crash);
+  await close(startupFailure);
 });
 
 test('shutdown 超时会强制终止进程树，且不重放写操作', async () => {
@@ -195,6 +205,10 @@ test('Supervisor 固定 PluginVersion、串行执行、drain 和版本切换', a
   const next = await supervisor.switchVersion('test-version-v1', 'tenant-1', spec('echo', { pluginVersionId: 'test-version-v2', pluginVersion: '2.0.0' }));
   assert.equal(next.state, 'READY');
   assert.equal(first.state, 'STOPPED');
+  assert.equal(first.retired, true);
+  await assert.rejects(first.start(), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_VERSION_MISMATCH'));
+  await assert.rejects(first.execute(executionInput(false)), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_VERSION_MISMATCH'));
+  await assert.rejects(supervisor.start(firstSpec), (error: unknown) => hasErrorCode(error, 'PLUGIN_RUNNER_VERSION_MISMATCH'));
   assert.deepEqual(supervisor.list().map((item) => item.pluginVersionId), ['test-version-v2']);
   await supervisor.shutdownAll();
 });
@@ -268,4 +282,8 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function hasErrorCode(error: unknown, errorCode: string): boolean {
+  return error instanceof Error && (error as Error & { errorCode?: string }).errorCode === errorCode;
 }
