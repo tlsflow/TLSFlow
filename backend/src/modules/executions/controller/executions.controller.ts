@@ -4,6 +4,14 @@ import type { Router } from '../../../common/http/router.js';
 import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { SecurityServices } from '../../security/security.controller.js';
+import {
+  assertRouteAction,
+  assertRouteObjectAccess,
+  filterAuthorizedItems,
+  requestSecurityContext,
+  requireRouteSecurity,
+} from '../../security/security-route-helpers.js';
 import { ExecutionsApplicationService } from '../application/executions.application-service.js';
 import type { ExecutionDetailStreamEvent, ExecutionDetailStreamService } from '../application/execution-detail-stream.service.js';
 import type { WorkflowRecoveryLedgerService } from '../application/workflow-recovery-ledger.service.js';
@@ -13,6 +21,7 @@ export class ExecutionsController {
     private readonly service: ExecutionsApplicationService,
     private readonly detailStream?: ExecutionDetailStreamService,
     private readonly workflowRecovery?: WorkflowRecoveryLedgerService,
+    private readonly security?: SecurityServices,
   ) {}
 
   register(router: Router): void {
@@ -25,60 +34,77 @@ export class ExecutionsController {
   }
 
   private async listRuns(request: HttpRequest) {
-    const tenantId = requireTenantId(request);
+    const security = requireRouteSecurity(request, this.security);
     const deploymentPlanId = this.readOptionalQueryString(request, 'deploymentPlanId');
-    const items = await this.service.listRuns({ tenantId, deploymentPlanId });
-    return { items, page: 1, pageSize: 200, total: items.length };
+    await assertRouteAction(security, 'execution.run.read', 'execution_run');
+    const items = await this.service.listRuns({ tenantId: security.tenantId, deploymentPlanId });
+    const authorizedItems = await filterAuthorizedItems(security, items, 'execution_run', 'read');
+    return { items: authorizedItems, page: 1, pageSize: 200, total: authorizedItems.length };
   }
 
   private async listSteps(request: HttpRequest) {
-    const tenantId = requireTenantId(request);
+    const security = requireRouteSecurity(request, this.security);
     const executionRunId = this.readOptionalQueryString(request, 'executionRunId');
-    const items = await this.service.listSteps({ tenantId, executionRunId });
-    return { items, page: 1, pageSize: 200, total: items.length };
+    await assertRouteAction(security, 'execution.step.read', 'execution_step');
+    if (executionRunId) {
+      await assertRouteObjectAccess(security, 'read', { objectType: 'execution_run', objectId: executionRunId, tenantId: security.tenantId });
+    }
+    const items = await this.service.listSteps({ tenantId: security.tenantId, executionRunId });
+    const authorizedItems = await filterAuthorizedItems(security, items, 'execution_step', 'read');
+    return { items: authorizedItems, page: 1, pageSize: 200, total: authorizedItems.length };
   }
 
   private async getWorkflowRecovery(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'workflow.recovery.read', 'workflow_recovery');
     if (!this.workflowRecovery) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流恢复账本服务未配置');
     const ledgerId = this.readOptionalQueryString(request, 'ledgerId');
     if (!ledgerId) throw new AppError('VALIDATION_FAILED', '缺少 ledgerId');
-    return await this.workflowRecovery.get(requireTenantId(request), String(ledgerId));
+    return await this.workflowRecovery.get(security.tenantId, String(ledgerId));
   }
 
-  private retry(request: HttpRequest) {
-    const tenantId = requireTenantId(request);
+  private async retry(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body, {
       runId: { type: 'string', required: true },
       idempotencyKey: { type: 'string', required: true },
     });
+    const run = await this.service.getRun(String(body.runId), security.tenantId);
+    await assertRouteAction(security, 'execution.run.retry', 'execution_run', { resourceId: run.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'execution_run', objectId: run.id, tenantId: security.tenantId });
     return this.service.retry({
       runId: String(body.runId),
       idempotencyKey: String(body.idempotencyKey),
-      actorId: this.actorId(request),
-      tenantId,
-    }, this.securityContext(request));
+      actorId: security.subject.id,
+      tenantId: security.tenantId,
+    }, requestSecurityContext(security));
   }
 
-  private rollback(request: HttpRequest) {
-    const tenantId = requireTenantId(request);
+  private async rollback(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body, {
       runId: { type: 'string', required: true },
       idempotencyKey: { type: 'string', required: true },
       approvalId: { type: 'string' },
     });
+    const run = await this.service.getRun(String(body.runId), security.tenantId);
+    await assertRouteAction(security, 'execution.run.rollback', 'execution_run', { resourceId: run.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'execution_run', objectId: run.id, tenantId: security.tenantId });
     return this.service.rollback({
       runId: String(body.runId),
       idempotencyKey: String(body.idempotencyKey),
       approvalId: body.approvalId === undefined ? undefined : String(body.approvalId),
-      actorId: this.actorId(request),
-      tenantId,
-    }, this.securityContext(request));
+      actorId: security.subject.id,
+      tenantId: security.tenantId,
+    }, requestSecurityContext(security));
   }
 
   private async streamDetail(request: HttpRequest) {
-    const tenantId = requireTenantId(request);
+    const security = requireRouteSecurity(request, this.security);
     const runId = this.readOptionalQueryString(request, 'runId');
     if (!runId) throw new AppError('VALIDATION_FAILED', '缺少 runId');
+    await assertRouteAction(security, 'execution.run.read', 'execution_run', { resourceId: runId });
+    await assertRouteObjectAccess(security, 'read', { objectType: 'execution_run', objectId: runId, tenantId: security.tenantId });
 
     return {
       statusCode: 200,
@@ -115,7 +141,7 @@ export class ExecutionsController {
 
         if (this.detailStream) {
           unsubscribe = this.detailStream.subscribe(runId, (event) => {
-            if (event.tenantId !== tenantId) return;
+            if (event.tenantId !== security.tenantId) return;
             if (snapshotReady) {
               writeEvent(event.type, event);
             } else {
@@ -125,8 +151,8 @@ export class ExecutionsController {
         }
 
         const [run, steps] = await Promise.all([
-          this.service.getRun(runId, tenantId),
-          this.service.listSteps({ tenantId, executionRunId: runId }),
+          this.service.getRun(runId, security.tenantId),
+          this.service.listSteps({ tenantId: security.tenantId, executionRunId: runId }),
         ]);
         if (closed) return;
 
@@ -143,19 +169,6 @@ export class ExecutionsController {
           cleanup();
         }
       },
-    };
-  }
-
-  private actorId(request: HttpRequest): string {
-    if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
-    return request.context.actorId;
-  }
-
-  private securityContext(request: HttpRequest) {
-    return {
-      requestId: request.context.requestId,
-      sourceIp: request.context.ip,
-      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope } },
     };
   }
 

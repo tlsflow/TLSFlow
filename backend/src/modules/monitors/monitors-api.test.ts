@@ -967,6 +967,18 @@ describe('监控风险 API', () => {
 async function createMonitorHarness() {
   const db = new PgliteDatabase();
   await runMigrations(db);
+  const security = {
+    rbac: {
+      assertCan: async () => undefined,
+    },
+    objectPermissions: {
+      assertCan: async () => undefined,
+      buildAuthorizedQuery: async () => ({ empty: false, unrestricted: true, dynamicConditions: [] }),
+    },
+    audit: {
+      write: async () => undefined,
+    },
+  } as any;
 
   const app = new App({ allowLegacyHeaderContext: true });
   const assetsRepository = new PgAssetsRepository(db);
@@ -986,8 +998,8 @@ async function createMonitorHarness() {
     assets: assetsRepository,
     notifications,
   });
-  new MonitorsController(monitors).register(app.router);
-  new NotificationsController(notifications).register(app.router);
+  new MonitorsController(monitors, security).register(app.router);
+  new NotificationsController(notifications, security).register(app.router);
   return {
     app,
     assetsService,

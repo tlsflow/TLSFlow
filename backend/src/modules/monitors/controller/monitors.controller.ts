@@ -6,13 +6,20 @@ import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { RiskStatuses } from '../../../shared/enums/core.enums.js';
+import type { SecurityServices } from '../../security/security.controller.js';
+import {
+  assertRouteAction,
+  assertRouteObjectAccess,
+  filterAuthorizedItems,
+  requireRouteSecurity,
+} from '../../security/security-route-helpers.js';
 import { MonitorsApplicationService } from '../application/monitors.application-service.js';
 import { alertRuleStatuses, monitorMetrics, monitorTargetStatuses, riskEventTypes, severity, type MonitorTargetStatus, type RiskStatusAction } from '../schema/monitors.schema.js';
 
 const tags = ['Monitors'];
 
 export class MonitorsController {
-  constructor(private readonly service: MonitorsApplicationService) {}
+  constructor(private readonly service: MonitorsApplicationService, private readonly security?: SecurityServices) {}
 
   register(router: Router): void {
     router.get('/api/v1/monitors/targets', '查询监控目标', tags, (request) => this.listTargets(request));
@@ -36,19 +43,27 @@ export class MonitorsController {
   }
 
   private async listTargets(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.target.read', 'monitor_target');
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['createdAt', 'updatedAt', 'intervalSeconds', 'status'],
       allowedFilterFields: ['serviceAssetId', 'assetId', 'status'],
       defaultPageSize: 200,
       maxPageSize: 500,
     });
-    return this.service.listMonitorTargets({
-      tenantId: requiredTenantId(request),
+    const page = await this.service.listMonitorTargets({
+      tenantId: security.tenantId,
       ...query,
     });
+    return {
+      ...page,
+      items: await filterAuthorizedItems(security, page.items, 'monitor_target', 'read'),
+    };
   }
 
   private async createTarget(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.target.create', 'monitor_target');
     const body = validateObject(request.body ?? {}, {
       serviceAssetId: { type: 'string' },
       assetId: { type: 'string' },
@@ -58,28 +73,34 @@ export class MonitorsController {
     });
     const serviceAssetId = String(body.serviceAssetId ?? body.assetId ?? '').trim();
     if (!serviceAssetId) throw new AppError('VALIDATION_FAILED', '字段不能为空', { field: 'serviceAssetId' });
+    await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: serviceAssetId, tenantId: security.tenantId });
     return {
       statusCode: 201,
       body: await this.service.createMonitorTarget({
-        tenantId: requiredTenantId(request),
+        tenantId: security.tenantId,
         serviceAssetId,
         metrics: readMetrics(body.metrics),
         intervalSeconds: Number(body.intervalSeconds),
         status: readTargetStatus(body.status),
-        createdBy: request.context.actorId,
+        createdBy: security.subject.id,
       }),
     };
   }
 
   private async updateTarget(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body ?? {}, {
       id: { type: 'string', required: true },
       metrics: { type: 'array' },
       intervalSeconds: { type: 'number' },
       status: { type: 'string', enum: monitorTargetStatuses },
     });
+    const current = await this.service.getMonitorTarget(security.tenantId, String(body.id));
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.id });
+    await assertRouteAction(security, 'monitor.target.update', 'monitor_target', { resourceId: current.id });
+    await assertRouteObjectAccess(security, 'edit', { objectType: 'monitor_target', objectId: current.id, tenantId: security.tenantId });
     return this.service.updateMonitorTarget({
-      tenantId: requiredTenantId(request),
+      tenantId: security.tenantId,
       id: String(body.id),
       metrics: readMetrics(body.metrics),
       intervalSeconds: body.intervalSeconds === undefined ? undefined : Number(body.intervalSeconds),
@@ -88,13 +109,20 @@ export class MonitorsController {
   }
 
   private async deleteTarget(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body ?? {}, {
       id: { type: 'string', required: true },
     });
-    return this.service.deleteMonitorTarget(requiredTenantId(request), String(body.id));
+    const current = await this.service.getMonitorTarget(security.tenantId, String(body.id));
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.id });
+    await assertRouteAction(security, 'monitor.target.delete', 'monitor_target', { resourceId: current.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'monitor_target', objectId: current.id, tenantId: security.tenantId });
+    return this.service.deleteMonitorTarget(security.tenantId, String(body.id));
   }
 
   private async scan(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.risk.scan', 'monitor_risk');
     const body = validateObject(request.body ?? {}, {
       certificateExpiringThresholdDays: { type: 'number' },
       scanStartedAt: { type: 'string' },
@@ -102,7 +130,7 @@ export class MonitorsController {
     return {
       statusCode: 201,
       body: await this.service.collectRisks({
-        tenantId: tenantId(request),
+        tenantId: security.tenantId,
         certificateExpiringThresholdDays: body.certificateExpiringThresholdDays === undefined ? undefined : Number(body.certificateExpiringThresholdDays),
         scanStartedAt: body.scanStartedAt === undefined ? undefined : String(body.scanStartedAt),
       }),
@@ -110,15 +138,23 @@ export class MonitorsController {
   }
 
   private async probe(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.target.control', 'monitor_target');
     const body = validateObject(request.body ?? {}, {
       monitorTargetId: { type: 'string' },
       serviceAssetId: { type: 'string', required: true },
       timeoutMs: { type: 'number' },
     });
+    if (typeof body.monitorTargetId === 'string' && body.monitorTargetId.trim() !== '') {
+      const target = await this.service.getMonitorTarget(security.tenantId, String(body.monitorTargetId));
+      if (!target) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId: body.monitorTargetId });
+      await assertRouteObjectAccess(security, 'control', { objectType: 'monitor_target', objectId: target.id, tenantId: security.tenantId });
+    }
+    await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: String(body.serviceAssetId), tenantId: security.tenantId });
     return {
       statusCode: 200,
       body: await this.service.probeServiceAsset({
-        tenantId: tenantId(request),
+        tenantId: security.tenantId,
         monitorTargetId: body.monitorTargetId === undefined ? undefined : String(body.monitorTargetId),
         serviceAssetId: String(body.serviceAssetId),
         timeoutMs: body.timeoutMs === undefined ? undefined : Number(body.timeoutMs),
@@ -127,50 +163,69 @@ export class MonitorsController {
   }
 
   private async listRisks(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.risk.read', 'monitor_risk');
     const items = await this.service.listRiskEvents({
-      tenantId: tenantId(request),
+      tenantId: security.tenantId,
       status: readOptionalQueryString(request, 'status') as typeof RiskStatuses[number] | undefined,
       severity: readOptionalQueryString(request, 'severity') as typeof severity[number] | undefined,
       type: readOptionalQueryString(request, 'type') as typeof riskEventTypes[number] | undefined,
     });
+    const authorizedItems = await filterAuthorizedItems(security, items, 'monitor_risk', 'read');
     return {
-      items,
+      items: authorizedItems,
       page: 1,
       pageSize: 200,
-      total: items.length,
+      total: authorizedItems.length,
     };
   }
 
   private async changeRiskStatus(request: HttpRequest, action: Exclude<RiskStatusAction, 'created'>) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body ?? {}, {
       reason: { type: 'string' },
       metadata: { type: 'object' },
       occurredAt: { type: 'string' },
     });
-    const actorId = request.context.actorId;
-    if (!actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
+    const risk = await this.service.getRiskEvent(security.tenantId, readRiskEventId(request));
+    if (!risk) throw new AppError('RESOURCE_NOT_FOUND', '监控风险不存在', { riskEventId: readRiskEventId(request) });
+    await assertRouteAction(security, 'monitor.risk.update', 'monitor_risk', { resourceId: risk.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'monitor_risk', objectId: risk.id, tenantId: security.tenantId });
     return this.service.changeRiskStatus({
-      tenantId: requiredTenantId(request),
-      riskEventId: readRiskEventId(request),
+      tenantId: security.tenantId,
+      riskEventId: risk.id,
       action,
       reason: typeof body.reason === 'string' ? body.reason.trim() || undefined : undefined,
       metadata: body.metadata as Record<string, unknown> | undefined,
       actorType: 'user',
-      actorId,
+      actorId: security.subject.id,
       occurredAt: typeof body.occurredAt === 'string' ? body.occurredAt : undefined,
     });
   }
 
   private async listRiskStatusHistory(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    const risk = await this.service.getRiskEvent(security.tenantId, readRiskEventId(request));
+    if (!risk) throw new AppError('RESOURCE_NOT_FOUND', '监控风险不存在', { riskEventId: readRiskEventId(request) });
+    await assertRouteAction(security, 'monitor.risk.read', 'monitor_risk', { resourceId: risk.id });
+    await assertRouteObjectAccess(security, 'read', { objectType: 'monitor_risk', objectId: risk.id, tenantId: security.tenantId });
     return {
-      items: await this.service.listRiskStatusHistory(requiredTenantId(request), readRiskEventId(request)),
+      items: await this.service.listRiskStatusHistory(security.tenantId, risk.id),
     };
   }
 
   private async listProbeResults(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.target.read', 'monitor_target');
+    const monitorTargetId = readOptionalQueryString(request, 'monitorTargetId') ?? readOptionalQueryString(request, 'filter[monitorTargetId]');
+    if (monitorTargetId) {
+      const target = await this.service.getMonitorTarget(security.tenantId, monitorTargetId);
+      if (!target) throw new AppError('RESOURCE_NOT_FOUND', '监控目标不存在', { monitorTargetId });
+      await assertRouteObjectAccess(security, 'read', { objectType: 'monitor_target', objectId: target.id, tenantId: security.tenantId });
+    }
     const items = await this.service.listMonitorProbeResults({
-      tenantId: tenantId(request),
-      monitorTargetId: readOptionalQueryString(request, 'monitorTargetId') ?? readOptionalQueryString(request, 'filter[monitorTargetId]'),
+      tenantId: security.tenantId,
+      monitorTargetId,
       serviceAssetId: readOptionalQueryString(request, 'serviceAssetId') ?? readOptionalQueryString(request, 'filter[serviceAssetId]'),
       pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
     });
@@ -183,9 +238,15 @@ export class MonitorsController {
   }
 
   private async listCertificateObservations(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.target.read', 'monitor_target');
+    const serviceAssetId = readOptionalQueryString(request, 'serviceAssetId') ?? readOptionalQueryString(request, 'filter[serviceAssetId]');
+    if (serviceAssetId) {
+      await assertRouteObjectAccess(security, 'read', { objectType: 'service_asset', objectId: serviceAssetId, tenantId: security.tenantId });
+    }
     const items = await this.service.listCertificateObservations({
-      tenantId: tenantId(request),
-      serviceAssetId: readOptionalQueryString(request, 'serviceAssetId') ?? readOptionalQueryString(request, 'filter[serviceAssetId]'),
+      tenantId: security.tenantId,
+      serviceAssetId,
       pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
     });
     return {
@@ -197,10 +258,14 @@ export class MonitorsController {
   }
 
   private async getDashboard(request: HttpRequest) {
-    return this.service.getDashboard(tenantId(request));
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.dashboard.read', 'monitor_dashboard');
+    return this.service.getDashboard(security.tenantId);
   }
 
   private async createAlertRule(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.alert_rule.create', 'monitor_alert_rule');
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
       threshold: { type: 'object', required: true },
@@ -208,8 +273,6 @@ export class MonitorsController {
       status: { type: 'string', enum: alertRuleStatuses },
       silence: { type: 'object' },
     });
-    const actorId = request.context.actorId;
-    if (!actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     return {
       statusCode: 201,
       body: await this.service.createAlertRule({
@@ -218,13 +281,15 @@ export class MonitorsController {
         scope: body.scope as any,
         status: body.status as any,
         silence: body.silence as any,
-        createdBy: actorId,
+        createdBy: security.subject.id,
       }),
     };
   }
 
   private async listAlertRules(request: HttpRequest) {
-    const items = await this.service.listAlertRules(tenantId(request));
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'monitor.alert_rule.read', 'monitor_alert_rule');
+    const items = await filterAuthorizedItems(security, await this.service.listAlertRules(security.tenantId), 'monitor_alert_rule', 'read');
     return {
       items,
       page: 1,

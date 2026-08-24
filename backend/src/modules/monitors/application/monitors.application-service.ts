@@ -134,6 +134,10 @@ export class MonitorsApplicationService {
     return this.repository.listRiskEvents(query);
   }
 
+  async getRiskEvent(tenantId: string, riskEventId: string): Promise<RiskEventDto | undefined> {
+    return this.repository.getRiskEvent(tenantId, riskEventId);
+  }
+
   async changeRiskStatus(input: ChangeRiskStatusInput) {
     return this.repository.changeRiskStatus(input);
   }
@@ -144,6 +148,10 @@ export class MonitorsApplicationService {
 
   async listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto> {
     return this.repository.listMonitorTargets(query);
+  }
+
+  async getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined> {
+    return this.repository.getMonitorTarget(tenantId, id);
   }
 
   async createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto> {
@@ -249,6 +257,10 @@ export class MonitorsApplicationService {
 
   async listAlertRules(tenantId?: string): Promise<AlertRuleDto[]> {
     return this.repository.listAlertRules(tenantId);
+  }
+
+  async getAlertRule(tenantId: string, id: string): Promise<AlertRuleDto | undefined> {
+    return (await this.repository.listAlertRules(tenantId)).find((item) => item.id === id);
   }
 
   async getDashboard(tenantId?: string): Promise<MonitorDashboardDto> {

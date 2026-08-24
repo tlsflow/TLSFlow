@@ -100,7 +100,7 @@ import {
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
 import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetSelector, AutomationsController, AutomationsRepository, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts } from './modules/automations/index.js';
-import { createDefaultLicensingService, getLicensingRouteContracts, LicensingController } from './modules/licensing/index.js';
+import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
 import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
 import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
 import { LegoDnsIssuer } from './modules/internal-ca/providers/lego-dns-issuer.js';
@@ -179,8 +179,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     appDb,
     security.secrets,
   );
-  const licensingService = createDefaultLicensingService(appDb, security.audit);
-  app.setResource('licensingService', licensingService);
+  registerEditionLicensing(app, appDb, security.audit);
   const gatewayPersistence = createGatewayPersistenceRepositories({
     ...(dependencies.gatewayPersistence ?? {}),
     db: appDb,
@@ -293,6 +292,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     cloudProviderDiscoveryService,
     providerOperationLedgerService,
     tasksService,
+    security,
   ).register(app.router);
   app.setResource('providerCatalogService', providerCatalogService);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
@@ -451,6 +451,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       resultSync: executionResultSync,
       detailStream: executionDetailStream,
       deploymentInputSnapshots,
+      tasks: tasksService,
     }),
     approval: security.approvals,
     audit: security.audit,
@@ -468,7 +469,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     database: appDb,
       deploymentInputSnapshots,
-      tasks: tasksService,
     }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
@@ -479,10 +479,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     certificates: certificateServices.certificates.getRepository(),
   })).register(app.router);
-  new LicensingController(licensingService).register(app.router);
   new CredentialsController(credentialsService, security).register(app.router);
   if (browserCredentialSessionService) {
-    new BrowserCredentialSessionController(browserCredentialSessionService, security).register(app.router);
+    const browserCredentialSessionController = new BrowserCredentialSessionController(browserCredentialSessionService, security);
+    browserCredentialSessionController.register(app.router);
+    app.setResource('browserCredentialSessionController', browserCredentialSessionController);
   }
   const executionsService = deploymentPlans.getExecutionsService();
   app.setResource('deploymentPlansController', deploymentPlans);
@@ -497,7 +498,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('executionsService', executionsService);
   app.setResource('executionResultSync', executionResultSync);
   app.setResource('executionDetailStream', executionDetailStream);
-  new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
+  new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService, security).register(app.router);
 
   const acmeRenewalWorker = new AcmeRenewalWorker({
     repository: acmeRepository,
@@ -671,8 +672,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     gateways: gatewaysService.getRepository(),
     audit: security.audit,
     deploymentPlans: deploymentPlans.getRepository(),
-  })).register(app.router);
-  new MonitorsController(monitorsService).register(app.router);
+  }), security).register(app.router);
+  new MonitorsController(monitorsService, security).register(app.router);
   new TasksController(tasksService, security).register(app.router);
   new NotificationsController(notificationsService, security).register(app.router);
   const reportScope = new ReportScopeResolver({
@@ -835,6 +836,17 @@ export function getRouteContracts(
           operationId: 'createBrowserCredentialSession',
           summary: '创建浏览器临时凭据会话',
           tags: ['BrowserCredentials'],
+          requestSchema: {
+            type: 'object',
+            required: ['pluginVersionId', 'loginUrl', 'sharePassword'],
+            properties: {
+              assetId: { type: 'string' },
+              pluginVersionId: { type: 'string' },
+              loginUrl: { type: 'string' },
+              ttlSeconds: { type: 'number' },
+              sharePassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
+            },
+          },
           responseSchema: { type: 'object', additionalProperties: true },
         },
         {
@@ -851,6 +863,19 @@ export function getRouteContracts(
           operationId: 'connectBrowserCredentialSession',
           summary: '连接浏览器临时 VNC',
           tags: ['BrowserCredentials'],
+          responseSchema: { type: 'string' },
+        },
+        {
+          method: 'POST',
+          path: '/api/v1/credentials/browser-sessions/:id/connect',
+          operationId: 'authorizeBrowserCredentialShare',
+          summary: '使用临时密码连接浏览器 VNC',
+          tags: ['BrowserCredentials'],
+          requestSchema: {
+            type: 'object',
+            required: ['password'],
+            properties: { password: { type: 'string', writeOnly: true, 'x-sensitive': true } },
+          },
           responseSchema: { type: 'string' },
         },
         {
@@ -896,7 +921,7 @@ export function getRouteContracts(
     ...getTaskRouteContracts(),
     ...getNotificationRouteContracts(),
     ...getReportRouteContracts(),
-    ...getLicensingRouteContracts(),
+    ...getEditionLicensingRouteContracts(),
     ...browserCredentialRouteContracts,
     {
       method: 'GET',

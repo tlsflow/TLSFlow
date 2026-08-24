@@ -3,6 +3,13 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { requireTenantId } from '../../../common/http/tenant-context.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { SecurityServices } from '../../security/security.controller.js';
+import {
+  assertRouteAction,
+  assertRouteObjectAccess,
+  filterAuthorizedItems,
+  requireRouteSecurity,
+} from '../../security/security-route-helpers.js';
 import type { CloudAccountAsset } from '../dto/providers.dto.js';
 import { ProviderCatalogApplicationService } from '../application/provider-catalog.application-service.js';
 import { CloudAccountAssetsApplicationService } from '../application/cloud-account-assets.application-service.js';
@@ -19,13 +26,14 @@ export class ProvidersController {
     private readonly discovery?: CloudProviderDiscoveryApplicationService,
     private readonly ledger?: ProviderOperationLedgerService,
     private readonly tasks?: TasksApplicationService,
+    private readonly security?: SecurityServices,
   ) {}
 
   register(router: Router): void {
-    router.get('/api/v1/providers', '查询云服务 Provider', tags, async (request) => ({ items: await this.catalog.listProviders(requireTenantId(request)) }));
+    router.get('/api/v1/providers', '查询云服务 Provider', tags, async (request) => this.listProviders(request));
     router.get('/api/v1/providers/:providerKey/capabilities', '查询 Provider 产品能力', tags, (request) => this.listCapabilities(request));
     router.get('/api/v1/provider-capability-plugins', '查询 Provider 能力插件', tags, (request) => this.listCapabilities(request));
-    router.get('/api/v1/cloud-account-assets', '查询云账号资产', tags, (request) => this.cloudAccounts.list(requireTenantId(request)));
+    router.get('/api/v1/cloud-account-assets', '查询云账号资产', tags, (request) => this.listCloudAccounts(request));
     router.post('/api/v1/cloud-account-assets', '创建云账号资产', tags, (request) => this.createCloudAccount(request));
     router.patch('/api/v1/cloud-account-assets', '更新云账号资产', tags, (request) => this.updateCloudAccount(request));
     router.post('/api/v1/cloud-account-assets/delete', '删除云账号资产', tags, (request) => this.deleteCloudAccount(request));
@@ -35,10 +43,18 @@ export class ProvidersController {
     router.post('/api/v1/cloud-account-assets/:id/execute-task', '提交 Provider 能力任务', tags, (request) => this.enqueueExecute(request));
   }
 
+  private async listProviders(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'provider.read', 'provider_catalog');
+    return { items: await this.catalog.listProviders(security.tenantId) };
+  }
+
   private async listCapabilities(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'provider.read', 'provider_catalog');
     const providerKey = providerKeyFromPath(request) ?? optionalString(request.query.providerKey);
     return {
-      items: await this.catalog.listCapabilities(requireTenantId(request), {
+      items: await this.catalog.listCapabilities(security.tenantId, {
         providerKey,
         frameworkType: optionalString(request.query.frameworkType),
         operationKey: optionalString(request.query.operationKey),
@@ -46,7 +62,19 @@ export class ProvidersController {
     };
   }
 
+  private async listCloudAccounts(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'cloud_account_asset.read', 'cloud_account_asset');
+    const page = await this.cloudAccounts.list(security.tenantId);
+    return {
+      ...page,
+      items: await filterAuthorizedItems(security, page.items, 'cloud_account_asset', 'read'),
+    };
+  }
+
   private async createCloudAccount(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'cloud_account_asset.create', 'cloud_account_asset');
     const body = validateObject(request.body, {
       displayName: { type: 'string', required: true },
       providerKey: { type: 'string', required: true },
@@ -57,11 +85,12 @@ export class ProvidersController {
     });
     return {
       statusCode: 201,
-      body: await this.cloudAccounts.create(requireTenantId(request), body as never),
+      body: await this.cloudAccounts.create(security.tenantId, body as never),
     };
   }
 
   private async updateCloudAccount(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       displayName: { type: 'string' },
@@ -72,25 +101,38 @@ export class ProvidersController {
       metadata: { type: 'object' },
     });
     const { id, ...input } = body;
-    return this.cloudAccounts.update(requireTenantId(request), String(id), input as never);
+    const asset = await this.cloudAccounts.get(security.tenantId, String(id));
+    await assertRouteAction(security, 'cloud_account_asset.update', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'edit', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
+    return this.cloudAccounts.update(security.tenantId, String(id), input as never);
   }
 
   private async deleteCloudAccount(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
-    return this.cloudAccounts.delete(requireTenantId(request), String(body.id));
+    const asset = await this.cloudAccounts.get(security.tenantId, String(body.id));
+    await assertRouteAction(security, 'cloud_account_asset.delete', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
+    return this.cloudAccounts.delete(security.tenantId, String(body.id));
   }
 
   private async testConnection(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const id = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/connection-test$/)?.[1];
     if (!id) throw new Error('云账号资产路径无效');
-    const asset = await this.cloudAccounts.get(requireTenantId(request), decodeURIComponent(id));
+    const asset = await this.cloudAccounts.get(security.tenantId, decodeURIComponent(id));
+    await assertRouteAction(security, 'cloud_account_asset.control', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
     return this.catalog.testConnection(asset, request.context.requestId);
   }
 
   private async discover(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const id = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/discover$/)?.[1];
     if (!id) throw new Error('云账号资产路径无效');
-    const asset = await this.cloudAccounts.get(requireTenantId(request), decodeURIComponent(id));
+    const asset = await this.cloudAccounts.get(security.tenantId, decodeURIComponent(id));
+    await assertRouteAction(security, 'cloud_account_asset.control', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
     const frameworkTypes = request.body && typeof request.body === 'object'
       ? (request.body as Record<string, unknown>).frameworkTypes
       : undefined;
@@ -107,6 +149,7 @@ export class ProvidersController {
   }
 
   private async execute(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     const id = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/execute$/)?.[1];
     if (!id) throw new Error('云账号资产路径无效');
     const body = validateObject(request.body, {
@@ -115,7 +158,9 @@ export class ProvidersController {
       target: { type: 'object', required: true },
       input: { type: 'object' },
     });
-    const asset = await this.cloudAccounts.get(requireTenantId(request), decodeURIComponent(id));
+    const asset = await this.cloudAccounts.get(security.tenantId, decodeURIComponent(id));
+    await assertRouteAction(security, 'cloud_account_asset.control', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
     const execute = {
       tenantId: asset.tenantId,
       asset,
@@ -129,6 +174,7 @@ export class ProvidersController {
   }
 
   private async enqueueExecute(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
     if (!this.tasks) throw new Error('Provider 任务控制面未配置');
     const id = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/execute-task$/)?.[1];
     if (!id) throw new Error('云账号资产路径无效');
@@ -139,7 +185,9 @@ export class ProvidersController {
       input: { type: 'object' },
       idempotencyKey: { type: 'string' },
     });
-    const asset = await this.cloudAccounts.get(requireTenantId(request), decodeURIComponent(id));
+    const asset = await this.cloudAccounts.get(security.tenantId, decodeURIComponent(id));
+    await assertRouteAction(security, 'cloud_account_asset.control', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'control', { objectType: 'cloud_account_asset', objectId: asset.id, tenantId: asset.tenantId });
     const task = await this.tasks.enqueue({
       tenantId: asset.tenantId,
       taskType: 'PROVIDER_OPERATION',
@@ -155,7 +203,7 @@ export class ProvidersController {
         target: body.target,
         input: body.input && typeof body.input === 'object' ? body.input : {},
       },
-    }, request.context.actorId ? { id: request.context.actorId, type: 'user', scope: { tenantId: asset.tenantId } } : undefined);
+    }, { id: security.subject.id, type: 'user', scope: { tenantId: asset.tenantId, tenantScope: request.context.tenantScope } });
     return { statusCode: 202, body: { taskId: task.id, status: task.status } };
   }
 }

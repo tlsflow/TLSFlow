@@ -2,9 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ExecutionsController } from './controller/executions.controller.js';
 import { ExecutionDetailStreamService } from './application/execution-detail-stream.service.js';
+import { createSecurityServices } from '../security/security.controller.js';
 
 test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步骤的成功状态', async () => {
   const detailStream = new ExecutionDetailStreamService();
+  const security = createSecurityServices();
+  await security.rbac.createPolicy({
+    id: 'policy_execution_controller_test',
+    subjectType: 'user',
+    subjectId: 'tester',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
   let releaseSnapshot: (() => void) | undefined;
   const snapshotReady = new Promise<void>((resolve) => {
     releaseSnapshot = resolve;
@@ -65,7 +76,7 @@ test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步
       return run;
     },
     listSteps: async () => [pendingStep],
-  } as any, detailStream);
+  } as any, detailStream, undefined, security);
   controller.register({
     get: (path: string, _summary: string, _tags: string[], handler: (request: any) => Promise<any>) => {
       if (path === '/api/v1/execution-runs/stream') routeHandler = handler;
@@ -90,7 +101,7 @@ test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步
   };
   const body = await routeHandler!({
     query: { runId: run.id },
-    context: { tenantId: 'tenant_1' },
+    context: { tenantId: 'tenant_1', actorId: 'tester' },
   });
   const streamPromise = body.stream(response as any);
   await new Promise<void>((resolve) => setImmediate(resolve));
