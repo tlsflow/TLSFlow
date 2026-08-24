@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { usePermissionStore } from '@/stores/permission.store'
@@ -116,9 +117,30 @@ function mountBusinessView(component: typeof AssetsView | typeof BindingsView) {
   return mount(component, {
     global: {
       plugins: [createBusinessRouter(), i18n],
-      stubs: { teleport: true, Teleport: true },
+      stubs: {
+        teleport: true,
+        Teleport: true,
+        ApplicationOnboardingModal: defineComponent({
+          name: 'ApplicationOnboardingModalStub',
+          props: { open: { type: Boolean, default: false } },
+          emits: ['update:open', 'customManual', 'addDevice'],
+          template: '<div v-if="open" data-testid="application-onboarding-modal"><button type="button" @click="$emit(\'customManual\')">传统手动创建</button></div>',
+        }),
+      },
     },
   })
+}
+
+async function openProfessionalAssetForm(wrapper: ReturnType<typeof mountBusinessView>) {
+  const addButton = wrapper.findAll('button').find((button) => button.text() === '添加应用')
+  expect(addButton).toBeTruthy()
+  await addButton!.trigger('click')
+  await flushPromises()
+
+  const manualButton = wrapper.findAll('button').find((button) => button.text() === '传统手动创建')
+  expect(manualButton).toBeTruthy()
+  await manualButton!.trigger('click')
+  await flushPromises()
 }
 
 async function setInputElementValue(input: HTMLInputElement, value: string) {
@@ -290,10 +312,7 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.find('[data-testid="asset-professional-card-grid"]').exists()).toBe(true)
     expect(wrapper.find('.business-page').exists()).toBe(false)
 
-    const addButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
-    expect(addButton).toBeTruthy()
-    await addButton!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
 
     const progress = wrapper.find('.asset-wizard__progress [role="progressbar"]')
     expect(progress.exists()).toBe(true)
@@ -364,6 +383,47 @@ describe('资产与证书产物视图', () => {
 
     expect(wrapper.find('[data-testid="asset-professional-view-tabs"]').exists()).toBe(false)
     expect(wrapper.find('.business-page').exists()).toBe(false)
+  })
+
+  it('专业应用页支持切换表格视图并按表头稳定排序', async () => {
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      { id: 'asset-sort-b', address: 'b.example.com', displayName: 'b.example.com', port: 8443, protocol: 'HTTPS', platform: 'WINDOWS', status: 'ACTIVE', currentCertificate: { updateAvailable: true } },
+      { id: 'asset-sort-a', address: 'a.example.com', displayName: 'a.example.com', port: 443, protocol: 'HTTPS', platform: 'LINUX', status: 'ACTIVE', currentCertificate: { notAfter: '2099-06-15T23:59:59.000Z' } },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const cards = wrapper.findAll('[data-testid="asset-professional-card"]')
+    expect(cards[0]?.text()).toContain('a.example.com')
+
+    const presentationButtons = wrapper.findAll('.asset-page__presentation-toggle-button')
+    expect(presentationButtons).toHaveLength(2)
+    await presentationButtons[1]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="asset-professional-card-grid"]').exists()).toBe(false)
+    const table = wrapper.get('.asset-page__asset-table')
+    expect(table.text()).toContain('a.example.com')
+    expect(table.text()).toContain('b.example.com')
+    expect(table.find('[data-testid="asset-list-select-asset-sort-a"]').exists()).toBe(true)
+    const categoryTabs = wrapper.findAll('.certificate-page__category-tab')
+    expect(categoryTabs.map((tab) => tab.text())).toEqual(['全部', '正常', '可更新'])
+    await categoryTabs[2]!.trigger('click')
+    await flushPromises()
+    expect(table.findAll('tbody tr')).toHaveLength(1)
+    expect(table.find('.asset-page__card-certificate-state').text()).toBe('可更新')
+    expect(table.find('.asset-page__card-certificate-state').classes()).toContain('gc-tag--warning')
+    await categoryTabs[0]!.trigger('click')
+    await flushPromises()
+
+    const domainHeader = table.find('.asset-page__header-sort')
+    await domainHeader.trigger('click')
+    expect(domainHeader.text()).toContain('↓')
+    await domainHeader.trigger('click')
+    expect(domainHeader.text()).toContain('↑')
+    const rows = table.findAll('tbody tr')
+    expect(rows[0]?.text()).toContain('a.example.com')
   })
 
   it('多选资产绑定同一证书域名时显示批量更新证书入口', async () => {
@@ -544,7 +604,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
       page: 1,
       pageSize: 20,
-      sort: 'updatedAt:desc',
+      sort: 'address:asc',
       filters: { address: '', status: '' },
     })
     expect(wrapper.find('[data-testid="asset-overview-pagination"]').exists()).toBe(true)
@@ -555,7 +615,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
       page: 2,
       pageSize: 20,
-      sort: 'updatedAt:desc',
+      sort: 'address:asc',
       filters: { address: '', status: '' },
     })
     expect(wrapper.text()).toContain('second.example.com')
@@ -567,7 +627,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
       page: 1,
       pageSize: 20,
-      sort: 'updatedAt:desc',
+      sort: 'address:asc',
       filters: { address: '', status: 'ACTIVE' },
     })
   })
@@ -581,17 +641,14 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.find('[data-testid="asset-card-detail-asset-1"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="asset-card-edit-asset-1"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="asset-card-delete-asset-1"]').exists()).toBe(false)
-    expect(wrapper.findAll('button').some((button) => button.text() === '添加资产')).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === '添加应用')).toBe(false)
   })
 
   it('应用资产平台使用固定标识选项且不依赖设备记录', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    const addButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
-    expect(addButton).toBeTruthy()
-    await addButton!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
 
     const platformField = wrapper.findAll('label').find((label) => label.text().includes('平台 *'))
     expect(platformField).toBeTruthy()
@@ -703,8 +760,7 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
     const addressInput = wrapper.get('[data-testid="asset-address-input"]')
     await setInputElementValue(addressInput.element as HTMLInputElement, 'pfx.example.com')
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
@@ -732,8 +788,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
 
     expect(deviceMocks.listManagedDevices).toHaveBeenCalledWith({
       page: 1,
@@ -822,8 +877,7 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
     const addressInput = wrapper.get('[data-testid="asset-address-input"]')
     await setInputElementValue(addressInput.element as HTMLInputElement, 'iis.example.com')
     const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
@@ -873,8 +927,7 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
 
     expect(wrapper.text()).toContain('device list unavailable')
   })
@@ -1201,10 +1254,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    const createButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
-    expect(createButton).toBeTruthy()
-    await createButton!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
 
     const workflowModeButton = wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))
     expect(workflowModeButton).toBeTruthy()
@@ -1282,8 +1332,7 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
     await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
     await flushPromises()
     await setInputElementValue(wrapper.get('[data-testid="asset-address-input"]').element as HTMLInputElement, 'test-workflow.jacksonz.cn')
@@ -1340,8 +1389,7 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
-    await flushPromises()
+    await openProfessionalAssetForm(wrapper)
     await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
     await flushPromises()
     await setInputElementValue(
