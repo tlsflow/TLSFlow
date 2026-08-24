@@ -76,4 +76,47 @@ describe('i18n 消息字典', () => {
     expect(flattenKeys(localeMessages['zh-CN'])).toContain('app.versionLabel')
     expect(flattenKeys(localeMessages['en-US'])).toContain('reports.export.csv')
   })
+
+  it('监控主页和 TLS 深度检测在 8 种语言中保持完整且相互独立', () => {
+    const referenceKeys = flattenKeys(localeMessages['zh-CN'].monitoring)
+
+    for (const locale of supportedLocales) {
+      const monitoring = getMessage(localeMessages[locale], 'monitoring')
+      expect(monitoring, `${locale}.monitoring`).toBeTruthy()
+      expect(flattenKeys(monitoring), `${locale} monitoring keys`).toEqual(referenceKeys)
+
+      for (const key of referenceKeys) {
+        const value = getMessage(monitoring, key.replace(/^monitoring\./, ''))
+        expect(value, `${locale}.monitoring.${key}`).toBeTruthy()
+      }
+    }
+
+    for (const locale of supportedLocales.filter((item) => item !== 'zh-CN' && item !== 'en-US')) {
+      const localizedTls = getMessage(localeMessages[locale], 'monitoring.tls') as object | undefined
+      const englishTls = getMessage(localeMessages['en-US'], 'monitoring.tls') as object | undefined
+      expect(localizedTls).not.toBe(englishTls)
+      expect(getMessage(localeMessages[locale], 'monitoring.tls.report.handshakeSimulationTitle')).not.toBe('Handshake Simulation')
+      expect(getMessage(localeMessages[locale], 'monitoring.tls.messages.loadFailed')).not.toBe('Failed to load TLS inspection details')
+    }
+
+    const requiredTlsKeys = [
+      'monitoring.tls.detailTitle',
+      'monitoring.tls.actions.openDetail',
+      'monitoring.tls.tabs.simulations',
+      'monitoring.tls.labels.simulationFailures',
+      'monitoring.tls.report.gradeScaleAria',
+      'monitoring.tls.report.simulationFootnoteNoFs',
+      'monitoring.tls.report.simulationFootnoteNoSni',
+      'monitoring.tls.report.simulationFootnoteReference',
+      'monitoring.tls.report.simulationFootnoteDefaults',
+      'monitoring.tls.report.simulationFootnoteTrust',
+      'monitoring.tls.messages.inspectorUnavailable',
+    ]
+
+    for (const locale of supportedLocales) {
+      for (const key of requiredTlsKeys) {
+        expect(getMessage(localeMessages[locale], key), `${locale}.${key}`).toBeTruthy()
+      }
+    }
+  })
 })

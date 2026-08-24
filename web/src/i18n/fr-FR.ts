@@ -4118,58 +4118,58 @@ export default {
   monitoring: {
     tls: monitoringTlsFrFR,
     actions: {
-      add: 'Add monitor',
-      probe: 'Probe sites',
-      probing: 'Probing...',
-      refresh: 'Refresh data',
-      refreshing: 'Refreshing...',
-      remove: 'Remove'
+      add: 'Ajouter une surveillance',
+      probe: 'Inspecter les sites',
+      probing: 'Inspection en cours...',
+      refresh: 'Actualiser les données',
+      refreshing: 'Actualisation...',
+      remove: 'Supprimer'
     },
     errors: {
-      addFailed: 'Failed to add monitor target',
-      deleteFailed: 'Failed to delete monitor target',
-      invalidTarget: 'The backend returned an invalid monitor target',
-      loadFailed: 'Failed to load monitoring data',
-      probeFailed: 'Probe request failed',
-      updateIntervalFailed: 'Failed to update probe interval'
+      addFailed: 'Échec de l’ajout de la cible surveillée',
+      deleteFailed: 'Échec de la suppression de la cible surveillée',
+      invalidTarget: 'Les données de la cible surveillée sont invalides',
+      loadFailed: 'Échec du chargement des données de surveillance',
+      probeFailed: 'Échec de la requête d’inspection',
+      updateIntervalFailed: 'Échec de la mise à jour de la fréquence d’inspection'
     },
     empty: {
-      actualCertificate: 'No observed TLS certificate yet. HTTPS targets collect certificate information automatically during site probes.',
-      description: 'Add a monitor from the top right. The system will probe the site on schedule and collect certificate information.',
-      noAddableAssets: 'No application assets can be added. Adjust existing target probe intervals in the detail view.',
-      observedCertificateHistory: 'No bound certificate versions yet. The first certificate collected by a site probe will be retained automatically.',
-      probeHistory: 'No probe history.',
-      riskEvents: 'No related events.',
-      title: 'No monitor targets'
+      actualCertificate: 'Aucun certificat TLS mesuré pour le moment. Les cibles HTTPS collectent automatiquement les informations du certificat lors de l’inspection du site.',
+      description: 'Ajoutez une surveillance en haut à droite. Le système inspectera le site selon la fréquence définie et collectera les informations du certificat.',
+      noAddableAssets: 'Aucun actif applicatif ne peut être ajouté. Ajustez la fréquence d’inspection des cibles existantes dans la vue détaillée.',
+      observedCertificateHistory: 'Aucune version de certificat liée pour le moment. Le premier certificat collecté par une inspection sera conservé automatiquement.',
+      probeHistory: 'Aucun historique d’inspection.',
+      riskEvents: 'Aucun événement associé.',
+      title: 'Aucune cible surveillée'
     },
     sections: {
-      actualCertificate: 'Current observed site certificate',
-      actualCertificateHint: 'Collected automatically during site probes',
-      observedCertificateHistory: 'Bound certificate versions',
-      observedCertificateHistoryHint: 'Keeps version records as observed TLS certificates change',
-      probeHistory: 'Probe history',
-      probeHistoryHint: 'Latest 20 backend probe results',
-      riskEvents: 'Risk events',
-      riskEventsHint: 'Certificate chain, domain, fingerprint, and execution status',
-      targets: 'Monitor targets'
+      actualCertificate: 'Certificat actuellement mesuré sur le site',
+      actualCertificateHint: 'Collecté automatiquement lors de l’inspection du site',
+      observedCertificateHistory: 'Versions de certificats liés',
+      observedCertificateHistoryHint: 'Conserve les versions lorsque le certificat TLS mesuré change',
+      probeHistory: 'Historique des inspections',
+      probeHistoryHint: 'Les 20 derniers résultats d’inspection du système',
+      riskEvents: 'Événements de risque',
+      riskEventsHint: 'Chaîne de certificats, domaine, empreinte et état d’exécution',
+      targets: 'Cibles surveillées'
     },
     labels: {
-      applicationAsset: 'Application asset',
-      currentTarget: 'Current target',
-      probeInterval: 'Probe interval'
+      applicationAsset: 'Actif applicatif',
+      currentTarget: 'Cible actuelle',
+      probeInterval: 'Fréquence d’inspection'
     },
     metrics: {
-      availability: 'Availability',
-      certificateStatus: 'Certificate status',
-      latency: 'Latency',
-      observedCertificateChanges: 'Observed certificate changes'
+      availability: 'Disponibilité',
+      certificateStatus: 'État du certificat',
+      latency: 'Latence',
+      observedCertificateChanges: 'Changements du certificat mesuré'
     },
     probe: {
-      completed: 'Probe completed',
-      emptyHistoryBlock: 'Probe {index}: no probe yet',
-      latencyNotCollected: 'Latency not collected',
-      recentAria: 'Latest 10 probe results',
-      waiting: 'Waiting for site probe'
+      completed: 'Inspection terminée',
+      emptyHistoryBlock: 'Inspection {index} : aucun résultat',
+      latencyNotCollected: 'Latence non collectée',
+      recentAria: 'Dix derniers résultats d’inspection',
+      waiting: 'En attente de l’inspection du site'
     },
     status: {
       error: 'Error',
@@ -4182,58 +4182,58 @@ export default {
       chainVerificationFailed: 'La sonde système a détecté l’échec de la vérification de la chaîne du certificat'
     },
     fallback: {
-      noEndpoint: 'No endpoint configured',
-      noFingerprint: 'No fingerprint',
+      noEndpoint: 'Aucun point d’accès configuré',
+      noFingerprint: 'Aucune empreinte',
       notClosed: 'Non clôturé',
-      noSummary: 'No summary',
-      notCollected: 'Not collected',
-      notSelected: 'Not selected',
-      unknownAsset: 'Unknown asset',
-      unknownCertificate: 'Unknown certificate',
-      unknownIssuer: 'Unknown issuer',
-      unnamedEvent: 'Unnamed event'
+      noSummary: 'Aucun résumé',
+      notCollected: 'Non collecté',
+      notSelected: 'Non sélectionné',
+      unknownAsset: 'Actif inconnu',
+      unknownCertificate: 'Certificat inconnu',
+      unknownIssuer: 'Émetteur inconnu',
+      unnamedEvent: 'Événement sans nom'
     },
     certificate: {
-      actualCertificate: 'Observed certificate',
-      chainUntrusted: 'Not trusted by the system trust chain',
-      chainVerification: 'Chain verification',
-      chainVerified: 'Chain verified',
-      chainVerifyFailedWithReason: 'Chain verification failed: {reason}',
-      collectedAt: 'Collected at',
-      issuer: 'Issuer',
-      serialNumber: 'Serial number',
-      sha256Fingerprint: 'SHA-256 fingerprint',
-      subject: 'Subject',
-      validity: 'Validity',
-      validityRange: '{start} to {end}'
+      actualCertificate: 'Certificat mesuré',
+      chainUntrusted: 'Non approuvé par la chaîne de confiance du système',
+      chainVerification: 'Vérification de la chaîne',
+      chainVerified: 'Chaîne vérifiée',
+      chainVerifyFailedWithReason: 'Échec de la vérification de la chaîne : {reason}',
+      collectedAt: 'Collecté le',
+      issuer: 'Émetteur',
+      serialNumber: 'Numéro de série',
+      sha256Fingerprint: 'Empreinte SHA-256',
+      subject: 'Sujet',
+      validity: 'Validité',
+      validityRange: '{start} au {end}'
     },
     columns: {
-      certificateName: 'Certificate name',
-      changedAt: 'Changed at',
+      certificateName: 'Nom du certificat',
+      changedAt: 'Modifié le',
       closedAt: 'Clôture de l’alerte',
       currentStatus: 'État actuel',
-      expiresAt: 'Expires at',
-      issuerName: 'Issuer name',
-      latency: 'Latency',
+      expiresAt: 'Expire le',
+      issuerName: 'Nom de l’émetteur',
+      latency: 'Latence',
       occurredAt: 'Date de survenue',
-      result: 'Result',
+      result: 'Résultat',
       source: 'Source',
-      status: 'Status',
-      time: 'Time',
+      status: 'État',
+      time: 'Heure',
       warningContent: 'Contenu de l’alerte'
     },
     dialog: {
-      defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
-      description: 'Select a target from application assets. The system will collect availability, latency, certificate information, and certificate history.',
-      loadingAssets: 'Loading assets...',
-      selectAsset: 'Select application asset',
-      title: 'Add monitor'
+      defaultMetricsHint: 'La disponibilité, la latence, les informations du certificat et son historique sont surveillés par défaut.',
+      description: 'Sélectionnez une cible parmi les actifs applicatifs. Le système collectera sa disponibilité, sa latence, les informations du certificat et son historique.',
+      loadingAssets: 'Chargement des actifs...',
+      selectAsset: 'Sélectionner un actif applicatif',
+      title: 'Ajouter une surveillance'
     },
     source: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Plan de contrôle'
     },
     targets: {
-      assetCount: '{count} assets'
+      assetCount: '{count} actifs'
     }
   },
   login: {

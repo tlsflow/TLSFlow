@@ -4074,58 +4074,58 @@ export default {
   monitoring: {
     tls: monitoringTlsJaJP,
     actions: {
-      add: '追加監視',
-      probe: '検査サイト',
+      add: '監視を追加',
+      probe: 'サイトを検査',
       probing: '検査中...',
-      refresh: '更新データ',
+      refresh: 'データを更新',
       refreshing: '更新中...',
       remove: '削除'
     },
     errors: {
-      addFailed: '監視ターゲット追加に失敗しました',
-      deleteFailed: '監視ターゲットの削除に失敗しました',
-      invalidTarget: '監視ターゲットデータ無効',
+      addFailed: '監視対象の追加に失敗しました',
+      deleteFailed: '監視対象の削除に失敗しました',
+      invalidTarget: '監視対象データが無効です',
       loadFailed: '監視データの読み込みに失敗しました',
-      probeFailed: 'プローブリクエストに失敗しました',
-      updateIntervalFailed: 'プローブ頻度の更新に失敗しました'
+      probeFailed: 'サイト検査リクエストに失敗しました',
+      updateIntervalFailed: '検査間隔の更新に失敗しました'
     },
     empty: {
-      actualCertificate: '実測 TLS 証明書。HTTPS ターゲットはでサイト検査時自動収集証明書情報。はまだありません',
-      description: 'クリック右上追加監視、システムはによりターゲット頻度検査サイトかつ同時に収集証明書情報。',
-      noAddableAssets: '可追加アプリケーションアセット、有ターゲットで詳細中調整プローブ頻度済み。はまだありません',
-      observedCertificateHistory: 'バインド証明書バージョン。サイト検査収集へ第一张証明書後は自動保留。はまだありません',
-      probeHistory: 'プローブ履歴。はまだありません',
-      riskEvents: '相関イベント。はまだありません',
-      title: '監視ターゲットはまだありません'
+      actualCertificate: '測定済みの TLS 証明書はまだありません。HTTPS 対象はサイト検査時に証明書情報を自動収集します。',
+      description: '右上の「監視を追加」から対象を追加してください。設定した間隔でサイトを検査し、証明書情報を収集します。',
+      noAddableAssets: '追加できるアプリケーション資産はありません。既存の対象は詳細画面で検査間隔を調整できます。',
+      observedCertificateHistory: '関連付けられた証明書バージョンはまだありません。サイト検査で最初の証明書を取得すると自動的に保存します。',
+      probeHistory: '検査履歴はありません。',
+      riskEvents: '関連イベントはありません。',
+      title: '監視対象はありません'
     },
     sections: {
-      actualCertificate: '現在サイト実測証明書',
-      actualCertificateHint: '随サイト検査自動収集',
-      observedCertificateHistory: 'バインド証明書バージョン',
-      observedCertificateHistoryHint: 'により実測 TLS 証明書変化保留バージョン記録',
-      probeHistory: 'プローブ履歴',
-      probeHistoryHint: 'システムプローブ結果直近 20 回記録',
+      actualCertificate: '現在サイトで測定された証明書',
+      actualCertificateHint: 'サイト検査時に自動収集',
+      observedCertificateHistory: '関連付けられた証明書バージョン',
+      observedCertificateHistoryHint: '測定された TLS 証明書の変更に応じてバージョンを保存',
+      probeHistory: '検査履歴',
+      probeHistoryHint: 'システムによる直近 20 件の検査結果',
       riskEvents: 'リスクイベント',
-      riskEventsHint: '証明書チェーン、ドメイン名、フィンガープリントと実行ステータス',
-      targets: '監視ターゲット'
+      riskEventsHint: '証明書チェーン、ドメイン、フィンガープリント、実行状態',
+      targets: '監視対象'
     },
     labels: {
-      applicationAsset: 'アプリケーションアセット',
-      currentTarget: '現在ターゲット',
-      probeInterval: 'プローブ頻度'
+      applicationAsset: 'アプリケーション資産',
+      currentTarget: '現在の対象',
+      probeInterval: '検査間隔'
     },
     metrics: {
-      availability: 'へ達性',
+      availability: '可用性',
       certificateStatus: '証明書ステータス',
       latency: 'アクセス遅延',
-      observedCertificateChanges: '実測証明書変更'
+      observedCertificateChanges: '測定証明書の変更'
     },
     probe: {
-      completed: 'プローブ完了',
-      emptyHistoryBlock: '第 {index} 回：プローブはまだありません',
-      latencyNotCollected: '未収集遅延',
-      recentAria: '直近 10 回プローブ結果',
-      waiting: 'サイト検査待ち'
+      completed: '検査完了',
+      emptyHistoryBlock: '検査 {index}：結果はまだありません',
+      latencyNotCollected: '遅延は未収集',
+      recentAria: '直近 10 件の検査結果',
+      waiting: 'サイト検査を待機中'
     },
     status: {
       error: 'エラー',
@@ -4134,41 +4134,41 @@ export default {
       warning: '警告'
     },
     warnings: {
-      certificateNotApplied: 'システム探査でドメイン証明書の最新バージョンが未適用です',
-      chainVerificationFailed: 'システム探査で証明書チェーンの検証に失敗しました'
+      certificateNotApplied: 'システム検査でドメイン証明書の最新バージョンが適用されていないことを検出しました',
+      chainVerificationFailed: 'システム検査で証明書チェーンの検証失敗を検出しました'
     },
     fallback: {
-      noEndpoint: 'アクセスアドレスが未設定です',
-      noFingerprint: '無フィンガープリント',
+      noEndpoint: 'アクセス先が設定されていません',
+      noFingerprint: 'フィンガープリントなし',
       notClosed: '未終了',
-      noSummary: '無サマリー',
+      noSummary: '概要なし',
       notCollected: '未収集',
       notSelected: '未選択',
-      unknownAsset: '不明なアセット',
+      unknownAsset: '不明な資産',
       unknownCertificate: '不明な証明書',
       unknownIssuer: '不明な発行者',
-      unnamedEvent: '無名のイベント'
+      unnamedEvent: '名前のないイベント'
     },
     certificate: {
-      actualCertificate: '実測証明書',
-      chainUntrusted: '未合格システム信頼チェーン検証',
+      actualCertificate: '測定証明書',
+      chainUntrusted: 'システムの信頼チェーンで信頼されていません',
       chainVerification: 'チェーン検証',
-      chainVerified: 'チェーン検証に合格',
+      chainVerified: 'チェーン検証済み',
       chainVerifyFailedWithReason: 'チェーン検証に失敗しました：{reason}',
-      collectedAt: '収集時刻',
+      collectedAt: '収集日時',
       issuer: '発行者',
       serialNumber: 'シリアル番号',
       sha256Fingerprint: 'SHA-256 フィンガープリント',
       subject: 'サブジェクト',
       validity: '有効期間',
-      validityRange: '{start} 至 {end}'
+      validityRange: '{start} ～ {end}'
     },
     columns: {
       certificateName: '証明書名',
-      changedAt: '更换時刻',
+      changedAt: '変更日時',
       closedAt: '警告終了時刻',
       currentStatus: '現在の状態',
-      expiresAt: '期限切れ日時',
+      expiresAt: '有効期限',
       issuerName: '発行者名',
       latency: '遅延',
       occurredAt: '発生時刻',
@@ -4179,17 +4179,17 @@ export default {
       warningContent: '警告内容'
     },
     dialog: {
-      defaultMetricsHint: 'デフォルト監視へ達性、アクセス遅延、証明書情報と証明書履歴。',
-      description: 'アプリケーションアセット一覧選択1 個ターゲット、システムは固定収集から達性、アクセス遅延、証明書情報と証明書履歴。まで',
-      loadingAssets: 'アセットを読み込み中...',
-      selectAsset: 'アプリケーションアセットを選択してください',
-      title: '追加監視'
+      defaultMetricsHint: '可用性、アクセス遅延、証明書情報、証明書履歴を標準で監視します。',
+      description: 'アプリケーション資産から対象を選択すると、可用性、アクセス遅延、証明書情報、証明書履歴を収集します。',
+      loadingAssets: '資産を読み込み中...',
+      selectAsset: 'アプリケーション資産を選択',
+      title: '監視を追加'
     },
     source: {
       controlPlane: 'プラットフォーム'
     },
     targets: {
-      assetCount: '{count} 個のアセット'
+      assetCount: '{count} 件の資産'
     }
   },
   login: {

@@ -4048,57 +4048,57 @@ export default {
   monitoring: {
     tls: monitoringTlsKoKR,
     actions: {
-      add: '모니터 추가',
-      probe: '검사 사이트',
-      probing: '찾는 중...',
+      add: '모니터링 추가',
+      probe: '사이트 검사',
+      probing: '검사 중...',
       refresh: '데이터 새로 고침',
-      refreshing: '새로고침 중...',
+      refreshing: '새로 고치는 중...',
       remove: '제거'
     },
     errors: {
-      addFailed: '감시 대상을 추가하는 데 실패했습니다',
-      deleteFailed: '감시 대상 삭제에 실패했습니다',
-      invalidTarget: '감시 대상 데이터가 잘못되었습니다',
-      loadFailed: '모니터 데이터를 불러오는 데 실패했습니다',
-      probeFailed: '탐지 요청 실패',
-      updateIntervalFailed: '탐지 주파수 업데이트 실패'
+      addFailed: '모니터링 대상을 추가하지 못했습니다',
+      deleteFailed: '모니터링 대상을 삭제하지 못했습니다',
+      invalidTarget: '모니터링 대상 데이터가 올바르지 않습니다',
+      loadFailed: '모니터링 데이터를 불러오지 못했습니다',
+      probeFailed: '사이트 검사 요청에 실패했습니다',
+      updateIntervalFailed: '검사 주기를 업데이트하지 못했습니다'
     },
     empty: {
-      actualCertificate: '아직 관측된 TLS 인증서가 없습니다.',
-      description: '모니터링을 추가하려면 오른쪽 상단을 클릭하세요. 시스템은 목표 빈도에 따라 사이트를 검사하고 동시에 인증서 정보를 수집합니다.',
-      noAddableAssets: '응용 자산을 추가할 수 없습니다. 이미 타겟이 있습니다. 자세한 내용에서 탐지 빈도를 조정하세요.',
-      observedCertificateHistory: '인증서 없음',
-      probeHistory: '과거 기록이 없습니다.',
-      riskEvents: '아직 이벤트 기록이 없습니다.',
+      actualCertificate: '아직 측정된 TLS 인증서가 없습니다. HTTPS 대상은 사이트 검사 중 인증서 정보를 자동으로 수집합니다.',
+      description: '오른쪽 위에서 모니터링을 추가하세요. 시스템은 설정된 주기에 따라 사이트를 검사하고 인증서 정보를 수집합니다.',
+      noAddableAssets: '추가할 수 있는 애플리케이션 자산이 없습니다. 기존 대상은 상세 화면에서 검사 주기를 조정할 수 있습니다.',
+      observedCertificateHistory: '연결된 인증서 버전이 아직 없습니다. 사이트 검사에서 첫 인증서를 수집하면 자동으로 보존합니다.',
+      probeHistory: '검사 기록이 없습니다.',
+      riskEvents: '관련 이벤트가 없습니다.',
       title: '모니터링 대상이 없습니다'
     },
     sections: {
-      actualCertificate: '현재 사이트 실측 인증서',
-      actualCertificateHint: '사이트 탐지와 함께 자동으로 수집됩니다',
-      observedCertificateHistory: '인증서 버전 바인딩',
-      observedCertificateHistoryHint: '실측 TLS 인증서 변경에 따라 버전 기록을 보존합니다',
-      probeHistory: '과거 기록 탐사',
-      probeHistoryHint: '최근 20번의 시스템 탐측 결과가 기록되었다',
+      actualCertificate: '현재 사이트에서 측정된 인증서',
+      actualCertificateHint: '사이트 검사와 함께 자동으로 수집',
+      observedCertificateHistory: '연결된 인증서 버전',
+      observedCertificateHistoryHint: '측정된 TLS 인증서 변경에 따라 버전 기록을 보존',
+      probeHistory: '검사 기록',
+      probeHistoryHint: '최근 20개의 시스템 검사 결과',
       riskEvents: '리스크 이벤트',
-      riskEventsHint: '인증서 체인, 도메인, 지문, 실행 상태',
-      targets: '모니터링대상'
+      riskEventsHint: '인증서 체인, 도메인, 지문 및 실행 상태',
+      targets: '모니터링 대상'
     },
     labels: {
-      applicationAsset: '응용자산',
-      currentTarget: '당면 목표',
-      probeInterval: '프로브 주기'
+      applicationAsset: '애플리케이션 자산',
+      currentTarget: '현재 대상',
+      probeInterval: '검사 주기'
     },
     metrics: {
-      availability: '접근성',
+      availability: '가용성',
       certificateStatus: '인증서 상태',
       latency: '접속 지연',
-      observedCertificateChanges: '실측 인증서 변경'
+      observedCertificateChanges: '측정 인증서 변경'
     },
     probe: {
-      completed: '탐색이 완료되었습니다',
-      emptyHistoryBlock: '{index} 번:아직 탐지 없음',
-      latencyNotCollected: '수집 지연 시간이 없습니다',
-      recentAria: '최근 10회 프로브 결과',
+      completed: '검사가 완료되었습니다',
+      emptyHistoryBlock: '{index}번째 검사: 결과 없음',
+      latencyNotCollected: '지연 시간이 수집되지 않음',
+      recentAria: '최근 10개 검사 결과',
       waiting: '사이트 검사를 기다리는 중'
     },
     status: {
@@ -4108,8 +4108,8 @@ export default {
       warning: '경고'
     },
     warnings: {
-      certificateNotApplied: '시스템 탐지 결과 도메인 인증서 최신 버전이 아직 적용되지 않았습니다',
-      chainVerificationFailed: '시스템 탐지에서 인증서 체인 검증 실패가 감지되었습니다'
+      certificateNotApplied: '시스템 검사에서 도메인 인증서의 최신 버전이 적용되지 않은 것으로 확인되었습니다',
+      chainVerificationFailed: '시스템 검사에서 인증서 체인 검증 실패가 감지되었습니다'
     },
     fallback: {
       noEndpoint: '접근 주소가 설정되지 않았습니다',
