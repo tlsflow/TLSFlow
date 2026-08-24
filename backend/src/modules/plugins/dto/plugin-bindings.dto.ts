@@ -29,23 +29,3 @@ export interface CapabilityAssignmentV1 {
   createdAt: string;
   updatedAt: string;
 }
-
-export interface NormalizedPluginRuntimeInput {
-  pluginVersionId: string;
-  mode: PluginBindingV1['mode'];
-  capabilityKey: string;
-  executionLocation: 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
-  connections: Record<string, unknown>;
-  variables: Record<string, unknown>;
-  credentials: Record<string, { credentialId: string }>;
-  certificateMaterials: Record<string, CertificateMaterialDescriptor>;
-  target: Record<string, unknown>;
-  normalizedSha256: string;
-}
-
-export interface CertificateMaterialDescriptor {
-  certificateVersionId: string;
-  certificateFormatId: string;
-  format: string;
-  outputs: Record<string, { artifactRef: string; sha256: string; size: number; sensitive: boolean }>;
-}

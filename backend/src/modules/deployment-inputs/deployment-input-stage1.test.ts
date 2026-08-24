@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { DeploymentInputContractV1 } from './dto/deployment-input-contract.dto.js';
+import type { RuntimeCredentialV1 } from './dto/resolved-deployment-input.dto.js';
 import type { DeploymentAssetContextV1 } from './dto/deployment-asset-context.dto.js';
 import { emptyInputBindingsV1, type InputBindingsV1 } from './dto/input-bindings.dto.js';
 import type { EffectiveInputBindingV1 } from './domain/deployment-input-provenance.js';
@@ -56,7 +57,7 @@ interface StageFixture {
   name: string;
   contract: DeploymentInputContractV1;
   effectiveBinding: EffectiveInputBindingV1;
-  credentialSnapshots?: Record<string, { credentialId: string; kind: string }>;
+  credentialSnapshots?: Record<string, RuntimeCredentialV1>;
   artifactSnapshots: Record<string, { artifactId: string; outputs: Record<string, unknown> }>;
 }
 

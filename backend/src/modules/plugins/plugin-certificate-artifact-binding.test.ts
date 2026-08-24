@@ -13,9 +13,17 @@ test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => 
     },
     resources: {
       'workflows/certificate-deploy.json': JSON.stringify({
-        variables: {
-          certificate: {
-            type: 'certificate',
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {},
+          connections: {},
+          credentials: {},
+          artifacts: {
+            certificate: {
+              kind: 'certificate',
+              required: true,
+              configurationMode: 'required',
+              lifecycle: 'pre_execution',
             artifactContract: {
               outputs: {
                 leafPem: { role: 'public_certificate', required: true },
@@ -24,6 +32,7 @@ test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => 
                 fingerprintSha256: { role: 'fingerprint_sha256', required: true },
               },
             },
+          },
           },
         },
       }),
@@ -99,7 +108,7 @@ test('根据 Agent Recipe Artifact Contract 生成通用原子插件证书产物
   });
 });
 
-test('不同插件运行时只解析各自的能力资源', () => {
+test('不同插件运行时都通过统一 Contract Loader 拒绝缺失能力资源', () => {
   const atomicPlugin = {
     id: 'plugin-version-atomic-missing',
     runtime: 'AGENT_ATOMIC',
@@ -108,9 +117,7 @@ test('不同插件运行时只解析各自的能力资源', () => {
   } as unknown as UnifiedPluginVersionRecord;
   assert.throws(
     () => buildPluginCertificateArtifactBindings(atomicPlugin, 'certificate.deploy', 'certfmt-generic'),
-    (error: unknown) => error instanceof Error
-      && 'details' in error
-      && (error as { details?: { code?: string } }).details?.code === 'PLUGIN_AGENT_RECIPE_RESOURCE_MISSING',
+    /缺少部署输入契约资源/,
   );
 
   const workflowPlugin = {
@@ -121,9 +128,7 @@ test('不同插件运行时只解析各自的能力资源', () => {
   } as unknown as UnifiedPluginVersionRecord;
   assert.throws(
     () => buildPluginCertificateArtifactBindings(workflowPlugin, 'certificate.deploy', 'certfmt-generic'),
-    (error: unknown) => error instanceof Error
-      && 'details' in error
-      && (error as { details?: { code?: string } }).details?.code === 'PLUGIN_WORKFLOW_RESOURCE_MISSING',
+    /缺少部署输入契约资源/,
   );
 });
 

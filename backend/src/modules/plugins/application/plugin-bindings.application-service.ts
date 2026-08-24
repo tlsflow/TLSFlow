@@ -1,15 +1,7 @@
-import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
-import type { CapabilityAssignmentV1, CertificateMaterialDescriptor, NormalizedPluginRuntimeInput, PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
+import type { CapabilityAssignmentV1, PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
 import { PluginBindingsRepository } from '../repository/plugin-bindings.repository.js';
-
-export interface CertificateArtifactGeneratorPort {
-  generateDeploymentArtifactFromFormat(input: { certificateVersionId: string; certificateFormatId: string; createdBy: string }): Promise<{
-    certificateVersionId: string; certificateFormatId: string; format: string; certificatePem?: string; privateKeyPem?: string;
-    pfxBase64?: string; files: Array<{ fileName: string; contentBase64: string; sha256: string; size: number }>;
-  }>;
-}
 
 type CreatePluginBindingInput = Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt'>;
 
@@ -80,45 +72,7 @@ export class PluginBindingsApplicationService {
   async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
     return (await this.listAssignmentCandidates(tenantId, capabilityKey, owners))[0];
   }
-
-  async normalizeRuntimeInput(bindingId: string, capabilityKey: string, options: { executionLocation: NormalizedPluginRuntimeInput['executionLocation']; target: Record<string, unknown>; certificateMaterials?: Record<string, CertificateMaterialDescriptor> }): Promise<NormalizedPluginRuntimeInput> {
-    const binding = await this.repository.getBinding(bindingId);
-    if (!binding || binding.status !== 'ACTIVE') throw new AppError('RESOURCE_NOT_FOUND', '可用 PluginBinding 不存在', { bindingId });
-    const payload = {
-      pluginVersionId: binding.pluginVersionId, mode: binding.mode, capabilityKey, executionLocation: options.executionLocation,
-      connections: binding.inputBindings.connections, variables: binding.inputBindings.variables, credentials: binding.inputBindings.credentials,
-      certificateMaterials: options.certificateMaterials ?? {}, target: options.target,
-    };
-    return { ...payload, normalizedSha256: createHash('sha256').update(stable(payload)).digest('hex') };
-  }
 }
-
-export class CertificateArtifactBindingResolver {
-  constructor(private readonly certificates: CertificateArtifactGeneratorPort) {}
-
-  async resolve(input: { certificateVersionId: string; createdBy: string; bindings: PluginBindingV1['inputBindings']['artifacts'] }): Promise<Record<string, CertificateMaterialDescriptor>> {
-    const output: Record<string, CertificateMaterialDescriptor> = {};
-    for (const [variableName, binding] of Object.entries(input.bindings)) {
-      if (!binding.certificateFormatId) throw new AppError('VALIDATION_FAILED', '证书 Artifact Binding 必须指定 certificateFormatId', { variableName });
-      const generated = await this.certificates.generateDeploymentArtifactFromFormat({ certificateVersionId: input.certificateVersionId, certificateFormatId: binding.certificateFormatId, createdBy: input.createdBy });
-      const candidates: Record<string, { value: string; sensitive: boolean }> = {};
-      if (generated.certificatePem) candidates.certificatePem = { value: generated.certificatePem, sensitive: false };
-      if (generated.privateKeyPem) candidates.privateKeyPem = { value: generated.privateKeyPem, sensitive: true };
-      if (generated.pfxBase64) candidates.pfxBase64 = { value: generated.pfxBase64, sensitive: true };
-      for (const file of generated.files) candidates[file.fileName] = { value: file.contentBase64, sensitive: true };
-      const outputs: CertificateMaterialDescriptor['outputs'] = {};
-      for (const [slot, source] of Object.entries(binding.outputBindings)) {
-        const candidate = candidates[source];
-        if (!candidate) throw new AppError('VALIDATION_FAILED', '证书产物输出槽位不存在', { variableName, slot, source });
-        outputs[slot] = { artifactRef: `memory://${variableName}/${slot}`, sha256: createHash('sha256').update(candidate.value).digest('hex'), size: Buffer.byteLength(candidate.value), sensitive: candidate.sensitive };
-      }
-      output[variableName] = { certificateVersionId: generated.certificateVersionId, certificateFormatId: generated.certificateFormatId, format: generated.format, outputs };
-    }
-    return output;
-  }
-}
-
-function stable(value: unknown): string { if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`; if (value && typeof value === 'object') return `{${Object.entries(value as Record<string, unknown>).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => `${JSON.stringify(k)}:${stable(v)}`).join(',')}}`; return JSON.stringify(value); }
 
 function assertManagedContext(context: PluginBindingV1['managedContext'] | undefined): void {
   if (!context) return;

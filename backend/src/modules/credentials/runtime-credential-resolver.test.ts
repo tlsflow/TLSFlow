@@ -24,7 +24,7 @@ test('部署计划凭据快照固定 CredentialProfile 和 Secret 精确版本',
 
   const first = await resolver.resolveBindingsForPlan('tenant-plan', { management: { credentialId: created.id } });
   assert.match(first.management!.secretRefs.password!, /#v1$/);
-  assert.equal(first.management!.profileVersion, 1);
+  assert.equal(first.management!.credentialVersionId, '1');
 
   await application.rotate('tenant-plan', created.id, 'user-a', {
     expectedVersion: 1,
@@ -32,7 +32,7 @@ test('部署计划凭据快照固定 CredentialProfile 和 Secret 精确版本',
   });
   const second = await resolver.resolveBindingsForPlan('tenant-plan', { management: { credentialId: created.id } });
   assert.match(second.management!.secretRefs.password!, /#v2$/);
-  assert.equal(second.management!.profileVersion, 2);
+  assert.equal(second.management!.credentialVersionId, '2');
   assert.notEqual(second.management!.snapshotSha256, first.management!.snapshotSha256);
   assert.match(first.management!.secretRefs.password!, /#v1$/);
 });

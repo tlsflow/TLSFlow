@@ -129,6 +129,59 @@ describe('UnifiedDeploymentInputResolver', () => {
       'variables.sensitiveLabel',
     ]);
   });
+
+  it('PEM 与 PFX 只按 Artifact Contract 校验必需输出，不判断厂商或 Framework', () => {
+    const pemRequest = requestFixture();
+    pemRequest.contract.artifacts.certificate.artifactContract.outputs = {
+      leafPem: { role: 'public_certificate', required: true },
+      chainPem: { role: 'certificate_chain', required: false },
+      privateKeyPem: { role: 'private_key', required: true, sensitive: true },
+    };
+    pemRequest.artifactSnapshots = {
+      certificate: { artifactId: 'pem-artifact', outputs: { leafPem: 'CERT', privateKeyPem: 'KEY' } },
+    };
+    const pem = resolver.resolve(pemRequest);
+    assert.equal(pem.executable, true);
+    assert.equal(pem.sensitivePaths.includes('artifacts.certificate.outputs.privateKeyPem'), true);
+
+    const requiredChainRequest = structuredClone(pemRequest);
+    requiredChainRequest.contract.artifacts.certificate.artifactContract.outputs.chainPem!.required = true;
+    const missingChain = resolver.resolve(requiredChainRequest);
+    assert.equal(missingChain.executable, false);
+    assert.equal(missingChain.issues.some((item) => item.code === 'DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED' && item.path === 'artifacts.certificate.outputs.chainPem'), true);
+
+    const pfxRequest = requestFixture();
+    pfxRequest.contract.artifacts.certificate.artifactContract.outputs = {
+      bundle: { role: 'pkcs12_bundle', required: true, sensitive: true },
+      password: { role: 'password', required: true, sensitive: true },
+    };
+    pfxRequest.artifactSnapshots = {
+      certificate: { artifactId: 'pfx-artifact', outputs: { bundle: 'PFX_BASE64', password: 'PFX_PASSWORD' } },
+    };
+    const pfx = resolver.resolve(pfxRequest);
+    assert.equal(pfx.executable, true);
+    assert.deepEqual(pfx.sensitivePaths.filter((path) => path.startsWith('artifacts.certificate.outputs.')), [
+      'artifacts.certificate.outputs.bundle',
+      'artifacts.certificate.outputs.password',
+    ]);
+  });
+
+  it('Credential Snapshot 保留精确版本和 SecretRef，Issue 不包含敏感正文', () => {
+    const request = requestFixture();
+    request.credentialSnapshots = {
+      managementCredential: {
+        credentialId: 'credential-1',
+        credentialVersionId: '7',
+        kind: 'USERNAME_PASSWORD',
+        username: 'admin',
+        secretRefs: { password: 'secret://password/sec-1#v9' },
+      },
+    };
+    const resolved = resolver.resolve(request);
+    assert.equal(resolved.credentials.managementCredential?.credentialVersionId, '7');
+    assert.equal(resolved.credentials.managementCredential?.secretRefs?.password, 'secret://password/sec-1#v9');
+    assert.equal(JSON.stringify(resolved.issues).includes('secret://'), false);
+  });
 });
 
 function requestFixture(): ResolveDeploymentInputRequest {

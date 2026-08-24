@@ -1,131 +1,31 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { AgentDeploymentPluginManifestV1 } from '../dto/agent-deployment-plugins.dto.js';
-import type { WorkflowDslV1, WorkflowVariableDefinition } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { DeploymentArtifactSlotV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import type { DeploymentArtifactBindingV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
-import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
+import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 
 export function buildPluginCertificateArtifactBindings(
   plugin: UnifiedPluginVersionRecord,
   capabilityKey: string,
   certificateFormatId: string,
 ): Record<string, DeploymentArtifactBindingV1> {
-  if (plugin.runtime === 'AGENT_ATOMIC') {
-    return buildAgentAtomicCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
-  }
-  if (plugin.runtime !== 'WORKFLOW_DSL') {
-    throw new AppError('VALIDATION_FAILED', '插件运行时不支持证书产物契约解析', {
-      code: 'PLUGIN_RUNTIME_ARTIFACT_CONTRACT_UNSUPPORTED',
-      pluginVersionId: plugin.id,
-      capabilityKey,
-      runtime: plugin.runtime,
-    });
-  }
-  return buildWorkflowCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
-}
-
-function buildWorkflowCertificateArtifactBindings(
-  plugin: UnifiedPluginVersionRecord,
-  capabilityKey: string,
-  certificateFormatId: string,
-): Record<string, DeploymentArtifactBindingV1> {
-  const resourcePath = plugin.manifest.resources.workflows?.[capabilityKey];
-  const contentText = resourcePath ? plugin.resources[resourcePath] : undefined;
-  if (!resourcePath || !contentText) {
-    throw new AppError('VALIDATION_FAILED', '插件能力缺少可解析的 Workflow 资源', {
-      code: 'PLUGIN_WORKFLOW_RESOURCE_MISSING',
-      pluginVersionId: plugin.id,
-      capabilityKey,
-      resourcePath,
-    });
-  }
-
-  const workflow = parseWorkflow(contentText, plugin.id, capabilityKey);
-  const bindings = Object.fromEntries(Object.entries(workflow.variables)
-    .filter((entry): entry is [string, WorkflowVariableDefinition] => entry[1]?.type === 'certificate')
-    .map(([variableName, definition]) => [variableName, buildBinding(variableName, definition, certificateFormatId)]));
+  const contract = new DeploymentInputContractLoader().fromPlugin(plugin, capabilityKey);
+  const bindings = Object.fromEntries(Object.entries(contract.artifacts)
+    .filter(([, definition]) => definition.kind === 'certificate' && definition.required)
+    .map(([artifactName, definition]) => [artifactName, buildBinding(artifactName, definition, certificateFormatId)]));
   if (Object.keys(bindings).length === 0) {
-    throw new AppError('VALIDATION_FAILED', '插件证书部署 Workflow 没有声明 certificate 变量产物契约', {
+    throw new AppError('VALIDATION_FAILED', '插件能力没有声明必需的证书 Artifact Slot', {
       code: 'PLUGIN_CERTIFICATE_ARTIFACT_CONTRACT_MISSING',
       pluginVersionId: plugin.id,
       capabilityKey,
     });
   }
   return bindings;
-}
-
-function buildAgentAtomicCertificateArtifactBindings(
-  plugin: UnifiedPluginVersionRecord,
-  capabilityKey: string,
-  certificateFormatId: string,
-): Record<string, DeploymentArtifactBindingV1> {
-  const resourcePath = plugin.manifest.resources.agentRecipes?.[capabilityKey];
-  const contentText = resourcePath ? plugin.resources[resourcePath] : undefined;
-  if (!resourcePath || !contentText) {
-    throw new AppError('VALIDATION_FAILED', '插件能力缺少可解析的 Agent Recipe 资源', {
-      code: 'PLUGIN_AGENT_RECIPE_RESOURCE_MISSING',
-      pluginVersionId: plugin.id,
-      capabilityKey,
-      resourcePath,
-    });
-  }
-
-  const recipe = parseAgentRecipe(contentText, plugin.id, capabilityKey);
-  const bindings = Object.fromEntries(Object.entries(recipe.inputContract.artifacts)
-    .filter(([, definition]) => definition.required === true)
-    .flatMap(([artifactName, definition]) => {
-      const outputKey = standardAgentArtifactOutputKey(definition);
-      return outputKey
-        ? [[artifactName, {
-          certificateFormatId,
-          outputBindings: { [artifactName]: outputKey },
-        } satisfies DeploymentArtifactBindingV1] as const]
-        : [];
-    }));
-  if (Object.keys(bindings).length === 0) {
-    throw new AppError('VALIDATION_FAILED', 'Agent Atomic 插件能力没有声明可解析的证书产物输入契约', {
-      code: 'PLUGIN_CERTIFICATE_ARTIFACT_CONTRACT_MISSING',
-      pluginVersionId: plugin.id,
-      capabilityKey,
-    });
-  }
-  return bindings;
-}
-
-function parseWorkflow(contentText: string, pluginVersionId: string, capabilityKey: string): WorkflowDslV1 {
-  try {
-    return JSON.parse(contentText) as WorkflowDslV1;
-  } catch (error) {
-    throw new AppError('VALIDATION_FAILED', '插件 Workflow JSON 无法解析', {
-      code: 'PLUGIN_WORKFLOW_INVALID_JSON',
-      pluginVersionId,
-      capabilityKey,
-      cause: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-function parseAgentRecipe(
-  contentText: string,
-  pluginVersionId: string,
-  capabilityKey: string,
-): AgentDeploymentPluginManifestV1 {
-  try {
-    return validateAgentDeploymentPluginManifest(JSON.parse(contentText));
-  } catch (error) {
-    if (error instanceof AppError) throw error;
-    throw new AppError('VALIDATION_FAILED', '插件 Agent Recipe JSON 无法解析', {
-      code: 'PLUGIN_AGENT_RECIPE_INVALID_JSON',
-      pluginVersionId,
-      capabilityKey,
-      cause: error instanceof Error ? error.message : String(error),
-    });
-  }
 }
 
 function buildBinding(
-  variableName: string,
-  definition: WorkflowVariableDefinition,
+  artifactName: string,
+  definition: DeploymentArtifactSlotV1,
   certificateFormatId: string,
 ): DeploymentArtifactBindingV1 {
   const outputs = definition.artifactContract?.outputs ?? {};
@@ -140,7 +40,7 @@ function buildBinding(
   if (Object.keys(outputBindings).length === 0 || missingRequiredOutputs.length > 0) {
     throw new AppError('VALIDATION_FAILED', '插件证书产物契约无法映射到宿主标准输出', {
       code: 'PLUGIN_CERTIFICATE_ARTIFACT_MAPPING_MISSING',
-      variableName,
+      artifactName,
       missingRequiredOutputs,
     });
   }
@@ -155,9 +55,4 @@ function standardOutputKey(outputName: string, role: string): string {
   if (normalizedRole === 'fingerprint_sha256') return 'fingerprintSha256';
   if (normalizedRole === 'pkcs12_bundle') return 'pfxBase64';
   return outputName.trim();
-}
-
-function standardAgentArtifactOutputKey(definition: AgentDeploymentPluginManifestV1['inputContract']['artifacts'][string]): string | undefined {
-  const requiredOutput = Object.entries(definition.artifactContract.outputs).find(([, output]) => output.required);
-  return requiredOutput ? standardOutputKey(requiredOutput[0], requiredOutput[1].role) : undefined;
 }

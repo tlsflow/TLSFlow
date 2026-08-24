@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
-import { PluginBindingsApplicationService, CertificateArtifactBindingResolver } from './application/plugin-bindings.application-service.js';
+import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
 import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 
@@ -59,11 +59,4 @@ test('PluginBinding 支持乐观锁更新完整 InputBindings 信封', async () 
   assert.equal(updated.version, 2);
   assert.deepEqual(updated.inputBindings.credentials, { auth: { credentialId: 'cred-1' } });
   await assert.rejects(() => service.updateBinding('tenant-1', created.id, { expectedVersion: 1, inputBindings: inputBindings() }), /版本冲突/);
-});
-
-test('证书产物 Resolver 只返回 ArtifactRef、哈希和敏感标记', async () => {
-  const resolver = new CertificateArtifactBindingResolver({ generateDeploymentArtifactFromFormat: async () => ({ certificateVersionId: 'cert-1', certificateFormatId: 'format-1', format: 'PEM', certificatePem: 'CERT', privateKeyPem: 'KEY', files: [] }) });
-  const result = await resolver.resolve({ certificateVersionId: 'cert-1', createdBy: 'test', bindings: { material: { certificateFormatId: 'format-1', outputBindings: { certificate: 'certificatePem', privateKey: 'privateKeyPem' } } } });
-  assert.equal(result.material?.outputs.privateKey?.sensitive, true);
-  assert.equal(JSON.stringify(result).includes('KEY'), false);
 });

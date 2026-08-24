@@ -1,20 +1,15 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { createHash } from 'node:crypto';
-import type { CredentialDelivery, CredentialKind } from '../../../persistence/entities/credential-profile.entity.js';
+import type { CredentialKind } from '../../../persistence/entities/credential-profile.entity.js';
 import { buildSecretRef, parseSecretRef } from '../../secrets/secret-ref.js';
+import type { RuntimeCredentialV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { CredentialsRepository } from '../repository/credentials.repository.js';
-export interface RuntimeCredentialV1 {
-  credentialId: string;
-  kind: CredentialKind;
-  username?: string;
-  delivery?: CredentialDelivery;
-  secretRefs: Record<string, string>;
-  [key: string]: unknown;
-}
 
 export interface CredentialPlanSnapshotV1 extends RuntimeCredentialV1 {
-  profileVersion: number;
+  credentialVersionId: string;
+  kind: CredentialKind;
+  secretRefs: Record<string, string>;
   snapshotSha256: string;
 }
 
@@ -71,11 +66,11 @@ export class RuntimeCredentialResolver {
       })));
       const snapshot = {
         credentialId: profile.id,
+        credentialVersionId: String(profile.version),
         kind: profile.kind,
         username: profile.username,
         delivery: profile.delivery,
         secretRefs,
-        profileVersion: profile.version,
       };
       return [slot, {
         ...snapshot,

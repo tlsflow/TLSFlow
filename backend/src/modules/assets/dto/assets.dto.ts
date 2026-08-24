@@ -6,6 +6,7 @@ import type {
   ProviderType,
 } from '../../../shared/enums/core.enums.js';
 import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindingDto, DriftState } from '../../bindings/dto/bindings.dto.js';
+import type { RuntimeCredentialV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { WorkflowCredentialBinding } from '../../workflow-templates/dto/workflow-templates.dto.js';
 
 export type HostStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
@@ -62,7 +63,7 @@ export interface WorkflowDeploymentStrategyDto {
     sniName?: string;
   };
   credentialBindings?: Record<string, { credentialId: string }>;
-  credentials?: Record<string, WorkflowCredentialBinding & { profileVersion: number; snapshotSha256: string }>;
+  credentials?: Record<string, RuntimeCredentialV1 & { credentialVersionId: string; snapshotSha256: string }>;
   connectionBindings?: Record<string, {
     host?: string;
     port?: number;

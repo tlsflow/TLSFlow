@@ -1,6 +1,7 @@
 import type { DeploymentAssetContextV1 } from './deployment-asset-context.dto.js';
 import type { DeploymentInputContractV1 } from './deployment-input-contract.dto.js';
 import type { InputBindingsV1 } from './input-bindings.dto.js';
+import type { CredentialDelivery, CredentialKind } from '../../../persistence/entities/credential-profile.entity.js';
 import type { EffectiveInputBindingV1, InputValueProvenanceV1 } from '../domain/deployment-input-provenance.js';
 
 export type ResolveDeploymentInputPhase = 'configure' | 'save' | 'preflight' | 'execute';
@@ -8,7 +9,9 @@ export type ResolveDeploymentInputPhase = 'configure' | 'save' | 'preflight' | '
 export interface RuntimeCredentialV1 {
   credentialId: string;
   credentialVersionId?: string;
-  kind?: string;
+  kind?: CredentialKind;
+  username?: string;
+  delivery?: CredentialDelivery;
   secretRefs?: Record<string, string>;
   [key: string]: unknown;
 }
