@@ -37,7 +37,7 @@ func collectWindowsMatureWebInventory(ctx context.Context, logger *runtimeLogger
 			logger.Warn("mature Windows IIS runtime discovery failed: %v", iisErr)
 		}
 	} else {
-		appendWindowsMatureRuntimeDetail(inventory, "web.iis", "IIS", iis.Installed, iis.Version, windowsSystem32Directory+`\inetsrv`, iis.ConfigPath, "", windowsSystem32Directory+`\inetsrv`, iis.Sites, iis.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "web.iis", "IIS", iis.Installed, iis.Version, iis.ProgramPath, "W3SVC", iis.ConfigPath, iis.ConfigFingerprint, windowsSystem32Directory+`\inetsrv`, iis.Sites, iis.Warnings)
 	}
 	nginx, apache, tomcat, err := inspectWindowsRuntimeDiscovery(host)
 	if err != nil {
@@ -216,6 +216,9 @@ func appendWindowsMatureSite(
 		}
 		if fingerprint := firstNonEmpty(listener.ConfigFingerprint, site.ConfigFingerprint, fallbackConfigFingerprint); fingerprint != "" {
 			listenerRecord["configFingerprint"] = fingerprint
+		}
+		if listener.Certificate != nil && strings.TrimSpace(listener.Certificate.FingerprintSHA256) != "" {
+			listenerRecord["certificateFingerprintSha256"] = strings.TrimSpace(listener.Certificate.FingerprintSHA256)
 		}
 		if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
 			listenerRecord["programPath"] = path

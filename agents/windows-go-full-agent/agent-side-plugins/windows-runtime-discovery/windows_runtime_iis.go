@@ -1,19 +1,24 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
 
 // windowsIISRuntimeDetail 只承载 ServerManager 返回的实际 IIS 站点和 Binding。
 // IIS 的证书绑定必须从 Binding.CertificateHash 解析，不能按监听端口猜测。
 type windowsIISRuntimeDetail struct {
-	Installed  bool
-	Version    string
-	ConfigPath string
-	Sites      []windowsRuntimeSite
-	Warnings   []windowsDiscoveryWarning
+	Installed         bool
+	Version           string
+	ProgramPath       string
+	ConfigPath        string
+	ConfigFingerprint string
+	Sites             []windowsRuntimeSite
+	Warnings          []windowsDiscoveryWarning
 }
 
 type windowsIISRuntimeWire struct {
@@ -57,14 +62,20 @@ func inspectWindowsIISRuntime(host windowsRuntimeDiscoveryHost) (windowsIISRunti
 	}
 
 	detail := windowsIISRuntimeDetail{
-		Installed:  wire.Installed,
-		Version:    strings.TrimSpace(wire.VersionString),
-		ConfigPath: windowsSystem32Directory + `\inetsrv\config\applicationHost.config`,
-		Sites:      []windowsRuntimeSite{},
-		Warnings:   []windowsDiscoveryWarning{},
+		Installed:   wire.Installed,
+		Version:     strings.TrimSpace(wire.VersionString),
+		ProgramPath: windowsSystem32Directory + `\inetsrv\appcmd.exe`,
+		ConfigPath:  windowsSystem32Directory + `\inetsrv\config\applicationHost.config`,
+		Sites:       []windowsRuntimeSite{},
+		Warnings:    []windowsDiscoveryWarning{},
 	}
 	if !detail.Installed {
 		return detail, nil
+	}
+	if digest, warning := sha256IISFile(detail.ConfigPath); warning != nil {
+		detail.Warnings = append(detail.Warnings, *warning)
+	} else {
+		detail.ConfigFingerprint = digest
 	}
 	sites, err := parseWindowsIISRuntimeSites(wire.Sites, detail.ConfigPath)
 	if err != nil {
@@ -72,6 +83,15 @@ func inspectWindowsIISRuntime(host windowsRuntimeDiscoveryHost) (windowsIISRunti
 	}
 	detail.Sites = sites
 	return detail, nil
+}
+
+func sha256IISFile(path string) (string, *windowsDiscoveryWarning) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", &windowsDiscoveryWarning{Code: "IIS_CONFIG_SHA256_UNAVAILABLE", Message: fmt.Sprintf("无法读取 IIS applicationHost.config 并计算 SHA-256: %v", err), Path: path}
+	}
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func parseWindowsIISRuntimeSites(raw json.RawMessage, configPath string) ([]windowsRuntimeSite, error) {

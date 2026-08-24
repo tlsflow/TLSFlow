@@ -670,7 +670,7 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	if operation.Input == nil {
 		return errors.New("operation input is required")
 	}
-	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "certificate.tls.verify", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "certificate.iis.binding.update", "certificate.iis.binding.verify", "certificate.iis.binding.rollback", "certificate.tls.verify", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 		return fmt.Errorf("unsupported Agent operation: %s", operation.OperationType)
 	}
 	if v2ContainsString([]string{"service.status", "service.start", "service.stop", "service.restart", "service.reload"}, operation.OperationType) && stringValue(operation.Input, "serviceName") == "" {
@@ -693,6 +693,9 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.store.install" {
 		return validateCertificateStoreInstallInput(operation.Input)
+	}
+	if strings.HasPrefix(operation.OperationType, "certificate.iis.binding.") {
+		return validateIISBindingOperationInput(operation.OperationType, operation.Input)
 	}
 	if operation.OperationType == "command.execute_allowlisted" {
 		return validateAllowlistedCommandInput(operation)
@@ -849,6 +852,12 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 				operationDetail, err = executePreDeployTLSVerification(operationCtx, operation)
 			case "certificate.store.install":
 				operationDetail, err = executeCertificateStoreInstall(operationCtx, operation)
+			case "certificate.iis.binding.update":
+				operationDetail, err = executeIISBindingOperation(operationCtx, operation, "update")
+			case "certificate.iis.binding.verify":
+				operationDetail, err = executeIISBindingOperation(operationCtx, operation, "verify")
+			case "certificate.iis.binding.rollback":
+				operationDetail, err = executeIISBindingOperation(operationCtx, operation, "rollback")
 			case "filesystem.atomic_replace":
 				err = executeFileReplace(operationCtx, operation)
 			case "filesystem.restore":
@@ -913,7 +922,7 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 }
 
 func isAgentWriteOperationType(operationType string) bool {
-	return v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operationType)
+	return v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operationType)
 }
 
 func unknownAgentWriteDetail(plan agentPlanV2, reason string, fields map[string]any) map[string]any {
@@ -971,7 +980,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if v2ContainsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "certificate.iis.binding.update", "certificate.iis.binding.rollback", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}
@@ -1467,6 +1476,170 @@ func validateCertificateStoreInstallInput(input map[string]any) error {
 	}
 	return nil
 }
+
+func validateIISBindingOperationInput(operationType string, input map[string]any) error {
+	common := []string{"siteName", "bindingInformation", "storeName", "storeLocation", "bindingKey", "configFingerprint"}
+	for _, key := range common {
+		if stringValue(input, key) == "" {
+			return fmt.Errorf("%s requires %s", operationType, key)
+		}
+	}
+	if stringValue(input, "storeName") != "My" || stringValue(input, "storeLocation") != "LocalMachine" {
+		return errors.New("IIS binding only supports LocalMachine\\My")
+	}
+	if !isSHA256Hex(stringValue(input, "configFingerprint")) || !isSHA256Hex(stringValue(input, "artifactDigest")) && operationType != "certificate.iis.binding.rollback" {
+		return errors.New("IIS binding digest is invalid")
+	}
+	switch operationType {
+	case "certificate.iis.binding.update":
+		if len(input) != 10 {
+			return errors.New("IIS binding update input contains unsupported fields")
+		}
+		pfx, err := base64.StdEncoding.DecodeString(stringValue(input, "pfxBase64"))
+		if err != nil || len(pfx) == 0 || len(pfx) > 256*1024 {
+			return errors.New("IIS binding update pfxBase64 is invalid")
+		}
+		if stringValue(input, "pfxPassword") == "" || len(stringValue(input, "pfxPassword")) > 1024 {
+			return errors.New("IIS binding update pfxPassword is invalid")
+		}
+		if !isSHA256Hex(stringValue(input, "expectedFingerprintSha256")) || !isSHA256Hex(stringValue(input, "artifactDigest")) {
+			return errors.New("IIS binding update fingerprint is invalid")
+		}
+	case "certificate.iis.binding.verify":
+		if len(input) != 8 || !isSHA256Hex(stringValue(input, "expectedFingerprintSha256")) || !isSHA256Hex(stringValue(input, "artifactDigest")) {
+			return errors.New("IIS binding verify input is invalid")
+		}
+	case "certificate.iis.binding.rollback":
+		if len(input) != 7 || !isSHA1Hex(stringValue(input, "previousThumbprint")) {
+			return errors.New("IIS binding rollback input is invalid")
+		}
+	default:
+		return errors.New("unsupported IIS binding operation")
+	}
+	return nil
+}
+
+func isSHA1Hex(value string) bool {
+	compact := strings.NewReplacer(":", "", " ", "").Replace(strings.TrimSpace(value))
+	if len(compact) != sha1.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(compact)
+	return err == nil
+}
+
+func executeIISBindingOperation(ctx context.Context, operation agentPlanAction, action string) (map[string]any, error) {
+	if err := validateIISBindingOperationInput(operation.OperationType, operation.Input); err != nil {
+		return nil, err
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	var pfxPath string
+	if action == "update" {
+		content, err := base64.StdEncoding.DecodeString(stringValue(operation.Input, "pfxBase64"))
+		if err != nil {
+			return nil, errors.New("IIS PFX 内容解码失败")
+		}
+		temporary, err := os.CreateTemp(os.TempDir(), "gcac-iis-*.pfx")
+		if err != nil {
+			return nil, err
+		}
+		pfxPath = temporary.Name()
+		defer os.Remove(pfxPath)
+		if err := temporary.Chmod(0o600); err != nil {
+			_ = temporary.Close()
+			return nil, err
+		}
+		if _, err := temporary.Write(content); err != nil {
+			_ = temporary.Close()
+			return nil, err
+		}
+		if err := temporary.Close(); err != nil {
+			return nil, err
+		}
+	}
+	environment := append(fixedWindowsEnvironment(),
+		"GCAC_IIS_ACTION="+action,
+		"GCAC_IIS_SITE_NAME="+stringValue(operation.Input, "siteName"),
+		"GCAC_IIS_BINDING_INFORMATION="+stringValue(operation.Input, "bindingInformation"),
+		"GCAC_IIS_EXPECTED_SHA256="+stringValue(operation.Input, "expectedFingerprintSha256"),
+		"GCAC_IIS_CONFIG_SHA256="+stringValue(operation.Input, "configFingerprint"),
+		"GCAC_IIS_PREVIOUS_THUMBPRINT="+strings.ReplaceAll(strings.ReplaceAll(stringValue(operation.Input, "previousThumbprint"), ":", ""), " ", ""),
+		"GCAC_IIS_PFX_PATH="+pfxPath,
+		"GCAC_IIS_PFX_PASSWORD="+stringValue(operation.Input, "pfxPassword"),
+	)
+	command := exec.CommandContext(ctx, windowsPowerShellPath, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", windowsIISBindingOperationScript)
+	command.Dir = windowsSystem32Directory
+	command.Env = environment
+	output, err := command.CombinedOutput()
+	if err != nil {
+		wrapped := commandExecutionError("IIS binding operation failed", err)
+		if action != "verify" && !operationResultUnknown(wrapped) {
+			wrapped = unknownOperationError(wrapped)
+		}
+		return nil, wrapped
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output), &detail); err != nil {
+		if action == "verify" {
+			return nil, errors.New("IIS binding operation returned invalid JSON")
+		}
+		return nil, unknownOperationError(errors.New("IIS binding operation completed but result is unavailable"))
+	}
+	return detail, nil
+}
+
+const windowsIISBindingOperationScript = `$ErrorActionPreference = 'Stop'
+$assemblyPath = Join-Path $env:SystemRoot 'System32\inetsrv\Microsoft.Web.Administration.dll'
+if (Test-Path -LiteralPath $assemblyPath) { Add-Type -Path $assemblyPath } else { Add-Type -AssemblyName 'Microsoft.Web.Administration' }
+$manager = New-Object Microsoft.Web.Administration.ServerManager
+$site = $manager.Sites | Where-Object { $_.Name -ceq $env:GCAC_IIS_SITE_NAME } | Select-Object -First 1
+if ($null -eq $site) { throw 'IIS site was not found' }
+$binding = $site.Bindings | Where-Object { $_.Protocol -ieq 'https' -and $_.BindingInformation -ceq $env:GCAC_IIS_BINDING_INFORMATION } | Select-Object -First 1
+if ($null -eq $binding) { throw 'IIS HTTPS binding was not found' }
+$configPath = Join-Path $env:SystemRoot 'System32\inetsrv\config\applicationHost.config'
+$configSha256 = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($env:GCAC_IIS_CONFIG_SHA256 -and $configSha256 -ne $env:GCAC_IIS_CONFIG_SHA256.ToLowerInvariant()) { throw 'IIS applicationHost.config fingerprint changed' }
+function Get-Sha256([System.Security.Cryptography.X509Certificates.X509Certificate2] $certificate) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try { return ([System.BitConverter]::ToString($sha.ComputeHash($certificate.RawData))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+}
+function Get-Certificate([byte[]] $hash, [string] $storeName) {
+  if ($null -eq $hash -or $hash.Length -eq 0) { return $null }
+  $thumbprint = ([System.BitConverter]::ToString($hash)).Replace('-', '')
+  try { return Get-Item -LiteralPath ('Cert:\LocalMachine\' + $storeName + '\' + $thumbprint) -ErrorAction Stop } catch { return $null }
+}
+$previous = Get-Certificate $binding.CertificateHash $binding.CertificateStoreName
+$action = $env:GCAC_IIS_ACTION
+if ($action -eq 'update') {
+  $securePassword = ConvertTo-SecureString $env:GCAC_IIS_PFX_PASSWORD -AsPlainText -Force
+  $imported = Import-PfxCertificate -FilePath $env:GCAC_IIS_PFX_PATH -Password $securePassword -CertStoreLocation 'Cert:\LocalMachine\My' -Exportable
+  $certificate = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+  if ($null -eq $certificate) { $certificate = $imported | Select-Object -First 1 }
+  if ($null -eq $certificate) { throw 'PFX did not contain a certificate' }
+  $actualSha256 = Get-Sha256 $certificate
+  if ($actualSha256 -ne $env:GCAC_IIS_EXPECTED_SHA256.ToLowerInvariant()) { throw 'PFX certificate fingerprint does not match expected fingerprint' }
+  $binding.CertificateHash = $certificate.GetCertHash()
+  $binding.CertificateStoreName = 'My'
+  $manager.CommitChanges()
+  [pscustomobject]@{ status = 'SUCCEEDED'; action = 'update'; certificateThumbprint = $certificate.Thumbprint; fingerprintSha256 = $actualSha256; previousThumbprint = if ($null -ne $previous) { $previous.Thumbprint } else { $null }; configFingerprint = $configSha256 } | ConvertTo-Json -Compress
+  exit 0
+}
+if ($action -eq 'rollback') {
+  $previousThumbprint = ($env:GCAC_IIS_PREVIOUS_THUMBPRINT -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+  $certificate = Get-Item -LiteralPath ('Cert:\LocalMachine\My\' + $previousThumbprint) -ErrorAction Stop
+  $binding.CertificateHash = $certificate.GetCertHash()
+  $binding.CertificateStoreName = 'My'
+  $manager.CommitChanges()
+  [pscustomobject]@{ status = 'SUCCEEDED'; action = 'rollback'; certificateThumbprint = $certificate.Thumbprint; fingerprintSha256 = Get-Sha256 $certificate; configFingerprint = $configSha256 } | ConvertTo-Json -Compress
+  exit 0
+}
+$certificate = Get-Certificate $binding.CertificateHash $binding.CertificateStoreName
+if ($null -eq $certificate) { throw 'IIS binding certificate was not found in the certificate store' }
+$actualSha256 = Get-Sha256 $certificate
+if ($actualSha256 -ne $env:GCAC_IIS_EXPECTED_SHA256.ToLowerInvariant()) { throw 'IIS binding certificate fingerprint does not match expected fingerprint' }
+[pscustomobject]@{ status = 'SUCCEEDED'; action = 'verify'; certificateThumbprint = $certificate.Thumbprint; fingerprintSha256 = $actualSha256; configFingerprint = $configSha256 } | ConvertTo-Json -Compress`
 
 func isHexDigest(value string) bool {
 	_, err := hex.DecodeString(value)
