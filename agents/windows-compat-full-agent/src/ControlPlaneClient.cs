@@ -117,7 +117,6 @@ namespace GCAC.WindowsCompatibilityAgent
             if (task == null) return null;
             task.leaseId = "compat:" + Guid.NewGuid().ToString("N");
             object value;
-            if (task.payload != null && task.payload.TryGetValue("type", out value)) task.type = Convert.ToString(value);
             if (task.payload != null && task.payload.TryGetValue("action", out value)) task.action = Convert.ToString(value);
             if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
             return task;

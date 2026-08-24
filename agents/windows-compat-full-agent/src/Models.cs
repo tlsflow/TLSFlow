@@ -28,7 +28,6 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public string id { get; set; }
         public string leaseId { get; set; }
-        public string type { get; set; }
         public string action { get; set; }
         public string schemaVersion { get; set; }
         public string idempotencyKey { get; set; }

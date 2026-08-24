@@ -39,7 +39,7 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         internal static ActionResult Execute(AgentTask task)
         {
-            string action = task == null ? string.Empty : (task.action ?? task.type ?? string.Empty);
+            string action = task == null ? string.Empty : (task.action ?? string.Empty);
             if (!AgentV2Actions.Contains(action))
             {
                 return ActionResult.Failed(

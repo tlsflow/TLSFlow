@@ -9,7 +9,6 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public string CanonicalAction { get; set; }
         public string SchemaVersion { get; set; }
-        public string[] Aliases { get; set; }
         public ActionHandler Handler { get; set; }
     }
 
@@ -22,12 +21,11 @@ namespace GCAC.WindowsCompatibilityAgent
             if (registration == null || TextUtility.IsBlank(registration.CanonicalAction) || registration.Handler == null)
                 throw new InvalidOperationException("动作注册信息不完整");
             Add(registration.CanonicalAction, registration);
-            foreach (string alias in registration.Aliases ?? new string[0]) Add(alias, registration);
         }
 
         public ActionResult Execute(AgentTask task)
         {
-            string action = task == null ? null : (!TextUtility.IsBlank(task.action) ? task.action : task.type);
+            string action = task == null ? null : task.action;
             ActionRegistration registration;
             if (TextUtility.IsBlank(action) || !registrations.TryGetValue(action, out registration))
                 return ActionResult.Failed("ACTION_NOT_REGISTERED", "动作未注册", Detail("action", action));

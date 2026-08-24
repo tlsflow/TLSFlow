@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -32,8 +31,6 @@ const (
 	policyDecisionVersion = agentSecurityContract
 	maxPlanOperations     = 100
 )
-
-var consumedAgentNonces sync.Map
 
 type AgentCapabilityTokenV1 struct {
 	TokenVersion    string   `json:"tokenVersion"`
@@ -254,11 +251,10 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	if revokedNonce(token.Nonce) {
 		return errors.New("capability token nonce is revoked")
 	}
-	if _, loaded := consumedAgentNonces.LoadOrStore(token.Nonce, time.Now()); loaded {
-		return errors.New("capability token nonce has already been consumed")
-	}
 	if err := validateLocalPolicy(request.Paths, request.Services); err != nil {
-		consumedAgentNonces.Delete(token.Nonce)
+		return err
+	}
+	if err := consumePersistentAgentNonce(token.Nonce, token.TokenID, token.PlanDigest); err != nil {
 		return err
 	}
 	return nil

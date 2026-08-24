@@ -16,8 +16,8 @@ internal static class Tests
 
     private static int Main()
     {
-        Run("Registry 支持规范动作和 Alias", RegistrySupportsAlias);
-        Run("Registry 拒绝重复 Alias", RegistryRejectsDuplicateAlias);
+        Run("Registry 只接受规范动作", RegistryRequiresCanonicalAction);
+        Run("Registry 拒绝退役动作别名", RegistryRejectsRetiredAlias);
         Run("未知 Schema Version 失败关闭", RegistryRejectsUnknownSchema);
         Run("前置检查按事实和通用操作符解析", PreflightUsesFacts);
         Run("退役旧计划动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.atomic_plan.execute"); });
@@ -67,20 +67,18 @@ internal static class Tests
         return failures == 0 ? 0 : 1;
     }
 
-    private static void RegistrySupportsAlias()
+    private static void RegistryRequiresCanonicalAction()
     {
         ActionRegistry registry = Registry();
-        ActionResult result = registry.Execute(new AgentTask { type = "legacy.action", schemaVersion = ProductIdentity.ActionSchemaVersion });
-        Assert(result.Success, "Alias 未解析到规范动作");
+        ActionResult result = registry.Execute(new AgentTask { action = "test.action", schemaVersion = ProductIdentity.ActionSchemaVersion });
+        Assert(result.Success, "规范动作未执行");
     }
 
-    private static void RegistryRejectsDuplicateAlias()
+    private static void RegistryRejectsRetiredAlias()
     {
         ActionRegistry registry = Registry();
-        bool failed = false;
-        try { registry.Register(new ActionRegistration { CanonicalAction = "other.action", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[] { "legacy.action" }, Handler = delegate { return ActionResult.Succeeded(null); } }); }
-        catch (InvalidOperationException) { failed = true; }
-        Assert(failed, "重复 Alias 被静默覆盖");
+        ActionResult result = registry.Execute(new AgentTask { action = "legacy.action", schemaVersion = ProductIdentity.ActionSchemaVersion });
+        Assert(!result.Success && result.ErrorCode == "ACTION_NOT_REGISTERED", "退役动作别名仍可执行");
     }
 
     private static void RegistryRejectsUnknownSchema()
@@ -258,7 +256,9 @@ internal static class Tests
                 { "schemaVersion", ProductIdentity.ActionSchemaVersion }
             }
         });
-        Assert(task.type == "agent.capability.rescan", "未从 payload.type 展开公共动作");
+        Assert(string.IsNullOrEmpty(task.action), "旧 payload.type 被转换为运行期动作");
+        ActionResult result = AgentV2Registry().Execute(task);
+        Assert(!result.Success && result.ErrorCode == "ACTION_NOT_REGISTERED", "旧 payload.type 绕过规范动作注册表");
         Assert(task.schemaVersion == ProductIdentity.ActionSchemaVersion, "未从 payload.schemaVersion 展开协议版本");
         Assert(task.leaseId != null && task.leaseId.StartsWith("compat:"), "未生成 Compatibility Agent Lease ID");
     }
@@ -287,7 +287,6 @@ internal static class Tests
         ActionResult result = AgentV2Registry().Execute(new AgentTask
         {
             action = "agent.plan.execute",
-            type = "agent.plan.execute",
             schemaVersion = ProductIdentity.ActionSchemaVersion,
             payload = new Dictionary<string, object>
             {
@@ -385,7 +384,6 @@ internal static class Tests
         ActionResult result = AgentV2Registry().Execute(new AgentTask
         {
             action = action,
-            type = action,
             schemaVersion = ProductIdentity.ActionSchemaVersion,
             payload = payload
         });
@@ -397,7 +395,7 @@ internal static class Tests
 
     private static void RegistryDoesNotExposeDirectControlAction()
     {
-        ActionResult result = AgentV2Registry().Execute(new AgentTask { action = "health", type = "health", schemaVersion = ProductIdentity.ActionSchemaVersion });
+        ActionResult result = AgentV2Registry().Execute(new AgentTask { action = "health", schemaVersion = ProductIdentity.ActionSchemaVersion });
         Assert(!result.Success && result.ErrorCode == "ACTION_NOT_REGISTERED", "动作注册表仍暴露旧 Direct Control health 动作");
     }
 
@@ -558,7 +556,7 @@ internal static class Tests
     private static ActionRegistry Registry()
     {
         ActionRegistry registry = new ActionRegistry();
-        registry.Register(new ActionRegistration { CanonicalAction = "test.action", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[] { "legacy.action" }, Handler = delegate { return ActionResult.Succeeded(null); } });
+        registry.Register(new ActionRegistration { CanonicalAction = "test.action", SchemaVersion = ProductIdentity.ActionSchemaVersion, Handler = delegate { return ActionResult.Succeeded(null); } });
         return registry;
     }
 
@@ -571,7 +569,6 @@ internal static class Tests
             {
                 CanonicalAction = action,
                 SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[0],
                 Handler = AgentV2ContractHandler.Execute
             });
         }

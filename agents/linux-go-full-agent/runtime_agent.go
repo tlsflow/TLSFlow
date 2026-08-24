@@ -246,6 +246,11 @@ func handleRun(args []string) error {
 	if strings.TrimSpace(config.AgentKey) == "" {
 		return errors.New("agentKey 不能为空，Linux Agent 无法启动")
 	}
+	if dataDir := strings.TrimSpace(config.Paths.Linux.DataDir); dataDir == "" {
+		return errors.New("linux.dataDir 不能为空，无法装配 Agent v2 Nonce 存储")
+	} else if err := configurePersistentAgentNonceStore(filepath.Join(dataDir, "ledger", "agent-v2-nonces")); err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

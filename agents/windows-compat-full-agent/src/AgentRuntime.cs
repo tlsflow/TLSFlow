@@ -135,12 +135,12 @@ namespace GCAC.WindowsCompatibilityAgent
         private void Execute(string agentId, AgentTask task)
         {
             client.Acknowledge(agentId, task);
-            logger.Write("info", "task.started", "taskId=" + task.id + " action=" + (task.action ?? task.type));
+            logger.Write("info", "task.started", "taskId=" + task.id + " action=" + task.action);
             ActionResult result;
             try { result = registry.Execute(task); }
             catch (Exception error)
             {
-                string action = task == null ? string.Empty : (task.action ?? task.type);
+                string action = task == null ? string.Empty : task.action;
                 result = AgentV2Actions.IsWrite(action)
                     ? ActionResult.Unknown("AGENT_EXECUTION_UNKNOWN", error.Message, new Dictionary<string, object> { { "fallback", false }, { "replayed", false } })
                     : ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null);
@@ -253,7 +253,6 @@ namespace GCAC.WindowsCompatibilityAgent
                 {
                     CanonicalAction = action,
                     SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                    Aliases = new string[0],
                     Handler = AgentV2ContractHandler.Execute
                 });
             }

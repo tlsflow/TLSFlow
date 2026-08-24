@@ -621,6 +621,9 @@ func runForeground(ctx context.Context, configPath string) error {
 	if err != nil {
 		return err
 	}
+	if err := configurePersistentAgentNonceStore(filepath.Join(config.Paths.Windows.DataDir, "ledger", "agent-v2-nonces")); err != nil {
+		return err
+	}
 	logger.Info("local ledgers loaded recoverableTasks=%d recoverableEntries=%d", len(deps.taskLedger.recoverable()), len(deps.recoveryLedger.recoverable()))
 	statusPath := resolveRuntimeStatusPath(config)
 	status := loadRuntimeStatusSnapshot(statusPath)
