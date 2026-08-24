@@ -109,8 +109,15 @@ export class ManagedTargetPluginQueryService {
         ? await services.assets.updateApplicationAssetTarget(input.tenantId, currentTarget.id, { managedTargetId: context.managedTarget.id, status: 'ACTIVE' })
         : await services.assets.createApplicationAssetTarget(input.tenantId, { applicationAssetId: input.applicationAssetId, managedTargetId: context.managedTarget.id });
 
-      if (!input.value.pluginOverride) return { target, effectiveCapability: undefined };
       const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
+      if (!input.value.pluginOverride) {
+        await services.bindings.disableOwnerAssignment(input.tenantId, {
+          ownerType: 'APPLICATION_ASSET',
+          ownerId: input.applicationAssetId,
+          capabilityKey,
+        });
+        return { target, effectiveCapability: undefined };
+      }
       const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
       const plugin = await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
       const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);

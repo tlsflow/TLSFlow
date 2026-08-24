@@ -32,7 +32,7 @@ function plugin(executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>
 
 function resolver(options: { hostId?: string; executionLocations?: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'> } = {}) {
   const bindings = {
-    resolveAssignment: async () => assignment,
+    listAssignmentCandidates: async () => [assignment],
     getTenantBinding: async () => ({ ...binding, managedContext: { ...binding.managedContext, hostId: options.hostId ?? 'host-1' } }),
   } as unknown as PluginBindingsApplicationService;
   return new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin(options.executionLocations) });
@@ -46,11 +46,37 @@ test('DeploymentCapabilityResolver 固定 Assignment、Binding、Runtime 和执�
   assert.equal(resolved.executionLocation, 'CONTROL_PLANE');
 });
 
-test('DeploymentCapabilityResolver 拒绝 Binding Host 身份冲突', async () => {
+test('DeploymentCapabilityResolver 拒绝所有候选 Binding Host 身份冲突', async () => {
   await assert.rejects(
     resolver({ hostId: 'host-2' }).resolve({ tenantId: 'tenant-1', capabilityKey: 'certificate.deploy', hostId: 'host-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1', executionLocations: ['CONTROL_PLANE'], compatibility: {} }),
-    /不属于目标 Host/,
+    /没有上下文匹配的插件能力指派/,
   );
+});
+
+test('DeploymentCapabilityResolver 跳过错配应用资产指派并回退到目标指派', async () => {
+  const staleAssignment = { ...assignment, id: 'assignment-stale', ownerType: 'APPLICATION_ASSET', ownerId: 'asset-1', pluginBindingId: 'binding-stale' } as const;
+  const targetAssignment = { ...assignment, id: 'assignment-target', ownerType: 'MANAGED_TARGET', ownerId: 'target-1', pluginBindingId: 'binding-target' } as const;
+  const bindings = {
+    listAssignmentCandidates: async () => [staleAssignment, targetAssignment],
+    getTenantBinding: async (_tenantId: string, bindingId: string) => ({
+      ...binding,
+      id: bindingId,
+      managedContext: bindingId === 'binding-stale'
+        ? { hostId: 'host-stale', managedTargetId: 'target-stale' }
+        : { hostId: 'host-1', managedTargetId: 'target-1' },
+    }),
+  } as unknown as PluginBindingsApplicationService;
+  const resolved = await new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin() }).resolve({
+    tenantId: 'tenant-1',
+    capabilityKey: 'certificate.deploy',
+    hostId: 'host-1',
+    managedTargetId: 'target-1',
+    applicationAssetId: 'asset-1',
+    executionLocations: ['CONTROL_PLANE'],
+    compatibility: {},
+  });
+  assert.equal(resolved.assignment.id, 'assignment-target');
+  assert.equal(resolved.binding.id, 'binding-target');
 });
 
 test('DeploymentCapabilityResolver 拒绝插件不支持的执行位置', async () => {
@@ -64,7 +90,7 @@ test('DeploymentCapabilityResolver 对产品族分隔符和大小写差异使用
   const resolvedPlugin = plugin();
   resolvedPlugin.manifest.compatibility = { productFamilies: ['WINDOWS_SERVER'] };
   const bindings = {
-    resolveAssignment: async () => assignment,
+    listAssignmentCandidates: async () => [assignment],
     getTenantBinding: async () => binding,
   } as unknown as PluginBindingsApplicationService;
   const resolved = await new DeploymentCapabilityResolver(bindings, { getVersion: async () => resolvedPlugin }).resolve({

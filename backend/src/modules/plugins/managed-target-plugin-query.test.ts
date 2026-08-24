@@ -93,6 +93,18 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(effective.executionLocation, 'CONTROL_PLANE');
   assert.equal(effective.binding.pluginBindingId, saved.effectiveCapability?.binding.pluginBindingId);
 
+  await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: { managedTargetId: target.id },
+  });
+  const disabledAssignment = await db.query<{ status: string }>(
+    `select status from plugin_capability_assignments
+     where tenant_id=$1 and owner_type='APPLICATION_ASSET' and owner_id=$2 and capability_key='certificate.deploy'`,
+    [tenantId, applicationAsset.id],
+  );
+  assert.equal(disabledAssignment.rows[0]?.status, 'DISABLED');
+
   await assert.rejects(() => service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,

@@ -72,11 +72,21 @@ export class PluginBindingsApplicationService {
     return this.repository.saveAssignment({ ...input, id: newId('capa'), tenantId, status: 'ACTIVE', createdAt: now, updatedAt: now });
   }
 
-  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
+  async disableOwnerAssignment(tenantId: string, input: { ownerType: CapabilityAssignmentV1['ownerType']; ownerId: string; capabilityKey: string }): Promise<void> {
+    await this.repository.disableAssignment(tenantId, input.ownerType, input.ownerId, input.capabilityKey, new Date().toISOString());
+  }
+
+  async listAssignmentCandidates(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1[]> {
     const assignments = await this.repository.listAssignments(tenantId, capabilityKey);
-    return assignments.find((item) => item.ownerType === 'APPLICATION_ASSET' && item.ownerId === owners.applicationAssetId)
-      ?? assignments.find((item) => item.ownerType === 'MANAGED_TARGET' && item.ownerId === owners.managedTargetId)
-      ?? assignments.find((item) => item.ownerType === 'DEVICE' && item.ownerId === owners.deviceId);
+    return [
+      assignments.find((item) => item.ownerType === 'APPLICATION_ASSET' && item.ownerId === owners.applicationAssetId),
+      assignments.find((item) => item.ownerType === 'MANAGED_TARGET' && item.ownerId === owners.managedTargetId),
+      assignments.find((item) => item.ownerType === 'DEVICE' && item.ownerId === owners.deviceId),
+    ].filter((item): item is CapabilityAssignmentV1 => Boolean(item));
+  }
+
+  async resolveAssignment(tenantId: string, capabilityKey: string, owners: { deviceId?: string; managedTargetId?: string; applicationAssetId?: string }): Promise<CapabilityAssignmentV1 | undefined> {
+    return (await this.listAssignmentCandidates(tenantId, capabilityKey, owners))[0];
   }
 
   async normalizeRuntimeInput(bindingId: string, capabilityKey: string, options: { executionLocation: NormalizedPluginRuntimeInput['executionLocation']; target: Record<string, unknown>; certificateMaterials?: Record<string, CertificateMaterialDescriptor> }): Promise<NormalizedPluginRuntimeInput> {

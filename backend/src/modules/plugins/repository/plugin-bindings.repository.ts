@@ -36,6 +36,21 @@ export class PluginBindingsRepository {
     return record;
   }
 
+  async disableAssignment(
+    tenantId: string,
+    ownerType: CapabilityAssignmentV1['ownerType'],
+    ownerId: string,
+    capabilityKey: string,
+    updatedAt: string,
+  ): Promise<void> {
+    await this.db.query(
+      `update plugin_capability_assignments
+       set status='DISABLED', updated_at=$5
+       where tenant_id=$1 and owner_type=$2 and owner_id=$3 and capability_key=$4 and status='ACTIVE'`,
+      [tenantId, ownerType, ownerId, capabilityKey, updatedAt],
+    );
+  }
+
   async listAssignments(tenantId: string, capabilityKey: string): Promise<CapabilityAssignmentV1[]> {
     const rows = (await this.db.query<AssignmentRow>(
       'select * from plugin_capability_assignments where tenant_id=$1 and capability_key=$2 and status=$3',

@@ -33,12 +33,57 @@ export class DeploymentCapabilityResolver {
     executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
     compatibility: Omit<PluginCompatibilityContext, 'executionLocation'>;
   }): Promise<ResolvedDeploymentCapability> {
-    const assignment = await this.bindings.resolveAssignment(input.tenantId, input.capabilityKey, {
+    const candidates = await this.bindings.listAssignmentCandidates(input.tenantId, input.capabilityKey, {
       deviceId: input.hostId,
       managedTargetId: input.managedTargetId,
       applicationAssetId: input.applicationAssetId,
     });
-    if (!assignment) {
+    const rejected: Array<{ assignmentId: string; pluginBindingId: string; reason: string }> = [];
+    for (const assignment of candidates) {
+      const binding = await this.bindings.getTenantBinding(input.tenantId, assignment.pluginBindingId);
+      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== assignment.pluginVersionId) {
+        rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定状态或插件版本不一致' });
+        continue;
+      }
+      if (!isBindingInTargetContext(binding, input.hostId, input.managedTargetId)) {
+        rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定上下文不属于当前受管目标' });
+        continue;
+      }
+      const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
+      const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
+      if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED' || !capability) {
+        throw new AppError('CAPABILITY_MISSING', '插件版本未启用或未声明目标能力', { pluginVersionId: plugin.id, capabilityKey: input.capabilityKey });
+      }
+      const candidateLocations = input.executionLocations.filter((location) => capability.executionLocations.includes(location));
+      if (candidateLocations.length === 0) {
+        throw new AppError('CAPABILITY_MISSING', '插件能力不支持目标执行位置', {
+          pluginVersionId: plugin.id,
+          capabilityKey: input.capabilityKey,
+          executionLocations: input.executionLocations,
+        });
+      }
+      const evaluations = candidateLocations.map((executionLocation) => ({
+        executionLocation,
+        compatibility: evaluatePluginCompatibility(plugin.manifest, { ...input.compatibility, executionLocation }),
+      }));
+      const selected = evaluations.find((item) => item.compatibility.compatible);
+      if (!selected) {
+        throw new AppError('CAPABILITY_MISSING', '插件与受管目标不兼容', {
+          pluginVersionId: plugin.id,
+          reasons: evaluations.flatMap((item) => item.compatibility.reasons),
+        });
+      }
+      return {
+        assignment,
+        binding,
+        plugin,
+        pluginVersionId: plugin.id,
+        pluginRuntime: plugin.runtime,
+        executionLocation: selected.executionLocation,
+        compatibility: selected.compatibility,
+      };
+    }
+    if (candidates.length === 0) {
       throw new AppError('CAPABILITY_MISSING', '受管目标没有可用的插件能力指派', {
         capabilityKey: input.capabilityKey,
         hostId: input.hostId,
@@ -46,48 +91,18 @@ export class DeploymentCapabilityResolver {
         applicationAssetId: input.applicationAssetId,
       });
     }
-    const binding = await this.bindings.getTenantBinding(input.tenantId, assignment.pluginBindingId);
-    if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== assignment.pluginVersionId) {
-      throw new AppError('CAPABILITY_MISSING', '插件能力指派与绑定状态不一致', { assignmentId: assignment.id });
-    }
-    if (binding.managedContext?.hostId !== input.hostId) {
-      throw new AppError('VALIDATION_FAILED', '插件绑定不属于目标 Host', { pluginBindingId: binding.id, hostId: input.hostId });
-    }
-    if (binding.managedContext.managedTargetId && binding.managedContext.managedTargetId !== input.managedTargetId) {
-      throw new AppError('VALIDATION_FAILED', '插件绑定不属于目标 ManagedTarget', { pluginBindingId: binding.id, managedTargetId: input.managedTargetId });
-    }
-    const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
-    const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
-    if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED' || !capability) {
-      throw new AppError('CAPABILITY_MISSING', '插件版本未启用或未声明目标能力', { pluginVersionId: plugin.id, capabilityKey: input.capabilityKey });
-    }
-    const candidateLocations = input.executionLocations.filter((location) => capability.executionLocations.includes(location));
-    if (candidateLocations.length === 0) {
-      throw new AppError('CAPABILITY_MISSING', '插件能力不支持目标执行位置', {
-        pluginVersionId: plugin.id,
-        capabilityKey: input.capabilityKey,
-        executionLocations: input.executionLocations,
-      });
-    }
-    const evaluations = candidateLocations.map((executionLocation) => ({
-      executionLocation,
-      compatibility: evaluatePluginCompatibility(plugin.manifest, { ...input.compatibility, executionLocation }),
-    }));
-    const selected = evaluations.find((item) => item.compatibility.compatible);
-    if (!selected) {
-      throw new AppError('CAPABILITY_MISSING', '插件与受管目标不兼容', {
-        pluginVersionId: plugin.id,
-        reasons: evaluations.flatMap((item) => item.compatibility.reasons),
-      });
-    }
-    return {
-      assignment,
-      binding,
-      plugin,
-      pluginVersionId: plugin.id,
-      pluginRuntime: plugin.runtime,
-      executionLocation: selected.executionLocation,
-      compatibility: selected.compatibility,
-    };
+    throw new AppError('CAPABILITY_MISSING', '受管目标没有上下文匹配的插件能力指派', {
+      capabilityKey: input.capabilityKey,
+      hostId: input.hostId,
+      managedTargetId: input.managedTargetId,
+      applicationAssetId: input.applicationAssetId,
+      rejected,
+    });
   }
+}
+
+function isBindingInTargetContext(binding: PluginBindingV1, hostId: string, managedTargetId: string): boolean {
+  if (binding.mode !== 'MANAGED') return false;
+  if (binding.managedContext?.hostId !== hostId) return false;
+  return !binding.managedContext.managedTargetId || binding.managedContext.managedTargetId === managedTargetId;
 }
