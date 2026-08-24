@@ -188,7 +188,7 @@ test('部署执行审计摘要使用部署计划名称和资产名称', () => {
     objectLabelByKey: new Map(),
   });
 
-  assert.equal(result[0]?.summary, '用户 user_admin完成“执行部署”，部署计划：生产 NGINX 证书更新，资产：生产 API 网关。');
+  assert.equal(result[0]?.summary, '管理员完成“执行部署”，部署计划：生产 NGINX 证书更新，资产：生产 API 网关。');
 });
 
 test('普通审计摘要使用对象名称和对象 ID', () => {
@@ -211,5 +211,5 @@ test('普通审计摘要使用对象名称和对象 ID', () => {
     objectLabelByKey: new Map([['service_asset:sat_4c0c29c525094eaabedb9e02', '生产 API 网关（sat_4c0c29c525094eaabedb9e02）']]),
   });
 
-  assert.equal(result[0]?.summary, '用户 user_admin完成“维护应用资产”，对象：应用资产 生产 API 网关（sat_4c0c29c525094eaabedb9e02）。');
+  assert.equal(result[0]?.summary, '管理员完成“维护应用资产”，对象：应用资产 生产 API 网关（sat_4c0c29c525094eaabedb9e02）。');
 });

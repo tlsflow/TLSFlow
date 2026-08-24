@@ -958,6 +958,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService.getRepository(),
     gateways: gatewaysService.getRepository(),
     audit: security.audit,
+    secrets: security.secrets,
     deploymentPlans: deploymentPlans.getRepository(),
     objectPermissions: security.objectPermissions,
     readRepository: new DashboardReadRepository(appDb),

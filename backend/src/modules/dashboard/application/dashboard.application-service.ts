@@ -11,6 +11,7 @@ import { buildAuditPresentationContext, emptyAuditPresentationContext, presentAu
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { ObjectPermissionService } from '../../security/object-permission.service.js';
+import type { SecretService } from '../../secrets/secret.service.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
 import { readDashboardSystemResources } from '../system-resources.js';
 import type { DashboardReadRepository } from '../repository/dashboard-read.repository.js';
@@ -22,6 +23,7 @@ export interface DashboardApplicationDependencies {
   agents: AgentsRepository;
   gateways: GatewaysRepository;
   audit: AuditService;
+  secrets?: SecretService;
   deploymentPlans: DeploymentPlansRepository;
   objectPermissions: ObjectPermissionService;
   canReadAudit: (subject: SecuritySubject, tenantId: string) => Promise<boolean>;
@@ -104,6 +106,8 @@ export class DashboardApplicationService {
       deploymentPlans: this.dependencies.deploymentPlans,
       applicationAssets: applicationAssets.items,
       bindings: bindings.items,
+      secrets: this.dependencies.secrets,
+      certificates: this.dependencies.certificates,
     });
 
     return {
@@ -164,6 +168,8 @@ export class DashboardApplicationService {
       deploymentPlans: this.dependencies.deploymentPlans,
       applicationAssets: model.applicationAssets,
       bindings: model.bindings,
+      secrets: this.dependencies.secrets,
+      certificates: this.dependencies.certificates,
     });
 
     return {
