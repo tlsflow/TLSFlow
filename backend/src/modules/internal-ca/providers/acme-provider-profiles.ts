@@ -40,8 +40,8 @@ export interface AcmeProviderProfile {
   };
   allowedChallenges: AcmeChallengeType[];
   form: {
-    providerFields: Array<'profileKey' | 'displayName' | 'directoryUrl' | 'isDefault' | 'trustBundleSecretRef'>;
-    accountFields: Array<'contactEmail' | 'eabSecretRef'>;
+    providerFields: Array<'profileKey' | 'displayName' | 'directoryUrl' | 'isDefault'>;
+    accountFields: Array<'contactEmail' | 'eabSecretRef' | 'trustBundleSecretRef'>;
     hiddenFields: string[];
   };
 }
@@ -181,10 +181,10 @@ function profile(input: {
 }): AcmeProviderProfile {
   const providerFields: AcmeProviderProfile['form']['providerFields'] = ['profileKey', 'displayName'];
   if (!input.defaultUrl) providerFields.push('directoryUrl');
-  if (input.privateTrust) providerFields.push('trustBundleSecretRef');
   providerFields.push('isDefault');
   const accountFields: AcmeProviderProfile['form']['accountFields'] = ['contactEmail'];
   if (input.eab !== 'not_required') accountFields.push('eabSecretRef');
+  if (input.privateTrust) accountFields.push('trustBundleSecretRef');
   return {
     key: input.key,
     version: '2026-08-13.1',
