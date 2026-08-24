@@ -5,6 +5,7 @@ const zhSidebar = [
     text: "认识 GCAC",
     items: [
       { text: "文档地图", link: "/overview/" },
+      { text: "产品概览", link: "/overview/product-overview" },
       { text: "系统概览", link: "/overview/system-overview" },
       { text: "核心对象与主链", link: "/overview/core-model" }
     ]
@@ -13,6 +14,9 @@ const zhSidebar = [
     text: "快速开始",
     items: [
       { text: "快速开始总览", link: "/quick-install/" },
+      { text: "租户与管理员初始化", link: "/quick-install/tenant-and-admin" },
+      { text: "Agent 接入", link: "/quick-install/agent" },
+      { text: "无 Agent 目标接入", link: "/quick-install/unmanaged-target" },
       { text: "首次接入", link: "/quick-install/first-access" }
     ]
   },
