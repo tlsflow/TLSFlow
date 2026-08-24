@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run check:compatibility-architecture && npm run build && node --test \"dist/**/*.test.js\"",
-    "test:unit": "npm run build && node --test \"dist/**/*.test.js\"",
+    "test": "npm run check:builtin-plugin-versions && npm run check:compatibility-architecture && npm run build && node --test \"dist/**/*.test.js\"",
+    "test:unit": "npm run check:builtin-plugin-versions && npm run build && node --test \"dist/**/*.test.js\"",
     "test:integration": "npm run build && node --test \"dist/**/*.test.js\"",
     "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
     "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
@@ -15,6 +15,7 @@
     "generate:compatibility": "node ../scripts/generate-compatibility-catalog.mjs",
     "check:compatibility-docs": "node ../scripts/generate-compatibility-catalog.mjs --check",
     "check:plugin-vendor-neutrality": "node ../scripts/check-plugin-vendor-neutrality.mjs",
+    "check:builtin-plugin-versions": "node ../scripts/check-builtin-plugin-versions.mjs && node --test ../scripts/check-builtin-plugin-versions.test.mjs",
     "migrate": "tsx src/database/migrate.ts",
     "migrate:prod": "node dist/database/migrate.js",
     "dev": "tsx watch src/main.ts",

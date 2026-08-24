@@ -13,6 +13,9 @@ export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"
 
+echo "[backend] 检查内置插件版本不可变规则"
+npm run check:builtin-plugin-versions
+
 echo "[backend] 执行数据库迁移"
 npm run migrate
 
