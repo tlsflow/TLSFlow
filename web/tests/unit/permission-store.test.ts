@@ -23,7 +23,7 @@ describe('权限 Store', () => {
       '/dashboard',
       '/certificates',
       '/assets',
-      '/deployment-plans',
+      '/automations',
       '/plugins',
       '/monitors',
       '/settings'
@@ -43,7 +43,7 @@ describe('权限 Store', () => {
     expect(notifications?.children?.map((item) => item.path)).toEqual(['/settings/notifications'])
   })
 
-  it('证书部署和工作流作为顶层菜单按权限展示', () => {
+  it('证书部署导航按可见标签选择入口', () => {
     const store = usePermissionStore()
 
     store.setPermissions(['execution.run.read'])
@@ -53,12 +53,24 @@ describe('权限 Store', () => {
     expect(deployments?.activePaths).toEqual(['/deployment-plans', '/workflows', '/automations', '/automation-runs', '/executions'])
     expect(deployments?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
 
+    store.setPermissions(['automation.read'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.deployments'])
+    const automations = store.visibleMenuItems.find((item) => item.titleKey === 'nav.deployments')
+    expect(automations?.path).toBe('/automations')
+    expect(automations?.children?.map((item) => item.titleKey)).toEqual(['nav.automations'])
+
     store.setPermissions(['plugin.read'])
     expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.plugins'])
     const plugins = store.visibleMenuItems.find((item) => item.titleKey === 'nav.plugins')
     expect(plugins?.path).toBe('/plugins')
     expect(plugins?.activePaths).toBeUndefined()
     expect(plugins?.children).toBeUndefined()
+  })
+
+  it('只有历史部署计划读取权限时不显示空的部署导航组', () => {
+    const store = usePermissionStore()
+    store.setPermissions(['deployment.plan.read'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard'])
   })
 
   it('报表暂时不显示主菜单入口', () => {

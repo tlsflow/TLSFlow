@@ -11,15 +11,15 @@ import zhCN from '@/i18n/zh-CN'
 import zhTW from '@/i18n/zh-TW'
 
 describe('Spec 030 自动化导航', () => {
-  it('按工作流、自动化、插件顺序展示并使用自动化权限', () => {
+  it('不再把部署计划作为导航入口，并将自动化作为证书部署默认标签', () => {
     const deploymentGroup = mainMenuItems.find((item) => item.titleKey === 'nav.deployments')
+    expect(deploymentGroup).toMatchObject({ path: '/automations' })
     expect(deploymentGroup?.children?.map((item) => item.titleKey)).toEqual([
-      'nav.deploymentPlans',
-      'nav.workflowTemplates',
       'nav.automations',
+      'nav.workflowTemplates',
       'nav.executions'
     ])
-    expect(deploymentGroup?.children?.[2]).toMatchObject({ path: '/automations', permission: 'automation.read' })
+    expect(deploymentGroup?.children?.[0]).toMatchObject({ path: '/automations', permission: 'automation.read' })
     expect(mainMenuItems.find((item) => item.titleKey === 'nav.plugins')).toMatchObject({ path: '/plugins', permission: 'plugin.read' })
   })
 

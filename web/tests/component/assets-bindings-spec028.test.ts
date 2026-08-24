@@ -301,7 +301,14 @@ describe('资产与证书产物视图', () => {
     expect(progress.attributes('aria-valuemax')).toBe('3')
   })
 
-  it('专业应用页只显示证书生命周期卡片，详情仍从卡片操作可达', async () => {
+  it('专业应用页按 CertFlow 卡片布局支持多选，详情仍从卡片操作可达', async () => {
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'binding.read',
+      'certificate.format.create',
+      'deployment.plan.execute',
+    ])
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
         id: 'asset-card-1',
@@ -309,6 +316,7 @@ describe('资产与证书产物视图', () => {
         displayName: 'card.example.com',
         port: 443,
         protocol: 'HTTPS',
+        verifyUrl: 'https://card.example.com/health',
         platform: 'LINUX',
         status: 'ACTIVE',
         targetBinding: {
@@ -328,8 +336,25 @@ describe('资产与证书产物视图', () => {
     const card = wrapper.get('[data-testid="asset-professional-card"]')
     expect(card.text()).toContain('card.example.com')
     expect(card.text()).toContain('*.example.com')
-    expect(card.text()).toContain('production-web')
-    expect(Number(card.find('[role="progressbar"]').attributes('aria-valuenow'))).toBeGreaterThan(0)
+    expect(card.text()).not.toContain('production-web')
+    expect(card.find('.asset-page__card-heading p').text()).toBe('https://card.example.com')
+    expect(card.find('.asset-page__card-meta').exists()).toBe(false)
+    expect(card.find('[role="progressbar"]').exists()).toBe(false)
+    expect(card.find('[data-testid="asset-card-select-asset-card-1"]').exists()).toBe(true)
+    expect(card.find('.asset-page__card-certificate-remaining').text()).toMatch(/\d+ 天/)
+    expect(card.find('.asset-page__card-certificate-state').text()).toBe('正常')
+    expect(wrapper.find('.asset-page__workspace-selected-count').exists()).toBe(false)
+    expect(card.find('[data-testid="asset-card-deploy-asset-card-1"]').text()).toContain('证书部署')
+    expect(card.find('[data-testid="asset-card-detail-asset-card-1"] svg').exists()).toBe(true)
+    expect(card.find('[data-testid="asset-card-edit-asset-card-1"] svg').exists()).toBe(true)
+    expect(card.find('[data-testid="asset-card-delete-asset-card-1"] svg').exists()).toBe(true)
+    expect(card.find('[data-testid="asset-card-detail-asset-card-1"]').classes()).toContain('asset-page__card-icon-action')
+    expect(card.find('[data-testid="asset-card-edit-asset-card-1"]').classes()).toContain('asset-page__card-icon-action')
+    expect(card.find('[data-testid="asset-card-delete-asset-card-1"] button').classes()).toContain('asset-page__card-icon-action')
+
+    await card.get('[data-testid="asset-card-select-asset-card-1"]').setValue(true)
+    expect(card.classes()).toContain('gc-pro-card--selected')
+    expect(wrapper.text()).toContain('已选中 1 / 1 个资产')
 
     await wrapper.get('[data-testid="asset-card-detail-asset-card-1"]').trigger('click')
     await flushPromises()
@@ -337,6 +362,97 @@ describe('资产与证书产物视图', () => {
 
     expect(wrapper.find('[data-testid="asset-professional-view-tabs"]').exists()).toBe(false)
     expect(wrapper.find('.business-page').exists()).toBe(false)
+  })
+
+  it('绑定证书不是证书资产最新版本时显示可更新状态', async () => {
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'deployment.plan.execute',
+    ])
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-update-available',
+        address: 'update.example.com',
+        displayName: 'update.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        status: 'ACTIVE',
+        currentCertificate: {
+          commonName: '*.example.com',
+          notAfter: '2099-06-15T23:59:59.000Z',
+          updateAvailable: true,
+        },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const card = wrapper.get('[data-testid="asset-professional-card"]')
+    expect(card.find('.asset-page__card-certificate-state').text()).toBe('可更新')
+    expect(card.find('.gc-tag--warning').exists()).toBe(true)
+    const action = card.get('[data-testid="asset-card-deploy-asset-update-available"]')
+    expect(action.text()).toContain('证书更新')
+    expect(action.classes()).toContain('asset-page__card-deploy-button--update')
+  })
+
+  it('已过期证书显示绿色的证书更新入口', async () => {
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'deployment.plan.execute',
+    ])
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-expired',
+        address: 'expired.example.com',
+        displayName: 'expired.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        status: 'ACTIVE',
+        currentCertificate: {
+          commonName: '*.example.com',
+          notAfter: '2026-01-01T00:00:00.000Z',
+          updateAvailable: false,
+        },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const card = wrapper.get('[data-testid="asset-professional-card"]')
+    expect(card.find('.asset-page__card-certificate-state').text()).toBe('已过期')
+    const action = card.get('[data-testid="asset-card-deploy-asset-expired"]')
+    expect(action.text()).toContain('证书更新')
+    expect(action.classes()).toContain('asset-page__card-deploy-button--update')
+  })
+
+  it('绑定证书是证书资产当前版本时显示正常状态', async () => {
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-current-version',
+        address: 'current.example.com',
+        displayName: 'current.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        status: 'ACTIVE',
+        currentCertificate: {
+          commonName: '*.example.com',
+          notAfter: '2099-06-15T23:59:59.000Z',
+          updateAvailable: false,
+        },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const card = wrapper.get('[data-testid="asset-professional-card"]')
+    expect(card.find('.asset-page__card-certificate-state').text()).toBe('正常')
+    expect(card.find('.gc-tag--success').exists()).toBe(true)
+    expect(card.find('.gc-tag--warning').exists()).toBe(false)
   })
 
   it('卡片工作台按服务端分页和筛选条件加载资产', async () => {
@@ -470,7 +586,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenCalledTimes(2)
   })
 
-  it('应用资产列表直接显示后端投影的设备、框架和站点名称', async () => {
+  it('应用资产卡片移除设备、框架和站点元数据', async () => {
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
         id: 'asset-name-1',
@@ -494,10 +610,10 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('设备')
-    expect(wrapper.text()).toContain('NGINX')
-    expect(wrapper.text()).toContain('prod-site')
-    expect(wrapper.text()).toContain('prod-device')
+    const card = wrapper.get('[data-testid="asset-professional-card"]')
+    expect(card.text()).not.toContain('NGINX')
+    expect(card.text()).not.toContain('prod-site')
+    expect(card.text()).not.toContain('prod-device')
     expect(wrapper.text()).not.toContain('sit_001')
     expect(wrapper.text()).not.toContain('host_001')
     expect(assetMocks.listAgents).not.toHaveBeenCalled()

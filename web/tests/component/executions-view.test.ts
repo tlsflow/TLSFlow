@@ -11,8 +11,10 @@ const apiMocks = vi.hoisted(() => ({
   reloadDetail: vi.fn(),
 }))
 
+const routeQuery = vi.hoisted(() => ({ value: {} as Record<string, string> }))
+
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => ({ query: routeQuery.value }),
 }))
 
 vi.mock('@/api/modules/executions.api', () => ({
@@ -44,6 +46,7 @@ describe('ExecutionsView', () => {
     apiMocks.listDeploymentPlans.mockReset()
     apiMocks.listAssets.mockReset()
     apiMocks.reloadDetail.mockReset()
+    routeQuery.value = {}
 
     apiMocks.listDeploymentPlans.mockResolvedValue({
       data: {
@@ -148,5 +151,23 @@ describe('ExecutionsView', () => {
     const nextButton = wrapper.findAll('.execution-list__pagination button')[1]
     await nextButton.trigger('click')
     expect(wrapper.findAll('.execution-list__record')).toHaveLength(1)
+  })
+
+  it('旧 id 查询参数仍能自动打开运行详情', async () => {
+    routeQuery.value = { id: 'run-legacy' }
+    apiMocks.listExecutions.mockResolvedValue({
+      data: {
+        items: [{ id: 'run-legacy', deploymentPlanId: 'plan-1', runNo: 1, type: 'apply', status: 'SUCCESS' }],
+        page: 1,
+        pageSize: 200,
+        total: 1,
+      },
+      requestId: 'req-executions-legacy',
+    })
+
+    const wrapper = mount(ExecutionsView, { global: { plugins: [i18n] } })
+    await vi.waitFor(() => expect(apiMocks.reloadDetail).toHaveBeenCalledOnce())
+    expect(document.body.textContent).toContain('执行详情 run-legacy')
+    wrapper.unmount()
   })
 })
