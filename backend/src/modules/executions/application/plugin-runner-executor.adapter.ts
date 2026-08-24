@@ -9,6 +9,7 @@ import {
 import { resolveProductionPluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
+import type { ExecutionGrantService } from '../execution-grant.service.js';
 
 export const pluginRunnerExecutorType = 'PLUGIN_RUNNER' as const;
 export const pluginRunnerBindingApiVersion = 'gcac.plugin-runner-binding/v1' as const;
@@ -18,6 +19,8 @@ export interface PluginRunnerExecutionDependencies {
   supervisor?: Pick<PluginRunnerSupervisor, 'start'>;
   runner?: ProductionPluginRunnerConfig;
   hostApiHandler?: PluginRunnerHostApiHandler;
+  /** 生产主链必须注入，用于在 Runner 启动前验证完整 Grant 绑定。 */
+  executionGrants?: Pick<ExecutionGrantService, 'validate'>;
   deadlineMs?: number;
 }
 
@@ -82,10 +85,35 @@ export class PluginRunnerExecutorAdapter implements Executor {
     }
 
     const spec = buildLaunchSpec(runner, binding, this.dependencies.hostApiHandler);
+    if (this.dependencies.executionGrants) {
+      try {
+        await Promise.all(binding.grantRefs.map((grantId) => this.dependencies.executionGrants!.validate({
+          grantId,
+          tenantId: binding.tenantId,
+          runId: binding.executionRunId,
+          stepId: binding.executionStepId,
+          workflowVersionId: binding.workflowVersionId,
+          pluginVersionId: binding.pluginVersionId,
+          pluginId: binding.pluginId,
+          capability: binding.capability,
+          planDigest: binding.planDigest,
+          executorType: pluginRunnerExecutorType,
+        })));
+      } catch (error) {
+        return {
+          success: false,
+          errorCode: 'PLUGIN_HOST_CALL_DENIED',
+          errorMessage: 'Plugin Runner 执行 Grant 未通过完整绑定校验',
+          detail: { executionStatus: 'FAILED', auditBinding: binding.auditBinding, cause: error instanceof AppError ? error.errorCode : 'GRANT_VALIDATION_FAILED' },
+        };
+      }
+    }
     const request: PluginRunnerExecutionInput = {
       tenantId: binding.tenantId,
       executionId: binding.executionRunId,
       executionStepId: binding.executionStepId,
+      workflowVersionId: binding.workflowVersionId,
+      planDigest: binding.planDigest,
       capability: binding.capability,
       input: structuredClone(binding.input),
       grantRefs: [...binding.grantRefs],

@@ -19,7 +19,7 @@ export function createPluginRunnerExecutor(): PluginRunnerExecutor {
         await delayWithSignal(context.input.delayMs, context.signal);
       }
       const hostResult = context.input.hostCall === true
-        ? await hostApi.call('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact-1' }, context.grantRefs)
+        ? await hostApi.call('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' }, context.grantRefs)
         : undefined;
       return {
         success: true,

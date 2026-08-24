@@ -248,7 +248,7 @@ function spec(mode: string, overrides: Partial<PluginRunnerLaunchSpec> = {}): Pl
 }
 
 function executionInput(writeEffect: boolean, grantRefs: string[] = []) {
-  return { tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', capability: 'test.echo', input: { value: 'hello' }, grantRefs, idempotencyKey: 'idem-1', deadlineAt: new Date(Date.now() + 60_000).toISOString(), writeEffect };
+  return { tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64), capability: 'test.echo', input: { value: 'hello' }, grantRefs, idempotencyKey: 'idem-1', deadlineAt: new Date(Date.now() + 60_000).toISOString(), writeEffect };
 }
 
 async function close(client: PluginRunnerClient): Promise<void> {

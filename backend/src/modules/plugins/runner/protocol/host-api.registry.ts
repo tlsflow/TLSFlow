@@ -22,6 +22,8 @@ export interface HostApiMethodDefinition {
 }
 
 const id: JsonSchema = { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' };
+const artifactRef: JsonSchema = { type: 'string', pattern: '^artifact://[A-Za-z0-9._:/#-]{1,512}$' };
+const secretRef: JsonSchema = { type: 'string', pattern: '^secret://[A-Za-z0-9._:/#-]{1,512}$' };
 const nonEmpty: JsonSchema = { type: 'string', minLength: 1, maxLength: 512 };
 const record: JsonSchema = { type: 'object', additionalProperties: true, maxProperties: 200 };
 const idArray: JsonSchema = { type: 'array', items: id, maxItems: 100 };
@@ -63,8 +65,8 @@ function method(
   };
 }
 
-const grantReadRequest = objectSchema({ grantId: id, artifactRef: id }, ['grantId', 'artifactRef']);
-const secretResolveRequest = objectSchema({ grantId: id, secretRef: id, purpose: nonEmpty }, ['grantId', 'secretRef', 'purpose']);
+const grantReadRequest = objectSchema({ grantId: id, artifactRef }, ['grantId', 'artifactRef']);
+const secretResolveRequest = objectSchema({ grantId: id, secretRef, purpose: nonEmpty }, ['grantId', 'secretRef', 'purpose']);
 const progressRequest = objectSchema({ executionId: id, executionStepId: id, sequence: { type: 'integer', minimum: 0 }, stage: nonEmpty, summary: nonEmpty }, ['executionId', 'executionStepId', 'sequence', 'stage', 'summary']);
 const checkpointSaveRequest = objectSchema({ executionId: id, executionStepId: id, payload: record, digest: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, ['executionId', 'executionStepId', 'payload', 'digest']);
 const checkpointLoadRequest = objectSchema({ checkpointRef: id }, ['checkpointRef']);

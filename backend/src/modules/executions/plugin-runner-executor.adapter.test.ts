@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AppError } from '../../common/errors/app-error.js';
 
 import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/protocol.types.js';
 import { PluginRunnerClient, PluginRunnerSupervisor } from '../plugins/runner/index.js';
@@ -67,6 +68,35 @@ test('Runner adapter 只接受固定的执行绑定并传递不可变身份', as
     planDigest,
     writeEffect: true,
   });
+});
+
+test('生产 Runner 启动前验证每个 Grant 的租户、运行、版本、能力和 planDigest 绑定', async () => {
+  const validations: Record<string, unknown>[] = [];
+  const client = { execute: async () => successResult() } as unknown as PluginRunnerClient;
+  const adapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    executionGrants: {
+      validate: async (input) => {
+        validations.push(input as unknown as Record<string, unknown>);
+        return { id: String(input.grantId), allowedActions: ['artifact.read'] } as never;
+      },
+    },
+    supervisor: { start: async () => client },
+  });
+  const result = await adapter.executeStep(stepInput({ pluginRunnerBinding: binding({ grantRefs: ['grant-1', 'grant-2'] }) }));
+  assert.equal(result.success, true);
+  assert.deepEqual(validations.map((input) => input.grantId), ['grant-1', 'grant-2']);
+  assert.equal(validations.every((input) => input.tenantId === 'tenant-fixture' && input.runId === 'run-fixture' && input.stepId === 'step-fixture'), true);
+  assert.equal(validations.every((input) => input.workflowVersionId === 'workflow-version-fixture' && input.pluginVersionId === 'plugin-version-fixture' && input.pluginId === 'test.echo' && input.capability === 'test.echo' && input.planDigest === planDigest && input.executorType === 'PLUGIN_RUNNER'), true);
+
+  const denied = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    executionGrants: { validate: async () => { throw new AppError('SEC_EXECUTOR_GRANT_DENIED', 'fixture grant denied'); } },
+    supervisor: { start: async () => { throw new Error('Grant 拒绝后不应启动 Runner'); } },
+  });
+  const deniedResult = await denied.executeStep(stepInput({ pluginRunnerBinding: binding() }));
+  assert.equal(deniedResult.success, false);
+  assert.equal(deniedResult.errorCode, 'PLUGIN_HOST_CALL_DENIED');
 });
 
 test('Runner adapter 拒绝缺失绑定、旧快照和运行步骤不一致', async () => {

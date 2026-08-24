@@ -176,6 +176,14 @@ export class WorkflowRecoveryLedgerService {
       checkpoints: await listCheckpoints(tx, tenantId, ledgerId),
     }));
   }
+
+  async getCheckpoint(tenantId: string, checkpointId: string): Promise<WorkflowCheckpointRecord> {
+    return await this.db.transaction(async (tx) => {
+      const checkpoint = await findCheckpointById(tx, tenantId, checkpointId);
+      if (!checkpoint) throw new AppError('RESOURCE_NOT_FOUND', 'checkpoint 不存在', { checkpointId });
+      return checkpoint;
+    });
+  }
 }
 
 interface LedgerRow extends Record<string, unknown> {
@@ -203,6 +211,11 @@ async function getLedger(db: DatabasePort, tenantId: string, ledgerId: string): 
 
 async function findCheckpoint(db: DatabasePort, ledgerId: string, checkpointName: string): Promise<WorkflowCheckpointRecord | undefined> {
   const row = (await db.query<CheckpointRow>('select * from plugin_workflow_checkpoints where ledger_id=$1 and checkpoint_name=$2', [ledgerId, checkpointName])).rows[0];
+  return row ? toCheckpoint(row) : undefined;
+}
+
+async function findCheckpointById(db: DatabasePort, tenantId: string, checkpointId: string): Promise<WorkflowCheckpointRecord | undefined> {
+  const row = (await db.query<CheckpointRow>('select * from plugin_workflow_checkpoints where tenant_id=$1 and id=$2', [tenantId, checkpointId])).rows[0];
   return row ? toCheckpoint(row) : undefined;
 }
 

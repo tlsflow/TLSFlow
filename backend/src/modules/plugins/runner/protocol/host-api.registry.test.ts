@@ -35,9 +35,9 @@ test('Host API Registry 覆盖 IPC v1 要求的全部通用方法且没有厂商
 });
 
 test('Host API request/result Schema 拒绝未知字段、错误类型和非法结果', () => {
-  validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact-1' });
+  validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' });
   validateHostApiResult('artifact.grant.read', { ok: true, data: { id: 'artifact-1' } });
-  assert.throws(() => validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact-1', secret: 'must-not-pass' }));
+  assert.throws(() => validateHostApiRequest('artifact.grant.read', { grantId: 'grant-1', artifactRef: 'artifact://artifact-1', secret: 'must-not-pass' }));
   assert.throws(() => validateHostApiRequest('secret.grant.resolve', { grantId: 'grant-1', secretRef: 'secret-1' }));
   assert.throws(() => validateHostApiResult('artifact.grant.read', { ok: 'true' }));
   assert.throws(() => validateHostApiRequest('database.query', {}));

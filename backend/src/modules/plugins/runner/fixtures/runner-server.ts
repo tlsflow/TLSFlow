@@ -115,7 +115,7 @@ async function handleMessage(message: PluginRunnerMessage): Promise<void> {
 
 function sendHostCall(message: Extract<PluginRunnerMessage, { messageType: 'execute' }>): void {
   hostCallRequestId = `host-${message.requestId}`;
-  write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_call', requestId: hostCallRequestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, capability: mode === 'host-call-bad-capability' ? 'test.other' : message.capability, method: 'artifact.grant.read', input: { grantId: 'grant-1', artifactRef: 'artifact-1' }, grantRefs: ['grant-1'], timeoutMs: mode === 'host-call-late' ? 50 : 5000 });
+  write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_call', requestId: hostCallRequestId, sentAt: new Date().toISOString(), pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, capability: mode === 'host-call-bad-capability' ? 'test.other' : message.capability, method: 'artifact.grant.read', input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' }, grantRefs: ['grant-1'], timeoutMs: mode === 'host-call-late' ? 50 : 5000 });
 }
 
 function finishExecute(message: Extract<PluginRunnerMessage, { messageType: 'execute' }>, success: boolean): void {

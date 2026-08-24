@@ -32,8 +32,10 @@
         "audit.append": { "$ref": "#/$defs/auditAppend" }
       }
     },
-    "grantRead": { "type": "object", "additionalProperties": false, "required": ["grantId", "artifactRef"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "artifactRef": { "$ref": "#/$defs/id" } } },
-    "secretResolve": { "type": "object", "additionalProperties": false, "required": ["grantId", "secretRef", "purpose"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "secretRef": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 512 } } },
+    "artifactRef": { "type": "string", "pattern": "^artifact://[A-Za-z0-9._:/#-]{1,512}$" },
+    "secretRef": { "type": "string", "pattern": "^secret://[A-Za-z0-9._:/#-]{1,512}$" },
+    "grantRead": { "type": "object", "additionalProperties": false, "required": ["grantId", "artifactRef"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "artifactRef": { "$ref": "#/$defs/artifactRef" } } },
+    "secretResolve": { "type": "object", "additionalProperties": false, "required": ["grantId", "secretRef", "purpose"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "secretRef": { "$ref": "#/$defs/secretRef" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 512 } } },
     "progressRequest": { "type": "object", "additionalProperties": false, "required": ["executionId", "executionStepId", "sequence", "stage", "summary"], "properties": { "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "sequence": { "type": "integer", "minimum": 0 }, "stage": { "type": "string", "minLength": 1, "maxLength": 512 }, "summary": { "type": "string", "minLength": 1, "maxLength": 512 } } },
     "checkpointSave": { "type": "object", "additionalProperties": false, "required": ["executionId", "executionStepId", "payload", "digest"], "properties": { "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "payload": { "$ref": "#/$defs/record" }, "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
     "checkpointLoad": { "type": "object", "additionalProperties": false, "required": ["checkpointRef"], "properties": { "checkpointRef": { "$ref": "#/$defs/id" } } },

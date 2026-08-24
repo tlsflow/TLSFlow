@@ -63,6 +63,9 @@ export interface PluginRunnerHostCallContext {
   pluginId: string;
   pluginVersion: string;
   capability: string;
+  workflowVersionId: string;
+  planDigest: string;
+  hostPermissions: readonly string[];
 }
 
 export type PluginRunnerHostApiHandler = (context: PluginRunnerHostCallContext) => Promise<Record<string, unknown>>;
@@ -71,6 +74,10 @@ export interface PluginRunnerExecutionInput {
   tenantId: string;
   executionId: string;
   executionStepId: string;
+  /** 仅供宿主内部执行绑定使用；缺失时拒绝执行。 */
+  workflowVersionId?: string;
+  /** 仅供宿主内部执行绑定使用；缺失时拒绝执行。 */
+  planDigest?: string;
   capability: string;
   input: Record<string, unknown>;
   grantRefs: string[];
@@ -103,6 +110,8 @@ interface ActiveExecution {
   requestId: string;
   executionId: string;
   executionStepId: string;
+  workflowVersionId: string;
+  planDigest: string;
   writeEffect: boolean;
   deadlineAt: string;
   capability: string;
@@ -173,6 +182,8 @@ export class PluginRunnerClient {
     await this.start();
     this.assertReady();
     if (input.tenantId !== this.spec.tenantId) throw new AppError('TENANT_SCOPE_DENIED', 'Runner 不允许跨租户执行');
+    const workflowVersionId = requiredExecutionBinding(input.workflowVersionId, 'workflowVersionId');
+    const planDigest = requiredPlanDigest(input.planDigest);
     assertDeadline(input.deadlineAt);
     if (this.activeExecution) throw new AppError('PLUGIN_RUNNER_BUSY', 'Runner 默认只允许一个执行中的请求');
     if (this.spec.capabilities && !this.spec.capabilities.includes(input.capability)) {
@@ -186,7 +197,17 @@ export class PluginRunnerClient {
       capability: input.capability, input: input.input, grantRefs, idempotencyKey: input.idempotencyKey,
       deadlineAt: input.deadlineAt, writeEffect: input.writeEffect, ...(input.checkpoint ? { checkpoint: input.checkpoint } : {}),
     };
-    this.activeExecution = { requestId, executionId: input.executionId, executionStepId: input.executionStepId, writeEffect: input.writeEffect, deadlineAt: input.deadlineAt, capability: input.capability, grantRefs };
+    this.activeExecution = {
+      requestId,
+      executionId: input.executionId,
+      executionStepId: input.executionStepId,
+      workflowVersionId,
+      planDigest,
+      writeEffect: input.writeEffect,
+      deadlineAt: input.deadlineAt,
+      capability: input.capability,
+      grantRefs,
+    };
     try {
       const timeoutMs = Math.min(this.spec.executeTimeoutMs ?? pluginRunnerLimits.executeTimeoutMs, Math.max(1, Date.parse(input.deadlineAt) - Date.now()));
       const result = await this.request<PluginRunnerExecuteResult>(message, 'execute_result', timeoutMs);
@@ -478,7 +499,21 @@ export class PluginRunnerClient {
         const activeExecution = this.activeExecution;
         if (!activeExecution) throw new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Host API 调用没有活动执行');
         if (message.capability !== activeExecution.capability) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', 'Host API capability 与当前执行不匹配');
-        const output = await this.spec.hostApiHandler({ method: message.method, input: message.input, grantRefs: message.grantRefs, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, pluginVersionId: message.pluginVersionId, pluginId: this.spec.pluginId, pluginVersion: this.spec.pluginVersion, capability: message.capability });
+        const output = await this.spec.hostApiHandler({
+          method: message.method,
+          input: message.input,
+          grantRefs: message.grantRefs,
+          tenantId: message.tenantId,
+          executionId: message.executionId,
+          executionStepId: message.executionStepId,
+          pluginVersionId: message.pluginVersionId,
+          pluginId: this.spec.pluginId,
+          pluginVersion: this.spec.pluginVersion,
+          capability: message.capability,
+          workflowVersionId: activeExecution.workflowVersionId,
+          planDigest: activeExecution.planDigest,
+          hostPermissions: this.spec.hostPermissions ?? [],
+        });
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -762,6 +797,20 @@ function readProcessTreeUsage(rootPid: number): ProcessTreeUsage | undefined {
 function assertDeadline(deadlineAt: string): void {
   const deadline = Date.parse(deadlineAt);
   if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new AppError('PLUGIN_RUNNER_TIMEOUT', '插件执行截止时间已到期');
+}
+
+function requiredExecutionBinding(value: string | undefined, name: string): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `Runner 执行缺少固定 ${name}`);
+  }
+  return value;
+}
+
+function requiredPlanDigest(value: string | undefined): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 执行缺少固定 planDigest');
+  }
+  return value;
 }
 
 function validateGrantRefs(value: readonly string[]): string[] {

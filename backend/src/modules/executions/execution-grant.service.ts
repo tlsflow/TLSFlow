@@ -12,6 +12,10 @@ export interface CreateExecutionGrantInput {
   stepId: string;
   targetId?: string;
   workflowVersionId?: string;
+  pluginVersionId?: string;
+  pluginId?: string;
+  capability?: string;
+  planDigest?: string;
   approvalId?: string;
   executorType: string;
   allowedSecretRefs: string[];
@@ -28,6 +32,10 @@ export interface ValidateGrantInput {
   stepId: string;
   targetId?: string;
   workflowVersionId?: string;
+  pluginVersionId?: string;
+  pluginId?: string;
+  capability?: string;
+  planDigest?: string;
   approvalId?: string;
   executorType: string;
   secretRef?: string;
@@ -49,6 +57,9 @@ export class ExecutionGrantService {
     if (!input.tenantId.trim()) {
       throw securityErrors.executorGrantDenied({ reason: 'grant tenant required' });
     }
+    if (input.executorType === 'PLUGIN_RUNNER' && (!input.workflowVersionId || !input.pluginVersionId || !input.pluginId || !input.capability || !input.planDigest)) {
+      throw securityErrors.executorGrantDenied({ reason: 'plugin runner grant binding required' });
+    }
     const now = new Date().toISOString();
     return this.grants.create({
       id: newId('grt'),
@@ -58,6 +69,10 @@ export class ExecutionGrantService {
       stepId: input.stepId,
       targetId: input.targetId,
       workflowVersionId: input.workflowVersionId,
+      pluginVersionId: input.pluginVersionId,
+      pluginId: input.pluginId,
+      capability: input.capability,
+      planDigest: input.planDigest,
       approvalId: input.approvalId,
       executorType: input.executorType,
       allowedSecretRefs: [...new Set(input.allowedSecretRefs)],
@@ -96,6 +111,18 @@ export class ExecutionGrantService {
     }
     if (input.workflowVersionId !== undefined && grant.workflowVersionId !== input.workflowVersionId) {
       throw securityErrors.executorGrantDenied({ reason: 'grant workflow version mismatch' });
+    }
+    if (input.pluginVersionId !== undefined && grant.pluginVersionId !== input.pluginVersionId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant plugin version mismatch' });
+    }
+    if (input.pluginId !== undefined && grant.pluginId !== input.pluginId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant plugin mismatch' });
+    }
+    if (input.capability !== undefined && grant.capability !== input.capability) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant capability mismatch' });
+    }
+    if (input.planDigest !== undefined && grant.planDigest !== input.planDigest) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant plan digest mismatch' });
     }
     if (input.approvalId !== undefined && grant.approvalId !== input.approvalId) {
       throw securityErrors.executorGrantDenied({ reason: 'grant approval mismatch' });

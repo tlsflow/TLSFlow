@@ -1,7 +1,6 @@
 import { App } from './common/http/app.js';
 import { AppError } from './common/errors/app-error.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
-import type { WriteAuditInput } from './modules/audits/audit.service.js';
 import type { RouteContract } from './common/openapi/route-contract.js';
 import { generateOpenApiDocument } from './common/openapi/openapi-generator.js';
 import type { DatabasePort } from './database/database-port.js';
@@ -31,6 +30,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
+import { PgCertificateArtifactStore } from './modules/certificates/artifacts/certificate-artifact-store.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
@@ -125,9 +125,9 @@ import {
 } from './modules/providers/index.js';
 import { TrustedJsPluginExecutionService } from './modules/plugins/runtime/trusted-js-plugin-execution.service.js';
 import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
-import { PluginRunnerSupervisor, type PluginRunnerHostApiHandler } from './modules/plugins/runner/index.js';
+import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
-import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest } from './modules/plugins/runner/protocol/host-api.registry.js';
+import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
 import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
 
 export interface AppDependencies {
@@ -218,11 +218,20 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   const productionPluginRunner = resolveProductionPluginRunnerConfig(process.env);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
+  const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
+  const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const pluginRunnerSupervisor = productionPluginRunner
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
   const pluginRunnerHostApiHandler = productionPluginRunner
-    ? createPluginRunnerHostApiHandler(security, pluginResourceLockService)
+    ? createPluginRunnerHostApiHandler({
+      security,
+      artifacts: pluginArtifactStore,
+      resourceLocks: pluginResourceLockService,
+      workflowRecovery: workflowRecoveryService,
+      executionDetails: executionDetailStream,
+      executions: executionPersistence.executions,
+    })
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
     ?? (productionPluginRunner && pluginRunnerSupervisor && pluginRunnerHostApiHandler
@@ -337,7 +346,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agentsService.getRepository(),
     deviceAssetsRepository,
   ));
-  const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -723,73 +731,6 @@ function resolveAgentLocalPolicy(
     return createProductionAgentLocalPolicyAdapterV1(environment);
   }
   return injectedLocalPolicy;
-}
-
-function createPluginRunnerHostApiHandler(
-  security: SecurityServices,
-  resourceLocks: PluginResourceLockService,
-): PluginRunnerHostApiHandler {
-  return async (context) => {
-    const definition = getHostApiMethod(context.method);
-    const input = validateHostApiRequest(context.method, context.input);
-    assertHostApiGrant(context.method, definition.requiredGrants, context.grantRefs);
-    const grants = await Promise.all(context.grantRefs.map((grantId) => security.grants.validate({
-      grantId,
-      tenantId: context.tenantId,
-      runId: context.executionId,
-      stepId: context.executionStepId,
-      executorType: 'TRUSTED_JS',
-      action: definition.permission,
-    })));
-    if (!grants.some((grant) => definition.requiredGrants.every((requiredGrant) => grant.allowedActions.includes(requiredGrant)))) {
-      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API Grant 未覆盖注册权限', { method: context.method });
-    }
-
-    if (context.method === 'audit.append') {
-      await security.audit.write({
-        eventType: String(input.eventType),
-        actorType: 'system',
-        actorId: context.pluginId,
-        action: String(input.action),
-        resourceType: String(input.resourceType),
-        resourceId: String(input.resourceId),
-        result: input.result as WriteAuditInput['result'],
-        riskLevel: 'medium',
-        context: { tenantId: context.tenantId },
-        detail: (input.detail ?? {}) as Record<string, unknown>,
-      });
-      return { ok: true };
-    }
-    if (context.method === 'resourceLock.acquire') {
-      const record = await resourceLocks.acquire({
-        tenantId: context.tenantId,
-        resourceKey: normalizePluginLockKey(context.tenantId, String(input.resourceKey)),
-        mode: 'WRITE',
-        ownerRunId: String(input.ownerRunId),
-        ownerStepId: String(input.ownerStepId),
-        ttlSeconds: Number(input.ttlSeconds),
-      });
-      return { ok: true, data: { lockId: record.id } };
-    }
-    if (context.method === 'resourceLock.release') {
-      await resourceLocks.release({
-        tenantId: context.tenantId,
-        lockId: String(input.lockId),
-        ownerRunId: String(input.ownerRunId),
-        ownerStepId: String(input.ownerStepId),
-      });
-      return { ok: true };
-    }
-    throw new AppError('PLUGIN_HOST_CALL_DENIED', '该 Runner Host API 尚未完成生产宿主能力装配，已失败关闭', {
-      method: context.method,
-      pluginVersionId: context.pluginVersionId,
-    });
-  };
-}
-
-function normalizePluginLockKey(tenantId: string, resourceKey: string): string {
-  const normalized = resourceKey.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 160);
-  return `tenant:${tenantId}:standalone:${normalized || 'plugin_resource'}`;
 }
 
 export async function initializeBuiltinPlugins(

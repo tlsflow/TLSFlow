@@ -169,7 +169,10 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
     ...(dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {}),
     ...(dependencies.executionGrants ? { executionGrantService: dependencies.executionGrants } : {}),
   });
-  const pluginRunner = dependencies.pluginRunner ?? createDefaultPluginRunnerExecutionDependencies();
+  const pluginRunner = {
+    ...(dependencies.pluginRunner ?? createDefaultPluginRunnerExecutionDependencies()),
+    ...(dependencies.executionGrants ? { executionGrants: dependencies.executionGrants } : {}),
+  };
   // Runner 只接受已固定的 PLUGIN_RUNNER 绑定，不复用 Agent、Workflow 或 Trusted JS 类型。
   const pluginRunnerExecutors = createPluginRunnerExecutors(pluginRunner);
   return [

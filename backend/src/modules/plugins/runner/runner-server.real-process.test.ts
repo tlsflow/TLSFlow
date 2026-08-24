@@ -18,6 +18,8 @@ test('runner-server 只装配固定执行器并在真实子进程执行绑定能
       tenantId: 'tenant-1',
       executionId: 'execution-1',
       executionStepId: 'step-1',
+      workflowVersionId: 'workflow-version-1',
+      planDigest: 'b'.repeat(64),
       capability: 'test.echo',
       input: { value: 'hello' },
       grantRefs: [],
@@ -31,6 +33,8 @@ test('runner-server 只装配固定执行器并在真实子进程执行绑定能
       tenantId: 'tenant-1',
       executionId: 'execution-2',
       executionStepId: 'step-2',
+      workflowVersionId: 'workflow-version-1',
+      planDigest: 'b'.repeat(64),
       capability: 'test.other',
       input: {},
       grantRefs: [],
@@ -58,14 +62,16 @@ test('runner-server 真实子进程可在执行期间往返 Host API，并及时
     await client.start();
     const hostResult = await client.execute({
       tenantId: 'tenant-1', executionId: 'execution-host', executionStepId: 'step-host', capability: 'test.echo',
+      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
       input: { value: 'hello', hostCall: true }, grantRefs: ['grant-1'], idempotencyKey: 'idem-host',
       deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: false,
     });
-    assert.deepEqual(hostResult.summary, { value: 'hello', hostResult: { ok: true, data: { id: 'artifact-1' } } });
+    assert.deepEqual(hostResult.summary, { value: 'hello', hostResult: { ok: true, data: { id: 'artifact://artifact-1' } } });
     assert.deepEqual(hostCalls, ['artifact.grant.read']);
 
     const execution = client.execute({
       tenantId: 'tenant-1', executionId: 'execution-cancel', executionStepId: 'step-cancel', capability: 'test.echo',
+      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
       input: { delayMs: 10_000 }, grantRefs: [], idempotencyKey: 'idem-cancel',
       deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: false,
     });
@@ -80,6 +86,7 @@ test('runner-server 真实子进程可在执行期间往返 Host API，并及时
 
     const writeExecution = client.execute({
       tenantId: 'tenant-1', executionId: 'execution-write-cancel', executionStepId: 'step-write-cancel', capability: 'test.echo',
+      workflowVersionId: 'workflow-version-1', planDigest: 'b'.repeat(64),
       input: { delayMs: 10_000 }, grantRefs: [], idempotencyKey: 'idem-write-cancel',
       deadlineAt: new Date(Date.now() + 10_000).toISOString(), writeEffect: true,
     });

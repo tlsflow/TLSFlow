@@ -47,6 +47,11 @@ export interface ResolveSecretInput {
   runId: string;
   stepId: string;
   executorType: string;
+  workflowVersionId?: string;
+  pluginVersionId?: string;
+  pluginId?: string;
+  capability?: string;
+  planDigest?: string;
   purpose: string;
   actorId: string;
   context?: RequestContext;
@@ -273,6 +278,11 @@ export class SecretService {
       runId: input.runId,
       stepId: input.stepId,
       executorType: input.executorType,
+      workflowVersionId: input.workflowVersionId,
+      pluginVersionId: input.pluginVersionId,
+      pluginId: input.pluginId,
+      capability: input.capability,
+      planDigest: input.planDigest,
       secretRef: input.secretRef,
       action: input.purpose,
       markUsed: true,

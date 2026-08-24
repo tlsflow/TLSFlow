@@ -8,6 +8,10 @@ export interface ExecutionGrantEntity {
   stepId: string;
   targetId?: string;
   workflowVersionId?: string;
+  pluginVersionId?: string;
+  pluginId?: string;
+  capability?: string;
+  planDigest?: string;
   approvalId?: string;
   executorType: string;
   allowedSecretRefs: string[];
