@@ -19,15 +19,7 @@
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",
       "dataDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\data",
       "logDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\logs",
-      "inventoryPaths": [
-        "C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config",
-        "C:\\nginx",
-        "C:\\Apache24",
-        "C:\\Tomcat",
-        "C:\\ProgramData",
-        "C:\\Program Files",
-        "C:\\Program Files (x86)"
-      ]
+      "inventoryPaths": []
     }
   },
   "service": {

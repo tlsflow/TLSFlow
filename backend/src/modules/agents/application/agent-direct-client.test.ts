@@ -30,6 +30,30 @@ test('AgentDirectClient 只向管理端点提交 Web 重新发现请求', async 
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
+test('AgentDirectClient 超时时返回明确中文错误', async () => {
+  const fetcher: typeof fetch = async (_input, init) => {
+    await new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      }, { once: true });
+    });
+    throw new Error('unreachable');
+  };
+  const client = new AgentDirectClient(fetcher, 1);
+  await assert.rejects(
+    () => client.refreshWebInventory(createAgent('http://127.0.0.1:18930'), {
+      requestId: 'request-timeout',
+      payload: { actionType: 'agent.fact.collect', refreshWebInventory: true },
+    }),
+    (error: unknown) => error instanceof Error
+      && error.message === 'Agent 直接重新发现超过 1 秒，已取消本次请求'
+      && 'details' in error
+      && (error as { details?: { reason?: string } }).details?.reason === 'AGENT_DIRECT_DISCOVERY_TIMEOUT',
+  );
+});
+
 function createAgent(managementEndpoint: string): AgentRegistration {
   const now = new Date().toISOString();
   return {

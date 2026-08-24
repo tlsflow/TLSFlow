@@ -1,4 +1,4 @@
-export const LINUX_WEB_DISCOVERY_PATHS = Object.freeze([
+export const LINUX_WEB_DISCOVERY_PATHS: readonly string[] = Object.freeze([
   '/etc',
   '/opt',
   '/usr/local',
@@ -8,15 +8,7 @@ export const LINUX_WEB_DISCOVERY_PATHS = Object.freeze([
   '/var/www',
 ]);
 
-export const WINDOWS_WEB_DISCOVERY_PATHS = Object.freeze([
-  'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config',
-  'C:\\nginx',
-  'C:\\Apache24',
-  'C:\\Tomcat',
-  'C:\\ProgramData',
-  'C:\\Program Files',
-  'C:\\Program Files (x86)',
-]);
+export const WINDOWS_WEB_DISCOVERY_PATHS: readonly string[] = Object.freeze([]);
 
 export function selectWebDiscoveryPaths(osType: string): readonly string[] {
   return osType.toLowerCase().includes('windows')
@@ -28,9 +20,9 @@ export function selectWebDiscoveryPaths(osType: string): readonly string[] {
  * 只接受单一平台目录的子集，避免本机 Authority 被混合路径请求扩大范围。
  */
 export function isAllowedWebDiscoveryPathSet(paths: readonly string[]): boolean {
-  return paths.length > 0
-    && (paths.every((path) => LINUX_WEB_DISCOVERY_PATHS.includes(path))
-      || paths.every(isAllowedWindowsWebDiscoveryPath));
+  if (paths.length === 0) return true;
+  return paths.every((path) => LINUX_WEB_DISCOVERY_PATHS.includes(path))
+    || paths.every(isAllowedWindowsWebDiscoveryPath);
 }
 
 function isAllowedWindowsWebDiscoveryPath(path: string): boolean {

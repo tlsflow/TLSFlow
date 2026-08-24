@@ -63,7 +63,7 @@ test('没有 Agent 发现授权锚点时失败关闭', async () => {
   );
 });
 
-test('Windows Compatibility Agent 只请求固定 Windows Web 发现目录', async () => {
+test('Windows Agent 手动发现不再请求固定 Windows Web 目录根', async () => {
   let authorizationRequest: Record<string, unknown> | undefined;
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [plugin('web.iis')] },
@@ -86,8 +86,8 @@ test('Windows Compatibility Agent 只请求固定 Windows Web 发现目录', asy
     requestId: 'request-windows',
   } as never);
 
-  assert.deepEqual(authorizationRequest?.allowedPaths, WINDOWS_WEB_DISCOVERY_PATHS);
-  assert.ok((authorizationRequest?.allowedPaths as string[]).every((path) => !path.includes('/')));
+  assert.deepEqual(WINDOWS_WEB_DISCOVERY_PATHS, []);
+  assert.deepEqual(authorizationRequest?.allowedPaths, []);
   assert.deepEqual(authorizationRequest?.allowedServices, []);
 });
 

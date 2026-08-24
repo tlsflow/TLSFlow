@@ -74,6 +74,32 @@ func TestManagementServerExposesHealthAndDirectDiscoveryOnly(t *testing.T) {
 	}
 }
 
+func TestDirectDiscoveryControllerDoesNotBlockConcurrentScan(t *testing.T) {
+	controller := &directDiscoveryController{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan directDiscoveryResponse, 1)
+	go func() {
+		done <- controller.execute(context.Background(), func(context.Context) directDiscoveryResponse {
+			close(started)
+			<-release
+			return directDiscoveryResponse{Success: true}
+		})
+	}()
+	<-started
+	second := controller.execute(context.Background(), func(context.Context) directDiscoveryResponse {
+		t.Fatal("并发扫描不应启动第二个执行实例")
+		return directDiscoveryResponse{Success: true}
+	})
+	if second.ErrorCode != "AGENT_DIRECT_DISCOVERY_IN_PROGRESS" {
+		t.Fatalf("并发扫描必须明确返回进行中: %+v", second)
+	}
+	close(release)
+	if first := <-done; !first.Success {
+		t.Fatalf("首个扫描应成功: %+v", first)
+	}
+}
+
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

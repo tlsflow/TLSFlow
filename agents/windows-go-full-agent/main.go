@@ -268,7 +268,7 @@ type directDiscoveryController struct {
 func (controller *directDiscoveryController) execute(ctx context.Context, run func(context.Context) directDiscoveryResponse) directDiscoveryResponse {
 	controller.mu.Lock()
 	if controller.active {
-		if controller.lastAt.After(time.Now().Add(-5 * time.Minute)) && controller.last.Success {
+		if controller.lastAt.After(time.Now().Add(-5*time.Minute)) && controller.last.Success {
 			result := controller.last
 			result.Detail = cloneMap(result.Detail)
 			if result.Detail == nil {
@@ -1819,12 +1819,12 @@ func isBlockedWindowsInventoryRoot(path string) bool {
 }
 
 type windowsDiscoveryBudget struct {
-	ctx        context.Context
+	ctx       context.Context
 	maxVisits int
-	mu         sync.Mutex
-	visits     int
-	stop       bool
-	reason     string
+	mu        sync.Mutex
+	visits    int
+	stop      bool
+	reason    string
 }
 
 func newWindowsDiscoveryBudget(ctx context.Context, maxVisits int) *windowsDiscoveryBudget {
@@ -2641,9 +2641,38 @@ func executeDirectWebDiscovery(
 		Success: true,
 		Detail: map[string]any{
 			"capabilityRescan": map[string]any{"trigger": "direct", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": true},
+			"diagnostics":      mapFromMap(factEnvelope, "diagnostics"),
 			"webInventory":     map[string]any{"configFiles": lenOfAny(inventory["configFiles"]), "certificateFiles": lenOfAny(inventory["certificateFiles"]), "listeningPorts": lenOfAny(inventory["listeningPorts"])},
 		},
 	}
+}
+
+func logDiscoveryDiagnostics(logger *runtimeLogger, trigger string, requestID string, started time.Time, factEnvelope map[string]any) {
+	if logger == nil {
+		return
+	}
+	diagnostics := mapFromMap(factEnvelope, "diagnostics")
+	durations := mapFromMap(diagnostics, "phaseDurationsMs")
+	logger.Info(
+		"web discovery scan diagnostics trigger=%s requestId=%s totalMs=%d reportedTotalMs=%d portsMs=%d processesMs=%d servicesMs=%d configMs=%d certificatesMs=%d visited=%d stopped=%t stopReason=%s processes=%d services=%d configFiles=%d certificateFacts=%d sslBindings=%d",
+		trigger,
+		requestID,
+		time.Since(started).Milliseconds(),
+		intFromMap(diagnostics, "totalMs"),
+		intFromMap(durations, "ports"),
+		intFromMap(durations, "processes"),
+		intFromMap(durations, "services"),
+		intFromMap(durations, "config"),
+		intFromMap(durations, "certificates"),
+		intFromMap(diagnostics, "visitedEntries"),
+		boolFromMap(diagnostics, "stopped"),
+		stringFromMap(diagnostics, "stopReason"),
+		intFromMap(diagnostics, "processes"),
+		intFromMap(diagnostics, "services"),
+		intFromMap(diagnostics, "configFiles"),
+		intFromMap(diagnostics, "certificateFacts"),
+		intFromMap(diagnostics, "sslBindings"),
+	)
 }
 
 // webInventoryFromFactEnvelope 将事实采集结果转换为宿主可消费的通用 Web 库存。
@@ -3557,6 +3586,9 @@ func mustGetTaskRecord(ledger *localTaskLedger, taskID string) localTaskRecord {
 }
 
 func boolFromMap(input map[string]any, key string) bool {
+	if input == nil {
+		return false
+	}
 	value, ok := input[key]
 	if !ok {
 		return false
@@ -3566,6 +3598,9 @@ func boolFromMap(input map[string]any, key string) bool {
 }
 
 func stringFromMap(input map[string]any, key string) string {
+	if input == nil {
+		return ""
+	}
 	value, ok := input[key]
 	if !ok {
 		return ""
@@ -3593,6 +3628,8 @@ func intFromMap(input map[string]any, key string) int {
 	switch value := input[key].(type) {
 	case int:
 		return value
+	case int64:
+		return int(value)
 	case float64:
 		return int(value)
 	case json.Number:

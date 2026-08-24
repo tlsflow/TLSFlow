@@ -377,28 +377,60 @@ func issuedAtBeyondAuthorizationClockSkew(issuedAt, now time.Time) bool {
 }
 
 func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, string, string, map[string]any) {
+	started := time.Now()
+	scanCtx, cancel := context.WithTimeout(ctx, windowsDiscoveryScanTimeout)
+	defer cancel()
+	budget := newWindowsDiscoveryBudget(scanCtx, windowsDiscoveryVisitLimit)
+	phaseDurations := map[string]int64{}
+	timed := func(phase string, run func()) {
+		phaseStarted := time.Now()
+		run()
+		phaseDurations[phase] = time.Since(phaseStarted).Milliseconds()
+	}
 	collectedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	facts := make([]map[string]any, 0, 16)
 	warnings := make([]string, 0)
 	discoverySpec := sanitizeAgentDiscoverySpec(request.DiscoverySpec)
-	ports := collectWindowsListeningPorts(ctx)
-	processes := collectWindowsProcesses(ctx, ports)
-	discoveryServices := collectWindowsDiscoveryServices(ctx, discoverySpec)
+	ports := []map[string]any{}
+	processes := []map[string]any{}
+	requestServices := []map[string]any{}
+	discoveryServices := []map[string]any{}
+	discoveryFiles := []map[string]any{}
+	certificateFacts := []map[string]any{}
+	sslBindings := []map[string]any{}
+	certificateStores := []map[string]any{}
+	timed("ports", func() {
+		ports = collectWindowsListeningPorts(scanCtx)
+	})
+	timed("processes", func() {
+		processes = collectWindowsProcesses(scanCtx, ports)
+	})
+	timed("services", func() {
+		requestServices = collectWindowsServices(scanCtx, request.Services)
+		discoveryServices = collectWindowsDiscoveryServices(scanCtx, discoverySpec)
+	})
+	timed("config", func() {
+		// request.paths 是安全授权边界，不是扫描根目录。真实配置入口只能来自插件静态声明、
+		// 监听端口关联进程、进程命令行和服务注册表参数。
+		discoveryFiles = collectWindowsDiscoveryFiles(scanCtx, discoverySpec, processes, discoveryServices)
+	})
+	timed("certificates", func() {
+		certificateFacts = collectWindowsCertificateFactsFromConfigFacts(discoverySpec, discoveryFiles)
+		sslBindings = collectWindowsSSLCertificateBindings(scanCtx)
+		certificateStores = collectWindowsCertificateStores(scanCtx)
+	})
 	facts = append(facts, processes...)
-	facts = append(facts, collectWindowsServices(ctx, request.Services)...)
+	facts = append(facts, requestServices...)
 	facts = append(facts, discoveryServices...)
-	requestedFiles := collectWindowsFiles(request.Paths)
-	discoveryFiles := collectWindowsDiscoveryFiles(ctx, discoverySpec, processes, discoveryServices)
-	facts = append(facts, requestedFiles...)
 	facts = append(facts, discoveryFiles...)
-	facts = append(facts, collectWindowsCertificateFactsFromConfigFacts(discoverySpec, append(append([]map[string]any{}, requestedFiles...), discoveryFiles...))...)
+	facts = append(facts, certificateFacts...)
 	if len(ports) == 0 {
 		warnings = append(warnings, "未发现可读取的监听端口")
 	}
 	facts = append(facts, ports...)
-	facts = append(facts, collectWindowsSSLCertificateBindings(ctx)...)
+	facts = append(facts, sslBindings...)
 	facts = append(facts, collectWindowsPermissions())
-	facts = append(facts, collectWindowsCertificateStores(ctx)...)
+	facts = append(facts, certificateStores...)
 	envelope := map[string]any{
 		"contractVersion": agentSecurityContract,
 		"factId":          request.RequestID,
@@ -409,6 +441,19 @@ func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, strin
 		"source":          "windows",
 		"facts":           facts,
 		"warnings":        warnings,
+		"diagnostics": map[string]any{
+			"phaseDurationsMs":    phaseDurations,
+			"totalMs":             time.Since(started).Milliseconds(),
+			"requestPathsScanned": false,
+			"visitedEntries":      budget.visitedCount(),
+			"stopped":             budget.stopped(),
+			"stopReason":          budget.stopReason(),
+			"processes":           len(processes),
+			"services":            len(requestServices) + len(discoveryServices),
+			"configFiles":         len(discoveryFiles),
+			"certificateFacts":    len(certificateFacts) + len(certificateStores),
+			"sslBindings":         len(sslBindings),
+		},
 	}
 	digest, err := computeAgentFactDigest(envelope)
 	if err != nil {
@@ -654,6 +699,9 @@ func collectWindowsDiscoveryServices(ctx context.Context, spec agentDiscoverySpe
 		if name == "" {
 			continue
 		}
+		if !matchesDiscoveryServiceIdentity(service, spec) {
+			continue
+		}
 		pathName := windowsServiceImagePath(ctx, name)
 		if pathName != "" {
 			service["pathName"] = pathName
@@ -676,6 +724,30 @@ func collectWindowsDiscoveryServices(ctx context.Context, spec agentDiscoverySpe
 		result = append(result, item)
 	}
 	return result
+}
+
+func matchesDiscoveryServiceIdentity(service map[string]any, spec agentDiscoverySpecV1) bool {
+	haystack := strings.ToLower(strings.Join([]string{
+		stringFromMap(service, "name"),
+		stringFromMap(service, "displayName"),
+	}, " "))
+	if strings.TrimSpace(haystack) == "" {
+		return false
+	}
+	for _, profile := range spec.Profiles {
+		for _, name := range append(append([]string{}, profile.ServiceNames...), profile.ProcessNames...) {
+			name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), ".exe"))
+			if name != "" && strings.Contains(haystack, name) {
+				return true
+			}
+		}
+		for _, needle := range profile.CommandLineContains {
+			if strings.Contains(haystack, strings.ToLower(needle)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parseWindowsScQueryServices(output string) []map[string]any {
@@ -774,6 +846,9 @@ func collectWindowsDiscoveryFiles(ctx context.Context, spec agentDiscoverySpecV1
 		}
 	}
 	for _, path := range candidates {
+		if ctx.Err() != nil {
+			break
+		}
 		appendFile(path)
 		if len(files) >= 512 {
 			break
@@ -799,11 +874,17 @@ func windowsDiscoveryCandidatePaths(ctx context.Context, spec agentDiscoverySpec
 		result = append(result, path)
 	}
 	for _, profile := range spec.Profiles {
+		if ctx.Err() != nil {
+			break
+		}
 		for _, path := range append(append([]string{}, profile.ConfigPathHints...), profile.TargetPathHints...) {
 			appendPath(path)
 		}
 	}
 	for _, process := range processes {
+		if ctx.Err() != nil {
+			break
+		}
 		executable := stringFromMap(process, "executablePath")
 		commandLine := ""
 		if pid := uint32(intFromMap(process, "pid")); pid > 0 {
@@ -814,6 +895,9 @@ func windowsDiscoveryCandidatePaths(ctx context.Context, spec agentDiscoverySpec
 		}
 	}
 	for _, service := range services {
+		if ctx.Err() != nil {
+			break
+		}
 		commandLine := stringFromMap(service, "pathName")
 		if extra := windowsServiceDiscoveryArguments(ctx, stringFromMap(service, "name")); extra != "" {
 			commandLine = strings.TrimSpace(commandLine + " " + extra)
@@ -1226,12 +1310,23 @@ func redactWindowsDiscoverySecretArguments(value string) string {
 	return strings.Join(tokens, " ")
 }
 
-func collectWindowsFiles(paths []string) []map[string]any {
+func collectWindowsFiles(ctx context.Context, budget *windowsDiscoveryBudget, paths []string) []map[string]any {
 	files := make([]map[string]any, 0, len(paths))
 	for _, path := range paths {
+		if discoveryBudgetStopped(ctx, budget) {
+			break
+		}
 		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
 			files = append(files, collectWindowsFile(path))
 			_ = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+				if discoveryBudgetStopped(ctx, budget) {
+					return filepath.SkipAll
+				}
+				if budget != nil {
+					if err := budget.visit(); err != nil {
+						return filepath.SkipAll
+					}
+				}
 				if walkErr != nil || entry == nil {
 					return nil
 				}
@@ -1242,7 +1337,7 @@ func collectWindowsFiles(paths []string) []map[string]any {
 					return nil
 				}
 				if len(files) >= 512 {
-					return filepath.SkipDir
+					return filepath.SkipAll
 				}
 				ext := strings.ToLower(filepath.Ext(candidate))
 				if ext == ".pem" || ext == ".crt" || ext == ".cer" || ext == ".der" {

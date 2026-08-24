@@ -22,29 +22,19 @@ func TestDecodeWindowsConfigTextRejectsRawNulBytes(t *testing.T) {
 	}
 }
 
-func TestConfiguredWindowsInventoryRootsPrefersRuntimeConfig(t *testing.T) {
+func TestConfiguredWindowsInventoryRootsFiltersLegacyGlobalRoots(t *testing.T) {
 	config := &AgentConfig{}
-	config.Paths.Windows.InventoryPaths = []string{"C:\\Custom", "c:\\custom", "C:\\Other"}
+	config.Paths.Windows.InventoryPaths = []string{"C:\\ProgramData", "C:\\Program Files", "C:\\Windows", "C:\\Custom", "c:\\custom", "D:\\Sites"}
 	roots := configuredWindowsInventoryRoots(config)
-	if len(roots) < 2 || roots[0] != "C:\\Custom" || roots[1] != "C:\\Other" {
-		t.Fatalf("运行配置中的发现目录未优先去重保留: %#v", roots)
-	}
-	seenDefault := false
-	for _, root := range roots {
-		if root == "C:\\Tomcat" {
-			seenDefault = true
-			break
-		}
-	}
-	if !seenDefault {
-		t.Fatalf("旧配置升级时必须合并当前默认 Web 发现目录: %#v", roots)
+	if len(roots) != 2 || roots[0] != "C:\\Custom" || roots[1] != "D:\\Sites" {
+		t.Fatalf("旧配置中的全局扫描根必须被过滤且自定义小范围路径要保留: %#v", roots)
 	}
 }
 
-func TestConfiguredWindowsInventoryRootsLoadsTemplateDefaults(t *testing.T) {
+func TestConfiguredWindowsInventoryRootsDoesNotMergeTemplateDefaults(t *testing.T) {
 	roots := configuredWindowsInventoryRoots(nil)
-	if len(roots) == 0 {
-		t.Fatal("安装模板必须提供默认发现目录")
+	if len(roots) != 0 {
+		t.Fatalf("安装模板不应再提供全局发现目录: %#v", roots)
 	}
 }
 

@@ -10,7 +10,7 @@ import type { AgentRegistration } from '../schema/agents.schema.js';
 export class AgentDirectClient {
   constructor(
     private readonly fetcher: typeof fetch = fetch,
-    private readonly timeoutMs = 60_000,
+    private readonly timeoutMs = 90_000,
   ) {}
 
   async refreshWebInventory(
@@ -27,7 +27,11 @@ export class AgentDirectClient {
 
     const url = new URL('/api/v1/control/discovery', `${endpoint}/`);
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), this.timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, this.timeoutMs);
     try {
       const response = await this.fetcher(url, {
         method: 'POST',
@@ -46,10 +50,18 @@ export class AgentDirectClient {
       });
     } catch (error) {
       if (error instanceof AppError) throw error;
+      if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
+        throw new AppError('EXECUTION_TARGET_UNAVAILABLE', `Agent 直接重新发现超过 ${Math.ceil(this.timeoutMs / 1000)} 秒，已取消本次请求`, {
+          agentId: agent.id,
+          requestId: request.requestId,
+          reason: 'AGENT_DIRECT_DISCOVERY_TIMEOUT',
+          timeoutMs: this.timeoutMs,
+        });
+      }
       throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '调用 Agent 管理端点失败', {
         agentId: agent.id,
         requestId: request.requestId,
-        reason: error instanceof Error && error.name === 'AbortError' ? 'AGENT_DIRECT_DISCOVERY_TIMEOUT' : 'AGENT_DIRECT_DISCOVERY_CONNECT_FAILED',
+        reason: 'AGENT_DIRECT_DISCOVERY_CONNECT_FAILED',
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {

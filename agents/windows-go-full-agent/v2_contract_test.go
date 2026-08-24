@@ -476,10 +476,14 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 		for _, fact := range facts {
 			seen[fact["kind"].(string)] = true
 		}
-		for _, kind := range []string{"process", "service", "file_stat", "privilege", "certificate_store"} {
+		for _, kind := range []string{"process", "service", "privilege", "certificate_store"} {
 			if !seen[kind] {
 				t.Fatalf("事实采集缺少最低合同类别: %s", kind)
 			}
+		}
+		diagnostics, ok := factEnvelope["diagnostics"].(map[string]any)
+		if !ok || diagnostics["requestPathsScanned"] != false {
+			t.Fatalf("事实采集必须声明不再扫描 request.paths: %#v", factEnvelope["diagnostics"])
 		}
 	}
 	fixture.Request["paths"] = []string{filepath.Join(fixture.Root, "outside", "secret")}

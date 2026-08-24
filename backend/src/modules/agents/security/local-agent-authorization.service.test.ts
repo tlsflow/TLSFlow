@@ -7,7 +7,7 @@ import test from 'node:test';
 import { WINDOWS_WEB_DISCOVERY_PATHS } from '../agent-discovery-paths.js';
 import { createLocalAgentAuthorizationServicesV1 } from './local-agent-authorization.service.js';
 
-test('本机 Agent Authority 只签发固定 Web 目录的短期只读发现授权', async () => {
+test('本机 Agent Authority 只签发 Agent Core 短期只读发现授权', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'gcac-local-authority-'));
   try {
     const services = createLocalAgentAuthorizationServicesV1({
@@ -70,6 +70,7 @@ test('本机 Agent Authority 只签发固定 Web 目录的短期只读发现授�
     });
     assert.equal(windowsAllowed.decision.allowed, true);
     assert.ok(windowsAllowed.token);
+    assert.deepEqual(windowsAllowed.decision.allowedPaths, []);
 
     const material = await services.trustMaterialIssuer.issue({ tenantId: 'tenant-happy', agentId: 'agt-happy' }) as {
       localPolicy: { agentId: string; allowedActions: string[]; pathRules: Array<{ prefix: string }> };
@@ -79,6 +80,10 @@ test('本机 Agent Authority 只签发固定 Web 目录的短期只读发现授�
     assert.deepEqual(material.localPolicy.allowedActions.sort(), ['filesystem.read', 'process.list', 'service.list']);
     assert.deepEqual(material.localPolicy.pathRules.map((rule) => rule.prefix), ['/etc', '/opt', '/usr/local', '/usr/share/nginx', '/srv', '/var/lib', '/var/www']);
     assert.deepEqual(material.capabilityKeySet, services.trustMaterialIssuer.getTrustedKeySet());
+    const windowsMaterial = await services.trustMaterialIssuer.issue({ tenantId: 'tenant-happy', agentId: 'agt-windows', osType: 'WINDOWS' }) as {
+      localPolicy: { pathRules: Array<{ prefix: string }> };
+    };
+    assert.deepEqual(windowsMaterial.localPolicy.pathRules, []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
