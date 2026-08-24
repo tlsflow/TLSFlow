@@ -9,7 +9,8 @@ export interface DeploymentInputMigrationDryRunV1 {
   pluginBindingsWithLegacySecrets: number;
   applicationAssetBindings: number;
   applicationAssetBindingsWithoutOwnInput: number;
-  issues: Array<{ code: 'LEGACY_SECRET_BINDINGS_REQUIRE_REBIND' | 'APPLICATION_BINDING_REQUIRES_MATERIALIZATION'; count: number }>;
+  applicationBindingsUnresolvedAfterRepair: number;
+  issues: Array<{ code: 'LEGACY_SECRET_BINDINGS_REQUIRE_REBIND' | 'APPLICATION_BINDING_REQUIRES_MATERIALIZATION' | 'APPLICATION_BINDING_REPAIR_UNRESOLVED'; count: number }>;
 }
 
 export interface DeploymentInputMigrationAuditV1 {
@@ -18,6 +19,10 @@ export interface DeploymentInputMigrationAuditV1 {
   workflowBindingsMissingInputBindings: number;
   invalidInputBindings: number;
   unresolvedApplicationAssetBindings: number;
+  applicationBindingsMissingCurrentPlugin: number;
+  applicationBindingsMissingArtifacts: number;
+  applicationBindingsMissingRequiredVariables: number;
+  applicationBindingsUnresolvedAfterRepair: number;
   valid: boolean;
 }
 
@@ -45,9 +50,13 @@ export class DeploymentInputMigrationService {
           and coalesce(binding.connection_bindings,'{}'::jsonb)='{}'::jsonb
           and coalesce(binding.credential_bindings,'{}'::jsonb)='{}'::jsonb`)
       : 0;
+    const applicationBindingsUnresolvedAfterRepair = await this.hasTable('deployment_input_binding_repairs')
+      ? await this.count(`select count(*) count from deployment_input_binding_repairs where status='UNRESOLVED'`)
+      : 0;
     const issues: DeploymentInputMigrationDryRunV1['issues'] = [];
     if (pluginBindingsWithLegacySecrets > 0) issues.push({ code: 'LEGACY_SECRET_BINDINGS_REQUIRE_REBIND', count: pluginBindingsWithLegacySecrets });
     if (applicationAssetBindingsWithoutOwnInput > 0) issues.push({ code: 'APPLICATION_BINDING_REQUIRES_MATERIALIZATION', count: applicationAssetBindingsWithoutOwnInput });
+    if (applicationBindingsUnresolvedAfterRepair > 0) issues.push({ code: 'APPLICATION_BINDING_REPAIR_UNRESOLVED', count: applicationBindingsUnresolvedAfterRepair });
     return {
       alreadyMigrated,
       pluginBindings: await this.countRows('unified_plugin_bindings'),
@@ -57,6 +66,7 @@ export class DeploymentInputMigrationService {
         from plugin_capability_assignments assignment
         where assignment.owner_type='APPLICATION_ASSET' and assignment.status='ACTIVE'`),
       applicationAssetBindingsWithoutOwnInput,
+      applicationBindingsUnresolvedAfterRepair,
       issues,
     };
   }
@@ -100,22 +110,47 @@ export class DeploymentInputMigrationService {
         and binding.input_bindings->'connections'='{}'::jsonb
         and binding.input_bindings->'credentials'='{}'::jsonb
         and binding.input_bindings->'artifacts'='{}'::jsonb`);
+    const repairAuditAvailable = await this.hasTable('deployment_input_binding_repairs');
+    const applicationBindingsMissingCurrentPlugin = repairAuditAvailable
+      ? await this.count(`select count(*) count from deployment_input_binding_repairs
+        where previous_plugin_version_id <> current_plugin_version_id`)
+      : 0;
+    const applicationBindingsMissingArtifacts = repairAuditAvailable
+      ? await this.count(`select count(*) count from deployment_input_binding_repairs
+        where jsonb_array_length(coalesce(issues->'missingArtifacts', '[]'::jsonb)) > 0`)
+      : 0;
+    const applicationBindingsMissingRequiredVariables = repairAuditAvailable
+      ? await this.count(`select count(*) count from deployment_input_binding_repairs
+        where jsonb_array_length(coalesce(issues->'missingVariables', '[]'::jsonb)) > 0`)
+      : 0;
+    const applicationBindingsUnresolvedAfterRepair = repairAuditAvailable
+      ? await this.count(`select count(*) count from deployment_input_binding_repairs where status='UNRESOLVED'`)
+      : 0;
     return {
       legacyColumnsRemaining,
       pluginBindingsMissingInputBindings,
       workflowBindingsMissingInputBindings,
       invalidInputBindings,
       unresolvedApplicationAssetBindings,
+      applicationBindingsMissingCurrentPlugin,
+      applicationBindingsMissingArtifacts,
+      applicationBindingsMissingRequiredVariables,
+      applicationBindingsUnresolvedAfterRepair,
       valid: legacyColumnsRemaining === 0
         && pluginBindingsMissingInputBindings === 0
         && workflowBindingsMissingInputBindings === 0
         && invalidInputBindings === 0
-        && unresolvedApplicationAssetBindings === 0,
+        && unresolvedApplicationAssetBindings === 0
+        && applicationBindingsUnresolvedAfterRepair === 0,
     };
   }
 
   private async hasColumn(tableName: string, columnName: string): Promise<boolean> {
     return (await this.count(`select count(*) count from information_schema.columns where table_name=$1 and column_name=$2`, [tableName, columnName])) > 0;
+  }
+
+  private async hasTable(tableName: string): Promise<boolean> {
+    return (await this.count(`select count(*) count from information_schema.tables where table_name=$1`, [tableName])) > 0;
   }
 
   private async countRows(tableName: 'unified_plugin_bindings' | 'workflow_execution_bindings'): Promise<number> {
