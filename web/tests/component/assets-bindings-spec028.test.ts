@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { usePermissionStore } from '@/stores/permission.store'
+import { i18n } from '@/i18n'
 
 const assetMocks = vi.hoisted(() => ({
   createHost: vi.fn(),
@@ -85,7 +86,7 @@ function createBusinessRouter() {
 function mountBusinessView(component: typeof AssetsView | typeof BindingsView) {
   return mount(component, {
     global: {
-      plugins: [createBusinessRouter()],
+      plugins: [createBusinessRouter(), i18n],
       stubs: { teleport: true, Teleport: true },
     },
   })
@@ -162,7 +163,7 @@ describe('资产与证书产物视图', () => {
                   },
                 },
               },
-              verifyUrl: { type: 'string', required: true, description: '验证 URL' },
+              verifyUrl: { type: 'string', required: true, default: 'https://nas.example.com:5001/', description: '验证 URL' },
             },
           },
         }],
@@ -283,12 +284,12 @@ describe('资产与证书产物视图', () => {
     await versionSelect!.setValue('workflow-version-1')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('运行变量')
+    expect(wrapper.text()).toContain('工作流变量')
     expect(wrapper.text()).not.toContain('运行变量 JSON')
     expect(wrapper.findAll('input').some((input) => input.element.value === 'deviceHost')).toBe(true)
     expect(wrapper.findAll('input').some((input) => input.element.value === 'app.example.com')).toBe(true)
-    expect(wrapper.text()).toContain('部署计划自动注入')
-    expect(wrapper.text()).toContain('证书产物绑定')
+    expect(wrapper.text()).toContain('运行时自动注入')
+    expect(wrapper.text()).toContain('证书变量绑定')
 
     const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
     expect(certificateFormatSelect).toBeTruthy()
@@ -307,18 +308,21 @@ describe('资产与证书产物视图', () => {
       address: 'app.example.com',
       port: 443,
       protocol: 'HTTPS',
-      deploymentStrategy: {
+      deploymentStrategy: expect.objectContaining({
         type: 'WORKFLOW',
-        workflow: {
+        workflow: expect.objectContaining({
           workflowId: 'workflow-1',
           workflowVersionId: 'workflow-version-1',
           runner: 'CONTROL_PLANE',
           gatewayId: undefined,
-          variableBindings: {
+          target: expect.objectContaining({
+            verifyUrl: 'https://app.example.com:443',
+          }),
+          variableBindings: expect.objectContaining({
             deviceHost: 'app.example.com',
             verifyUrl: 'https://app.example.com:443',
-          },
-          certificateArtifactBindings: {
+          }),
+          certificateArtifactBindings: expect.objectContaining({
             serverCert: {
               certificateFormatId: 'certfmt-1',
               outputBindings: {
@@ -326,9 +330,9 @@ describe('资产与证书产物视图', () => {
                 keyFile: 'private',
               },
             },
-          },
-        },
-      },
+          }),
+        }),
+      }),
     }))
     expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('serverCert')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('targetBinding')
@@ -351,7 +355,7 @@ describe('资产与证书产物视图', () => {
             runner: 'CONTROL_PLANE',
             variableBindings: {
               deviceHost: 'app.example.com',
-              verifyUrl: 'https://app.example.com:443',
+              verifyUrl: 'https://app.example.com/custom-health',
             },
             certificateArtifactBindings: {
               serverCert: {
@@ -379,6 +383,9 @@ describe('资产与证书产物视图', () => {
     await firstNextButton!.trigger('click')
     await flushPromises()
 
+    expect(wrapper.text()).toContain('https://app.example.com/custom-health')
+    expect(wrapper.text()).not.toContain('https://nas.example.com:5001/')
+
     const selects = wrapper.findAll('select')
     expect(selects.some((select) => select.element.value === 'certfmt-1')).toBe(true)
     expect(selects.some((select) => select.element.value === 'fullchain')).toBe(true)
@@ -400,6 +407,12 @@ describe('资产与证书产物视图', () => {
         workflow: expect.objectContaining({
           workflowId: 'workflow-1',
           workflowVersionId: 'workflow-version-1',
+          variableBindings: expect.objectContaining({
+            verifyUrl: 'https://app.example.com/custom-health',
+          }),
+          target: expect.objectContaining({
+            verifyUrl: 'https://app.example.com/custom-health',
+          }),
           certificateArtifactBindings: {
             serverCert: {
               certificateFormatId: 'certfmt-1',

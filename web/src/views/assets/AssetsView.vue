@@ -600,6 +600,7 @@ async function openEditDialog(row: ViewRow) {
   const deploymentStrategy = readDeploymentStrategy(source)
   if (String(readNested(deploymentStrategy, ['type']) ?? '') === 'WORKFLOW') {
     assetDraft.managementMode = 'WORKFLOW'
+    const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings'])) ?? {}
     const workflowTarget = readWorkflowTargetFromAsset(source, deploymentStrategy)
     if (workflowTarget) {
       assetDraft.frameworkType = workflowTarget.frameworkType
@@ -615,7 +616,9 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
     assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
-    workflowVariableRows.value = variableRowsFromBindings(readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings'])) ?? {})
+    const bindingVerifyUrl = readWorkflowBindingText(variableBindings, 'verifyUrl')
+    if (!assetDraft.verifyUrl.trim() && bindingVerifyUrl) assetDraft.verifyUrl = bindingVerifyUrl
+    workflowVariableRows.value = variableRowsFromBindings(variableBindings)
     workflowCertificateArtifactBindings.value = readWorkflowCertificateArtifactBindingsFromAsset(source, deploymentStrategy)
   } else {
     assetDraft.managementMode = 'AGENT'
@@ -1473,8 +1476,16 @@ function workflowVariableTypeFromValue(value: unknown): WorkflowVariableType {
 }
 
 function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): string {
+  const targetValue = suggestedAssetVariableValue(name)
+  if (targetValue !== undefined) return targetValue
   const defaultValue = definition.default
   if (defaultValue !== undefined) return valueToWorkflowVariableText(defaultValue)
+  if (workflowVariableType(definition) === 'certificate') return ''
+  if (workflowVariableType(definition) === 'boolean') return 'false'
+  return ''
+}
+
+function suggestedAssetVariableValue(name: string): string | undefined {
   if (name === 'deviceHost' || name === 'verifyHost') return assetDraft.address.trim()
   if (name === 'verifyPort' || name === 'port') return assetDraft.port.trim()
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
@@ -1486,9 +1497,7 @@ function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): st
   if (name === 'sniName') return assetDraft.workflowTargetSniName.trim() || assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()
   if (name === 'bindingInformation') return assetDraft.workflowTargetBindingInformation.trim() || `*:${assetDraft.port.trim() || '443'}:${assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()}`
   if (name === 'protocol') return assetDraft.protocol
-  if (workflowVariableType(definition) === 'certificate') return ''
-  if (workflowVariableType(definition) === 'boolean') return 'false'
-  return ''
+  return undefined
 }
 
 function valueToWorkflowVariableText(value: unknown): string {
@@ -1519,6 +1528,11 @@ function nextWorkflowVariableRowId(): string {
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readWorkflowBindingText(bindings: Record<string, unknown>, name: string): string {
+  const value = bindings[name]
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 async function loadCredentialsForWorkflowVariables() {
