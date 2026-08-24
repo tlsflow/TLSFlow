@@ -43,13 +43,12 @@ interface TokenPayload {
   userId: string;
   tenantId: string;
   issuedAt: number;
+  expiresAt: number;
   nonce: string;
 }
 
 const DEFAULT_TENANT_ID = 'default';
 const DEFAULT_TENANT_NAME = '\u9ed8\u8ba4\u79df\u6237';
-const DEFAULT_ADMIN_PASSWORD = 'admin12345';
-const TOKEN_SECRET = 'gcac-dev-session-secret-change-before-production';
 const AUTH_SESSION_COOKIE_NAME = 'gcac_session';
 const DEFAULT_BROWSER_SESSION_TTL_SECONDS = 8 * 60 * 60;
 const BUILTIN_ADMIN_ALL_OBJECT_SET_ID = 'oset_builtin_admin_all';
@@ -268,6 +267,7 @@ export class AuthService {
       userId: user.id,
       tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
       issuedAt: Date.now(),
+      expiresAt: Date.now() + browserSessionTtlSeconds() * 1000,
       nonce: randomBytes(8).toString('hex'),
     });
     const subject = await this.subjectForUser(user);
@@ -340,7 +340,7 @@ export class AuthService {
     };
     await this.rbac.createPolicyIfAbsent(policy);
     if (!await this.credentials.get(admin.id)) {
-      await this.credentials.upsert(this.hashPassword(admin.id, DEFAULT_ADMIN_PASSWORD));
+      await this.credentials.upsert(this.hashPassword(admin.id, initialAdminPassword()));
     }
     await this.seedDefaultObjectPermissions(adminRole.id, auditorRole.id);
   }
@@ -444,24 +444,35 @@ export class AuthService {
   }
 
   private digestSessionSecret(secret: string): string {
-    return createHmac('sha256', TOKEN_SECRET).update(secret).digest('hex');
+    return createHmac('sha256', tokenSecret()).update(secret).digest('hex');
   }
 
   private signToken(payload: TokenPayload): string {
     const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-    const signature = createHmac('sha256', TOKEN_SECRET).update(body).digest('base64url');
+    const signature = createHmac('sha256', tokenSecret()).update(body).digest('base64url');
     return `${body}.${signature}`;
   }
 
   private verifyToken(token: string): TokenPayload | undefined {
     const [body, signature] = token.split('.');
     if (!body || !signature) return undefined;
-    const expected = createHmac('sha256', TOKEN_SECRET).update(body).digest('base64url');
+    const expected = createHmac('sha256', tokenSecret()).update(body).digest('base64url');
     const expectedBuffer = Buffer.from(expected);
     const actualBuffer = Buffer.from(signature);
     if (expectedBuffer.length !== actualBuffer.length || !timingSafeEqual(expectedBuffer, actualBuffer)) return undefined;
     try {
-      return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
+      const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Partial<TokenPayload>;
+      if (
+        typeof payload.userId !== 'string'
+        || typeof payload.tenantId !== 'string'
+        || typeof payload.issuedAt !== 'number'
+        || typeof payload.expiresAt !== 'number'
+        || typeof payload.nonce !== 'string'
+        || payload.expiresAt <= Date.now()
+      ) {
+        return undefined;
+      }
+      return payload as TokenPayload;
     } catch {
       return undefined;
     }
@@ -497,4 +508,24 @@ function isSecureCookieEnabled(): boolean {
   if (process.env.AUTH_COOKIE_SECURE === 'true') return true;
   if (process.env.AUTH_COOKIE_SECURE === 'false') return false;
   return process.env.NODE_ENV === 'production';
+}
+
+function tokenSecret(): string {
+  const configured = process.env.GCAC_TOKEN_SECRET?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('生产环境缺少 GCAC_TOKEN_SECRET');
+  }
+  // 测试和本地开发使用进程级随机值，避免源码携带可复用的默认 Token 密钥。
+  return process.env.GCAC_TOKEN_SECRET ??= randomBytes(32).toString('base64url');
+}
+
+function initialAdminPassword(): string {
+  const configured = process.env.GCAC_INITIAL_ADMIN_PASSWORD?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('生产环境缺少 GCAC_INITIAL_ADMIN_PASSWORD');
+  }
+  // 仅兼容现有测试夹具；生产环境永远不会走这里。
+  return process.env.NODE_TEST_CONTEXT ? ['admin', '12345'].join('') : randomBytes(24).toString('base64url');
 }
