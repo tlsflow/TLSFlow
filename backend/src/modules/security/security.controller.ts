@@ -37,6 +37,7 @@ import type { TenantModeService } from './tenant-mode.service.js';
 import type { TenantArchitectureService } from './tenant-architecture.service.js';
 import type { BusinessPermissionGrantEntity, BusinessPermissionRelationEntity, BusinessPermissionDomain, BusinessPermissionLevel } from '../../persistence/entities/business-permission.entity.js';
 import { BusinessPermissionResolver } from './business-permission.resolver.js';
+import { normalizeDeploymentTaskSettings, type DeploymentTaskSettings } from '../../shared/deployment-task-settings.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
@@ -130,6 +131,10 @@ export class SecurityController {
       if (this.services.tenantArchitecture) {
         router.get('/api/v1/tenants/architecture', '查询租户架构聚合', ['Security'], (request) => this.getTenantArchitecture(request));
       }
+    }
+    if (this.services.tenantHierarchy) {
+      router.get('/api/v1/settings/deployment-tasks', '查询部署任务设置', ['Security'], (request) => this.getDeploymentTaskSettings(request));
+      router.patch('/api/v1/settings/deployment-tasks', '更新部署任务设置', ['Security'], (request) => this.updateDeploymentTaskSettings(request));
     }
     if (this.services.tenantMode) {
       router.get('/api/v1/system/tenant-mode', '查询多租户模式状态', ['Security'], (request) => this.getTenantModeState(request));
@@ -401,6 +406,48 @@ export class SecurityController {
       version: context.version,
       managementScope: subject.scope?.tenantScope,
     };
+  }
+
+  private async getDeploymentTaskSettings(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertDeploymentTaskSettingsRead(subject, request);
+    const settings = await this.requireTenantHierarchy().getDeploymentTaskSettings(requireTenantId(request));
+    return { deploymentTasks: settings };
+  }
+
+  private async assertDeploymentTaskSettingsRead(subject: SecuritySubject, request: HttpRequest): Promise<void> {
+    try {
+      await this.assertSecurityCan(subject, 'settings.read', request, 'settings');
+      return;
+    } catch (settingsError) {
+      try {
+        // 中文说明：部署执行者只需读取 Dry-run/审批开关，不应因此获得系统设置写权限。
+        await this.assertSecurityCan(subject, 'deployment.plan.execute', request, 'deployment_plan');
+      } catch {
+        throw settingsError;
+      }
+    }
+  }
+
+  private async updateDeploymentTaskSettings(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'settings.write', request, 'settings');
+    const body = validateObject(request.body, {
+      dryRunEnabled: { type: 'boolean', required: true },
+      approvalEnabled: { type: 'boolean', required: true },
+    });
+    const deploymentTasks: Partial<DeploymentTaskSettings> = {
+      dryRunEnabled: Boolean(body.dryRunEnabled),
+      approvalEnabled: Boolean(body.approvalEnabled),
+    };
+    const tenantId = requireTenantId(request);
+    const updated = await this.requireTenantHierarchy().updateDeploymentTaskSettings(
+      tenantId,
+      deploymentTasks,
+      subject.id,
+      tenantId,
+    );
+    return { deploymentTasks: normalizeDeploymentTaskSettings(updated.settings.deploymentTasks) };
   }
 
   private async getTenantTree(request: HttpRequest) {
@@ -1883,6 +1930,8 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/tenants/current', operationId: 'getCurrentTenant', summary: '查询当前租户详情', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenants/tree', operationId: 'getTenantTree', summary: '查询租户树', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenants/architecture', operationId: 'getTenantArchitecture', summary: '查询租户架构聚合', tags: ['Security'], responseSchema: tenantArchitectureResponseSchema },
+    { method: 'GET', path: '/api/v1/settings/deployment-tasks', operationId: 'getDeploymentTaskSettings', summary: '查询部署任务设置', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PATCH', path: '/api/v1/settings/deployment-tasks', operationId: 'updateDeploymentTaskSettings', summary: '更新部署任务设置', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/tenants', operationId: 'createTenant', summary: '创建子租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/tenants/status', operationId: 'updateTenantStatus', summary: '停用或恢复租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenant-memberships', operationId: 'listTenantMemberships', summary: '查询租户成员列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

@@ -70,7 +70,9 @@ export default {
       title: 'Résultats de précontrôle dry-run',
       ariaLabel: 'résultats de précontrôle dry-run',
       empty: 'Aucun résultat de précontrôle dry-run n’a encore été généré.',
-      unnamedCheck: 'Contrôle sans nom'
+      unnamedCheck: 'Contrôle sans nom',
+      evidence: 'Éléments de preuve',
+      status: { passed: 'Réussi', failed: 'Échec', warning: 'Avertissement', unknown: 'Inconnu' }
     },
     dryRunResult: {
       title: 'Résultat d’exécution dry-run',
@@ -445,8 +447,8 @@ export default {
     },
     fields: { requestedBy: 'Utilisateur demandeur', triggerSource: 'Source', createdAt: 'Créée le', startedAt: 'Démarrée le', finishedAt: 'Terminée le', error: 'Dernière erreur' },
     sections: { timeline: 'Chronologie du statut', attempts: 'Tentatives', acmeHistory: 'Progression du renouvellement', logs: 'Journaux bruts', children: 'Sous-tâches', errors: 'Erreurs', audit: "Événements d'audit", monitoringProbes: 'Enregistrements de sondage' },
-    actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', viewRawLogs: 'Voir les journaux bruts', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante' },
-    messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.' },
+    actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', viewRawLogs: 'Voir les journaux bruts', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante', forceCancel: 'Arrêt forcé', forceCancelConfirm: 'Forcer l’arrêt de cette tâche ? Une action distante en cours peut nécessiter une vérification manuelle.', forceCancelReason: 'Arrêt forcé par un opérateur depuis les tâches globales' },
+    messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.', forceCancelFailed: 'Impossible d’arrêter la tâche.' },
     values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
     relatedNames: { builtinCatalog: 'Catalogue de plugins intégré', deploymentPlan: 'Plan de déploiement', acmeRenewal: 'Fournisseur ACME ({provider}) - renouvellement du certificat {certificate}' },
     acmeHistory: {
@@ -460,6 +462,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run du certificat',
       CERTIFICATE_DEPLOY: 'Déploiement du certificat',
+      DEPLOYMENT_APPROVAL: 'Approbation du déploiement',
       CERTIFICATE_VERIFY: 'Vérification du certificat',
       CERTIFICATE_ROLLBACK: 'Restauration du certificat',
       PROVIDER_OPERATION: 'Opération cloud',
@@ -1216,6 +1219,7 @@ export default {
       executionTaskStarted: 'Task started. Track progress from the task list in the top-right corner.',
       executionTaskSucceeded: 'Task completed successfully. View the result from the task list in the top-right corner.',
       executeTaskStarted: 'Certificate deployment started. Track progress from the task list in the top-right corner.',
+      executeTaskPendingApproval: 'Certificate deployment submitted and awaiting approval. Track it from the task list in the top-right corner.',
       rollbackTaskStarted: 'Certificate rollback started. Track progress from the task list in the top-right corner.',
       loadedDraft: 'Draft plan loaded.',
       loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
@@ -2094,6 +2098,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['fr-FR'] ?? {}),
     securityLabel: 'Entrée des paramètres système',
+    deploymentTasks: {
+      eyebrow: 'Tâches de déploiement',
+      title: 'Paramètres des tâches de déploiement',
+      description: 'Contrôlez pour ce tenant le Dry-run avant déploiement et l’approbation des déploiements à haut risque.',
+      readonly: 'Ce compte dispose d’un accès en lecture seule.',
+      fields: {
+        dryRun: { title: 'Activer le Dry-run', description: 'Exécuter un contrôle en lecture seule avant le déploiement ; les résultats sont indicatifs et ne bloquent pas l’exécution.', aria: 'Activer le Dry-run des déploiements de certificats' },
+        approval: { title: 'Activer le circuit d’approbation', description: 'Soumettre les déploiements de certificats à haut risque à approbation avant exécution.', aria: 'Activer le circuit d’approbation des déploiements de certificats' }
+      },
+      actions: { save: 'Enregistrer', saving: 'Enregistrement...' },
+      messages: { saved: 'Les paramètres des tâches de déploiement sont enregistrés.' },
+      errors: { loadFailed: 'Impossible de charger les paramètres des tâches de déploiement.', saveFailed: 'Impossible d’enregistrer les paramètres des tâches de déploiement.' }
+    },
     version: {
       title: 'Informations de version',
       description: 'Afficher la version de GCAC actuellement exécutée.',
@@ -2977,6 +2994,8 @@ export default {
       description: 'Choisissez une version de certificat pour cet actif applicatif. Le système crée un instantané, lance la pré-vérification, demande l’approbation puis exécute si elle est autorisée.',
       dialogTitle: 'Déploiement du certificat',
       dialogDescription: 'Cette action concerne uniquement l’actif applicatif actuel. Le plan reste la limite de snapshot, d’approbation et d’exécution côté serveur.',
+      targetLocked: 'Cible de mise à jour verrouillée',
+      latestVersionPointer: 'Appliquer automatiquement la dernière version du certificat actuel',
       deployThisVersion: 'Déployer cette version du certificat',
       loadingRecords: 'Chargement des enregistrements de déploiement...',
       emptyRecords: 'Aucun enregistrement de déploiement pour cet actif applicatif.',

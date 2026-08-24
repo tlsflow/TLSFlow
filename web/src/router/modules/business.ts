@@ -557,6 +557,23 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/settings/deployment-tasks',
+    name: 'settings.deploymentTasks',
+    component: () => import('@/views/settings/DeploymentTaskSettingsView.vue'),
+    meta: {
+      title: 'settings.deploymentTasks.title',
+      titleKey: 'settings.deploymentTasks.title',
+      heroTitle: true,
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'settings.read',
+      resourceType: 'settings',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.systemSettings', 'settings.deploymentTasks.title'],
+      keepAlive: true,
+    }
+  },
+  {
     path: '/settings/users',
     name: 'settings.users',
     component: () => import('@/views/settings/UsersView.vue'),

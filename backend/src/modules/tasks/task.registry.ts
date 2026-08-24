@@ -4,6 +4,7 @@ import type { TaskDefinition, TaskCategory } from './task.types.js';
 const defaultDefinitions: TaskDefinition[] = [
   ['CERTIFICATE_DRY_RUN', 'EXECUTION', 'tasks.types.certificateDryRun', 'certificate.dry-run', 'certificate.read'],
   ['CERTIFICATE_DEPLOY', 'EXECUTION', 'tasks.types.certificateDeploy', 'certificate.deploy', 'deployment.plan.execute'],
+  ['DEPLOYMENT_APPROVAL', 'EXECUTION', 'tasks.types.deploymentApproval', 'deployment.approval', 'approval.decide'],
   ['CERTIFICATE_VERIFY', 'EXECUTION', 'tasks.types.certificateVerify', 'certificate.verify', 'execution.run.read'],
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],

@@ -245,6 +245,53 @@ describe('租户治理 API', () => {
     assert.equal((deniedGroup.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
   });
 
+  it('部署任务设置按租户持久化，并拒绝没有 settings 权限的账号', async () => {
+    const fixture = await createFixture('hierarchical');
+    const adminToken = await fixture.login('admin', fixture.adminPassword);
+    const groupToken = await fixture.login('group-admin', 'group-admin-pass');
+
+    const defaults = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/settings/deployment-tasks',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(defaults.statusCode, 200, JSON.stringify(defaults.body));
+    assert.deepEqual((defaults.body as { deploymentTasks: { dryRunEnabled: boolean; approvalEnabled: boolean } }).deploymentTasks, {
+      dryRunEnabled: true,
+      approvalEnabled: true,
+    });
+
+    const updated = await fixture.app.inject({
+      method: 'PATCH',
+      path: '/api/v1/settings/deployment-tasks',
+      headers: { authorization: `Bearer ${adminToken}` },
+      body: { dryRunEnabled: false, approvalEnabled: false },
+    });
+    assert.equal(updated.statusCode, 200, JSON.stringify(updated.body));
+    assert.deepEqual((updated.body as { deploymentTasks: { dryRunEnabled: boolean; approvalEnabled: boolean } }).deploymentTasks, {
+      dryRunEnabled: false,
+      approvalEnabled: false,
+    });
+
+    const persisted = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/settings/deployment-tasks',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.deepEqual((persisted.body as { deploymentTasks: { dryRunEnabled: boolean; approvalEnabled: boolean } }).deploymentTasks, {
+      dryRunEnabled: false,
+      approvalEnabled: false,
+    });
+
+    const denied = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/settings/deployment-tasks',
+      headers: { authorization: `Bearer ${groupToken}` },
+    });
+    assert.equal(denied.statusCode, 403, JSON.stringify(denied.body));
+    assert.equal((denied.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
+  });
+
   it('single 模式仍固定默认租户并对未认证请求失败关闭', async () => {
     const fixture = await createFixture('single');
     const token = await fixture.login('group-admin', 'group-admin-pass');

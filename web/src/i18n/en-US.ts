@@ -69,7 +69,9 @@ export default {
       title: 'Dry-run precheck results',
       ariaLabel: 'dry-run precheck results',
       empty: 'No dry-run precheck results have been generated.',
-      unnamedCheck: 'Unnamed check'
+      unnamedCheck: 'Unnamed check',
+      evidence: 'Check evidence',
+      status: { passed: 'Passed', failed: 'Failed', warning: 'Warning', unknown: 'Unknown' }
     },
     dryRunResult: {
       title: 'Dry-run execution result',
@@ -444,8 +446,8 @@ export default {
     },
     fields: { requestedBy: 'Requested by', triggerSource: 'Trigger source', createdAt: 'Created at', startedAt: 'Started at', finishedAt: 'Finished at', error: 'Last error' },
     sections: { timeline: 'Status timeline', attempts: 'Attempts', acmeHistory: 'Renewal progress', logs: 'Raw logs', children: 'Child tasks', errors: 'Errors', audit: 'Audit events', monitoringProbes: 'Probe records' },
-    actions: { backToList: 'Back to task list', viewAll: 'View all tasks', viewRawLogs: 'View raw logs', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
-    messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.' },
+    actions: { backToList: 'Back to task list', viewAll: 'View all tasks', viewRawLogs: 'View raw logs', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page', forceCancel: 'Force stop', forceCancelConfirm: 'Force stop this task? A remote action already in progress may still require manual verification.', forceCancelReason: 'Force stopped by an operator from global tasks' },
+    messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.', forceCancelFailed: 'Failed to force stop the task.' },
     values: { system: 'System', empty: 'No records', none: 'None' },
     relatedNames: { builtinCatalog: 'Built-in plugin catalog', deploymentPlan: 'Deployment plan', acmeRenewal: 'ACME Provider ({provider}) - {certificate} certificate renewal' },
     acmeHistory: {
@@ -459,6 +461,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Certificate dry-run',
       CERTIFICATE_DEPLOY: 'Certificate deploy',
+      DEPLOYMENT_APPROVAL: 'Deployment approval',
       CERTIFICATE_VERIFY: 'Certificate verify',
       CERTIFICATE_ROLLBACK: 'Certificate rollback',
       PROVIDER_OPERATION: 'Cloud operation',
@@ -1249,6 +1252,7 @@ export default {
       executionTaskStarted: 'Task started. Track progress from the task list in the top-right corner.',
       executionTaskSucceeded: 'Task completed successfully. View the result from the task list in the top-right corner.',
       executeTaskStarted: 'Certificate deployment started. Track progress from the task list in the top-right corner.',
+      executeTaskPendingApproval: 'Certificate deployment submitted and awaiting approval. Track it from the task list in the top-right corner.',
       rollbackTaskStarted: 'Certificate rollback started. Track progress from the task list in the top-right corner.',
       loadedDraft: 'Draft plan loaded.',
       loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
@@ -2154,6 +2158,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['en-US'] ?? {}),
     securityLabel: 'System settings entry',
+    deploymentTasks: {
+      eyebrow: 'Deployment tasks',
+      title: 'Deployment task parameters',
+      description: 'Control whether certificate deployments run a Dry-run first and whether high-risk deployments require approval for this tenant.',
+      readonly: 'This account has read-only access.',
+      fields: {
+        dryRun: { title: 'Enable Dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment Dry-run' },
+        approval: { title: 'Enable approval flow', description: 'Send high-risk certificate deployments for approval before execution.', aria: 'Enable certificate deployment approval flow' }
+      },
+      actions: { save: 'Save settings', saving: 'Saving...' },
+      messages: { saved: 'Deployment task parameters saved.' },
+      errors: { loadFailed: 'Failed to load deployment task parameters.', saveFailed: 'Failed to save deployment task parameters.' }
+    },
     version: {
       title: 'Version information',
       description: 'View the currently running GCAC version.',
@@ -3045,6 +3062,8 @@ export default {
       description: 'Choose a certificate version for this application asset. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
       dialogTitle: 'Certificate deployment',
       dialogDescription: 'This applies only to the current application asset. The deployment plan remains the backend snapshot, approval, and execution boundary.',
+      targetLocked: 'Update target locked',
+      latestVersionPointer: 'Automatically apply the latest version of the current certificate',
       deployThisVersion: 'Deploy this certificate version',
       loadingRecords: 'Loading deployment records...',
       emptyRecords: 'This application asset has no deployment records.',

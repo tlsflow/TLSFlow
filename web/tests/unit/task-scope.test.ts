@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRun } from '@/api/modules/tasks.api'
-import { isAutomationApprovalTask, isQuickTask } from '@/views/tasks/task-events'
+import { isAutomationApprovalTask, isDeploymentApprovalTask, isDeploymentExecutionTask, isDeploymentRunTask, isQuickTask } from '@/views/tasks/task-events'
 
 function task(overrides: Partial<TaskRun> = {}): TaskRun {
   return {
@@ -35,6 +35,25 @@ describe('任务快速区范围', () => {
 
     expect(isQuickTask(approvalTask)).toBe(true)
     expect(isAutomationApprovalTask(approvalTask)).toBe(true)
+  })
+
+  it('部署审批占位任务不能被识别为真实证书部署运行', () => {
+    const legacyApprovalTask = task({
+      taskType: 'CERTIFICATE_DEPLOY',
+      category: 'EXECUTION',
+      status: 'SUCCEEDED',
+      resourceSummary: { approvalId: 'approval-1', executionType: 'approval', status: 'approved' },
+    })
+    const executionTask = task({
+      taskType: 'CERTIFICATE_DEPLOY',
+      category: 'EXECUTION',
+      payload: { runId: 'run-1', executionType: 'apply' },
+    })
+
+    expect(isDeploymentApprovalTask(legacyApprovalTask)).toBe(true)
+    expect(isDeploymentExecutionTask(legacyApprovalTask)).toBe(false)
+    expect(isDeploymentRunTask(legacyApprovalTask)).toBe(false)
+    expect(isDeploymentRunTask(executionTask)).toBe(true)
   })
 
   it('显示 ACME 续签并隐藏无关的监控和后台任务', () => {

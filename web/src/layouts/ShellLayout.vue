@@ -17,7 +17,7 @@ import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { isDeploymentRunTask, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 
 type ToastTone = 'success' | 'warning' | 'danger' | 'info'
 
@@ -129,11 +129,6 @@ let overlayStateObserver: MutationObserver | undefined
 let sidebarCollapsedBeforeModal = false
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
-const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
-  'CERTIFICATE_DRY_RUN',
-  'CERTIFICATE_DEPLOY',
-  'CERTIFICATE_ROLLBACK',
-])
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -521,7 +516,7 @@ function handleToastEvent(event: Event): void {
 function handleTaskRealtime(message: TaskRealtimeMessage): void {
   if (message.type !== 'task.changed') return
   const task = message.task
-  if (task.status !== 'SUCCEEDED' || !DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) return
+  if (task.status !== 'SUCCEEDED' || !isDeploymentRunTask(task)) return
   if (executionTaskSuccessToastIds.has(task.id)) return
   executionTaskSuccessToastIds.add(task.id)
   window.dispatchEvent(new CustomEvent('gcac:toast', {

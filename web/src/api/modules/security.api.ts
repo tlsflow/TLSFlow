@@ -113,6 +113,23 @@ export interface TenantModeSummaryResponse {
   readonly lastRollbackBatch?: ApiRecord
 }
 
+export interface DeploymentTaskSettings {
+  readonly dryRunEnabled: boolean
+  readonly approvalEnabled: boolean
+}
+
+export interface DeploymentTaskSettingsResponse {
+  readonly deploymentTasks: DeploymentTaskSettings
+}
+
+export function getDeploymentTaskSettings(): Promise<ApiResult<DeploymentTaskSettingsResponse>> {
+  return apiClient.get('/v1/settings/deployment-tasks')
+}
+
+export function updateDeploymentTaskSettings(body: DeploymentTaskSettings): Promise<ApiResult<DeploymentTaskSettingsResponse>> {
+  return apiClient.request('/v1/settings/deployment-tasks', { method: 'PATCH', body })
+}
+
 export function listAccessibleTenants(): Promise<ApiResult<{ currentTenantId: string; version: string; mode: TenantMode; items: readonly AccessibleTenantResponse[] }>> {
   return apiClient.get('/v1/tenants/accessible')
 }

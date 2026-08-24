@@ -73,7 +73,9 @@ export default {
       title: "Dry-run 預檢結論",
       ariaLabel: "dry-run 預檢結論",
       empty: "尚未產生 dry-run 預檢結果。",
-      unnamedCheck: "未命名檢查項"
+      unnamedCheck: "未命名檢查項",
+      evidence: "檢查證據",
+      status: { passed: "通過", failed: "失敗", warning: "警告", unknown: "未知" }
     },
     dryRunResult: {
       title: "Dry-run 執行結果",
@@ -448,8 +450,8 @@ export default {
     },
     fields: { requestedBy: "發起使用者", triggerSource: "觸發來源", createdAt: "建立時間", startedAt: "開始時間", finishedAt: "結束時間", error: "最後錯誤" },
     sections: { timeline: "狀態時間線", attempts: "嘗試記錄", acmeHistory: "續期過程", logs: "原始日誌", children: "子任務", errors: "錯誤", audit: "稽核事件", monitoringProbes: "探測記錄" },
-    actions: { backToList: "返回任務列表", viewAll: "查看所有任務", viewRawLogs: "查看原始日誌", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁" },
-    messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。" },
+    actions: { backToList: "返回任務列表", viewAll: "查看所有任務", viewRawLogs: "查看原始日誌", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁", forceCancel: "強制結束", forceCancelConfirm: "確定要強制結束此任務嗎？正在進行的遠端動作可能仍需人工確認。", forceCancelReason: "由操作員從全域任務強制結束" },
+    messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。", forceCancelFailed: "強制結束任務失敗。" },
     values: { system: "系統", empty: "暫無記錄", none: "無" },
     relatedNames: { builtinCatalog: "內建外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
     acmeHistory: {
@@ -463,6 +465,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: "證書Dry-run",
       CERTIFICATE_DEPLOY: "證書部署",
+      DEPLOYMENT_APPROVAL: "部署審批",
       CERTIFICATE_VERIFY: "證書驗證",
       CERTIFICATE_ROLLBACK: "證書回滾",
       PROVIDER_OPERATION: "雲服務操作",
@@ -1219,6 +1222,7 @@ export default {
       executionTaskStarted: "任務已開始，後續進度可在右上角任務列表檢視。",
       executionTaskSucceeded: "任務已成功完成，可在右上角任務列表檢視結果。",
       executeTaskStarted: "憑證部署已開始，後續進度可在右上角任務列表檢視。",
+      executeTaskPendingApproval: "憑證部署已提交，正在等待審核，後續進度可在右上角任務列表檢視。",
       rollbackTaskStarted: "憑證回滾已開始，後續進度可在右上角任務列表檢視。",
       loadedDraft: "已載入草稿計畫。",
       loadedDraftWithPlanId: "已載入草稿（計畫 {planId}）。",
@@ -2056,6 +2060,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['zh-TW'] ?? {}),
     securityLabel: "系統設定入口",
+    deploymentTasks: {
+      eyebrow: "部署任務",
+      title: "部署任務參數",
+      description: "按目前租戶控制憑證部署是否先執行 Dry-run，以及高風險部署是否需要核准。",
+      readonly: "目前帳號只有檢視權限。",
+      fields: {
+        dryRun: { title: "啟用 Dry-run", description: "部署憑證前執行唯讀預檢；檢查結果僅供參考，不會阻止正式部署。", aria: "啟用憑證部署 Dry-run" },
+        approval: { title: "啟用核准流程", description: "高風險憑證部署提交後進入核准，核准後才允許執行。", aria: "啟用憑證部署核准流程" }
+      },
+      actions: { save: "儲存設定", saving: "儲存中..." },
+      messages: { saved: "部署任務參數已儲存。" },
+      errors: { loadFailed: "載入部署任務參數失敗。", saveFailed: "儲存部署任務參數失敗。" }
+    },
     version: {
       title: "版本資訊",
       description: "查看目前執行中的 GCAC 版本。",
@@ -2935,7 +2952,8 @@ export default {
       }
     },
     deployment: {
-      title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照、執行預檢、提交審核並在獲准後執行。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照、審核和執行邊界。", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", approval: "審核狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", pendingApproval: "預檢已完成，部署正在等待審核。", executionStarted: "預檢和審核已通過，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
+      targetLocked: "已鎖定更新目標",
+      title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照、執行預檢、提交審核並在獲准後執行。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照、審核和執行邊界。", latestVersionPointer: "自動套用目前憑證的最新版本", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", approval: "審核狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", pendingApproval: "預檢已完成，部署正在等待審核。", executionStarted: "預檢和審核已通過，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
     },
     compatibilityModes: {
       unified: "統一外掛繫結",

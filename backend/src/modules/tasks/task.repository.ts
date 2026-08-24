@@ -93,20 +93,22 @@ export class TaskRepository {
       await tx.query(
         `insert into task_runs
           (id, tenant_id, task_type, definition_version, category, status, requested_by, trigger_source,
-           resource_summary, idempotency_key, parent_task_id, payload, available_at)
-         values ($1, $2, $3, $4, $5, 'QUEUED', $6, $7, $8::jsonb, $9, $10, $11::jsonb, coalesce($12::timestamptz, now()))`,
+           resource_summary, idempotency_key, parent_task_id, payload, progress, available_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb, $13::jsonb, coalesce($14::timestamptz, now()))`,
         [
           id,
           input.tenantId,
           input.taskType,
           definition.version,
           definition.category,
+          input.initialStatus ?? 'QUEUED',
           input.requestedBy ?? null,
           input.triggerSource,
           JSON.stringify(input.resourceSummary ?? {}),
           input.idempotencyKey ?? null,
           input.parentTaskId ?? null,
           JSON.stringify(input.payload ?? {}),
+          input.initialProgress ? JSON.stringify(input.initialProgress) : null,
           input.availableAt ?? null,
         ],
       );
@@ -369,6 +371,116 @@ export class TaskRepository {
       return this.getByIdWithDb(tx, tenantId, id);
     });
     if (!result) throw new Error('任务取消后无法读取');
+    return result;
+  }
+
+  /**
+   * 中文说明：强制结束只改变统一任务控制面的事实，不等待远端执行器自行返回。
+   * 正在运行的尝试会一并标记为 CANCELLED，后续完成回写会因租约已清除而被拒绝。
+   */
+  async forceCancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
+    const result = await this.db.transaction(async (tx) => {
+      const task = await this.getByIdWithDb(tx, tenantId, id);
+      if (!task) throw new Error('NOT_FOUND');
+      if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(task.status)) return task;
+      await tx.query(
+        `update task_runs
+            set status = 'CANCELLED',
+                lease_owner = null,
+                lease_expires_at = null,
+                next_attempt_at = null,
+                finished_at = now(),
+                last_error_code = 'TASK_FORCE_CANCELLED',
+                last_error_message = $3
+          where id = $1 and tenant_id = $2`,
+        [id, tenantId, reason ?? '任务已被操作员强制结束'],
+      );
+      await tx.query(
+        `update task_attempts
+            set status = 'CANCELLED', finished_at = now(),
+                error_code = 'TASK_FORCE_CANCELLED', error_summary = $2
+          where task_run_id = $1 and status = 'RUNNING'`,
+        [id, reason ?? '任务已被操作员强制结束'],
+      );
+      await appendEvent(tx, id, 'CANCELLED', {
+        status: 'CANCELLED',
+        force: true,
+        reason: reason ?? '任务已被操作员强制结束',
+      }, actorId);
+      return this.getByIdWithDb(tx, tenantId, id);
+    });
+    if (!result) throw new Error('任务强制结束后无法读取');
+    return result;
+  }
+
+  /** 中文说明：审批任务只记录审批决策，不应被部署执行器再次消费。 */
+  async resolveApprovalTask(
+    tenantId: string,
+    resourceType: string,
+    resourceId: string,
+    resourceSummary: Record<string, unknown>,
+    decision: 'approved' | 'rejected',
+    failure?: { errorCode?: string; errorMessage: string },
+  ): Promise<TaskRun | undefined> {
+    const result = await this.db.transaction(async (tx) => {
+      const found = await tx.query<TaskRunRow>(
+        `select task_runs.*
+           from task_runs
+           join task_resource_refs refs on refs.task_run_id = task_runs.id
+          where task_runs.tenant_id = $1
+            and refs.resource_type = $2
+            and refs.resource_id = $3
+            and task_runs.status in ('QUEUED', 'RETRY_WAITING', 'RUNNING', 'CANCELLING')
+            and (
+              task_runs.task_type = 'DEPLOYMENT_APPROVAL'
+              or coalesce(task_runs.payload->>'executionType', task_runs.resource_summary->>'executionType') = 'approval'
+            )
+          order by task_runs.created_at desc
+          limit 1`,
+        [tenantId, resourceType, resourceId],
+      );
+      const current = found.rows[0] ? mapTaskRun(found.rows[0]) : undefined;
+      if (!current) return undefined;
+      const nextStatus = decision === 'approved' && !failure ? 'SUCCEEDED' : 'FAILED';
+      const progress = {
+        ...(current.progress ?? {}),
+        ...resourceSummary,
+        approvalPending: false,
+        approvalStatus: decision,
+      };
+      await tx.query(
+        `update task_runs
+            set status = $3,
+                lease_owner = null,
+                lease_expires_at = null,
+                next_attempt_at = null,
+                finished_at = now(),
+                last_error_code = case when $3 = 'FAILED' then $5 else null end,
+                last_error_message = case when $3 = 'FAILED' then $6 else null end,
+                resource_summary = $4::jsonb,
+                progress = $4::jsonb
+          where id = $1 and tenant_id = $2`,
+        [
+          current.id,
+          tenantId,
+          nextStatus,
+          JSON.stringify(progress),
+          failure?.errorCode ?? (decision === 'rejected' ? 'APPROVAL_REJECTED' : 'DEPLOYMENT_EXECUTION_ENQUEUE_FAILED'),
+          failure?.errorMessage ?? (decision === 'rejected' ? '部署审批已拒绝' : '审批已通过，但未能创建证书部署任务'),
+        ],
+      );
+      await appendEvent(tx, current.id, nextStatus === 'SUCCEEDED' ? 'SUCCEEDED' : 'FAILED', {
+        source: failure ? 'approval.execution.enqueue' : 'approval.decision',
+        decision,
+        approvalPending: false,
+        ...(failure ? {
+          executionEnqueueFailed: true,
+          errorCode: failure.errorCode ?? 'DEPLOYMENT_EXECUTION_ENQUEUE_FAILED',
+          errorMessage: failure.errorMessage,
+        } : {}),
+      });
+      return this.getByIdWithDb(tx, tenantId, current.id);
+    });
     return result;
   }
 

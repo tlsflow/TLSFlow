@@ -12,10 +12,10 @@ import { createDeploymentPlanFromApplicationAsset, dryRunDeploymentPlan, execute
 import { projectApplicationAssetPluginInputs, projectDeploymentInputs } from '@/api/modules/deployment-inputs.api'
 import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
+import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCompatiblePluginSelector, GcConfirmAction, GcDeploymentWizard, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
-import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
@@ -190,16 +190,13 @@ const rollbackRequestId = ref('')
 const deploymentDialogOpen = ref(false)
 const deploymentLoading = ref(false)
 const deploymentError = ref('')
-const deploymentInfo = ref('')
 const deploymentPlanId = ref('')
 const deploymentDryRunChecks = ref<ApiRecord[]>([])
 const deploymentCertificateItems = ref<ApiRecord[]>([])
 const deploymentCertificateVersionItems = ref<ApiRecord[]>([])
-const deploymentCertificateFormatItems = ref<ApiRecord[]>([])
 const deploymentRecords = ref<ApiRecord[]>([])
 const deploymentRecordsLoading = ref(false)
 const deploymentRecordsError = ref('')
-const deploymentWizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const assetWizardStep = ref<AssetWizardStep>(1)
 const workflowListLoading = ref(false)
 const workflowVersionListLoading = ref(false)
@@ -311,19 +308,75 @@ const selectedApplicationAssetId = computed(() =>
   String(selectedServiceAsset.value?.raw?.id ?? selectedServiceAsset.value?.id ?? ''),
 )
 
-const deploymentTarget = computed<ApiRecord[]>(() => {
-  const asset = selectedAssetDetail.value ?? selectedServiceAsset.value?.raw
+const deploymentApplicationAsset = computed<ApiRecord | null>(() =>
+  selectedAssetDetail.value ?? selectedServiceAsset.value?.raw ?? null,
+)
+
+const deploymentBinding = computed<ApiRecord | null>(() => {
   const applicationAssetId = selectedApplicationAssetId.value
-  if (!asset || !applicationAssetId) return []
-  return [{
-    id: applicationAssetId,
-    applicationAssetId,
-    name: String(asset.displayName ?? asset.address ?? asset.domainName ?? applicationAssetId),
-    displayName: String(asset.displayName ?? asset.address ?? asset.domainName ?? applicationAssetId),
-    targetSourceLabel: String(readNested(asset, ['targetBinding', 'managedTargetLabel']) ?? readNested(asset, ['targetBinding', 'frameworkType']) ?? ''),
-    certificateFormatLabel: String(readNested(asset, ['deploymentStrategy', 'managedTarget', 'certificateFormatId']) ?? asset.certificateFormatId ?? ''),
-  }]
+  return bindingRelations.value.find((item) => String(item.serviceAssetId ?? '') === applicationAssetId)
+    ?? bindingRelations.value[0]
+    ?? null
 })
+
+const deploymentCurrentCertificateVersionId = computed(() => firstAssetText(
+  deploymentBinding.value ?? deploymentApplicationAsset.value ?? {},
+  ['certificateVersionId', 'targetCertificateVersionId', 'currentCertificate.versionId', 'currentCertificate.certificateVersionId'],
+))
+
+const deploymentCertificateAssetId = computed(() => {
+  const directId = firstAssetText(deploymentBinding.value ?? {}, [
+    'certificateAssetId',
+    'certificateId',
+    'certificate.certificateAssetId',
+    'metadata.certificateAssetId',
+  ]) || firstAssetText(deploymentApplicationAsset.value ?? {}, [
+    'currentCertificate.certificateAssetId',
+    'metadata.currentCertificate.certificateAssetId',
+    'certificateAssetId',
+  ])
+  if (directId) return directId
+  const currentVersion = deploymentCertificateVersionItems.value.find((item) =>
+    firstAssetText(item, ['id', 'certificateVersionId']) === deploymentCurrentCertificateVersionId.value,
+  )
+  return firstAssetText(currentVersion ?? {}, ['certificateAssetId', 'certificateId'])
+})
+
+const deploymentCertificate = computed<ApiRecord | null>(() => {
+  const assetId = deploymentCertificateAssetId.value
+  const listed = deploymentCertificateItems.value.find((item) => firstAssetText(item, ['id', 'certificateId']) === assetId)
+  if (listed) return listed
+  const current = readRecord(readNested(deploymentApplicationAsset.value, ['currentCertificate']))
+  if (!assetId && !current) return null
+  return {
+    id: assetId,
+    primaryDomain: firstAssetText(current ?? {}, ['commonName', 'subject.commonName', 'name']),
+    commonName: firstAssetText(current ?? {}, ['commonName', 'subject.commonName']),
+  } as ApiRecord
+})
+
+const deploymentCertificateVersions = computed<ApiRecord[]>(() => {
+  const assetId = deploymentCertificateAssetId.value
+  const versions = assetId
+    ? deploymentCertificateVersionItems.value.filter((item) => firstAssetText(item, ['certificateAssetId', 'certificateId']) === assetId)
+    : []
+  if (versions.length > 0) return versions
+  const currentVersionId = deploymentCurrentCertificateVersionId.value
+  return deploymentCertificateVersionItems.value.filter((item) => firstAssetText(item, ['id', 'certificateVersionId']) === currentVersionId)
+})
+
+const deploymentSiteName = computed(() => firstAssetText(
+  deploymentApplicationAsset.value ?? {},
+  [
+    'targetBindingDetail.siteAsset.siteName',
+    'targetBindingDetail.siteAsset.name',
+    'targetBinding.siteName',
+    'deploymentStrategy.workflow.target.siteName',
+    'metadata.deploymentStrategy.workflow.target.siteName',
+    'metadata.workflowTarget.siteName',
+    'siteName',
+  ],
+))
 
 const deploymentRecordsForDisplay = computed(() =>
   [...deploymentRecords.value].sort((left, right) => String(right.updatedAt ?? '').localeCompare(String(left.updatedAt ?? ''))),
@@ -692,30 +745,27 @@ async function openDeploymentDialog(row?: ViewRow) {
   if (!applicationAssetId) return
   deploymentDialogOpen.value = true
   deploymentError.value = ''
-  deploymentInfo.value = ''
   deploymentPlanId.value = ''
   deploymentDryRunChecks.value = []
-  deploymentWizardInitialPlan.value = { applicationAssetId }
   await loadDeploymentDialogOptions()
 }
 
 function closeDeploymentDialog() {
   if (deploymentLoading.value) return
   deploymentDialogOpen.value = false
+  deploymentPlanId.value = ''
 }
 
 async function loadDeploymentDialogOptions() {
   deploymentLoading.value = true
   deploymentError.value = ''
   try {
-    const [certificates, certificateVersions, certificateFormats] = await Promise.all([
+    const [certificates, certificateVersions] = await Promise.all([
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       fetchAllRecords((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
-      fetchAllRecords((page, pageSize) => listCertificateFormats({ page, pageSize, sort: 'createdAt:desc' })),
     ])
     deploymentCertificateItems.value = [...(certificates.data?.items ?? [])]
     deploymentCertificateVersionItems.value = certificateVersions
-    deploymentCertificateFormatItems.value = certificateFormats
   } catch (cause) {
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.loadOptionsFailed')
   } finally {
@@ -723,17 +773,16 @@ async function loadDeploymentDialogOptions() {
   }
 }
 
-async function ensureDeploymentPlan(plan: DeploymentWizardPlan): Promise<string> {
+async function ensureDeploymentPlan(selection: { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }): Promise<string> {
   if (deploymentPlanId.value) return deploymentPlanId.value
   const applicationAssetId = selectedApplicationAssetId.value
-  if (!applicationAssetId || plan.applicationAssetId !== applicationAssetId) {
+  if (!applicationAssetId || !selection.certificateVersionId) {
     throw new Error(t('assets.deployment.errors.missingApplicationAssetId'))
   }
   const created = await createDeploymentPlanFromApplicationAsset({
     applicationAssetId,
-    selectionMode: plan.selectionMode,
-    targetCertificateVersionId: plan.certificateVersionId || undefined,
-    certificateFormatId: plan.certificateFormatId || undefined,
+    selectionMode: selection.selectionMode,
+    targetCertificateVersionId: selection.certificateVersionId,
     reuseDraft: false,
   })
   const planId = String(created.data?.id ?? '')
@@ -742,23 +791,32 @@ async function ensureDeploymentPlan(plan: DeploymentWizardPlan): Promise<string>
   return planId
 }
 
-async function deployCertificateVersion(plan: DeploymentWizardPlan) {
+async function deployCertificateVersion(selection: { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }) {
   deploymentLoading.value = true
   deploymentError.value = ''
-  deploymentInfo.value = ''
   try {
-    const planId = await ensureDeploymentPlan(plan)
+    const planId = await ensureDeploymentPlan(selection)
+    const settingsResult = await getDeploymentTaskSettings()
+    const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: true, approvalEnabled: true }
+    if (settings.dryRunEnabled) {
+      const preflight = await dryRunDeploymentPlan({ planId })
+      deploymentDryRunChecks.value = extractDeploymentPreflightChecks(preflight.data)
+    } else {
+      deploymentDryRunChecks.value = []
+    }
     const submitted = await submitDeploymentPlan(planId)
     const submittedPlan = submitted.data ?? {}
     const status = String(submittedPlan.status ?? '')
     if (status === 'PENDING_APPROVAL') {
-      deploymentInfo.value = t('assets.deployment.feedback.pendingApproval')
       await loadDeploymentRecords(selectedApplicationAssetId.value)
+      deploymentDialogOpen.value = false
+      notifyDeploymentStarted('warning')
       return
     }
     await executeDeploymentPlan(planId)
-    deploymentInfo.value = t('assets.deployment.feedback.executionStarted')
     await loadDeploymentRecords(selectedApplicationAssetId.value)
+    deploymentDialogOpen.value = false
+    notifyDeploymentStarted('success')
   } catch (cause) {
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed')
   } finally {
@@ -766,20 +824,15 @@ async function deployCertificateVersion(plan: DeploymentWizardPlan) {
   }
 }
 
-async function preflightCertificateDeployment(plan: DeploymentWizardPlan) {
-  deploymentLoading.value = true
-  deploymentError.value = ''
-  deploymentInfo.value = ''
-  try {
-    const planId = await ensureDeploymentPlan(plan)
-    const result = await dryRunDeploymentPlan({ planId })
-    deploymentDryRunChecks.value = extractDeploymentPreflightChecks(result.data)
-    deploymentInfo.value = t('assets.deployment.preflightAvailable', { count: deploymentDryRunChecks.value.length })
-  } catch (cause) {
-    deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.preflightFailed')
-  } finally {
-    deploymentLoading.value = false
-  }
+function notifyDeploymentStarted(tone: 'success' | 'warning'): void {
+  window.dispatchEvent(new CustomEvent('gcac:toast', {
+    detail: {
+      message: t(tone === 'warning'
+        ? 'deploymentPlans.feedback.executeTaskPendingApproval'
+        : 'deploymentPlans.feedback.executeTaskStarted'),
+      tone,
+    },
+  }))
 }
 
 async function loadDeploymentRecords(applicationAssetId: string) {
@@ -3051,24 +3104,19 @@ function managedTargetLabel(target: ApiRecord): string {
       v-model:open="deploymentDialogOpen"
       :title="t('assets.deployment.dialogTitle')"
       :description="t('assets.deployment.dialogDescription')"
-      size="xxl"
-      width="min(100%, var(--gc-size-modal-wide))"
-      frameless
+      size="lg"
+      width="min(100%, var(--gc-size-modal-lg))"
+      :busy="deploymentLoading"
+      :error="deploymentError"
     >
-      <p v-if="deploymentError" class="asset-summary__error">{{ deploymentError }}</p>
-      <p v-else-if="deploymentInfo" class="asset-form__request">{{ deploymentInfo }}</p>
-      <GcDeploymentWizard
-        :certificates="deploymentCertificateItems"
-        :certificate-versions="deploymentCertificateVersionItems"
-        :certificate-formats="deploymentCertificateFormatItems"
-        :targets="deploymentTarget"
+      <GcCertificateDeploymentForm
+        :application-asset="deploymentApplicationAsset"
+        :site-name="deploymentSiteName"
+        :certificate="deploymentCertificate"
+        :certificate-versions="deploymentCertificateVersions"
+        :preflight-checks="deploymentDryRunChecks"
         :loading="deploymentLoading"
-        :initial-plan="deploymentWizardInitialPlan"
-        :dry-run-checks="deploymentDryRunChecks"
-        :manual-preflight-action-label="t('assets.deployment.fields.preflight')"
-        :primary-action-label="t('assets.deployment.deployThisVersion')"
-        @preflight="preflightCertificateDeployment"
-        @deploy="deployCertificateVersion"
+        @submit="deployCertificateVersion"
         @cancel="closeDeploymentDialog"
       />
     </GcModal>

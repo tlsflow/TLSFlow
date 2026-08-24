@@ -578,6 +578,45 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/settings/deployment-tasks:
+    get:
+      operationId: "getDeploymentTaskSettings"
+      summary: "查询部署任务设置"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    patch:
+      operationId: "updateDeploymentTaskSettings"
+      summary: "更新部署任务设置"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/tenants:
     post:
       operationId: "createTenant"
@@ -13648,6 +13687,26 @@ paths:
     post:
       operationId: "cancelTask"
       summary: "取消任务"
+      tags:
+        - "Tasks"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/tasks/:id/force-cancel:
+    post:
+      operationId: "forceCancelTask"
+      summary: "强制结束任务"
       tags:
         - "Tasks"
       responses:

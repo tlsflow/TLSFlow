@@ -74,7 +74,9 @@ export default {
       title: 'Dry-run 사전 점검 결과',
       ariaLabel: 'dry-run 사전 점검 결과',
       empty: 'dry-run 사전 점검 결과가 생성되지 않았습니다.',
-      unnamedCheck: '이름 없는 점검 항목'
+      unnamedCheck: '이름 없는 점검 항목',
+      evidence: '점검 근거',
+      status: { passed: '통과', failed: '실패', warning: '경고', unknown: '알 수 없음' }
     },
     dryRunResult: {
       title: 'Dry-run 실행 결과',
@@ -449,8 +451,8 @@ export default {
     },
     fields: { requestedBy: '요청 사용자', triggerSource: '트리거 소스', createdAt: '생성 시간', startedAt: '시작 시간', finishedAt: '완료 시간', error: '마지막 오류' },
     sections: { timeline: '상태 타임라인', attempts: '시도 기록', acmeHistory: '갱신 진행 상황', logs: '원시 로그', children: '하위 작업', errors: '오류', audit: '감사 이벤트', monitoringProbes: '탐지 기록' },
-    actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
-    messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.' },
+    actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지', forceCancel: '강제 종료', forceCancelConfirm: '이 작업을 강제 종료할까요? 진행 중인 원격 작업은 수동 확인이 필요할 수 있습니다.', forceCancelReason: '전체 작업에서 운영자가 강제 종료' },
+    messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.', forceCancelFailed: '작업을 강제 종료하지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
     relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
     acmeHistory: {
@@ -464,6 +466,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '인증서 Dry-run',
       CERTIFICATE_DEPLOY: '인증서 배포',
+      DEPLOYMENT_APPROVAL: '배포 승인',
       CERTIFICATE_VERIFY: '인증서 검증',
       CERTIFICATE_ROLLBACK: '인증서 롤백',
       PROVIDER_OPERATION: '클라우드 작업',
@@ -1194,6 +1197,7 @@ export default {
       executionTaskStarted: '작업이 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
       executionTaskSucceeded: '작업이 성공적으로 완료되었습니다. 오른쪽 위 작업 목록에서 결과를 확인하세요.',
       executeTaskStarted: '인증서 배포가 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
+      executeTaskPendingApproval: '인증서 배포가 제출되었고 승인을 기다리고 있습니다. 오른쪽 위 작업 목록에서 확인하세요.',
       rollbackTaskStarted: '인증서 롤백이 시작되었습니다. 오른쪽 위 작업 목록에서 진행 상황을 확인하세요.',
       loadedDraft: '계획 초안을 불러왔습니다.',
       loadedDraftWithPlanId: '초안 로딩 ({planId}).',
@@ -2031,6 +2035,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['ko-KR'] ?? {}),
     securityLabel: '시스템 설정 입구',
+    deploymentTasks: {
+      eyebrow: '배포 작업',
+      title: '배포 작업 매개변수',
+      description: '테넌트별로 인증서 배포 전 Dry-run과 고위험 배포 승인 여부를 제어합니다.',
+      readonly: '이 계정은 읽기 전용 권한입니다.',
+      fields: {
+        dryRun: { title: 'Dry-run 활성화', description: '배포 전에 읽기 전용 사전 검사를 실행합니다. 결과는 참고용이며 실제 배포를 차단하지 않습니다.', aria: '인증서 배포 Dry-run 활성화' },
+        approval: { title: '승인 흐름 활성화', description: '고위험 인증서 배포는 실행 전에 승인을 요구합니다.', aria: '인증서 배포 승인 흐름 활성화' }
+      },
+      actions: { save: '설정 저장', saving: '저장 중...' },
+      messages: { saved: '배포 작업 매개변수를 저장했습니다.' },
+      errors: { loadFailed: '배포 작업 매개변수를 불러오지 못했습니다.', saveFailed: '배포 작업 매개변수를 저장하지 못했습니다.' }
+    },
     version: {
       title: '버전 정보',
       description: '현재 실행 중인 GCAC 버전을 확인합니다.',
@@ -2910,7 +2927,8 @@ export default {
       }
     },
     deployment: {
-      title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검, 승인 제출 및 승인 후 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷, 승인 및 실행 경계로 유지됩니다.', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', approval: '승인 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', pendingApproval: '사전 점검이 완료되었으며 배포는 승인을 기다리고 있습니다.', executionStarted: '사전 점검과 승인이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
+      targetLocked: '업데이트 대상 고정',
+      title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검, 승인 제출 및 승인 후 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷, 승인 및 실행 경계로 유지됩니다.', latestVersionPointer: '현재 인증서의 최신 버전 자동 적용', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', approval: '승인 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', pendingApproval: '사전 점검이 완료되었으며 배포는 승인을 기다리고 있습니다.', executionStarted: '사전 점검과 승인이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
     },
     compatibilityModes: {
       unified: '통합 플러그인 바인딩',

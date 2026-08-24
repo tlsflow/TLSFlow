@@ -41,7 +41,7 @@ export interface TenantRepository {
   getTenantByCode(code: string): Promise<TenantEntity | undefined>;
   listTenants(): Promise<TenantEntity[]>;
   createTenant(input: CreateTenantRecord): Promise<TenantEntity>;
-  updateTenant(id: string, patch: { parentId?: string | null; status?: TenantStatus }): Promise<TenantEntity>;
+  updateTenant(id: string, patch: { parentId?: string | null; status?: TenantStatus; settings?: Record<string, unknown> }): Promise<TenantEntity>;
   listMemberships(filter?: TenantMembershipFilter): Promise<TenantMembershipEntity[]>;
   createMembership(input: CreateTenantMembershipRecord): Promise<TenantMembershipEntity>;
   revokeMembership(id: string, actorId: string, revokedAt: string): Promise<TenantMembershipEntity>;
@@ -117,7 +117,7 @@ export class PgTenantRepository implements TenantRepository {
     return mapTenant(result.rows[0]);
   }
 
-  async updateTenant(id: string, patch: { parentId?: string | null; status?: TenantStatus }): Promise<TenantEntity> {
+  async updateTenant(id: string, patch: { parentId?: string | null; status?: TenantStatus; settings?: Record<string, unknown> }): Promise<TenantEntity> {
     const assignments: string[] = [];
     const params: unknown[] = [id];
     if (patch.parentId !== undefined) {
@@ -127,6 +127,10 @@ export class PgTenantRepository implements TenantRepository {
     if (patch.status !== undefined) {
       params.push(patch.status);
       assignments.push(`status = $${params.length}`);
+    }
+    if (patch.settings !== undefined) {
+      params.push(JSON.stringify(patch.settings));
+      assignments.push(`settings = $${params.length}::jsonb`);
     }
     assignments.push('updated_at = now()', 'version = version + 1');
     const result = await this.db.query<TenantRow>(

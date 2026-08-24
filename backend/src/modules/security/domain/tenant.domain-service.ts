@@ -10,6 +10,7 @@ import type {
   TenantType,
 } from '../../../persistence/entities/tenant.entity.js';
 import type { CreateTenantRecord, TenantMembershipFilter, TenantRepository } from '../repository/tenant.repository.js';
+import { mergeDeploymentTaskSettings, normalizeDeploymentTaskSettings, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
 
 export interface CreateTenantInput {
   name: string;
@@ -127,6 +128,38 @@ export class TenantHierarchyService {
       },
     });
     return updated;
+  }
+
+  async updateDeploymentTaskSettings(
+    tenantId: string,
+    patch: Partial<DeploymentTaskSettings>,
+    actorId: string,
+    contextTenantId?: string,
+  ): Promise<TenantEntity> {
+    const tenant = await this.requireTenant(tenantId);
+    const settings = mergeDeploymentTaskSettings(tenant.settings, patch);
+    const updated = await this.repository.updateTenant(tenantId, { settings });
+    await this.writeAudit({
+      eventType: 'settings.updated',
+      actorType: 'user',
+      actorId,
+      action: 'settings.deployment_tasks.update',
+      resourceType: 'settings',
+      resourceId: tenantId,
+      result: 'success',
+      riskLevel: 'medium',
+      detail: { deploymentTasks: normalizeDeploymentTaskSettings(updated.settings.deploymentTasks) },
+      context: { tenantId: contextTenantId ?? tenantId },
+    });
+    return updated;
+  }
+
+  /**
+   * 中文说明：所有部署入口读取同一份租户级设置，缺少历史字段时使用安全默认值。
+   */
+  async getDeploymentTaskSettings(tenantId: string): Promise<DeploymentTaskSettings> {
+    const tenant = await this.requireTenant(tenantId);
+    return normalizeDeploymentTaskSettings(tenant.settings?.deploymentTasks);
   }
 
   async addMembership(input: AddTenantMembershipInput): Promise<TenantMembershipEntity> {

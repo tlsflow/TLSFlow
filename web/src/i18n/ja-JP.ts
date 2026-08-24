@@ -74,7 +74,9 @@ export default {
       title: 'Dry-run 事前チェック結果',
       ariaLabel: 'dry-run 事前チェック結果',
       empty: 'dry-run 事前チェック結果はまだ生成されていません。',
-      unnamedCheck: '無名のチェック項目'
+      unnamedCheck: '無名のチェック項目',
+      evidence: 'チェック根拠',
+      status: { passed: '合格', failed: '失敗', warning: '警告', unknown: '不明' }
     },
     dryRunResult: {
       title: 'Dry-run 実行結果',
@@ -449,8 +451,8 @@ export default {
     },
     fields: { requestedBy: '実行ユーザー', triggerSource: 'トリガー', createdAt: '作成日時', startedAt: '開始日時', finishedAt: '終了日時', error: '最後のエラー' },
     sections: { timeline: '状態タイムライン', attempts: '試行履歴', acmeHistory: '更新の進行状況', logs: '生ログ', children: '子タスク', errors: 'エラー', audit: '監査イベント', monitoringProbes: 'プローブ記録' },
-    actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
-    messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。' },
+    actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ', forceCancel: '強制終了', forceCancelConfirm: 'このタスクを強制終了しますか？ 実行中のリモート処理は手動確認が必要になる場合があります。', forceCancelReason: 'グローバルタスクからオペレーターが強制終了' },
+    messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。', forceCancelFailed: 'タスクの強制終了に失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
     relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
     acmeHistory: {
@@ -464,6 +466,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '証明書Dry-run',
       CERTIFICATE_DEPLOY: '証明書配備',
+      DEPLOYMENT_APPROVAL: '配備承認',
       CERTIFICATE_VERIFY: '証明書検証',
       CERTIFICATE_ROLLBACK: '証明書ロールバック',
       PROVIDER_OPERATION: 'クラウド操作',
@@ -1220,6 +1223,7 @@ export default {
       executionTaskStarted: 'タスクを開始しました。右上のタスクリストで進行状況を確認できます。',
       executionTaskSucceeded: 'タスクが正常に完了しました。結果は右上のタスクリストで確認できます。',
       executeTaskStarted: '証明書デプロイを開始しました。右上のタスクリストで進行状況を確認できます。',
+      executeTaskPendingApproval: '証明書デプロイを申請しました。承認待ちの進行状況は右上のタスクリストで確認できます。',
       rollbackTaskStarted: '証明書ロールバックを開始しました。右上のタスクリストで進行状況を確認できます。',
       loadedDraft: '読み込みドラフトプラン済み。',
       loadedDraftWithPlanId: '読み込みドラフト（プラン {planId}）済み。',
@@ -2057,6 +2061,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['ja-JP'] ?? {}),
     securityLabel: 'システム設定入口',
+    deploymentTasks: {
+      eyebrow: 'デプロイタスク',
+      title: 'デプロイタスク設定',
+      description: 'テナントごとに証明書デプロイ前の Dry-run と高リスクデプロイの承認を設定します。',
+      readonly: 'このアカウントは読み取り専用です。',
+      fields: {
+        dryRun: { title: 'Dry-run を有効化', description: 'デプロイ前に読み取り専用の事前確認を行います。結果は参考情報であり、正式デプロイをブロックしません。', aria: '証明書デプロイ Dry-run を有効化' },
+        approval: { title: '承認フローを有効化', description: '高リスクの証明書デプロイは実行前に承認を要求します。', aria: '証明書デプロイ承認フローを有効化' }
+      },
+      actions: { save: '設定を保存', saving: '保存中...' },
+      messages: { saved: 'デプロイタスク設定を保存しました。' },
+      errors: { loadFailed: 'デプロイタスク設定の読み込みに失敗しました。', saveFailed: 'デプロイタスク設定の保存に失敗しました。' }
+    },
     version: {
       title: 'バージョン情報',
       description: '現在実行中の GCAC バージョンを表示します。',
@@ -2936,6 +2953,7 @@ export default {
       }
     },
     deployment: {
+      targetLocked: '更新対象を固定', latestVersionPointer: '現在の証明書の最新バージョンを自動適用',
       title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットの作成、事前確認、承認申請、承認後の実行を行います。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショット、承認、実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', approval: '承認状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', pendingApproval: '事前確認が完了し、デプロイは承認待ちです。', executionStarted: '事前確認と承認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' }
     },
     compatibilityModes: {

@@ -588,8 +588,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginWorkflows: pluginWorkflowPublisher,
     secrets: security.secrets,
     database: appDb,
-      deploymentInputSnapshots,
-      pluginRuntimeAdapters: dependencies.pluginRuntimeAdapters,
+    deploymentInputSnapshots,
+    pluginRuntimeAdapters: dependencies.pluginRuntimeAdapters,
+    tasks: tasksService,
+    tenantHierarchy: security.tenantHierarchy,
     }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
@@ -817,6 +819,78 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined);
   security.approvals.setDecisionListener(async (approval) => {
+    if (approval.operationType === 'deployment.execute') {
+      const planRef = approval.resourceRefs.find((ref) => ref.type === 'deploymentPlan');
+      if (!planRef || !approval.tenantId) return;
+      const deploymentService = deploymentPlans.getApplicationService();
+      const plan = await deploymentService.get(planRef.id, approval.tenantId);
+      const decision = approval.status === 'approved' ? 'approved' : approval.status === 'rejected' ? 'rejected' : undefined;
+      if (!decision) return;
+      if (decision === 'approved') {
+        try {
+          const execution = await deploymentService.execute({
+            planId: plan.id,
+            tenantId: approval.tenantId,
+            actorId: approval.requestedBy,
+            approvalId: approval.id,
+            // 中文说明：同一审批只允许发起一个正式执行 Run，监听器重放也不会重复部署。
+            idempotencyKey: `deployment-approval:${approval.id}`,
+          });
+          await tasksService.resolveApprovalTask(
+            approval.tenantId,
+            'deploymentPlan',
+            plan.id,
+            {
+              displayName: plan.name,
+              deploymentPlanId: plan.id,
+              approvalId: approval.id,
+              approvalStatus: decision,
+              approvalPending: false,
+              status: 'approved',
+              executionRunId: execution.run.id,
+              executionTaskId: execution.jobId,
+            },
+            decision,
+          );
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : '未知错误';
+          await tasksService.resolveApprovalTask(
+            approval.tenantId,
+            'deploymentPlan',
+            plan.id,
+            {
+              displayName: plan.name,
+              deploymentPlanId: plan.id,
+              approvalId: approval.id,
+              approvalStatus: decision,
+              approvalPending: false,
+              status: 'execution_enqueue_failed',
+            },
+            decision,
+            {
+              errorCode: error instanceof AppError ? error.errorCode : 'DEPLOYMENT_EXECUTION_ENQUEUE_FAILED',
+              errorMessage: `审批已通过，但未能创建证书部署任务：${errorMessage}`,
+            },
+          );
+        }
+        return;
+      }
+      await tasksService.resolveApprovalTask(
+        approval.tenantId,
+        'deploymentPlan',
+        plan.id,
+        {
+          displayName: plan.name,
+          deploymentPlanId: plan.id,
+          approvalId: approval.id,
+          approvalStatus: decision,
+          approvalPending: false,
+          status: decision,
+        },
+        decision,
+      );
+      return;
+    }
     if (approval.operationType !== 'automation.run.approve') return;
     const runRef = approval.resourceRefs.find((ref) => ref.type === 'automationRun');
     if (!runRef || !approval.tenantId) return;

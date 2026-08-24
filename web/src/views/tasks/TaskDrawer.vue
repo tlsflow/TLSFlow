@@ -8,10 +8,10 @@ import { getCertificateAssetDetail } from '@/api/modules/certificates.api'
 import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
+import { forceCancelTask, getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { currentTaskActivity, isAutomationApprovalTask, isExecutionTask, isQuickTask, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskActivityState, type TaskRealtimeMessage } from './task-events'
+import { currentTaskActivity, isAutomationApprovalTask, isDeploymentApprovalTask, isDeploymentExecutionTask as isRealDeploymentExecutionTask, isExecutionTask, isPendingApprovalTask, isQuickTask, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskActivityState, type TaskRealtimeMessage } from './task-events'
 import { buildAcmeTaskAttemptHistory, type AcmeTaskAttemptState } from './acme-task-history'
 
 const props = defineProps<{ open: boolean }>()
@@ -37,11 +37,6 @@ const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
   'REPORT_EXPORT',
   'NOTIFICATION_DELIVERY',
 ])
-const DEPLOYMENT_EXECUTION_TASK_TYPES: ReadonlySet<string> = new Set([
-  'CERTIFICATE_DRY_RUN',
-  'CERTIFICATE_DEPLOY',
-  'CERTIFICATE_ROLLBACK',
-])
 type TaskTabCategory = TaskCategory | 'OTHER'
 interface AcmeRenewalTaskPresentation {
   readonly providerName: string
@@ -62,6 +57,10 @@ const approvalModalOpen = ref(false)
 const approvalTask = ref<TaskRun | null>(null)
 const approvalLoading = ref(false)
 const approvalLoadError = ref('')
+const forceCancelLoading = ref(false)
+const forceCancelError = ref('')
+const forceCancelConfirmOpen = ref(false)
+const forceCancelTarget = ref<TaskRun | null>(null)
 const keyword = ref('')
 const appliedQuickKeyword = ref('')
 const allTasksModalOpen = ref(false)
@@ -125,6 +124,11 @@ watch(approvalModalOpen, (open) => {
     approvalLoadError.value = ''
     resetAutomationDetail()
   }
+})
+watch(forceCancelConfirmOpen, (open) => {
+  if (open || forceCancelLoading.value) return
+  forceCancelTarget.value = null
+  forceCancelError.value = ''
 })
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -266,7 +270,8 @@ function handleAllTasksScroll(event: Event): void {
 }
 
 async function openTask(task: TaskRun): Promise<void> {
-  if (taskNeedsApproval(task)) {
+  forceCancelError.value = ''
+  if (taskNeedsApproval(task) && isAutomationApprovalTask(task)) {
     await openApprovalTask(task)
     return
   }
@@ -299,6 +304,7 @@ async function openTask(task: TaskRun): Promise<void> {
 }
 
 async function openApprovalTask(task: TaskRun): Promise<void> {
+  forceCancelError.value = ''
   detail.value = null
   monitoringProbes.value = []
   resetAutomationDetail()
@@ -337,6 +343,7 @@ function closeDetail(): void {
   detail.value = null
   monitoringProbes.value = []
   resetAutomationDetail()
+  forceCancelError.value = ''
 }
 
 function closeApprovalModal(): void {
@@ -344,6 +351,7 @@ function closeApprovalModal(): void {
   approvalTask.value = null
   approvalLoading.value = false
   approvalLoadError.value = ''
+  forceCancelError.value = ''
   resetAutomationDetail()
 }
 
@@ -376,6 +384,23 @@ function applyRealtimeTaskChange(task: TaskRun): void {
     detail.value = { ...detail.value, task }
   }
   if (approvalTask.value?.id === task.id) approvalTask.value = task
+  if (forceCancelTarget.value?.id === task.id) {
+    forceCancelTarget.value = task
+    if (!canForceCancel(task) && !forceCancelLoading.value) forceCancelConfirmOpen.value = false
+  }
+}
+
+function applyLocalTaskChange(task: TaskRun): void {
+  const active = quickActiveTasks.value.filter((item) => item.id !== task.id)
+  const recent = quickRecentCompleted.value.filter((item) => item.id !== task.id)
+  if (matchesTaskKeyword(task, appliedQuickKeyword.value) && isQuickTask(task)) {
+    if (canForceCancel(task)) active.push(task)
+    else recent.unshift(task)
+  }
+  applyQuickTasksState({
+    active: sortTasks(active),
+    recent: sortTasks(recent).slice(0, RECENT_COMPLETED_COUNT),
+  })
 }
 
 function applyRealtimeTaskToAllTasks(task: TaskRun): void {
@@ -414,11 +439,12 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 }
 
 function taskStatusLabel(task: TaskRun): string {
-  if (isAutomationApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
+  if (isPendingApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
   return translateDynamic(t, te, 'tasks.status', task.status)
 }
 
 function taskTypeLabel(task: TaskRun): string {
+  if (isDeploymentApprovalTask(task)) return t('tasks.typeLabels.DEPLOYMENT_APPROVAL')
   const key = `tasks.typeLabels.${task.taskType}`
   const label = t(key)
   return label === key ? t('tasks.typeLabels.OTHER') : label
@@ -434,7 +460,7 @@ function taskRelatedName(task: TaskRun): string {
       })
       : taskTypeLabel(task)
   }
-  if (DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) {
+  if (isDeploymentExecutionTask(task)) {
     const planId = taskDeploymentPlanId(task)
     if (planId && deploymentPlanNames.value[planId]) return deploymentPlanNames.value[planId]
   }
@@ -442,7 +468,7 @@ function taskRelatedName(task: TaskRun): string {
     recordStringByKeys(task.resourceSummary, ['displayName', 'name', 'planName', 'assetDisplayName', 'assetName', 'providerDisplayName', 'providerName', 'pluginName', 'workflowName', 'applicationName', 'siteName', 'bindingName', 'bindingDisplayName', 'certificateName', 'technologyName', 'targetName']),
     recordStringByKeys(task.payload, ['displayName', 'name', 'planName', 'deploymentPlanName', 'pluginName', 'workflowName', 'workflowId', 'providerDisplayName', 'providerName', 'providerKey', 'operationKey', 'technologyName', 'siteName', 'bindingName', 'bindingInformation', 'agentId', 'certificateAssetId', 'deploymentPlanId', 'renewalJobId', 'certificateRequestId', 'targetPluginVersionId', 'pluginId', 'scope']),
   ))
-  if (DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType) && isRecordId(candidate, 'pln_')) return t('tasks.relatedNames.deploymentPlan')
+  if (isDeploymentExecutionTask(task) && isRecordId(candidate, 'pln_')) return t('tasks.relatedNames.deploymentPlan')
   return candidate ?? taskTypeLabel(task)
 }
 
@@ -513,7 +539,7 @@ function acmeAttemptTone(state: AcmeTaskAttemptState): 'success' | 'warning' | '
 }
 
 function isDeploymentExecutionTask(task: TaskRun): boolean {
-  return DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)
+  return isRealDeploymentExecutionTask(task)
 }
 
 function isAutomationTask(task: TaskRun | null | undefined): task is TaskRun {
@@ -563,7 +589,50 @@ function taskApprovalId(task: TaskRun): string | undefined {
 }
 
 function taskNeedsApproval(task: TaskRun | null | undefined): boolean {
-  return Boolean(task && taskApprovalId(task) && isAutomationApprovalTask(task))
+  return Boolean(task && taskApprovalId(task) && isPendingApprovalTask(task))
+}
+
+function canForceCancel(task: TaskRun | null | undefined): boolean {
+  return Boolean(task && ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'].includes(task.status))
+}
+
+function requestForceEndTask(task: TaskRun | null | undefined): void {
+  if (!task || !canForceCancel(task) || forceCancelLoading.value) return
+  forceCancelTarget.value = task
+  forceCancelError.value = ''
+  forceCancelConfirmOpen.value = true
+}
+
+function closeForceCancelConfirm(force = false): void {
+  if (forceCancelLoading.value && !force) return
+  forceCancelConfirmOpen.value = false
+  forceCancelTarget.value = null
+  forceCancelError.value = ''
+}
+
+async function confirmForceEndTask(): Promise<void> {
+  const task = forceCancelTarget.value
+  if (!task || forceCancelLoading.value) return
+  forceCancelLoading.value = true
+  forceCancelError.value = ''
+  try {
+    const result = await forceCancelTask(task.id, t('tasks.actions.forceCancelReason'))
+    const updated = result.data
+    if (updated) {
+      applyRealtimeTaskChange(updated)
+      applyLocalTaskChange(updated)
+      if (detail.value?.task.id === updated.id) detail.value = { ...detail.value, task: updated }
+      if (approvalTask.value?.id === updated.id) {
+        approvalTask.value = updated
+        if (updated.status === 'CANCELLED') closeApprovalModal()
+      }
+      closeForceCancelConfirm(true)
+    }
+  } catch (cause) {
+    forceCancelError.value = cause instanceof Error ? cause.message : t('tasks.messages.forceCancelFailed')
+  } finally {
+    forceCancelLoading.value = false
+  }
 }
 
 function automationActionLabel(actionType?: string): string {
@@ -726,6 +795,7 @@ function deploymentExecutionMode(taskType: string): DeploymentExecutionMode | un
 }
 
 function deploymentExecutionOpenDetail(task: TaskRun): DeploymentExecutionOpenDetail | undefined {
+  if (!isDeploymentExecutionTask(task)) return undefined
   const mode = deploymentExecutionMode(task.taskType)
   if (!mode) return undefined
   const runId = taskExecutionRunId(task)
@@ -747,7 +817,7 @@ function isRecordId(value: string | undefined, prefix: string): boolean {
 
 async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<void> {
   const missingPlanIds = Array.from(new Set(tasks
-    .filter((task) => DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType))
+    .filter(isDeploymentExecutionTask)
     .map(taskDeploymentPlanId)
     .filter((planId): planId is string => {
       if (!planId) return false
@@ -918,6 +988,18 @@ function recordString(record: InternalCaRecord, key: string): string {
               :tone="statusTone(detailTask?.status ?? 'QUEUED')"
             />
           </div>
+          <div v-if="detailTask && (canForceCancel(detailTask) || taskNeedsApproval(detailTask))" class="task-drawer__detail-actions">
+            <GcButton v-if="taskNeedsApproval(detailTask)" variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+              {{ t('deploymentPlans.actions.approve') }}
+            </GcButton>
+            <GcButton v-if="taskNeedsApproval(detailTask)" :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+              {{ t('deploymentPlans.actions.reject') }}
+            </GcButton>
+            <GcButton v-if="canForceCancel(detailTask)" class="gc-button--danger" :loading="forceCancelLoading" @click="requestForceEndTask(detailTask)">
+              {{ t('tasks.actions.forceCancel') }}
+            </GcButton>
+          </div>
+          <p v-if="forceCancelError" class="gc-form-error">{{ forceCancelError }}</p>
           <p v-if="detailError" class="gc-form-error">{{ detailError }}</p>
           <div v-if="detailLoading" class="task-drawer__loading">{{ t('common.loading') }}</div>
           <template v-else>
@@ -1054,29 +1136,44 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </header>
                 <GcEmptyState v-if="quickActiveTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <GcButton v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item" @click="openTask(task)">
-                    <span class="task-drawer__item-main">
-                      <span class="task-drawer__item-header">
-                        <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
-                        <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                  <div v-for="task in quickActiveTasks" :key="task.id" class="task-drawer__item">
+                    <GcButton class="task-drawer__item-open" @click="openTask(task)">
+                      <span class="task-drawer__item-main">
+                        <span class="task-drawer__item-header">
+                          <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                          <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                        </span>
+                        <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                        <span class="task-drawer__item-meta-row">
+                          <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                          <GcProgressBar
+                            v-if="shouldRenderTaskProgress(task)"
+                            class="task-drawer__item-progress"
+                            :value="taskProgressPercent(task)"
+                            :tone="statusTone(task.status)"
+                            captionInside
+                            :ariaLabel="taskStatusSummary(task)"
+                          >
+                            <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                          </GcProgressBar>
+                        </span>
                       </span>
-                      <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-                      <span class="task-drawer__item-meta-row">
-                        <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                        <GcProgressBar
-                          v-if="shouldRenderTaskProgress(task)"
-                          class="task-drawer__item-progress"
-                          :value="taskProgressPercent(task)"
-                          :tone="statusTone(task.status)"
-                          captionInside
-                          :ariaLabel="taskStatusSummary(task)"
-                        >
-                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                        </GcProgressBar>
-                      </span>
+                    </GcButton>
+                    <span class="task-drawer__item-controls">
+                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
+                      <GcButton
+                        v-if="canForceCancel(task)"
+                        variant="icon"
+                        class="task-drawer__item-force gc-button--danger"
+                        :aria-label="t('tasks.actions.forceCancel')"
+                        :title="t('tasks.actions.forceCancel')"
+                        :loading="forceCancelLoading"
+                        @click.stop="requestForceEndTask(task)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                      </GcButton>
                     </span>
-                    <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-                  </GcButton>
+                  </div>
                 </div>
               </section>
               <section class="task-drawer__group">
@@ -1086,29 +1183,33 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </header>
                 <GcEmptyState v-if="quickRecentCompleted.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
                 <div v-else class="task-drawer__items">
-                  <GcButton v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item" @click="openTask(task)">
-                    <span class="task-drawer__item-main">
-                      <span class="task-drawer__item-header">
-                        <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
-                        <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                  <div v-for="task in quickRecentCompleted" :key="task.id" class="task-drawer__item">
+                    <GcButton class="task-drawer__item-open" @click="openTask(task)">
+                      <span class="task-drawer__item-main">
+                        <span class="task-drawer__item-header">
+                          <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                          <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                        </span>
+                        <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                        <span class="task-drawer__item-meta-row">
+                          <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                          <GcProgressBar
+                            v-if="shouldRenderTaskProgress(task)"
+                            class="task-drawer__item-progress"
+                            :value="taskProgressPercent(task)"
+                            :tone="statusTone(task.status)"
+                            captionInside
+                            :ariaLabel="taskStatusSummary(task)"
+                          >
+                            <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                          </GcProgressBar>
+                        </span>
                       </span>
-                      <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-                      <span class="task-drawer__item-meta-row">
-                        <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                        <GcProgressBar
-                          v-if="shouldRenderTaskProgress(task)"
-                          class="task-drawer__item-progress"
-                          :value="taskProgressPercent(task)"
-                          :tone="statusTone(task.status)"
-                          captionInside
-                          :ariaLabel="taskStatusSummary(task)"
-                        >
-                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                        </GcProgressBar>
-                      </span>
+                    </GcButton>
+                    <span class="task-drawer__item-controls">
+                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
                     </span>
-                    <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-                  </GcButton>
+                  </div>
                 </div>
               </section>
             </div>
@@ -1141,32 +1242,69 @@ function recordString(record: InternalCaRecord, key: string): string {
         <div v-if="allTasksLoading && allTasks.length === 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
         <GcEmptyState v-else-if="allTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
         <div v-else class="task-drawer__items">
-          <GcButton v-for="task in allTasks" :key="task.id" class="task-drawer__item" @click="openTask(task)">
-            <span class="task-drawer__item-main">
-              <span class="task-drawer__item-header">
-                <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
-                <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+          <div v-for="task in allTasks" :key="task.id" class="task-drawer__item">
+            <GcButton class="task-drawer__item-open" @click="openTask(task)">
+              <span class="task-drawer__item-main">
+                <span class="task-drawer__item-header">
+                  <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
+                  <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
+                </span>
+                <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                <span class="task-drawer__item-meta-row">
+                  <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                  <GcProgressBar
+                    v-if="shouldRenderTaskProgress(task)"
+                    class="task-drawer__item-progress"
+                    :value="taskProgressPercent(task)"
+                    :tone="statusTone(task.status)"
+                    captionInside
+                    :ariaLabel="taskStatusSummary(task)"
+                  >
+                    <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                  </GcProgressBar>
+                </span>
               </span>
-              <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-              <span class="task-drawer__item-meta-row">
-                <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                <GcProgressBar
-                  v-if="shouldRenderTaskProgress(task)"
-                  class="task-drawer__item-progress"
-                  :value="taskProgressPercent(task)"
-                  :tone="statusTone(task.status)"
-                  captionInside
-                  :ariaLabel="taskStatusSummary(task)"
-                >
-                  <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                </GcProgressBar>
-              </span>
+            </GcButton>
+            <span class="task-drawer__item-controls">
+              <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
+              <GcButton
+                v-if="canForceCancel(task)"
+                variant="icon"
+                class="task-drawer__item-force gc-button--danger"
+                :aria-label="t('tasks.actions.forceCancel')"
+                :title="t('tasks.actions.forceCancel')"
+                :loading="forceCancelLoading"
+                @click.stop="requestForceEndTask(task)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+              </GcButton>
             </span>
-            <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
-          </GcButton>
+          </div>
         </div>
       </div>
     </div>
+  </GcModal>
+  <GcModal
+    v-model:open="forceCancelConfirmOpen"
+    size="sm"
+    :title="t('designSystem.confirm.title', { action: t('tasks.actions.forceCancel') })"
+    :description="t('tasks.actions.forceCancelConfirm')"
+    :busy="forceCancelLoading"
+    :error="forceCancelError"
+  >
+    <p v-if="forceCancelTarget" class="task-drawer__force-cancel-target">{{ taskRelatedName(forceCancelTarget) }}</p>
+    <template #actions>
+      <GcButton :disabled="forceCancelLoading" @click="closeForceCancelConfirm">
+        {{ t('designSystem.confirm.cancel') }}
+      </GcButton>
+      <GcButton
+        class="gc-button--danger"
+        :loading="forceCancelLoading"
+        @click="confirmForceEndTask"
+      >
+        {{ t('designSystem.confirm.confirm') }}
+      </GcButton>
+    </template>
   </GcModal>
   <GcModal
     v-model:open="approvalModalOpen"
@@ -1220,11 +1358,14 @@ function recordString(record: InternalCaRecord, key: string): string {
         <footer class="task-drawer__approval-actions">
           <span>{{ t('deploymentPlans.approval.decisionHint') }}</span>
           <div>
-            <GcButton variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
+            <GcButton v-if="taskNeedsApproval(approvalTask)" variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
               {{ t('deploymentPlans.actions.approve') }}
             </GcButton>
-            <GcButton :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
+            <GcButton v-if="taskNeedsApproval(approvalTask)" :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
               {{ t('deploymentPlans.actions.reject') }}
+            </GcButton>
+            <GcButton v-if="canForceCancel(approvalTask)" class="gc-button--danger" :loading="forceCancelLoading" @click="requestForceEndTask(approvalTask)">
+              {{ t('tasks.actions.forceCancel') }}
             </GcButton>
           </div>
         </footer>
@@ -1346,6 +1487,7 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-drawer__approval-header,
+.task-drawer__detail-actions,
 .task-drawer__approval-actions,
 .task-drawer__record-header {
   display: flex;
@@ -1579,22 +1721,41 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-drawer__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
+  position: relative;
+  display: block;
   width: 100%;
-  padding: var(--gc-space-3);
+  min-width: 0;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-sm);
-  color: var(--gc-color-text);
   background: var(--gc-color-surface-field);
+}
+
+.task-drawer__item-open {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  padding: var(--gc-space-3) calc((var(--gc-control-height-card-action) * 2) + var(--gc-space-3)) var(--gc-space-3) var(--gc-space-3);
+  border: 0;
+  border-radius: inherit;
+  color: var(--gc-color-text);
+  background: transparent;
+  box-shadow: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.task-drawer__item :deep(.gc-button__content) {
+.task-drawer__item-open:hover:not(:disabled) {
+  background: var(--gc-color-primary-soft);
+  box-shadow: none;
+}
+
+.task-drawer__item-open:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.task-drawer__item-open :deep(.gc-button__content) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1603,9 +1764,51 @@ function recordString(record: InternalCaRecord, key: string): string {
   min-width: 0;
 }
 
-.task-drawer__item:hover {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-primary-soft);
+.task-drawer__item-controls {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: var(--gc-space-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--gc-space-1);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.task-drawer__item-controls > * {
+  pointer-events: auto;
+}
+
+.task-drawer__item-force {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 calc(var(--gc-control-height-xs) - var(--gc-space-tight));
+  width: calc(var(--gc-control-height-xs) - var(--gc-space-tight));
+  min-width: calc(var(--gc-control-height-xs) - var(--gc-space-tight));
+  height: calc(var(--gc-control-height-xs) - var(--gc-space-tight));
+  min-height: calc(var(--gc-control-height-xs) - var(--gc-space-tight));
+  padding: 0;
+}
+
+.task-drawer__item-force :deep(.gc-button__content) {
+  display: grid;
+  place-items: center;
+}
+
+.task-drawer__item-force svg {
+  width: calc(var(--gc-size-icon-sm) - var(--gc-space-tight));
+  height: calc(var(--gc-size-icon-sm) - var(--gc-space-tight));
+  fill: currentColor;
+}
+
+.task-drawer__force-cancel-target {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-body);
+  font-weight: var(--gc-font-weight-semibold);
+  overflow-wrap: anywhere;
 }
 
 .task-drawer__item-main {
@@ -1699,6 +1902,12 @@ function recordString(record: InternalCaRecord, key: string): string {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--gc-space-3);
+}
+
+.task-drawer__detail-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--gc-space-3);
 }
 
 .task-drawer__detail-header h3,
@@ -1897,6 +2106,7 @@ function recordString(record: InternalCaRecord, key: string): string {
     align-items: stretch;
     flex-direction: column;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

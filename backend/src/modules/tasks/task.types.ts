@@ -67,6 +67,9 @@ export interface TaskEnqueueInput {
   parentTaskId?: string;
   definitionVersion?: number;
   availableAt?: string;
+  /** 中文说明：审批占位任务需要以等待状态入列，避免被 Worker 抢走执行。 */
+  initialStatus?: Extract<TaskStatus, 'QUEUED' | 'RETRY_WAITING'>;
+  initialProgress?: Record<string, unknown>;
 }
 
 export interface TaskRun {

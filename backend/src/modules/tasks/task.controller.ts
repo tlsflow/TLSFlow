@@ -22,6 +22,7 @@ export class TasksController {
     router.get('/api/v1/tasks', '查询任务列表', tags, (request) => this.list(request));
     router.get('/api/v1/tasks/:id', '查询任务详情', tags, (request) => this.detail(request));
     router.post('/api/v1/tasks/:id/cancel', '取消任务', tags, (request) => this.cancel(request));
+    router.post('/api/v1/tasks/:id/force-cancel', '强制结束任务', tags, (request) => this.forceCancel(request));
     router.post('/api/v1/tasks/:id/retry', '重试任务', tags, (request) => this.retry(request));
     router.get('/api/v1/monitoring/task-runs/:id/probes', '查询监控任务探测记录', tags, (request) => this.probes(request));
   }
@@ -100,6 +101,17 @@ export class TasksController {
     await this.assertRead(subject, request, 'task.read.all');
     const taskId = readPathId(request);
     return this.service.retry(requireTenantId(request), taskId, subject.id);
+  }
+
+  private async forceCancel(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
+    const subject = await this.subjectFromRequest(request);
+    await this.assertRead(subject, request, 'task.read.all');
+    const taskId = readPathId(request);
+    const body = validateObject(request.body ?? {}, { reason: { type: 'string' } });
+    const reason = typeof body.reason === 'string' ? body.reason : undefined;
+    return this.service.forceCancel(requireTenantId(request), taskId, subject.id, reason);
   }
 
   private async probes(request: HttpRequest) {
@@ -219,6 +231,7 @@ export function getTaskRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/tasks', operationId: 'listTasks', summary: '查询任务列表', tags, responseSchema: response },
     { method: 'GET', path: '/api/v1/tasks/:id', operationId: 'getTaskDetail', summary: '查询任务详情', tags, responseSchema: response },
     { method: 'POST', path: '/api/v1/tasks/:id/cancel', operationId: 'cancelTask', summary: '取消任务', tags, responseSchema: response },
+    { method: 'POST', path: '/api/v1/tasks/:id/force-cancel', operationId: 'forceCancelTask', summary: '强制结束任务', tags, responseSchema: response },
     { method: 'POST', path: '/api/v1/tasks/:id/retry', operationId: 'retryTask', summary: '重试任务', tags, responseSchema: response },
     { method: 'GET', path: '/api/v1/monitoring/task-runs/:id/probes', operationId: 'listTaskMonitoringProbes', summary: '查询监控任务探测记录', tags, responseSchema: response },
   ];

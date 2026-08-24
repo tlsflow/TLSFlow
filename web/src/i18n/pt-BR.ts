@@ -74,7 +74,9 @@ export default {
       title: 'Conclusão da pré-verificação Dry-run',
       ariaLabel: 'conclusão da pré-verificação dry-run',
       empty: 'Nenhum resultado de pré-verificação dry-run foi gerado ainda.',
-      unnamedCheck: 'Item de verificação sem nome'
+      unnamedCheck: 'Item de verificação sem nome',
+      evidence: 'Evidências da verificação',
+      status: { passed: 'Aprovado', failed: 'Falhou', warning: 'Aviso', unknown: 'Desconhecido' }
     },
     dryRunResult: {
       title: 'Resultado da execução Dry-run',
@@ -449,8 +451,8 @@ export default {
     },
     fields: { requestedBy: 'Usuário solicitante', triggerSource: 'Origem', createdAt: 'Criada em', startedAt: 'Iniciada em', finishedAt: 'Finalizada em', error: 'Último erro' },
     sections: { timeline: 'Linha do tempo do status', attempts: 'Tentativas', acmeHistory: 'Progresso da renovação', logs: 'Logs brutos', children: 'Subtarefas', errors: 'Erros', audit: 'Eventos de auditoria', monitoringProbes: 'Registros de sondagem' },
-    actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
-    messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.' },
+    actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página', forceCancel: 'Parar à força', forceCancelConfirm: 'Forçar a parada desta tarefa? Uma ação remota em andamento pode exigir verificação manual.', forceCancelReason: 'Parada forçada por um operador nas tarefas globais' },
+    messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.', forceCancelFailed: 'Falha ao parar a tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
     relatedNames: { builtinCatalog: 'Catálogo interno de plugins', deploymentPlan: 'Plano de implantação', acmeRenewal: 'Provedor ACME ({provider}) - renovação do certificado {certificate}' },
     acmeHistory: {
@@ -464,6 +466,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run do certificado',
       CERTIFICATE_DEPLOY: 'Implantação do certificado',
+      DEPLOYMENT_APPROVAL: 'Aprovação da implantação',
       CERTIFICATE_VERIFY: 'Verificação do certificado',
       CERTIFICATE_ROLLBACK: 'Rollback do certificado',
       PROVIDER_OPERATION: 'Operação em nuvem',
@@ -1194,6 +1197,7 @@ export default {
       executionTaskStarted: 'Tarefa iniciada. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
       executionTaskSucceeded: 'Tarefa concluída com sucesso. Consulte o resultado na lista de tarefas no canto superior direito.',
       executeTaskStarted: 'Implantação do certificado iniciada. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
+      executeTaskPendingApproval: 'Implantação do certificado enviada e aguardando aprovação. Acompanhe pela lista de tarefas no canto superior direito.',
       rollbackTaskStarted: 'Rollback do certificado iniciado. Acompanhe o progresso pela lista de tarefas no canto superior direito.',
       loadedDraft: 'Rascunho do plano carregado.',
       loadedDraftWithPlanId: 'Rascunho carregado (plano {planId}).',
@@ -2031,6 +2035,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['pt-BR'] ?? {}),
     securityLabel: 'Entrada de configurações do sistema',
+    deploymentTasks: {
+      eyebrow: 'Tarefas de implantação',
+      title: 'Parâmetros das tarefas de implantação',
+      description: 'Controle por tenant se as implantações de certificados executam Dry-run e se implantações de alto risco exigem aprovação.',
+      readonly: 'Esta conta tem acesso somente leitura.',
+      fields: {
+        dryRun: { title: 'Ativar Dry-run', description: 'Execute uma pré-verificação somente leitura antes da implantação; os resultados são informativos e não bloqueiam a execução.', aria: 'Ativar Dry-run de implantação de certificado' },
+        approval: { title: 'Ativar fluxo de aprovação', description: 'Envie implantações de certificados de alto risco para aprovação antes da execução.', aria: 'Ativar fluxo de aprovação de implantação de certificado' }
+      },
+      actions: { save: 'Salvar configurações', saving: 'Salvando...' },
+      messages: { saved: 'Parâmetros das tarefas de implantação salvos.' },
+      errors: { loadFailed: 'Falha ao carregar os parâmetros das tarefas de implantação.', saveFailed: 'Falha ao salvar os parâmetros das tarefas de implantação.' }
+    },
     version: {
       title: 'Informações da versão',
       description: 'Visualize a versão do GCAC em execução.',
@@ -2910,10 +2927,12 @@ export default {
       }
     },
     deployment: {
+      targetLocked: 'Alvo de atualização bloqueado',
       title: 'Implantação de certificado',
       description: 'Escolha uma versão de certificado para este ativo de aplicação. O sistema cria um snapshot, executa a pré-verificação, solicita aprovação e executa quando autorizado.',
       dialogTitle: 'Implantação de certificado',
       dialogDescription: 'A ação vale somente para o ativo de aplicação atual. O plano continua sendo o limite de snapshot, aprovação e execução no servidor.',
+      latestVersionPointer: 'Aplicar automaticamente a versão mais recente do certificado atual',
       deployThisVersion: 'Implantar esta versão do certificado',
       loadingRecords: 'Carregando registros de implantação...',
       emptyRecords: 'Este ativo de aplicação ainda não possui registros de implantação.',

@@ -64,6 +64,10 @@ export function cancelTask(taskId: string, reason: string) {
   return apiClient.post<TaskRun>(toClientPath(`/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`), { reason })
 }
 
+export function forceCancelTask(taskId: string, reason: string) {
+  return apiClient.post<TaskRun>(toClientPath(`/api/v1/tasks/${encodeURIComponent(taskId)}/force-cancel`), { reason })
+}
+
 export function retryTask(taskId: string) {
   return apiClient.post<TaskRun>(toClientPath(`/api/v1/tasks/${encodeURIComponent(taskId)}/retry`), {})
 }

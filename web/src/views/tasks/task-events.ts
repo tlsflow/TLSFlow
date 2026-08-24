@@ -50,6 +50,11 @@ const EXECUTION_TASK_TYPES = new Set([
   'PLUGIN_REFERENCE_REFRESH',
   'DEPLOYMENT_PLAN_REFRESH',
 ])
+const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
+  'CERTIFICATE_DRY_RUN',
+  'CERTIFICATE_DEPLOY',
+  'CERTIFICATE_ROLLBACK',
+])
 const VISIBLE_SYSTEM_TASK_TYPES = new Set([
   'ACME_CERTIFICATE_RENEWAL',
 ])
@@ -74,7 +79,30 @@ export function isAutomationTask(task: TaskRun): boolean {
   return task.taskType === 'AUTOMATION_RUN'
 }
 
+/** 中文说明：兼容历史任务中复用了 CERTIFICATE_DEPLOY 的审批占位记录。 */
+export function isDeploymentApprovalTask(task: TaskRun): boolean {
+  return task.taskType === 'DEPLOYMENT_APPROVAL'
+    || task.payload?.executionType === 'approval'
+    || task.resourceSummary?.executionType === 'approval'
+}
+
+/** 中文说明：只有真正的部署运行才可跳转执行详情或触发部署成功提示。 */
+export function isDeploymentExecutionTask(task: TaskRun): boolean {
+  return DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType) && !isDeploymentApprovalTask(task)
+}
+
+export function isDeploymentRunTask(task: TaskRun): boolean {
+  return isDeploymentExecutionTask(task) && Boolean(firstString(
+    task.payload?.runId,
+    task.resourceSummary?.runId,
+    task.progress?.runId,
+    task.resourceSummary?.executionRunId,
+    task.payload?.executionRunId,
+  ))
+}
+
 export function isPendingApprovalTask(task: TaskRun): boolean {
+  if (!ACTIVE_TASK_STATUSES.has(task.status)) return false
   const approvalId = firstString(task.progress?.approvalId, task.resourceSummary?.approvalId)
   if (!approvalId) return false
   const status = firstString(task.progress?.status, task.resourceSummary?.status)

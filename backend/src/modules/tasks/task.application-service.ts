@@ -145,6 +145,43 @@ export class TasksApplicationService {
     }
   }
 
+  async forceCancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
+    try {
+      const task = await this.repository.forceCancel(tenantId, id, actorId, reason);
+      if (shouldWriteTaskAudit(task)) {
+        await this.audit?.write({
+          eventType: 'task.cancelled',
+          actorType: 'user',
+          actorId: actorId ?? 'system',
+          action: 'task.force_cancel',
+          resourceType: 'task',
+          resourceId: id,
+          result: 'success',
+          riskLevel: 'high',
+          detail: { taskId: id, reason, force: true },
+        });
+      }
+      this.realtime?.publishTask(task);
+      return task;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'NOT_FOUND') throw new AppError('RESOURCE_NOT_FOUND', '任务不存在');
+      throw error;
+    }
+  }
+
+  async resolveApprovalTask(
+    tenantId: string,
+    resourceType: string,
+    resourceId: string,
+    resourceSummary: Record<string, unknown>,
+    decision: 'approved' | 'rejected',
+    failure?: { errorCode?: string; errorMessage: string },
+  ): Promise<TaskRun | undefined> {
+    const task = await this.repository.resolveApprovalTask(tenantId, resourceType, resourceId, resourceSummary, decision, failure);
+    if (task) this.realtime?.publishTask(task);
+    return task;
+  }
+
   async retry(tenantId: string, id: string, actorId?: string): Promise<TaskRun> {
     try {
       const task = await this.repository.retry(tenantId, id, actorId);
@@ -204,26 +241,34 @@ export class TasksApplicationService {
       result = { success: false, errorCode: 'TASK_EXECUTOR_THROWN', errorMessage: error instanceof Error ? error.message : String(error) };
     }
     const definition = this.registry.get(task.taskType, task.definitionVersion);
-    if (result.success) {
-      await this.repository.finish(task, attempt, workerId, 'SUCCEEDED', { detail: result.detail });
+    try {
+      if (result.success) {
+        await this.repository.finish(task, attempt, workerId, 'SUCCEEDED', { detail: result.detail });
+        const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
+        this.realtime?.publishTask(finished);
+        return finished;
+      }
+      const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
+      const nextAttemptAt = shouldRetry && result.nextAttemptAt ? result.nextAttemptAt : undefined;
+      const retryAfterSeconds = shouldRetry && !nextAttemptAt
+        ? result.retryAfterSeconds
+          ?? definition.retryPolicy.backoffSeconds * Math.max(1, attempt.attemptNo)
+        : undefined;
+      await this.repository.finish(task, attempt, workerId, shouldRetry ? 'RETRY_WAITING' : 'FAILED', {
+        errorCode: result.errorCode,
+        errorMessage: result.errorMessage,
+        detail: result.detail,
+      }, nextAttemptAt, retryAfterSeconds);
       const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
       this.realtime?.publishTask(finished);
       return finished;
+    } catch (error) {
+      // 中文说明：强制结束会主动清除租约，执行器返回后的旧回写必须视为已处理，不能让 Worker 循环报错。
+      if (!(error instanceof Error) || error.message !== 'TASK_LEASE_LOST') throw error;
+      const cancelled = await this.repository.getById(task.tenantId, task.id) as TaskRun;
+      this.realtime?.publishTask(cancelled);
+      return cancelled;
     }
-    const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
-    const nextAttemptAt = shouldRetry && result.nextAttemptAt ? result.nextAttemptAt : undefined;
-    const retryAfterSeconds = shouldRetry && !nextAttemptAt
-      ? result.retryAfterSeconds
-        ?? definition.retryPolicy.backoffSeconds * Math.max(1, attempt.attemptNo)
-      : undefined;
-    await this.repository.finish(task, attempt, workerId, shouldRetry ? 'RETRY_WAITING' : 'FAILED', {
-      errorCode: result.errorCode,
-      errorMessage: result.errorMessage,
-      detail: result.detail,
-    }, nextAttemptAt, retryAfterSeconds);
-    const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
-    this.realtime?.publishTask(finished);
-    return finished;
   }
 
   async listMonitoringProbes(query: MonitoringProbeQuery): Promise<MonitoringProbePage> {

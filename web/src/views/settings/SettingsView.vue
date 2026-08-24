@@ -20,6 +20,7 @@ const cards: SettingsCard[] = [
   { titleKey: 'nav.roles', path: '/settings/roles', descriptionKey: 'nav.rolesDesc', permission: 'security.role.read' },
   { titleKey: 'credentials.title', path: '/settings/credentials', descriptionKey: 'credentials.description', permission: 'credential.read' },
   { titleKey: 'notifications.title', path: '/settings/notifications', descriptionKey: 'notifications.description', permission: 'notification.channel.read' },
+  { titleKey: 'settings.deploymentTasks.title', path: '/settings/deployment-tasks', descriptionKey: 'settings.deploymentTasks.description', permission: 'settings.read' },
   { titleKey: 'settings.licensing.title', path: '/settings/licensing', descriptionKey: 'settings.licensing.description', permission: 'settings.read' },
   { titleKey: 'nav.identitySources', path: '/settings/identity-sources', descriptionKey: 'nav.identitySourcesDesc', permission: 'security.identity_source.read' },
   { titleKey: 'settings.version.title', path: '/settings/version', descriptionKey: 'settings.version.description', permission: 'settings.read' }

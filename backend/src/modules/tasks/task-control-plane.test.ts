@@ -339,3 +339,75 @@ test('取消原因写入任务事件并保留操作者上下文', async () => {
   assert.equal(cancelEvent?.actorId, 'admin-cancel');
   assert.equal(cancelEvent?.eventData.reason, '用户请求停止');
 });
+
+test('强制结束会清理运行租约并吞掉旧 Worker 的完成回写', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-force-cancel',
+    taskType: 'CERTIFICATE_DEPLOY',
+    requestedBy: 'user-deploy',
+    triggerSource: 'deployment.manual',
+  });
+
+  const finished = await service.runNext(
+    'worker-force-cancel',
+    async (claimedTask) => {
+      await service.forceCancel(claimedTask.tenantId, claimedTask.id, 'admin-force', '远端动作已失去控制');
+      return { success: true, detail: { stale: true } };
+    },
+    task.tenantId,
+  );
+
+  assert.equal(finished?.status, 'CANCELLED');
+  const detail = await service.detail(task.tenantId, task.id);
+  assert.equal(detail.task.lastErrorCode, 'TASK_FORCE_CANCELLED');
+  assert.equal(detail.attempts[0]?.status, 'CANCELLED');
+  assert.equal(detail.attempts[0]?.finishedAt !== undefined, true);
+  assert.equal(detail.events.some((event) => event.eventType === 'CANCELLED' && event.eventData.force === true), true);
+  const persisted = await repository.getById(task.tenantId, task.id);
+  assert.equal(persisted?.leaseOwner, undefined);
+  assert.equal(persisted?.leaseExpiresAt, undefined);
+});
+
+test('部署审批占位任务只在审批决策后收敛，不会被 Worker 抢占', async () => {
+  const { repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-deployment-approval',
+    taskType: 'DEPLOYMENT_APPROVAL',
+    requestedBy: 'user-deploy',
+    triggerSource: 'deployment.approval.requested',
+    initialStatus: 'RETRY_WAITING',
+    availableAt: '2099-01-01T00:00:00.000Z',
+    resourceSummary: {
+      displayName: 'example.com 证书部署',
+      deploymentPlanId: 'plan-approval',
+      approvalId: 'approval-1',
+      approvalPending: true,
+      approvalStatus: 'pending',
+      status: 'waiting_approval',
+    },
+    initialProgress: { approvalPending: true, approvalStatus: 'pending', status: 'waiting_approval', approvalId: 'approval-1' },
+    resourceRefs: [{ resourceType: 'deploymentPlan', resourceId: 'plan-approval' }],
+  });
+
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-approval-placeholder', 60), undefined);
+  const executionTask = await service.enqueue({
+    tenantId: task.tenantId,
+    taskType: 'CERTIFICATE_DEPLOY',
+    requestedBy: 'user-deploy',
+    triggerSource: 'execution.apply.enqueue',
+    resourceSummary: { displayName: 'example.com 证书部署', deploymentPlanId: 'plan-approval', executionType: 'apply' },
+    payload: { deploymentPlanId: 'plan-approval', executionType: 'apply', runId: 'run-approval' },
+    resourceRefs: [{ resourceType: 'deploymentPlan', resourceId: 'plan-approval' }],
+  });
+  const resolved = await service.resolveApprovalTask(task.tenantId, 'deploymentPlan', 'plan-approval', {
+    approvalId: 'approval-1',
+    approvalStatus: 'approved',
+    status: 'approved',
+  }, 'approved');
+
+  assert.equal(resolved?.status, 'SUCCEEDED');
+  assert.equal(resolved?.progress?.approvalPending, false);
+  assert.equal(resolved?.progress?.approvalStatus, 'approved');
+  assert.equal((await repository.getById(task.tenantId, executionTask.id))?.status, 'QUEUED');
+});

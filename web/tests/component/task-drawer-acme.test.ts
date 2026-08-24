@@ -5,6 +5,7 @@ import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
 
 const routerMocks = vi.hoisted(() => ({ push: vi.fn() }))
 const taskApiMocks = vi.hoisted(() => ({
+  forceCancelTask: vi.fn(),
   getTask: vi.fn(),
   listMonitoringProbes: vi.fn(),
   listTasks: vi.fn(),
@@ -12,7 +13,10 @@ const taskApiMocks = vi.hoisted(() => ({
 const taskEventMocks = vi.hoisted(() => ({
   currentTaskActivity: vi.fn(),
   isAutomationApprovalTask: vi.fn(() => false),
+  isDeploymentApprovalTask: vi.fn(() => false),
+  isDeploymentExecutionTask: vi.fn(() => false),
   isExecutionTask: vi.fn(() => false),
+  isPendingApprovalTask: vi.fn(() => false),
   isQuickTask: vi.fn(() => true),
   subscribeTaskActivity: vi.fn(),
   subscribeTaskRealtime: vi.fn(),

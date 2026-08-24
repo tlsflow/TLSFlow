@@ -69,7 +69,9 @@ export default {
       title: 'Dry-run 预检结论',
       ariaLabel: 'dry-run 预检结论',
       empty: '尚未生成 dry-run 预检结果。',
-      unnamedCheck: '未命名检查项'
+      unnamedCheck: '未命名检查项',
+      evidence: '检查证据',
+      status: { passed: '通过', failed: '失败', warning: '警告', unknown: '未知' }
     },
     dryRunResult: {
       title: 'Dry-run 执行结果',
@@ -444,8 +446,8 @@ export default {
     },
     fields: { requestedBy: '发起用户', triggerSource: '触发来源', createdAt: '创建时间', startedAt: '开始时间', finishedAt: '结束时间', error: '最后错误' },
     sections: { timeline: '状态时间线', attempts: '尝试记录', acmeHistory: '续签过程', logs: '原始日志', children: '子任务', errors: '错误', audit: '审计事件', monitoringProbes: '探测记录' },
-    actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
-    messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。' },
+    actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页', forceCancel: '强制结束', forceCancelConfirm: '确定要强制结束此任务吗？正在进行的远端动作可能仍需人工确认。', forceCancelReason: '操作员从全局任务中强制结束' },
+    messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。', forceCancelFailed: '强制结束任务失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
     relatedNames: { builtinCatalog: '内置插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
     acmeHistory: {
@@ -459,6 +461,7 @@ export default {
     typeLabels: {
       CERTIFICATE_DRY_RUN: '证书Dry-run',
       CERTIFICATE_DEPLOY: '证书部署',
+      DEPLOYMENT_APPROVAL: '部署审批',
       CERTIFICATE_VERIFY: '证书验证',
       CERTIFICATE_ROLLBACK: '证书回滚',
       PROVIDER_OPERATION: '云服务操作',
@@ -1271,6 +1274,7 @@ export default {
       executionTaskStarted: '任务已开始，后续进度可在右上角任务列表查看。',
       executionTaskSucceeded: '任务已成功完成，可在右上角任务列表查看结果。',
       executeTaskStarted: '证书部署已开始，后续进度可在右上角任务列表查看。',
+      executeTaskPendingApproval: '证书部署已提交，正在等待审批，后续进度可在右上角任务列表查看。',
       rollbackTaskStarted: '证书回滚已开始，后续进度可在右上角任务列表查看。',
       loadedDraft: '已加载草稿计划。',
       loadedDraftWithPlanId: '已加载草稿（计划 {planId}）。',
@@ -2176,6 +2180,19 @@ export default {
   settings: {
     ...(licensingLocaleMessages['zh-CN'] ?? {}),
     securityLabel: '系统设置入口',
+    deploymentTasks: {
+      eyebrow: '部署任务',
+      title: '部署任务参数',
+      description: '按当前租户控制证书部署是否先执行 Dry-run，以及高风险部署是否需要审批。',
+      readonly: '当前账号只有查看权限。',
+      fields: {
+        dryRun: { title: '启用 Dry-run', description: '部署证书前执行只读预检；检查结论仅供参考，不阻止正式部署。', aria: '启用证书部署 Dry-run' },
+        approval: { title: '启用审批流程', description: '高风险证书部署提交后进入审批，批准后才允许执行。', aria: '启用证书部署审批流程' }
+      },
+      actions: { save: '保存设置', saving: '保存中...' },
+      messages: { saved: '部署任务参数已保存。' },
+      errors: { loadFailed: '加载部署任务参数失败。', saveFailed: '保存部署任务参数失败。' }
+    },
     version: {
       title: '版本信息',
       description: '查看当前运行的 GCAC 版本。',
@@ -3067,6 +3084,8 @@ export default {
       description: '从当前应用资产选择一个证书版本。系统会依次创建部署快照、执行预检、提交审批并在获准后执行。',
       dialogTitle: '证书部署',
       dialogDescription: '此操作只作用于当前应用资产，部署计划仍作为后台快照、审批和执行边界保留。',
+      targetLocked: '已锁定更新目标',
+      latestVersionPointer: '自动应用当前证书的最新版本',
       deployThisVersion: '部署此证书版本',
       loadingRecords: '正在加载部署记录...',
       emptyRecords: '该应用资产还没有部署记录。',

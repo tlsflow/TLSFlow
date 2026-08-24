@@ -76,6 +76,9 @@ import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/d
 import { canonicalize } from '../../../shared/canonical-json.js';
 import { CertificateTrustPlanService, type CertificateTrustPlanSnapshot } from '../../certificates/trust-roots/application/certificate-trust-plan.service.js';
 import { computeAgentPlanDigest, validateAgentPlan, type AgentPlanV1 } from '../../agents/security/agent-security.contract.js';
+import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { TenantHierarchyService } from '../../security/domain/tenant.domain-service.js';
+import { DEFAULT_DEPLOYMENT_TASK_SETTINGS, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -146,6 +149,8 @@ export interface DeploymentPlansApplicationDependencies {
   pluginRuntimeAdapters?: PluginRuntimeAdapterRegistry;
   deploymentInputResolver?: ProductionDeploymentInputResolverService;
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  tasks?: TaskEnqueuer;
+  tenantHierarchy?: Pick<TenantHierarchyService, 'getDeploymentTaskSettings'>;
 }
 
 export class DeploymentPlansApplicationService {
@@ -177,6 +182,8 @@ export class DeploymentPlansApplicationService {
   private readonly deploymentInputSnapshotService = new DeploymentInputSnapshotService();
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
   private readonly certificateTrustPlans?: CertificateTrustPlanService;
+  private readonly tasks?: TaskEnqueuer;
+  private readonly tenantHierarchy?: Pick<TenantHierarchyService, 'getDeploymentTaskSettings'>;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -212,6 +219,8 @@ export class DeploymentPlansApplicationService {
     this.deploymentInputResolver = dependencies.deploymentInputResolver ?? new ProductionDeploymentInputResolverService();
     this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots
       ?? (dependencies.database ? new DeploymentInputSnapshotsRepository(dependencies.database) : undefined);
+    this.tasks = dependencies.tasks;
+    this.tenantHierarchy = dependencies.tenantHierarchy;
     this.workflowExecutionBindings = dependencies.database
       ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
       : undefined;
@@ -1359,6 +1368,13 @@ export class DeploymentPlansApplicationService {
         });
         return this.toDto(ready);
       }
+      if (!(await this.requiresApproval(plan))) {
+        const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
+          approvalStatus: 'NOT_REQUIRED',
+          approvalId: undefined,
+        });
+        return this.toDto(ready);
+      }
       if (!input.approvalId) return this.toDto(plan);
       await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
       const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
@@ -1390,6 +1406,7 @@ export class DeploymentPlansApplicationService {
         requestedBy: input.actorId,
       }, context);
       const pending = await this.transitionPlan(plan, 'PENDING_APPROVAL', input.actorId, 'approval.requested', { approvalStatus: 'PENDING', approvalId: approval.id });
+      await this.enqueueDeploymentApprovalTask(plan, approval.id, input.actorId);
       await this.audit.write({
         eventType: AUDIT_EVENT_TYPES.APPROVAL_CREATED,
         actorType: 'user',
@@ -1437,6 +1454,11 @@ export class DeploymentPlansApplicationService {
           approvalId: undefined,
         });
       }
+    } else if (plan.status === 'PENDING_APPROVAL' && !(await this.requiresApproval(plan))) {
+      plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.disabled', {
+        approvalStatus: 'NOT_REQUIRED',
+        approvalId: undefined,
+      });
     } else if (await this.requiresApproval(plan)) {
       executionApprovalId = input.approvalId ?? plan.approvalId;
       if (!executionApprovalId) {
@@ -1473,7 +1495,7 @@ export class DeploymentPlansApplicationService {
     }
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
-    await this.assertSynchronousPlanPreflight(plan, targets);
+    // 中文说明：Dry-run 只提供只读诊断，不得成为正式证书部署的执行门槛。
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
@@ -1530,6 +1552,10 @@ export class DeploymentPlansApplicationService {
 
   async dryRun(input: DryRunDeploymentPlanInput, _context: RequestContext = {}): Promise<DeploymentPlanPreflightResultDto> {
     const storedPlan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    const settings = await this.getDeploymentTaskSettings(input.tenantId);
+    if (!settings.dryRunEnabled) {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '当前租户已禁用 Dry-run 预检', { planId: input.planId });
+    }
     const plan = storedPlan;
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许执行同步预检', { planId: plan.id, status: plan.status });
@@ -2788,10 +2814,57 @@ export class DeploymentPlansApplicationService {
   }
 
   private async requiresApproval(plan: DeploymentPlanEntity): Promise<boolean> {
+    const settings = await this.getDeploymentTaskSettings(plan.tenantId);
+    if (!settings.approvalEnabled) return false;
     if (Boolean(plan.policy.approvalRequired) || this.domain.isHighRisk(plan.policy)) return true;
     const parameters = await this.approvalParameters(plan);
     const scopes = Array.isArray(parameters.tlsScopes) ? parameters.tlsScopes : [];
     return scopes.some((scope) => readRecord(scope)?.allowInsecureTls === true);
+  }
+
+  private async getDeploymentTaskSettings(tenantId?: string): Promise<DeploymentTaskSettings> {
+    if (!tenantId || !this.tenantHierarchy) return { ...DEFAULT_DEPLOYMENT_TASK_SETTINGS };
+    return this.tenantHierarchy.getDeploymentTaskSettings(tenantId);
+  }
+
+  private async enqueueDeploymentApprovalTask(
+    plan: DeploymentPlanEntity,
+    approvalId: string,
+    actorId: string,
+  ): Promise<void> {
+    if (!this.tasks || !plan.tenantId) return;
+    const summary = {
+      displayName: plan.name,
+      deploymentPlanId: plan.id,
+      approvalId,
+      approvalStatus: 'pending',
+      approvalPending: true,
+      status: 'waiting_approval',
+      executionType: 'approval',
+    };
+    await this.tasks.enqueue({
+      tenantId: plan.tenantId,
+      // 中文说明：审批本身不是部署执行，必须使用独立任务类型，避免审批通过被误报为部署成功。
+      taskType: 'DEPLOYMENT_APPROVAL',
+      requestedBy: actorId,
+      triggerSource: 'deployment.approval.requested',
+      idempotencyKey: `deployment-approval:${approvalId}`,
+      resourceSummary: summary,
+      initialProgress: summary,
+      // 中文说明：审批占位任务不能进入 Worker 队列，审批决定后由监听器直接收敛任务状态。
+      initialStatus: 'RETRY_WAITING',
+      availableAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      payload: {
+        planId: plan.id,
+        deploymentPlanId: plan.id,
+        approvalId,
+        executionType: 'approval',
+      },
+      resourceRefs: [
+        { resourceType: 'deploymentPlan', resourceId: plan.id, displayKey: plan.name },
+        { resourceType: 'approval', resourceId: approvalId },
+      ],
+    });
   }
 
   private async resolveAutomationApproval(
@@ -3269,27 +3342,8 @@ export class DeploymentPlansApplicationService {
   }
 
   /**
-   * 正式执行不再依赖一条历史 Dry-run Run。每次执行前都直接复核当前计划的
-   * 可验证事实，既避免异步预检卡死，也防止用户绕过预检后执行过期快照。
-   */
-  private async assertSynchronousPlanPreflight(
-    plan: DeploymentPlanEntity,
-    targets: DeploymentPlanTargetEntity[],
-  ): Promise<void> {
-    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
-    const blocking = checks.filter((check) => check.status === 'failed' || check.status === 'unknown');
-    if (blocking.length === 0) return;
-    throw new AppError('VALIDATION_FAILED', `部署计划同步预检失败：${blocking.map((check) => check.detail ?? check.label).join('；')}`, {
-      code: 'DEPLOYMENT_PREFLIGHT_FAILED',
-      planId: plan.id,
-      checks: blocking,
-      summary: summarizeDryRunChecks(checks),
-    });
-  }
-
-  /**
    * 这组检查只读取控制面数据，不能创建执行运行、任务、Grant 或证书产物。
-   * 手动预检和正式执行共用它，避免两条规则逐渐偏离。
+   * 仅由手动预检接口调用，供用户了解正式部署前的当前状态。
    */
   private async collectSynchronousPlanPreflightChecks(
     plan: DeploymentPlanEntity,

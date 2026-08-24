@@ -3,25 +3,50 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   items: readonly ApiRecord[]
   title?: string
-}>()
+  embedded?: boolean
+}>(), {
+  embedded: false,
+})
 
 const { t } = useI18n()
 
 const displayTitle = computed(() => props.title ?? t('designSystem.dryRunChecklist.title'))
 
 function readDetail(item: ApiRecord): string {
-  const detail = item.detail
-  if (typeof detail === 'string') return detail
-  if (detail && typeof detail === 'object') return JSON.stringify(detail)
-  return ''
+  return formatStructuredValue(item.detail)
+}
+
+function readEvidence(item: ApiRecord): string {
+  return formatStructuredValue(item.evidence)
+}
+
+function formatStructuredValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === undefined || value === null) return ''
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function statusKey(item: ApiRecord): 'passed' | 'failed' | 'warning' | 'unknown' {
+  const status = String(item.status ?? 'unknown').toLowerCase()
+  return status === 'passed' || status === 'failed' || status === 'warning' || status === 'unknown'
+    ? status
+    : 'unknown'
 }
 </script>
 
 <template>
-  <section class="gc-card gc-dry-run-checklist" :aria-label="t('designSystem.dryRunChecklist.ariaLabel')">
+  <section
+    class="gc-dry-run-checklist"
+    :class="{ 'gc-card': !embedded, 'gc-dry-run-checklist--embedded': embedded }"
+    :aria-label="t('designSystem.dryRunChecklist.ariaLabel')"
+  >
     <header class="gc-dry-run-checklist__header">
       <strong>{{ displayTitle }}</strong>
     </header>
@@ -32,11 +57,15 @@ function readDetail(item: ApiRecord): string {
       <li v-for="item in items" :key="String(item.key ?? item.label ?? item.id)" class="gc-dry-run-checklist__item">
         <div class="gc-dry-run-checklist__main">
           <strong>{{ String(item.label ?? item.key ?? t('designSystem.dryRunChecklist.unnamedCheck')) }}</strong>
-          <span class="gc-dry-run-checklist__status" :class="`is-${String(item.status ?? 'unknown')}`">
-            {{ String(item.status ?? 'unknown') }}
+          <span class="gc-dry-run-checklist__status" :class="`is-${statusKey(item)}`">
+            {{ t(`designSystem.dryRunChecklist.status.${statusKey(item)}`) }}
           </span>
         </div>
         <p v-if="readDetail(item)" class="gc-dry-run-checklist__detail">{{ readDetail(item) }}</p>
+        <details v-if="readEvidence(item)" class="gc-dry-run-checklist__evidence">
+          <summary>{{ t('designSystem.dryRunChecklist.evidence') }}</summary>
+          <pre>{{ readEvidence(item) }}</pre>
+        </details>
       </li>
     </ul>
   </section>
@@ -54,4 +83,7 @@ function readDetail(item: ApiRecord): string {
 .gc-dry-run-checklist__status.is-warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
 .gc-dry-run-checklist__status.is-unknown { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
 .gc-dry-run-checklist__detail, .gc-dry-run-checklist__empty { margin: 0; color: var(--gc-color-text-muted); }
+.gc-dry-run-checklist__evidence { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-secondary); }
+.gc-dry-run-checklist__evidence summary { cursor: pointer; font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); }
+.gc-dry-run-checklist__evidence pre { margin: 0; padding: var(--gc-space-2); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--gc-color-text-secondary); background: var(--gc-color-surface-field); font: inherit; font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-relaxed); }
 </style>

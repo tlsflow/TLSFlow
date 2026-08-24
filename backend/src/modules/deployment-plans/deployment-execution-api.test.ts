@@ -1199,31 +1199,33 @@ describe('部署计划与执行编排 API', () => {
     assert.equal((pending.body as { status: string }).status, 'PENDING_APPROVAL');
   });
 
-  it('审批单通过后查询部署计划会同步为 READY/APPROVED', async () => {
+  it('审批单通过后自动创建真实部署运行，审批任务不会伪装为部署任务', async () => {
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
     grantWildcardPolicy(security, 'approver_1', 'tenant_1');
     const { app, fixture } = await createMigratedTestApp({ security });
     const service = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
     const { planId, approvalId } = await createApprovedHighRiskPlan(app, fixture, 'idem_approval_sync');
-
-    const listed = await app.inject({
-      method: 'GET',
-      path: '/api/v1/deployment-plans',
-      headers: userHeaders,
-    });
-    assert.equal(listed.statusCode, 200, JSON.stringify(listed.body));
-    const plan = (listed.body as { items: Array<{ id: string; status: string; approvalStatus: string; approvalId?: string }> }).items
-      .find((item) => item.id === planId);
-    assert.ok(plan);
-    assert.equal(plan.status, 'READY');
-    assert.equal(plan.approvalStatus, 'APPROVED');
-    assert.equal(plan.approvalId, approvalId);
-
     const persisted = await service.getRepository().getPlanOrThrow(planId, 'tenant_1');
-    assert.equal(persisted.status, 'READY');
+    assert.equal(persisted.status, 'RUNNING');
     assert.equal(persisted.approvalStatus, 'APPROVED');
     assert.equal(persisted.approvalId, approvalId);
+
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    const runs = await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: planId });
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.status, 'DISPATCHED');
+
+    const tasksService = app.getResource('tasksService') as { list: (query: Record<string, unknown>) => Promise<{ items: Array<Record<string, any>> }> };
+    const taskPage = await tasksService.list({ tenantId: 'tenant_1', includeAll: true, page: 1, pageSize: 50 });
+    const approvalTask = taskPage.items.find((item) => item.taskType === 'DEPLOYMENT_APPROVAL');
+    const executionTask = taskPage.items.find((item) => item.taskType === 'CERTIFICATE_DEPLOY');
+    assert.ok(approvalTask);
+    assert.ok(executionTask);
+    assert.equal(approvalTask.status, 'SUCCEEDED');
+    assert.equal(executionTask.status, 'QUEUED');
+    assert.equal(executionTask.payload.runId, runs[0]?.id);
+    assert.equal(executionTask.id, runs[0]?.externalRunId);
   });
 
   it('无审批执行高风险计划失败', async () => {
@@ -1237,7 +1239,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal((response.body as { errorCode: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
   });
 
-  it('READY 计划通过 execute approvalId 执行时，宿主必须把本次审批写入授权上下文', async () => {
+  it('审批通过自动执行时，宿主必须把本次审批写入授权上下文', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({ subjectType: 'user', subjectId: 'approver_1', effect: 'allow', actions: ['approval.decide'], resourceTypes: ['approval'], scope: { tenantId: 'tenant_1' } });
     const { app, fixture } = await createMigratedTestApp({ security });
@@ -1273,30 +1275,12 @@ describe('部署计划与执行编排 API', () => {
     });
     assert.equal(decided.statusCode, 200, JSON.stringify(decided.body));
 
-    const deploymentService = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
-    await deploymentService.getRepository().updatePlan(createdPlan.id, {
-      status: 'READY',
-      approvalStatus: 'NOT_REQUIRED',
-      approvalId: undefined,
-      updatedAt: new Date().toISOString(),
-      updatedBy: 'user_1',
-    });
-    const executed = await app.inject({
-      method: 'POST',
-      path: '/api/v1/deployment-plans/execute',
-      headers: userHeaders,
-      body: {
-        planId: createdPlan.id,
-        approvalId,
-        idempotencyKey: 'idem_ready_explicit_approval_execute',
-      },
-    });
-    assert.equal(executed.statusCode, 200, JSON.stringify(executed.body));
-    const body = executed.body as {
-      steps: Array<{ inputSnapshot: { executionAuthorization?: { approvalId?: string; approved?: boolean } } }>;
-    };
-    assert.equal(body.steps.every((step) => step.inputSnapshot.executionAuthorization?.approvalId === approvalId), true);
-    assert.equal(body.steps.every((step) => step.inputSnapshot.executionAuthorization?.approved === true), true);
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    const runs = await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: createdPlan.id });
+    assert.equal(runs.length, 1);
+    const steps = await executions.listSteps({ tenantId: 'tenant_1', executionRunId: runs[0]?.id });
+    assert.equal(steps.every((step) => step.inputSnapshot.executionAuthorization?.approvalId === approvalId), true);
+    assert.equal(steps.every((step) => step.inputSnapshot.executionAuthorization?.approved === true), true);
   });
 
   it('历史低风险计划包含 allowInsecureTls 时，正式执行仍必须先申请审批', async () => {
@@ -1337,29 +1321,26 @@ describe('部署计划与执行编排 API', () => {
     assert.equal((executed.body as { errorCode: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
   });
 
-  it('有审批执行高风险计划成功入队，并生成 ExecutionRun 和 ExecutionStep', async () => {
+  it('有审批的高风险计划通过审批后自动入队，并生成 ExecutionRun 和 ExecutionStep', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({ subjectType: 'user', subjectId: 'approver_1', effect: 'allow', actions: ['approval.decide'], resourceTypes: ['approval'], scope: { tenantId: 'tenant_1' } });
     const { app, fixture } = await createMigratedTestApp({ security });
-    const { planId, approvalId } = await createApprovedHighRiskPlan(app, fixture, 'idem_approved_high');
-    const response = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/execute', headers: userHeaders, body: { planId, approvalId, idempotencyKey: 'idem_run_high' } });
-
-    assert.equal(response.statusCode, 200);
-    const body = response.body as {
-      plan: { status: string };
-      run: { status: string; externalRunId: string };
-      steps: Array<{ stepType: string; inputSnapshot: { actionType?: string } }>;
-      jobId: string;
-    };
-    assert.equal(body.plan.status, 'RUNNING');
-    assert.equal(body.run.status, 'DISPATCHED');
-    assert.ok(body.jobId);
+    const { planId } = await createApprovedHighRiskPlan(app, fixture, 'idem_approved_high');
+    const deploymentService = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
+    const plan = await deploymentService.getRepository().getPlanOrThrow(planId, 'tenant_1');
+    const executions = app.getResource('executionsService') as ExecutionsApplicationService;
+    const runs = await executions.listRuns({ tenantId: 'tenant_1', deploymentPlanId: planId });
+    assert.equal(plan.status, 'RUNNING');
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.status, 'DISPATCHED');
+    assert.ok(runs[0]?.externalRunId);
+    const steps = await executions.listSteps({ tenantId: 'tenant_1', executionRunId: runs[0]?.id });
     assert.deepEqual(
-      body.steps.map((step) => step.stepType),
+      steps.map((step) => step.stepType),
       ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'],
     );
     assert.equal(
-      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
+      steps.every((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
       true,
     );
   });
@@ -1499,6 +1480,37 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(check?.status, 'failed', JSON.stringify(body));
     assert.match(check?.detail ?? '', /operations/);
     assert.equal(body.summary.failed, 1);
+  });
+
+  it('预检失败仅作为诊断，不阻止正式部署入队', async () => {
+    const { app, service, fixture } = await createMigratedDeploymentService();
+    const plan = await createReadyLowRiskPlan(app, fixture, 'idem_preflight_failure_advisory');
+    const [target] = await service.getRepository().listTargetsByPlan(plan.id, 'tenant_1');
+    assert.ok(target);
+    await service.getRepository().updateTarget(target.id, {
+      matchResult: { status: 'blocked', missingCapabilities: ['certificate.install'] },
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'test_preflight_failure_advisory',
+    });
+
+    const preflight = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_preflight_failure_advisory_dry_run' },
+    });
+    assert.equal(preflight.statusCode, 200, JSON.stringify(preflight.body));
+    const preflightBody = preflight.body as { checks: Array<{ key: string; status: string }> };
+    assert.equal(preflightBody.checks.find((check) => check.key === `target_compatibility:${target.id}`)?.status, 'failed');
+
+    const executed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/execute',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_preflight_failure_advisory_execute' },
+    });
+    assert.equal(executed.statusCode, 200, JSON.stringify(executed.body));
+    assert.equal((executed.body as { plan: { status: string } }).plan.status, 'RUNNING');
   });
 
   it('执行前当前绑定证明丢失时拒绝执行，并保持计划为 READY', async () => {
