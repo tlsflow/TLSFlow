@@ -1,8 +1,10 @@
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
-import { pageResponseSchema } from '../../../common/openapi/schemas.js';
-import { validateObject } from '../../../common/validation/schema-validation.js';
+import type { OpenApiSchema } from '../../../common/openapi/route-contract.js';
+import { AppError } from '../../../common/errors/app-error.js';
+import type { ObjectValidationSchema } from '../../../common/validation/schema-validation.js';
+import { validateObject as validateBaseObject } from '../../../common/validation/schema-validation.js';
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService, type SaveManagedTargetPluginOverrideInput } from '../application/managed-target-plugin-query.service.js';
@@ -11,7 +13,6 @@ import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.regi
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
 import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
-import { BuiltinPluginCompatibilityUpgradeService } from '../application/builtin-plugin-compatibility-upgrade.service.js';
 import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import {
@@ -47,7 +48,6 @@ export class PluginsController {
     private readonly pluginBindings = new PluginBindingsApplicationService(),
     private readonly promotions?: PluginPromotionService,
     private readonly managedTargetPlugins?: ManagedTargetPluginQueryService,
-    private readonly versionSwitcher?: BuiltinPluginCompatibilityUpgradeService,
     private readonly builtinCatalogRefresher?: BuiltinPluginCatalogRefresher,
     private readonly tasks?: TaskEnqueuer,
     private readonly security?: SecurityServices,
@@ -59,7 +59,6 @@ export class PluginsController {
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
     router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
     router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
-    router.post('/api/v1/plugin-version-management/switch', '切换插件运行版本', tags, (request) => this.switchPluginVersion(request));
     router.post('/api/v1/plugin-packages/import', '导入统一插件版本', tags, (request) => this.importUnifiedPluginVersion(request));
     router.post('/api/v1/plugin-versions/approve-permissions', '审批统一插件权限', tags, (request) => this.approveUnifiedPluginPermissions(request));
     router.post('/api/v1/plugin-versions/enable', '启用统一插件版本', tags, (request) => this.enableUnifiedPluginVersion(request));
@@ -90,10 +89,8 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.read', 'plugin');
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
     const runtime = queryFilterString(request, 'runtime');
-    const providerKey = queryFilterString(request, 'providerKey');
     const items = await this.unifiedPlugins.listCatalog(security.tenantId, locale, {
-      ...(runtime ? { runtime: runtime as 'AGENT_ATOMIC' | 'WORKFLOW_DSL' | 'TRUSTED_JS' } : {}),
-      ...(providerKey ? { providerKey } : {}),
+      ...(runtime ? { runtime: runtime as 'WORKFLOW_DSL' | 'TRUSTED_JS' } : {}),
     });
     const authorizedItems = await this.filterVersionItems(security, items, 'pluginVersionId');
     return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
@@ -121,7 +118,7 @@ export class PluginsController {
   private async listUnifiedPluginVersions(request: HttpRequest) {
     const security = this.securityContext(request);
     await assertRouteAction(security, 'plugin.read', 'plugin');
-    const items = await this.unifiedPlugins.listVersions(security.tenantId);
+    const items = (await this.unifiedPlugins.listVersions(security.tenantId)).map(withPluginVersionIdentity);
     const authorizedItems = await filterAuthorizedItems(security, items, 'plugin_version', 'read');
     return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
   }
@@ -132,7 +129,7 @@ export class PluginsController {
     const groups = await this.unifiedPlugins.listVersionGroups(security.tenantId);
     const result = [];
     for (const group of groups) {
-      const versions = await this.filterVersionItems(security, group.versions, 'id');
+      const versions = (await this.filterVersionItems(security, group.versions, 'id')).map(withPluginVersionIdentity);
       if (versions.length === 0) continue;
       result.push({
         ...group,
@@ -150,44 +147,7 @@ export class PluginsController {
     const pluginVersionId = request.path.match(/^\/api\/v1\/plugin-version-management\/([^/]+)$/)?.[1];
     if (!pluginVersionId) throw new Error('插件版本管理详情路径无效');
     const version = await this.requirePluginVersion(security, decodeURIComponent(pluginVersionId), 'read');
-    return this.unifiedPlugins.getVersionManagementDetail(security.tenantId, version.id);
-  }
-
-  private async switchPluginVersion(request: HttpRequest) {
-    const security = this.securityContext(request);
-    await assertRouteAction(security, 'plugin.manage', 'plugin');
-    if (!this.versionSwitcher) throw new Error('插件版本切换服务未接入');
-    const body = validateObject(request.body, {
-      pluginId: { type: 'string', required: true },
-      targetPluginVersionId: { type: 'string', required: true },
-      expectedCurrentPluginVersionId: { type: 'string' },
-    });
-    const targetVersion = await this.requirePluginVersion(security, String(body.targetPluginVersionId), 'control');
-    const result = await this.versionSwitcher.switchVersion(security.tenantId, {
-      pluginId: String(body.pluginId),
-      targetPluginVersionId: targetVersion.id,
-      ...(typeof body.expectedCurrentPluginVersionId === 'string'
-        ? { expectedCurrentPluginVersionId: body.expectedCurrentPluginVersionId }
-        : {}),
-    });
-    if (isUnifiedTaskWorkerEnabled()) {
-      enqueueTaskBestEffort(this.tasks, {
-        tenantId: security.tenantId,
-        taskType: 'PLUGIN_REFERENCE_REFRESH',
-        requestedBy: request.context.actorId ?? 'system',
-        triggerSource: 'plugin.version.switch',
-        idempotencyKey: `plugin-reference-refresh:${security.tenantId}:${result.toPluginVersionId}:${result.switchedAt}`,
-        payload: {
-          pluginId: result.pluginId,
-          targetPluginVersionId: result.toPluginVersionId,
-        },
-        resourceRefs: [{ resourceType: 'pluginVersion', resourceId: result.toPluginVersionId }],
-      });
-    } else {
-      if (!this.builtinCatalogRefresher) throw new Error('内置插件热刷新服务未接入');
-      await this.builtinCatalogRefresher.refresh(security.tenantId);
-    }
-    return result;
+    return this.unifiedPlugins.getVersionManagementDetail(security.tenantId, version.id).then(withPluginVersionIdentity);
   }
 
   private async importUnifiedPluginVersion(request: HttpRequest) {
@@ -200,7 +160,7 @@ export class PluginsController {
     });
     return {
       statusCode: 201,
-      body: await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput),
+      body: withPluginVersionIdentity(await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput)),
     };
   }
 
@@ -215,7 +175,7 @@ export class PluginsController {
     return this.unifiedPlugins.approvePermissions(
       version.id,
       (body.approvedPermissions as unknown[]).map(String),
-    );
+    ).then(withPluginVersionIdentity);
   }
 
   private async enableUnifiedPluginVersion(request: HttpRequest) {
@@ -223,7 +183,7 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.enableVersion(version.id);
+    return this.unifiedPlugins.enableVersion(version.id).then(withPluginVersionIdentity);
   }
 
   private async disableUnifiedPluginVersion(request: HttpRequest) {
@@ -231,7 +191,7 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.disableVersion(version.id);
+    return this.unifiedPlugins.disableVersion(version.id).then(withPluginVersionIdentity);
   }
 
   private async retireUnifiedPluginVersion(request: HttpRequest) {
@@ -239,7 +199,7 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.retireVersion(version.id);
+    return this.unifiedPlugins.retireVersion(version.id).then(withPluginVersionIdentity);
   }
 
   private async getUnifiedPluginUpgradeDiff(request: HttpRequest) {
@@ -660,32 +620,34 @@ function readOwnerType(value: object): 'SYSTEM' | 'TENANT' | undefined {
 
 export function getPluginsRouteContracts(): RouteContract[] {
   return [
-    { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageResponseSchema },
-    { method: 'POST', path: '/api/v1/plugin-catalog/refresh-builtins', operationId: 'refreshBuiltinPluginCatalog', summary: '刷新内置插件注册表', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageResponseSchema },
-    { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: { type: 'object', additionalProperties: true } } },
-    { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-version-management/switch', operationId: 'switchPluginVersion', summary: '切换插件运行版本', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-packages/import', operationId: 'importUnifiedPluginVersion', summary: '导入统一插件版本', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-versions/approve-permissions', operationId: 'approveUnifiedPluginPermissions', summary: '审批统一插件权限', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-versions/enable', operationId: 'enableUnifiedPluginVersion', summary: '启用统一插件版本', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-versions/disable', operationId: 'disableUnifiedPluginVersion', summary: '禁用统一插件版本', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-versions/retire', operationId: 'retireUnifiedPluginVersion', summary: '退休统一插件版本', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugin-versions/upgrade-diff', operationId: 'getUnifiedPluginUpgradeDiff', summary: '查询统一插件升级差异', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-bindings', operationId: 'createPluginBinding', summary: '创建统一插件绑定', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugin-bindings', operationId: 'getPluginBinding', summary: '查询统一插件绑定', tags, responseSchema: objectSchema() },
-    { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-promotions/preview', operationId: 'previewPluginPromotion', summary: '预览 Standalone 目标归集', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-promotions/confirm', operationId: 'confirmPluginPromotion', summary: '确认 Standalone 目标归集', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageResponseSchema },
-    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', operationId: 'getManagedTargetEffectiveCapability', summary: '查询受管目标生效部署能力', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/compatible-plugins', operationId: 'listManagedTargetCompatiblePlugins', summary: '查询受管目标兼容插件', tags, responseSchema: pageResponseSchema },
-    { method: 'POST', path: '/api/v1/managed-targets/:managedTargetId/deployment-input-projection', operationId: 'projectApplicationAssetPluginInputs', summary: '生成应用资产插件部署输入投影', tags, responseSchema: objectSchema() },
-    { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/managed-target', operationId: 'saveApplicationAssetManagedTarget', summary: '保存应用资产受管目标和插件覆盖', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageSchema(pluginCatalogItemSchema()) },
+    { method: 'POST', path: '/api/v1/plugin-catalog/refresh-builtins', operationId: 'refreshBuiltinPluginCatalog', summary: '刷新内置插件注册表', tags, responseSchema: refreshCatalogSchema() },
+    { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageSchema(pluginVersionRecordSchema()) },
+    { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: pluginVersionGroupSchema() } },
+    { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: pluginVersionManagementDetailSchema() },
+    { method: 'POST', path: '/api/v1/plugin-packages/import', operationId: 'importUnifiedPluginVersion', summary: '导入统一插件版本', tags, requestSchema: importPluginSchema(), responseSchema: pluginVersionRecordSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/approve-permissions', operationId: 'approveUnifiedPluginPermissions', summary: '审批统一插件权限', tags, requestSchema: pluginVersionActionSchema(['pluginVersionId', 'approvedPermissions']), responseSchema: pluginVersionRecordSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/enable', operationId: 'enableUnifiedPluginVersion', summary: '启用统一插件版本', tags, requestSchema: pluginVersionActionSchema(['pluginVersionId']), responseSchema: pluginVersionRecordSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/disable', operationId: 'disableUnifiedPluginVersion', summary: '禁用统一插件版本', tags, requestSchema: pluginVersionActionSchema(['pluginVersionId']), responseSchema: pluginVersionRecordSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/retire', operationId: 'retireUnifiedPluginVersion', summary: '退休统一插件版本', tags, requestSchema: pluginVersionActionSchema(['pluginVersionId']), responseSchema: pluginVersionRecordSchema() },
+    { method: 'GET', path: '/api/v1/plugin-versions/upgrade-diff', operationId: 'getUnifiedPluginUpgradeDiff', summary: '查询统一插件升级差异', tags, responseSchema: upgradeDiffSchema() },
+    { method: 'GET', path: '/api/v1/plugin-versions/ui-resources', operationId: 'getUnifiedPluginUiResources', summary: '查询插件表单、展示和语言资源', tags, responseSchema: uiResourcesSchema() },
+    { method: 'GET', path: '/api/v1/plugin-form/standard-fields', operationId: 'listPluginStandardFields', summary: '查询插件标准字段', tags, responseSchema: objectPageSchema(standardFieldSchema()) },
+    { method: 'GET', path: '/api/v1/plugin-capabilities', operationId: 'listPluginCapabilities', summary: '查询宿主支持的插件能力 Contract', tags, responseSchema: objectPageSchema(capabilityContractSchema()) },
+    { method: 'POST', path: '/api/v1/plugin-bindings', operationId: 'createPluginBinding', summary: '创建统一插件绑定', tags, requestSchema: createBindingSchema(), responseSchema: pluginBindingSchema() },
+    { method: 'GET', path: '/api/v1/plugin-bindings', operationId: 'getPluginBinding', summary: '查询统一插件绑定', tags, responseSchema: pluginBindingSchema() },
+    { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, requestSchema: updateBindingSchema(), responseSchema: pluginBindingSchema() },
+    { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, requestSchema: capabilityAssignmentInputSchema(), responseSchema: capabilityAssignmentSchema() },
+    { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, requestSchema: resolveCapabilitySchema(), responseSchema: capabilityAssignmentSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/preview', operationId: 'previewPluginPromotion', summary: '预览 Standalone 目标归集', tags, requestSchema: promotionPreviewInputSchema(), responseSchema: promotionPreviewSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/confirm', operationId: 'confirmPluginPromotion', summary: '确认 Standalone 目标归集', tags, requestSchema: promotionActionSchema(), responseSchema: promotionRecordSchema() },
+    { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, requestSchema: promotionActionSchema(), responseSchema: promotionRecordSchema() },
+    { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: promotionRecordSchema() },
+    { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageSchema(runtimeMetricSchema()) },
+    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', operationId: 'getManagedTargetEffectiveCapability', summary: '查询受管目标生效部署能力', tags, responseSchema: effectiveCapabilitySchema() },
+    { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/compatible-plugins', operationId: 'listManagedTargetCompatiblePlugins', summary: '查询受管目标兼容插件', tags, responseSchema: objectPageSchema(compatiblePluginSchema()) },
+    { method: 'POST', path: '/api/v1/managed-targets/:managedTargetId/deployment-input-projection', operationId: 'projectApplicationAssetPluginInputs', summary: '生成应用资产插件部署输入投影', tags, requestSchema: projectionRequestSchema(), responseSchema: projectionSchema() },
+    { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/managed-target', operationId: 'saveApplicationAssetManagedTarget', summary: '保存应用资产受管目标和插件覆盖', tags, requestSchema: managedTargetSaveSchema(), responseSchema: managedTargetSaveResultSchema() },
   ];
 }
 
@@ -697,6 +659,152 @@ function queryFilterString(request: HttpRequest, key: string): string | undefine
   return queryString(request, `filter[${key}]`);
 }
 
-function objectSchema() {
-  return { type: 'object', additionalProperties: true };
+export function validatePluginRequestObject(input: unknown, schema: ObjectValidationSchema): Record<string, unknown> {
+  const value = validateBaseObject(input, schema);
+  const allowedFields = new Set(Object.keys(schema));
+  const unknownFields = Object.keys(value).filter((field) => !allowedFields.has(field));
+  if (unknownFields.length > 0) {
+    throw new AppError('VALIDATION_FAILED', '插件请求包含未声明字段', { unknownFields });
+  }
+  return value;
+}
+
+function validateObject(input: unknown, schema: ObjectValidationSchema): Record<string, unknown> {
+  return validatePluginRequestObject(input, schema);
+}
+
+const idSchema = (): OpenApiSchema => ({ type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$' });
+const hashSchema = (): OpenApiSchema => ({ type: 'string', pattern: '^sha256:[0-9a-f]{64}$' });
+const stringArraySchema = (): OpenApiSchema => ({ type: 'array', items: { type: 'string' } });
+const stringMapSchema = (): OpenApiSchema => ({ type: 'object', additionalProperties: { type: 'string' } });
+// 这些字段是资源内容、输入值或审计快照的键值命名空间；开放的是命名空间内的业务键，不是请求包络字段。
+const jsonObjectSchema = (): OpenApiSchema => ({ type: 'object', additionalProperties: {} });
+
+function strictSchema(properties: Record<string, OpenApiSchema>, required: string[] = []): OpenApiSchema {
+  return { type: 'object', properties, ...(required.length > 0 ? { required } : {}), additionalProperties: false };
+}
+
+function pageSchema(item: OpenApiSchema): OpenApiSchema {
+  return strictSchema({
+    items: { type: 'array', items: item },
+    page: { type: 'number' },
+    pageSize: { type: 'number' },
+    total: { type: 'number' },
+  }, ['items', 'page', 'pageSize', 'total']);
+}
+
+function objectPageSchema(item: OpenApiSchema): OpenApiSchema {
+  return strictSchema({ items: { type: 'array', items: item } }, ['items']);
+}
+
+function identityProperties(): Record<string, OpenApiSchema> {
+  return {
+    pluginId: idSchema(),
+    pluginVersionId: idSchema(),
+    version: { type: 'string' },
+    manifestSha256: hashSchema(),
+    packageSha256: hashSchema(),
+    resourceSha256: stringMapSchema(),
+  };
+}
+
+function pluginCapabilitySchema(): OpenApiSchema {
+  return strictSchema({
+    key: { type: 'string' }, contractVersion: { type: 'string' }, actionContractId: { type: 'string' },
+    riskLevel: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
+    executionLocations: { type: 'array', items: { type: 'string', enum: ['AGENT', 'CONTROL_PLANE', 'GATEWAY'] } },
+  }, ['key', 'contractVersion', 'actionContractId', 'riskLevel', 'executionLocations']);
+}
+
+function pluginManifestSchema(): OpenApiSchema {
+  return strictSchema({
+    apiVersion: { type: 'string' }, kind: { type: 'string' }, pluginId: idSchema(), version: { type: 'string' },
+    displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, logoUrl: { type: 'string' }, defaultLocale: { type: 'string' },
+    publisher: { type: 'string' }, runtime: { type: 'string', enum: ['WORKFLOW_DSL', 'TRUSTED_JS'] },
+    source: { type: 'string', enum: ['BUILTIN', 'USER'] }, scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] },
+    trust: { type: 'string', enum: ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] },
+    support: { type: 'string', enum: ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] }, minGcacVersion: { type: 'string' },
+    capabilities: { type: 'array', items: pluginCapabilitySchema() }, permissions: stringArraySchema(),
+    compatibility: strictSchema({ productFamilies: stringArraySchema(), frameworkTypes: stringArraySchema(), targetTypes: stringArraySchema(), managementMethods: stringArraySchema(), executionLocations: stringArraySchema(), artifactContracts: stringArraySchema() }),
+    resources: strictSchema({ workflows: stringMapSchema(), runtimeEntrypoint: { type: 'string' }, forms: stringMapSchema(), presentations: stringMapSchema(), locales: stringMapSchema(), discoveryMappings: stringMapSchema(), agentDiscoveryMappings: stringMapSchema() }),
+  }, ['apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'publisher', 'runtime', 'source', 'scope', 'trust', 'support', 'capabilities', 'permissions', 'resources']);
+}
+
+function pluginVersionRecordSchema(): OpenApiSchema {
+  return strictSchema({
+    id: idSchema(), tenantId: idSchema(), ownerType: { type: 'string', enum: ['SYSTEM', 'TENANT'] }, ownerId: idSchema(),
+    ...identityProperties(), source: { type: 'string', enum: ['BUILTIN', 'USER'] }, runtime: { type: 'string', enum: ['WORKFLOW_DSL', 'TRUSTED_JS'] },
+    scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] }, trust: { type: 'string' }, support: { type: 'string' },
+    manifest: pluginManifestSchema(), resources: stringMapSchema(), status: { type: 'string' }, permissionApprovalStatus: { type: 'string' },
+    approvedPermissions: stringArraySchema(), validationReport: strictSchema({ valid: { type: 'boolean' }, errors: { type: 'array', items: jsonObjectSchema() }, warnings: { type: 'array', items: jsonObjectSchema() }, manifestSha256: hashSchema(), resourceSha256: stringMapSchema() }, ['valid', 'errors', 'warnings', 'manifestSha256', 'resourceSha256']),
+    createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+  }, ['id', 'tenantId', 'pluginId', 'pluginVersionId', 'version', 'source', 'runtime', 'scope', 'trust', 'support', 'packageSha256', 'manifestSha256', 'resourceSha256', 'manifest', 'resources', 'status', 'permissionApprovalStatus', 'approvedPermissions', 'validationReport', 'createdAt', 'updatedAt']);
+}
+
+function pluginCatalogItemSchema(): OpenApiSchema {
+  return strictSchema({
+    id: idSchema(), catalogType: { type: 'string' }, ...identityProperties(), name: { type: 'string' }, displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, displayName: { type: 'string' }, description: { type: 'string' }, logoUrl: { type: 'string' }, tags: stringArraySchema(), platforms: stringArraySchema(), stepCount: { type: 'number' }, rollbackCount: { type: 'number' }, configuration: jsonObjectSchema(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, trust: { type: 'string' }, support: { type: 'string' }, status: { type: 'string' }, capabilities: { type: 'array', items: pluginCapabilitySchema() }, compatibility: jsonObjectSchema(), detailRef: strictSchema({ pluginVersionId: idSchema() }, ['pluginVersionId']),
+  }, ['id', 'catalogType', 'pluginId', 'pluginVersionId', 'version', 'name', 'displayNameKey', 'tags', 'platforms', 'stepCount', 'rollbackCount', 'source', 'runtime', 'scope', 'trust', 'support', 'packageSha256', 'manifestSha256', 'resourceSha256', 'status', 'capabilities', 'detailRef']);
+}
+
+function pluginVersionSummarySchema(): OpenApiSchema {
+  return strictSchema({ id: idSchema(), ...identityProperties(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, status: { type: 'string' }, workflowVersions: { type: 'array', items: jsonObjectSchema() }, references: jsonObjectSchema(), switchable: { type: 'boolean' } }, ['id', 'pluginId', 'version', 'source', 'runtime', 'scope', 'status', 'packageSha256', 'manifestSha256', 'resourceSha256', 'workflowVersions', 'references', 'switchable']);
+}
+
+function pluginVersionGroupSchema(): OpenApiSchema {
+  return strictSchema({ pluginId: idSchema(), source: { type: 'string', enum: ['BUILTIN', 'USER', 'MIXED'] }, activeVersionId: idSchema(), versions: { type: 'array', items: pluginVersionSummarySchema() } }, ['pluginId', 'source', 'versions']);
+}
+
+function pluginVersionManagementDetailSchema(): OpenApiSchema {
+  return strictSchema({ ...(pluginVersionSummarySchema().properties ?? {}), tenantId: idSchema(), ownerType: { type: 'string' }, ownerId: idSchema(), trust: { type: 'string' }, support: { type: 'string' }, manifest: pluginManifestSchema(), validationReport: jsonObjectSchema(), visibleToTenant: { type: 'boolean' } }, ['id', 'pluginId', 'version', 'packageSha256', 'manifestSha256', 'resourceSha256', 'tenantId', 'trust', 'support', 'manifest', 'validationReport', 'visibleToTenant']);
+}
+
+function importPluginSchema(): OpenApiSchema {
+  return strictSchema({ manifest: pluginManifestSchema(), resources: stringMapSchema(), packageContent: { type: 'string', writeOnly: true, 'x-sensitive': true } }, ['manifest']);
+}
+
+function pluginVersionActionSchema(required: string[]): OpenApiSchema {
+  return strictSchema({ pluginVersionId: idSchema(), approvedPermissions: stringArraySchema() }, required);
+}
+
+function inputBindingsSchema(): OpenApiSchema {
+  return strictSchema({ apiVersion: { type: 'string' }, variables: jsonObjectSchema(), connections: jsonObjectSchema(), credentials: jsonObjectSchema(), artifacts: jsonObjectSchema() }, ['apiVersion', 'variables', 'connections', 'credentials', 'artifacts']);
+}
+
+function pluginBindingSchema(): OpenApiSchema {
+  return strictSchema({ id: idSchema(), tenantId: idSchema(), pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }), status: { type: 'string' }, version: { type: 'number' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'pluginVersionId', 'mode', 'inputBindings', 'status', 'version', 'createdAt', 'updatedAt']);
+}
+
+function createBindingSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), mode: { type: 'string', enum: ['MANAGED', 'STANDALONE'] }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }) }, ['pluginVersionId', 'mode', 'inputBindings']); }
+function updateBindingSchema(): OpenApiSchema { return strictSchema({ bindingId: idSchema(), expectedVersion: { type: 'number' }, inputBindings: inputBindingsSchema(), managedContext: strictSchema({ hostId: idSchema(), managedTargetId: idSchema() }), status: { type: 'string', enum: ['ACTIVE', 'DISABLED', 'MIGRATING', 'ERROR'] } }, ['bindingId', 'expectedVersion']); }
+function capabilityAssignmentInputSchema(): OpenApiSchema { return strictSchema({ ownerType: { type: 'string', enum: ['DEVICE', 'MANAGED_TARGET', 'APPLICATION_ASSET'] }, ownerId: idSchema(), capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), pluginBindingId: idSchema(), precedence: { type: 'string', enum: ['DEVICE_DEFAULT', 'TARGET_OVERRIDE', 'ASSET_OVERRIDE'] } }, ['ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence']); }
+function capabilityAssignmentSchema(): OpenApiSchema { return strictSchema({ id: idSchema(), tenantId: idSchema(), ...capabilityAssignmentInputSchema().properties, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' } }, ['id', 'tenantId', 'ownerType', 'ownerId', 'capabilityKey', 'pluginVersionId', 'pluginBindingId', 'precedence', 'status', 'createdAt', 'updatedAt']); }
+function resolveCapabilitySchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, deviceId: idSchema(), managedTargetId: idSchema(), applicationAssetId: idSchema() }, ['capabilityKey']); }
+function promotionActionSchema(): OpenApiSchema { return strictSchema({ promotionId: idSchema() }, ['promotionId']); }
+function promotionPreviewInputSchema(): OpenApiSchema { return strictSchema({ sourcePluginBindingId: idSchema(), displayName: { type: 'string' }, deviceFamily: { type: 'string' }, managementAddress: { type: 'string' }, managementPort: { type: 'number' }, authMode: { type: 'string' }, tlsVerify: { type: 'boolean' }, gatewayId: idSchema(), applicationAssetId: idSchema(), discovery: jsonObjectSchema() }, ['sourcePluginBindingId', 'displayName', 'deviceFamily', 'managementAddress', 'managementPort', 'authMode', 'tlsVerify', 'discovery']); }
+function promotionPreviewSchema(): OpenApiSchema { return strictSchema({ promotionId: idSchema(), status: { type: 'string', enum: ['PREVIEWED', 'CONFLICT'] }, sourcePluginBindingId: idSchema(), pluginVersionId: idSchema(), mappings: jsonObjectSchema(), conflicts: { type: 'array', items: jsonObjectSchema() } }, ['promotionId', 'status', 'sourcePluginBindingId', 'pluginVersionId', 'mappings', 'conflicts']); }
+function promotionRecordSchema(): OpenApiSchema { return strictSchema({ id: idSchema(), tenantId: idSchema(), sourcePluginBindingId: idSchema(), targetPluginBindingId: idSchema(), deviceAssetId: idSchema(), applicationAssetId: idSchema(), status: { type: 'string' }, previewSnapshot: jsonObjectSchema(), createdResources: jsonObjectSchema(), errorCode: { type: 'string' }, errorMessage: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' }, completedAt: { type: 'string', format: 'date-time' }, revokedAt: { type: 'string', format: 'date-time' }, version: { type: 'number' } }, ['id', 'tenantId', 'sourcePluginBindingId', 'status', 'previewSnapshot', 'createdResources', 'createdAt', 'updatedAt', 'version']); }
+function upgradeDiffSchema(): OpenApiSchema { return strictSchema({ pluginId: idSchema(), fromVersionId: idSchema(), toVersionId: idSchema(), addedCapabilities: stringArraySchema(), removedCapabilities: stringArraySchema(), addedPermissions: stringArraySchema(), removedPermissions: stringArraySchema(), runtimeChanged: { type: 'boolean' }, scopeChanged: { type: 'boolean' }, compatibilityChanged: { type: 'boolean' }, requiresApproval: { type: 'boolean' } }, ['pluginId', 'fromVersionId', 'toVersionId', 'addedCapabilities', 'removedCapabilities', 'addedPermissions', 'removedPermissions', 'runtimeChanged', 'scopeChanged', 'compatibilityChanged', 'requiresApproval']); }
+function uiResourcesSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), forms: jsonObjectSchema(), presentations: jsonObjectSchema(), locale: jsonObjectSchema() }, ['pluginVersionId', 'forms', 'presentations']); }
+function standardFieldSchema(): OpenApiSchema { return strictSchema({ key: { type: 'string' }, type: { type: 'string' }, labelKey: { type: 'string' }, sensitive: { type: 'boolean' }, valueKind: { type: 'string' }, supportedModes: stringArraySchema(), required: { type: 'boolean' }, defaultValue: jsonObjectSchema(), validation: jsonObjectSchema() }, ['key', 'type', 'labelKey', 'sensitive', 'valueKind', 'supportedModes']); }
+function capabilityContractSchema(): OpenApiSchema { return strictSchema({ key: { type: 'string' }, contractVersion: { type: 'string' }, actionContractId: { type: 'string' }, riskLevel: { type: 'string' }, idempotency: { type: 'string' }, permission: { type: 'string' }, inputSchemaId: { type: 'string' }, outputSchemaId: { type: 'string' }, resourceLock: { type: 'string' }, executionLocations: stringArraySchema() }, ['key', 'contractVersion', 'actionContractId', 'riskLevel', 'idempotency', 'permission', 'inputSchemaId', 'outputSchemaId', 'resourceLock', 'executionLocations']); }
+function runtimeMetricSchema(): OpenApiSchema { return strictSchema({ tenantId: idSchema(), pluginVersionId: idSchema(), capabilityKey: { type: 'string' }, started: { type: 'number' }, succeeded: { type: 'number' }, failed: { type: 'number' }, rejected: { type: 'number' }, inFlight: { type: 'number' }, circuitState: { type: 'string', enum: ['CLOSED', 'OPEN'] }, lastDurationMilliseconds: { type: 'number' }, lastError: { type: 'string' } }, ['tenantId', 'pluginVersionId', 'capabilityKey', 'started', 'succeeded', 'failed', 'rejected', 'inFlight', 'circuitState']); }
+function compatiblePluginSchema(): OpenApiSchema { return strictSchema({ ...identityProperties(), runtime: { type: 'string' }, displayNameKey: { type: 'string' }, displayName: { type: 'string' }, compatible: { type: 'boolean' }, executionLocations: stringArraySchema(), reasons: { type: 'array', items: jsonObjectSchema() } }, ['pluginId', 'pluginVersionId', 'version', 'runtime', 'packageSha256', 'manifestSha256', 'resourceSha256', 'displayNameKey', 'compatible', 'executionLocations', 'reasons']); }
+function effectiveCapabilitySchema(): OpenApiSchema {
+  return strictSchema({
+    capabilityKey: { type: 'string' },
+    source: strictSchema({ ownerType: { type: 'string' }, ownerId: idSchema(), precedence: { type: 'string' }, assignmentId: idSchema() }, ['ownerType', 'ownerId', 'precedence', 'assignmentId']),
+    plugin: strictSchema({ pluginVersionId: idSchema(), pluginId: idSchema(), version: { type: 'string' }, runtime: { type: 'string' }, packageSha256: hashSchema(), manifestSha256: hashSchema(), resourceSha256: stringMapSchema() }, ['pluginVersionId', 'pluginId', 'version', 'runtime', 'packageSha256', 'manifestSha256', 'resourceSha256']),
+    binding: strictSchema({ pluginBindingId: idSchema(), hostId: idSchema(), managedTargetId: idSchema(), status: { type: 'string' }, version: { type: 'number' } }, ['pluginBindingId', 'status', 'version']),
+    executionLocation: { type: 'string' }, compatible: { type: 'boolean' }, reasons: { type: 'array', items: jsonObjectSchema() },
+  }, ['capabilityKey', 'source', 'plugin', 'binding', 'executionLocation', 'compatible', 'reasons']);
+}
+function projectionRequestSchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), certificateFormatId: idSchema(), applicationAsset: strictSchema({ id: idSchema(), address: { type: 'string' }, sniName: { type: 'string' }, port: { type: 'number' }, protocol: { type: 'string' }, displayName: { type: 'string' } }, ['id', 'address', 'port', 'protocol']), inputBindings: inputBindingsSchema() }, ['applicationAsset']); }
+function projectionSchema(): OpenApiSchema { return strictSchema({ contractVersion: { type: 'string' }, requiredVariables: { type: 'array', items: jsonObjectSchema() }, advancedVariables: { type: 'array', items: jsonObjectSchema() }, connections: { type: 'array', items: jsonObjectSchema() }, credentials: { type: 'array', items: jsonObjectSchema() }, artifacts: { type: 'array', items: jsonObjectSchema() }, fixedValues: { type: 'array', items: jsonObjectSchema() }, runtimeValues: { type: 'array', items: jsonObjectSchema() }, issues: { type: 'array', items: jsonObjectSchema() }, saveable: { type: 'boolean' } }, ['contractVersion', 'requiredVariables', 'advancedVariables', 'connections', 'credentials', 'artifacts', 'fixedValues', 'runtimeValues', 'issues', 'saveable']); }
+function managedTargetSaveSchema(): OpenApiSchema { return strictSchema({ managedTargetId: idSchema(), certificateFormatId: idSchema(), executionMode: { type: 'string', enum: ['PLUGIN', 'WORKFLOW_OVERRIDE'] }, expectedTargetVersion: { type: 'number' }, capabilityKey: { type: 'string' }, pluginOverride: strictSchema({ pluginVersionId: idSchema(), pluginBindingId: idSchema(), expectedBindingVersion: { type: 'number' }, inputBindings: inputBindingsSchema() }, ['pluginVersionId']), workflowExecution: jsonObjectSchema() }, ['managedTargetId']); }
+function managedTargetSaveResultSchema(): OpenApiSchema { return strictSchema({ target: jsonObjectSchema(), executionMode: { type: 'string' }, workflowExecutionBinding: jsonObjectSchema(), effectiveCapability: effectiveCapabilitySchema() }, ['target', 'executionMode']); }
+function refreshCatalogSchema(): OpenApiSchema { return strictSchema({ refreshedAt: { type: 'string', format: 'date-time' }, versions: { type: 'array', items: strictSchema({ id: idSchema(), pluginId: idSchema(), version: { type: 'string' }, status: { type: 'string' } }, ['id', 'pluginId', 'version', 'status']) }, projection: jsonObjectSchema() }, ['refreshedAt', 'versions']); }
+
+function withPluginVersionIdentity<T extends { id: string }>(version: T): T & { pluginVersionId: string } {
+  return { ...version, pluginVersionId: version.id };
 }

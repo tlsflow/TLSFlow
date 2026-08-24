@@ -1,15 +1,42 @@
-import { createHash, createHmac } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
-import { assertPluginGcacCompatibility } from '../../../common/version.js';
-import { newId } from '../../../shared/id.js';
-import type { AgentAtomicExecutionPlanV1, AgentDeploymentPluginManifestV1, AgentPluginOperation, AgentPlanVerificationV1 } from '../dto/agent-deployment-plugins.dto.js';
+import {
+  agentV2ContractTypes,
+  sha256Digest,
+  validateAgentCapabilityToken,
+  validateAgentLocalPolicy,
+  validateAgentPlan,
+  validatePolicyAuthorityDecision,
+  type AgentCapabilityTokenV1,
+  type AgentPlanV1,
+  type PolicyAuthorityDecisionV1,
+} from '../../agents/security/agent-security.contract.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
-import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
-import { isUnifiedPluginVersionAccessibleToTenant, type UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
+import {
+  isUnifiedPluginVersionAccessibleToTenant,
+  type UnifiedPluginsApplicationService,
+} from './unified-plugins.application-service.js';
+import type {
+  UnifiedAgentPlanAuthorizationDependenciesV1,
+} from './unified-agent-plan-authorization.port.js';
 
+export interface AgentV2PlanExecutionEnvelopeV1 {
+  actionType: 'agent.plan.validate' | 'agent.plan.execute';
+  actionSchemaVersion: '1.0';
+  plan: AgentPlanV1;
+  token: AgentCapabilityTokenV1;
+  policyDecision: PolicyAuthorityDecisionV1;
+}
+
+/**
+ * 宿主不再把插件资源编译成旧 Agent Plan。
+ * Agent v2 计划必须先经过固定摘要、Grant、本地策略和生产 Policy Authority 授权，才能进入执行载荷。
+ */
 export class UnifiedAgentPlanCompilerService {
+  private readonly authorizationCache = new Map<string, Promise<AgentV2PlanExecutionEnvelopeV1>>();
+
   constructor(
     private readonly plugins: UnifiedPluginsApplicationService,
+    private readonly authorization?: UnifiedAgentPlanAuthorizationDependenciesV1,
   ) {}
 
   async compile(input: {
@@ -22,215 +49,302 @@ export class UnifiedAgentPlanCompilerService {
     resolvedInput: ResolvedDeploymentInputV1;
     executionMode?: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
     ttlSeconds?: number;
-  }): Promise<AgentAtomicExecutionPlanV1> {
-    if (!input.resolvedInput.executable) {
-      throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
+    v2Request?: {
+      actionType?: unknown;
+      plan?: unknown;
+      token?: unknown;
+      policyDecision?: unknown;
+      authorization?: {
+        grantId?: unknown;
+        policyRef?: unknown;
+        policyVersion?: unknown;
+        actions?: unknown;
+        allowedPaths?: unknown;
+        allowedServices?: unknown;
+        artifactDigests?: unknown;
+        approvalRef?: unknown;
+        lifetimeSeconds?: unknown;
+      };
+    };
+  }): Promise<AgentV2PlanExecutionEnvelopeV1> {
+    // 这些字段由旧调用方传入，但宿主不再从它们推导产品操作或生成计划。
+    void input.executionRunId;
+    void input.executionStepId;
+    void input.resolvedInput;
+    void input.executionMode;
+    void input.ttlSeconds;
+
+    const request = input.v2Request;
+    if (!request) failClosed(input, '缺少完整 Agent v2 授权请求');
+    const actionType = readActionType(request.actionType);
+    if (actionType !== 'agent.plan.validate' && actionType !== 'agent.plan.execute') {
+      failClosed(input, 'Agent Plan 编译只允许 agent.plan.validate 或 agent.plan.execute');
     }
+    if (!agentV2ContractTypes.includes(actionType)) {
+      failClosed(input, 'Agent Action 不在长期 v2 合同内');
+    }
+
+    if (request.token !== undefined || request.policyDecision !== undefined) {
+      failClosed(input, '禁止从调用方接收已签发 Token 或 Decision，必须由生产 Policy Authority 接线');
+    }
+
+    let plan: AgentPlanV1;
+    try {
+      plan = validateAgentPlan(request.plan);
+    } catch (error) {
+      failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
+    }
+
+    if (!plan) failClosed(input, 'Agent v2 Plan 草案缺失');
     const plugin = await this.plugins.getVersion(input.pluginVersionId);
     if (!isUnifiedPluginVersionAccessibleToTenant(plugin, input.tenantId) || plugin.status !== 'ENABLED') {
-      throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件版本未启用');
+      throw new AppError('PLUGIN_PERMISSION_DENIED', '固定 PluginVersion 未启用或当前租户不可访问', {
+        pluginVersionId: input.pluginVersionId,
+      });
     }
-    if (plugin.runtime !== 'AGENT_ATOMIC' || !plugin.manifest.capabilities.some((item) => item.key === 'certificate.deploy')) {
-      throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件不是可用的 Agent Atomic 证书插件');
+    if (plugin.manifest.pluginId !== plan.pluginId) {
+      throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent v2 Plan 与 PluginVersion 身份不一致', {
+        pluginId: plan.pluginId,
+        pluginVersionId: input.pluginVersionId,
+      });
     }
-    assertPluginGcacCompatibility(plugin.pluginId, plugin.manifest.minGcacVersion);
-    const recipePath = plugin.manifest.resources.agentRecipes?.['certificate.deploy'];
-    const recipeText = recipePath ? plugin.resources[recipePath] : undefined;
-    if (!recipePath || !recipeText) throw new AppError('RESOURCE_NOT_FOUND', '统一插件缺少 Agent Recipe', { pluginVersionId: plugin.id });
-    const recipe = validateAgentDeploymentPluginManifest(JSON.parse(recipeText));
-    if (recipe.pluginId !== plugin.pluginId) throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent Recipe 与统一插件身份不一致');
-    const variables = input.resolvedInput.variables;
-    const values = {
-      variables,
-      connections: input.resolvedInput.connections,
-      credentials: input.resolvedInput.credentials,
-      artifacts: normalizeArtifacts(input.resolvedInput.artifacts),
-    };
-    const executionMode = input.executionMode ?? 'APPLY';
-    const sourceOperations = executionMode === 'ROLLBACK'
-      ? recipe.rollback ?? []
-      : recipe.operations;
-    const operations = renderOperations(sourceOperations, values);
-    const rollback = executionMode === 'APPLY' ? renderOperations(recipe.rollback ?? [], values) : [];
-    const permissions = resolveExecutionPermissions(recipe, variables);
-    assertResolvedPermissions(permissions, [...operations, ...rollback]);
-    const verification = resolvePlanVerification(variables.verify);
-    const now = new Date();
-    const ttlSeconds = Math.min(Math.max(input.ttlSeconds ?? 300, 30), 3600);
-    const unsigned = {
-      apiVersion: 'gcac.agent-plan/v1' as const,
-      planId: newId('agplan'),
+    const authorization = readAuthorizationRequest(request.authorization, input);
+    const cacheKey = sha256Digest({
       tenantId: input.tenantId,
       agentId: input.agentId,
       executionRunId: input.executionRunId,
       executionStepId: input.executionStepId,
-      plugin: {
-        pluginPackageId: plugin.id,
-        pluginVersionId: plugin.id,
-        packageHash: plugin.packageSha256,
-        manifestHash: plugin.manifestSha256,
-      },
-      issuedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString(),
-      idempotencyKey: sha256(JSON.stringify({
-        executionRunId: input.executionRunId,
-        executionStepId: input.executionStepId,
-        pluginVersionId: plugin.id,
-        pluginBindingId: input.pluginBindingId,
-        variables,
-        artifacts: Object.keys(values.artifacts).sort(),
-      })),
-      permissions,
-      variablesDigest: sha256(JSON.stringify(variables)),
-      executionMode,
-      ...(verification ? { verification } : {}),
-      operations,
-      rollback,
-    };
-    const transportUnsigned = normalizeJsonTransport(unsigned);
-    const signature = createHmac('sha256', process.env.GCAC_AGENT_PLAN_SIGNING_KEY?.trim() || 'gcac-development-agent-plan-key')
-      .update(canonicalAgentPlanJson(transportUnsigned))
-      .digest('hex');
-    return { ...transportUnsigned, authorization: { keyId: 'agent-plan-v1', signature } };
+      pluginVersionId: input.pluginVersionId,
+      pluginBindingId: input.pluginBindingId,
+      actionType,
+      planDigest: plan.planDigest,
+      authorization,
+    });
+    const existing = this.authorizationCache.get(cacheKey);
+    if (existing) return structuredClone(await existing);
+
+    const pending = this.issueAndBind(input, actionType, plan, authorization);
+    this.authorizationCache.set(cacheKey, pending);
+    try {
+      return structuredClone(await pending);
+    } catch (error) {
+      if (this.authorizationCache.get(cacheKey) === pending) this.authorizationCache.delete(cacheKey);
+      throw error;
+    }
+  }
+
+  private async issueAndBind(
+    input: {
+      tenantId: string;
+      agentId: string;
+      executionRunId: string;
+      executionStepId: string;
+      pluginVersionId: string;
+      pluginBindingId: string;
+    },
+    actionType: 'agent.plan.validate' | 'agent.plan.execute',
+    plan: AgentPlanV1,
+    authorization: AuthorizationRequest,
+  ): Promise<AgentV2PlanExecutionEnvelopeV1> {
+    const dependencies = this.authorization;
+    if (!dependencies) failClosed(input, '生产 Agent Plan 授权依赖未注入');
+    try {
+      assertDraftBindings(input, plan, authorization);
+      dependencies.policyAuthority.assertReady();
+      let grant;
+      for (const action of authorization.actions) {
+        grant = await dependencies.grants.validate({
+          grantId: authorization.grantId,
+          tenantId: input.tenantId,
+          planId: plan.planId,
+          runId: input.executionRunId,
+          stepId: input.executionStepId,
+          executorType: 'AGENT',
+          action,
+        });
+      }
+      if (!grant || grant.status !== 'active' || grant.tenantId !== input.tenantId
+        || grant.runId !== input.executionRunId || grant.stepId !== input.executionStepId
+        || grant.executorType !== 'AGENT') {
+        failClosed(input, 'Execution Grant 未绑定当前 Agent Plan 上下文');
+      }
+      if (authorization.approvalRef !== undefined && grant.approvalId !== authorization.approvalRef) {
+        failClosed(input, 'Execution Grant 审批引用与授权请求不一致');
+      }
+      if (authorization.actions.some((action) => !grant.allowedActions.includes(action))) {
+        failClosed(input, 'Execution Grant 未覆盖全部 Agent Plan 操作');
+      }
+
+      const localPolicy = validateAgentLocalPolicy(await dependencies.localPolicy.resolve({ agentId: input.agentId, tenantId: input.tenantId }));
+      if (localPolicy.agentId !== input.agentId || localPolicy.disabled
+        || authorization.actions.some((action) => !localPolicy.allowedActions.includes(action))) {
+        failClosed(input, 'Agent 本地策略缺失、禁用或未覆盖全部 Plan 操作');
+      }
+
+      const result = dependencies.policyAuthority.issueAuthorization({
+        agentId: input.agentId,
+        tenantId: input.tenantId,
+        pluginId: plan.pluginId,
+        pluginVersionId: input.pluginVersionId,
+        capability: plan.capability,
+        actions: authorization.actions,
+        allowedPaths: authorization.allowedPaths,
+        allowedServices: authorization.allowedServices,
+        artifactDigests: authorization.artifactDigests,
+        policyRef: authorization.policyRef,
+        policyVersion: authorization.policyVersion,
+        planDigest: plan.planDigest,
+        ...(authorization.approvalRef ? { approvalRef: authorization.approvalRef } : {}),
+        lifetimeSeconds: authorization.lifetimeSeconds,
+      });
+      const token = validateAgentCapabilityToken(result.token);
+      const policyDecision = validatePolicyAuthorityDecision(result.decision);
+      assertAuthorizationResult(input, plan, authorization, token, policyDecision, localPolicy);
+      const boundPlan = validateAgentPlan({
+        ...plan,
+        tokenId: token.tokenId,
+        policyDecisionId: policyDecision.decisionId,
+        nonce: token.nonce,
+        expiresAt: earlierDate(plan.expiresAt, token.expiresAt, policyDecision.validUntil),
+      });
+      return { actionType, actionSchemaVersion: '1.0', plan: boundPlan, token, policyDecision };
+    } catch (error) {
+      if (error instanceof AppError && error.errorCode === 'AGENT_AUTHORIZATION_UNAVAILABLE') throw error;
+      failClosed(input, 'Agent v2 生产授权签发或绑定失败', error);
+    }
   }
 }
 
-function resolvePlanVerification(value: unknown): AgentPlanVerificationV1 | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) throw new AppError('VALIDATION_FAILED', 'TLS 验证输入必须是对象');
-  const host = typeof value.host === 'string' ? value.host.trim() : '';
-  const sni = typeof value.sni === 'string' ? value.sni.trim() : '';
-  const port = typeof value.port === 'number' && Number.isInteger(value.port) ? value.port : 0;
-  if (!host || !sni || port < 1 || port > 65535) {
-    throw new AppError('VALIDATION_FAILED', 'TLS 验证输入必须包含有效 host、port 和 sni');
+interface AuthorizationRequest {
+  grantId: string;
+  policyRef: string;
+  policyVersion: string;
+  actions: string[];
+  allowedPaths: string[];
+  allowedServices: string[];
+  artifactDigests: string[];
+  approvalRef?: string;
+  lifetimeSeconds: number;
+}
+
+function readAuthorizationRequest(value: unknown, input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string }): AuthorizationRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) failClosed(input, '缺少生产授权请求');
+  const record = value as Record<string, unknown>;
+  const grantId = readRequiredString(record.grantId, 'grantId', input);
+  const policyRef = readRequiredString(record.policyRef, 'policyRef', input);
+  const policyVersion = readRequiredString(record.policyVersion, 'policyVersion', input);
+  const actions = readStringArray(record.actions, 'actions', input, true);
+  const allowedPaths = readStringArray(record.allowedPaths, 'allowedPaths', input);
+  const allowedServices = readStringArray(record.allowedServices, 'allowedServices', input);
+  const artifactDigests = readStringArray(record.artifactDigests, 'artifactDigests', input);
+  const lifetimeSeconds = record.lifetimeSeconds;
+  if (!Number.isInteger(lifetimeSeconds) || (lifetimeSeconds as number) < 1) failClosed(input, '授权生命周期无效');
+  const approvalRef = record.approvalRef === undefined ? undefined : readRequiredString(record.approvalRef, 'approvalRef', input);
+  return { grantId, policyRef, policyVersion, actions, allowedPaths, allowedServices, artifactDigests, ...(approvalRef ? { approvalRef } : {}), lifetimeSeconds: lifetimeSeconds as number };
+}
+
+function assertAuthorizationResult(
+  input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string },
+  plan: AgentPlanV1,
+  request: AuthorizationRequest,
+  token: AgentCapabilityTokenV1,
+  decision: PolicyAuthorityDecisionV1,
+  localPolicy: { authorityKeyIds: string[] },
+): void {
+  assertBinding('agentId', input.agentId, plan.agentId, token.agentId, decision.agentId);
+  assertBinding('tenantId', input.tenantId, plan.tenantId, token.tenantId, decision.tenantId);
+  assertBinding('pluginVersionId', input.pluginVersionId, plan.pluginVersionId, token.pluginVersionId, decision.pluginVersionId);
+  assertBinding('pluginId', plan.pluginId, token.pluginId, decision.pluginId);
+  assertBinding('capability', plan.capability, token.capability, decision.capability);
+  assertBinding('planDigest', plan.planDigest, token.planDigest, decision.planDigest);
+  if (!decision.allowed || token.policyRef !== request.policyRef || decision.policyRef !== request.policyRef
+    || token.policyVersion !== request.policyVersion || decision.policyVersion !== request.policyVersion
+    || !sameStringArray(token.actions, request.actions) || !sameStringArray(decision.actions, request.actions)
+    || !sameStringArray(token.allowedPaths, request.allowedPaths) || !sameStringArray(decision.allowedPaths, request.allowedPaths)
+    || !sameStringArray(token.allowedServices, request.allowedServices) || !sameStringArray(decision.allowedServices, request.allowedServices)
+    || !sameStringArray(token.artifactDigests, request.artifactDigests) || !sameStringArray(decision.artifactDigests, request.artifactDigests)
+    || token.approvalRef !== request.approvalRef || decision.approvalRef !== request.approvalRef
+    || !localPolicy.authorityKeyIds.includes(token.authorityKeyId)) {
+    failClosed(input, 'Policy Authority 授权范围、本地信任根或审批引用绑定不一致');
   }
-  return {
-    capabilityKey: 'certificate.verify',
-    schemaVersion: '1.0',
-    connectHost: host,
-    serverName: sni,
-    port,
-  };
 }
 
-function normalizeArtifacts(artifacts: ResolvedDeploymentInputV1['artifacts']): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(artifacts).map(([name, artifact]) => {
-    const outputs = isRecord(artifact.outputs) ? artifact.outputs as Record<string, unknown> : {};
-    const { outputs: _outputs, ...material } = artifact;
-    const outputValues = Object.values(outputs);
-    const primary = outputValues.length === 1 && isRecord(outputValues[0]) ? outputValues[0] : outputs;
-    return [name, { ...material, ...primary }];
-  }));
-}
-
-type AgentOperationInputContext = Pick<ResolvedDeploymentInputV1, 'variables' | 'connections' | 'credentials'> & { artifacts: Record<string, unknown> };
-
-function renderOperations(operations: AgentPluginOperation[], values: AgentOperationInputContext): AgentPluginOperation[] {
-  return operations.map((operation) => ({ ...operation, input: interpolateValue(operation.input, values) as Record<string, unknown> }));
-}
-
-function interpolateValue(value: unknown, context: AgentOperationInputContext): unknown {
-  if (typeof value === 'string') {
-    const exact = value.match(/^\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/);
-    if (exact) return resolveContextPath(context[exact[1] as keyof AgentOperationInputContext], exact[2]) ?? '';
-    return value.replace(/\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: keyof AgentOperationInputContext, key: string) => String(resolveContextPath(context[group], key) ?? ''));
+function assertDraftBindings(
+  input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string },
+  plan: AgentPlanV1,
+  request: AuthorizationRequest,
+): void {
+  assertBinding('agentId', input.agentId, plan.agentId);
+  assertBinding('tenantId', input.tenantId, plan.tenantId);
+  assertBinding('pluginVersionId', input.pluginVersionId, plan.pluginVersionId);
+  if (plan.approvalRef !== request.approvalRef) failClosed(input, '计划审批引用与授权请求不一致');
+  const planActions = [...new Set(plan.operations.map((operation) => operation.operationType))];
+  if (!sameStringArray(planActions, request.actions)) failClosed(input, '授权 actions 未固定为计划操作集合');
+  for (const operation of plan.operations) {
+    const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
+    if (path && !request.allowedPaths.some((prefix) => isPathWithin(path, prefix))) {
+      failClosed(input, '授权 allowedPaths 未覆盖计划路径');
+    }
+    const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
+    if (serviceName && !request.allowedServices.includes(serviceName)) failClosed(input, '授权 allowedServices 未覆盖计划服务');
+    const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;
+    if (artifactDigest && !request.artifactDigests.includes(artifactDigest)) failClosed(input, '授权 artifactDigests 未覆盖计划 Artifact');
   }
-  if (Array.isArray(value)) return value.map((item) => interpolateValue(item, context));
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, interpolateValue(item, context)]));
+}
+
+function isPathWithin(path: string, prefix: string): boolean {
+  const normalizedPath = path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+  const normalizedPrefix = prefix.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+  return normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`);
+}
+
+function earlierDate(...values: string[]): string {
+  const earliest = values.reduce((left, right) => Date.parse(right) < Date.parse(left) ? right : left);
+  if (!Number.isFinite(Date.parse(earliest))) throw new Error('授权时间窗无效');
+  return earliest;
+}
+
+function readRequiredString(value: unknown, field: string, input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string }): string {
+  if (typeof value !== 'string' || value.trim() === '') failClosed(input, `授权字段 ${field} 缺失`);
   return value;
 }
 
-function resolveExecutionPermissions(
-  manifest: AgentDeploymentPluginManifestV1,
-  variables: Record<string, unknown>,
-): AgentDeploymentPluginManifestV1['permissions'] {
-  const filePaths = Object.entries(manifest.inputContract.variables)
-    .filter(([, definition]) => definition.type === 'file')
-    .map(([name]) => variables[name])
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map((value) => value.trim());
-  const referencedProcessPaths = referencedVariableValues(manifest, variables, 'program');
-  const referencedServiceNames = referencedVariableValues(manifest, variables, 'serviceName', 'service');
-  return manifest.permissions.map((permission) => ({
-    ...permission,
-    values: [...new Set([
-      ...permission.values,
-      ...(permission.scope === 'filesystem' ? filePaths : []),
-      ...(permission.scope === 'process' ? referencedProcessPaths : []),
-      ...(permission.scope === 'service' ? referencedServiceNames : []),
-    ])],
-  }));
-}
-
-function referencedVariableValues(
-  manifest: AgentDeploymentPluginManifestV1,
-  variables: Record<string, unknown>,
-  ...inputKeys: string[]
-): string[] {
-  const values = new Set<string>();
-  for (const operation of [...manifest.operations, ...(manifest.rollback ?? [])]) {
-    for (const inputKey of inputKeys) {
-      const reference = operation.input[inputKey];
-      if (typeof reference !== 'string') continue;
-      const match = /^\$\{variables\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/.exec(reference);
-      if (!match) continue;
-      const value = variables[match[1]];
-      if (typeof value === 'string' && value.trim()) values.add(value.trim());
-    }
+function readStringArray(value: unknown, field: string, input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string }, requireNonEmpty = false): string[] {
+  if (!Array.isArray(value) || (requireNonEmpty && value.length === 0) || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+    failClosed(input, `授权字段 ${field} 无效`);
   }
-  return [...values];
+  return [...value as string[]];
 }
 
-function assertResolvedPermissions(permissions: AgentDeploymentPluginManifestV1['permissions'], operations: AgentPluginOperation[]): void {
-  const byScope = new Map<string, string[]>();
-  for (const permission of permissions) byScope.set(permission.scope, [...(byScope.get(permission.scope) ?? []), ...permission.values]);
-  for (const operation of operations) {
-    if (operation.input.whenVariablePresent === '') continue;
-    if (operation.operationType.startsWith('file.')) assertAllowed(operation.input.path ?? operation.input.targetPath, byScope.get('filesystem'), '文件路径');
-    if (operation.operationType === 'command.execute') assertAllowed(operation.input.program, byScope.get('process'), '程序');
-    if (operation.operationType === 'service.control') assertAllowed(operation.input.serviceName, byScope.get('service'), '服务');
-    if (operation.operationType === 'preflight.assert') {
-      if (operation.input.path !== undefined) assertAllowed(operation.input.path, byScope.get('filesystem'), '预检文件路径');
-      if (operation.input.program !== undefined) assertAllowed(operation.input.program, byScope.get('process'), '预检程序');
-    }
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function readActionType(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function assertBinding(field: string, expected: string, ...actual: string[]): void {
+  if (actual.some((value) => value !== expected)) {
+    throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', `Agent v2 授权 ${field} 绑定不一致`, {
+      field,
+      expected,
+      actual,
+    });
   }
 }
 
-function assertAllowed(value: unknown, allowed: string[] | undefined, label: string): void {
-  if (typeof value !== 'string' || allowed?.some((pattern) => matchesPermission(value, pattern))) return;
-  throw new AppError('PLUGIN_PERMISSION_DENIED', `${label}超出插件权限`, { value });
-}
-
-function matchesPermission(value: string, pattern: string): boolean {
-  if (pattern === '*') return true;
-  if (pattern.endsWith('*')) return value.startsWith(pattern.slice(0, -1));
-  return value === pattern;
-}
-
-function resolveContextPath(root: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, segment) => isRecord(current) ? current[segment] : undefined, root);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function sha256(value: string): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
-}
-
-export function canonicalAgentPlanJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalAgentPlanJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.entries(value)
-      .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalAgentPlanJson(item)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function normalizeJsonTransport<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+function failClosed(
+  input: { tenantId: string; agentId: string; pluginVersionId: string; pluginBindingId: string },
+  reason: string,
+  cause?: unknown,
+): never {
+  throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', reason, {
+    tenantId: input.tenantId,
+    agentId: input.agentId,
+    pluginVersionId: input.pluginVersionId,
+    pluginBindingId: input.pluginBindingId,
+    cause: cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause),
+    fallback: false,
+  });
 }

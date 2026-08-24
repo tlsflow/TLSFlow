@@ -7,10 +7,11 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PluginsController } from './controller/plugins.controller.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
-import { BuiltinPluginCompatibilityUpgradeService } from './application/builtin-plugin-compatibility-upgrade.service.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 import { PgUnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
+import { PluginWorkflowBindingsRepository } from './repository/plugin-workflow-bindings.repository.js';
+import type { DatabasePort } from '../../database/database-port.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import { securityErrors } from '../../shared/security-error.js';
 
@@ -53,8 +54,9 @@ test('插件版本管理查询按插件分组并对租户公开内置版本', as
 test('插件版本管理查询路由返回版本分组和详情', async () => {
   const record = version('builtin-version-1', 'fixture.plugin', '1.0.0', 'BUILTIN', 'SYSTEM', 'ENABLED');
   const service = new UnifiedPluginsApplicationService(memoryRepository([record]));
-  const app = new App({ allowLegacyHeaderContext: true });
-  new PluginsController(service, undefined, undefined, undefined, undefined, undefined, undefined, routeSecurity()).register(app.router);
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
+  new PluginsController(service, undefined, undefined, undefined, undefined, undefined, routeSecurity()).register(app.router);
 
   const groups = await app.inject({ method: 'GET', path: '/api/v1/plugin-version-groups', headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' } });
   assert.equal(groups.statusCode, 200);
@@ -68,11 +70,11 @@ test('插件版本管理查询路由返回版本分组和详情', async () => {
 test('刷新内置插件注册表路由调用运行期扫描服务', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository([]));
   let refreshCount = 0;
-  const app = new App({ allowLegacyHeaderContext: true });
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
   new PluginsController(
     service,
     undefined as never,
-    undefined,
     undefined,
     undefined,
     {
@@ -100,6 +102,15 @@ test('刷新内置插件注册表路由调用运行期扫描服务', async () =>
   assert.equal((response.body as { versions: Array<{ version: string }> }).versions[0]?.version, '1.1.25');
 });
 
+test('旧插件版本切换路由不再注册', async () => {
+  const app = new App();
+  new PluginsController().register(app.router);
+
+  const response = await app.inject({ method: 'POST', path: '/api/v1/plugin-version-management/switch', body: {} });
+
+  assert.equal(response.statusCode, 404);
+});
+
 test('版本管理查询统计五类运行引用', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, fileURLToPath(new URL('../../database/migrations/', import.meta.url)), {
@@ -108,7 +119,11 @@ test('版本管理查询统计五类运行引用', async () => {
   });
   await db.query(`insert into unified_plugin_versions
     (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
-    values ('version-count','tenant-1','fixture.count','1.0.0','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
+    values ('version-count','tenant-1','web.nginx','1.0.0','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED',
+      '{"pluginId":"web.nginx","canonicalPluginId":"web.nginx","executionMode":"isolated_process","version":"1.0.0"}',
+      'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+      'sha256:1111111111111111111111111111111111111111111111111111111111111111',
+      '{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
   await db.query(`insert into pg_hosts
     (id,tenant_id,hostname,os_type,discovery_source,compatibility_level,management_mode,status,management_channels)
     values ('host-count','tenant-1','count-host','NETWORK_DEVICE','MANUAL','L1','PLUGIN','ACTIVE',$1::jsonb)`, [
@@ -133,55 +148,17 @@ test('版本管理查询统计五类运行引用', async () => {
   assert.deepEqual(counts, { bindings: 1, assignments: 1, hosts: 1, serviceAssets: 1, deviceAssets: 1, total: 5 });
 });
 
-test('插件版本切换在事务中更新五类运行引用并保护期望版本', async () => {
-  const db = new PgliteDatabase();
-  await runMigrations(db, fileURLToPath(new URL('../../database/migrations/', import.meta.url)), {
-    appliedBy: 'test',
-    checksum: (value) => createHash('sha256').update(value).digest('hex'),
-  });
-  await db.query(`insert into unified_plugin_versions
-    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
-    values
-      ('version-old','tenant-1','fixture.switch','1.0.0','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p1','m1','{}','DISABLED','NOT_REQUIRED','[]','{}',now(),now()),
-      ('version-new','tenant-1','fixture.switch','1.1.0','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p2','m2','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
-  await db.query(`insert into pg_hosts
-    (id,tenant_id,hostname,os_type,discovery_source,compatibility_level,management_mode,status,management_channels)
-    values ('host-switch','tenant-1','switch-host','NETWORK_DEVICE','MANUAL','L1','PLUGIN','ACTIVE',$1::jsonb)`, [
-    JSON.stringify([{ type: 'PLUGIN', metadata: { pluginVersionId: 'version-old' } }]),
-  ]);
-  await db.query(`insert into pg_service_assets
-    (id,tenant_id,address,address_type,port,protocol,discovery_source,status,asset_kind,metadata)
-    values ('service-switch','tenant-1','switch.example.com','HOSTNAME',443,'HTTPS','MANUAL','ACTIVE','APPLICATION',$1::jsonb)`, [
-    JSON.stringify({ pluginVersionId: 'version-old' }),
-  ]);
-  await db.query(`insert into pg_device_assets
-    (service_asset_id,tenant_id,device_family,management_port,auth_mode,tls_verify,plugin_version_id)
-    values ('service-switch','tenant-1','NETSCALER_ADC',443,'AUTO',true,'version-old')`);
-  await db.query(`insert into unified_plugin_bindings
-    (id,tenant_id,plugin_version_id,mode,input_bindings,managed_context,status,version,created_at,updated_at)
-    values ('binding-switch','tenant-1','version-old','STANDALONE','{}',null,'ACTIVE',1,now(),now())`);
-  await db.query(`insert into plugin_capability_assignments
-    (id,tenant_id,owner_type,owner_id,capability_key,plugin_version_id,plugin_binding_id,precedence,status,created_at,updated_at)
-    values ('assignment-switch','tenant-1','DEVICE','host-switch','certificate.deploy','version-old','binding-switch','DEVICE_DEFAULT','ACTIVE',now(),now())`);
+test('插件 Workflow 绑定表缺失时必须显式失败', async () => {
+  const missingTable = Object.assign(new Error('relation "unified_plugin_workflow_bindings" does not exist'), { code: '42P01' });
+  const db = {
+    exec: async () => undefined,
+    query: async () => { throw missingTable; },
+    transaction: async () => { throw missingTable; },
+  } as unknown as DatabasePort;
 
-  const result = await new BuiltinPluginCompatibilityUpgradeService(db).switchVersion('tenant-1', {
-    pluginId: 'fixture.switch',
-    targetPluginVersionId: 'version-new',
-    expectedCurrentPluginVersionId: 'version-old',
-  });
-  assert.deepEqual(result.changed, { bindings: 1, assignments: 1, hosts: 1, serviceAssets: 1, deviceAssets: 1 });
-  assert.equal(result.fromPluginVersionId, 'version-old');
-  assert.equal(result.toPluginVersionId, 'version-new');
-  assert.equal((await db.query<{ plugin_version_id: string }>('select plugin_version_id from unified_plugin_bindings where id=$1', ['binding-switch'])).rows[0]?.plugin_version_id, 'version-new');
-  assert.equal((await db.query<{ plugin_version_id: string }>('select plugin_version_id from plugin_capability_assignments where id=$1', ['assignment-switch'])).rows[0]?.plugin_version_id, 'version-new');
-  assert.equal((await db.query<{ plugin_version_id: string }>('select plugin_version_id from pg_device_assets where service_asset_id=$1', ['service-switch'])).rows[0]?.plugin_version_id, 'version-new');
   await assert.rejects(
-    () => new BuiltinPluginCompatibilityUpgradeService(db).switchVersion('tenant-1', {
-      pluginId: 'fixture.switch',
-      targetPluginVersionId: 'version-old',
-      expectedCurrentPluginVersionId: 'version-new',
-    }),
-    (error: any) => error.errorCode === 'VALIDATION_FAILED',
+    () => new PluginWorkflowBindingsRepository(db).listAll(),
+    (error: unknown) => error === missingTable,
   );
 });
 
@@ -192,6 +169,8 @@ function memoryRepository(records: UnifiedPluginVersionRecord[]): UnifiedPlugins
     findByIdentity: async (tenantId, pluginId, version) => records.find((record) => record.tenantId === tenantId && record.pluginId === pluginId && record.version === version),
     listVersions: async (tenantId) => records.filter((record) => record.tenantId === tenantId),
     listVersionsBySource: async (source) => records.filter((record) => record.source === source),
+    listAccessibleVersions: async (tenantId) => records.filter((record) => record.tenantId === tenantId || record.source === 'BUILTIN'),
+    countReferences: async () => ({ bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 }),
   };
 }
 

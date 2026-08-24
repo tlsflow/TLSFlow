@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPluginCertificateArtifactBindings } from './artifacts/plugin-certificate-artifact-binding.js';
-import { builtinAgentPluginManifests } from './builtin-plugins/agent-recipes.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 
 test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => {
@@ -52,62 +51,6 @@ test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => 
   });
 });
 
-test('根据 Agent Recipe Artifact Contract 生成通用原子插件证书产物绑定', () => {
-  const recipe = {
-    apiVersion: 'gcac.agent-plugin/v1',
-    kind: 'AgentDeploymentPlugin',
-    pluginId: 'fixture.atomic.certificate',
-    name: 'fixture-atomic-certificate',
-    publisher: 'fixture',
-    version: '1.0.0',
-    compatibility: {
-      platforms: ['LINUX'],
-      requiredCapabilities: ['agent.atomic_plan.execute'],
-    },
-    inputContract: {
-      apiVersion: 'gcac.deployment-input/v1',
-      variables: {}, connections: {}, credentials: {},
-      artifacts: {
-        publicMaterial: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: { publicMaterial: { role: 'public_certificate', required: true } } } },
-        secretMaterial: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: { secretMaterial: { role: 'private_key', required: true, sensitive: true } } } },
-        chainMaterial: { kind: 'certificate', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { chainMaterial: { role: 'certificate_chain', required: false } } } },
-        packagedMaterial: { kind: 'certificate', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { packagedMaterial: { role: 'pkcs12_bundle', required: false, sensitive: true } } } },
-        unrelatedFile: { kind: 'file', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { unrelatedFile: { role: 'file', required: false } } } },
-      },
-    },
-    permissions: [],
-    operations: [{
-      id: 'fixture-preflight',
-      name: 'fixture-preflight',
-      stage: 'prepare',
-      operationType: 'preflight.assert',
-      schemaVersion: '1.0',
-      input: {},
-    }],
-  };
-  const plugin = {
-    id: 'plugin-version-atomic',
-    runtime: 'AGENT_ATOMIC',
-    manifest: {
-      resources: { agentRecipes: { 'certificate.deploy': 'agent-recipes/deploy.json' } },
-    },
-    resources: {
-      'agent-recipes/deploy.json': JSON.stringify(recipe),
-    },
-  } as unknown as UnifiedPluginVersionRecord;
-
-  assert.deepEqual(buildPluginCertificateArtifactBindings(plugin, 'certificate.deploy', 'certfmt-generic'), {
-    publicMaterial: {
-      certificateFormatId: 'certfmt-generic',
-      outputBindings: { publicMaterial: 'leafPem' },
-    },
-    secretMaterial: {
-      certificateFormatId: 'certfmt-generic',
-      outputBindings: { secretMaterial: 'privateKeyPem' },
-    },
-  });
-});
-
 test('PFX Artifact Contract 通过标准角色映射包和密码输出', () => {
   const plugin = {
     id: 'plugin-version-pfx',
@@ -149,48 +92,15 @@ test('PFX Artifact Contract 通过标准角色映射包和密码输出', () => {
   });
 });
 
-test('不同插件运行时都通过统一 Contract Loader 拒绝缺失能力资源', () => {
-  const atomicPlugin = {
-    id: 'plugin-version-atomic-missing',
-    runtime: 'AGENT_ATOMIC',
-    manifest: { resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' } } },
-    resources: { 'workflows/deploy.json': '{}' },
-  } as unknown as UnifiedPluginVersionRecord;
-  assert.throws(
-    () => buildPluginCertificateArtifactBindings(atomicPlugin, 'certificate.deploy', 'certfmt-generic'),
-    /缺少部署输入契约资源/,
-  );
-
+test('Workflow DSL 通过统一 Contract Loader 拒绝缺失能力资源', () => {
   const workflowPlugin = {
     id: 'plugin-version-workflow-missing',
     runtime: 'WORKFLOW_DSL',
-    manifest: { resources: { agentRecipes: { 'certificate.deploy': 'agent-recipes/deploy.json' } } },
-    resources: { 'agent-recipes/deploy.json': '{}' },
+    manifest: { resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' } } },
+    resources: {},
   } as unknown as UnifiedPluginVersionRecord;
   assert.throws(
     () => buildPluginCertificateArtifactBindings(workflowPlugin, 'certificate.deploy', 'certfmt-generic'),
     /缺少部署输入契约资源/,
   );
-});
-
-test('所有内置 Agent Atomic 证书插件都从必需 Artifact Contract 生成绑定', () => {
-  for (const recipe of builtinAgentPluginManifests) {
-    const resourcePath = `agent-recipes/${recipe.pluginId}.json`;
-    const plugin = {
-      id: `plugin-version-${recipe.pluginId}`,
-      runtime: 'AGENT_ATOMIC',
-      manifest: {
-        resources: { agentRecipes: { 'certificate.deploy': resourcePath } },
-      },
-      resources: { [resourcePath]: JSON.stringify(recipe) },
-    } as unknown as UnifiedPluginVersionRecord;
-    const expectedNames = Object.entries(recipe.inputContract.artifacts)
-      .filter(([, definition]) => definition.required === true)
-      .map(([artifactName]) => artifactName)
-      .sort();
-
-    const bindings = buildPluginCertificateArtifactBindings(plugin, 'certificate.deploy', 'certfmt-builtin');
-
-    assert.deepEqual(Object.keys(bindings).sort(), expectedNames, recipe.pluginId);
-  }
 });

@@ -7,9 +7,9 @@ export interface UnifiedPluginsRepository {
   findVersion(id: string): Promise<UnifiedPluginVersionRecord | undefined>;
   findByIdentity(tenantId: string, pluginId: string, version: string): Promise<UnifiedPluginVersionRecord | undefined>;
   listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
-  listVersionsBySource?(source: UnifiedPluginVersionRecord['source']): Promise<UnifiedPluginVersionRecord[]>;
-  listAccessibleVersions?(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
-  countReferences?(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginReferenceCounts>;
+  listVersionsBySource(source: UnifiedPluginVersionRecord['source']): Promise<UnifiedPluginVersionRecord[]>;
+  listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
+  countReferences(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginReferenceCounts>;
 }
 
 export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {

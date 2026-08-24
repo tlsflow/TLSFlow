@@ -87,20 +87,14 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
   }
 
   async listAll(): Promise<PluginWorkflowBindingRecord[]> {
-    try {
-      const rows = (await this.db.query<WorkflowBindingRow>(`
-        select binding.*, plugin.plugin_id as plugin_id
-          from unified_plugin_workflow_bindings binding
-          join unified_plugin_versions plugin
-            on plugin.id = binding.plugin_version_id
-         order by plugin.plugin_id, binding.workflow_resource_path, binding.created_at, binding.capability_key
-      `)).rows;
-      return rows.map(toRecord);
-    } catch (error) {
-      // 兼容尚未执行插件工作流绑定迁移的旧测试库和旧部署库；正式库执行迁移后不走此分支。
-      if (isMissingBindingTableError(error)) return [];
-      throw error;
-    }
+    const rows = (await this.db.query<WorkflowBindingRow>(`
+      select binding.*, plugin.plugin_id as plugin_id
+        from unified_plugin_workflow_bindings binding
+        join unified_plugin_versions plugin
+          on plugin.id = binding.plugin_version_id
+       order by plugin.plugin_id, binding.workflow_resource_path, binding.created_at, binding.capability_key
+    `)).rows;
+    return rows.map(toRecord);
   }
 }
 
@@ -130,8 +124,4 @@ function toRecord(row: WorkflowBindingRow): PluginWorkflowBindingRecord {
     workflowContentSha256: row.workflow_content_sha256,
     createdAt: row.created_at,
   };
-}
-
-function isMissingBindingTableError(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: unknown }).code === '42P01');
 }

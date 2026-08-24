@@ -5,7 +5,6 @@ import type {
   ImportUnifiedPluginVersionInput,
   UnifiedPluginCatalogItem,
   UnifiedPluginManifestV1,
-  UnifiedPluginReferenceCounts,
   UnifiedPluginSource,
   UnifiedPluginUpgradeDiff,
   UnifiedPluginValidationReport,
@@ -37,6 +36,7 @@ export class UnifiedPluginsApplicationService {
     sourceChannel: UnifiedPluginSource = 'USER',
   ): Promise<UnifiedPluginVersionRecord> {
     const manifest = validateUnifiedPluginManifest(input.manifest);
+    assertSupportedPluginManifest(manifest);
     manifest.capabilities.forEach((capability) => this.capabilityRegistry.validate(capability));
     if (manifest.source !== sourceChannel) {
       throw new AppError('VALIDATION_FAILED', '插件来源由安装通道决定，不能由 Manifest 伪造', {
@@ -100,12 +100,13 @@ export class UnifiedPluginsApplicationService {
     });
   }
 
-  listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
-    return this.repository.listVersions(tenantId);
+  async listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
+    return (await this.repository.listVersions(tenantId)).filter((version) => isSupportedPluginRuntime(version.runtime));
   }
 
   async listBuiltinVersions(): Promise<UnifiedPluginVersionRecord[]> {
-    return this.repository.listVersionsBySource?.('BUILTIN') ?? [];
+    const versions = await this.repository.listVersionsBySource('BUILTIN');
+    return versions.filter((version) => isSupportedPluginRuntime(version.runtime));
   }
 
   async listVersionGroups(tenantId: string): Promise<UnifiedPluginVersionGroup[]> {
@@ -148,6 +149,7 @@ export class UnifiedPluginsApplicationService {
   async getVersion(id: string): Promise<UnifiedPluginVersionRecord> {
     const record = await this.repository.findVersion(id);
     if (!record) throw new AppError('RESOURCE_NOT_FOUND', '统一插件版本不存在', { id });
+    assertSupportedPluginManifest(record.manifest);
     return record;
   }
 
@@ -238,12 +240,11 @@ export class UnifiedPluginsApplicationService {
   async listCatalog(
     tenantId: string,
     locale = 'zh-CN',
-    filters: { runtime?: UnifiedPluginManifestV1['runtime']; providerKey?: string } = {},
+    filters: { runtime?: UnifiedPluginManifestV1['runtime'] } = {},
   ): Promise<UnifiedPluginCatalogItem[]> {
     const versions = (await this.listAccessibleVersions(tenantId))
       .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED')
-      .filter((record) => !filters.runtime || record.runtime === filters.runtime)
-      .filter((record) => !filters.providerKey || record.manifest.providerKey === filters.providerKey);
+      .filter((record) => !filters.runtime || record.runtime === filters.runtime);
     const versionsByPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
     for (const record of versions) {
       versionsByPlugin.set(record.pluginId, [...(versionsByPlugin.get(record.pluginId) ?? []), record]);
@@ -269,9 +270,7 @@ export class UnifiedPluginsApplicationService {
   }
 
   async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
-    const versions = this.repository.listAccessibleVersions
-      ? await this.repository.listAccessibleVersions(tenantId)
-      : [...await this.repository.listVersions(tenantId), ...await this.listBuiltinVersions()];
+    const versions = await this.repository.listAccessibleVersions(tenantId);
     const byIdentity = new Map<string, UnifiedPluginVersionRecord>();
     for (const version of versions) {
       const key = `${version.pluginId}@${version.version}`;
@@ -280,7 +279,7 @@ export class UnifiedPluginsApplicationService {
         byIdentity.set(key, version);
       }
     }
-    return [...byIdentity.values()];
+    return [...byIdentity.values()].filter((version) => isSupportedPluginRuntime(version.runtime));
   }
 
   private async getAccessibleVersion(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginVersionRecord> {
@@ -295,20 +294,15 @@ export class UnifiedPluginsApplicationService {
     const workflowVersions = this.workflowBindings
       ? (await this.workflowBindings.list(version.id)).map(toWorkflowVersionSummary)
       : [];
-    const references = this.repository.countReferences
-      ? await this.repository.countReferences(tenantId, version.id)
-      : emptyReferenceCounts();
+    const references = await this.repository.countReferences(tenantId, version.id);
     return {
       id: version.id,
       pluginId: version.pluginId,
       version: version.version,
-      ...(version.manifest.providerKey ? { providerKey: version.manifest.providerKey } : {}),
       source: version.source,
       runtime: version.runtime,
       scope: version.scope,
       status: version.status,
-      supportedProducts: [...(version.manifest.supportedProducts ?? [])],
-      supportedOperations: [...(version.manifest.supportedOperations ?? [])],
       packageSha256: version.packageSha256,
       manifestSha256: version.manifestSha256,
       resourceSha256: version.resourceSha256,
@@ -333,7 +327,6 @@ export class UnifiedPluginsApplicationService {
         pluginId: record.pluginId,
         pluginVersionId: record.id,
         version: record.version,
-        ...(record.manifest.providerKey ? { providerKey: record.manifest.providerKey } : {}),
         name: record.pluginId,
         displayNameKey: record.manifest.displayNameKey,
         descriptionKey: record.manifest.descriptionKey,
@@ -354,8 +347,9 @@ export class UnifiedPluginsApplicationService {
         scope: record.scope,
         trust: record.trust,
         support: record.support,
-        supportedProducts: [...(record.manifest.supportedProducts ?? [])],
-        supportedOperations: [...(record.manifest.supportedOperations ?? [])],
+        packageSha256: record.packageSha256,
+        manifestSha256: record.manifestSha256,
+        resourceSha256: record.resourceSha256,
         status: record.status,
         capabilities: record.manifest.capabilities,
         compatibility: record.manifest.compatibility,
@@ -393,10 +387,6 @@ function toWorkflowVersionSummary(binding: {
   };
 }
 
-function emptyReferenceCounts(): UnifiedPluginReferenceCounts {
-  return { bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 };
-}
-
 export function unifiedPluginVersionOwnerType(record: UnifiedPluginVersionRecord): 'SYSTEM' | 'TENANT' {
   return record.ownerType ?? (record.source === 'BUILTIN' ? 'SYSTEM' : 'TENANT');
 }
@@ -410,11 +400,9 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
   rollbackCount: number;
   configuration?: UnifiedPluginCatalogItem['configuration'];
 } {
-  const resourcePaths = record.runtime === 'AGENT_ATOMIC'
-    ? Object.values(record.manifest.resources.agentRecipes ?? {})
-    : record.runtime === 'WORKFLOW_DSL'
-      ? Object.values(record.manifest.resources.workflows ?? {})
-      : [];
+  const resourcePaths = record.runtime === 'WORKFLOW_DSL'
+    ? Object.values(record.manifest.resources.workflows ?? {})
+    : [];
   let stepCount = 0;
   let rollbackCount = 0;
   let configuration: UnifiedPluginCatalogItem['configuration'];
@@ -423,20 +411,9 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
     if (!content) continue;
     try {
       const parsed = JSON.parse(content) as Record<string, unknown>;
-      if (record.runtime === 'AGENT_ATOMIC') {
-        stepCount += Array.isArray(parsed.operations) ? parsed.operations.length : 0;
-        rollbackCount += Array.isArray(parsed.rollback) ? parsed.rollback.length : 0;
-        const inputContract = readRecordField(parsed.inputContract);
-        configuration ??= {
-          variables: readRecordField(inputContract.variables),
-          artifacts: readRecordField(inputContract.artifacts),
-          compatibility: readRecordField(parsed.compatibility),
-        };
-      } else {
-        const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
-        stepCount += steps.length;
-        rollbackCount += steps.filter((step) => readStringField(step, 'stage') === 'rollback').length;
-      }
+      const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
+      stepCount += steps.length;
+      rollbackCount += steps.filter((step) => readStringField(step, 'stage') === 'rollback').length;
     } catch {
       continue;
     }
@@ -444,14 +421,44 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
   return { stepCount, rollbackCount, configuration };
 }
 
+const supportedPluginRuntimeValues = ['AGENT_PLAN', 'WORKFLOW_DSL', 'TRUSTED_JS'] as const;
+const supportedExecutionResourceKeys = new Set([
+  'agentPlans',
+  'workflows',
+  'runtimeEntrypoint',
+  'forms',
+  'presentations',
+  'locales',
+  'discoveryMappings',
+  'agentDiscoveryMappings',
+]);
+
+function isSupportedPluginRuntime(value: UnifiedPluginManifestV1['runtime']): value is typeof supportedPluginRuntimeValues[number] {
+  return supportedPluginRuntimeValues.includes(value as typeof supportedPluginRuntimeValues[number]);
+}
+
+function assertSupportedPluginManifest(manifest: UnifiedPluginManifestV1): void {
+  if (!isSupportedPluginRuntime(manifest.runtime)) {
+    throw new AppError('VALIDATION_FAILED', '当前宿主只接受 Agent Plan、Workflow DSL 或 Runner 托管的 Trusted JS 插件');
+  }
+  const removedResourceKeys = Object.entries(manifest.resources)
+    .filter(([key, value]) => !supportedExecutionResourceKeys.has(key) && hasDeclaredResource(value))
+    .map(([key]) => key)
+    .sort();
+  if (removedResourceKeys.length > 0) {
+    throw new AppError('VALIDATION_FAILED', '插件包含已删除的宿主执行资源', { resourceKeys: removedResourceKeys });
+  }
+}
+
+function hasDeclaredResource(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0);
+}
+
 function requiredApprovalPermissions(manifest: UnifiedPluginManifestV1): string[] {
   const permissions = new Set(manifest.permissions);
   if (manifest.runtime === 'TRUSTED_JS') permissions.add(trustedJsUnknownCodePermission);
   return [...permissions];
-}
-
-function readRecordField(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function readStringField(value: unknown, key: string): string | undefined {

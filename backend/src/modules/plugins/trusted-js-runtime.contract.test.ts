@@ -1,59 +1,39 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  assertTrustedJsHostApiAccess,
-  validateTrustedJsConnectionResult,
-  validateTrustedJsDiscoveryPayload,
-  validateTrustedJsOperationResult,
-} from './runtime/trusted-js-runtime.contract.js';
+import { validateTrustedJsRunnerRequest } from './runtime/trusted-js-runtime.contract.js';
 
-test('TRUSTED_JS Host API 会拒绝未授权能力访问', () => {
-  assert.doesNotThrow(() => assertTrustedJsHostApiAccess('audit.record', []));
-  assert.doesNotThrow(() => assertTrustedJsHostApiAccess('http.request', ['network.connect']));
-  assert.throws(() => assertTrustedJsHostApiAccess('artifact.readCertificateMaterial', []), /权限未授权/);
-});
+const hash = `sha256:${'a'.repeat(64)}`;
 
-test('TRUSTED_JS 连接结果合同要求显式 ok 字段', () => {
-  const result = validateTrustedJsConnectionResult({ ok: true, warnings: ['latency'] });
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.warnings, ['latency']);
-  assert.throws(() => validateTrustedJsConnectionResult({ warnings: [] }), /必须是布尔值/);
-});
-
-test('TRUSTED_JS 发现结果必须是标准发现结构且不得带敏感字段', () => {
-  const discovery = validateTrustedJsDiscoveryPayload({
-    apiVersion: 'gcac.device-discovery/v2',
-    device: { stableKey: 'cloud.aliyun:asset-1', displayName: 'Aliyun', productFamily: 'cloud.aliyun', managementAddress: 'aliyun.console' },
-    capabilities: [{ key: 'certificate.deploy', available: true }],
-    frameworks: [{ stableKey: 'framework:cdn', frameworkType: 'cloud.aliyun.cdn', displayName: 'CDN' }],
-    sites: [{ stableKey: 'site:example.com', frameworkStableKey: 'framework:cdn', siteType: 'cloud.cdn.domain', displayName: 'example.com', addresses: ['example.com'], port: 443, protocol: 'HTTPS' }],
-    managedTargets: [{ stableKey: 'target:example.com', frameworkStableKey: 'framework:cdn', siteStableKey: 'site:example.com', targetType: 'cloud.cdn.domain', targetKey: 'example.com', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'] }],
-    certificates: [],
-    certificateBindings: [],
-    warnings: [],
+test('Trusted JS Runner 请求必须显式绑定身份、三类制品摘要、能力、租户和 GrantRefs', () => {
+  const request = validateTrustedJsRunnerRequest({
+    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', tenantId: 'tenant-1',
+    packageHash: hash, manifestHash: hash, resourceHash: hash, capability: 'test.echo',
+    executionId: 'execution-1', executionStepId: 'step-1', input: { value: 'hello' }, grantRefs: ['grant-1'],
   });
-  assert.equal(discovery.apiVersion, 'gcac.device-discovery/v2');
-  assert.throws(() => validateTrustedJsDiscoveryPayload({
-    ...discovery,
-    device: { ...discovery.device, secretToken: 'boom' },
-  }), /敏感字段/);
+  assert.equal(request.pluginVersionId, 'plugin-version-1');
+  assert.equal(request.pluginId, 'plugin.test');
+  assert.equal(request.capability, 'test.echo');
+  assert.deepEqual(request.grantRefs, ['grant-1']);
+  assert.equal('providerKey' in request, false);
+  assert.equal('supportedProducts' in request, false);
+  assert.equal('supportedOperations' in request, false);
+  assert.equal('frameworkType' in request, false);
 });
 
-test('TRUSTED_JS 操作结果必须返回标准状态与字段', () => {
-  const result = validateTrustedJsOperationResult({
-    operationId: 'op-1',
-    providerKey: 'cloud.aliyun',
-    operationKey: 'certificate.deploy',
-    status: 'SUCCESS',
-    resultSummary: { certificateId: 'cert-1' },
-    asyncOperation: { taskId: 'task-1', status: 'RUNNING' },
-  });
-  assert.equal(result.status, 'SUCCESS');
-  assert.equal(result.asyncOperation?.taskId, 'task-1');
-  assert.throws(() => validateTrustedJsOperationResult({
-    operationId: 'op-2',
-    providerKey: 'cloud.aliyun',
-    operationKey: 'certificate.deploy',
-    status: 'UNKNOWN',
-  }), /状态不受支持/);
+test('Trusted JS Runner 请求缺少真实绑定或包含重复 GrantRefs 时失败关闭', () => {
+  assert.throws(() => validateTrustedJsRunnerRequest({
+    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', tenantId: 'tenant-1',
+    packageHash: hash, manifestHash: hash, capability: 'test.echo', executionId: 'execution-1',
+    executionStepId: 'step-1', input: {}, grantRefs: [],
+  }), /resourceHash/);
+  assert.throws(() => validateTrustedJsRunnerRequest({
+    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', tenantId: 'tenant-1',
+    packageHash: hash, manifestHash: hash, resourceHash: hash, capability: 'test.echo', executionId: 'execution-1',
+    executionStepId: 'step-1', input: {}, grantRefs: ['grant-1', 'grant-1'],
+  }), /重复引用/);
+  assert.throws(() => validateTrustedJsRunnerRequest({
+    pluginVersionId: 'plugin-version-1', pluginId: 'plugin.test', pluginVersion: '1.0.0', tenantId: 'tenant-1',
+    packageHash: 'package', manifestHash: hash, resourceHash: hash, capability: 'test.echo', executionId: 'execution-1',
+    executionStepId: 'step-1', input: {}, grantRefs: [],
+  }), /sha256/);
 });

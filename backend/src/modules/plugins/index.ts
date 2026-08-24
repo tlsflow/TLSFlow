@@ -1,6 +1,5 @@
 export * from './controller/plugins.controller.js';
 export * from './dto/agent-deployment-plugins.dto.js';
-export * from './schema/agent-deployment-plugins.schema.js';
 export * from './application/unified-agent-plan-compiler.service.js';
 export * from './dto/unified-plugins.dto.js';
 export * from './schema/unified-plugins.schema.js';

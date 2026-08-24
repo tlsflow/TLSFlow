@@ -9,7 +9,7 @@ import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 
 test('插件路由没有认证上下文时失败关闭', async () => {
-  const app = createApp([version('plugin-visible', 'fixture.plugin', '1.0.0', 'USER', 'tenant-1')], routeSecurity());
+  const app = createApp([version('plugin-visible', 'fixture.plugin', '1.0.0', 'USER', 'tenant-1')], routeSecurity(), {}, undefined, false);
   const response = await app.inject({
     method: 'GET',
     path: '/api/v1/plugin-versions',
@@ -225,10 +225,12 @@ function createApp(
   security: SecurityServices,
   pluginBindings: Record<string, unknown> = {},
   promotions?: Record<string, unknown>,
+  authenticated = true,
 ): App {
-  const app = new App({ allowLegacyHeaderContext: true });
+  const app = new App();
+  if (authenticated) app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));
-  new PluginsController(service, pluginBindings as never, promotions as never, undefined, undefined, undefined, undefined, security).register(app.router);
+  new PluginsController(service, pluginBindings as never, promotions as never, undefined, undefined, undefined, security).register(app.router);
   return app;
 }
 
@@ -273,6 +275,8 @@ function memoryRepository(records: UnifiedPluginVersionRecord[]): UnifiedPlugins
     findByIdentity: async (tenantId, pluginId, version) => records.find((record) => record.tenantId === tenantId && record.pluginId === pluginId && record.version === version),
     listVersions: async (tenantId) => records.filter((record) => record.tenantId === tenantId),
     listVersionsBySource: async (source) => records.filter((record) => record.source === source),
+    listAccessibleVersions: async (tenantId) => records.filter((record) => record.tenantId === tenantId || record.source === 'BUILTIN'),
+    countReferences: async () => ({ bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 }),
   };
 }
 

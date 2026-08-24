@@ -101,31 +101,20 @@ test('TRUSTED_JS 插件必须声明受控入口并额外审批未知代码执行
   assert.equal((await service.enableVersion(imported.id)).status, 'ENABLED');
 });
 
-test('普通插件不得声明 Provider 元数据，TRUSTED_JS Provider 插件目录应返回产品与操作信息', async () => {
+test('统一插件 Manifest 拒绝宿主 Provider 元数据', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
-  await assert.rejects(
-    () => service.importVersion('tenant-1', {
-      ...workflowPluginInput(),
-      manifest: {
-        ...(workflowPluginInput().manifest as Record<string, unknown>),
-        providerKey: 'cloud.aliyun',
-        supportedProducts: ['cloud.aliyun.cdn'],
-        supportedOperations: ['certificate.deploy'],
-      },
-    }),
-    /只有 TRUSTED_JS 插件可以声明 Provider 元数据/,
-  );
-
-  const imported = await service.importVersion('tenant-1', trustedJsProviderPluginInput(), 'BUILTIN');
-  await service.approvePermissions(imported.id, ['certificate.deploy', 'certificate.rollback', 'certificate.discover', 'runtime.execute_unknown_code']);
-  await service.enableVersion(imported.id);
-
-  const catalog = await service.listCatalog('tenant-1', 'zh-CN', { runtime: 'TRUSTED_JS', providerKey: 'cloud.aliyun' });
-
-  assert.equal(catalog.length, 1);
-  assert.equal(catalog[0]?.providerKey, 'cloud.aliyun');
-  assert.deepEqual(catalog[0]?.supportedProducts, ['cloud.aliyun.cdn']);
-  assert.deepEqual(catalog[0]?.supportedOperations, ['certificate.discover', 'certificate.deploy', 'certificate.rollback']);
+  for (const field of ['providerKey', 'supportedProducts', 'supportedOperations']) {
+    await assert.rejects(
+      () => service.importVersion('tenant-1', {
+        ...workflowPluginInput(),
+        manifest: {
+          ...(workflowPluginInput().manifest as Record<string, unknown>),
+          [field]: field === 'providerKey' ? 'cloud.example' : ['certificate.deploy'],
+        },
+      }),
+      /包含未知字段/,
+    );
+  }
 });
 
 test('统一插件目录保留正交分类和能力声明', async () => {
@@ -141,6 +130,10 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.source, 'USER');
   assert.equal(item?.logoUrl, '/plugin-logos/test.svg');
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
+  assert.equal(item?.pluginVersionId, imported.id);
+  assert.equal(item?.packageSha256, imported.packageSha256);
+  assert.equal(item?.manifestSha256, imported.manifestSha256);
+  assert.deepEqual(item?.resourceSha256, imported.resourceSha256);
 });
 
 test('统一插件目录同一插件只返回最高语义版本', async () => {
@@ -374,54 +367,6 @@ function trustedJsPluginInput() {
   };
 }
 
-function trustedJsProviderPluginInput() {
-  return {
-    manifest: {
-      apiVersion: 'gcac.plugin-manifest/v1',
-      kind: 'GcacPlugin',
-      pluginId: 'builtin.cloud.aliyun.cdn',
-      version: '1.0.0',
-      providerKey: 'cloud.aliyun',
-      displayNameKey: 'plugin.builtin.aliyun.cdn.name',
-      publisher: 'GCAC',
-      runtime: 'TRUSTED_JS',
-      source: 'BUILTIN',
-      scope: 'MANAGED',
-      trust: 'OFFICIAL_SIGNED',
-      support: 'OFFICIAL',
-      capabilities: [
-        {
-          key: 'certificate.discover',
-          contractVersion: 'v1',
-          actionContractId: 'certificate.discover.v1',
-          riskLevel: 'LOW',
-          executionLocations: ['CONTROL_PLANE'],
-        },
-        {
-          key: 'certificate.deploy',
-          contractVersion: 'v1',
-          actionContractId: 'certificate.deploy.v1',
-          riskLevel: 'HIGH',
-          executionLocations: ['CONTROL_PLANE'],
-        },
-        {
-          key: 'certificate.rollback',
-          contractVersion: 'v1',
-          actionContractId: 'certificate.rollback.v1',
-          riskLevel: 'HIGH',
-          executionLocations: ['CONTROL_PLANE'],
-        },
-      ],
-      supportedProducts: ['cloud.aliyun.cdn'],
-      supportedOperations: ['certificate.discover', 'certificate.deploy', 'certificate.rollback'],
-      permissions: ['certificate.discover', 'certificate.deploy', 'certificate.rollback', 'runtime.execute_unknown_code'],
-      resources: { runtimeEntrypoint: 'runtime/index.js' },
-    },
-    resources: { 'runtime/index.js': 'export default async function main() { return { ok: true }; }\n' },
-    packageContent: 'trusted-js-provider-package',
-  };
-}
-
 function builtinLocaleResources() {
   return Object.fromEntries(hostLocales.map((locale) => [
     `locales/${locale}.json`,
@@ -448,5 +393,6 @@ function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): Uni
     listAccessibleVersions: async (tenantId) => [...records.values()].filter(
       (record) => record.tenantId === tenantId || record.source === 'BUILTIN',
     ),
+    countReferences: async () => ({ bindings: 0, assignments: 0, hosts: 0, serviceAssets: 0, deviceAssets: 0, total: 0 }),
   };
 }
