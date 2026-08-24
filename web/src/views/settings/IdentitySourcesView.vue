@@ -8,8 +8,6 @@ import {
   deleteIdentitySource,
   listIdentitySources,
   listRoles,
-  syncIdentitySourceUsers,
-  testIdentitySource,
   updateIdentitySource,
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal } from '@/design-system/components'
@@ -36,13 +34,6 @@ interface IdentitySourceDraft {
   syncUserFilter: string
   enabled: boolean
 }
-
-const syncSourceId = ref('')
-const syncUsernamePrefix = ref('')
-const syncPageSize = ref('100')
-const syncLoading = ref(false)
-const syncMessage = ref('')
-const syncError = ref('')
 
 const pageLoading = ref(false)
 const pageError = ref('')
@@ -88,15 +79,6 @@ function resetDraft(): void {
   editorMessage.value = ''
 }
 
-const sourceOptions = computed(() =>
-  sourceItems.value
-    .map((item) => ({
-      label: `${String(item.name ?? item.id)} / ${String(item.type ?? 'ldap')}`,
-      value: String(item.id ?? ''),
-    }))
-    .filter((item) => item.value),
-)
-
 const roleOptions = computed(() =>
   roleItems.value
     .map((item) => ({
@@ -136,40 +118,6 @@ async function reloadSources() {
 async function loadRoles() {
   const result = await listRoles({ page: 1, pageSize: 200 })
   roleItems.value = [...(result.data?.items ?? [])]
-}
-
-async function submitSync() {
-  if (!syncSourceId.value || syncLoading.value) return
-  syncLoading.value = true
-  syncError.value = ''
-  syncMessage.value = ''
-  try {
-    const result = await syncIdentitySourceUsers({
-      sourceId: syncSourceId.value,
-      usernamePrefix: syncUsernamePrefix.value || undefined,
-      pageSize: Number(syncPageSize.value || '100'),
-    })
-    const data = result.data as Record<string, unknown> | undefined
-    syncMessage.value = `同步完成：创建 ${data?.created ?? 0}，更新 ${data?.updated ?? 0}，失败 ${data?.failed ?? 0}`
-    await reloadSources()
-  } catch (cause) {
-    if (cause instanceof ApiClientError) syncError.value = `${cause.message}（${cause.errorCode}）`
-    else syncError.value = cause instanceof Error ? cause.message : '同步失败'
-  } finally {
-    syncLoading.value = false
-  }
-}
-
-async function quickTest(sourceId: string) {
-  syncError.value = ''
-  syncMessage.value = ''
-  try {
-    const result = await testIdentitySource(sourceId)
-    syncMessage.value = result.data?.ok ? `连接测试成功：${sourceId}` : `连接测试失败：${sourceId}`
-  } catch (cause) {
-    if (cause instanceof ApiClientError) syncError.value = `${cause.message}（${cause.errorCode}）`
-    else syncError.value = cause instanceof Error ? cause.message : '连接测试失败'
-  }
 }
 
 function openCreateDialog() {
@@ -321,6 +269,18 @@ function displayValue(value: unknown): string {
   return formatMaybeLocalTime(value)
 }
 
+function displaySourceType(value: unknown): string {
+  return String(value) === 'ldap' ? '标准 LDAP' : 'Active Directory'
+}
+
+function displayEnabled(value: unknown): string {
+  return value === false ? '已停用' : '已启用'
+}
+
+function displayServer(value: unknown): string {
+  return normalizeHost(String(value ?? '')) || '—'
+}
+
 onMounted(async () => {
   await Promise.all([reloadSources(), loadRoles()])
 })
@@ -329,48 +289,11 @@ onMounted(async () => {
 <template>
   <section class="identity-sources">
     <header class="identity-sources__header">
-      <div>
-        <p>IDENTITY SOURCES</p>
-        <h1>身份源</h1>
-        <span>配置 Microsoft Active Directory 或标准 LDAP。外部目录负责认证与组信息，本地角色与权限仍由平台 RBAC 控制。</span>
-      </div>
       <div class="identity-sources__header-actions">
         <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">创建身份源</button>
         <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">刷新</button>
       </div>
     </header>
-
-    <section class="gc-card identity-sources__tools">
-      <div class="identity-sources__tools-copy">
-        <strong>LDAP 用户同步</strong>
-        <span>把目录用户同步到本地账号列表，再继续配置本地角色和权限。</span>
-      </div>
-      <form class="identity-sources__tools-form" @submit.prevent="submitSync">
-        <label>
-          <span>身份源</span>
-          <select v-model="syncSourceId" required>
-            <option value="" disabled>请选择身份源</option>
-            <option v-for="option in sourceOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </label>
-        <label>
-          <span>用户名此前缀</span>
-          <input v-model="syncUsernamePrefix" type="text" placeholder="可选，例如 ops" />
-        </label>
-        <label>
-          <span>分页大小</span>
-          <input v-model="syncPageSize" type="number" min="1" max="200" />
-        </label>
-        <div class="identity-sources__tool-actions">
-          <button class="gc-button" type="button" :disabled="!syncSourceId || syncLoading" @click="quickTest(syncSourceId)">测试连接</button>
-          <button class="gc-button gc-button--primary" type="submit" :disabled="!syncSourceId || syncLoading">
-            {{ syncLoading ? '同步中...' : '同步 LDAP 用户' }}
-          </button>
-        </div>
-      </form>
-      <p v-if="syncMessage" class="identity-sources__message">{{ syncMessage }}</p>
-      <p v-if="syncError" class="identity-sources__error">{{ syncError }}</p>
-    </section>
 
     <p v-if="pageError" class="identity-sources__error">{{ pageError }}</p>
 
@@ -384,36 +307,37 @@ onMounted(async () => {
           <thead>
             <tr>
               <th>名称</th>
-              <th>类型</th>
-              <th>启用</th>
-              <th>服务器地址</th>
-              <th>Base DN</th>
-              <th>服务账号 DN</th>
-              <th>默认角色</th>
-              <th>TLS</th>
-              <th>最近同步状态</th>
-              <th>最近同步时间</th>
+              <th>目录类型</th>
+              <th>服务器</th>
+              <th>状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="pageLoading">
-              <td colspan="11">加载中...</td>
+              <td colspan="5">加载中...</td>
             </tr>
             <tr v-else-if="sourceItems.length === 0">
-              <td colspan="11">暂无身份源</td>
+              <td colspan="5">暂无身份源</td>
             </tr>
             <tr v-for="item in sourceItems" v-else :key="String(item.id)">
-              <td>{{ displayValue(item.name) }}</td>
-              <td>{{ displayValue(item.type) }}</td>
-              <td>{{ displayValue(item.enabled) }}</td>
-              <td>{{ displayValue(item.url) }}</td>
-              <td>{{ displayValue(item.baseDn) }}</td>
-              <td>{{ displayValue(item.bindDn) }}</td>
-              <td>{{ displayValue(item.defaultRoleId) }}</td>
-              <td>{{ displayValue(item.tlsMode) }}</td>
-              <td>{{ displayValue(item.lastSyncStatus) }}</td>
-              <td>{{ displayValue(item.lastSyncAt) }}</td>
+              <td>
+                <div class="identity-sources__name-cell">
+                  <strong>{{ displayValue(item.name) }}</strong>
+                </div>
+              </td>
+              <td>{{ displaySourceType(item.type) }}</td>
+              <td>{{ displayServer(item.url) }}</td>
+              <td>
+                <div class="identity-sources__status-cell">
+                  <span
+                    class="identity-sources__enabled-badge"
+                    :class="{ 'identity-sources__enabled-badge--disabled': item.enabled === false }"
+                  >
+                    {{ displayEnabled(item.enabled) }}
+                  </span>
+                </div>
+              </td>
               <td>
                 <div class="identity-sources__row-actions">
                   <button class="gc-button" type="button" @click="openEditDialog(item)">编辑</button>
@@ -551,38 +475,46 @@ onMounted(async () => {
 
 <style scoped>
 .identity-sources { display: grid; gap: var(--gc-space-5); }
-.identity-sources__header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
-.identity-sources__header p { margin: 0 0 8px; color: var(--gc-color-primary); font-size: 12px; font-weight: 950; letter-spacing: .18em; }
-.identity-sources__header h1 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
-.identity-sources__header span { display: block; max-width: 760px; margin-top: 10px; color: var(--gc-color-text-muted); line-height: 1.65; font-weight: 650; }
+.identity-sources__header { display: flex; justify-content: flex-end; gap: var(--gc-space-4); align-items: flex-start; }
 .identity-sources__header-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
-
-.identity-sources__tools { display: grid; gap: var(--gc-space-4); padding: 20px; }
-.identity-sources__tools-copy { display: grid; gap: 6px; }
-.identity-sources__tools-copy strong { font-size: 18px; }
-.identity-sources__tools-copy span { color: var(--gc-color-text-muted); font-weight: 650; }
-.identity-sources__tools-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; }
-.identity-sources__tools-form label { display: grid; gap: 7px; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 800; }
-.identity-sources__tools-form input,
-.identity-sources__tools-form select { width: 100%; min-height: 42px; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; background: var(--gc-color-surface-muted); }
-.identity-sources__tool-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 
 .identity-sources__table-card { overflow: hidden; padding: 0; }
 .identity-sources__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
 .identity-sources__table-head strong { font-size: 17px; }
 .identity-sources__table-head span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 700; }
 .identity-sources__table-scroll { overflow-x: auto; }
-.identity-sources__table { width: 100%; border-collapse: collapse; min-width: 1220px; }
+.identity-sources__table { width: 100%; border-collapse: collapse; min-width: 840px; table-layout: fixed; }
 .identity-sources__table th,
-.identity-sources__table td { padding: 14px 16px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: top; }
-.identity-sources__table th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-xs); letter-spacing: .06em; text-transform: uppercase; }
-.identity-sources__table td { font-size: var(--gc-font-size-sm); font-weight: 650; overflow-wrap: anywhere; }
-.identity-sources__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.identity-sources__table td { padding: 16px 24px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: middle; }
+.identity-sources__table th { color: var(--gc-color-text-muted); background: #f8fafc; font-size: var(--gc-font-size-xs); font-weight: 850; letter-spacing: 0; }
+.identity-sources__table td { font-size: var(--gc-font-size-sm); font-weight: 700; overflow-wrap: anywhere; }
+.identity-sources__table th:nth-child(1) { width: 26%; }
+.identity-sources__table th:nth-child(2) { width: 18%; }
+.identity-sources__table th:nth-child(3) { width: 28%; }
+.identity-sources__table th:nth-child(4) { width: 14%; }
+.identity-sources__table th:nth-child(5) { width: 170px; }
+.identity-sources__name-cell,
+.identity-sources__status-cell { display: grid; gap: 7px; }
+.identity-sources__name-cell strong { color: var(--gc-color-text); font-size: 15px; font-weight: 900; }
+.identity-sources__enabled-badge {
+  width: fit-content;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.identity-sources__enabled-badge { color: #166534; background: #dcfce7; }
+.identity-sources__enabled-badge--disabled { color: #991b1b; background: #fee2e2; }
+.identity-sources__row-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--gc-space-2); min-width: 142px; white-space: nowrap; }
+.identity-sources__row-actions :deep(.gc-button) { flex: 0 0 auto; white-space: nowrap; }
 
-.identity-sources__message,
 .identity-source-form__message { margin: 0; color: #166534; font-weight: 800; }
-.identity-sources__error,
 .identity-source-form__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.identity-sources__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 
 .identity-source-form { display: grid; gap: var(--gc-space-4); }
 .identity-source-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
