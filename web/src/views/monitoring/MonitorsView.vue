@@ -1046,6 +1046,28 @@ function trimProbeStateToTargets() {
       <GcButton variant="primary" :disabled="loading" @click="openAddDialog">
         {{ t('monitoring.actions.add') }}
       </GcButton>
+      <div class="monitor-page__filterbar" :aria-label="t('businessPage.toggleFilters')">
+        <label class="monitor-page__filter-search">
+          <span>{{ t('monitoring.labels.applicationAsset') }}</span>
+          <input v-model="monitorKeyword" type="search" :placeholder="t('monitoring.labels.applicationAsset')">
+        </label>
+        <label class="monitor-page__filter-status">
+          <span>{{ t('businessPage.toggleFilters') }}</span>
+          <select v-model="monitorStatusFilter">
+            <option v-for="option in monitorStatusOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <GcButton
+          v-if="monitorKeyword || monitorStatusFilter !== 'ALL'"
+          class="monitor-page__filter-reset"
+          variant="ghost"
+          @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'"
+        >
+          {{ t('businessPage.clearFilters') }}
+        </GcButton>
+      </div>
     </div>
 
     <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error">
@@ -1062,28 +1084,6 @@ function trimProbeStateToTargets() {
 
     <section v-else class="monitor-page__workspace">
       <aside class="monitor-page__targets gc-card">
-        <div class="monitor-page__filterbar" :aria-label="t('businessPage.toggleFilters')">
-          <label class="monitor-page__filter-search">
-            <span>{{ t('monitoring.labels.applicationAsset') }}</span>
-            <input v-model="monitorKeyword" type="search" :placeholder="t('monitoring.labels.applicationAsset')">
-          </label>
-          <label class="monitor-page__filter-status">
-            <span>{{ t('businessPage.toggleFilters') }}</span>
-            <select v-model="monitorStatusFilter">
-              <option v-for="option in monitorStatusOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-          <GcButton
-            v-if="monitorKeyword || monitorStatusFilter !== 'ALL'"
-            class="monitor-page__filter-reset"
-            variant="ghost"
-            @click="monitorKeyword = ''; monitorStatusFilter = 'ALL'"
-          >
-            {{ t('businessPage.clearFilters') }}
-          </GcButton>
-        </div>
         <header class="monitor-page__section-head">
           <div>
             <strong>{{ t('monitoring.sections.targets') }}</strong>
@@ -1440,7 +1440,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__actions {
   display: flex;
-  justify-content: flex-start;
+  align-items: center;
   gap: var(--gc-space-2);
   flex-wrap: wrap;
 }
@@ -1469,19 +1469,22 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__filterbar {
-  display: grid;
-  gap: var(--gc-space-2);
-  padding-bottom: var(--gc-space-2);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+  margin-left: auto;
+  padding: 0;
 }
 
 .monitor-page__filter-search,
 .monitor-page__filter-status {
-  display: grid;
-  gap: var(--gc-space-1);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .monitor-page__filter-search input,
@@ -1504,7 +1507,7 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__filter-reset {
-  justify-self: start;
+  flex: 0 0 auto;
 }
 
 .monitor-page__filtered-empty {
