@@ -239,7 +239,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
     metadata: { name, category: 'certificate_deployment' },
     variables: {
       host: { type: 'string', required: true },
-      sshCredential: { type: 'secret', required: false },
+      sshCredential: { type: 'credential', required: false },
     },
     steps: [
       {
@@ -250,7 +250,7 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
           connection: {
             host: '{{host}}',
             username: 'deploy',
-            credentialSecretRef: 'secret://ssh/default',
+            credential: { id: 'sec_default', kind: 'ssh_key', type: 'ssh_key' },
           },
           command: 'echo ok',
         },

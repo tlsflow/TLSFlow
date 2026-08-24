@@ -4,18 +4,32 @@ import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
+import { listGateways } from '@/api/modules/gateways.api'
+import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
+import {
+  loadWorkflowCredentials,
+  workflowCredentialBinding,
+  workflowCredentialLabel,
+  workflowCredentialSummary,
+  type WorkflowManagedCredential,
+} from '@/views/workflows/workflow-credentials'
 
 type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP'
 type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT'
+type AssetManagementMode = 'AGENT' | 'WORKFLOW'
+type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
+type AssetWizardStep = 1 | 2 | 3
+type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate'
 
 interface AssetDraft {
+  managementMode: AssetManagementMode
   address: string
   port: string
   protocol: AssetProtocol
@@ -28,6 +42,21 @@ interface AssetDraft {
   displayName: string
   environment: string
   tagsText: string
+  workflowId: string
+  workflowVersionId: string
+  workflowRunner: WorkflowRunnerType
+  workflowGatewayId: string
+}
+
+interface WorkflowVariableRow {
+  id: string
+  name: string
+  type: WorkflowVariableType
+  value: string
+  required: boolean
+  description: string
+  enumValues: string[]
+  fromDefinition: boolean
 }
 
 interface AgentBindingCandidate {
@@ -98,8 +127,41 @@ const snapshotError = ref('')
 const rollbackSubmitting = ref(false)
 const rollbackError = ref('')
 const rollbackRequestId = ref('')
+const assetWizardStep = ref<AssetWizardStep>(1)
+const workflowListLoading = ref(false)
+const workflowVersionListLoading = ref(false)
+const gatewayListLoading = ref(false)
+const workflowItems = ref<ApiRecord[]>([])
+const workflowVersionItems = ref<ApiRecord[]>([])
+const gatewayItems = ref<ApiRecord[]>([])
+const workflowVariableRows = ref<WorkflowVariableRow[]>([])
+const workflowVariablePresetName = ref('')
+const workflowCredentialItems = ref<WorkflowManagedCredential[]>([])
+const workflowCredentialLoading = ref(false)
+const workflowListError = ref('')
+const workflowVersionListError = ref('')
+const gatewayListError = ref('')
+const workflowCredentialError = ref('')
+let workflowVariableRowSeed = 1
+
+const workflowVariablePresets: readonly { name: string; type: WorkflowVariableType; description: string }[] = [
+  { name: 'deviceHost', type: 'string', description: '目标主机或设备地址' },
+  { name: 'sshUsername', type: 'string', description: 'SSH 用户名' },
+  { name: 'credential', type: 'credential', description: '工作流凭据' },
+  { name: 'certificate', type: 'certificate', description: '证书产物' },
+  { name: 'targetPlatform', type: 'enum', description: '目标平台' },
+  { name: 'verifyHost', type: 'string', description: '验证主机' },
+  { name: 'verifyPort', type: 'number', description: '验证端口' },
+  { name: 'verifyPath', type: 'string', description: '验证路径' },
+  { name: 'apacheServiceName', type: 'string', description: 'Apache systemd 服务名' },
+  { name: 'apacheSiteConfigPath', type: 'string', description: 'Apache 站点配置路径' },
+  { name: 'backupRoot', type: 'string', description: '证书备份根目录' },
+  { name: 'expectedResponseText', type: 'string', description: '验证响应文本' },
+  { name: 'virtualHostServerName', type: 'string', description: '虚拟主机 ServerName' },
+]
 
 const assetDraft = reactive<AssetDraft>({
+  managementMode: 'AGENT',
   address: '',
   port: '443',
   protocol: 'HTTPS',
@@ -112,6 +174,10 @@ const assetDraft = reactive<AssetDraft>({
   displayName: '',
   environment: '',
   tagsText: '',
+  workflowId: '',
+  workflowVersionId: '',
+  workflowRunner: 'CONTROL_PLANE',
+  workflowGatewayId: '',
 })
 
 const config: BusinessPageConfig = {
@@ -290,17 +356,112 @@ const currentBindingSummary = computed(() => {
   }
 })
 
-const createDisabled = computed(() => {
+const selectedWorkflowTemplate = computed(() =>
+  workflowItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowId) ?? null,
+)
+
+const selectedWorkflowVersion = computed(() =>
+  workflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
+)
+
+const publishedWorkflowVersionItems = computed(() =>
+  workflowVersionItems.value.filter((item) => workflowVersionStatus(item) === 'published'),
+)
+
+const selectedGateway = computed(() =>
+  gatewayItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowGatewayId) ?? null,
+)
+
+const selectedWorkflowVariableDefinitions = computed(() =>
+  readWorkflowVariableDefinitions(selectedWorkflowVersion.value),
+)
+
+const workflowVariableNames = computed(() =>
+  new Set(workflowVariableRows.value.map((row) => row.name.trim()).filter(Boolean)),
+)
+
+const availableWorkflowVariablePresets = computed(() => {
+  const declared = Object.entries(selectedWorkflowVariableDefinitions.value).map(([name, definition]) => ({
+    name,
+    type: workflowVariableType(definition),
+    description: String(readNested(definition, ['description']) ?? ''),
+  }))
+  const merged = new Map<string, { name: string; type: WorkflowVariableType; description: string }>()
+  for (const item of [...declared, ...workflowVariablePresets]) {
+    if (!workflowVariableNames.value.has(item.name)) merged.set(item.name, item)
+  }
+  return [...merged.values()]
+})
+
+const workflowVariablesError = computed(() => validateWorkflowVariableRows())
+
+const workflowVariableConfiguredCount = computed(() =>
+  workflowVariableRows.value.filter((row) => row.name.trim() && rowValueHasContent(row)).length,
+)
+
+const effectiveVerifyUrl = computed(() => {
+  const explicit = assetDraft.verifyUrl.trim()
+  if (explicit) return explicit
+  const address = assetDraft.address.trim()
   const port = Number(assetDraft.port)
-  const missingBindingSelection = !assetDraft.agentId.trim()
-    || !assetDraft.siteAssetId.trim()
-    || !assetDraft.managedTargetId.trim()
+  if (!address || !Number.isInteger(port) || port < 1 || port > 65535) return ''
+  return `${assetDraft.protocol.toLowerCase()}://${address}:${port}`
+})
+
+const commonStepReady = computed(() => {
+  const port = Number(assetDraft.port)
+  return Boolean(
+    assetDraft.address.trim()
+    && Number.isInteger(port)
+    && port >= 1
+    && port <= 65535,
+  )
+})
+
+const agentStepReady = computed(() => {
+  if (assetDraft.managementMode !== 'AGENT') return true
+  return Boolean(
+    assetDraft.agentId.trim()
+    && assetDraft.siteAssetId.trim()
+    && assetDraft.managedTargetId.trim(),
+  )
+})
+
+const workflowStepReady = computed(() => {
+  if (assetDraft.managementMode !== 'WORKFLOW') return true
+  const selectedVersionIsPublished = assetDraft.workflowVersionId
+    && workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
+  const gatewayReady = assetDraft.workflowRunner === 'CONTROL_PLANE' || assetDraft.workflowGatewayId.trim()
+  return Boolean(
+    assetDraft.workflowId.trim()
+    && selectedVersionIsPublished
+    && gatewayReady
+    && !workflowVariablesError.value
+  )
+})
+
+const modeStepReady = computed(() =>
+  assetDraft.managementMode === 'WORKFLOW' ? workflowStepReady.value : agentStepReady.value,
+)
+
+const currentAvailableStep = computed<AssetWizardStep>(() => {
+  if (!commonStepReady.value) return 1
+  if (!modeStepReady.value) return 2
+  return 3
+})
+
+const assetWizardProgress = computed(() => `${(assetWizardStep.value / 3) * 100}%`)
+
+const canGoPreviousAssetStep = computed(() => assetWizardStep.value > 1)
+const canGoNextAssetStep = computed(() =>
+  (assetWizardStep.value === 1 && commonStepReady.value)
+  || (assetWizardStep.value === 2 && modeStepReady.value),
+)
+
+const createDisabled = computed(() => {
   return createLoading.value
-    || !assetDraft.address.trim()
-    || !Number.isInteger(port)
-    || port < 1
-    || port > 65535
-    || (!isEditMode.value && missingBindingSelection)
+    || !commonStepReady.value
+    || !modeStepReady.value
 })
 
 const isEditMode = computed(() => Boolean(editingServiceAssetId.value))
@@ -324,14 +485,16 @@ async function openDetailModal(row: ViewRow) {
 
 async function openCreateDialog() {
   resetDraft()
+  assetWizardStep.value = 1
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await loadAgents()
+  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
 }
 
 async function openEditDialog(row: ViewRow) {
   resetDraft()
+  assetWizardStep.value = 1
   editingServiceAssetId.value = String(row.raw?.id ?? row.id ?? '')
   const detail = await getAssetDetail(editingServiceAssetId.value)
   editAssetDetail.value = detail.data ?? null
@@ -349,9 +512,26 @@ async function openEditDialog(row: ViewRow) {
   assetDraft.frameworkType = String(readNested(source, ['targetBinding', 'frameworkType']) ?? assetDraft.frameworkType) as FrameworkType
   assetDraft.siteAssetId = String(readNested(source, ['targetBinding', 'siteAssetId']) ?? '')
   assetDraft.managedTargetId = String(readNested(source, ['targetBinding', 'managedTargetId']) ?? '')
+  const deploymentStrategy = readDeploymentStrategy(source)
+  if (String(readNested(deploymentStrategy, ['type']) ?? '') === 'WORKFLOW') {
+    assetDraft.managementMode = 'WORKFLOW'
+    assetDraft.workflowId = String(readNested(deploymentStrategy, ['workflow', 'workflowId']) ?? '')
+    assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
+    assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
+    assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
+    workflowVariableRows.value = variableRowsFromBindings(readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings'])) ?? {})
+  } else {
+    assetDraft.managementMode = 'AGENT'
+    assetDraft.agentId = String(readNested(deploymentStrategy, ['agent', 'agentId']) ?? assetDraft.agentId)
+    assetDraft.siteAssetId = String(readNested(deploymentStrategy, ['agent', 'siteAssetId']) ?? assetDraft.siteAssetId)
+    assetDraft.managedTargetId = String(readNested(deploymentStrategy, ['agent', 'managedTargetId']) ?? assetDraft.managedTargetId)
+  }
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
+  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
+  if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
+  if (assetDraft.workflowVersionId) syncWorkflowVariableRowsFromVersion()
 }
 
 function closeCreateDialog() {
@@ -369,6 +549,64 @@ async function loadAgents() {
     agentItems.value = [...(result.data?.items ?? [])]
   } finally {
     agentListLoading.value = false
+  }
+}
+
+async function loadWorkflowTemplates() {
+  workflowListLoading.value = true
+  workflowListError.value = ''
+  try {
+    const result = await listWorkflowTemplates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
+    workflowItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    workflowItems.value = []
+    workflowListError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : '加载工作流列表失败'
+  } finally {
+    workflowListLoading.value = false
+  }
+}
+
+async function loadWorkflowVersions(workflowId: string) {
+  workflowVersionListLoading.value = true
+  workflowVersionListError.value = ''
+  workflowVersionItems.value = []
+  if (!workflowId) {
+    workflowVersionListLoading.value = false
+    return
+  }
+  try {
+    const result = await listWorkflowTemplateVersions(workflowId)
+    workflowVersionItems.value = [...(result.data?.items ?? [])]
+    if (assetDraft.workflowVersionId && !workflowVersionItems.value.some((item) => String(item.id ?? '') === assetDraft.workflowVersionId)) {
+      assetDraft.workflowVersionId = ''
+    }
+    if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
+      assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
+    }
+  } catch (cause) {
+    workflowVersionListError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : '加载工作流版本失败'
+  } finally {
+    workflowVersionListLoading.value = false
+  }
+}
+
+async function loadGateways() {
+  gatewayListLoading.value = true
+  gatewayListError.value = ''
+  try {
+    const result = await listGateways({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
+    gatewayItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    gatewayItems.value = []
+    gatewayListError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : '加载网关列表失败'
+  } finally {
+    gatewayListLoading.value = false
   }
 }
 
@@ -494,36 +732,43 @@ async function submitCreate() {
   createError.value = ''
   createRequestId.value = ''
   try {
-    if (isEditMode.value) {
-      const result = await updateServiceAsset(editingServiceAssetId.value, {
-        address: assetDraft.address.trim(),
-        displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
-        port: Number(assetDraft.port),
-        protocol: assetDraft.protocol,
-        platform: assetDraft.platform,
-        verifyUrl: assetDraft.verifyUrl.trim() || undefined,
-        environment: assetDraft.environment.trim() || undefined,
-        tags: splitCsv(assetDraft.tagsText),
-      })
-      createRequestId.value = result.requestId
-      createDialogOpen.value = false
-      editingServiceAssetId.value = ''
-      await pageRef.value?.reload()
-      return
-    }
-    const resolvedBinding = await ensureTargetBindingResources()
-    const result = await createServiceAsset({
+    const basePayload = {
       address: assetDraft.address.trim(),
       displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
       port: Number(assetDraft.port),
       protocol: assetDraft.protocol,
       platform: assetDraft.platform,
       verifyUrl: assetDraft.verifyUrl.trim() || undefined,
-      agentId: assetDraft.agentId.trim(),
       environment: assetDraft.environment.trim() || undefined,
+      tags: splitCsv(assetDraft.tagsText),
+      deploymentStrategy: buildDeploymentStrategyPayload(),
+    }
+    if (isEditMode.value) {
+      const result = await updateServiceAsset(editingServiceAssetId.value, basePayload)
+      createRequestId.value = result.requestId
+      createDialogOpen.value = false
+      editingServiceAssetId.value = ''
+      await pageRef.value?.reload()
+      return
+    }
+    if (assetDraft.managementMode === 'WORKFLOW') {
+      const result = await createServiceAsset({
+        ...basePayload,
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+        metadata: {},
+      })
+      createRequestId.value = result.requestId
+      createDialogOpen.value = false
+      await pageRef.value?.reload()
+      return
+    }
+    const resolvedBinding = await ensureTargetBindingResources()
+    const result = await createServiceAsset({
+      ...basePayload,
+      agentId: assetDraft.agentId.trim(),
       discoverySource: 'MANUAL',
       status: 'ACTIVE',
-      tags: splitCsv(assetDraft.tagsText),
       metadata: {},
       targetBinding: {
         agentId: assetDraft.agentId.trim(),
@@ -560,6 +805,8 @@ async function submitCreate() {
 function resetDraft() {
   editingServiceAssetId.value = ''
   editAssetDetail.value = null
+  assetWizardStep.value = 1
+  assetDraft.managementMode = 'AGENT'
   assetDraft.address = ''
   assetDraft.port = '443'
   assetDraft.protocol = 'HTTPS'
@@ -572,16 +819,307 @@ function resetDraft() {
   assetDraft.displayName = ''
   assetDraft.environment = ''
   assetDraft.tagsText = ''
+  assetDraft.workflowId = ''
+  assetDraft.workflowVersionId = ''
+  assetDraft.workflowRunner = 'CONTROL_PLANE'
+  assetDraft.workflowGatewayId = ''
+  workflowVariableRows.value = []
+  workflowVariablePresetName.value = ''
   siteItems.value = []
   managedTargetItems.value = []
   fallbackSiteItems.value = []
   fallbackManagedTargetItems.value = []
   siteListError.value = ''
   managedTargetListError.value = ''
+  workflowVersionItems.value = []
+  workflowListError.value = ''
+  workflowVersionListError.value = ''
+  gatewayListError.value = ''
+  workflowCredentialError.value = ''
 }
 
 function splitCsv(value: string): string[] {
   return Array.from(new Set(value.split(',').map((item) => item.trim()).filter(Boolean)))
+}
+
+function goToAssetStep(step: AssetWizardStep) {
+  if (step > currentAvailableStep.value) return
+  assetWizardStep.value = step
+}
+
+function goPreviousAssetStep() {
+  if (assetWizardStep.value === 3) assetWizardStep.value = 2
+  else if (assetWizardStep.value === 2) assetWizardStep.value = 1
+}
+
+function goNextAssetStep() {
+  if (assetWizardStep.value === 1 && commonStepReady.value) assetWizardStep.value = 2
+  else if (assetWizardStep.value === 2 && modeStepReady.value) assetWizardStep.value = 3
+}
+
+function assetWizardStepState(step: AssetWizardStep): 'done' | 'active' | 'pending' {
+  if (step < assetWizardStep.value) return 'done'
+  if (step === assetWizardStep.value) return 'active'
+  return 'pending'
+}
+
+function assetWizardStepStateLabel(step: AssetWizardStep): string {
+  const state = assetWizardStepState(step)
+  if (state === 'done') return '已完成'
+  if (state === 'active') return '进行中'
+  return '待开始'
+}
+
+function buildDeploymentStrategyPayload(): Record<string, unknown> {
+  if (assetDraft.managementMode === 'WORKFLOW') {
+    const gatewayId = assetDraft.workflowRunner === 'GATEWAY'
+      ? assetDraft.workflowGatewayId.trim()
+      : undefined
+    return {
+      type: 'WORKFLOW',
+      workflow: {
+        workflowId: assetDraft.workflowId.trim(),
+        workflowVersionId: assetDraft.workflowVersionId.trim(),
+        runner: assetDraft.workflowRunner,
+        gatewayId,
+        variableBindings: buildWorkflowVariableBindings(),
+      },
+    }
+  }
+
+  return {
+    type: 'AGENT',
+    agent: {
+      agentId: assetDraft.agentId.trim(),
+      siteAssetId: assetDraft.siteAssetId.trim(),
+      managedTargetId: assetDraft.managedTargetId.trim(),
+    },
+  }
+}
+
+function readWorkflowVariableDefinitions(version: ApiRecord | null): Record<string, ApiRecord> {
+  const variables = readNested(version, ['content', 'variables'])
+  if (!variables || typeof variables !== 'object' || Array.isArray(variables)) return {}
+  return variables as Record<string, ApiRecord>
+}
+
+function syncWorkflowVariableRowsFromVersion() {
+  const definitions = Object.fromEntries(
+    Object.entries(selectedWorkflowVariableDefinitions.value).filter(([name]) => name !== 'verifyUrl'),
+  )
+  if (Object.keys(definitions).length === 0) return
+  const existing = new Map(workflowVariableRows.value.map((row) => [row.name, row]))
+  const nextRows = Object.entries(definitions).map(([name, definition]) => {
+    const current = existing.get(name)
+    const type = workflowVariableType(definition)
+    return {
+      id: current?.id ?? nextWorkflowVariableRowId(),
+      name,
+      type,
+      value: current?.value ?? suggestedWorkflowVariableValue(name, definition),
+      required: Boolean(definition.required),
+      description: String(definition.description ?? ''),
+      enumValues: readStringArray(definition.enum),
+      fromDefinition: true,
+    }
+  })
+  const extraRows = workflowVariableRows.value.filter((row) => !definitions[row.name])
+  workflowVariableRows.value = [...nextRows, ...extraRows]
+}
+
+function addWorkflowVariableRow() {
+  const preset = availableWorkflowVariablePresets.value.find((item) => item.name === workflowVariablePresetName.value)
+    ?? workflowVariablePresets.find((item) => !workflowVariableNames.value.has(item.name))
+  workflowVariableRows.value.push({
+    id: nextWorkflowVariableRowId(),
+    name: preset?.name ?? '',
+    type: preset?.type ?? 'string',
+    value: suggestedWorkflowVariableValue(preset?.name ?? '', { type: preset?.type ?? 'string' }),
+    required: false,
+    description: preset?.description ?? '',
+    enumValues: preset?.name === 'targetPlatform' ? ['linux', 'windows', 'appliance'] : [],
+    fromDefinition: false,
+  })
+  workflowVariablePresetName.value = ''
+}
+
+function removeWorkflowVariableRow(rowId: string) {
+  workflowVariableRows.value = workflowVariableRows.value.filter((row) => row.id !== rowId)
+}
+
+function variableRowsFromBindings(bindings: Record<string, unknown>): WorkflowVariableRow[] {
+  return Object.entries(bindings).filter(([name]) => name !== 'verifyUrl').map(([name, value]) => {
+    const definition = selectedWorkflowVariableDefinitions.value[name]
+    const type = workflowVariableType(definition) || workflowVariableTypeFromValue(value)
+    return {
+      id: nextWorkflowVariableRowId(),
+      name,
+      type,
+      value: valueToWorkflowVariableText(value),
+      required: Boolean(definition?.required),
+      description: String(definition?.description ?? ''),
+      enumValues: readStringArray(definition?.enum),
+      fromDefinition: Boolean(definition),
+    }
+  })
+}
+
+function buildWorkflowVariableBindings(): Record<string, unknown> | undefined {
+  const bindings: Record<string, unknown> = {}
+  for (const row of workflowVariableRows.value) {
+    const name = row.name.trim()
+    if (!name || !rowValueHasContent(row)) continue
+    bindings[name] = workflowVariableValue(row)
+  }
+  if (effectiveVerifyUrl.value && bindings.verifyUrl === undefined) {
+    bindings.verifyUrl = effectiveVerifyUrl.value
+  }
+  return Object.keys(bindings).length > 0 ? bindings : undefined
+}
+
+function workflowVariableValue(row: WorkflowVariableRow): unknown {
+  const raw = row.value.trim()
+  if (row.type === 'number') return Number(raw)
+  if (row.type === 'boolean') return raw === 'true'
+  if (row.type === 'object') return JSON.parse(raw)
+  if (row.type === 'credential') {
+    const credential = workflowCredentialItems.value.find((item) => item.id === raw)
+    return credential ? workflowCredentialBinding(credential) : raw
+  }
+  return raw
+}
+
+function validateWorkflowVariableRows(): string {
+  const names = new Set<string>()
+  for (const row of workflowVariableRows.value) {
+    const name = row.name.trim()
+    if (!name) return '变量名称不能为空'
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) return `变量 ${name} 名称不合法`
+    if (names.has(name)) return `变量 ${name} 重复`
+    names.add(name)
+    if (row.required && !rowValueHasContent(row)) return `变量 ${name} 必填`
+    if (row.type === 'number' && rowValueHasContent(row) && !Number.isFinite(Number(row.value))) return `变量 ${name} 必须是数字`
+    if (row.type === 'object' && rowValueHasContent(row)) {
+      try {
+        const parsed = JSON.parse(row.value)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return `变量 ${name} 必须是 JSON 对象`
+      } catch {
+        return `变量 ${name} 不是合法 JSON`
+      }
+    }
+    if (row.type === 'credential' && rowValueHasContent(row) && !workflowCredentialItems.value.some((item) => item.id === row.value.trim())) {
+      return `变量 ${name} 必须选择有效凭据`
+    }
+  }
+  return ''
+}
+
+function rowValueHasContent(row: WorkflowVariableRow): boolean {
+  if (row.type === 'boolean') return row.value === 'true' || row.value === 'false'
+  return row.value.trim().length > 0
+}
+
+function workflowVariableType(definition: ApiRecord | undefined): WorkflowVariableType {
+  const type = String(definition?.type ?? '')
+  if (['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate'].includes(type)) return type as WorkflowVariableType
+  return 'string'
+}
+
+function workflowVariableTypeFromValue(value: unknown): WorkflowVariableType {
+  if (typeof value === 'number') return 'number'
+  if (typeof value === 'boolean') return 'boolean'
+  if (value && typeof value === 'object') return 'object'
+  return 'string'
+}
+
+function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): string {
+  const defaultValue = definition.default
+  if (defaultValue !== undefined) return valueToWorkflowVariableText(defaultValue)
+  if (name === 'deviceHost' || name === 'verifyHost') return assetDraft.address.trim()
+  if (name === 'verifyPort') return assetDraft.port.trim()
+  if (name === 'verifyUrl') return effectiveVerifyUrl.value
+  if (name === 'verifyPath') return '/'
+  if (name === 'targetPlatform') return assetDraft.platform.toLowerCase()
+  if (workflowVariableType(definition) === 'boolean') return 'false'
+  return ''
+}
+
+function valueToWorkflowVariableText(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (isWorkflowCredentialBindingRecord(value)) return String(value.id ?? '')
+  return JSON.stringify(value, null, 2)
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function isWorkflowCredentialBindingRecord(value: unknown): value is { id?: unknown } {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as Record<string, unknown>).id === 'string'
+    && typeof (value as Record<string, unknown>).kind === 'string'
+}
+
+function nextWorkflowVariableRowId(): string {
+  const id = `workflow-variable-${workflowVariableRowSeed}`
+  workflowVariableRowSeed += 1
+  return id
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+async function loadCredentialsForWorkflowVariables() {
+  workflowCredentialLoading.value = true
+  workflowCredentialError.value = ''
+  try {
+    workflowCredentialItems.value = await loadWorkflowCredentials()
+  } catch (cause) {
+    workflowCredentialItems.value = []
+    workflowCredentialError.value = cause instanceof Error ? cause.message : '加载工作流凭据失败'
+  } finally {
+    workflowCredentialLoading.value = false
+  }
+}
+
+function readDeploymentStrategy(source: unknown): ApiRecord | null {
+  const direct = readNested(source, ['deploymentStrategy'])
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct as ApiRecord
+  const metadata = readNested(source, ['metadata', 'deploymentStrategy'])
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) return metadata as ApiRecord
+  return null
+}
+
+function workflowTemplateLabel(item: ApiRecord): string {
+  return String(item.name ?? item.displayName ?? item.templateName ?? item.id ?? '')
+}
+
+function workflowVersionLabel(item: ApiRecord): string {
+  const version = String(item.version ?? item.versionNo ?? item.name ?? item.id ?? '')
+  const status = workflowVersionStatus(item)
+  return `${version}${status ? ` / ${workflowVersionStatusLabel(status)}` : ''}`
+}
+
+function workflowVersionStatus(item: ApiRecord | null | undefined): string {
+  return String(item?.status ?? '').toLowerCase()
+}
+
+function workflowVersionStatusLabel(status: string): string {
+  if (status === 'published') return '已发布'
+  if (status === 'draft') return '草稿'
+  if (status === 'archived') return '已归档'
+  return status || '未知状态'
+}
+
+function gatewayLabel(item: ApiRecord): string {
+  const name = String(item.name ?? item.displayName ?? item.gatewayId ?? item.id ?? '')
+  const status = String(item.status ?? '')
+  return status ? `${name} (${status})` : name
 }
 
 function renderValue(value: unknown, fallback = '—'): string {
@@ -971,6 +1509,63 @@ function snapshotTypeLabel(value: unknown): string {
 }
 
 watch(
+  currentAvailableStep,
+  (step) => {
+    if (assetWizardStep.value > step) assetWizardStep.value = step
+  },
+  { immediate: true },
+)
+
+watch(
+  () => assetDraft.managementMode,
+  async (mode) => {
+    if (mode === 'AGENT') {
+      await loadAgents()
+      return
+    }
+    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
+  },
+)
+
+watch(
+  () => assetDraft.workflowId,
+  async (workflowId, previousWorkflowId) => {
+    if (previousWorkflowId && workflowId !== previousWorkflowId) {
+      assetDraft.workflowVersionId = ''
+    }
+    if (assetDraft.managementMode !== 'WORKFLOW') return
+    await loadWorkflowVersions(workflowId)
+  },
+)
+
+watch(
+  () => assetDraft.workflowVersionId,
+  () => {
+    if (assetDraft.managementMode !== 'WORKFLOW') return
+    syncWorkflowVariableRowsFromVersion()
+  },
+)
+
+watch(
+  () => [assetDraft.address, assetDraft.port, assetDraft.protocol, assetDraft.verifyUrl, assetDraft.platform] as const,
+  () => {
+    for (const row of workflowVariableRows.value) {
+      if (row.value.trim()) continue
+      if (['deviceHost', 'verifyHost', 'verifyPort', 'targetPlatform'].includes(row.name)) {
+        row.value = suggestedWorkflowVariableValue(row.name, { type: row.type })
+      }
+    }
+  },
+)
+
+watch(
+  () => assetDraft.workflowRunner,
+  (runner) => {
+    if (runner === 'CONTROL_PLANE') assetDraft.workflowGatewayId = ''
+  },
+)
+
+watch(
   () => assetDraft.platform,
   async (platform) => {
     if (isEditMode.value) return
@@ -1214,118 +1809,379 @@ watch(
     <GcModal
       v-model:open="createDialogOpen"
       :title="isEditMode ? '编辑应用资产' : '手动添加应用资产'"
-      :description="isEditMode ? '编辑应用入口自身信息；站点与受管目标定位保持原绑定。' : '名称使用应用访问域名；平台决定允许绑定的 Agent。'"
+      :description="isEditMode ? '编辑应用入口自身信息，并选择 Agent 或工作流作为证书部署方式。' : '先录入访问入口，再按 Agent 模式或工作流模式完成配置。'"
+      size="xxl"
+      width="980px"
     >
-      <section class="asset-form">
-        <div class="asset-form__grid">
-          <label class="asset-form__field">
-            <span>访问域名 <strong>*</strong></span>
-            <input v-model="assetDraft.address" placeholder="app.example.com" autocomplete="off" />
-          </label>
-          <label class="asset-form__field">
-            <span>显示名称</span>
-            <input v-model="assetDraft.displayName" placeholder="留空则默认等于访问域名" autocomplete="off" />
-          </label>
-          <label class="asset-form__field">
-            <span>端口 <strong>*</strong></span>
-            <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
-          </label>
-          <label class="asset-form__field">
-            <span>协议 <strong>*</strong></span>
-            <select v-model="assetDraft.protocol">
-              <option value="HTTPS">HTTPS</option>
-              <option value="HTTP">HTTP</option>
-              <option value="TLS">TLS</option>
-              <option value="STARTTLS">STARTTLS</option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>验证 URL</span>
-            <input
-              v-model="assetDraft.verifyUrl"
-              placeholder="留空则默认使用 https://访问域名:端口"
-              autocomplete="off"
-            />
-          </label>
-          <label class="asset-form__field">
-            <span>平台 <strong>*</strong></span>
-            <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.platform || '—' }}</div>
-            <select v-else v-model="assetDraft.platform">
-              <option value="LINUX">Linux</option>
-              <option value="WINDOWS">Windows</option>
-              <option value="APPLIANCE">专用设备</option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>框架类型 <strong>*</strong></span>
-            <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.frameworkType || '—' }}</div>
-            <select v-else v-model="assetDraft.frameworkType">
-              <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
-                {{ framework }}
-              </option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>Agent <strong>*</strong></span>
-            <div v-if="isEditMode" class="asset-form__readonly">{{ editAgentLabel }}</div>
-            <select v-else v-model="assetDraft.agentId" :disabled="agentListLoading">
-              <option value="">{{ agentListLoading ? '加载 Agent 中...' : '请选择 Agent' }}</option>
-              <option v-for="agent in filteredAgentItems" :key="String(agent.id)" :value="String(agent.id)">
-                {{ agentLabel(agent) }}
-              </option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>站点实例 <strong>*</strong></span>
-            <div v-if="isEditMode" class="asset-form__readonly">{{ editSiteLabel }}</div>
-            <select v-else v-model="assetDraft.siteAssetId" :disabled="siteListLoading || !assetDraft.agentId">
-              <option value="">{{ siteListLoading ? '加载站点中...' : '请选择站点实例' }}</option>
-              <option v-for="site in filteredSiteItems" :key="String(site.id)" :value="String(site.id)">
-                {{ siteLabel(site) }}
-              </option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>受管目标 <strong>*</strong></span>
-            <div v-if="isEditMode" class="asset-form__readonly">{{ editManagedTargetLabel }}</div>
-            <select v-else v-model="assetDraft.managedTargetId" :disabled="managedTargetListLoading || !assetDraft.siteAssetId">
-              <option value="">{{ managedTargetListLoading ? '加载目标中...' : '请选择受管目标' }}</option>
-              <option v-for="target in filteredManagedTargetItems" :key="String(target.id)" :value="String(target.id)">
-                {{ managedTargetLabel(target) }}
-              </option>
-            </select>
-          </label>
-          <label class="asset-form__field">
-            <span>环境</span>
-            <input v-model="assetDraft.environment" placeholder="prod / staging" autocomplete="off" />
-          </label>
-          <label class="asset-form__field">
-            <span>标签</span>
-            <input v-model="assetDraft.tagsText" placeholder="core, public, ssl" autocomplete="off" />
-          </label>
+      <section class="asset-form asset-wizard">
+        <div class="asset-wizard__progress">
+          <div class="asset-wizard__progress-bar">
+            <span class="asset-wizard__progress-fill" :style="{ width: assetWizardProgress }"></span>
+          </div>
+          <ol class="asset-wizard__steps" aria-label="应用资产配置步骤">
+            <li class="asset-wizard__step" :class="`is-${assetWizardStepState(1)}`">
+              <button type="button" class="asset-wizard__step-button" @click="goToAssetStep(1)">
+                <span class="asset-wizard__step-index">1</span>
+                <span>
+                  <strong>基础入口</strong>
+                  <small>{{ assetWizardStepStateLabel(1) }}</small>
+                </span>
+              </button>
+            </li>
+            <li class="asset-wizard__step" :class="`is-${assetWizardStepState(2)}`">
+              <button type="button" class="asset-wizard__step-button" :disabled="currentAvailableStep < 2" @click="goToAssetStep(2)">
+                <span class="asset-wizard__step-index">2</span>
+                <span>
+                  <strong>部署方式</strong>
+                  <small>{{ assetWizardStepStateLabel(2) }}</small>
+                </span>
+              </button>
+            </li>
+            <li class="asset-wizard__step" :class="`is-${assetWizardStepState(3)}`">
+              <button type="button" class="asset-wizard__step-button" :disabled="currentAvailableStep < 3" @click="goToAssetStep(3)">
+                <span class="asset-wizard__step-index">3</span>
+                <span>
+                  <strong>确认保存</strong>
+                  <small>{{ assetWizardStepStateLabel(3) }}</small>
+                </span>
+              </button>
+            </li>
+          </ol>
         </div>
-        <div class="asset-form__binding-summary">
-          <div>
-            <span>绑定信息</span>
-            <strong>{{ renderValue(currentBindingSummary.bindingInformation) }}</strong>
+
+        <section v-if="assetWizardStep === 1" class="asset-wizard__panel">
+          <header class="asset-wizard__panel-header">
+            <div>
+              <h3>1. 基础入口</h3>
+              <p>应用资产只表达访问入口；后续步骤再决定由 Agent 还是工作流接管部署。</p>
+            </div>
+            <span class="asset-wizard__panel-state" :class="commonStepReady ? 'is-done' : 'is-active'">
+              {{ commonStepReady ? '可进入下一步' : '待完成' }}
+            </span>
+          </header>
+
+          <div class="asset-wizard__mode-grid">
+            <button
+              type="button"
+              class="asset-wizard__mode-card"
+              :class="{ 'is-selected': assetDraft.managementMode === 'AGENT' }"
+              @click="assetDraft.managementMode = 'AGENT'"
+            >
+              <span>Agent 模式</span>
+              <strong>绑定 Agent、站点实例和受管目标</strong>
+            </button>
+            <button
+              type="button"
+              class="asset-wizard__mode-card"
+              :class="{ 'is-selected': assetDraft.managementMode === 'WORKFLOW' }"
+              @click="assetDraft.managementMode = 'WORKFLOW'"
+            >
+              <span>工作流模式</span>
+              <strong>选择工作流版本和运行变量</strong>
+            </button>
           </div>
-          <div>
-            <span>Host Header</span>
-            <strong>{{ renderValue(currentBindingSummary.hostHeader) }}</strong>
+
+          <div class="asset-form__grid">
+            <label class="asset-form__field">
+              <span>访问域名 <strong>*</strong></span>
+              <input v-model="assetDraft.address" placeholder="app.example.com" autocomplete="off" />
+            </label>
+            <label class="asset-form__field">
+              <span>显示名称</span>
+              <input v-model="assetDraft.displayName" placeholder="留空则默认等于访问域名" autocomplete="off" />
+            </label>
+            <label class="asset-form__field">
+              <span>端口 <strong>*</strong></span>
+              <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
+            </label>
+            <label class="asset-form__field">
+              <span>协议 <strong>*</strong></span>
+              <select v-model="assetDraft.protocol">
+                <option value="HTTPS">HTTPS</option>
+                <option value="HTTP">HTTP</option>
+                <option value="TLS">TLS</option>
+                <option value="STARTTLS">STARTTLS</option>
+              </select>
+            </label>
+            <label class="asset-form__field">
+              <span>验证 URL</span>
+              <input
+                v-model="assetDraft.verifyUrl"
+                placeholder="留空则默认使用 https://访问域名:端口"
+                autocomplete="off"
+              />
+            </label>
+            <label class="asset-form__field">
+              <span>平台 <strong>*</strong></span>
+              <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.platform || '—' }}</div>
+              <select v-else v-model="assetDraft.platform">
+                <option value="LINUX">Linux</option>
+                <option value="WINDOWS">Windows</option>
+                <option value="APPLIANCE">专用设备</option>
+              </select>
+            </label>
+            <label class="asset-form__field">
+              <span>环境</span>
+              <input v-model="assetDraft.environment" placeholder="prod / staging" autocomplete="off" />
+            </label>
+            <label class="asset-form__field">
+              <span>标签</span>
+              <input v-model="assetDraft.tagsText" placeholder="core, public, ssl" autocomplete="off" />
+            </label>
           </div>
-          <div>
-            <span>端口</span>
-            <strong>{{ renderValue(currentBindingSummary.port) }}</strong>
-          </div>
-        </div>
+        </section>
+
+        <section v-else-if="assetWizardStep === 2" class="asset-wizard__panel">
+          <header class="asset-wizard__panel-header">
+            <div>
+              <h3>2. {{ assetDraft.managementMode === 'WORKFLOW' ? '工作流配置' : 'Agent 绑定' }}</h3>
+              <p>{{ assetDraft.managementMode === 'WORKFLOW' ? '选择已发布的工作流版本，并提供运行时变量。' : '明确落到 Agent、站点实例和受管目标，避免只靠域名猜测部署位置。' }}</p>
+            </div>
+            <span class="asset-wizard__panel-state" :class="modeStepReady ? 'is-done' : 'is-active'">
+              {{ modeStepReady ? '可进入下一步' : '待完成' }}
+            </span>
+          </header>
+
+          <template v-if="assetDraft.managementMode === 'AGENT'">
+            <div class="asset-form__grid">
+              <label class="asset-form__field">
+                <span>框架类型 <strong>*</strong></span>
+                <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.frameworkType || '—' }}</div>
+                <select v-else v-model="assetDraft.frameworkType">
+                  <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
+                    {{ framework }}
+                  </option>
+                </select>
+              </label>
+              <label class="asset-form__field">
+                <span>Agent <strong>*</strong></span>
+                <div v-if="isEditMode" class="asset-form__readonly">{{ editAgentLabel }}</div>
+                <select v-else v-model="assetDraft.agentId" :disabled="agentListLoading">
+                  <option value="">{{ agentListLoading ? '加载 Agent 中...' : '请选择 Agent' }}</option>
+                  <option v-for="agent in filteredAgentItems" :key="String(agent.id)" :value="String(agent.id)">
+                    {{ agentLabel(agent) }}
+                  </option>
+                </select>
+              </label>
+              <label class="asset-form__field">
+                <span>站点实例 <strong>*</strong></span>
+                <div v-if="isEditMode" class="asset-form__readonly">{{ editSiteLabel }}</div>
+                <select v-else v-model="assetDraft.siteAssetId" :disabled="siteListLoading || !assetDraft.agentId">
+                  <option value="">{{ siteListLoading ? '加载站点中...' : '请选择站点实例' }}</option>
+                  <option v-for="site in filteredSiteItems" :key="String(site.id)" :value="String(site.id)">
+                    {{ siteLabel(site) }}
+                  </option>
+                </select>
+              </label>
+              <label class="asset-form__field">
+                <span>受管目标 <strong>*</strong></span>
+                <div v-if="isEditMode" class="asset-form__readonly">{{ editManagedTargetLabel }}</div>
+                <select v-else v-model="assetDraft.managedTargetId" :disabled="managedTargetListLoading || !assetDraft.siteAssetId">
+                  <option value="">{{ managedTargetListLoading ? '加载目标中...' : '请选择受管目标' }}</option>
+                  <option v-for="target in filteredManagedTargetItems" :key="String(target.id)" :value="String(target.id)">
+                    {{ managedTargetLabel(target) }}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="asset-form__binding-summary">
+              <div>
+                <span>绑定信息</span>
+                <strong>{{ renderValue(currentBindingSummary.bindingInformation) }}</strong>
+              </div>
+              <div>
+                <span>Host Header</span>
+                <strong>{{ renderValue(currentBindingSummary.hostHeader) }}</strong>
+              </div>
+              <div>
+                <span>端口</span>
+                <strong>{{ renderValue(currentBindingSummary.port) }}</strong>
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="asset-form__grid">
+              <label class="asset-form__field">
+                <span>工作流 <strong>*</strong></span>
+                <select v-model="assetDraft.workflowId" :disabled="workflowListLoading">
+                  <option value="">{{ workflowListLoading ? '加载工作流中...' : '请选择工作流' }}</option>
+                  <option v-for="workflow in workflowItems" :key="String(workflow.id)" :value="String(workflow.id)">
+                    {{ workflowTemplateLabel(workflow) }}
+                  </option>
+                </select>
+              </label>
+              <label class="asset-form__field">
+                <span>已发布版本 <strong>*</strong></span>
+                <select v-model="assetDraft.workflowVersionId" :disabled="workflowVersionListLoading || !assetDraft.workflowId">
+                  <option value="">{{ workflowVersionListLoading ? '加载版本中...' : '请选择已发布版本' }}</option>
+                  <option
+                    v-for="version in workflowVersionItems"
+                    :key="String(version.id)"
+                    :value="String(version.id)"
+                    :disabled="workflowVersionStatus(version) !== 'published'"
+                  >
+                    {{ workflowVersionLabel(version) }}
+                  </option>
+                </select>
+              </label>
+              <label class="asset-form__field">
+                <span>运行位置 <strong>*</strong></span>
+                <select v-model="assetDraft.workflowRunner">
+                  <option value="CONTROL_PLANE">控制平面</option>
+                  <option value="GATEWAY">Gateway</option>
+                </select>
+              </label>
+              <label v-if="assetDraft.workflowRunner === 'GATEWAY'" class="asset-form__field">
+                <span>Gateway <strong>*</strong></span>
+                <select v-model="assetDraft.workflowGatewayId" :disabled="gatewayListLoading">
+                  <option value="">{{ gatewayListLoading ? '加载 Gateway 中...' : '请选择 Gateway' }}</option>
+                  <option v-for="gateway in gatewayItems" :key="String(gateway.id)" :value="String(gateway.id)">
+                    {{ gatewayLabel(gateway) }}
+                  </option>
+                </select>
+              </label>
+              <section class="asset-form__field asset-form__field--wide workflow-variable-form" aria-label="运行变量">
+                <div class="workflow-variable-form__head">
+                  <div>
+                    <span>运行变量</span>
+                    <strong>{{ workflowVariableConfiguredCount }} / {{ workflowVariableRows.length }} 已填写</strong>
+                  </div>
+                  <div class="workflow-variable-form__add">
+                    <select v-model="workflowVariablePresetName" :disabled="availableWorkflowVariablePresets.length === 0">
+                      <option value="">{{ availableWorkflowVariablePresets.length ? '选择预设变量' : '暂无可添加变量' }}</option>
+                      <option v-for="preset in availableWorkflowVariablePresets" :key="preset.name" :value="preset.name">
+                        {{ preset.name }} / {{ preset.type }}
+                      </option>
+                    </select>
+                    <button class="gc-button" type="button" @click="addWorkflowVariableRow">添加变量</button>
+                  </div>
+                </div>
+
+                <div class="workflow-variable-form__verify">
+                  <span>验证 URL</span>
+                  <strong>{{ effectiveVerifyUrl || '基础入口未完成' }}</strong>
+                </div>
+
+                <ul v-if="workflowVariableRows.length" class="workflow-variable-form__rows">
+                  <li v-for="row in workflowVariableRows" :key="row.id" class="workflow-variable-form__row">
+                    <label>
+                      <span>变量名</span>
+                      <input v-model="row.name" :readonly="row.fromDefinition" placeholder="deviceHost" autocomplete="off" />
+                    </label>
+                    <label>
+                      <span>类型</span>
+                      <select v-model="row.type" :disabled="row.fromDefinition">
+                        <option value="string">字符串</option>
+                        <option value="number">数字</option>
+                        <option value="boolean">布尔</option>
+                        <option value="enum">枚举</option>
+                        <option value="object">对象</option>
+                        <option value="file">文件</option>
+                        <option value="credential">凭据</option>
+                        <option value="certificate">证书</option>
+                      </select>
+                    </label>
+                    <label class="workflow-variable-form__value">
+                      <span>值{{ row.required ? ' *' : '' }}</span>
+                      <select v-if="row.type === 'credential'" v-model="row.value" :disabled="workflowCredentialLoading">
+                        <option value="">{{ workflowCredentialLoading ? '加载凭据中...' : '请选择凭据' }}</option>
+                        <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
+                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential) }}
+                        </option>
+                      </select>
+                      <select v-else-if="row.type === 'boolean'" v-model="row.value">
+                        <option value="false">false</option>
+                        <option value="true">true</option>
+                      </select>
+                      <select v-else-if="row.type === 'enum' && row.enumValues.length" v-model="row.value">
+                        <option value="">请选择</option>
+                        <option v-for="item in row.enumValues" :key="item" :value="item">{{ item }}</option>
+                      </select>
+                      <textarea v-else-if="row.type === 'object'" v-model="row.value" rows="3" placeholder="{ }"></textarea>
+                      <input
+                        v-else
+                        v-model="row.value"
+                        :inputmode="row.type === 'number' ? 'decimal' : undefined"
+                        :placeholder="row.type === 'certificate' ? '证书产物变量或版本 ID' : row.name"
+                        autocomplete="off"
+                      />
+                    </label>
+                    <div class="workflow-variable-form__row-actions">
+                      <span>{{ row.fromDefinition ? 'DSL' : '手动' }}</span>
+                      <button class="gc-button gc-button--ghost" type="button" @click="removeWorkflowVariableRow(row.id)">删除</button>
+                    </div>
+                    <p v-if="row.description" class="workflow-variable-form__description">{{ row.description }}</p>
+                  </li>
+                </ul>
+                <p v-else class="workflow-variable-form__empty">当前工作流没有必须手动配置的运行变量。</p>
+              </section>
+            </div>
+            <p v-if="publishedWorkflowVersionItems.length === 0 && assetDraft.workflowId && !workflowVersionListLoading" class="asset-form__hint">
+              当前工作流没有已发布版本，不能用于应用资产部署策略。
+            </p>
+            <p v-if="workflowVariablesError" class="asset-form__error">{{ workflowVariablesError }}</p>
+            <p v-if="workflowCredentialError" class="asset-form__error">{{ workflowCredentialError }}</p>
+          </template>
+        </section>
+
+        <section v-else class="asset-wizard__panel">
+          <header class="asset-wizard__panel-header">
+            <div>
+              <h3>3. 确认保存</h3>
+              <p>确认访问入口和部署方式，保存后部署计划可直接按资产策略选择执行路径。</p>
+            </div>
+            <span class="asset-wizard__panel-state is-active">待提交</span>
+          </header>
+          <dl class="asset-wizard__review">
+            <div>
+              <dt>访问入口</dt>
+              <dd>{{ assetDraft.protocol }}://{{ assetDraft.address }}:{{ assetDraft.port }}</dd>
+            </div>
+            <div>
+              <dt>部署方式</dt>
+              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? '工作流模式' : 'Agent 模式' }}</dd>
+            </div>
+            <div>
+              <dt>平台</dt>
+              <dd>{{ assetDraft.platform }}</dd>
+            </div>
+            <div>
+              <dt>验证 URL</dt>
+              <dd>{{ assetDraft.verifyUrl || '按访问入口自动生成' }}</dd>
+            </div>
+            <div v-if="assetDraft.managementMode === 'AGENT'">
+              <dt>Agent / 站点 / 目标</dt>
+              <dd>{{ editAgentLabel || assetDraft.agentId || '未选择' }} / {{ editSiteLabel || assetDraft.siteAssetId || '未选择' }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || '未选择' }}</dd>
+            </div>
+            <div v-else>
+              <dt>工作流 / 版本</dt>
+              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || '未选择' }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || '未选择' }}</dd>
+            </div>
+            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+              <dt>运行位置</dt>
+              <dd>{{ assetDraft.workflowRunner === 'GATEWAY' ? `Gateway：${gatewayLabel(selectedGateway ?? {}) || assetDraft.workflowGatewayId}` : '控制平面' }}</dd>
+            </div>
+            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+              <dt>运行变量</dt>
+              <dd>{{ workflowVariableConfiguredCount ? `${workflowVariableConfiguredCount} 个变量` : '仅使用基础入口' }}</dd>
+            </div>
+          </dl>
+        </section>
+
         <p v-if="siteListError" class="asset-form__error">{{ siteListError }}</p>
         <p v-else-if="managedTargetListError" class="asset-form__error">{{ managedTargetListError }}</p>
+        <p v-else-if="workflowListError" class="asset-form__error">{{ workflowListError }}</p>
+        <p v-else-if="workflowVersionListError" class="asset-form__error">{{ workflowVersionListError }}</p>
+        <p v-else-if="gatewayListError" class="asset-form__error">{{ gatewayListError }}</p>
         <p v-if="createError" class="asset-form__error">{{ createError }}</p>
         <p v-else-if="createRequestId" class="asset-form__request">{{ isEditMode ? '最近编辑请求已完成。' : '最近创建请求已完成。' }}</p>
       </section>
       <template #actions>
         <button class="gc-button" type="button" :disabled="createLoading" @click="closeCreateDialog">取消</button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="createDisabled" @click="submitCreate">
+        <button class="gc-button" type="button" :disabled="createLoading || !canGoPreviousAssetStep" @click="goPreviousAssetStep">上一步</button>
+        <button v-if="assetWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="createLoading || !canGoNextAssetStep" @click="goNextAssetStep">下一步</button>
+        <button v-else class="gc-button gc-button--danger" type="button" :disabled="createDisabled" @click="submitCreate">
           {{ createLoading ? (isEditMode ? '保存中...' : '创建中...') : (isEditMode ? '保存修改' : '确认创建') }}
         </button>
       </template>
@@ -1553,6 +2409,7 @@ watch(
 
 .asset-form { display: grid; gap: var(--gc-space-4); }
 .asset-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.asset-form__field--wide { grid-column: 1 / -1; }
 .asset-form__binding-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1586,6 +2443,7 @@ watch(
 .asset-form__error { color: var(--gc-color-danger); }
 .asset-form__field input,
 .asset-form__field select,
+.asset-form__field textarea,
 .asset-form__readonly {
   width: 100%;
   border: 1px solid var(--gc-color-border);
@@ -1595,14 +2453,22 @@ watch(
   background: var(--gc-color-surface-muted);
 }
 .asset-form__field input,
-.asset-form__field select {
+.asset-form__field select,
+.asset-form__field textarea {
   outline: none;
 }
 .asset-form__field input:focus,
-.asset-form__field select:focus {
+.asset-form__field select:focus,
+.asset-form__field textarea:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 4px rgb(96 165 250 / 14%);
   background: #fff;
+}
+.asset-form__field textarea {
+  min-height: 148px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  line-height: 1.45;
 }
 .asset-form__readonly {
   display: flex;
@@ -1614,9 +2480,356 @@ watch(
 .asset-form__error,
 .asset-form__request { margin: 0; font-weight: 750; }
 .asset-form__request { color: var(--gc-color-text-muted); }
+.asset-form__hint {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 750;
+}
+
+.workflow-variable-form {
+  display: grid;
+  gap: 10px;
+}
+
+.workflow-variable-form__head,
+.workflow-variable-form__add,
+.workflow-variable-form__verify,
+.workflow-variable-form__row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workflow-variable-form__head {
+  justify-content: space-between;
+}
+
+.workflow-variable-form__head > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.workflow-variable-form__head strong {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+}
+
+.workflow-variable-form__add {
+  flex: 0 1 360px;
+}
+
+.workflow-variable-form__verify {
+  justify-content: space-between;
+  padding: 9px 11px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #eff6ff;
+}
+
+.workflow-variable-form__verify span {
+  color: #1d4ed8;
+  font-weight: 900;
+}
+
+.workflow-variable-form__verify strong {
+  color: #0f172a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.workflow-variable-form__rows {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.workflow-variable-form__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(110px, 0.7fr) minmax(180px, 1.5fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.workflow-variable-form__row label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workflow-variable-form__row label span,
+.workflow-variable-form__row-actions span {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.workflow-variable-form__row input[readonly] {
+  color: #475569;
+  background: #eef2f7;
+}
+
+.workflow-variable-form__value textarea {
+  min-height: 78px;
+}
+
+.workflow-variable-form__row-actions {
+  align-self: stretch;
+  justify-content: space-between;
+  flex-direction: column;
+  min-width: 74px;
+}
+
+.workflow-variable-form__description {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workflow-variable-form__empty {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: var(--gc-color-text-muted);
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.asset-wizard__progress {
+  display: grid;
+  gap: 12px;
+}
+
+.asset-wizard__progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.asset-wizard__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #16a34a);
+  transition: width 160ms ease;
+}
+
+.asset-wizard__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.asset-wizard__step-button {
+  width: 100%;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #dbe6f4;
+  border-radius: 14px;
+  background: #f8fbff;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-wizard__step-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.asset-wizard__step.is-active .asset-wizard__step-button,
+.asset-wizard__step.is-done .asset-wizard__step-button {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.asset-wizard__step-index {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.asset-wizard__step.is-done .asset-wizard__step-index {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.asset-wizard__step-button span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.asset-wizard__step-button strong {
+  font-size: 13px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.asset-wizard__step-button small {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.asset-wizard__panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.asset-wizard__panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.asset-wizard__panel-header h3,
+.asset-wizard__panel-header p {
+  margin: 0;
+}
+
+.asset-wizard__panel-header h3 {
+  color: #0f172a;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.asset-wizard__panel-header p {
+  margin-top: 4px;
+  color: var(--gc-color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.asset-wizard__panel-state {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.asset-wizard__panel-state.is-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.asset-wizard__panel-state.is-active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.asset-wizard__mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.asset-wizard__mode-card {
+  display: grid;
+  gap: 5px;
+  min-height: 82px;
+  padding: 14px;
+  border: 1px solid #dbe6f4;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-wizard__mode-card.is-selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 4px rgb(37 99 235 / 10%);
+}
+
+.asset-wizard__mode-card span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.asset-wizard__mode-card strong {
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.asset-wizard__review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.asset-wizard__review div {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  padding: 11px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.asset-wizard__review dt {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.asset-wizard__review dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
 @media (max-width: 860px) {
-  .asset-form__grid { grid-template-columns: 1fr; }
+  .asset-form__grid,
+  .asset-wizard__steps,
+  .asset-wizard__mode-grid,
+  .asset-wizard__review { grid-template-columns: 1fr; }
+  .asset-wizard__panel-header { display: grid; }
+  .workflow-variable-form__head,
+  .workflow-variable-form__add,
+  .workflow-variable-form__verify { align-items: stretch; flex-direction: column; }
+  .workflow-variable-form__add { flex-basis: auto; }
+  .workflow-variable-form__row { grid-template-columns: 1fr; }
+  .workflow-variable-form__row-actions { flex-direction: row; }
   .asset-detail-modal__grid,
   .asset-binding__detail,
   .asset-form__binding-summary,

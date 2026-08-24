@@ -19,8 +19,15 @@ const assetMocks = vi.hoisted(() => ({
   previewDiscoveryMerge: vi.fn(),
   startDiscovery: vi.fn(),
   createServiceAsset: vi.fn(),
+  updateServiceAsset: vi.fn(),
+  getAssetDetail: vi.fn(),
   listAgents: vi.fn(),
+  getAgentDetail: vi.fn(),
   listSiteAssets: vi.fn(),
+  createSiteAsset: vi.fn(),
+  listManagedTargets: vi.fn(),
+  createManagedTarget: vi.fn(),
+  listManagedTargetSnapshots: vi.fn(),
 }))
 
 const certificateMocks = vi.hoisted(() => ({
@@ -30,8 +37,24 @@ const certificateMocks = vi.hoisted(() => ({
   deleteCertificateFormat: vi.fn(),
 }))
 
+const workflowMocks = vi.hoisted(() => ({
+  listWorkflowTemplates: vi.fn(),
+  listWorkflowTemplateVersions: vi.fn(),
+}))
+
+const gatewayMocks = vi.hoisted(() => ({
+  listGateways: vi.fn(),
+}))
+
+const securityMocks = vi.hoisted(() => ({
+  listSecrets: vi.fn(),
+}))
+
 vi.mock('@/api/modules/assets.api', () => assetMocks)
 vi.mock('@/api/modules/certificates.api', () => certificateMocks)
+vi.mock('@/api/modules/workflow-templates.api', () => workflowMocks)
+vi.mock('@/api/modules/gateways.api', () => gatewayMocks)
+vi.mock('@/api/modules/security.api', () => securityMocks)
 
 import AssetsView from '@/views/assets/AssetsView.vue'
 import BindingsView from '@/views/bindings/BindingsView.vue'
@@ -102,10 +125,43 @@ describe('资产与证书产物视图', () => {
     ]))
     assetMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', displayName: 'agent-1' }]))
     assetMocks.listSiteAssets.mockResolvedValue(okPage([]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([]))
+    assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
+    assetMocks.getAgentDetail.mockResolvedValue(okRecord({ id: 'agent-1', capabilitySnapshot: { capabilities: [] } }))
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
     assetMocks.listCapabilities.mockResolvedValue(okPage([]))
     assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({ satisfiedCapabilities: [], missingCapabilities: [] }))
     assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({ compatibilityLevel: 'L2', manualDeclarations: [] }))
     assetMocks.createServiceAsset.mockResolvedValue(okRecord({ id: 'asset-2' }, 'req_asset_create'))
+    assetMocks.updateServiceAsset.mockResolvedValue(okRecord({ id: 'asset-1' }, 'req_asset_update'))
+    assetMocks.createSiteAsset.mockResolvedValue(okRecord({ id: 'site-1' }, 'req_site_create'))
+    assetMocks.createManagedTarget.mockResolvedValue(okRecord({ id: 'target-1' }, 'req_target_create'))
+
+    workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
+      { id: 'workflow-1', name: 'Apache 证书替换' },
+    ]))
+    workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'workflow-version-1',
+          version: 'v1',
+          status: 'published',
+          templateId: 'workflow-1',
+          content: {
+            variables: {
+              deviceHost: { type: 'string', required: true, description: '目标主机' },
+              verifyUrl: { type: 'string', required: true, description: '验证 URL' },
+            },
+          },
+        }],
+      },
+      requestId: 'req_workflow_versions',
+      timestamp: '2026-06-09T00:00:00.000Z',
+    })
+    gatewayMocks.listGateways.mockResolvedValue(okPage([
+      { id: 'gateway-1', name: 'gw-east', status: 'online' },
+    ]))
+    securityMocks.listSecrets.mockResolvedValue(okPage([]))
 
     certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
       {
@@ -180,6 +236,74 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).toContain('prod-agent')
     expect(wrapper.text()).not.toContain('sit_001')
     expect(wrapper.text()).not.toContain('agt_001')
+  })
+
+  it('应用资产可以按工作流模式创建并保存部署策略', async () => {
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '添加资产')
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const workflowModeButton = wrapper.findAll('button').find((button) => button.text().includes('工作流模式'))
+    expect(workflowModeButton).toBeTruthy()
+    await workflowModeButton!.trigger('click')
+    await flushPromises()
+
+    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')
+    expect(addressInput).toBeTruthy()
+    await setInputElementValue(addressInput!.element as HTMLInputElement, 'app.example.com')
+
+    const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
+    expect(nextButton).toBeTruthy()
+    await nextButton!.trigger('click')
+    await flushPromises()
+
+    const workflowSelect = wrapper.findAll('select').find((select) => select.find('option[value="workflow-1"]').exists())
+    expect(workflowSelect).toBeTruthy()
+    await workflowSelect!.setValue('workflow-1')
+    await flushPromises()
+
+    const versionSelect = wrapper.findAll('select').find((select) => select.find('option[value="workflow-version-1"]').exists())
+    expect(versionSelect).toBeTruthy()
+    await versionSelect!.setValue('workflow-version-1')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('运行变量')
+    expect(wrapper.text()).not.toContain('运行变量 JSON')
+    expect(wrapper.findAll('input').some((input) => input.element.value === 'deviceHost')).toBe(true)
+    expect(wrapper.findAll('input').some((input) => input.element.value === 'app.example.com')).toBe(true)
+
+    await nextButton!.trigger('click')
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '确认创建')
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
+      address: 'app.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      deploymentStrategy: {
+        type: 'WORKFLOW',
+        workflow: {
+          workflowId: 'workflow-1',
+          workflowVersionId: 'workflow-version-1',
+          runner: 'CONTROL_PLANE',
+          gatewayId: undefined,
+          variableBindings: {
+            deviceHost: 'app.example.com',
+            verifyUrl: 'https://app.example.com:443',
+          },
+        },
+      },
+    }))
+    expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('targetBinding')
+    expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
   })
 
   it('证书产物页展示真实内容格式与包含内容', async () => {
@@ -282,7 +406,7 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).toContain('IIS 使用 PKCS#12/PFX 容器最常见')
     expect(wrapper.text()).not.toContain('编码选择')
     expect(wrapper.text()).toContain('包含私钥')
-    expect(wrapper.text()).toContain('passwordSecretRef')
+    expect(wrapper.text()).toContain('导出密码')
   })
 
   it('KEY 格式只保留私钥编码与私钥内容选择', async () => {
