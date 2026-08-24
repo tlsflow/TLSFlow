@@ -109,6 +109,12 @@ test('生产 KeySet 或签名密钥配置缺失时装配失败关闭', () => {
     } finally {
       cleanupProductionEnvironment(invalidKeys);
     }
+    const hostHmac = { ...createProductionEnvironment(context), GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON: JSON.stringify({ 'authority-key-1': 'ordinary-host-hmac-secret' }) };
+    try {
+      assert.throws(() => createProductionPolicyAuthorityServicesV1(hostHmac), /失败关闭/);
+    } finally {
+      cleanupProductionEnvironment(hostHmac);
+    }
   } finally {
     cleanupProductionEnvironment(environment);
   }
@@ -156,17 +162,70 @@ test('生产装配使用真实签名策略包、持久撤销状态和一次性 N
   }
 });
 
+test('生产 Key 撤销通过 Policy Authority 入口持久化，并在重启后优先于旧凭证', () => {
+  const context = createContext();
+  const environment = createProductionEnvironment(context);
+  try {
+    const production = createProductionPolicyAuthorityServicesV1(environment);
+    const result = production.service.issueAuthorization(context.request);
+    const plan = createPlan(result);
+
+    production.service.revokeKey('authority-key-1');
+    assert.throws(
+      () => production.service.authorize({ plan, token: result.token, decision: result.decision, localPolicy: context.localPolicy }),
+      /authority key 已被撤销|失败关闭/,
+    );
+    assert.equal(production.state.isKeyRevoked('authority-key-1'), true);
+    assert.throws(() => createProductionPolicyAuthorityServicesV1(environment), /当前 authority key 已被撤销|失败关闭/);
+  } finally {
+    cleanupProductionEnvironment(environment);
+  }
+});
+
+test('生产 KeySet 与签名私钥来源在轮换后自动重新装载', () => {
+  const context = createContext();
+  const environment = createProductionEnvironment(context);
+  try {
+    const production = createProductionPolicyAuthorityServicesV1(environment);
+    const next = generateKeyPairSync('ed25519');
+    const nowValue = Date.now();
+    const nextKey = {
+      ...createPolicyKey('authority-key-2', next.publicKey, 'ACTIVE'),
+      notBefore: new Date(nowValue - 60_000).toISOString(),
+      notAfter: '2099-01-01T00:00:00.000Z',
+    };
+    const rotated = {
+      ...context.keySet,
+      activeKeyId: nextKey.keyId,
+      issuedAt: new Date(nowValue - 30_000).toISOString(),
+      keys: [context.keySet.keys[0]!, nextKey],
+    };
+    environment.GCAC_POLICY_AUTHORITY_KEYSET_JSON = JSON.stringify(createEnvelope(context.rootPrivateKey, rotated));
+    const oldSigningKey = context.signingKeySource.keys.get('authority-key-1');
+    if (!oldSigningKey || typeof oldSigningKey === 'string') throw new Error('测试上下文缺少旧签名私钥');
+    environment.GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON = JSON.stringify({
+      'authority-key-1': oldSigningKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      'authority-key-2': next.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    });
+
+    const result = production.service.issueAuthorization(context.request);
+    assert.equal(result.token?.authorityKeyId, 'authority-key-2');
+  } finally {
+    cleanupProductionEnvironment(environment);
+  }
+});
+
 test('Key rotation 使用新 ACTIVE key，旧 key 在撤销后立即失败', () => {
   const context = createContext();
   const oldResult = context.service.issueAuthorization(context.request);
   const next = generateKeyPairSync('ed25519');
   const nextKey = createPolicyKey('authority-key-2', next.publicKey, 'ACTIVE');
-  const rotated = createEnvelope(context.rootPrivateKey, { ...context.keySet, activeKeyId: nextKey.keyId, keys: [context.keySet.keys[0]!, nextKey] });
+  const rotated = createEnvelope(context.rootPrivateKey, { ...context.keySet, activeKeyId: nextKey.keyId, issuedAt: '2026-08-08T00:04:00.000Z', keys: [context.keySet.keys[0]!, nextKey] });
   context.signingKeySource.keys.set(nextKey.keyId, next.privateKey);
   context.service.refreshKeySet(rotated);
   const nextResult = context.service.issueAuthorization(context.request);
   assert.equal(nextResult.token?.authorityKeyId, 'authority-key-2');
-  const revokedOld = createEnvelope(context.rootPrivateKey, { ...rotated.keySet, keys: rotated.keySet.keys.map((key) => key.keyId === 'authority-key-1' ? { ...key, status: 'REVOKED' as const } : key) });
+  const revokedOld = createEnvelope(context.rootPrivateKey, { ...rotated.keySet, issuedAt: '2026-08-08T00:05:00.000Z', keys: rotated.keySet.keys.map((key) => key.keyId === 'authority-key-1' ? { ...key, status: 'REVOKED' as const } : key) });
   context.service.refreshKeySet(revokedOld);
   assert.throws(() => context.service.authorize({ plan: createPlan(oldResult), token: oldResult.token, decision: oldResult.decision, localPolicy: context.localPolicy }), /失败关闭/);
 });

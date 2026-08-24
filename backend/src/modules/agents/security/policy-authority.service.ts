@@ -58,6 +58,7 @@ export interface PolicyAuthorityRevocationStoreV1 {
   isKeyRevoked(authorityKeyId: string): boolean;
   revokeToken(record: TokenRevocationRecordV1): void;
   revokeDecision(record: DecisionRevocationRecordV1): void;
+  revokeKey(authorityKeyId: string): void;
 }
 
 /**
@@ -394,6 +395,7 @@ export interface PolicyAuthorityServiceOptionsV1 {
  */
 export class PolicyAuthorityServiceV1 {
   private readonly trustRoot: PolicyAuthorityTrustRootV1;
+  private readonly keySetSource?: PolicyAuthorityKeySetSourceV1;
   private readonly signingKeySource: PolicyAuthoritySigningKeySourceV1;
   private readonly evaluator: PolicyAuthorityEvaluatorV1;
   private readonly revocations: PolicyAuthorityRevocationStoreV1;
@@ -404,10 +406,18 @@ export class PolicyAuthorityServiceV1 {
   constructor(options: PolicyAuthorityServiceOptionsV1) {
     requireDependency(options, 'Policy Authority 配置');
     this.trustRoot = validateTrustRoot(options.trustRoot);
+    this.keySetSource = isKeySetSource(options.keySet) ? options.keySet : undefined;
     this.signingKeySource = requireObject(options.signingKeySource, 'signingKeySource');
     this.evaluator = requireObject(options.evaluator, 'evaluator');
     this.revocations = requireObject(options.revocations, 'revocations');
     this.nonceStore = requireObject(options.nonceStore, 'nonceStore');
+    requireCallable(this.revocations, 'isTokenRevoked');
+    requireCallable(this.revocations, 'isDecisionRevoked');
+    requireCallable(this.revocations, 'isKeyRevoked');
+    requireCallable(this.revocations, 'revokeToken');
+    requireCallable(this.revocations, 'revokeDecision');
+    requireCallable(this.revocations, 'revokeKey');
+    requireCallable(this.nonceStore, 'consume');
     this.now = options.now ?? (() => new Date().toISOString());
     let initialKeySet: SignedPolicyAuthorityKeySetV1;
     try {
@@ -436,12 +446,11 @@ export class PolicyAuthorityServiceV1 {
     }
     const now = this.currentTime();
     const next = this.loadAndVerifyKeySet(nextSource, now);
-    if (Date.parse(next.issuedAt) < Date.parse(this.currentKeySet.issuedAt)) failClosed('KeySet 轮换版本不能回退');
-    this.assertSigningKey(next, now);
-    this.currentKeySet = next;
+    this.applyKeySet(next, now);
   }
 
   issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 {
+    this.refreshConfiguredKeySet();
     const issuedAt = this.currentTime();
     const validUntil = addSeconds(issuedAt, request.lifetimeSeconds);
     validateIssueRequest(request, issuedAt, validUntil);
@@ -513,6 +522,7 @@ export class PolicyAuthorityServiceV1 {
 
   /** Agent 侧最终授权入口：重新校验合同、签名、绑定、撤销、过期和一次性 Nonce。 */
   authorize(input: { plan: unknown; token: unknown; decision: unknown; localPolicy: unknown }): NonceConsumptionRecordV1 {
+    this.refreshConfiguredKeySet();
     const plan = validateAgentPlan(input.plan);
     const token = validateAgentCapabilityToken(input.token);
     const decision = validatePolicyAuthorityDecision(input.decision);
@@ -540,6 +550,7 @@ export class PolicyAuthorityServiceV1 {
   }
 
   revokeToken(tokenInput: unknown, reason: string): TokenRevocationRecordV1 {
+    this.refreshConfiguredKeySet();
     const token = validateAgentCapabilityToken(tokenInput);
     const now = this.currentTime();
     const key = this.findKey(token.authorityKeyId, now, false);
@@ -561,6 +572,7 @@ export class PolicyAuthorityServiceV1 {
   }
 
   revokeDecision(decisionInput: unknown, reason: string): DecisionRevocationRecordV1 {
+    this.refreshConfiguredKeySet();
     const decision = validatePolicyAuthorityDecision(decisionInput);
     const now = this.currentTime();
     const key = this.findKey(decision.authorityKeyId, now, false);
@@ -579,6 +591,24 @@ export class PolicyAuthorityServiceV1 {
       failClosed('撤销状态不可用');
     }
     return record;
+  }
+
+  /**
+   * 通过 Policy Authority 正式入口持久撤销签发 Key，禁止调用方直接改写 KeySet 或绕过撤销状态。
+   * KeySet 轮换后，即使旧 Key 不再出现在当前 KeySet，已持久化的撤销状态仍优先于任何缓存凭证。
+   */
+  revokeKey(authorityKeyId: string): void {
+    this.refreshConfiguredKeySet();
+    const keyId = requireText(authorityKeyId, 'authorityKeyId');
+    if (!isSafeIdentifier(keyId)) failClosed('authorityKeyId 格式不合法');
+    rejectDevelopmentIdentifier(keyId, 'authorityKeyId');
+    if (!this.currentKeySet.keys.some((key) => key.keyId === keyId)) failClosed('不能撤销未知的 Policy Authority key');
+    try {
+      this.revocations.revokeKey(keyId);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      failClosed('撤销状态不可用');
+    }
   }
 
   private getActiveSigningKey(now: string): { keyId: string; privateKey: KeyObject | string } {
@@ -634,6 +664,7 @@ export class PolicyAuthorityServiceV1 {
     const keySet = validatePolicyAuthorityKeySet(envelope.keySet);
     if (keySet.authorityId !== envelope.authorityId) failClosed('KeySet 内层 authorityId 与 Envelope 不匹配');
     for (const key of keySet.keys) {
+      rejectDevelopmentIdentifier(key.keyId, 'KeySet keyId');
       validatePublicKey(key.publicKeyPem);
       if (key.keyId === this.trustRoot.rootKeyId || publicKeyFingerprint(key.publicKeyPem) === this.trustRoot.fingerprintSha256) {
         failClosed('Policy Authority signing key 必须独立于信任根');
@@ -641,7 +672,28 @@ export class PolicyAuthorityServiceV1 {
     }
     if (!verifyTokenSignature(envelope, this.trustRoot.publicKeyPem)) failClosed('KeySet 信任根签名无效');
     if (Date.parse(keySet.issuedAt) > Date.parse(now) + 60_000) failClosed('KeySet 签发时间超前');
-    return keySet;
+    return structuredClone(keySet);
+  }
+
+  private refreshConfiguredKeySet(): void {
+    if (!this.keySetSource) return;
+    let envelope: SignedPolicyAuthorityKeySetV1;
+    try {
+      envelope = resolveKeySet(this.keySetSource);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      failClosed('KeySet 来源不可用');
+    }
+    const now = this.currentTime();
+    const next = this.loadAndVerifyKeySet(envelope, now);
+    this.applyKeySet(next, now);
+  }
+
+  private applyKeySet(next: PolicyAuthorityKeySetV1, now: string): void {
+    if (keySetFingerprint(next) === keySetFingerprint(this.currentKeySet)) return;
+    if (Date.parse(next.issuedAt) <= Date.parse(this.currentKeySet.issuedAt)) failClosed('KeySet 轮换版本必须严格递增');
+    this.assertSigningKey(next, now);
+    this.currentKeySet = structuredClone(next);
   }
 }
 
@@ -711,15 +763,15 @@ export class ProductionPolicyAuthorityPolicyServiceV1 {
  * 生产签名私钥来源。环境变量必须是 keyId 到 PEM 的完整映射，保证 KeySet 轮换时不存在按位置猜测私钥的路径。
  */
 export class ProductionPolicyAuthoritySigningKeySourceV1 implements PolicyAuthoritySigningKeySourceV1 {
-  private readonly keys: ReadonlyMap<string, string>;
+  private readonly environment: NodeJS.ProcessEnv;
 
   constructor(environment: NodeJS.ProcessEnv = process.env) {
-    const raw = requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON');
-    this.keys = parseSigningKeys(raw);
+    this.environment = environment;
+    parseSigningKeys(requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON'));
   }
 
   getPrivateKey(keyId: string): string | undefined {
-    return this.keys.get(keyId);
+    return parseSigningKeys(requiredEnvironment(this.environment, 'GCAC_POLICY_AUTHORITY_SIGNING_KEYS_JSON')).get(keyId);
   }
 }
 
@@ -768,9 +820,13 @@ export function createProductionPolicyAuthorityServicesV1(
     revocations: state,
     nonceStore: state,
   });
-  const services = { service, trustRoot, keySet, signingKeys, policy, state };
+  const services = Object.freeze({ service, trustRoot, keySet, signingKeys, policy, state });
   productionPolicyAuthorityServices.add(services);
   return services;
+}
+
+function isKeySetSource(value: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKeySetSourceV1): value is PolicyAuthorityKeySetSourceV1 {
+  return typeof (value as PolicyAuthorityKeySetSourceV1).load === 'function';
 }
 
 function resolveKeySet(value: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKeySetSourceV1): SignedPolicyAuthorityKeySetV1 {
@@ -859,8 +915,18 @@ function isSafeAbsolutePath(value: string): boolean {
     && !value.split(/[\\/]/).includes('..')
     && value.length <= 1024;
 }
+function keySetFingerprint(keySet: PolicyAuthorityKeySetV1): string {
+  return createHash('sha256').update(JSON.stringify({
+    keySetVersion: keySet.keySetVersion,
+    authorityId: keySet.authorityId,
+    activeKeyId: keySet.activeKeyId,
+    issuedAt: keySet.issuedAt,
+    keys: [...keySet.keys].sort((left, right) => left.keyId.localeCompare(right.keyId)),
+  })).digest('hex');
+}
 function requireDependency<T>(value: T | undefined, name: string): asserts value is T { if (!value) failClosed(`${name} 缺失`); }
 function requireObject<T extends object>(value: T | undefined, name: string): T { if (!value || typeof value !== 'object') failClosed(`${name} 缺失`); return value; }
+function requireCallable(value: object, name: string): void { if (typeof (value as Record<string, unknown>)[name] !== 'function') failClosed(`生产依赖 ${name} 缺失`); }
 function requiredEnvironment(environment: NodeJS.ProcessEnv, name: string): string { const value = environment[name]; if (!value?.trim()) failClosed(`缺少生产配置 ${name}`); return value; }
 function parseSigningKeys(raw: string): ReadonlyMap<string, string> {
   let parsed: unknown;
@@ -955,6 +1021,6 @@ function exactRuntimeKeys(value: unknown, allowed: string[], path: string): asse
   if (unknown.length > 0) failClosed(`${path} 包含未知字段`);
 }
 function rejectDevelopmentIdentifier(value: string, path: string): void {
-  if (/(?:default|development|dev-key)/i.test(value)) failClosed(`${path} 禁止使用开发默认密钥`);
+  if (/(?:^|[-_.:])(?:default|development|dev|test|fixture)(?:[-_.:]|$)/i.test(value)) failClosed(`${path} 禁止使用开发默认密钥`);
 }
 function failClosed(message: string): never { throw new AppError('SYSTEM_INTERNAL_ERROR', `Policy Authority 已失败关闭：${message}`, undefined, false); }
