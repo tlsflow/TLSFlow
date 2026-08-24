@@ -523,6 +523,10 @@ function sourceLabel(source: string | undefined): string {
   return '未知'
 }
 
+function riskCertificateId(risk: ApiRecord): string {
+  return readString(risk, ['certificateId', 'certificateAssetId'], '')
+}
+
 function groupCertificateObservations(items: readonly ApiRecord[]): Record<string, CertificateObservation[]> {
   return items.reduce<Record<string, CertificateObservation[]>>((acc, item) => {
     const assetId = readString(item, ['serviceAssetId'], '')
@@ -810,7 +814,15 @@ function trimProbeStateToTargets() {
             <div v-if="selectedAssetRisks.length === 0" class="monitor-page__empty-line">暂无相关事件。</div>
             <ul v-else class="monitor-page__risk-list">
               <li v-for="risk in selectedAssetRisks" :key="readId(risk)">
-                <div>
+                <RouterLink
+                  v-if="riskCertificateId(risk)"
+                  class="monitor-page__risk-link"
+                  :to="{ path: '/certificates', query: { certificateId: riskCertificateId(risk) } }"
+                >
+                  <strong>{{ readString(risk, ['title', 'name'], '未命名事件') }}</strong>
+                  <span>{{ readString(risk, ['summary', 'message'], '无摘要') }}</span>
+                </RouterLink>
+                <div v-else>
                   <strong>{{ readString(risk, ['title', 'name'], '未命名事件') }}</strong>
                   <span>{{ readString(risk, ['summary', 'message'], '无摘要') }}</span>
                 </div>
@@ -1250,6 +1262,17 @@ function trimProbeStateToTargets() {
 .monitor-page__risk-list li div {
   display: grid;
   gap: 4px;
+}
+
+.monitor-page__risk-link {
+  color: inherit;
+  display: grid;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.monitor-page__risk-link:hover strong {
+  color: #0f766e;
 }
 
 .monitor-page__risk-list li span {

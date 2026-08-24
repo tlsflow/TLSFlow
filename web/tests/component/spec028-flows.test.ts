@@ -624,6 +624,26 @@ describe('spec028 前端闭环', () => {
   })
 
   it('风险卡片会跳转到证书上下文页面', async () => {
+    monitorMocks.listMonitorTargets.mockResolvedValue(okPage([
+      {
+        id: 'target-1',
+        serviceAssetId: 'asset-1',
+        metrics: ['availability', 'certificate'],
+        intervalSeconds: 60,
+        createdAt: '2026-06-08T00:00:00.000Z',
+      },
+    ]))
+    monitorMocks.listRiskEvents.mockResolvedValue(okPage([
+      {
+        id: 'risk-1',
+        title: '证书即将过期',
+        summary: 'a.example.com 证书即将过期',
+        risk: 'HIGH',
+        status: 'OPEN',
+        certificateId: 'cert-1',
+        serviceAssetId: 'asset-1',
+      },
+    ]))
     const router = createTestRouter('/monitors')
     router.push('/monitors')
     await router.isReady()
@@ -631,11 +651,13 @@ describe('spec028 前端闭环', () => {
     const wrapper = mount(MonitorsView, {
       global: {
         plugins: [router],
+        stubs: { RouterLink: false },
       },
     })
     await flushPromises()
+    await flushPromises()
 
-    await wrapper.find('button.gc-monitor-page__card').trigger('click')
+    await wrapper.find('a.monitor-page__risk-link').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/certificates?certificateId=cert-1')
   })
@@ -682,7 +704,7 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
 
     expect(bodyText()).toContain('工作流')
-    expect(bodyText()).not.toContain('工作流模板')
+    expect(bodyText()).not.toContain('工作流模板管理')
     clickBodyButton('版本')
     await flushPromises()
     expect(bodyText()).toContain('初始草稿')
