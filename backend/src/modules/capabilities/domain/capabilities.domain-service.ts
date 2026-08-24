@@ -32,6 +32,23 @@ import type {
 } from '../../../shared/contracts/capability-contracts.js';
 import { capabilityDefinitionMap, createExtensionCapabilityDefinition } from '../schema/capabilities.schema.js';
 
+const retiredCapabilityKeys = new Set([
+  'process.exec',
+  'process.exec.capture_output',
+  'process.script.run',
+  'windows.powershell.exec',
+  'windows.cmd.exec',
+  'windows.certutil.import_pfx',
+  'service.reload.custom',
+  'custom.reload.command',
+  'ssh.exec',
+  'winrm.exec',
+  'wmi.exec',
+  'agent.legacy.online',
+  'script_package.generate',
+  'script_package.rollback_generate',
+]);
+
 interface NormalizedDeclarationBucket {
   definition?: CapabilityDefinition;
   declarations: CapabilityDeclaration[];
@@ -58,6 +75,7 @@ export class CapabilitiesDomainService {
     const source = readEnum(input.source, CapabilityDeclarationSources, 'source');
     const status = readEnum(input.status, CapabilityDeclarationStatuses, 'status');
     const capabilityKey = normalizeCapabilityKey(input.capabilityKey);
+    rejectRetiredCapabilityKey(capabilityKey);
     const builtInDefinition = capabilityDefinitionMap.get(capabilityKey);
     const definition = builtInDefinition ?? createExtensionCapabilityDefinition(capabilityKey);
     const confidence = normalizeConfidence(input.confidence, 'confidence');
@@ -98,6 +116,7 @@ export class CapabilitiesDomainService {
 
   normalizeManualDeclaration(input: ManualCapabilityDeclarationInput): CapabilityDeclaration {
     const capabilityKey = normalizeCapabilityKey(input.capabilityKey);
+    rejectRetiredCapabilityKey(capabilityKey);
     const definition = this.requireDefinition(capabilityKey);
     if (!definition.manualAllowed) {
       throw new AppError('VALIDATION_FAILED', '该能力不允许人工声明', { capabilityKey: definition.key });
@@ -297,31 +316,29 @@ export class CapabilitiesDomainService {
     const activeKeys = new Set(
       input.declarations
         .filter((item) => item.status === 'active' && !isExpired(item))
-        .map((item) => normalizeCapabilityKey(item.capabilityKey)),
+        .map((item) => {
+          const capabilityKey = normalizeCapabilityKey(item.capabilityKey);
+          rejectRetiredCapabilityKey(capabilityKey);
+          return capabilityKey;
+        }),
     );
-    const criticalKeys = input.criticalCapabilityKeys ?? [];
+    const criticalKeys = (input.criticalCapabilityKeys ?? []).map((item) => {
+      const capabilityKey = normalizeCapabilityKey(item);
+      rejectRetiredCapabilityKey(capabilityKey);
+      return capabilityKey;
+    });
 
-    const hasL1Core = hasAll(activeKeys, ['agent.full.online', 'agent.task.receive', 'agent.log.report', 'file.read', 'file.write', 'file.backup', 'process.exec', 'rollback.snapshot', 'rollback.restore']);
+    const hasL1Core = hasAll(activeKeys, ['agent.full.online', 'agent.task.receive', 'agent.log.report', 'file.read', 'file.write', 'file.backup', 'command.execute_allowlisted', 'rollback.snapshot', 'rollback.restore']);
     const hasL1Critical = criticalKeys.length === 0 || criticalKeys.every((item) => activeKeys.has(normalizeCapabilityKey(item)));
     if (hasL1Core && hasL1Critical) {
       return evaluation(input.targetType, input.targetId, 'L1', ['full_agent_online', 'full_execution_path'], [], input.sourceSnapshotId);
     }
 
-    const hasL2Core = activeKeys.has('agent.legacy.online') && (activeKeys.has('file.write') || activeKeys.has('process.exec'));
-    if (hasL2Core) {
-      return evaluation(input.targetType, input.targetId, 'L2', ['legacy_agent_online'], missingForLevel(activeKeys, ['agent.full.online', 'agent.task.receive', 'agent.log.report']), input.sourceSnapshotId);
-    }
-
     const hasTransport = anyOf(activeKeys, ['ssh.sftp', 'ssh.scp', 'smb.copy']);
-    const hasExec = anyOf(activeKeys, ['ssh.exec', 'winrm.exec', 'wmi.exec']);
+    const hasAllowlistedCommand = activeKeys.has('command.execute_allowlisted');
     const hasGateway = activeKeys.has('gateway.reachable') || activeKeys.has('ssh.connect') || activeKeys.has('winrm.connect');
-    if (hasGateway && hasTransport && hasExec) {
-      return evaluation(input.targetType, input.targetId, 'L3', ['gateway_or_agentless_path'], missingForLevel(activeKeys, ['agent.legacy.online', 'manual.operation']), input.sourceSnapshotId);
-    }
-
-    const hasL4Core = hasAll(activeKeys, ['script_package.generate', 'manual.operation', 'manual.result_upload']);
-    if (hasL4Core) {
-      return evaluation(input.targetType, input.targetId, 'L4', ['script_package_manual_path'], missingForLevel(activeKeys, ['gateway.reachable', 'ssh.connect', 'winrm.connect']), input.sourceSnapshotId);
+    if (hasGateway && hasTransport && hasAllowlistedCommand) {
+      return evaluation(input.targetType, input.targetId, 'L3', ['gateway_or_agentless_path'], missingForLevel(activeKeys, ['manual.operation']), input.sourceSnapshotId);
     }
 
     if (activeKeys.has('certificate.verify') || activeKeys.has('manual.record')) {
@@ -342,14 +359,10 @@ export class CapabilitiesDomainService {
 
     if (blockedKeys.includes('agent.full.online')) {
       suggestions.push(suggestion('use_full_agent', '优先安装 Full Agent', '缺失完整 Agent 在线能力，自动化主路径不成立。', ['安装或恢复 Full Agent', '确认控制通道可连接'], 'medium', false, ['agent.full.online']));
-      suggestions.push(suggestion('use_legacy_agent', '旧系统可降级到 Legacy Agent', '如果目标太旧跑不了 Full Agent，至少先走 Legacy Agent。', ['安装 Legacy Agent', '重新上报基础能力'], 'medium', false, ['agent.full.online']));
     }
-    if (blockedKeys.includes('file.write')) {
-      suggestions.push(suggestion('generate_script_package', '缺失写入能力可改用脚本包', '当前执行账户无法写入目标文件，直接自动部署就是扯淡。', ['调整执行账户权限', '或生成脚本包交由本机管理员执行'], 'high', true, ['file.write']));
-    }
-    if (blockedKeys.includes('process.exec')) {
-      suggestions.push(suggestion('use_ssh', '缺失执行能力时改走远程执行', '本地无法安全执行命令，可以改用 SSH/WinRM/WMI。', ['配置 SSH 或 WinRM 凭据', '限制命令白名单', '保留执行证据'], 'critical', true, ['process.exec']));
-      suggestions.push(suggestion('manual_confirm', '转人工执行', '命令执行能力缺失时，人工流程比伪自动化靠谱。', ['生成脚本包', '人工执行后上传结果'], 'critical', true, ['process.exec']));
+    if (blockedKeys.includes('command.execute_allowlisted')) {
+      suggestions.push(suggestion('use_ssh', '缺失白名单命令能力时改走受控远程执行', '本地缺少受控命令执行能力，只能使用已授权的远程通道或人工流程。', ['配置受控远程连接', '绑定可执行文件和固定参数模板', '保留执行证据'], 'critical', true, ['command.execute_allowlisted']));
+      suggestions.push(suggestion('manual_confirm', '转人工执行', '缺少白名单命令能力时，人工流程比伪自动化可靠。', ['人工执行通用操作', '上传执行结果和证据'], 'critical', true, ['command.execute_allowlisted']));
     }
     if (blockedKeys.some((item) => item.endsWith('.reload') || item === 'service.reload')) {
       suggestions.push(suggestion('manual_confirm', '缺失重载能力，允许人工补 reload', '文件能写但不会 reload，就别假装部署成功。', ['允许只写入文件', '人工执行 reload', '等待 TLS 验证通过后再完成'], requirement.riskLevel, requirement.riskLevel !== 'low', blockedKeys.filter((item) => item.endsWith('.reload') || item === 'service.reload')));
@@ -366,7 +379,7 @@ export class CapabilitiesDomainService {
   private canDegrade(missing: CapabilityGap[]): boolean {
     if (missing.length === 0) return false;
     const keys = new Set(missing.map((item) => item.capabilityKey));
-    if (keys.has('file.write') || keys.has('process.exec') || keys.has('service.reload')) return true;
+    if (keys.has('file.write') || keys.has('command.execute_allowlisted') || keys.has('service.reload')) return true;
     if ([...keys].some((item) => item.endsWith('.reload') || item === 'certificate.verify')) return true;
     return false;
   }
@@ -398,6 +411,7 @@ export class CapabilitiesDomainService {
     const buckets = new Map<string, NormalizedDeclarationBucket>();
     for (const item of declarations) {
       const normalizedKey = normalizeCapabilityKey(item.capabilityKey);
+      rejectRetiredCapabilityKey(normalizedKey);
       const definition = capabilityDefinitionMap.get(normalizedKey) ?? createExtensionCapabilityDefinition(normalizedKey);
       const bucket = buckets.get(normalizedKey) ?? { definition, declarations: [] };
       bucket.declarations.push({ ...item, capabilityKey: definition?.key ?? normalizedKey });
@@ -430,6 +444,7 @@ export class CapabilitiesDomainService {
     context: CapabilityMatchContext,
   ): ConstraintMatchState {
     const normalizedKey = normalizeCapabilityKey(constraint.capabilityKey);
+    rejectRetiredCapabilityKey(normalizedKey);
     const bucket = buckets.get(normalizedKey);
     const definition = capabilityDefinitionMap.get(normalizedKey) ?? createExtensionCapabilityDefinition(normalizedKey);
     if (!bucket) {
@@ -595,6 +610,12 @@ function normalizeCapabilityKey(value: string): string {
     throw new AppError('VALIDATION_FAILED', '能力键不合法', { field: 'capabilityKey', capabilityKey: normalized });
   }
   return normalized;
+}
+
+function rejectRetiredCapabilityKey(capabilityKey: string): void {
+  if (retiredCapabilityKeys.has(capabilityKey)) {
+    throw new AppError('VALIDATION_FAILED', '能力键已停用', { field: 'capabilityKey', capabilityKey });
+  }
 }
 
 function normalizeConfidence(value: number, field: string): number {

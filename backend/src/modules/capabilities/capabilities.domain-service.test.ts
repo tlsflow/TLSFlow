@@ -4,7 +4,7 @@ import { CapabilitiesApplicationService } from './application/capabilities.appli
 import { CapabilitiesDomainService } from './domain/capabilities.domain-service.js';
 import type { CapabilityDeclaration, CapabilityRequirement } from '../../shared/contracts/capability-contracts.js';
 
-test('能力字典包含内置能力和兼容别名定义', async () => {
+test('能力字典只保留受控通用能力，不再提供旧危险执行键', async () => {
   const service = new CapabilitiesApplicationService();
   const definitions = service.listDefinitions();
 
@@ -15,11 +15,28 @@ test('能力字典包含内置能力和兼容别名定义', async () => {
   assert.ok(definitions.some((item) => item.key === 'linux.sysv.v1'));
   assert.ok(definitions.some((item) => item.key === 'linux.filesystem.posix-atomic.v1'));
   assert.ok(definitions.some((item) => item.key === 'linux.security.selinux.v1'));
+  assert.ok(definitions.some((item) => item.key === 'command.execute_allowlisted'));
 
-  const deprecated = definitions.find((item) => item.key === 'service.reload.custom');
-  assert.ok(deprecated);
-  assert.equal(deprecated?.deprecated, true);
-  assert.equal(deprecated?.replacedBy, 'process.exec');
+  const retiredKeys = [
+    'process.exec',
+    'process.exec.capture_output',
+    'process.script.run',
+    'windows.powershell.exec',
+    'windows.cmd.exec',
+    'windows.certutil.import_pfx',
+    'linux.openssl.available',
+    'service.reload.custom',
+    'custom.reload.command',
+    'ssh.exec',
+    'winrm.exec',
+    'wmi.exec',
+    'agent.legacy.online',
+    'script_package.generate',
+    'script_package.rollback_generate',
+  ];
+  for (const key of retiredKeys) {
+    assert.equal(definitions.some((item) => item.key === key), false, `旧危险能力不应出现在字典：${key}`);
+  }
 });
 
 test('人工能力声明必须带风险证据来源和审计引用', async () => {
@@ -169,7 +186,7 @@ test('L1-L5 兼容等级按能力集合而不是按 OS 标签计算', async () =
       declaration('file.read', now),
       declaration('file.write', now),
       declaration('file.backup', now),
-      declaration('process.exec', now, ['nginx -s reload']),
+      declaration('command.execute_allowlisted', now),
       declaration('rollback.snapshot', now),
       declaration('rollback.restore', now),
       declaration('nginx.reload', now),
@@ -185,7 +202,7 @@ test('L1-L5 兼容等级按能力集合而不是按 OS 标签计算', async () =
       declaration('gateway.reachable', now),
       declaration('ssh.connect', now),
       declaration('ssh.sftp', now),
-      declaration('ssh.exec', now),
+      declaration('command.execute_allowlisted', now),
     ],
   });
   assert.equal(l3.level, 'L3');
