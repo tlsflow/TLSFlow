@@ -172,6 +172,20 @@ test('C# Compatibility Agent 产品 Action 与直连 Handler 必须被识别', (
   assert.ok(findings.some((finding) => finding.rule === 'HOST_PRODUCT_ACTION_ALIAS'));
 });
 
+test('IIS Agent-side Plugin 可以承载 IIS 实现，但仍受 Agent 进程执行规则约束', () => {
+  const sidePluginFindings = scanPluginArchitectureSource(
+    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/src/IisAgentSidePlugin.cs',
+    'internal static class IisAgentSidePlugin { }',
+  );
+  assert.equal(sidePluginFindings.some((finding) => finding.rule === 'AGENT_PRODUCT_IMPLEMENTATION'), false);
+
+  const sidePluginExecutionFindings = scanPluginArchitectureSource(
+    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/src/IisAgentSidePlugin.cs',
+    'var process = new ProcessStartInfo(command);',
+  );
+  assert.ok(sidePluginExecutionFindings.some((finding) => finding.rule === 'AGENT_FREE_COMMAND_EXECUTION'));
+});
+
 test('所有者 Driver 选择必须被识别', () => {
   const findings = scanPluginArchitectureSource('backend/src/context.ts', "if (deviceAsset) return { driverKind: 'DEVICE_PLUGIN' }; ");
   assert.equal(findings[0]?.rule, 'OWNER_DRIVER_SELECTION');
@@ -250,6 +264,20 @@ test('宿主普通 require 方法和内置加载器不得误报动态加载或�
   );
   assert.equal(loaderFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'), false);
   assert.equal(loaderFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_SERVICE'), false);
+});
+
+test('宿主可以静态读取 Registry 元数据，但不得静态装载插件 Runtime', () => {
+  const registryFindings = scanPluginArchitectureSource(
+    'backend/src/app.module.ts',
+    "import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';",
+  );
+  assert.equal(registryFindings.some((finding) => finding.rule === 'HOST_PLUGIN_DYNAMIC_LOAD'), false);
+
+  const runtimeFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/application/plugin-loader.ts',
+    "import { createPluginRunnerExecutor } from '../builtin-plugins/cloud-aliyun/runtime/index.js';",
+  );
+  assert.ok(runtimeFindings.some((finding) => finding.rule === 'HOST_PLUGIN_DYNAMIC_LOAD'));
 });
 
 test('只有 Runner 固定执行器装载器允许动态 import，宿主和其他 Runner 文件仍必须拒绝', () => {
@@ -412,6 +440,42 @@ test('插件运行时变量和插件自带 Workflow 不得误报宿主边界', (
     '{"steps":[{"name":"readCitrixVirtualServers","type":"citrix.discovery","mode":"script","script":"show ns config"}],"frameworkType":"CITRIX"}',
   );
   assert.deepEqual(workflowFindings, []);
+});
+
+test('插件只允许 Runner 固定环境和包内资源边界，普通宿主访问仍必须拒绝', () => {
+  const runtimePath = resolve(dirname(fileURLToPath(import.meta.url)), '../..', 'backend/src/modules/plugins/builtin-plugins/app-java-keystore/runtime/index.js');
+  const runtimeFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/builtin-plugins/app-java-keystore/runtime/index.js',
+    readFileSync(runtimePath, 'utf8'),
+  );
+  assert.equal(runtimeFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'), false);
+
+  const environmentFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/builtin-plugins/sample/runtime/index.js',
+    'const value = process.env.SECRET;',
+  );
+  assert.ok(environmentFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'));
+
+  const fileFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/builtin-plugins/sample/runtime/index.js',
+    "import { readFileSync } from 'node:fs';\nconst value = readFileSync('/etc/passwd', 'utf8');",
+  );
+  assert.ok(fileFindings.some((finding) => finding.rule === 'PLUGIN_DIRECT_HOST_ACCESS'));
+});
+
+test('Runner 资源拒绝清单中的字符串不等于实际命令合同或插件对象调用', () => {
+  const rejectionFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/schema/plugin-workflow.schema.ts',
+    "function rejectUnsafeRunnerKeys(input) { if (['command.execute', 'plugin.invoke'].includes(key)) fail(); }",
+  );
+  assert.equal(rejectionFindings.some((finding) => finding.rule === 'FORBIDDEN_COMMAND_CONTRACT'), false);
+  assert.equal(rejectionFindings.some((finding) => finding.rule === 'HOST_PLUGIN_OBJECT_CALL'), false);
+
+  const invocationFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/application/plugin-loader.ts',
+    'return plugin.invoke(input);',
+  );
+  assert.ok(invocationFindings.some((finding) => finding.rule === 'HOST_PLUGIN_OBJECT_CALL'));
 });
 
 test('安全合同和生产插件身份必须按终态规则扫描', () => {

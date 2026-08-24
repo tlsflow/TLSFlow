@@ -96,12 +96,15 @@ const productIdentifierPattern = /(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citr
 const builtinPluginsPathPattern = /(?:^|\/)builtin-plugins(?:\/|$)/;
 const pluginPackagePathPattern = /(?:^|\/)builtin-plugins\/[^/]+\//;
 const pluginModuleSpecifierPattern = /(?:^|\/)builtin-plugins\/(?!builtin-unified-plugin-loader(?:[./]|$))[^/]+(?:\/|$)/i;
+// Registry 和 package ledger 只提供插件身份、包摘要和资源索引；它们不是插件 Runtime，宿主可以静态读取其元数据。
+const pluginMetadataModuleSpecifierPattern = /(?:^|\/)builtin-plugins\/(?:builtin-plugin-registry|builtin-plugin-package-ledger)(?:\.[^/]+)?$/i;
 const builtinWorkflowPathPattern = /(?:^|\/)builtin-workflows(?:\/|$)/;
 const pluginWorkflowPathPattern = /(?:^|\/)builtin-plugins\/[^/]+\/workflows(?:\/|$)/;
 const userWorkflowPathPattern = /(?:^|\/)data\/workflows(?:\/|$)/;
 const workflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${pluginWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
 const hostWorkflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
 const agentPathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|windows-compat-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
+const agentCorePathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)|^agents\/windows-compat-full-agent\/(?!agent-side-plugins(?:\/|$))/;
 const caNodePathPattern = /^agents\/(?:go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
 const compatibilityContractPathPattern = /(?:^|\/)(?:compatibility|legacy-agents)(?:\/|$)/;
 const testPathPattern = /(?:^|\/)(?:tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$|_test\.go$/;
@@ -144,6 +147,8 @@ const directAgentConsumerPattern = /\b(?:AgentDirectClient|agentDirectClient|dir
 const registeredHostApiMethods = new Set([
   'artifact.grant.read',
   'secret.grant.resolve',
+  'cloudService.get',
+  'http.request',
   'execution.progress',
   'execution.checkpoint.save',
   'execution.checkpoint.load',
@@ -153,6 +158,7 @@ const registeredHostApiMethods = new Set([
   'audit.append',
 ]);
 const hostApiInvocationMethods = new Set(['call', 'invoke', 'request']);
+const pluginObjectCallPattern = /\b(?:plugin|pluginObject|pluginInstance)\.(?:invoke|instance(?:\.[A-Za-z_$][A-Za-z0-9_$]*)?)\s*\(/g;
 const moduleAssetExtensions = new Set(['.css', '.gif', '.ico', '.jpeg', '.jpg', '.less', '.png', '.sass', '.scss', '.svg', '.webp', '.woff', '.woff2']);
 const architectureClassifications = {
   PRODUCTION: 'PRODUCTION',
@@ -174,6 +180,7 @@ function classifyPath(path) {
   return architectureClassifications.PRODUCTION;
 }
 function isAgentPath(path) { return agentPathPattern.test(normalizePath(path)); }
+function isAgentCorePath(path) { return agentCorePathPattern.test(normalizePath(path)); }
 function isCaNodePath(path) { return caNodePathPattern.test(normalizePath(path)); }
 function isBuiltinPluginPath(path) { return pluginPackagePathPattern.test(normalizePath(path)); }
 function isBuiltinWorkflowPath(path) { return builtinWorkflowPathPattern.test(normalizePath(path)); }
@@ -288,7 +295,7 @@ function addTextMatches(findings, rule, path, source, pattern, message, anchor =
   const globalPattern = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`);
   for (const match of source.matchAll(globalPattern)) {
     const offset = match.index ?? 0;
-    if (shouldReport(source, offset)) findings.push(makeTextFinding(rule, path, source, offset, message, anchor));
+    if (shouldReport(source, offset, match[0])) findings.push(makeTextFinding(rule, path, source, offset, message, anchor));
   }
 }
 function isRetiredContractMarker(source, offset) {
@@ -512,7 +519,9 @@ function isDynamicModuleLoad(node, sourceFile, moduleLoadAliases) {
 }
 
 function isPluginModuleSpecifier(value) {
-  return typeof value === 'string' && pluginModuleSpecifierPattern.test(normalizePath(value));
+  return typeof value === 'string'
+    && !pluginMetadataModuleSpecifierPattern.test(normalizePath(value))
+    && pluginModuleSpecifierPattern.test(normalizePath(value));
 }
 
 function isPluginModuleLoad(node, sourceFile, moduleLoadAliases) {
@@ -585,6 +594,56 @@ function scanAgentDownloadExecution(path, source) {
   return findings;
 }
 
+const pluginRunnerRuntimePathPattern = /^backend\/src\/modules\/plugins\/builtin-plugins\/[^/]+\/runtime\/index\.js$/i;
+const runnerEnvironmentNamePattern = /^GCAC_PLUGIN_(?:ID|VERSION|VERSION_ID|PACKAGE_HASH|MANIFEST_HASH|RESOURCE_HASH)$/;
+
+function sourceLineAt(source, offset) {
+  const lineStart = Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1;
+  const lineEnd = source.indexOf('\n', offset) < 0 ? source.length : source.indexOf('\n', offset);
+  return source.slice(lineStart, lineEnd);
+}
+
+function fixedRunnerEnvironmentCalls(source) {
+  const helperCallPattern = /\b(?:requiredEnvironment|requiredDescriptorEnv|requiredDigestEnv|injected|requiredDigest)\s*\(\s*([^,)\r\n]+?)(?:\s*,|\s*\))/g;
+  // 函数定义中的参数名 `name` 不是一次环境读取；这里只接受调用点的固定字符串。
+  const calls = [...source.matchAll(helperCallPattern)]
+    .map((match) => match[1]?.trim())
+    .filter((value) => Boolean(value) && /^['"`]/.test(value));
+  return calls.length > 0 && calls.every((value) => {
+    const quoted = value.match(/^["'`]([^"'`]+)["'`]$/);
+    return Boolean(quoted && runnerEnvironmentNamePattern.test(quoted[1]));
+  });
+}
+
+function isControlledPluginEnvironmentAccess(path, source, offset) {
+  if (!pluginRunnerRuntimePathPattern.test(normalizePath(path))) return false;
+  const line = sourceLineAt(source, offset);
+  if (/\bprocess\.env\.(?:GCAC_PLUGIN_(?:ID|VERSION|VERSION_ID|PACKAGE_HASH|MANIFEST_HASH|RESOURCE_HASH))\b/.test(line)) return true;
+  if (/\bprocess\.env\s*\[\s*(?:["'`]GCAC_PLUGIN_(?:ID|VERSION|VERSION_ID|PACKAGE_HASH|MANIFEST_HASH|RESOURCE_HASH)["'`]|`GCAC_PLUGIN_)/.test(line)) return true;
+  if (/\bprocess\.env\s*\[\s*name\s*\]/.test(line) && fixedRunnerEnvironmentCalls(source)) return true;
+  if (/\bprocess\.env\s*\[\s*name\s*\]/.test(line)
+    && /\bconst\s+names\s*=\s*\[[\s\S]*?GCAC_PLUGIN_(?:VERSION_ID|PACKAGE_HASH|MANIFEST_HASH|RESOURCE_HASH)[\s\S]*?\]\s*;[\s\S]*?names\.map\s*\(/.test(source)) return true;
+  return false;
+}
+
+function hasPluginPackageResourceBoundary(source) {
+  return /\bconst\s+runtimeDirectory\s*=\s*dirname\s*\(\s*fileURLToPath\s*\(\s*import\.meta\.url\s*\)\s*\)/.test(source)
+    && /\bconst\s+packageDirectory\s*=\s*resolve\s*\(\s*runtimeDirectory\s*,\s*["']\.\.["']\s*\)/.test(source)
+    && /\brelative\s*\(\s*packageDirectory\s*,\s*absolute\s*\)/.test(source)
+    && /\brelativePath\s*===\s*["']\.\.["']|\brelativePath\.startsWith\s*\(\s*["']\.\.[\/]["']\s*\)/.test(source)
+    && /\breadFileSync\s*\(/.test(source);
+}
+
+function isControlledPluginPackageResourceAccess(path, source) {
+  return pluginRunnerRuntimePathPattern.test(normalizePath(path)) && hasPluginPackageResourceBoundary(source);
+}
+
+function isRejectedRunnerKeyContext(source, offset) {
+  const context = source.slice(Math.max(0, offset - 480), Math.min(source.length, offset + 480));
+  return /\brejectUnsafeRunnerKeys\s*\(|\bRunner 资源不得声明任意命令或脚本入口/.test(context)
+    && /\.includes\s*\(\s*key\s*\)/.test(context);
+}
+
 function scanTextArchitectureRules(path, source) {
   const normalizedPath = normalizePath(path);
   const findings = [];
@@ -602,8 +661,11 @@ function scanTextArchitectureRules(path, source) {
     addTextMatches(findings, 'AGENT_SHELL_EXECUTION', normalizedPath, source, agentPowerShellExecutionPattern, 'Agent 不得提供 PowerShell、编码命令或远程脚本执行入口');
     addTextMatches(findings, 'AGENT_SHELL_EXECUTION', normalizedPath, source, agentPowerShellCallOperatorPattern, 'Agent 不得通过 PowerShell 调用运算符或点源执行脚本变量');
     addTextMatches(findings, 'AGENT_FREE_COMMAND_EXECUTION', normalizedPath, source, agentFreeCommandExecutionPattern, 'Agent 不得把请求字段作为自由命令交给进程启动器');
-    addTextMatches(findings, 'AGENT_ACTION_ALIAS', normalizedPath, source, agentActionAliasPattern, 'Agent Core 不得注册或解析 Action Alias');
     findings.push(...scanAgentDownloadExecution(normalizedPath, source));
+  }
+
+  if (isAgentCorePath(normalizedPath)) {
+    addTextMatches(findings, 'AGENT_ACTION_ALIAS', normalizedPath, source, agentActionAliasPattern, 'Agent Core 不得注册或解析 Action Alias');
     addTextMatches(findings, 'AGENT_PRODUCT_IDENTIFICATION', normalizedPath, source, agentProductIdentityPattern, 'Agent Core 不得识别第三方产品或把产品身份写入运行时事实');
     addTextMatches(findings, 'AGENT_PRODUCT_IDENTIFICATION', normalizedPath, source, agentProductFactPattern, 'Agent Core 不得维护第三方产品专用事实键');
   }
@@ -626,7 +688,7 @@ function scanTextArchitectureRules(path, source) {
       'HOST_PLUGIN_OBJECT_CALL',
       normalizedPath,
       source,
-      /\b(?:plugin|pluginObject|pluginInstance)\.(?:instance|invoke)\b[^;\n]*\(/g,
+      pluginObjectCallPattern,
       '宿主不得在 IPC 之外直接调用插件对象',
     );
     addTextMatches(findings, 'HOST_PROVIDER_SIGNER', normalizedPath, source, hostProviderSignerPattern, '宿主不得拥有云厂商签名算法或 Provider signer');
@@ -638,9 +700,22 @@ function scanTextArchitectureRules(path, source) {
 
   if (pluginPath) {
     addTextMatches(findings, 'PLUGIN_DIRECT_DATABASE_ACCESS', normalizedPath, source, pluginDatabaseAccessPattern, '插件不得直接连接数据库或调用 Repository，必须使用已登记 Host API');
-    addTextMatches(findings, 'PLUGIN_DIRECT_HOST_ACCESS', normalizedPath, source, /\b(?:process\.env|process\.cwd|node:(?:fs|child_process)|require\s*\(\s*['"](?:fs|child_process)['"]|\b(?:Database|Repository)\b|\.(?:query|execute)\s*\()/g, '插件不得直接访问宿主环境变量、文件、进程、数据库或 Repository');
+    addTextMatches(
+      findings,
+      'PLUGIN_DIRECT_HOST_ACCESS',
+      normalizedPath,
+      source,
+      /\b(?:process\.env|process\.cwd|node:(?:fs|child_process)|require\s*\(\s*['"](?:fs|child_process)['"]|\b(?:Database|Repository)\b|\.(?:query|execute)\s*\()/g,
+      '插件不得直接访问宿主环境变量、文件、进程、数据库或 Repository',
+      '<text>',
+      (value, offset, match) => {
+        if (/\bprocess\.env/.test(match)) return !isControlledPluginEnvironmentAccess(normalizedPath, source, offset);
+        if (/\bnode:fs\b|require\s*\(\s*['"]fs['"]/.test(match)) return !isControlledPluginPackageResourceAccess(normalizedPath, source);
+        return true;
+      },
+    );
     addTextMatches(findings, 'PLUGIN_DIRECT_HOST_SERVICE', normalizedPath, source, /\b[A-Z][A-Za-z0-9_$]*Service\b|\bhost\.service\.invoke\b/g, '插件不得直接持有或调用宿主内部 Service');
-    addTextMatches(findings, 'PLUGIN_OBJECT_OUTSIDE_IPC', normalizedPath, source, /\bplugin\.(?:invoke|instance)\b[^;\n]*\(/g, '插件对象调用必须通过 IPC v1，不得形成进程外旁路');
+    addTextMatches(findings, 'PLUGIN_OBJECT_OUTSIDE_IPC', normalizedPath, source, pluginObjectCallPattern, '插件对象调用必须通过 IPC v1，不得形成进程外旁路');
   }
 
   // 当前项目未发布，Compatibility 和 legacy 目录中的旧合同与生产代码同样必须失败关闭。
@@ -654,7 +729,9 @@ function scanTextArchitectureRules(path, source) {
   }
   if (agentPath) {
     addTextMatches(findings, 'AGENT_LEGACY_COMMAND_CONTRACT', normalizedPath, source, /['"]command\.execute['"]/g, 'Agent 只允许 command.execute_allowlisted，不得新增自由 command.execute', '<text>', (value, offset) => !isRetiredContractMarker(value, offset));
-    addTextMatches(findings, 'AGENT_PRODUCT_IMPLEMENTATION', normalizedPath, source, /\b(?:IIS|Iis|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Openssl|Acme|ADCS|Adcs|JavaKeystore)(?:[A-Z][A-Za-z0-9_]*)+\b/g, 'Agent Core 不得定义厂商产品类名或产品专用执行实现');
+    if (isAgentCorePath(normalizedPath)) {
+      addTextMatches(findings, 'AGENT_PRODUCT_IMPLEMENTATION', normalizedPath, source, /\b(?:IIS|Iis|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Openssl|Acme|ADCS|Adcs|JavaKeystore)(?:[A-Z][A-Za-z0-9_]*)+\b/g, 'Agent Core 不得定义厂商产品类名或产品专用执行实现');
+    }
   }
 
   if (productionContractPath) {
@@ -674,7 +751,7 @@ function scanTextArchitectureRules(path, source) {
   }
 
   if (productionContractPath && !securityContractPath && !hostApiContractPath) {
-    addTextMatches(findings, 'FORBIDDEN_COMMAND_CONTRACT', normalizedPath, source, /['"]command\.execute['"]/g, '长期执行合同不得使用自由 command.execute', '<text>', (value, offset) => !isRetiredContractMarker(value, offset));
+    addTextMatches(findings, 'FORBIDDEN_COMMAND_CONTRACT', normalizedPath, source, /['"]command\.execute['"]/g, '长期执行合同不得使用自由 command.execute', '<text>', (value, offset) => !isRetiredContractMarker(value, offset) && !isRejectedRunnerKeyContext(source, offset));
   }
   return findings;
 }
