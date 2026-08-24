@@ -22,7 +22,10 @@ type windowsAdapterSnapshot struct {
 	CertStore struct {
 		LocalMachineMy []windowsCertificateStoreItem `json:"localMachineMy,omitempty"`
 	} `json:"certStore"`
-	IIS *windowsIISDetail `json:"iis,omitempty"`
+	IIS    *windowsIISDetail    `json:"iis,omitempty"`
+	NGINX  *windowsNginxDetail  `json:"nginx,omitempty"`
+	Apache *windowsApacheDetail `json:"apache,omitempty"`
+	Tomcat *windowsTomcatDetail `json:"tomcat,omitempty"`
 }
 
 type windowsOSDetail struct {
@@ -143,6 +146,21 @@ func collectWindowsAdapterSnapshot(logger *runtimeLogger) windowsAdapterSnapshot
 		snapshot.IIS = iis
 	}
 
+	nginx, apache, tomcat, err := inspectWindowsRuntimeDiscovery(host)
+	if err != nil {
+		logger.Warn("inspect Windows non-IIS runtimes failed: %v", err)
+	} else {
+		if nginx.Installed || nginx.Running || len(nginx.Warnings) > 0 {
+			snapshot.NGINX = &nginx
+		}
+		if apache.Installed || apache.Running || len(apache.Warnings) > 0 {
+			snapshot.Apache = &apache
+		}
+		if tomcat.Installed || tomcat.Running || len(tomcat.Warnings) > 0 {
+			snapshot.Tomcat = &tomcat
+		}
+	}
+
 	return snapshot
 }
 
@@ -232,6 +250,40 @@ func (h windowsExecutionHost) inspectIIS() (*windowsIISDetail, error) {
 		return nil, err
 	}
 	return parseWindowsIISDetailJSON(output)
+}
+
+func (h windowsExecutionHost) inspectWindowsServiceRegistryArgs(serviceName string) ([]string, error) {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return nil, nil
+	}
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$serviceName = %s
+try {
+  $props = Get-ItemProperty -LiteralPath ("Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\" + $serviceName + "\Parameters") -ErrorAction Stop
+  $values = @()
+  if ($props.PSObject.Properties.Name -contains 'ConfigArgs') {
+    foreach ($item in @($props.ConfigArgs)) {
+      if (-not [string]::IsNullOrWhiteSpace([string]$item)) {
+        $values += [string]$item
+      }
+    }
+  }
+  @($values) | ConvertTo-Json -Depth 4 -Compress
+} catch {
+  @() | ConvertTo-Json -Depth 4 -Compress
+}
+`, windowsPowerShellSingleQuoted(serviceName))
+	var values []string
+	if err := h.runPowerShellJSON(script, &values); err == nil {
+		return values, nil
+	}
+	var single string
+	if err := h.runPowerShellJSON(script, &single); err == nil && strings.TrimSpace(single) != "" {
+		return []string{strings.TrimSpace(single)}, nil
+	}
+	return nil, fmt.Errorf("无法读取服务注册表参数: %s", serviceName)
 }
 
 const windowsIISInspectScript = `
@@ -382,6 +434,10 @@ func (h windowsExecutionHost) runPowerShell(script string) (string, error) {
 		return "", fmt.Errorf("powershell 未返回 JSON")
 	}
 	return trimmed, nil
+}
+
+func windowsPowerShellSingleQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func parseWindowsIISDetailJSON(raw string) (*windowsIISDetail, error) {
