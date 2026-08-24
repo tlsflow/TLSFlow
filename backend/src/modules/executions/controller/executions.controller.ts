@@ -4,7 +4,7 @@ import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { ExecutionsApplicationService } from '../application/executions.application-service.js';
-import type { ExecutionDetailStreamService } from '../application/execution-detail-stream.service.js';
+import type { ExecutionDetailStreamEvent, ExecutionDetailStreamService } from '../application/execution-detail-stream.service.js';
 import type { WorkflowRecoveryLedgerService } from '../application/workflow-recovery-ledger.service.js';
 
 export class ExecutionsController {
@@ -74,9 +74,6 @@ export class ExecutionsController {
     const runId = this.readOptionalQueryString(request, 'runId');
     if (!runId) throw new AppError('VALIDATION_FAILED', '缺少 runId');
 
-    const run = await this.service.getRun(runId, request.context.tenantId);
-    const steps = await this.service.listSteps({ tenantId: request.context.tenantId, executionRunId: runId });
-
     return {
       statusCode: 200,
       headers: {
@@ -85,36 +82,59 @@ export class ExecutionsController {
         connection: 'keep-alive',
       },
       stream: async (response: import('node:http').ServerResponse) => {
+        let closed = false;
+        let snapshotReady = false;
+        const bufferedEvents: ExecutionDetailStreamEvent[] = [];
+        let unsubscribe: (() => void) | undefined;
+
         const writeEvent = (event: string, data: unknown) => {
+          if (closed || response.writableEnded) return;
           response.write(`event: ${event}\n`);
           response.write(`data: ${JSON.stringify(data)}\n\n`);
         };
+
+        const cleanup = () => {
+          if (closed) return;
+          closed = true;
+          clearInterval(heartbeat);
+          unsubscribe?.();
+        };
+
+        const heartbeat = setInterval(() => {
+          if (!closed && !response.writableEnded) response.write(`: heartbeat ${Date.now()}\n\n`);
+        }, 15_000);
+
+        response.on('close', cleanup);
+        response.on('error', cleanup);
+
+        if (this.detailStream) {
+          unsubscribe = this.detailStream.subscribe(runId, (event) => {
+            if (snapshotReady) {
+              writeEvent(event.type, event);
+            } else {
+              bufferedEvents.push(event);
+            }
+          });
+        }
+
+        const [run, steps] = await Promise.all([
+          this.service.getRun(runId, request.context.tenantId),
+          this.service.listSteps({ tenantId: request.context.tenantId, executionRunId: runId }),
+        ]);
+        if (closed) return;
 
         writeEvent('snapshot', {
           run,
           steps,
           emittedAt: new Date().toISOString(),
         });
+        snapshotReady = true;
+        for (const event of bufferedEvents) writeEvent(event.type, event);
 
         if (!this.detailStream) {
           response.end();
-          return;
+          cleanup();
         }
-
-        const unsubscribe = this.detailStream.subscribe(runId, (event) => {
-          writeEvent(event.type, event);
-        });
-        const heartbeat = setInterval(() => {
-          response.write(`: heartbeat ${Date.now()}\n\n`);
-        }, 15_000);
-
-        const cleanup = () => {
-          clearInterval(heartbeat);
-          unsubscribe();
-        };
-
-        response.on('close', cleanup);
-        response.on('error', cleanup);
       },
     };
   }
