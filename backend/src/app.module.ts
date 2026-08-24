@@ -24,6 +24,7 @@ import { CapabilitiesApplicationService, CapabilitiesController, getCapabilities
 import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
+import { DashboardApplicationService, DashboardController, getDashboardRouteContracts } from './modules/dashboard/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
@@ -180,6 +181,14 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ProvidersController(providersService).register(app.router);
   new PluginsController(pluginsService).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService).register(app.router);
+  new DashboardController(new DashboardApplicationService({
+    assets: assetsService.getRepository(),
+    certificates: certificateServices.certificates.getRepository(),
+    bindings: bindingsService.getRepository(),
+    agents: agentsService.getRepository(),
+    gateways: gatewaysService.getRepository(),
+    audit: security.audit,
+  })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
@@ -218,6 +227,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getProvidersRouteContracts(),
     ...getPluginsRouteContracts(),
     ...getWorkflowTemplateRouteContracts(),
+    ...getDashboardRouteContracts(),
     ...getMonitorRouteContracts(),
     {
       method: 'GET',

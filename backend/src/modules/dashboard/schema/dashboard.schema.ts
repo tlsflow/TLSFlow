@@ -1,0 +1,72 @@
+export type DashboardMetricTrend = 'neutral' | 'good' | 'warning' | 'danger';
+
+export interface DashboardMetric {
+  key: string;
+  title: string;
+  value: number;
+  description: string;
+  trend: DashboardMetricTrend;
+}
+
+export type DashboardCertificateState = 'valid' | 'expiring' | 'critical' | 'expired' | 'unknown';
+export type DashboardStatusTone = 'ok' | 'warning' | 'error' | 'unknown' | 'disabled';
+
+export interface DashboardStatusBlock {
+  id: string;
+  label: string;
+  status: string;
+  tone: DashboardStatusTone;
+  detail?: string;
+  updatedAt?: string;
+  targetPath?: string;
+}
+
+export interface DashboardStatusGroup {
+  key: string;
+  title: string;
+  summary: string;
+  total: number;
+  blocks: DashboardStatusBlock[];
+}
+
+export interface DashboardCertificateStatusItem {
+  certificateAssetId: string;
+  certificateVersionId?: string;
+  name: string;
+  primaryDomain: string;
+  notAfter?: string;
+  daysRemaining?: number;
+  state: DashboardCertificateState;
+  chainStatus?: string;
+  bindingCount: number;
+  updatedAt?: string;
+}
+
+export interface DashboardAuditItem {
+  id: string;
+  eventType: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  result: string;
+  requestId?: string;
+  createdAt: string;
+}
+
+export interface DashboardQuickAction {
+  key: string;
+  title: string;
+  description: string;
+  path: string;
+  permission: string;
+}
+
+export interface DashboardOverview {
+  generatedAt: string;
+  metrics: DashboardMetric[];
+  quickActions: DashboardQuickAction[];
+  statusGroups: DashboardStatusGroup[];
+  certificateStatuses: DashboardCertificateStatusItem[];
+  recentAudits: DashboardAuditItem[];
+}
