@@ -324,8 +324,10 @@ function versionStatusBadges(item: ApiRecord): VersionStatusBadge[] {
 }
 
 function canRunVersionAction(item: ApiRecord): boolean {
-  if (isCurrentWorkflowVersion(item)) return false
-  return ['draft', 'published'].includes(readString(item, ['status'], 'draft'))
+  const status = readString(item, ['status'], 'draft')
+  if (status === 'draft') return true
+  if (status !== 'published') return false
+  return !isCurrentWorkflowVersion(item)
 }
 
 function versionActionLabel(item: ApiRecord): string {

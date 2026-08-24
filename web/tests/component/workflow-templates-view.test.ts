@@ -287,6 +287,50 @@ describe('WorkflowTemplatesView', () => {
     expect(listWorkflowTemplates).toHaveBeenCalledTimes(3)
   })
 
+  it('版本管理中只有当前草稿版本时显示发布版本', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
+      {
+        id: 'tpl-1',
+        name: 'existing-workflow',
+        status: 'draft',
+        currentVersionId: 'ver-1',
+        currentVersion: 1,
+        currentVersionLabel: 'V1',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-06T12:34:56.000Z',
+      },
+    ]))
+    vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ver-1',
+            templateId: 'tpl-1',
+            version: '1',
+            status: 'draft',
+            changeSummary: '画布编辑器保存草稿版本',
+            createdAt: '2026-07-06T12:34:56.000Z',
+          },
+        ],
+      },
+      requestId: 'req_versions',
+      timestamp: '2026-07-06T12:34:56.000Z',
+    })
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('版本管理')
+    await flushPromises()
+
+    const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const draftCurrentItem = versionItems.find((item) => item.textContent?.includes('V1'))
+    expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿', '当前版本'])
+    expect([...draftCurrentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('发布版本')
+  })
+
   it('版本管理中当前版本不显示动作，已发布非当前版本显示切换版本', async () => {
     vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
       {
@@ -514,7 +558,7 @@ describe('WorkflowTemplatesView', () => {
     const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
     const draftCurrentItem = versionItems.find((item) => item.textContent?.includes('V3'))
     expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿', '当前版本'])
-    expect([...draftCurrentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).not.toContain('发布版本')
+    expect([...draftCurrentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('发布版本')
   })
 
   it('支持二次确认后删除工作流记录并刷新列表', async () => {
