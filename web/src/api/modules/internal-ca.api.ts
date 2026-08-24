@@ -39,6 +39,7 @@ export const internalCaApi = {
   listNodes: () => getList('/api/v1/ca-nodes'),
   createNodeEnrollmentToken: (providerId: string, ttlMinutes = 30) => post('/api/v1/ca-nodes/enrollment-tokens', { providerId, ttlMinutes }),
   createAdcsAgentInstallSession: (body: ApiBody = {}) => post('/api/v1/adcs-agents/install-sessions', body),
+  createAdcsAgentUpdateSession: (providerId: string) => post(`/api/v1/adcs-agents/providers/${encodeURIComponent(providerId)}/update-sessions`),
   listRenewals: () => getList('/api/v1/certificate-renewals'),
   scanRenewals: () => post('/api/v1/certificate-renewals/scan'),
   listRevocations: () => getList('/api/v1/certificate-revocations'),

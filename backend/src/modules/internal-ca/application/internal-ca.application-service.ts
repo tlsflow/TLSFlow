@@ -1026,6 +1026,26 @@ export class InternalCaApplicationService {
     };
   }
 
+  async createAdcsAgentUpdateSession(
+    tenantId: string,
+    providerId: string,
+    actorId: string,
+    baseUrl: string,
+    context?: RequestContext,
+  ): Promise<Record<string, unknown>> {
+    const provider = await this.requireProvider(tenantId, providerId);
+    if (provider.type !== 'microsoft_adcs') throw new AppError('CA_TOPOLOGY_INVALID', '只有 Microsoft AD CS Provider 支持 Agent 更新');
+    const enrollment = await this.createNodeEnrollmentToken(tenantId, provider.id, actorId, 15);
+    const scriptUrl = `${baseUrl}/api/v1/adcs-agents/install.ps1?token=${encodeURIComponent(enrollment.token)}`;
+    return {
+      provider,
+      update: true,
+      expiresAt: enrollment.expiresAt,
+      installCommand: `irm '${scriptUrl}' | iex`,
+      scriptUrl,
+    };
+  }
+
   async getAdcsAgentInstallContext(token: string): Promise<{ providerId: string; tenantId: string; token: string }> {
     const enrollment = await this.repository.findActiveNodeEnrollmentToken(
       createHash('sha256').update(requiredText(token, 'token')).digest('hex'),

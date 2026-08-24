@@ -64,6 +64,7 @@ export class InternalCaController {
     router.get('/api/v1/ca-nodes/tasks/stream', '建立 CA Node 任务推送通道', tags, (request) => this.streamNodeTasks(request));
     router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
     router.post('/api/v1/adcs-agents/install-sessions', '创建 AD CS Agent 一键安装会话', tags, (request) => this.createAdcsAgentInstallSession(request));
+    router.post('/api/v1/adcs-agents/providers/:id/update-sessions', '创建 AD CS Agent 更新会话', tags, (request) => this.createAdcsAgentUpdateSession(request));
     router.get('/api/v1/adcs-agents/install.ps1', '下载 AD CS Agent 安装脚本', tags, (request) => this.getAdcsAgentInstallScript(request));
     router.get('/api/v1/adcs-agents/binary', '下载 AD CS Agent 程序', tags, (request) => this.getAdcsAgentBinary(request));
   }
@@ -394,6 +395,16 @@ export class InternalCaController {
     };
   }
 
+  private async createAdcsAgentUpdateSession(request: HttpRequest) {
+    await this.assertManage(request, 'ca_node');
+    return {
+      statusCode: 201,
+      body: await this.service.createAdcsAgentUpdateSession(
+        tenantId(request), pathId(request), actorId(request), agentInstallPublicBaseUrl(request), request.context,
+      ),
+    };
+  }
+
   private async deleteProvider(request: HttpRequest) {
     await this.assertManage(request, 'ca_provider');
     return this.service.deleteProvider(tenantId(request), pathId(request), actorId(request), request.context);
@@ -502,6 +513,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/ca-nodes/tasks/stream', operationId: 'streamCaNodeTasks', summary: '建立 CA Node 任务推送通道', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/:id/result', operationId: 'completeCaNodeTask', summary: '回传 CA Node 任务结果', tags, responseSchema },
     { method: 'POST', path: '/api/v1/adcs-agents/install-sessions', operationId: 'createAdcsAgentInstallSession', summary: '创建 AD CS Agent 一键安装会话', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/adcs-agents/providers/:id/update-sessions', operationId: 'createAdcsAgentUpdateSession', summary: '创建 AD CS Agent 更新会话', tags, responseSchema },
     { method: 'GET', path: '/api/v1/adcs-agents/install.ps1', operationId: 'getAdcsAgentInstallScript', summary: '下载 AD CS Agent 安装脚本', tags, responseSchema },
     { method: 'GET', path: '/api/v1/adcs-agents/binary', operationId: 'getAdcsAgentBinary', summary: '下载 AD CS Agent 程序', tags, responseSchema },
   ];

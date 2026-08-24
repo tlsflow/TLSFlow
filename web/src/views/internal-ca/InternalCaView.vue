@@ -35,6 +35,8 @@ const providerEnrollment = ref<InternalCaRecord | null>(null)
 const providerPrepared = ref(false)
 const adcsInstallSession = ref<InternalCaRecord | null>(null)
 const adcsWizardOpen = ref(false)
+const adcsWizardMode = ref<'install' | 'update'>('install')
+const adcsUpdateProvider = ref<InternalCaRecord | null>(null)
 const deletingProviderId = ref('')
 const trustDomainModalOpen = ref(false)
 
@@ -332,8 +334,17 @@ function capabilityCount(provider: InternalCaRecord, state: string): number {
 }
 
 function openAdcsWizard() {
+  adcsWizardMode.value = 'install'
+  adcsUpdateProvider.value = null
   adcsInstallSession.value = null
   adcsDraft.name = t('internalCa.adcsAgent.defaultProviderNameIndexed', { index: adcsProviders.value.length + 1 })
+  adcsWizardOpen.value = true
+}
+
+function openAdcsUpdateWizard(provider: InternalCaRecord) {
+  adcsWizardMode.value = 'update'
+  adcsUpdateProvider.value = provider
+  adcsInstallSession.value = null
   adcsWizardOpen.value = true
 }
 
@@ -341,6 +352,14 @@ async function createAdcsAgentInstallSession() {
   await runAction(async () => {
     adcsInstallSession.value = (await internalCaApi.createAdcsAgentInstallSession({ name: adcsDraft.name })).data ?? null
   }, 'internalCa.messages.adcsAgentInstallCreated')
+}
+
+async function createAdcsAgentUpdateSession() {
+  const providerId = text(adcsUpdateProvider.value?.id)
+  if (!providerId) return
+  await runAction(async () => {
+    adcsInstallSession.value = (await internalCaApi.createAdcsAgentUpdateSession(providerId)).data ?? null
+  }, 'internalCa.messages.adcsAgentUpdateCreated')
 }
 
 async function deleteProvider(provider: InternalCaRecord) {
@@ -538,7 +557,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p><small>{{ t('internalCa.adcsAgent.providerCount', { count: adcsProviders.length }) }}</small></div>
           <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="openAdcsWizard">{{ t('internalCa.adcsAgent.addProvider') }}</button>
         </section>
-        <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small><GcConfirmAction v-if="text(provider.type) === 'microsoft_adcs'" :action-name="deletingProviderId === text(provider.id) ? t('internalCa.adcsAgent.deletingProvider') : t('internalCa.adcsAgent.deleteProvider')" :impact-count="nodes.filter((item) => text(item.providerId) === text(provider.id)).length" :risk-text="t('internalCa.adcsAgent.deleteProviderRisk')" :confirm-text="t('internalCa.adcsAgent.deleteConfirmText')" :disabled="authorities.some((item) => text(item.providerId) === text(provider.id)) || Boolean(deletingProviderId)" :disabled-reason="authorities.some((item) => text(item.providerId) === text(provider.id)) ? t('internalCa.adcsAgent.deleteProviderBlocked') : ''" @confirm="deleteProvider(provider)" /></article></div>
+        <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small><button v-if="text(provider.type) === 'microsoft_adcs'" class="gc-button" type="button" :disabled="actionPending" @click="openAdcsUpdateWizard(provider)">{{ t('internalCa.adcsAgent.updateAgent') }}</button><GcConfirmAction v-if="text(provider.type) === 'microsoft_adcs'" :action-name="deletingProviderId === text(provider.id) ? t('internalCa.adcsAgent.deletingProvider') : t('internalCa.adcsAgent.deleteProvider')" :impact-count="nodes.filter((item) => text(item.providerId) === text(provider.id)).length" :risk-text="t('internalCa.adcsAgent.deleteProviderRisk')" :confirm-text="t('internalCa.adcsAgent.deleteConfirmText')" :disabled="authorities.some((item) => text(item.providerId) === text(provider.id)) || Boolean(deletingProviderId)" :disabled-reason="authorities.some((item) => text(item.providerId) === text(provider.id)) ? t('internalCa.adcsAgent.deleteProviderBlocked') : ''" @confirm="deleteProvider(provider)" /></article></div>
       </details>
     </template>
 
@@ -580,19 +599,20 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       </template>
     </GcModal>
 
-    <GcModal v-model:open="adcsWizardOpen" size="lg" :title="t('internalCa.adcsAgent.wizardTitle')" :description="t('internalCa.adcsAgent.wizardDescription')">
-      <form v-if="!adcsInstallSession" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
+    <GcModal v-model:open="adcsWizardOpen" size="lg" :title="adcsWizardMode === 'update' ? t('internalCa.adcsAgent.updateTitle') : t('internalCa.adcsAgent.wizardTitle')" :description="adcsWizardMode === 'update' ? t('internalCa.adcsAgent.updateDescription') : t('internalCa.adcsAgent.wizardDescription')">
+      <form v-if="!adcsInstallSession && adcsWizardMode === 'install'" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
         <article class="adcs-wizard__requirements"><strong>{{ t('internalCa.adcsAgent.requirementsTitle') }}</strong><ul><li>{{ t('internalCa.adcsAgent.requirementInstalled') }}</li><li>{{ t('internalCa.adcsAgent.requirementConfigured') }}</li><li>{{ t('internalCa.adcsAgent.requirementService') }}</li><li>{{ t('internalCa.adcsAgent.requirementPermission') }}</li></ul></article>
         <label>{{ t('internalCa.adcsAgent.connectionName') }}<input v-model="adcsDraft.name" required /></label>
         <article class="adcs-wizard__compatibility"><strong>{{ t('internalCa.adcsAgent.coexistenceTitle') }}</strong><p>{{ t('internalCa.adcsAgent.coexistenceDescription') }}</p></article>
         <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
       </form>
-      <section v-else class="adcs-wizard adcs-wizard--result">
+      <section v-else-if="adcsInstallSession" class="adcs-wizard adcs-wizard--result">
         <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.commandReadyTitle') }}</strong><p>{{ t('internalCa.adcsAgent.commandReadyDescription', { name: text((adcsInstallSession.provider as InternalCaRecord)?.name) }) }}</p></article>
         <code>{{ text(adcsInstallSession.installCommand) }}</code>
         <small>{{ t('internalCa.adcsAgent.expiresAt', { time: localTime(adcsInstallSession.expiresAt) }) }}</small>
       </section>
-      <template #actions><button v-if="!adcsInstallSession" class="gc-button gc-button--primary" type="button" :disabled="actionPending || !adcsDraft.name.trim()" @click="createAdcsAgentInstallSession">{{ t('internalCa.adcsAgent.createCommand') }}</button><button v-else class="gc-button gc-button--primary" type="button" @click="adcsWizardOpen = false">{{ t('common.actions.done') }}</button></template>
+      <article v-if="!adcsInstallSession && adcsWizardMode === 'update'" class="adcs-wizard__requirements"><strong>{{ text(adcsUpdateProvider?.name) }}</strong><p>{{ t('internalCa.adcsAgent.updateDescription') }}</p></article>
+      <template #actions><button v-if="!adcsInstallSession" class="gc-button gc-button--primary" type="button" :disabled="actionPending || (adcsWizardMode === 'install' && !adcsDraft.name.trim())" @click="adcsWizardMode === 'update' ? createAdcsAgentUpdateSession() : createAdcsAgentInstallSession()">{{ adcsWizardMode === 'update' ? t('internalCa.adcsAgent.updateCommand') : t('internalCa.adcsAgent.createCommand') }}</button><button v-else class="gc-button gc-button--primary" type="button" @click="adcsWizardOpen = false">{{ t('common.actions.done') }}</button></template>
     </GcModal>
 
     <GcModal v-model:open="authorityWizardOpen" size="xl" :title="t('internalCa.wizard.title')" :description="t('internalCa.wizard.description')">

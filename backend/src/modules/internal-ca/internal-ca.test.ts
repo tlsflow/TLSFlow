@@ -405,6 +405,11 @@ test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能�
   assert.equal(context.tenantId, tenantId);
   const provider = (await service.listProviders(tenantId)).find((item) => item.id === context.providerId);
   assert.equal(provider?.type, 'microsoft_adcs');
+  const beforeUpdateProviders = (await service.listProviders(tenantId)).length;
+  const update = await service.createAdcsAgentUpdateSession(tenantId, context.providerId, 'user-admin', 'https://gcac.example.test');
+  assert.equal((await service.listProviders(tenantId)).length, beforeUpdateProviders);
+  assert.equal((update.provider as Record<string, unknown>).id, context.providerId);
+  assert.match(String(update.installCommand), /^irm 'https:\/\/gcac\.example\.test\/api\/v1\/adcs-agents\/install\.ps1\?token=/);
   const identity = generateKeyPairSync('ed25519');
   const publicKeyPem = identity.publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const identityFingerprint = createHash('sha256').update(identity.publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
