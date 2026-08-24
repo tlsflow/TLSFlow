@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "resourceLabels": {
+    "frameworks": [
+      { "frameworkType": "web.iis", "labelKey": "plugin.webIis.framework.iis" }
+    ],
+    "sites": [
+      { "frameworkType": "web.iis", "siteType": "web.site", "groupKey": "web.iis", "groupLabelKey": "plugin.webIis.framework.iis", "typeLabelKey": "plugin.webIis.site.webSite" }
+    ]
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webIis.presentation.identity",
+      "fields": [
+        { "key": "product", "labelKey": "plugin.webIis.field.product", "valuePath": "productFamily", "type": "text" },
+        { "key": "version", "labelKey": "plugin.webIis.field.version", "valuePath": "softwareVersion", "type": "text" },
+        { "key": "agentSide", "labelKey": "plugin.webIis.field.agentSide", "valuePath": "extensionSummary.agentSidePlugin", "type": "status" }
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "type": "sites",
+      "id": "sites",
+      "titleKey": "plugin.webIis.tab.sites",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.webIis.column.name", "valuePath": "name", "type": "text" },
+        { "key": "address", "labelKey": "plugin.webIis.column.address", "valuePath": "endpoint.address", "type": "text" },
+        { "key": "port", "labelKey": "plugin.webIis.column.port", "valuePath": "endpoint.port", "type": "number" },
+        { "key": "status", "labelKey": "plugin.webIis.column.status", "valuePath": "status", "type": "status" }
+      ]
+    },
+    {
+      "type": "certificate_bindings",
+      "id": "certificates",
+      "titleKey": "plugin.webIis.tab.certificates",
+      "columns": [
+        { "key": "name", "labelKey": "plugin.webIis.column.name", "valuePath": "name", "type": "text" },
+        { "key": "thumbprint", "labelKey": "plugin.webIis.column.thumbprint", "valuePath": "metadata.thumbprint", "type": "text" },
+        { "key": "expiresAt", "labelKey": "plugin.webIis.column.expiresAt", "valuePath": "notAfter", "type": "timestamp" }
+      ]
+    }
+  ],
+  "actions": [
+    { "capabilityKey": "application.discover", "labelKey": "plugin.webIis.action.discover", "tone": "info" },
+    { "capabilityKey": "certificate.deploy", "labelKey": "plugin.webIis.action.deploy", "tone": "success" }
+  ]
+}

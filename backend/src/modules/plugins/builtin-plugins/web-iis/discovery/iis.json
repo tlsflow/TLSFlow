@@ -1,0 +1,18 @@
+{
+  "apiVersion": "gcac.device-discovery-mapping/v2",
+  "kind": "DeviceDiscoveryMapping",
+  "pluginId": "web.iis",
+  "pluginVersion": "1.0.0",
+  "protocol": "IIS_AGENT_SIDE",
+  "apiContract": {
+    "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis",
+    "operations": ["discover", "capture-binding", "update-binding", "verify-binding", "rollback-binding"],
+    "factFields": ["iisVersion", "machineName", "sites", "bindings"],
+    "writeFields": ["siteName", "bindingInformation", "certificateThumbprint", "certificateStoreName"]
+  },
+  "errorContract": {
+    "protocolVersion": "gcac.agent-side-plugin/v1",
+    "writeFailureStatus": "UNKNOWN",
+    "requiredSecurityMaterial": ["token", "policyDecision", "nonce", "receipt", "grant", "localPolicy", "packageHash", "manifestHash", "resourceHash"]
+  }
+}

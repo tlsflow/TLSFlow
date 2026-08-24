@@ -1,0 +1,53 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.0", "platforms": ["windows"], "maintainer": "GCAC" },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {
+      "certificate": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "runtime",
+        "lifecycle": "pre_execution",
+        "artifactContract": { "outputs": { "pfx": { "role": "certificate_private_key", "required": true, "sensitive": true }, "fingerprintSha256": { "role": "fingerprint_sha256", "required": true } } }
+      }
+    }
+  },
+  "steps": [
+    { "name": "captureBinding", "type": "checkpoint", "stage": "backup", "checkpoint": { "name": "iis-binding-before-update", "capture": { "siteName": "variables.siteName", "bindingInformation": "variables.bindingInformation", "target": "variables.target" }, "normalizedHash": true, "requiredForRollback": true } },
+    {
+      "name": "updateBinding",
+      "type": "transform",
+      "stage": "install",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.0", "operation": "update-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "artifact": "{{artifacts.certificate.artifactRef}}" },
+        "outputs": { "agentSideRequest": { "expression": "$" } },
+        "timeoutMs": 1000,
+        "maxInputBytes": 131072,
+        "maxOutputBytes": 262144
+      }
+    },
+    {
+      "name": "verifyBinding",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.0", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}" },
+        "outputs": { "agentSideRequest": { "expression": "$" } },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 131072
+      }
+    }
+  ]
+}

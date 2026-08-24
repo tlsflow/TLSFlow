@@ -1,0 +1,36 @@
+{
+  "apiVersion": "gcac.agent-side-plugin-manifest/v1",
+  "kind": "GcacAgentSidePlugin",
+  "pluginId": "web.iis",
+  "pluginVersion": "1.0.0",
+  "packageId": "web-iis-agent-side",
+  "packageVersion": "1.0.0",
+  "protocolVersion": "gcac.agent-side-plugin/v1",
+  "transport": "stdin-stdout-jsonl",
+  "runtime": {
+    "kind": "DOTNET_FRAMEWORK_EXECUTABLE",
+    "runtimeEntrypoint": "bin/Release/web-iis-agent-side-plugin.exe",
+    "runtimeSource": "runtime/Program.cs",
+    "buildScript": "build.ps1",
+    "testEntrypoint": "tests/Program.cs"
+  },
+  "operations": [
+    { "name": "discover", "capability": "application.discover", "writeEffect": false },
+    { "name": "capture-binding", "capability": "certificate.deploy", "writeEffect": false },
+    { "name": "verify-binding", "capability": "certificate.verify", "writeEffect": false },
+    { "name": "update-binding", "capability": "certificate.deploy", "writeEffect": true },
+    { "name": "rollback-binding", "capability": "certificate.rollback", "writeEffect": true }
+  ],
+  "fixtureContract": {
+    "apiVersion": "gcac.device-fixture/v1",
+    "mode": "DEVELOPMENT_ONLY",
+    "liveApiRequiredWhenFixtureAbsent": true
+  },
+  "boundary": {
+    "processIsolation": "REQUIRED",
+    "agentCoreImportAllowed": false,
+    "hostApiSurface": "narrow-agent-side-jsonl",
+    "arbitraryCommandExecution": false,
+    "directRunnerIpc": false
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.agent-side-plugin/v1",
+  "pluginId": "web.iis",
+  "pluginVersion": "1.0.0",
+  "operation": "update-binding",
+  "status": "UNKNOWN",
+  "writeStarted": true,
+  "error": { "code": "AGENT_EXECUTION_UNKNOWN", "message": "IIS CommitChanges 后连接中断" },
+  "receipt": { "planDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "nonce": "nonce-iis-fixture", "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "status": "UNKNOWN" }
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "MANAGED",
+  "sections": [
+    {
+      "id": "device",
+      "titleKey": "plugin.webIis.form.device",
+      "fields": [
+        { "key": "displayName", "type": "text", "labelKey": "plugin.webIis.field.displayName", "required": true },
+        { "key": "address", "type": "text", "labelKey": "plugin.webIis.field.address", "required": true },
+        { "key": "siteName", "type": "text", "labelKey": "plugin.webIis.field.siteName", "required": true },
+        { "key": "bindingInformation", "type": "text", "labelKey": "plugin.webIis.field.bindingInformation", "required": true }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.webIis.form.certificate",
+      "fields": [
+        { "key": "certificate", "type": "certificate_ref", "labelKey": "plugin.webIis.field.certificate", "required": true, "acceptedScopes": ["global", "team", "zone", "host", "plugin"] }
+      ]
+    }
+  ]
+}

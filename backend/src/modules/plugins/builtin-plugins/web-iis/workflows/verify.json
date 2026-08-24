@@ -1,0 +1,31 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "web-iis-certificate-verify", "displayName": "IIS certificate verification", "category": "certificate", "version": "1.0.0", "platforms": ["windows"], "maintainer": "GCAC" },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {}
+  },
+  "steps": [
+    {
+      "name": "verifyBinding",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "pluginId": "web.iis", "pluginVersion": "1.0.0", "operation": "verify-binding", "siteName": "{{variables.siteName}}", "bindingInformation": "{{variables.bindingInformation}}", "target": "{{variables.target}}" },
+        "outputs": { "agentSideRequest": { "expression": "$" } },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 131072
+      }
+    }
+  ]
+}

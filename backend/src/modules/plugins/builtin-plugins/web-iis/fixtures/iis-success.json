@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.agent-side-plugin/v1",
+  "pluginId": "web.iis",
+  "pluginVersion": "1.0.0",
+  "operation": "discover",
+  "status": "SUCCESS",
+  "facts": {
+    "iisVersion": "10.0.20348.1",
+    "machineName": "iis-fixture-01",
+    "sites": [
+      { "name": "Default Web Site", "addresses": ["192.0.2.80"], "port": 443, "applicationPool": "DefaultAppPool" }
+    ],
+    "bindings": [
+      { "siteName": "Default Web Site", "bindingInformation": "192.0.2.80:443:www.example.invalid", "protocol": "https", "hostName": "www.example.invalid", "certificateThumbprint": "AABBCCDDEEFF00112233445566778899AABBCCDD", "certificateStoreName": "My", "sha256Fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+    ]
+  },
+  "receipt": { "planDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "nonce": "nonce-iis-fixture", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "SUCCESS" },
+  "requestCount": 1
+}
