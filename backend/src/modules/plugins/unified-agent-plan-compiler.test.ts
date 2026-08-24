@@ -61,7 +61,7 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   assert.equal(plan.plugin.pluginVersionId, imported.id);
   assert.equal(plan.agentId, 'agent-1');
   assert.ok(plan.operations.some((item) => item.operationType === 'file.atomic_replace'));
-  assert.deepEqual(plan.operations[0]?.input.runtimeMaterial, { contentBase64: 'cGZ4', password: 'secret' });
+  assert.deepEqual(plan.operations[0]?.input.runtimeMaterial, { companionValue: 'secret', contentBase64: 'cGZ4' });
   assert.equal(plan.operations[0]?.input.managementHost, '192.0.2.20');
   assert.equal(plan.operations[0]?.input.credentialId, 'cred-management');
   assert.equal(plan.operations.find((item) => item.operationType === 'service.control')?.input.serviceName, 'nginx-target-service');
@@ -269,7 +269,7 @@ function resolvedAgentInput(): ResolvedDeploymentInputV1 {
     artifacts: {
       certificate: { outputs: { certificatePem: { artifactRef: 'memory://certificate/<certificate>&chain', sha256: 'aa', size: 10, sensitive: false } } },
       privateKey: { outputs: { privateKeyPem: { artifactRef: 'memory://privateKey/privateKeyPem', sha256: 'bb', size: 10, sensitive: true } } },
-      runtimeMaterial: { outputs: { bundle: { contentBase64: 'cGZ4', password: 'secret' } } },
+      runtimeMaterial: { companionValue: 'secret', outputs: { bundle: { contentBase64: 'cGZ4' } } },
     },
     provenance: {
       'variables.certificatePath': { source: 'binding', bindingLayer: 'APPLICATION_ASSET' },
@@ -277,7 +277,7 @@ function resolvedAgentInput(): ResolvedDeploymentInputV1 {
       'variables.nginxProgram': { source: 'binding', bindingLayer: 'DEVICE' },
       'variables.serviceName': { source: 'asset', sourcePath: 'target.key' },
     },
-    sensitivePaths: ['artifacts.privateKey.outputs.privateKeyPem', 'artifacts.runtimeMaterial.outputs.bundle.password'],
+    sensitivePaths: ['artifacts.privateKey.outputs.privateKeyPem', 'artifacts.runtimeMaterial.companionValue'],
     issues: [],
     executable: true,
     resolvedSha256: 'sha256:resolved-agent-input',

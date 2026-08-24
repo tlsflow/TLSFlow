@@ -95,9 +95,11 @@ export class UnifiedAgentPlanCompilerService {
 
 function normalizeArtifacts(artifacts: ResolvedDeploymentInputV1['artifacts']): Record<string, unknown> {
   return Object.fromEntries(Object.entries(artifacts).map(([name, artifact]) => {
-    const outputs = isRecord(artifact.outputs) ? artifact.outputs : {};
+    const outputs = isRecord(artifact.outputs) ? artifact.outputs as Record<string, unknown> : {};
+    const { outputs: _outputs, ...material } = artifact;
     const outputValues = Object.values(outputs);
-    return [name, outputValues.length === 1 ? outputValues[0] : outputs];
+    const primary = outputValues.length === 1 && isRecord(outputValues[0]) ? outputValues[0] : outputs;
+    return [name, { ...material, ...primary }];
   }));
 }
 
