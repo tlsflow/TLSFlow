@@ -5,7 +5,7 @@
     "name": "chaitin-safeline-waf-certificate-verify",
     "displayName": "SafeLine certificate control-plane verification",
     "category": "certificate",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "platforms": [
       "waf"
     ],

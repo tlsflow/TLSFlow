@@ -1,5 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 72 48" role="img" aria-label="SafeLine">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 48" role="img" aria-labelledby="title desc">
+  <title id="title">长亭雷池 WAF</title>
+  <desc id="desc">长亭雷池 WAF 横版 Logo</desc>
   <svg x="0" y="0" width="72" height="48" viewBox="0 0 72 48" preserveAspectRatio="xMidYMid meet">
-<rect x="8" y="8" width="56" height="32" rx="6" fill="#1f6feb"/><text x="36" y="29" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#ffffff">SAFE</text>
+    <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d3d3f"/>
+      <stop offset="1" stop-color="#101112"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16bd79"/>
+      <stop offset="1" stop-color="#209d70"/>
+    </linearGradient>
+    </defs>
+    <g transform="translate(1 8) scale(.4)">
+    <path fill="url(#shield)" stroke="#111214" stroke-width="1.2" d="M36 2C28 8 21 10 10 11c-2 13-1 23 4 31 5 9 13 16 22 21 9-5 17-12 22-21 5-8 6-18 4-31-11-1-18-3-26-9Z"/>
+    <circle cx="36" cy="38" r="19.5" fill="url(#badge)"/>
+    <path fill="#0ac17a" d="M28 16c1 3 3 4.3 6 4.3 1 0 1.7-.4 2.4-1.2.7.8 1.3 1.2 2.4 1.2 2.7 0 4.8-1.4 6-4.3-.2 5.7-3.1 8.2-6 8.2-3.2 0-4.8-1.7-6.2-1.7-1.3 0-2.9 1.7-6 1.7-2.9 0-5.2-2.5-5.5-8.2Z"/>
+    <path fill="#12bb78" d="M23 23.5c2.6 4 6.7 6.1 11.1 6.1.7 0 1.3-.1 1.9-.3.7.2 1.3.3 1.9.3 4.4 0 8.5-2.1 11.1-6.1-.7 6.3-4.8 9.1-10.2 9.1-1 0-1.9-.2-2.8-.5-.9.3-1.8.5-2.8.5-5.4 0-9.5-2.8-10.2-9.1Z"/>
+    <path fill="#fff" d="m24 28 11-6.4 12 6.9v6.3l-12-6.9-5.2 3 11.2 6.5-6 3.5-11-6.5Z"/>
+    <path fill="#fff" d="m24 37 5.8 3.3 11.2-6.5 6 3.5-12 7.2-11-6.4Z"/>
+    </g>
+    <text x="26" y="30" fill="#111214" font-family="sans-serif" font-size="10.5" font-weight="700">雷池</text>
+    <text x="48" y="30" fill="#11bcb8" font-family="Arial,sans-serif" font-size="10" font-weight="700" letter-spacing=".1">WAF</text>
   </svg>
 </svg>
