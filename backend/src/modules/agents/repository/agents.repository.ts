@@ -1,4 +1,5 @@
 import { applyAuthorizationFilter, type PageQuery } from '../../../common/pagination/pagination.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
@@ -54,6 +55,7 @@ export interface AgentsRepository {
   saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): Promise<AgentCapabilitySnapshot>;
   getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
   getLatestFullWebInventorySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
+  backfillCurrentSnapshotPointers(input?: AgentSnapshotPointerBackfillInput): Promise<AgentSnapshotPointerBackfillResult>;
   createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope>;
   updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope>;
   claimQueuedTask(taskId: string, agentId: string, leaseId: string, ackedAt: string): Promise<AgentTaskEnvelope | undefined>;
@@ -79,6 +81,23 @@ export interface AgentsRepository {
   getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined>;
   findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined>;
   consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string): Promise<AgentInstallSession | undefined>;
+}
+
+export interface AgentSnapshotPointerBackfillInput {
+  tenantId?: string;
+  after?: {
+    tenantId: string;
+    agentId: string;
+  };
+  limit?: number;
+}
+
+export interface AgentSnapshotPointerBackfillResult {
+  processed: number;
+  next?: {
+    tenantId: string;
+    agentId: string;
+  };
 }
 
 type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
@@ -172,11 +191,16 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined> {
-    return (await this.enrollmentTokens.list((item) => item.tenantId === tenantId && item.tokenHash === tokenHash))[0];
+    return findDocument(this.db, 'agents:enrollmentTokens', `
+      and payload->>'tenantId' = $2
+      and payload->>'tokenHash' = $3
+      limit 1`, [tenantId, tokenHash]);
   }
 
   async findEnrollmentTokenByHashAnyTenant(tokenHash: string): Promise<EnrollmentToken | undefined> {
-    return (await this.enrollmentTokens.list((item) => item.tokenHash === tokenHash))[0];
+    return findDocument(this.db, 'agents:enrollmentTokens', `
+      and payload->>'tokenHash' = $2
+      limit 1`, [tokenHash]);
   }
 
   async upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration> {
@@ -217,22 +241,30 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined> {
-    return (await this.registrations.list((item) => item.tenantId === tenantId && item.agentKey === agentKey))[0];
+    return findDocument(this.db, 'agents:registrations', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentKey' = $3
+      limit 1`, [tenantId, agentKey]);
   }
 
   async findByMachineId(tenantId: string, machineId: string): Promise<AgentRegistration | undefined> {
-    return (await this.registrations.list((item) => item.tenantId === tenantId && item.descriptor.machineId === machineId))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.registeredAt.localeCompare(right.registeredAt))[0];
+    return findDocument(this.db, 'agents:registrations', `
+      and payload->>'tenantId' = $2
+      and payload #>> '{descriptor,machineId}' = $3
+      order by payload->>'updatedAt' desc, payload->>'registeredAt' asc
+      limit 1`, [tenantId, machineId]);
   }
 
   async listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>> {
-    const rows = await this.registrations.list((item) => item.tenantId === tenantId);
+    const rows = await listDocuments<AgentRegistration>(this.db, 'agents:registrations', `
+      and payload->>'tenantId' = $2
+      order by updated_at asc`, [tenantId]);
     const authorized = applyAuthorizationFilter(rows, query);
     return createPageResponse(authorized, query.page, query.pageSize, authorized.length);
   }
 
   async listAllRegistrations(): Promise<AgentRegistration[]> {
-    return this.registrations.list(() => true);
+    return listDocuments(this.db, 'agents:registrations', 'order by updated_at asc');
   }
 
   async createSession(session: AgentSession): Promise<AgentSession> {
@@ -283,9 +315,10 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async listCertificates(tenantId: string, agentId: string): Promise<AgentCertificate[]> {
-    return this.certificates
-      .list((item) => item.tenantId === tenantId && item.agentId === agentId)
-      .then((rows) => rows.sort((left, right) => right.issuedAt.localeCompare(left.issuedAt)));
+    return listDocuments(this.db, 'agents:certificates', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      order by payload->>'issuedAt' desc`, [tenantId, agentId]);
   }
 
   async saveHeartbeat(heartbeat: AgentHeartbeat): Promise<AgentHeartbeat> {
@@ -298,22 +331,276 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async getLatestHeartbeat(tenantId: string, agentId: string): Promise<AgentHeartbeat | undefined> {
-    return (await this.heartbeats.list((item) => item.tenantId === tenantId && item.agentId === agentId))
-      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))[0];
+    return findDocument(this.db, 'agents:heartbeats', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      order by payload->>'receivedAt' desc
+      limit 1`, [tenantId, agentId]);
   }
 
   async saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): Promise<AgentCapabilitySnapshot> {
-    return this.snapshots.upsert(snapshot);
+    const fullWeb = hasFullWebInventory(snapshot);
+    await this.db.transaction(async (tx) => {
+      await upsertDocument(tx, 'agents:snapshots', snapshot);
+      await tx.query(
+        `insert into pg_agent_capability_snapshot_current (
+           tenant_id,
+           agent_id,
+           latest_snapshot_id,
+           latest_reported_at,
+           latest_full_web_snapshot_id,
+           latest_full_web_reported_at,
+           updated_at
+         ) values ($1, $2, $3, $4::timestamptz, $5, $6::timestamptz, now())
+         on conflict (tenant_id, agent_id) do update
+           set latest_snapshot_id = case
+                 when excluded.latest_reported_at >= pg_agent_capability_snapshot_current.latest_reported_at
+                 then excluded.latest_snapshot_id
+                 else pg_agent_capability_snapshot_current.latest_snapshot_id
+               end,
+               latest_reported_at = case
+                 when excluded.latest_reported_at >= pg_agent_capability_snapshot_current.latest_reported_at
+                 then excluded.latest_reported_at
+                 else pg_agent_capability_snapshot_current.latest_reported_at
+               end,
+               latest_full_web_snapshot_id = case
+                 when excluded.latest_full_web_snapshot_id is not null
+                   and (
+                     pg_agent_capability_snapshot_current.latest_full_web_reported_at is null
+                     or excluded.latest_full_web_reported_at >= pg_agent_capability_snapshot_current.latest_full_web_reported_at
+                   )
+                 then excluded.latest_full_web_snapshot_id
+                 else pg_agent_capability_snapshot_current.latest_full_web_snapshot_id
+               end,
+               latest_full_web_reported_at = case
+                 when excluded.latest_full_web_snapshot_id is not null
+                   and (
+                     pg_agent_capability_snapshot_current.latest_full_web_reported_at is null
+                     or excluded.latest_full_web_reported_at >= pg_agent_capability_snapshot_current.latest_full_web_reported_at
+                   )
+                 then excluded.latest_full_web_reported_at
+                 else pg_agent_capability_snapshot_current.latest_full_web_reported_at
+               end,
+               updated_at = now()`,
+        [
+          snapshot.tenantId,
+          snapshot.agentId,
+          snapshot.id,
+          snapshot.reportedAt,
+          fullWeb ? snapshot.id : null,
+          fullWeb ? snapshot.reportedAt : null,
+        ],
+      );
+    });
+    return structuredClone(snapshot);
   }
 
   async getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined> {
-    return (await this.snapshots.list((item) => item.tenantId === tenantId && item.agentId === agentId))
-      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
+    const startedAt = Date.now();
+    const projected = await this.db.query<DocumentRow<AgentCapabilitySnapshot>>(
+      `select document.document_id, document.payload
+         from pg_agent_capability_snapshot_current current
+         join pg_documents document
+           on document.namespace = 'agents:snapshots'
+          and document.document_id = current.latest_snapshot_id
+          and document.payload->>'tenantId' = current.tenant_id
+          and document.payload->>'agentId' = current.agent_id
+        where current.tenant_id = $1 and current.agent_id = $2
+        limit 1`,
+      [tenantId, agentId],
+    );
+    if (projected.rows[0]) {
+      const snapshot = documentEntity(projected.rows[0]);
+      observeSnapshotRead('current_projection', tenantId, agentId, startedAt, snapshot);
+      return snapshot;
+    }
+
+    const result = await this.db.query<DocumentRow<AgentCapabilitySnapshot>>(
+      `select document_id, payload
+         from pg_documents
+        where namespace = 'agents:snapshots'
+          and payload->>'tenantId' = $1
+          and payload->>'agentId' = $2
+          and coalesce(payload->>'reportedAt', '') <> ''
+        order by payload->>'reportedAt' desc, document_id desc
+        limit 1`,
+      [tenantId, agentId],
+    );
+    const snapshot = documentEntity(result.rows[0]);
+    observeSnapshotRead('sql_fallback', tenantId, agentId, startedAt, snapshot);
+    return snapshot;
   }
 
   async getLatestFullWebInventorySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined> {
-    return (await this.snapshots.list((item) => item.tenantId === tenantId && item.agentId === agentId && hasFullWebInventory(item)))
-      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt))[0];
+    const startedAt = Date.now();
+    const projected = await this.db.query<DocumentRow<AgentCapabilitySnapshot>>(
+      `select document.document_id, document.payload
+         from pg_agent_capability_snapshot_current current
+         join pg_documents document
+           on document.namespace = 'agents:snapshots'
+          and document.document_id = current.latest_full_web_snapshot_id
+          and document.payload->>'tenantId' = current.tenant_id
+          and document.payload->>'agentId' = current.agent_id
+        where current.tenant_id = $1
+          and current.agent_id = $2
+          and current.latest_full_web_snapshot_id is not null
+          and exists (
+            select 1
+              from jsonb_array_elements(coalesce(document.payload->'capabilities', '[]'::jsonb)) as capability
+             where capability->>'capabilityKey' = 'web.inventory'
+               and capability->'value'->>'scope' = 'FULL_WEB_DISCOVERY'
+          )
+        limit 1`,
+      [tenantId, agentId],
+    );
+    if (projected.rows[0]) {
+      const snapshot = documentEntity(projected.rows[0]);
+      observeSnapshotRead('current_full_web_projection', tenantId, agentId, startedAt, snapshot);
+      return snapshot;
+    }
+
+    const result = await this.db.query<DocumentRow<AgentCapabilitySnapshot>>(
+      `select document_id, payload
+         from pg_documents
+        where namespace = 'agents:snapshots'
+          and payload->>'tenantId' = $1
+          and payload->>'agentId' = $2
+          and coalesce(payload->>'reportedAt', '') <> ''
+          and exists (
+            select 1
+              from jsonb_array_elements(coalesce(payload->'capabilities', '[]'::jsonb)) as capability
+             where capability->>'capabilityKey' = 'web.inventory'
+               and capability->'value'->>'scope' = 'FULL_WEB_DISCOVERY'
+          )
+        order by payload->>'reportedAt' desc, document_id desc
+        limit 1`,
+      [tenantId, agentId],
+    );
+    const snapshot = documentEntity(result.rows[0]);
+    observeSnapshotRead('full_web_sql_fallback', tenantId, agentId, startedAt, snapshot);
+    return snapshot;
+  }
+
+  async backfillCurrentSnapshotPointers(input: AgentSnapshotPointerBackfillInput = {}): Promise<AgentSnapshotPointerBackfillResult> {
+    const limit = Math.min(500, Math.max(1, Math.trunc(input.limit ?? 100)));
+    const result = await this.db.query<{ tenant_id: string; agent_id: string }>(
+      `with candidates as (
+             select distinct document.payload->>'tenantId' as tenant_id,
+                             document.payload->>'agentId' as agent_id
+               from pg_documents document
+              where document.namespace = 'agents:snapshots'
+                and coalesce(document.payload->>'tenantId', '') <> ''
+                and coalesce(document.payload->>'agentId', '') <> ''
+                and coalesce(document.payload->>'reportedAt', '') <> ''
+                and ($1::text is null or document.payload->>'tenantId' = $1)
+                and (
+                  $2::text is null
+                  or (document.payload->>'tenantId', document.payload->>'agentId') > ($2, $3)
+                )
+              order by tenant_id, agent_id
+              limit $4
+           ), ordinary as (
+             select distinct on (document.payload->>'tenantId', document.payload->>'agentId')
+                    document.payload->>'tenantId' as tenant_id,
+                    document.payload->>'agentId' as agent_id,
+                    document.document_id as snapshot_id,
+                    (document.payload->>'reportedAt')::timestamptz as reported_at
+               from pg_documents document
+               join candidates on candidates.tenant_id = document.payload->>'tenantId'
+                              and candidates.agent_id = document.payload->>'agentId'
+              where document.namespace = 'agents:snapshots'
+                and coalesce(document.payload->>'reportedAt', '') <> ''
+              order by document.payload->>'tenantId',
+                       document.payload->>'agentId',
+                       document.payload->>'reportedAt' desc,
+                       document.document_id desc
+           ), full_web as (
+             select distinct on (document.payload->>'tenantId', document.payload->>'agentId')
+                    document.payload->>'tenantId' as tenant_id,
+                    document.payload->>'agentId' as agent_id,
+                    document.document_id as snapshot_id,
+                    (document.payload->>'reportedAt')::timestamptz as reported_at
+               from pg_documents document
+               join candidates on candidates.tenant_id = document.payload->>'tenantId'
+                              and candidates.agent_id = document.payload->>'agentId'
+              where document.namespace = 'agents:snapshots'
+                and coalesce(document.payload->>'reportedAt', '') <> ''
+                and exists (
+                  select 1
+                    from jsonb_array_elements(coalesce(document.payload->'capabilities', '[]'::jsonb)) as capability
+                   where capability->>'capabilityKey' = 'web.inventory'
+                     and capability->'value'->>'scope' = 'FULL_WEB_DISCOVERY'
+                )
+              order by document.payload->>'tenantId',
+                       document.payload->>'agentId',
+                       document.payload->>'reportedAt' desc,
+                       document.document_id desc
+           ), upserted as (
+             insert into pg_agent_capability_snapshot_current (
+               tenant_id,
+               agent_id,
+               latest_snapshot_id,
+               latest_reported_at,
+               latest_full_web_snapshot_id,
+               latest_full_web_reported_at,
+               updated_at
+             )
+             select ordinary.tenant_id,
+                    ordinary.agent_id,
+                    ordinary.snapshot_id,
+                    ordinary.reported_at,
+                    full_web.snapshot_id,
+                    full_web.reported_at,
+                    now()
+               from ordinary
+               left join full_web using (tenant_id, agent_id)
+             on conflict (tenant_id, agent_id) do update
+               set latest_snapshot_id = case
+                     when excluded.latest_reported_at >= pg_agent_capability_snapshot_current.latest_reported_at
+                     then excluded.latest_snapshot_id
+                     else pg_agent_capability_snapshot_current.latest_snapshot_id
+                   end,
+                   latest_reported_at = case
+                     when excluded.latest_reported_at >= pg_agent_capability_snapshot_current.latest_reported_at
+                     then excluded.latest_reported_at
+                     else pg_agent_capability_snapshot_current.latest_reported_at
+                   end,
+                   latest_full_web_snapshot_id = case
+                     when excluded.latest_full_web_snapshot_id is not null
+                       and (
+                         pg_agent_capability_snapshot_current.latest_full_web_reported_at is null
+                         or excluded.latest_full_web_reported_at >= pg_agent_capability_snapshot_current.latest_full_web_reported_at
+                       )
+                     then excluded.latest_full_web_snapshot_id
+                     else pg_agent_capability_snapshot_current.latest_full_web_snapshot_id
+                   end,
+                   latest_full_web_reported_at = case
+                     when excluded.latest_full_web_snapshot_id is not null
+                       and (
+                         pg_agent_capability_snapshot_current.latest_full_web_reported_at is null
+                         or excluded.latest_full_web_reported_at >= pg_agent_capability_snapshot_current.latest_full_web_reported_at
+                       )
+                     then excluded.latest_full_web_reported_at
+                     else pg_agent_capability_snapshot_current.latest_full_web_reported_at
+                   end,
+                   updated_at = now()
+             returning tenant_id, agent_id
+           )
+           select tenant_id, agent_id
+             from upserted
+            order by tenant_id, agent_id`,
+      [
+        input.tenantId ?? null,
+        input.after?.tenantId ?? null,
+        input.after?.agentId ?? null,
+        limit,
+      ],
+    );
+    const last = result.rows[result.rows.length - 1];
+    return {
+      processed: result.rows.length,
+      next: result.rows.length === limit && last ? { tenantId: last.tenant_id, agentId: last.agent_id } : undefined,
+    };
   }
 
   async createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope> {
@@ -348,12 +635,23 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined> {
-    return (await this.tasks.list((item) => item.tenantId === tenantId && item.agentId === agentId && item.idempotencyKey === idempotencyKey))[0];
+    return findDocument(this.db, 'agents:tasks', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      and payload->>'idempotencyKey' = $4
+      order by payload->>'createdAt' asc
+      limit 1`, [tenantId, agentId, idempotencyKey]);
   }
 
   async listTasks(tenantId: string, agentId: string, statuses?: string[]): Promise<AgentTaskEnvelope[]> {
-    return (await this.tasks.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!statuses?.length || statuses.includes(item.status))))
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    const activeStatuses = uniqueStrings(statuses);
+    return listDocuments(this.db, 'agents:tasks', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      ${activeStatuses.length > 0 ? `and payload->>'status' = any($4::text[])` : ''}
+      order by payload->>'createdAt' asc`, activeStatuses.length > 0
+      ? [tenantId, agentId, activeStatuses]
+      : [tenantId, agentId]);
   }
 
   async saveTaskLog(entry: AgentTaskLogEntry): Promise<AgentTaskLogEntry> {
@@ -378,18 +676,34 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async listTaskLogs(tenantId: string, taskId: string): Promise<AgentTaskLogEntry[]> {
-    return (await this.taskLogs.list((item) => item.tenantId === tenantId && item.taskId === taskId))
-      .sort((left, right) => left.sequence - right.sequence);
+    return listDocuments(this.db, 'agents:taskLogs', `
+      and payload->>'tenantId' = $2
+      and payload->>'taskId' = $3
+      order by case when payload->>'sequence' ~ '^[0-9]+$' then (payload->>'sequence')::int else 0 end asc,
+               payload->>'emittedAt' asc`, [tenantId, taskId]);
   }
 
   async listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]> {
-    return (await this.taskLogs.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!levels?.length || levels.includes(item.level))))
-      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt) || right.sequence - left.sequence);
+    const activeLevels = uniqueStrings(levels);
+    return listDocuments(this.db, 'agents:taskLogs', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      ${activeLevels.length > 0 ? `and payload->>'level' = any($4::text[])` : ''}
+      order by payload->>'emittedAt' desc,
+               case when payload->>'sequence' ~ '^[0-9]+$' then (payload->>'sequence')::int else 0 end desc`, activeLevels.length > 0
+      ? [tenantId, agentId, activeLevels]
+      : [tenantId, agentId]);
   }
 
   async listAgentRuntimeLogs(tenantId: string, agentId: string, categories?: AgentRuntimeLogEntry['category'][]): Promise<AgentRuntimeLogEntry[]> {
-    return (await this.runtimeLogs.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!categories?.length || categories.includes(item.category))))
-      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt));
+    const activeCategories = uniqueStrings(categories);
+    return listDocuments(this.db, 'agents:runtimeLogs', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      ${activeCategories.length > 0 ? `and payload->>'category' = any($4::text[])` : ''}
+      order by payload->>'emittedAt' desc`, activeCategories.length > 0
+      ? [tenantId, agentId, activeCategories]
+      : [tenantId, agentId]);
   }
 
   async getDetailData(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailData | undefined> {
@@ -468,7 +782,9 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
-    return (await this.releases.list((item) => item.tenantId === tenantId && item.status === 'active'))
+    return (await listDocuments<AgentVersionRelease>(this.db, 'agents:versions', `
+      and payload->>'tenantId' = $2
+      and payload->>'status' = 'active'`, [tenantId]))
       .sort((left, right) => compareVersions(right.version, left.version));
   }
 
@@ -486,11 +802,17 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined> {
-    return (await this.upgradePlans.list((item) => item.tenantId === tenantId && item.agentId === agentId && item.releaseId === releaseId))[0];
+    return findDocument(this.db, 'agents:upgradePlans', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      and payload->>'releaseId' = $4
+      limit 1`, [tenantId, agentId, releaseId]);
   }
 
   async listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]> {
-    return (await this.upgradePlans.list((item) => item.tenantId === tenantId && item.agentId === agentId))
+    return (await listDocuments<AgentUpgradePlan>(this.db, 'agents:upgradePlans', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3`, [tenantId, agentId]))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
@@ -504,7 +826,9 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async findInstallSessionByTokenHashAnyTenant(tokenHash: string): Promise<AgentInstallSession | undefined> {
-    return (await this.installSessions.list((item) => item.bootstrapTokenHash === tokenHash))[0];
+    return findDocument(this.db, 'agents:installSessions', `
+      and payload->>'bootstrapTokenHash' = $2
+      limit 1`, [tokenHash]);
   }
 
   async consumeInstallSessionByTokenHash(tokenHash: string, usedAt: string, usedByIp?: string): Promise<AgentInstallSession | undefined> {
@@ -543,6 +867,57 @@ function documentEntity<T>(row: DocumentRow<T> | undefined): (T & IdentifiedEnti
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
+}
+
+/** 中文说明：高基数 JSONB 命名空间必须先在数据库按领域键过滤，再反序列化实际返回的行。 */
+async function listDocuments<T>(
+  db: DatabasePort,
+  namespace: string,
+  clause = '',
+  params: readonly unknown[] = [],
+): Promise<Array<T & IdentifiedEntity>> {
+  const rows = await db.query<DocumentRow<T>>(
+    `select document_id, payload
+       from pg_documents
+      where namespace = $1
+      ${clause}`,
+    [namespace, ...params],
+  );
+  return rows.rows.map(documentEntity).filter(isDefined);
+}
+
+async function findDocument<T>(
+  db: DatabasePort,
+  namespace: string,
+  clause: string,
+  params: readonly unknown[] = [],
+): Promise<(T & IdentifiedEntity) | undefined> {
+  return (await listDocuments<T>(db, namespace, clause, params))[0];
+}
+
+function uniqueStrings(values: readonly string[] | undefined): string[] {
+  if (!values) return [];
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function observeSnapshotRead(
+  path: 'current_projection' | 'sql_fallback' | 'current_full_web_projection' | 'full_web_sql_fallback',
+  tenantId: string,
+  agentId: string,
+  startedAt: number,
+  snapshot: AgentCapabilitySnapshot | undefined,
+): void {
+  const durationMs = Date.now() - startedAt;
+  const threshold = Number(process.env.GCAC_PERFORMANCE_SLOW_QUERY_MS ?? 250);
+  if (!Number.isFinite(threshold) || durationMs < Math.max(0, threshold)) return;
+  const payloadBytes = snapshot ? Buffer.byteLength(JSON.stringify(snapshot), 'utf8') : 0;
+  structuredLogger.warn('Agent 快照精确查询超过性能阈值', {
+    operation: 'agent.snapshot.latest',
+    path,
+    durationMs,
+    returnedRows: snapshot ? 1 : 0,
+    payloadBytes,
+  }, { module: 'agents', tenantId, resourceType: 'agent', resourceId: agentId });
 }
 
 async function upsertDocument<T extends IdentifiedEntity>(db: DatabasePort, namespace: string, entity: T): Promise<void> {
