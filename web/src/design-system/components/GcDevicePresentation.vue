@@ -20,8 +20,11 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ action: [capabilityKey: string] }>()
 const { t } = useI18n()
-const tabs = computed(() => props.schema.tabs.map((tab) => ({ value: tab.id, label: label(tab.titleKey) })))
-const selectedTab = computed(() => props.schema.tabs.find((tab) => tab.id === activeTab.value) ?? props.schema.tabs[0])
+const overview = computed(() => Array.isArray(props.schema?.overview) ? props.schema.overview : [])
+const actions = computed(() => Array.isArray(props.schema?.actions) ? props.schema.actions : [])
+const presentationTabs = computed(() => Array.isArray(props.schema?.tabs) ? props.schema.tabs : [])
+const tabs = computed(() => presentationTabs.value.map((tab) => ({ value: tab.id, label: label(tab.titleKey) })))
+const selectedTab = computed(() => presentationTabs.value.find((tab) => tab.id === activeTab.value) ?? presentationTabs.value[0])
 
 function label(key: string): string { return props.pluginMessages[key] ?? t(key) }
 function read(source: unknown, path: string): unknown {
@@ -38,7 +41,7 @@ function display(value: unknown, type: string, sensitive = false): string {
 
 <template>
   <section class="gc-device-presentation">
-    <article v-for="group in schema.overview" :key="group.id" class="gc-device-presentation__group">
+    <article v-for="group in overview" :key="group.id" class="gc-device-presentation__group">
       <h3>{{ label(group.titleKey) }}</h3>
       <dl>
         <div v-for="field in group.fields" :key="field.key">
@@ -49,13 +52,13 @@ function display(value: unknown, type: string, sensitive = false): string {
       </dl>
     </article>
 
-    <nav v-if="schema.actions.length" class="gc-device-presentation__actions">
-      <button v-for="action in schema.actions" :key="action.capabilityKey" class="gc-button" type="button" @click="emit('action', action.capabilityKey)">
+    <nav v-if="actions.length" class="gc-device-presentation__actions">
+      <button v-for="action in actions" :key="action.capabilityKey" class="gc-button" type="button" @click="emit('action', action.capabilityKey)">
         {{ label(action.labelKey) }}
       </button>
     </nav>
 
-    <div v-if="schema.tabs.length" class="gc-device-presentation__tabs">
+    <div v-if="presentationTabs.length" class="gc-device-presentation__tabs">
       <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('plugins.presentation.tabsAriaLabel')" />
       <GcDataTable
         v-if="selectedTab"

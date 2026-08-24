@@ -48,13 +48,14 @@ const agentActionError = ref('')
 const pluginUiLoading = ref(false)
 const pluginUiError = ref('')
 const pluginForms = ref<Record<string, PluginFormSchema>>({})
-const pluginPresentations = ref<Record<string, DevicePresentationSchema>>({})
+// 插件展示资源支持多种 schema，先按运行时版本筛选后再交给专用组件。
+const pluginPresentations = ref<Record<string, unknown>>({})
 const pluginMessages = ref<Record<string, string>>({})
 const pluginFormValues = ref<Record<string, unknown>>({})
 const activePresentationTab = ref('')
 
 const previewForm = computed(() => Object.values(pluginForms.value)[0])
-const previewPresentation = computed(() => Object.values(pluginPresentations.value)[0])
+const previewPresentation = computed(() => findDevicePresentation(pluginPresentations.value))
 
 const sourceOptions = computed(() => [
   { value: 'all' as const, label: t('plugins.filters.allSources') },
@@ -313,14 +314,30 @@ async function loadPluginUiResources(plugin: PluginRecord): Promise<void> {
     const result = await getUnifiedPluginUiResources(plugin.id, locale.value)
     const payload = readRecord(result.data)
     pluginForms.value = readRecord(payload.forms) as Record<string, PluginFormSchema>
-    pluginPresentations.value = readRecord(payload.presentations) as Record<string, DevicePresentationSchema>
+    pluginPresentations.value = readRecord(payload.presentations)
     pluginMessages.value = readRecord(readRecord(payload.locale).messages) as Record<string, string>
-    activePresentationTab.value = Object.values(pluginPresentations.value)[0]?.tabs[0]?.id ?? ''
+    activePresentationTab.value = findDevicePresentation(pluginPresentations.value)?.tabs[0]?.id ?? ''
   } catch (cause) {
     pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
   } finally {
     pluginUiLoading.value = false
   }
+}
+
+function findDevicePresentation(resources: Record<string, unknown>): DevicePresentationSchema | undefined {
+  return Object.values(resources).find(isDevicePresentationSchema)
+}
+
+function isDevicePresentationSchema(value: unknown): value is DevicePresentationSchema {
+  const resource = readRecord(value)
+  return resource.schemaVersion === 'gcac.device-presentation/v1'
+    && Array.isArray(resource.overview)
+    && Array.isArray(resource.tabs)
+    && Array.isArray(resource.actions)
+}
+
+function handleDetailOpen(open: boolean): void {
+  detailOpen.value = open
 }
 
 function pluginRecordFromManagementDetail(value: ApiRecord): PluginRecord {
@@ -597,10 +614,11 @@ function pluginStatusClass(plugin: PluginRecord): string {
     </nav>
 
     <GcModal
-      v-model:open="detailOpen"
+      :open="detailOpen"
       :title="selectedPlugin ? pluginTitle(selectedPlugin) : t('plugins.detail.title')"
       :description="t('plugins.detail.description')"
       size="xxl"
+      @update:open="handleDetailOpen"
     >
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">
@@ -703,7 +721,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
         >
           {{ changingPluginId === selectedPlugin.id ? t('plugins.actions.disabling') : t('plugins.actions.disable') }}
         </button>
-        <button class="gc-button" type="button" @click="detailOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
+        <button class="gc-button" type="button" @click="handleDetailOpen(false)">{{ t('designSystem.dryRunResult.close') }}</button>
       </template>
     </GcModal>
   </section>

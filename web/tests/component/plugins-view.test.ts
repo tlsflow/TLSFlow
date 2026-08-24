@@ -175,4 +175,50 @@ describe('PluginsView', () => {
       warn.mockRestore()
     }
   })
+
+  it('忽略应用展示资源并允许关闭插件详情', async () => {
+    const catalog = [pluginRecord(3)]
+    pluginMocks.listPluginCatalog.mockResolvedValue(page(catalog))
+    pluginMocks.listUnifiedPluginVersions.mockResolvedValue(page([]))
+    pluginMocks.listPluginRuntimeMetrics.mockResolvedValue(page([]))
+    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue({
+      data: {
+        forms: {},
+        presentations: {
+          application: {
+            schemaVersion: 'gcac.application-presentation/v1',
+            resourceLabels: { applicationType: 'plugin.test.name', profile: 'plugin.test.profile' },
+            overview: [],
+            actions: [],
+          },
+        },
+        locale: { messages: {} },
+      },
+    })
+
+    const wrapper = mount(PluginsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcModal: {
+            props: ['open'],
+            template: '<div v-if="open" class="gc-modal-stub"><slot /><slot name="actions" /></div>',
+          },
+          GcEmptyState: { template: '<div><h2>{{ title }}</h2><p>{{ description }}</p><slot /></div>', props: ['title', 'description'] },
+          GcPluginForm: { template: '<div />' },
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.find('.plugin-card .plugin-card__actions .gc-button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.plugin-detail').exists()).toBe(true)
+    expect(wrapper.find('.gc-device-presentation').exists()).toBe(false)
+
+    const closeButton = wrapper.findAll('.gc-modal-stub .gc-button').at(-1)
+    expect(closeButton?.text()).toContain('关闭')
+    await closeButton!.trigger('click')
+    expect(wrapper.find('.plugin-detail').exists()).toBe(false)
+  })
 })
