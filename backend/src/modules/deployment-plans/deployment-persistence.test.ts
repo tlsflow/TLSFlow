@@ -33,7 +33,7 @@ describe('部署计划持久化仓储', () => {
       certificateBindingId: 'binding_persist_1',
       executionTargetId: 'target_persist_1',
       executorType: 'AGENT',
-      requiredCapabilities: ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'],
+      requiredCapabilities: ['certificate.backup', 'certificate.install', 'service.reload', 'certificate.verify'],
       matchResult: { status: 'assumed' },
       status: 'READY',
       createdAt: now,

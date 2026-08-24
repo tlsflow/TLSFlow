@@ -28,6 +28,7 @@ export interface AgentDirectActionExecuteRequest {
   actionType: string;
   inputs: Record<string, unknown>;
   requestId?: string;
+  onProgress?: (detail: Record<string, unknown>) => Promise<void> | void;
 }
 
 export interface AgentDirectActionExecuteResult {
@@ -89,7 +90,7 @@ export class AgentDirectClient {
     const directControl = requireReachableDirectControl(agent, actionType);
     const baseUrl = buildDirectControlBaseUrl(directControl.listenAddress!);
     try {
-      const startResponse = await fetch(`${baseUrl}/api/v1/control/actions/start`, {
+      const startResponse = await fetchWithTimeout(`${baseUrl}/api/v1/control/actions/start`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -100,7 +101,7 @@ export class AgentDirectClient {
           inputs: request.inputs ?? {},
           requestId: request.requestId,
         }),
-      });
+      }, 5_000);
       const startBody = await safeReadJson(startResponse) as Record<string, unknown> | undefined;
       if (startResponse.status === 404) {
         return this.executeActionLegacy(baseUrl, directControl, agent, request, actionType);
@@ -114,7 +115,7 @@ export class AgentDirectClient {
         });
       }
       const actionId = startBody.actionId;
-      const statusBody = await this.waitActionCompleted(baseUrl, agent, actionType, actionId, request.requestId);
+      const statusBody = await this.waitActionCompleted(baseUrl, agent, actionType, actionId, request.requestId, request.onProgress);
       return {
         directControl,
         success: statusBody.success === true,
@@ -143,7 +144,7 @@ export class AgentDirectClient {
   ): Promise<AgentDirectActionExecuteResult> {
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}/api/v1/control/actions/execute`, {
+      response = await fetchWithTimeout(`${baseUrl}/api/v1/control/actions/execute`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -154,7 +155,7 @@ export class AgentDirectClient {
           inputs: request.inputs ?? {},
           requestId: request.requestId,
         }),
-      });
+      }, 125_000);
     } catch (error) {
       throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连执行连接失败', {
         agentId: agent.id,
@@ -187,17 +188,19 @@ export class AgentDirectClient {
     actionType: string,
     actionId: string,
     requestId?: string,
+    onProgress?: (detail: Record<string, unknown>) => Promise<void> | void,
   ): Promise<Record<string, unknown>> {
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 125_000;
+    let lastProgressSignature = '';
     while (Date.now() < deadline) {
       let response: Response;
       try {
-        response = await fetch(`${baseUrl}/api/v1/control/actions/status?actionId=${encodeURIComponent(actionId)}`, {
+        response = await fetchWithTimeout(`${baseUrl}/api/v1/control/actions/status?actionId=${encodeURIComponent(actionId)}`, {
           method: 'GET',
           headers: {
             'x-request-id': requestId ?? `agent-direct-action-status:${actionType}`,
           },
-        });
+        }, 5_000);
       } catch (error) {
         throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连结果查询失败', {
           agentId: agent.id,
@@ -219,6 +222,14 @@ export class AgentDirectClient {
       if (body.status === 'completed') {
         return body;
       }
+      const progress = readRecord(body.detail);
+      if (progress) {
+        const progressSignature = JSON.stringify(progress);
+        if (progressSignature !== lastProgressSignature) {
+          lastProgressSignature = progressSignature;
+          await onProgress?.(progress);
+        }
+      }
       await sleep(200);
     }
     throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连结果查询超时', {
@@ -226,6 +237,16 @@ export class AgentDirectClient {
       actionType,
       actionId,
     });
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
 }
 

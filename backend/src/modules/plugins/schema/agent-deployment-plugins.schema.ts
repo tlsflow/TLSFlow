@@ -17,7 +17,6 @@ const operationTypes = [
   'file.set_permissions',
   'command.execute',
   'service.control',
-  'tls.verify',
   'windows.certificate.inspect_pfx',
   'windows.certificate_store.import_pfx',
   'windows.certificate_private_key.grant',

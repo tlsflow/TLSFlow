@@ -310,6 +310,45 @@ export class AgentsApplicationService {
     });
   }
 
+  /**
+   * 创建由控制面主动发起的直连任务，并在入库时直接占有 lease。
+   * 该任务不会暴露给 Agent 拉取接口，避免同一动作被直连与轮询重复执行。
+   */
+  async enqueueDirectTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
+    await this.requireAgent(tenantId, input.agentId);
+    await this.assertLivenessAllowsExecution(tenantId, input.agentId);
+    const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
+    if (existing) {
+      if (existing.status === 'queued' || existing.status === 'leased') {
+        const leaseId = `direct:${existing.id}`;
+        return this.repository.updateTask(existing.id, {
+          status: 'acked',
+          leaseId,
+          ackedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return existing;
+    }
+    const now = new Date().toISOString();
+    const taskId = newId('agtask');
+    return this.repository.createTask({
+      id: taskId,
+      tenantId,
+      agentId: input.agentId,
+      executionRunId: input.executionRunId,
+      executionStepId: input.executionStepId,
+      idempotencyKey: input.idempotencyKey,
+      payload: input.payload ?? {},
+      status: 'acked',
+      leaseId: `direct:${taskId}`,
+      ackedAt: now,
+      createdAt: now,
+      updatedAt: now,
+      requestId,
+    });
+  }
+
   async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
     const agent = await this.requireAgent(tenantId, input.agentId);
     const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
@@ -320,7 +359,13 @@ export class AgentsApplicationService {
         status: existingQueuedTask.status,
       });
     }
-    const task = await this.enqueueTask(tenantId, {
+    if (!agent.directControl?.enabled || !agent.directControl.reachable || !agent.directControl.supportedActions.includes('agent.capability.rescan')) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 能力重扫要求可达的主动直连通道', {
+        agentId: agent.id,
+        actionType: 'agent.capability.rescan',
+      });
+    }
+    const task = await this.enqueueDirectTask(tenantId, {
       agentId: input.agentId,
       executionRunId: `agent_rescan:${input.agentId}`,
       executionStepId: `capability_rescan:${input.agentId}`,
@@ -331,18 +376,8 @@ export class AgentsApplicationService {
         requestedAt: new Date().toISOString(),
       },
     }, requestId);
-    if (agent.directControl?.enabled && agent.directControl.reachable && agent.directControl.supportedActions.includes('agent.capability.rescan')) {
-      try {
-        const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
-        return direct.task;
-      } catch (error) {
-        const appError = error instanceof AppError ? error : undefined;
-        if (!shouldFallbackDirectExecution(appError)) {
-          throw error;
-        }
-      }
-    }
-    return task;
+    const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
+    return direct.task;
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
@@ -453,7 +488,12 @@ export class AgentsApplicationService {
     return updated;
   }
 
-  async executeTaskDirect(tenantId: string, taskId: string, requestId: string): Promise<{
+  async executeTaskDirect(
+    tenantId: string,
+    taskId: string,
+    requestId: string,
+    onProgress?: (detail: Record<string, unknown>) => Promise<void> | void,
+  ): Promise<{
     task: AgentTaskEnvelope;
     success: boolean;
     errorCode?: string;
@@ -462,28 +502,41 @@ export class AgentsApplicationService {
   }> {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
-    const actionType = readStringValue(task.payload?.type);
+    const actionType = resolveAgentTaskActionType(task.payload);
     if (!actionType) {
-      throw new AppError('VALIDATION_FAILED', 'Agent task 缺少 type，不能直连执行', { taskId });
+      throw new AppError('VALIDATION_FAILED', 'Agent task 缺少 actionType/type，不能直连执行', { taskId });
     }
 
     const agent = await this.requireAgent(tenantId, task.agentId);
-    const direct = await this.directClient.executeAction(agent, {
-      actionType,
-      inputs: task.payload ?? {},
-      requestId,
-    });
+    const leaseId = `direct:${task.id}`;
+    await this.ackTask(tenantId, { agentId: task.agentId, taskId: task.id, leaseId });
 
-    await this.ackTask(tenantId, {
-      agentId: task.agentId,
-      taskId: task.id,
-      leaseId: `direct:${task.id}`,
-    });
+    let direct;
+    try {
+      direct = await this.directClient.executeAction(agent, {
+        actionType,
+        inputs: task.payload ?? {},
+        requestId,
+        onProgress,
+      });
+    } catch (error) {
+      const appError = error instanceof AppError ? error : undefined;
+      await this.submitResult(tenantId, {
+        agentId: task.agentId,
+        taskId: task.id,
+        leaseId,
+        success: false,
+        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: { executionMode: 'direct', mode: 'agent_direct_execute_failed' },
+      });
+      throw error;
+    }
 
     await this.submitResult(tenantId, {
       agentId: task.agentId,
       taskId: task.id,
-      leaseId: `direct:${task.id}`,
+      leaseId,
       success: direct.success,
       errorCode: direct.errorCode,
       errorMessage: direct.errorMessage,
@@ -1317,10 +1370,8 @@ function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function shouldFallbackDirectExecution(error: AppError | undefined): boolean {
-  return error?.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
-    || error?.errorCode === 'CAPABILITY_MISSING'
-    || error?.errorCode === 'VALIDATION_FAILED';
+export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): string | undefined {
+  return readStringValue(payload?.actionType) ?? readStringValue(payload?.type);
 }
 
 function readDirectFallback(value: unknown): AgentDetailProjection['recentTaskLogs'][number]['directFallback'] | undefined {

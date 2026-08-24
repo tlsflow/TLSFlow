@@ -323,11 +323,11 @@ export class CapabilitiesDomainService {
       return evaluation(input.targetType, input.targetId, 'L4', ['script_package_manual_path'], missingForLevel(activeKeys, ['gateway.reachable', 'ssh.connect', 'winrm.connect']), input.sourceSnapshotId);
     }
 
-    if (activeKeys.has('tls.remote_probe') || activeKeys.has('manual.record')) {
+    if (activeKeys.has('certificate.verify') || activeKeys.has('manual.record')) {
       return evaluation(input.targetType, input.targetId, 'L5', ['monitor_only'], [], input.sourceSnapshotId);
     }
 
-    return evaluation(input.targetType, input.targetId, 'L5', ['insufficient_capabilities'], ['tls.remote_probe', 'manual.record'], input.sourceSnapshotId);
+    return evaluation(input.targetType, input.targetId, 'L5', ['insufficient_capabilities'], ['certificate.verify', 'manual.record'], input.sourceSnapshotId);
   }
 
   private buildSuggestions(
@@ -353,8 +353,8 @@ export class CapabilitiesDomainService {
     if (blockedKeys.some((item) => item.endsWith('.reload') || item === 'service.reload')) {
       suggestions.push(suggestion('manual_confirm', '缺失重载能力，允许人工补 reload', '文件能写但不会 reload，就别假装部署成功。', ['允许只写入文件', '人工执行 reload', '等待 TLS 验证通过后再完成'], requirement.riskLevel, requirement.riskLevel !== 'low', blockedKeys.filter((item) => item.endsWith('.reload') || item === 'service.reload')));
     }
-    if (blockedKeys.includes('tls.remote_probe')) {
-      suggestions.push(suggestion('monitor_only', '补齐验证链路', '没有 TLS 验证能力时，部署最多只能算 installed_unverified。', ['配置远程 TLS 探测', '或让人工上传验证结果'], 'medium', true, ['tls.remote_probe']));
+    if (blockedKeys.includes('certificate.verify')) {
+      suggestions.push(suggestion('monitor_only', '补齐验证链路', '没有宿主证书验证能力时，部署最多只能算 installed_unverified。', ['启用平台后端验证', '或配置指定 Gateway 验证'], 'medium', true, ['certificate.verify']));
     }
     if (manualRisk.length > 0) {
       suggestions.push(suggestion('manual_confirm', '人工声明需要复核', '人工声明不是能力事实，只是风险接受记录。', ['核验人工证据', '补探测或审批', '必要时缩短过期时间'], requirement.riskLevel, true, manualRisk.map((item) => item.capabilityKey)));
@@ -366,7 +366,7 @@ export class CapabilitiesDomainService {
     if (missing.length === 0) return false;
     const keys = new Set(missing.map((item) => item.capabilityKey));
     if (keys.has('file.write') || keys.has('process.exec') || keys.has('service.reload')) return true;
-    if ([...keys].some((item) => item.endsWith('.reload') || item === 'tls.remote_probe')) return true;
+    if ([...keys].some((item) => item.endsWith('.reload') || item === 'certificate.verify')) return true;
     return false;
   }
 

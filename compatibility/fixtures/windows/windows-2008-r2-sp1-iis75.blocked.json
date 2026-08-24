@@ -23,7 +23,7 @@
     "iis.binding.update",
     "service.restart",
     "rollback.restore",
-    "tls.remote_probe"
+    "certificate.verify"
   ],
   "blockedEvidence": [
     "服务安装、启动、停止与升级回滚的真实虚拟机日志",

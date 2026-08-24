@@ -14,11 +14,16 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
     capability: capability('AGENT_ATOMIC', 'AGENT'),
     context: context('AGENT'),
     applicationAssetId: 'asset-1',
+    serverName: 'test02.jacksonz.cn',
+    port: 443,
     certificateBindingId: 'certificate-binding-1',
   });
   assert.equal(result.executorType, 'AGENT');
   assert.equal(result.executionTargetId, 'agent-1');
   assert.equal((result.payload.pluginRuntimeCapability as { pluginBindingId: string }).pluginBindingId, 'binding-1');
+  assert.deepEqual(result.payload.certificateVerification, {
+    capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, expectedDomains: ['test02.jacksonz.cn'],
+  });
 });
 
 test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async () => {
@@ -26,10 +31,13 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async
     capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
     context: context('CONTROL_PLANE'),
     applicationAssetId: 'asset-1',
+    serverName: 'test02.jacksonz.cn',
+    port: 443,
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
   });
   assert.equal(result.executorType, 'WORKFLOW');
   assert.equal((result.payload.workflowRequest as { workflowVersionId: string }).workflowVersionId, 'workflow-version-1');
+  assert.equal((result.payload.certificateVerification as { capabilityKey: string }).capabilityKey, 'certificate.verify');
 });
 
 test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置', async () => {
@@ -38,6 +46,8 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
     capability: capability('WORKFLOW_DSL', 'AGENT'),
     context: context('AGENT'),
     applicationAssetId: 'asset-1',
+    serverName: 'test02.jacksonz.cn',
+    port: 443,
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
   }), /没有可用/);
 });
@@ -73,10 +83,14 @@ function context(executionLocation: ResolvedManagedTargetContext['executionLocat
       supportedCapabilities: ['certificate.deploy'], executionLocations: [executionLocation], status: 'ACTIVE', metadata: {}, createdAt: '', updatedAt: '', version: 1,
     },
     host: {
-      id: 'host-1', tenantId: 'tenant-1', ipAddresses: [], osType: 'LINUX', managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1',
+      id: 'host-1', tenantId: 'tenant-1', primaryIp: '10.255.0.127', ipAddresses: ['10.255.0.127'], osType: 'LINUX', managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1',
       managementMode: 'AGENT', status: 'ACTIVE', tags: [], agentId: 'agent-1', createdAt: '', updatedAt: '', version: 1,
     },
     agent: { id: 'agent-1' } as never,
+    siteAsset: {
+      id: 'site-1', tenantId: 'tenant-1', frameworkInstanceId: 'framework-1', siteName: 'TEST02', bindingInformation: '*:443:test02.jacksonz.cn',
+      hostHeader: 'test02.jacksonz.cn', port: 443, protocol: 'HTTPS', metadata: {}, discoverySource: 'AGENT', status: 'ACTIVE', createdAt: '', updatedAt: '', version: 1,
+    } as never,
     discoveryProviderKey: 'fixture',
     frameworkType: 'web.nginx',
     driverKind: executionLocation === 'AGENT' ? 'AGENT_NATIVE' : 'DEVICE_PLUGIN',

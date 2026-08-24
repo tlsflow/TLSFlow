@@ -1,4 +1,4 @@
-export type AgentActionDispatchMode = 'direct_preferred' | 'queued';
+export type AgentActionDispatchMode = 'direct_required';
 
 export interface AgentActionDispatchDescriptor {
   actionType: string;
@@ -61,12 +61,12 @@ export function defaultAgentActionDispatchDescriptors(): AgentActionDispatchDesc
     {
       actionType: 'certificate.deploy',
       aliases: ['windows.iis.deploy_certificate', 'linux.nginx.deploy_certificate'],
-      mode: 'direct_preferred',
+      mode: 'direct_required',
     },
     {
       actionType: 'agent.atomic_plan.execute',
       aliases: [],
-      mode: 'direct_preferred',
+      mode: 'direct_required',
     },
   ];
 }

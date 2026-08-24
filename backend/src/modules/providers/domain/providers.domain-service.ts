@@ -168,7 +168,7 @@ export class ProvidersDomainService {
         target: { hostKey: service?.hostKey, serviceKey: service?.key, endpointKey: endpoint?.key, bindingKey: binding.key },
         inputs: { domainName: binding.domainName, endpointHost: endpoint?.hostName, endpointPort: endpoint?.port },
         dependsOn: [installId],
-        requiredCapabilities: ['tls.remote_probe'],
+        requiredCapabilities: ['certificate.verify'],
         riskLevel: 'medium',
         idempotencyKey: stableIdempotencyKey(result.providerId, binding.key, 'verify'),
       });

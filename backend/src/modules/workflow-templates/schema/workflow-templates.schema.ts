@@ -17,7 +17,6 @@ const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
 const sftpStepKeys = new Set([...stepBaseKeys, 'sftp']);
 const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
-const tlsProbeStepKeys = new Set([...stepBaseKeys, 'tlsProbe']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const transformStepKeys = new Set([...stepBaseKeys, 'transform']);
 const foreachStepKeys = new Set([...stepBaseKeys, 'foreach']);
@@ -26,7 +25,7 @@ const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file', 'credential', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'tls_probe', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
@@ -235,17 +234,6 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'transform') {
     rejectUnknown(step as unknown as Record<string, unknown>, transformStepKeys, path);
     validateTransform(step.transform, `${path}.transform`);
-    return;
-  }
-  if (step.type === 'tls_probe') {
-    rejectUnknown(step as unknown as Record<string, unknown>, tlsProbeStepKeys, path);
-    if (!isRecord(step.tlsProbe)) throw validationError(`${path}.tlsProbe 必须是对象`);
-    rejectUnknown(step.tlsProbe, new Set(['host', 'port', 'serverName', 'expectedFingerprintSha256', 'timeoutSeconds']), `${path}.tlsProbe`);
-    if (!isNonEmptyString(step.tlsProbe.host)) throw validationError(`${path}.tlsProbe.host 必填`);
-    if (step.tlsProbe.port !== undefined && !isPositiveInteger(step.tlsProbe.port)) throw validationError(`${path}.tlsProbe.port 必须是正整数`);
-    if (step.tlsProbe.serverName !== undefined && !isNonEmptyString(step.tlsProbe.serverName)) throw validationError(`${path}.tlsProbe.serverName 必须是非空字符串`);
-    if (!isNonEmptyString(step.tlsProbe.expectedFingerprintSha256)) throw validationError(`${path}.tlsProbe.expectedFingerprintSha256 必填`);
-    if (step.tlsProbe.timeoutSeconds !== undefined && !isPositiveInteger(step.tlsProbe.timeoutSeconds)) throw validationError(`${path}.tlsProbe.timeoutSeconds 必须是正整数`);
     return;
   }
   if (step.type === 'foreach') {

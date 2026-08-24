@@ -29,7 +29,7 @@ export class ProviderFallbackAdvisor {
         riskLevel: 'high',
       });
     }
-    if (missing.has('tls.remote_probe')) {
+    if (missing.has('certificate.verify')) {
       suggestions.push({
         strategy: 'MONITOR_ONLY',
         reason: '无法远程验证 TLS，部署后只能降级为监控或人工验收。',

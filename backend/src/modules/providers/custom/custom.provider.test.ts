@@ -64,7 +64,7 @@ function templateFixture(): CustomProviderTemplate {
       target: { host: '{{ domain }}', port: 443 },
       assertions: [{ field: 'fingerprint', equals: 'certificate.current' }],
       timeoutSeconds: 10,
-      requiredCapabilities: ['tls.remote_probe'],
+      requiredCapabilities: ['certificate.verify'],
     }],
     rollback: [{
       phase: 'rollback',

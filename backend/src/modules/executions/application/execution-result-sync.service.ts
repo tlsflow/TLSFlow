@@ -10,7 +10,6 @@ import { newId } from '../../../shared/id.js';
 import type { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
-import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import type { PluginCertificateResultService } from '../../plugins/results/plugin-certificate-result.service.js';
 import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
 
@@ -76,17 +75,21 @@ export class ExecutionResultSyncService {
       ...((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
       ...inputDetail,
     };
-    normalizeWorkflowDeploymentDetail(mergedDetail);
+    normalizeWorkflowRollbackDetail(mergedDetail);
     const installDetail = await this.resolveTargetInstallDetail(input.tenantId, step);
     if (installDetail) {
       mergedDetail.installResult = installDetail;
     }
+    let dryRunAccepted = false;
     if (isDryRun) {
       const mergedDryRunChecks = mergeDryRunChecks(
         readDryRunChecks((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
         readDryRunChecks(inputDetail),
       );
-      if (!input.success && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
+      dryRunAccepted = input.errorCode === 'AGENT_ATOMIC_PREFLIGHT_FAILED'
+        && Array.isArray(inputDetail.operationResults)
+        && dryRunChecksAreAccepted(mergedDryRunChecks);
+      if (!input.success && !dryRunAccepted && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
         mergedDryRunChecks.push(buildDryRunExecutionFailureCheck(input, step, mergedDetail));
       }
       if (mergedDryRunChecks.length > 0) {
@@ -94,49 +97,25 @@ export class ExecutionResultSyncService {
         mergedDetail.dryRunSummary = summarizeDryRunChecks(mergedDryRunChecks);
       }
     }
-    const allowLegacyVerifyRecovery = shouldRecoverLegacyVerifyFailure(step, input, mergedDetail, isDryRun);
-    const remoteVerification = await this.performFormalRemoteVerification(
-      step,
-      mergedDetail,
-      isDryRun,
-      input.success || allowLegacyVerifyRecovery,
-      input.tenantId,
-    );
+    const acceptedInputSuccess = input.success || dryRunAccepted;
     const certificateVerification = validateFormalCertificateVerification(
       step,
       mergedDetail,
       isDryRun,
-      input.success || allowLegacyVerifyRecovery,
+      acceptedInputSuccess,
     );
-    const recoveredFromLegacyVerifyFailure = !input.success
-      && allowLegacyVerifyRecovery
-      && remoteVerification.success
-      && certificateVerification.success;
-    const effectiveSuccess = (input.success || recoveredFromLegacyVerifyFailure)
-      && remoteVerification.success
-      && certificateVerification.success;
-    const fallbackFailure = recoveredFromLegacyVerifyFailure
+    const effectiveSuccess = (input.success || dryRunAccepted) && certificateVerification.success;
+    const fallbackFailure = dryRunAccepted
       ? undefined
       : buildFallbackAgentFailure(input, step, mergedDetail);
-    const effectiveErrorCode = recoveredFromLegacyVerifyFailure
+    const effectiveErrorCode = dryRunAccepted
       ? undefined
-      : input.errorCode ?? remoteVerification.errorCode ?? certificateVerification.errorCode ?? fallbackFailure?.errorCode;
-    const effectiveErrorMessage = recoveredFromLegacyVerifyFailure
+      : input.errorCode ?? certificateVerification.errorCode ?? fallbackFailure?.errorCode;
+    const effectiveErrorMessage = dryRunAccepted
       ? undefined
-      : input.errorMessage ?? remoteVerification.errorMessage ?? certificateVerification.errorMessage ?? fallbackFailure?.errorMessage;
-    if (!remoteVerification.success) {
-      mergedDetail.remoteVerification = remoteVerification.detail;
-    }
+      : input.errorMessage ?? certificateVerification.errorMessage ?? fallbackFailure?.errorMessage;
     if (!certificateVerification.success) {
       mergedDetail.certificateVerification = certificateVerification.detail;
-    }
-    if (recoveredFromLegacyVerifyFailure) {
-      mergedDetail.verificationRecovery = {
-        source: 'control_plane_tls_probe',
-        recoveredAt: new Date().toISOString(),
-        originalErrorCode: input.errorCode,
-        originalErrorMessage: input.errorMessage,
-      };
     }
     if (fallbackFailure) {
       mergedDetail.failure = fallbackFailure.detail;
@@ -259,145 +238,6 @@ export class ExecutionResultSyncService {
     }
   }
 
-  private async performFormalRemoteVerification(
-    step: ExecutionStepEntity,
-    detail: Record<string, unknown>,
-    isDryRun: boolean,
-    submittedSuccess: boolean,
-    tenantId: string,
-  ): Promise<{ success: true; detail?: undefined; errorCode?: undefined; errorMessage?: undefined } | { success: false; errorCode: string; errorMessage: string; detail: Record<string, unknown> }> {
-    if (isDryRun || step.stepType !== 'VERIFY' || !submittedSuccess) return { success: true };
-
-    const existingRemoteFingerprint = normalizeSha256(readString(detail, 'verify.remoteCertificateSha256'));
-    if (existingRemoteFingerprint) return { success: true };
-
-    const target = await this.resolveVerifyTarget(tenantId, step);
-    if (!target) {
-      return {
-        success: false,
-        errorCode: 'TLS_VERIFY_TARGET_UNRESOLVED',
-        errorMessage: '正式执行 VERIFY 缺少可访问的验证目标，无法发起真实 TLS 验证',
-        detail: {
-          executionStepId: step.id,
-          deploymentPlanTargetId: step.deploymentPlanTargetId,
-        },
-      };
-    }
-
-    try {
-      const report = await probeTlsCertificate(target);
-      detail.verify = {
-        ...readRecord(detail.verify),
-        ...report,
-      };
-      if (!readString(detail, 'newThumbprint') && report.remoteThumbprint) {
-        detail.newThumbprint = report.remoteThumbprint;
-      }
-
-      const expectedDomains = readStringArray(step.inputSnapshot.expectedDomains);
-      for (const domain of expectedDomains) {
-        const normalizedDomain = domain.trim();
-        if (!normalizedDomain) continue;
-        if (!certificateMatchesDomain(report, normalizedDomain)) {
-          return {
-            success: false,
-            errorCode: 'TLS_VERIFY_DOMAIN_MISMATCH',
-            errorMessage: `正式执行 VERIFY 发现远端 TLS 证书域名不匹配: ${normalizedDomain}`,
-            detail: {
-              target,
-              report,
-              expectedDomains,
-            },
-          };
-        }
-      }
-
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        errorCode: 'TLS_VERIFY_FAILED',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        detail: {
-          target,
-        },
-      };
-    }
-  }
-
-  private async resolveVerifyTarget(tenantId: string, step: ExecutionStepEntity): Promise<TlsVerifyTarget | undefined> {
-    const verifyUrl = readString(step.inputSnapshot, 'verifyUrl');
-    if (verifyUrl) {
-      return buildTlsVerifyTargetFromUrl(verifyUrl);
-    }
-
-    const bindingId = typeof step.inputSnapshot.certificateBindingId === 'string' ? step.inputSnapshot.certificateBindingId : undefined;
-    const binding = bindingId ? await this.bindings.getRepository().getCertificateBinding(tenantId, bindingId) : undefined;
-    const siteAsset = binding?.siteAssetId ? await this.assets.getRepository().getSiteAsset(tenantId, binding.siteAssetId) : undefined;
-    const managedTarget = binding?.managedTargetId ? await this.assets.getRepository().getManagedTarget(tenantId, binding.managedTargetId) : undefined;
-    const serviceAsset = await this.resolveServiceAssetForVerify(tenantId, step, binding, siteAsset, managedTarget);
-
-    const host = firstNonEmpty(
-      serviceAsset?.address,
-      siteAsset?.hostHeader,
-      binding?.domainName,
-      binding?.domain,
-      readString(step.inputSnapshot, 'bindingSelector.hostHeader'),
-    );
-    const port = firstPositiveNumber(
-      serviceAsset?.port,
-      siteAsset?.port,
-      binding?.port,
-      readNumber(step.inputSnapshot, 'bindingSelector.port'),
-      443,
-    );
-    if (!host || !port) return undefined;
-
-    return {
-      host,
-      port,
-      serverName: firstNonEmpty(
-        serviceAsset?.sniName,
-        siteAsset?.hostHeader,
-        binding?.domainName,
-        binding?.domain,
-        host,
-      ) ?? host,
-      target: `https://${host}:${port}`,
-    };
-  }
-
-  private async resolveServiceAssetForVerify(
-    tenantId: string,
-    step: ExecutionStepEntity,
-    binding: CertificateBindingDto | undefined,
-    siteAsset: SiteAssetDto | undefined,
-    managedTarget: ManagedTargetDto | undefined,
-  ): Promise<ServiceAssetDto | undefined> {
-    const repository = this.assets.getRepository();
-    const directServiceAssetId = binding?.serviceAssetId
-      ?? readString(step.inputSnapshot, 'serviceAssetId');
-    if (directServiceAssetId) {
-      const direct = await repository.getServiceAsset(tenantId, directServiceAssetId);
-      if (direct) return direct;
-    }
-
-    const host = firstNonEmpty(
-      siteAsset?.hostHeader,
-      binding?.domainName,
-      binding?.domain,
-      readString(step.inputSnapshot, 'bindingSelector.hostHeader'),
-    )?.toLowerCase();
-    const port = firstPositiveNumber(
-      siteAsset?.port,
-      binding?.port,
-      readNumber(step.inputSnapshot, 'bindingSelector.port'),
-    );
-    const protocol = typeof binding?.protocol === 'string' && binding.protocol.trim() ? binding.protocol : 'HTTPS';
-    if (!host || !port) return undefined;
-    return repository.findServiceAssetByIdentity(tenantId, { address: host, port, protocol });
-  }
-
   private async continueRunAfterAgentResult(run: ExecutionRunEntity, actorId: string, tenantId: string): Promise<void> {
     if (!this.continuationRunner) return;
     if (!['DISPATCHED', 'RUNNING'].includes(run.status)) return;
@@ -426,7 +266,7 @@ export class ExecutionResultSyncService {
     step: ExecutionStepEntity,
     detail: Record<string, unknown>,
   ): Promise<ResultState | undefined> {
-    if (!shouldSyncDeploymentState(input.runType, step.stepType, input.success, detail)) return undefined;
+    if (!shouldSyncDeploymentState(input.runType, step, input.success, detail)) return undefined;
 
     const bindingId = typeof step.inputSnapshot.certificateBindingId === 'string' ? step.inputSnapshot.certificateBindingId : undefined;
     if (!bindingId) return this.syncWorkflowDeploymentAssets(input, step, detail);
@@ -849,7 +689,7 @@ function deriveResultState(
   detail: Record<string, unknown>,
   errorCode?: string,
 ): ResultState {
-  const rollbackSucceeded = runType === 'rollback' && stepType === 'VERIFY' && success;
+  const rollbackSucceeded = runType === 'rollback' && (stepType === 'VERIFY' || stepType === 'CUSTOM') && success;
   const rolledBack = rollbackSucceeded || readBoolean(detail, 'rolledBack');
   const manualRequired = readBoolean(detail, 'manualRequired') || readBoolean(detail, 'manualInterventionRequired') || errorCode === 'ROLLBACK_FAILED';
   if (rollbackSucceeded) {
@@ -906,83 +746,32 @@ function deriveResultState(
 
 function shouldSyncDeploymentState(
   runType: ExecutionRunEntity['type'],
-  stepType: ExecutionStepEntity['stepType'],
+  step: ExecutionStepEntity,
   success: boolean,
   detail?: Record<string, unknown>,
 ): boolean {
-  if (stepType === 'VERIFY') return true;
-  if (stepType === 'CUSTOM' && isWorkflowExecutionDetail(detail)) return true;
-  if (runType === 'rollback' && stepType === 'ROLLBACK' && !success) return true;
-  if ((stepType === 'INSTALL' || stepType === 'RELOAD') && !success) return true;
+  if (step.stepType === 'VERIFY') return true;
+  if (step.stepType === 'CUSTOM' && (isWorkflowExecutionDetail(detail) || isAgentAtomicStep(step))) return true;
+  if (runType === 'rollback' && step.stepType === 'ROLLBACK' && !success) return true;
+  if ((step.stepType === 'INSTALL' || step.stepType === 'RELOAD') && !success) return true;
   return false;
 }
 
-function normalizeWorkflowDeploymentDetail(detail: Record<string, unknown>): void {
+function isAgentAtomicStep(step: ExecutionStepEntity): boolean {
+  return readString(step.inputSnapshot, 'actionType') === 'agent.atomic_plan.execute'
+    || readString(step.inputSnapshot, 'pluginRuntimeCapability.runtime') === 'AGENT_ATOMIC';
+}
+
+function normalizeWorkflowRollbackDetail(detail: Record<string, unknown>): void {
   if (!isWorkflowExecutionDetail(detail)) return;
   const workflowRun = readRecord(detail.workflowRun);
   const status = readString(workflowRun ?? {}, 'status');
   if (status === 'rolled_back') detail.rolledBack = true;
-
-  const extractedRecords = readWorkflowExtractedRecords(workflowRun);
-  const remoteFingerprint = firstStringByKeys(extractedRecords, [
-    'remoteCertificateSha256',
-    'remoteFingerprintSha256',
-    'remoteFingerprint',
-    'certificateFingerprintSha256',
-    'fingerprintSha256',
-    'fingerprint',
-  ]);
-  const remoteThumbprint = firstStringByKeys(extractedRecords, ['remoteThumbprint', 'certificateThumbprint', 'thumbprint']);
-  const deployedThumbprint = firstStringByKeys(extractedRecords, ['newThumbprint', 'deployedThumbprint']);
-  const installedFingerprint = firstStringByKeys(extractedRecords, [
-    'installedCertificateSha256',
-    'installedFingerprintSha256',
-    'localCertificateSha256',
-    'localFingerprintSha256',
-  ]);
-
-  if (remoteFingerprint) {
-    const verify = ensureRecord(detail, 'verify');
-    if (!readString(verify, 'remoteCertificateSha256')) verify.remoteCertificateSha256 = remoteFingerprint;
-  }
-  if (remoteThumbprint) {
-    const verify = ensureRecord(detail, 'verify');
-    if (!readString(verify, 'remoteThumbprint')) verify.remoteThumbprint = remoteThumbprint;
-  }
-  if (deployedThumbprint && !readString(detail, 'newThumbprint')) detail.newThumbprint = deployedThumbprint;
-  if (installedFingerprint && !readString(detail, 'installedCertificateSha256')) detail.installedCertificateSha256 = installedFingerprint;
 }
 
 function isWorkflowExecutionDetail(detail: Record<string, unknown> | undefined): boolean {
   if (!detail) return false;
   return readString(detail, 'executionMode') === 'workflow' || Boolean(readRecord(detail.workflowRun));
-}
-
-function readWorkflowExtractedRecords(workflowRun: Record<string, unknown> | undefined): Record<string, unknown>[] {
-  const stepResults = workflowRun?.stepResults;
-  if (!Array.isArray(stepResults)) return [];
-  return stepResults
-    .map((item) => readRecord(item))
-    .map((item) => readRecord(item?.extracted))
-    .filter((item): item is Record<string, unknown> => Boolean(item));
-}
-
-function firstStringByKeys(records: readonly Record<string, unknown>[], keys: readonly string[]): string | undefined {
-  for (const record of records) {
-    for (const key of keys) {
-      const value = readString(record, key);
-      if (value) return value;
-    }
-  }
-  return undefined;
-}
-
-function ensureRecord(parent: Record<string, unknown>, key: string): Record<string, unknown> {
-  const existing = readRecord(parent[key]);
-  if (existing) return existing;
-  const created: Record<string, unknown> = {};
-  parent[key] = created;
-  return created;
 }
 
 function readRunFailurePolicy(summary: Record<string, unknown>): 'stop' | 'continue' | 'rollback' {
@@ -998,43 +787,17 @@ function validateFormalCertificateVerification(
 ): { success: true; detail?: undefined; errorCode?: undefined; errorMessage?: undefined } | { success: false; errorCode: string; errorMessage: string; detail: Record<string, unknown> } {
   if (isDryRun || step.stepType !== 'VERIFY' || !submittedSuccess) return { success: true };
 
-  const expected = normalizeSha256(readString(step.inputSnapshot, 'expectedCertificateFingerprintSha256')
-    ?? readString(step.inputSnapshot, 'deploymentArtifact.expectedFingerprintSha256'));
-  const installed = normalizeSha256(readString(detail, 'installResult.installedCertificateSha256')
-    ?? readString(detail, 'installResult.installedFile.certFile.certificateSha256')
-    ?? readString(detail, 'installResult.installedFile.certFile.certificateSHA256')
-    ?? readString(detail, 'installedCertificateSha256')
-    ?? readString(detail, 'installedFile.certFile.certificateSha256')
-    ?? readString(detail, 'installedFile.certFile.certificateSHA256'));
-  const remote = normalizeSha256(readString(detail, 'verify.remoteCertificateSha256')
-    ?? readString(detail, 'verify.remoteFingerprintSha256')
-    ?? readString(detail, 'remoteCertificateSha256'));
+  const verification = readRecord(step.inputSnapshot.certificateVerification);
+  const expected = normalizeSha256(readString(verification ?? {}, 'expectedFingerprintSha256'));
+  const remote = normalizeSha256(readString(detail, 'verify.remoteCertificateSha256'));
   const remoteThumbprint = normalizeThumbprint(readString(detail, 'verify.remoteThumbprint'));
-  const deployedThumbprint = normalizeThumbprint(readString(detail, 'newThumbprint'));
-  const frameworkType = readString(step.inputSnapshot, 'frameworkType')?.toLowerCase();
 
   if (!expected) {
     return {
       success: false,
       errorCode: 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING',
       errorMessage: '正式执行 VERIFY 缺少目标证书 SHA256 指纹，拒绝判定部署成功',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
-    };
-  }
-  if (frameworkType === 'web.nginx' && !installed) {
-    return {
-      success: false,
-      errorCode: 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISSING',
-      errorMessage: '正式执行 VERIFY 缺少 Agent 安装后目标 certPath 证书 SHA256 指纹，拒绝判定部署成功',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
-    };
-  }
-  if (installed && installed !== expected) {
-    return {
-      success: false,
-      errorCode: 'CERT_VERIFY_INSTALLED_FINGERPRINT_MISMATCH',
-      errorMessage: '正式执行 VERIFY 发现 Agent 安装后的目标 certPath 证书与目标证书不一致',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
+      detail: { expected, remote, remoteThumbprint },
     };
   }
   if (!remote) {
@@ -1042,7 +805,7 @@ function validateFormalCertificateVerification(
       success: false,
       errorCode: 'CERT_VERIFY_REMOTE_FINGERPRINT_MISSING',
       errorMessage: '正式执行 VERIFY 缺少远端 TLS 证书 SHA256 指纹，拒绝判定部署成功',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
+      detail: { expected, remote, remoteThumbprint },
     };
   }
   if (remote !== expected) {
@@ -1050,15 +813,7 @@ function validateFormalCertificateVerification(
       success: false,
       errorCode: 'CERT_VERIFY_FINGERPRINT_MISMATCH',
       errorMessage: '正式执行 VERIFY 发现远端 TLS 证书与目标证书不一致',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
-    };
-  }
-  if (remoteThumbprint && deployedThumbprint && remoteThumbprint !== deployedThumbprint) {
-    return {
-      success: false,
-      errorCode: 'CERT_VERIFY_THUMBPRINT_MISMATCH',
-      errorMessage: '正式执行 VERIFY 发现远端 TLS 证书 thumbprint 与本次导入证书不一致',
-      detail: { expected, installed, remote, remoteThumbprint, deployedThumbprint },
+      detail: { expected, remote, remoteThumbprint },
     };
   }
   return { success: true };
@@ -1084,31 +839,6 @@ function buildFallbackAgentFailure(
       detailKeys: Object.keys(detail),
     },
   };
-}
-
-function shouldRecoverLegacyVerifyFailure(
-  step: ExecutionStepEntity,
-  input: { success: boolean; errorCode?: string; errorMessage?: string },
-  detail: Record<string, unknown>,
-  isDryRun: boolean,
-): boolean {
-  if (isDryRun || step.stepType !== 'VERIFY' || input.success) return false;
-  const mode = readString(detail, 'mode');
-  const executor = readString(detail, 'executor');
-  const bindingThumbprint = normalizeThumbprint(readString(detail, 'verify.bindingThumbprint'));
-  const currentThumbprint = normalizeThumbprint(readString(detail, 'binding.currentThumbprint'));
-  const hasLocalBindingEvidence = Boolean(bindingThumbprint || currentThumbprint);
-  if (!hasLocalBindingEvidence) return false;
-  if (executor !== 'windows-iis-provider') return false;
-  if (mode !== 'iis_tls_verify' && mode !== 'iis_binding_verify') return false;
-
-  const code = (input.errorCode ?? '').trim().toUpperCase();
-  const message = (input.errorMessage ?? '').trim();
-  return code === 'TLS_VERIFY_FAILED'
-    || code === 'TLS_VERIFY_DOMAIN_MISMATCH'
-    || message.includes('TLS 连接失败')
-    || message.includes('TLS 连接超时')
-    || message.includes('证书验证失败');
 }
 
 function uniqueTargetIds(steps: ExecutionStepEntity[]): string[] {
@@ -1209,6 +939,13 @@ function dryRunChecksContainNoFailure(checks: readonly Record<string, unknown>[]
   return !checks.some((check) => normalizeDryRunStatus(check.status) === 'failed');
 }
 
+function dryRunChecksAreAccepted(checks: readonly Record<string, unknown>[]): boolean {
+  return checks.length > 0 && checks.every((check) => {
+    const status = normalizeDryRunStatus(check.status);
+    return status === 'passed' || status === 'warning';
+  });
+}
+
 function buildDryRunExecutionFailureCheck(
   input: { errorCode?: string; errorMessage?: string },
   step: ExecutionStepEntity,
@@ -1253,22 +990,4 @@ function dryRunStatusRank(value: unknown): number {
   if (status === 'warning') return 3;
   if (status === 'unknown') return 2;
   return 1;
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
-}
-
-function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return undefined;
-}
-
-function firstPositiveNumber(...values: Array<number | undefined>): number | undefined {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-  }
-  return undefined;
 }

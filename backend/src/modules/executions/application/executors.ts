@@ -15,7 +15,7 @@ import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, Workflo
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
+import { certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
@@ -214,55 +214,49 @@ export class AgentExecutorAdapter implements Executor {
     const resolved = await this.resolveAgentPayload(input, agentId);
     if (resolved.error) return resolved.error;
     const payload = resolved.payload;
-    const task = await this.agents.enqueueTask(input.step.tenantId ?? '', {
+    const dispatch = this.actionDispatch.resolve(input.step.inputSnapshot);
+    const task = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
       payload,
     }, `execution-step:${input.step.id}`);
-    if (this.actionDispatch.resolve(input.step.inputSnapshot)?.mode === 'direct_preferred') {
-      try {
-        const direct = await this.agents.executeTaskDirect(input.step.tenantId ?? '', task.id, `execution-direct:${input.step.id}`);
-        const detail = input.dryRun && payload.actionType === 'agent.atomic_plan.execute'
-          ? normalizeAgentAtomicDryRunDetail(direct.detail ?? {})
-          : direct.detail;
-        return {
-          success: direct.success,
-          errorCode: direct.errorCode,
-          errorMessage: direct.errorMessage,
-          detail,
-        };
-      } catch (error) {
-        const appError = error instanceof AppError ? error : undefined;
-        if (!shouldFallbackDirectError(appError)) {
-          return {
-            success: false,
-            errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
-            errorMessage: error instanceof Error ? error.message : String(error),
-            detail: {
-              mode: 'agent_direct_execute_failed',
-              taskId: task.id,
-            },
-          };
-        }
-        return {
-          success: true,
-          asyncPending: true,
-          detail: {
-            mode: 'agent_task_enqueued',
-            taskId: task.id,
-            status: task.status,
-            directFallback: {
-              attempted: true,
-              errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
-              errorMessage: error instanceof Error ? error.message : String(error),
-            },
-          },
-        };
-      }
+    try {
+      const reportDirectProgress = input.dryRun && payload.actionType === 'agent.atomic_plan.execute'
+        ? async (detail: Record<string, unknown>) => input.reportProgress?.(normalizeAgentAtomicDryRunDetail(detail))
+        : input.reportProgress;
+      const direct = await this.agents.executeTaskDirect(
+        input.step.tenantId ?? '',
+        task.id,
+        `execution-direct:${input.step.id}`,
+        reportDirectProgress,
+      );
+      const detail = input.dryRun && payload.actionType === 'agent.atomic_plan.execute'
+        ? normalizeAgentAtomicDryRunDetail(direct.detail ?? {})
+        : direct.detail;
+      const normalizedDryRunSuccess = input.dryRun
+        && payload.actionType === 'agent.atomic_plan.execute'
+        && isSuccessfulAtomicDryRun(detail);
+      return {
+        success: direct.success || normalizedDryRunSuccess,
+        errorCode: normalizedDryRunSuccess ? undefined : direct.errorCode,
+        errorMessage: normalizedDryRunSuccess ? undefined : direct.errorMessage,
+        detail,
+      };
+    } catch (error) {
+      const appError = error instanceof AppError ? error : undefined;
+      return {
+        success: false,
+        errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: {
+          mode: 'agent_direct_execute_failed',
+          dispatchMode: dispatch?.mode ?? 'direct_required',
+          taskId: task.id,
+        },
+      };
     }
-    return { success: true, asyncPending: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
   }
 
   private async resolveAgentPayload(input: StepExecutionInput, agentId: string): Promise<{
@@ -282,7 +276,7 @@ export class AgentExecutorAdapter implements Executor {
     const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId);
     if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
     const artifact = readRecord(snapshot.deploymentArtifact) ?? {};
-    const artifacts = readRecord(artifact.workflowCertificateMaterials) ?? {};
+    const artifacts = resolveAgentAtomicArtifacts(artifact);
     const plan = await this.agentPlanCompiler.compile({
       tenantId: input.step.tenantId ?? '',
       agentId,
@@ -298,6 +292,34 @@ export class AgentExecutorAdapter implements Executor {
         plan,
       } };
   }
+}
+
+function resolveAgentAtomicArtifacts(artifact: Record<string, unknown>): Record<string, unknown> {
+  const workflowMaterials = readRecord(artifact.workflowCertificateMaterials);
+  if (workflowMaterials && Object.keys(workflowMaterials).length > 0) return workflowMaterials;
+
+  const certificatePem = stringFromSnapshot(artifact.certificatePem);
+  const privateKeyPem = stringFromSnapshot(artifact.privateKeyPem);
+  const pfxBase64 = stringFromSnapshot(artifact.pfxBase64);
+  const pfxPassword = stringFromSnapshot(artifact.pfxPassword);
+  const fingerprintSha256 = stringFromSnapshot(artifact.expectedFingerprintSha256);
+  return {
+    certificate: {
+      ...(certificatePem ? { content: certificatePem } : {}),
+      ...(pfxBase64 ? { contentBase64: pfxBase64 } : {}),
+      ...(pfxPassword ? { password: pfxPassword } : {}),
+      ...(fingerprintSha256 ? { fingerprintSha256 } : {}),
+    },
+    privateKey: {
+      ...(privateKeyPem ? { content: privateKeyPem } : {}),
+    },
+  };
+}
+
+function isSuccessfulAtomicDryRun(detail: Record<string, unknown> | undefined): boolean {
+  const summary = readRecord(detail?.dryRunSummary);
+  if (!summary) return false;
+  return Number(summary.failed ?? 0) === 0 && Number(summary.unknown ?? 0) === 0;
 }
 
 export class WorkflowExecutorAdapter implements Executor {
@@ -325,10 +347,6 @@ export class WorkflowExecutorAdapter implements Executor {
       {
         executorId: '015.SSH',
         execute: async (context) => this.executeSshWorkflowStep(context),
-      },
-      {
-        executorId: 'workflow.tls_probe',
-        execute: async (context) => this.executeTlsProbeWorkflowStep(context),
       },
       ...['workflow.condition', 'workflow.transform', 'workflow.wait', 'workflow.manual'].map((executorId) => ({
         executorId,
@@ -553,30 +571,9 @@ export class WorkflowExecutorAdapter implements Executor {
     return sshWorkflowOutput(result);
   }
 
-  private async executeTlsProbeWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
-    const host = stringFromSnapshot(context.plan?.host);
-    const expected = normalizeWorkflowFingerprint(stringFromSnapshot(context.plan?.expectedFingerprintSha256));
-    const port = readNumberValue(context.plan?.port) ?? 443;
-    if (!host || !expected) return { success: false, errorCode: 'TLS_PROBE_INPUT_INVALID', errorMessage: 'TLS 探测缺少主机或期望 SHA-256 指纹' };
-    try {
-      const report = await probeTlsCertificate({
-        target: `https://${host}:${port}`,
-        host,
-        port,
-        serverName: stringFromSnapshot(context.plan?.serverName) ?? host,
-      });
-      const actual = normalizeWorkflowFingerprint(report.remoteCertificateSha256);
-      if (actual !== expected) {
-        return { success: false, errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH', errorMessage: 'TLS 握手证书指纹与目标证书不一致', body: { expectedFingerprintSha256: expected, remoteCertificateSha256: actual } };
-      }
-      return { success: true, body: { ...report, expectedFingerprintSha256: expected }, logs: ['workflow:tls_probe:fingerprint:matched'] };
-    } catch (error) {
-      return { success: false, errorCode: 'TLS_VERIFY_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
-    }
-  }
 }
 
-function normalizeWorkflowFingerprint(value?: string): string | undefined {
+function normalizeCertificateFingerprint(value?: string): string | undefined {
   const normalized = value?.replace(/:/g, '').trim().toLowerCase();
   return normalized || undefined;
 }
@@ -644,9 +641,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const route = readRecord(input.step.inputSnapshot.gatewayRoute);
     const gatewayId = stringFromSnapshot(input.step.inputSnapshot.gatewayId) ?? stringFromSnapshot(route?.gatewayId) ?? `gw_${input.step.deploymentPlanTargetId ?? 'default'}`;
-    const gatewayAgentId = stringFromSnapshot(input.step.inputSnapshot.gatewayAgentId)
-      ?? stringFromSnapshot(route?.agentId)
-      ?? stringFromSnapshot(route?.gatewayAgentId);
+    const gatewayAgentId = stringFromSnapshot(route?.agentId);
     const delegatedTargetId = stringFromSnapshot(input.step.inputSnapshot.delegatedTargetId) ?? stringFromSnapshot(route?.delegatedTargetId) ?? input.step.deploymentPlanTargetId ?? input.step.id;
     const taskType = gatewayTaskTypeForStep(input.step);
     const routeChannel = gatewayRouteChannel(taskType, input.step.inputSnapshot, route);
@@ -682,12 +677,12 @@ export class GatewayRouteExecutorAdapter implements Executor {
       return {
         success: false,
         errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
-        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId/gatewayAgentId，拒绝在控制面本地伪执行',
+        errorMessage: 'Gateway 路由必须指定 gatewayRoute.agentId，拒绝在控制面本地伪执行',
         detail: { mode: 'gateway_route_dispatch_failed', gatewayId, taskId: task.id, taskType },
       };
     }
 
-    const agentTask = await this.agents.enqueueTask(input.step.tenantId ?? '', {
+    const agentTask = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
       agentId: gatewayAgentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
@@ -700,23 +695,48 @@ export class GatewayRouteExecutorAdapter implements Executor {
       },
     }, `gateway-execution-step:${input.step.id}`);
 
-    return {
-      success: true,
-      asyncPending: true,
-      detail: {
-        mode: 'gateway_route_task_enqueued',
-        gatewayTaskId: task.id,
-        agentTaskId: agentTask.id,
-        gatewayId,
-        gatewayAgentId,
-        delegatedTargetId,
-        delegatedAgentId,
-        forwardingGrantId: forwardingGrant.id,
-        taskType,
-        routeChannel,
-        status: agentTask.status,
-      },
-    };
+    try {
+      const direct = await this.agents.executeTaskDirect(
+        input.step.tenantId ?? '',
+        agentTask.id,
+        `gateway-execution-direct:${input.step.id}`,
+        input.reportProgress,
+      );
+      return {
+        success: direct.success,
+        errorCode: direct.errorCode,
+        errorMessage: direct.errorMessage,
+        detail: {
+          mode: 'gateway_route_direct_execute',
+          gatewayTaskId: task.id,
+          agentTaskId: agentTask.id,
+          gatewayId,
+          gatewayAgentId,
+          delegatedTargetId,
+          delegatedAgentId,
+          forwardingGrantId: forwardingGrant.id,
+          taskType,
+          routeChannel,
+          ...(direct.detail ?? {}),
+        },
+      };
+    } catch (error) {
+      const appError = error instanceof AppError ? error : undefined;
+      return {
+        success: false,
+        errorCode: appError?.errorCode ?? 'GATEWAY_DIRECT_EXECUTION_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: {
+          mode: 'gateway_route_direct_execute_failed',
+          gatewayTaskId: task.id,
+          agentTaskId: agentTask.id,
+          gatewayId,
+          gatewayAgentId,
+          taskType,
+          routeChannel,
+        },
+      };
+    }
   }
 }
 
@@ -747,16 +767,9 @@ export class ControlPlaneTlsExecutor implements Executor {
   readonly type = 'CONTROL_PLANE_TLS';
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    if (input.dryRun) {
-      return {
-        success: true,
-        detail: {
-          mode: 'control_plane_tls_verify_skipped',
-          reason: 'dry-run 阶段只检查验证目标是否可构造，不发起真实 TLS 连接',
-        },
-      };
-    }
     const target = buildControlPlaneTlsTarget(input.step.inputSnapshot);
+    const verification = readRecord(input.step.inputSnapshot.certificateVerification);
+    const expectedFingerprint = normalizeCertificateFingerprint(stringFromSnapshot(verification?.expectedFingerprintSha256));
     if (!target) {
       return {
         success: false,
@@ -767,7 +780,16 @@ export class ControlPlaneTlsExecutor implements Executor {
     }
     try {
       const report = await probeTlsCertificate(target);
-      const expectedDomains = readStringArray(input.step.inputSnapshot.expectedDomains);
+      const actualFingerprint = normalizeCertificateFingerprint(report.remoteCertificateSha256);
+      if (!expectedFingerprint || actualFingerprint !== expectedFingerprint) {
+        return {
+          success: false,
+          errorCode: expectedFingerprint ? 'TLS_VERIFY_FINGERPRINT_MISMATCH' : 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING',
+          errorMessage: expectedFingerprint ? '宿主证书验证发现远端 TLS 证书与目标证书不一致' : '宿主证书验证缺少目标证书 SHA256 指纹',
+          detail: { mode: 'control_plane_tls_verify_failed', verify: report, expectedFingerprintSha256: expectedFingerprint },
+        };
+      }
+      const expectedDomains = readStringArray(verification?.expectedDomains);
       for (const domain of expectedDomains) {
         const normalized = domain.trim().toLowerCase();
         if (!normalized) continue;
@@ -790,10 +812,30 @@ export class ControlPlaneTlsExecutor implements Executor {
           mode: 'control_plane_tls_verify',
           executor: this.type,
           verify: report,
+          certificateVerification: {
+            capabilityKey: 'certificate.verify',
+            schemaVersion: '1.0',
+            source: 'CONTROL_PLANE',
+            expectedFingerprintSha256: expectedFingerprint,
+            remoteCertificateSha256: actualFingerprint,
+            matched: true,
+          },
           newThumbprint: report.remoteThumbprint,
         },
       };
     } catch (error) {
+      if (input.dryRun) {
+        return {
+          success: true,
+          detail: {
+            mode: 'control_plane_tls_verify_warning',
+            executor: this.type,
+            warning: true,
+            message: `部署后将由平台后端验证 TLS 端点；当前端点暂不可达：${error instanceof Error ? error.message : String(error)}`,
+            target,
+          },
+        };
+      }
       return {
         success: false,
         errorCode: 'TLS_VERIFY_FAILED',
@@ -824,22 +866,13 @@ function readNumberValue(value: unknown): number | undefined {
 }
 
 function buildControlPlaneTlsTarget(snapshot: Record<string, unknown>): TlsVerifyTarget | undefined {
-  const verifyUrl = stringFromSnapshot(snapshot.verifyUrl);
-  if (verifyUrl) return buildTlsVerifyTargetFromUrl(verifyUrl);
-
-  const policy = readRecord(snapshot.executionPolicy);
-  const selector = readRecord(snapshot.bindingSelector);
-  const host = stringFromSnapshot(policy?.verifyHost)
-    ?? stringFromSnapshot(selector?.hostHeader)
-    ?? stringFromSnapshot(selector?.serverName);
-  const port = readNumberValue(policy?.verifyPort) ?? readNumberValue(selector?.port) ?? readNumberValue(selector?.listenPort) ?? 443;
-  if (!host || !port) return undefined;
-  return {
-    host,
-    port,
-    serverName: stringFromSnapshot(policy?.hostHeader) ?? host,
-    target: `https://${host}:${port}`,
-  };
+  const verification = readRecord(snapshot.certificateVerification);
+  if (stringFromSnapshot(verification?.capabilityKey) !== 'certificate.verify' || stringFromSnapshot(verification?.schemaVersion) !== '1.0') return undefined;
+  const connectHost = stringFromSnapshot(verification?.connectHost);
+  const serverName = stringFromSnapshot(verification?.serverName);
+  const port = readNumberValue(verification?.port);
+  if (!connectHost || !serverName || !port) return undefined;
+  return { host: connectHost, port, serverName, target: `https://${serverName}:${port}` };
 }
 
 function maskWorkflowRequest(value: unknown): unknown {
@@ -1199,12 +1232,6 @@ function enforceWorkflowResultLimits(result: WorkflowExecutorDispatchResult): Wo
   return result;
 }
 
-function shouldFallbackDirectError(error: AppError | undefined): boolean {
-  return error?.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
-    || error?.errorCode === 'CAPABILITY_MISSING'
-    || error?.errorCode === 'VALIDATION_FAILED';
-}
-
 function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'gateway.forward.agent_task' | 'gateway.forward.direct_control' {
   const explicit = stringFromSnapshot(step.inputSnapshot.gatewayTaskType);
   if (explicit === 'gateway.probe' || explicit === 'gateway.forward.agent_task' || explicit === 'gateway.forward.direct_control') return explicit;
@@ -1215,6 +1242,7 @@ function gatewayTaskTypeForStep(step: ExecutionStepEntity): 'gateway.probe' | 'g
 }
 
 function gatewayRouteChannel(taskType: string, snapshot: Record<string, unknown>, route: Record<string, unknown> | undefined): string {
+  if (taskType === 'gateway.probe' && snapshot.stepType === 'VERIFY') return 'probe.tls';
   const explicit = stringFromSnapshot(snapshot.gatewayRouteChannel) ?? stringFromSnapshot(snapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter);
   if (explicit) return normalizeGatewayRouteChannel(explicit, taskType);
   if (taskType === 'gateway.probe') return 'probe.tcp';
@@ -1224,8 +1252,9 @@ function gatewayRouteChannel(taskType: string, snapshot: Record<string, unknown>
 
 function normalizeGatewayRouteChannel(value: string, taskType: string): string {
   const normalized = value.trim().toLowerCase();
+  if (normalized === 'probe.tls') return 'probe.tls';
   if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
-  if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
+  if (['tcp', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
   if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
   if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
   if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';

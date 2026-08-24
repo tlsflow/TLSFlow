@@ -222,7 +222,7 @@ export class TomcatProvider implements Provider {
         mode: strategy?.mode ?? 'manual',
         reason: 'Tomcat keystore 通常不能可靠热加载，默认重启而不是假装 reload。',
       }, 'critical'));
-      steps.push(step(ids[4]!, '验证 Tomcat TLS 证书', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[3]!], ['tls.remote_probe'], {
+      steps.push(step(ids[4]!, '宿主验证 Tomcat TLS 证书', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[3]!], ['certificate.verify'], {
         domainName: binding.domainName,
         port: endpoint?.port ?? 443,
         expectedFingerprintRef: `runtime://${binding.key}/new-fingerprint`,
@@ -240,7 +240,7 @@ export class TomcatProvider implements Provider {
       const ids = ['restore', 'restart', 'verify'].map((name) => stableId(result.providerId, binding.key, 'rollback', name));
       steps.push(step(ids[0]!, '恢复 Tomcat keystore/server.xml 备份', 'ROLLBACK', result, binding, service?.key, endpoint?.key, service?.hostKey, [], ['file.rollback'], { backupManifestRef: `backup://${binding.key}/tomcat-keystore`, restoreConfigPath: binding.configPath }, 'critical'));
       steps.push(step(ids[1]!, '回滚后 Restart Tomcat', 'RELOAD_SERVICE', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[0]!], strategy?.manualRestart ? ['manual.restart'] : ['process.exec', 'tomcat.restart'], { serviceName: strategy?.serviceName ?? 'tomcat', command: strategy?.restartCommand, manualRequired: strategy?.manualRestart ?? false }, 'critical'));
-      steps.push(step(ids[2]!, '验证回滚后 Tomcat TLS', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[1]!], ['tls.remote_probe'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
+      steps.push(step(ids[2]!, '宿主验证回滚后 Tomcat TLS', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[1]!], ['certificate.verify'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
     }
     return draftBundle(result, steps);
   }
@@ -276,7 +276,7 @@ export function buildTomcatServiceStrategy(input: { osType: string; serviceName?
 
 export function requiredTomcatCapabilities(strategy: TomcatServiceStrategy): string[] {
   const restart = strategy.manualRestart ? ['manual.restart'] : ['process.exec', 'tomcat.restart'];
-  return ['file.read', 'file.backup', 'file.write', 'tomcat.keystore.plan', 'tomcat.server_xml.plan', 'tls.remote_probe', ...restart];
+  return ['file.read', 'file.backup', 'file.write', 'tomcat.keystore.plan', 'tomcat.server_xml.plan', 'certificate.verify', ...restart];
 }
 
 function parseSslHostConfigs(body: string): Array<{ attrs: Record<string, string>; certificateAttrs?: Record<string, string> }> {

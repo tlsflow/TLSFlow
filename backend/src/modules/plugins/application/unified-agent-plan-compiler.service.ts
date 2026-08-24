@@ -50,12 +50,11 @@ export class UnifiedAgentPlanCompilerService {
     const executionMode = input.executionMode ?? 'APPLY';
     const sourceOperations = executionMode === 'ROLLBACK'
       ? recipe.rollback ?? []
-      : executionMode === 'PREFLIGHT'
-        ? recipe.operations.filter((operation) => operation.stage === 'prepare')
-        : recipe.operations;
+      : recipe.operations;
     const operations = renderOperations(sourceOperations, values);
     const rollback = executionMode === 'APPLY' ? renderOperations(recipe.rollback ?? [], values) : [];
-    assertResolvedPermissions(recipe, [...operations, ...rollback]);
+    const permissions = resolveExecutionPermissions(recipe, variables);
+    assertResolvedPermissions(permissions, [...operations, ...rollback]);
     const now = new Date();
     const ttlSeconds = Math.min(Math.max(input.ttlSeconds ?? 300, 30), 3600);
     const unsigned = {
@@ -81,15 +80,17 @@ export class UnifiedAgentPlanCompilerService {
         variables,
         artifacts: Object.keys(input.artifacts).sort(),
       })),
-      permissions: recipe.permissions,
+      permissions,
       variablesDigest: sha256(JSON.stringify(variables)),
+      executionMode,
       operations,
       rollback,
     };
-    const signature = createHmac('sha256', process.env.GCAC_AGENT_PLAN_SIGNING_KEY ?? 'gcac-development-agent-plan-key')
-      .update(canonicalJson(unsigned))
+    const transportUnsigned = normalizeJsonTransport(unsigned);
+    const signature = createHmac('sha256', process.env.GCAC_AGENT_PLAN_SIGNING_KEY?.trim() || 'gcac-development-agent-plan-key')
+      .update(canonicalAgentPlanJson(transportUnsigned))
       .digest('hex');
-    return { ...unsigned, authorization: { keyId: 'agent-plan-v1', signature } };
+    return { ...transportUnsigned, authorization: { keyId: 'agent-plan-v1', signature } };
   }
 }
 
@@ -121,13 +122,35 @@ function interpolateValue(value: unknown, context: { variables: Record<string, u
   return value;
 }
 
-function assertResolvedPermissions(manifest: AgentDeploymentPluginManifestV1, operations: AgentPluginOperation[]): void {
+function resolveExecutionPermissions(
+  manifest: AgentDeploymentPluginManifestV1,
+  variables: Record<string, unknown>,
+): AgentDeploymentPluginManifestV1['permissions'] {
+  const filePaths = Object.entries(manifest.variables)
+    .filter(([, definition]) => definition.type === 'file')
+    .map(([name]) => variables[name])
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim());
+  return manifest.permissions.map((permission) => ({
+    ...permission,
+    values: [...new Set([
+      ...permission.values,
+      ...(permission.scope === 'filesystem' ? filePaths : []),
+    ])],
+  }));
+}
+
+function assertResolvedPermissions(permissions: AgentDeploymentPluginManifestV1['permissions'], operations: AgentPluginOperation[]): void {
   const byScope = new Map<string, string[]>();
-  for (const permission of manifest.permissions) byScope.set(permission.scope, [...(byScope.get(permission.scope) ?? []), ...permission.values]);
+  for (const permission of permissions) byScope.set(permission.scope, [...(byScope.get(permission.scope) ?? []), ...permission.values]);
   for (const operation of operations) {
     if (operation.operationType.startsWith('file.')) assertAllowed(operation.input.path ?? operation.input.targetPath, byScope.get('filesystem'), '文件路径');
     if (operation.operationType === 'command.execute') assertAllowed(operation.input.program, byScope.get('process'), '程序');
     if (operation.operationType === 'service.control') assertAllowed(operation.input.serviceName, byScope.get('service'), '服务');
+    if (operation.operationType === 'preflight.assert') {
+      if (operation.input.path !== undefined) assertAllowed(operation.input.path, byScope.get('filesystem'), '预检文件路径');
+      if (operation.input.program !== undefined) assertAllowed(operation.input.program, byScope.get('process'), '预检程序');
+    }
   }
 }
 
@@ -154,8 +177,18 @@ function sha256(value: string): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (isRecord(value)) return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
+export function canonicalAgentPlanJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalAgentPlanJson).join(',')}]`;
+  if (isRecord(value)) {
+    return `{${Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalAgentPlanJson(item)}`)
+      .join(',')}}`;
+  }
   return JSON.stringify(value);
+}
+
+function normalizeJsonTransport<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }

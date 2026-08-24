@@ -14,6 +14,7 @@ import { WorkflowTemplatesApplicationService } from '../workflow-templates/appli
 function createService() {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    stageIntervalMs: 0,
   });
 }
 
@@ -28,12 +29,14 @@ async function createRun(service: ExecutionsApplicationService, input: {
   allowMockExecutor?: boolean;
   mockResults?: Map<string, 'success' | 'fail'>;
   agentPayloads?: Map<string, Record<string, unknown>>;
+  gatewayRoutes?: Map<string, Record<string, unknown>>;
+  type?: 'apply' | 'dry_run';
 }) {
   const targetIds = input.targetIds ?? ['target_a', 'target_b'];
   return service.createApplyRun({
     deploymentPlanId: 'plan_1',
     deploymentPlanTargetIds: targetIds,
-    type: 'apply',
+    type: input.type ?? 'apply',
     idempotencyKey: input.idempotencyKey,
     actorId: 'tester',
     tenantId: 'tenant_1',
@@ -45,6 +48,7 @@ async function createRun(service: ExecutionsApplicationService, input: {
     retry: input.retry,
     allowMockExecutor: input.allowMockExecutor,
     agentPayloadByTargetId: input.agentPayloads,
+    gatewayRouteByTargetId: input.gatewayRoutes,
   });
 }
 
@@ -75,6 +79,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const service = new ExecutionsApplicationService({
       deploymentPlansRepository: new DeploymentPlansRepository(),
       detailStream,
+      stageIntervalMs: 0,
     });
     const created = await createRun(service, {
       idempotencyKey: 'idem_realtime_progress',
@@ -135,18 +140,15 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(progressEventIndex < successEventIndex, true);
   });
 
-  it('GatewayRouteExecutor 默认只下发 Gateway Agent 路由任务，不在控制面本地伪执行', async () => {
-    const agents = new AgentsApplicationService();
-    const gateway = await agents.register('tenant_1', {
-      agentKey: 'gateway.exec.01',
-      hostname: 'gateway-exec-01',
-      version: '1.0.0',
-      osType: 'linux',
-      role: 'gateway',
-      zoneIds: ['zone_prod'],
-      adapters: ['forward.agent_task'],
-      capabilities: ['gateway.forward.agent_task'],
-    }, 'req_gateway_exec_register');
+  it('GatewayRouteExecutor 通过控制面主动直连下发路由任务', async () => {
+    let capturedPayload: Record<string, unknown> | undefined;
+    const agents = {
+      enqueueDirectTask: async (_tenantId: string, input: { payload?: Record<string, unknown> }) => {
+        capturedPayload = input.payload;
+        return { id: 'agtask_gateway_direct', status: 'acked' };
+      },
+      executeTaskDirect: async () => ({ success: true, detail: { forwarded: true } }),
+    } as unknown as AgentsApplicationService;
     const executor = new GatewayRouteExecutorAdapter({ agents });
     const result = await executor.executeStep({
       runType: 'apply',
@@ -162,7 +164,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
           deploymentPlanId: 'plan_gateway_enqueue',
           gatewayRoute: {
             gatewayId: 'gw_exec_01',
-            agentId: gateway.id,
+            agentId: 'agt_gateway_exec_01',
             zoneId: 'zone_prod',
             adapter: 'forward.agent_task',
             delegatedTargetId: 'host_gateway_enqueue',
@@ -172,13 +174,12 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
 
     assert.equal(result.success, true);
-    assert.equal(result.detail?.mode, 'gateway_route_task_enqueued');
-    const queue = await agents.listTaskQueue('tenant_1', gateway.id);
-    assert.equal(queue.tasks.length, 1);
-    assert.equal(queue.tasks[0].payload.type, 'gateway.forward.agent_task');
-    assert.equal((queue.tasks[0].payload.gatewayTask as { delegatedTargetId: string }).delegatedTargetId, 'host_gateway_enqueue');
-    assert.equal((queue.tasks[0].payload.gatewayTask as { forwardingGrant?: { status: string; taskType: string } }).forwardingGrant?.status, 'active');
-    assert.equal((queue.tasks[0].payload.gatewayTask as { forwardingGrant?: { status: string; taskType: string } }).forwardingGrant?.taskType, 'gateway.forward.agent_task');
+    assert.equal(result.detail?.mode, 'gateway_route_direct_execute');
+    assert.equal(capturedPayload?.type, 'gateway.forward.agent_task');
+    const gatewayTask = capturedPayload?.gatewayTask as { delegatedTargetId: string; forwardingGrant?: { status: string; taskType: string } };
+    assert.equal(gatewayTask.delegatedTargetId, 'host_gateway_enqueue');
+    assert.equal(gatewayTask.forwardingGrant?.status, 'active');
+    assert.equal(gatewayTask.forwardingGrant?.taskType, 'gateway.forward.agent_task');
   });
 
   it('Gateway Agent 提交转发结果后回写原 ExecutionStep', async () => {
@@ -294,14 +295,15 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.equal(steps.length, 1);
-    assert.equal(steps[0].stepType, 'CUSTOM');
-    assert.equal(steps[0].inputSnapshot.executorType, 'WORKFLOW');
-    assert.equal(steps[0].inputSnapshot.operation, 'workflow');
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    const workflowStep = steps.find((step) => step.stepType === 'INSTALL')!;
+    assert.equal(workflowStep.inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(workflowStep.inputSnapshot.operation, 'install');
 
-    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows })]));
+    const verifyExecutor = new TrackingExecutor(async () => ({ success: true }), 'CONTROL_PLANE_TLS');
+    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows }), verifyExecutor]));
     assert.equal(dryRunResult.success, true);
-    const dryRunStep = await service.getStep(steps[0].id, 'tenant_1');
+    const dryRunStep = await service.getStep(workflowStep.id, 'tenant_1');
     assert.equal(dryRunStep.status, 'SUCCESS');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.mode, 'workflow_plan');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.workflowRequest.credentialRefs, '[REDACTED]');
@@ -327,7 +329,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
     const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
     assert.equal(applyResult.success, false);
-    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))[0];
+    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id })).find((step) => step.stepType === 'INSTALL')!;
     assert.equal(applyStep.lastErrorCode, 'RESOURCE_NOT_FOUND');
   });
 
@@ -612,22 +614,109 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(result.success, true);
   });
 
-  it('NGINX VERIFY 使用控制面 TLS 执行器，不再下发给 Agent', async () => {
+  it('Apply 与 Dry-run 共用五阶段和一秒间隔，单体执行器只在更新阶段调用一次', async () => {
+    for (const type of ['apply', 'dry_run'] as const) {
+      const delays: number[] = [];
+      const service = new ExecutionsApplicationService({
+        deploymentPlansRepository: new DeploymentPlansRepository(),
+        stageIntervalMs: 1_000,
+        delay: async (milliseconds) => { delays.push(milliseconds); },
+      });
+      const targetId = `target_lifecycle_${type}`;
+      const created = await createRun(service, {
+        idempotencyKey: `idem_lifecycle_${type}`,
+        targetIds: [targetId],
+        executorType: 'AGENT',
+        type,
+        agentPayloads: new Map([[targetId, {
+          pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
+          certificateVerification: { connectHost: '127.0.0.1', serverName: 'example.test', port: 443 },
+        }]]),
+      });
+      const updateExecutor = new TrackingExecutor(async () => ({ success: true }), 'AGENT');
+      const verifyExecutor = new TrackingExecutor(async () => ({ success: true }), 'CONTROL_PLANE_TLS');
+      const result = await service.runDispatchedExecution(
+        created.run.id,
+        'tester',
+        'tenant_1',
+        new ExecutorRegistry([updateExecutor, verifyExecutor]),
+      );
+      const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+
+      assert.equal(result.success, true);
+      assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+      assert.deepEqual(updateExecutor.timeline.filter((item) => item.startsWith('start:')), [`start:INSTALL ${targetId}`]);
+      assert.equal(delays.length, 4);
+      assert.equal(delays.every((milliseconds) => milliseconds > 0 && milliseconds <= 1_000), true);
+    }
+  });
+
+  it('Agent Atomic 使用独立控制面 TLS VERIFY，并区分连接地址与 SNI', async () => {
     const service = createService();
     const created = await createRun(service, {
-      idempotencyKey: 'idem_nginx_control_plane_verify',
-      targetIds: ['target_nginx'],
+      idempotencyKey: 'idem_atomic_control_plane_verify',
+      targetIds: ['target_atomic'],
       executorType: 'AGENT',
-      agentPayloads: new Map([['target_nginx', {
-        type: 'linux.nginx.deploy_certificate',
-        providerType: 'NGINX',
-        verifyUrl: 'https://nginx.example.com:443',
+      agentPayloads: new Map([['target_atomic', {
+        pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
+        certificateVerification: { capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443 },
+      }]]),
+    });
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    assert.equal(steps[0]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[1]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[2]?.inputSnapshot.executorType, 'AGENT');
+    assert.equal(steps[3]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
+    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
+    assert.deepEqual(steps[4]?.dependsOn, [steps[3]?.stepNo]);
+  });
+
+  it('Agent Atomic 指定 Gateway 时由 Gateway 主动执行独立 TLS VERIFY', async () => {
+    const service = createService();
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_atomic_gateway_verify',
+      targetIds: ['target_atomic_gateway'],
+      executorType: 'AGENT',
+      agentPayloads: new Map([['target_atomic_gateway', {
+        pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
+        certificateVerification: { capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443 },
+      }]]),
+      gatewayRoutes: new Map([['target_atomic_gateway', {
+        gatewayId: 'gateway-1',
+        agentId: 'gateway-agent-1',
+        adapter: 'probe.tls',
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
     const verify = steps.find((step) => step.stepType === 'VERIFY');
-    assert.equal(verify?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
-    assert.equal(verify?.inputSnapshot.verifyUrl, 'https://nginx.example.com:443');
+    assert.equal(verify?.inputSnapshot.executorType, 'GATEWAY_FORWARD');
+    assert.equal(verify?.inputSnapshot.gatewayId, 'gateway-1');
+    assert.equal((verify?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
+    assert.equal((verify?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
+  });
+
+  it('Workflow 证书部署统一追加宿主 VERIFY，默认由平台后端执行', async () => {
+    const service = createService();
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_workflow_host_verify',
+      targetIds: ['target_workflow'],
+      executorType: 'WORKFLOW',
+      agentPayloads: new Map([['target_workflow', {
+        pluginRuntimeCapability: { runtime: 'WORKFLOW_DSL' },
+        workflowRequest: { workflowVersionId: 'workflow-version-1' },
+        certificateVerification: { capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443 },
+      }]]),
+    });
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    assert.equal(steps[0]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[1]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[2]?.inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(steps[3]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
+    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
   });
 
   it('failurePolicy=continue 跳过失败目标剩余步骤，但继续其它目标；batchSize 和 retry 写入实际调度', async () => {

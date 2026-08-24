@@ -634,6 +634,8 @@ export class DeploymentPlansApplicationService {
       capability,
       context,
       applicationAssetId: asset.id,
+      serverName: asset.sniName ?? asset.address,
+      port: asset.port,
       certificateBindingId: readOptionalString(resolved.payload.certificateBindingId),
       workflow: workflow ? { workflowId: workflow.workflowTemplateId, workflowVersionId: workflow.workflowVersionId, credentials } : undefined,
     });
@@ -1469,7 +1471,8 @@ export class DeploymentPlansApplicationService {
     }
     const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
     const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(strategyPayload.workflowRequest)?.certificateArtifactBindings);
-    const agentBindingId = readOptionalString(readRecord(readRecord(strategyPayload.deploymentStrategy)?.agent)?.pluginBindingId);
+    const agentBindingId = readOptionalString(readRecord(strategyPayload.pluginRuntimeCapability)?.pluginBindingId)
+      ?? readOptionalString(readRecord(readRecord(strategyPayload.deploymentStrategy)?.agent)?.pluginBindingId);
     const agentBinding = agentBindingId && this.pluginBindings
       ? await this.pluginBindings.getTenantBinding(resolvedTenantId, agentBindingId)
       : undefined;
@@ -1643,20 +1646,46 @@ export class DeploymentPlansApplicationService {
     artifact: DeploymentArtifactSnapshotDto,
     tenantId?: string,
   ): Promise<Record<string, unknown> | undefined> {
-    if (target.executorType === 'WORKFLOW') return undefined;
     const resolvedTenantId = target.tenantId ?? tenantId;
     if (!resolvedTenantId) return undefined;
     const strategyPayload = target.strategyPayload ?? {};
     const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
+    const verification = readRecord(strategyPayload.certificateVerification);
+    const capabilityKey = readOptionalString(verification?.capabilityKey);
+    const schemaVersion = readOptionalString(verification?.schemaVersion);
+    const connectHost = readOptionalString(verification?.connectHost);
+    const serverName = readOptionalString(verification?.serverName);
+    const port = verification?.port;
+    if (capabilityKey !== 'certificate.verify' || schemaVersion !== '1.0' || !connectHost || !serverName || typeof port !== 'number') {
+      throw new AppError('VALIDATION_FAILED', '部署目标缺少最新宿主证书验证快照，请重新生成部署计划', {
+        deploymentPlanTargetId: target.id,
+        certificateVerification: verification,
+      });
+    }
+    const certificateVerification = {
+      ...verification,
+      expectedFingerprintSha256: artifact.expectedFingerprintSha256,
+    };
     if (readOptionalString(runtimeCapability?.runtime) === 'AGENT_ATOMIC') {
+      const pluginBindingId = readOptionalString(runtimeCapability?.pluginBindingId);
+      if (!pluginBindingId) {
+        throw new AppError('VALIDATION_FAILED', '部署目标缺少最新 TLS 验证快照，请重新生成部署计划', {
+          deploymentPlanTargetId: target.id,
+          pluginBindingId,
+        });
+      }
       return {
         ...strategyPayload,
         actionType: 'agent.atomic_plan.execute',
         actionSchemaVersion: '1.0',
         agentId: readOptionalString(strategyPayload.agentId),
-        pluginBindingId: readOptionalString(runtimeCapability?.pluginBindingId),
+        pluginBindingId,
+        certificateVerification,
         deploymentArtifact: artifact,
       };
+    }
+    if (readOptionalString(runtimeCapability?.runtime) === 'WORKFLOW_DSL') {
+      return { ...strategyPayload, certificateVerification, deploymentArtifact: artifact };
     }
     throw new AppError('VALIDATION_FAILED', '受管目标缺少可执行的插件运行能力', {
       deploymentPlanTargetId: target.id,
@@ -1904,7 +1933,7 @@ export class DeploymentPlansApplicationService {
   }
 
   private defaultCapabilities(): string[] {
-    return ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'];
+    return ['certificate.backup', 'certificate.install', 'service.reload'];
   }
 
   private normalizeRouteMatchResult(
@@ -1928,7 +1957,7 @@ export class DeploymentPlansApplicationService {
     policy: DeploymentPlanEntity['policy'],
   ): Promise<DeploymentPlanTargetEntity['gatewayRoute']> {
     const explicitRoute = this.normalizeExplicitGatewayRoute(target);
-    if (explicitRoute?.gatewayId || explicitRoute?.agentId || explicitRoute?.gatewayAgentId || target.gatewayRoute) return explicitRoute;
+    if (explicitRoute?.gatewayId || explicitRoute?.agentId || target.gatewayRoute) return explicitRoute;
 
     const zoneId = target.zoneId ?? explicitRoute?.zoneId;
     const targetId = target.delegatedTargetId ?? target.executionTargetId ?? explicitRoute?.delegatedTargetId;
@@ -1960,7 +1989,6 @@ export class DeploymentPlansApplicationService {
       ...(target.gatewayRoute ?? {}),
       gatewayId: target.gatewayId ?? target.gatewayRoute?.gatewayId,
       agentId: target.gatewayRoute?.agentId,
-      gatewayAgentId: target.gatewayRoute?.gatewayAgentId,
       zoneId: target.zoneId ?? target.gatewayRoute?.zoneId,
       adapter: target.adapter ?? target.gatewayRoute?.adapter,
       delegatedTargetId: target.delegatedTargetId ?? target.gatewayRoute?.delegatedTargetId ?? target.executionTargetId,
@@ -1985,7 +2013,6 @@ export class DeploymentPlansApplicationService {
     return this.compactGatewayRoute({
       gatewayId: selected?.id,
       agentId: selected?.agentId,
-      gatewayAgentId: selected?.agentId,
       zoneId,
       adapter: result.candidateGateways[0]?.reachability.protocol ?? fallbackAdapter,
       delegatedTargetId,

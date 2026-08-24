@@ -856,17 +856,6 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       plannedOnly: mode === 'render_only',
     };
   }
-  if (step.type === 'tls_probe') {
-    return {
-      executor: 'workflow.tls_probe',
-      host: renderString(step.tlsProbe.host, context.values, mode === 'render_only'),
-      port: step.tlsProbe.port ?? 443,
-      serverName: step.tlsProbe.serverName ? renderString(step.tlsProbe.serverName, context.values, mode === 'render_only') : undefined,
-      expectedFingerprintSha256: renderString(step.tlsProbe.expectedFingerprintSha256, context.values, mode === 'render_only'),
-      timeoutMs: (step.tlsProbe.timeoutSeconds ?? 15) * 1000,
-      dryRun: mode !== 'real_test',
-    };
-  }
   if (step.type === 'foreach') {
     const items = readPath(context.values, step.foreach.itemsPath);
     return {

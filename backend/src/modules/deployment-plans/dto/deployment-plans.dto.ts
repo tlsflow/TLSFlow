@@ -28,7 +28,6 @@ export interface DeploymentGatewayRouteCandidateDto {
 export interface DeploymentGatewayRouteDto {
   gatewayId?: string;
   agentId?: string;
-  gatewayAgentId?: string;
   zoneId?: string;
   adapter?: GatewayAdapterType;
   delegatedTargetId?: string;

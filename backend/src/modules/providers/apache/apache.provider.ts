@@ -172,7 +172,7 @@ export class ApacheProvider implements Provider {
       } else {
         steps.push(step(ids[7]!, 'Reload/Graceful Apache', 'RELOAD_SERVICE', result, binding, service?.hostKey, [ids[6]!], ['process.exec', 'apache.reload'], { command: commandStrategy?.reloadCommand ?? 'apachectl graceful', reloadMode: commandStrategy?.reloadMode ?? 'graceful' }, 'high'));
       }
-      steps.push(step(ids[8]!, '验证远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[7]!], ['tls.remote_probe'], { domainName: binding.domainName, port: endpoint?.port ?? 443 }, 'medium'));
+      steps.push(step(ids[8]!, '宿主验证远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[7]!], ['certificate.verify'], { domainName: binding.domainName, port: endpoint?.port ?? 443 }, 'medium'));
     }
     return draftBundle(result, steps);
   }
@@ -187,7 +187,7 @@ export class ApacheProvider implements Provider {
       steps.push(step(ids[0]!, '恢复 Apache 证书备份', 'ROLLBACK', result, binding, service?.hostKey, [], ['file.rollback'], { backupManifestRef: `backup://${binding.key}`, restorePaths: { certPath: binding.certificateRef, keyPath: binding.privateKeyRef, chainPath: readChainPath(binding) } }, 'critical'));
       steps.push(step(ids[1]!, '回滚后执行 Apache configtest', 'VALIDATE', result, binding, service?.hostKey, [ids[0]!], ['process.exec', 'apache.configtest'], { command: commandStrategy?.testCommand ?? 'apachectl configtest' }, 'medium'));
       steps.push(step(ids[2]!, '回滚后 Reload/Graceful Apache', 'RELOAD_SERVICE', result, binding, service?.hostKey, [ids[1]!], commandStrategy?.manualReload ? ['manual.reload'] : ['process.exec', 'apache.reload'], { command: commandStrategy?.reloadCommand ?? 'apachectl graceful', manualRequired: commandStrategy?.manualReload ?? false }, 'high'));
-      steps.push(step(ids[3]!, '验证回滚后远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[2]!], ['tls.remote_probe'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
+      steps.push(step(ids[3]!, '宿主验证回滚后远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[2]!], ['certificate.verify'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
     }
     return draftBundle(result, steps);
   }
@@ -241,7 +241,7 @@ export function buildApacheCommandStrategy(input: { binaryPath?: string; testCom
 }
 
 export function requiredApacheCapabilities(): string[] {
-  return ['apache.configtest', 'apache.reload', 'file.backup', 'file.write', 'process.exec', 'tls.remote_probe'];
+  return ['apache.configtest', 'apache.reload', 'file.backup', 'file.write', 'process.exec', 'certificate.verify'];
 }
 
 function extractVirtualHostBlocks(configText: string): Array<{ addresses: ApacheVirtualHost['addresses']; body: string }> {

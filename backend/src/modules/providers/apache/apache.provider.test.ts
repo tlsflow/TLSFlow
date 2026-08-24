@@ -80,7 +80,7 @@ describe('spec021 Apache Provider', () => {
     assert.equal(bundle.steps.some((step) => step.action === 'INSTALL_CERTIFICATE_CHAIN'), true);
     assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('apache.configtest')), true);
     assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('apache.reload')), true);
-    assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('tls.remote_probe')), true);
+    assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('certificate.verify')), true);
     assert.equal(bundle.steps.some((step) => step.inputs.command === 'httpd -t'), true);
     assert.equal(bundle.steps.every((step) => step.idempotencyKey && step.rollbackHint), true);
     new ProviderSdk().assertDraftBundle(bundle);

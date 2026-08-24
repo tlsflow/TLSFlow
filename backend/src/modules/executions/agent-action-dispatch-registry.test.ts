@@ -3,16 +3,16 @@ import { describe, it } from 'node:test';
 import { AgentActionDispatchRegistry } from './application/agent-action-dispatch-registry.js';
 
 describe('AgentActionDispatchRegistry', () => {
-  it('通过规范动作和旧任务 Alias 保持直连优先语义', () => {
+  it('通过规范动作和旧任务 Alias 保持直连必选语义', () => {
     const registry = new AgentActionDispatchRegistry();
     assert.deepEqual(registry.resolve({ actionType: 'certificate.deploy' }), {
       requestedActionType: 'certificate.deploy',
       actionType: 'certificate.deploy',
-      mode: 'direct_preferred',
+      mode: 'direct_required',
       aliased: false,
     });
-    assert.equal(registry.resolve({ type: 'windows.iis.deploy_certificate' })?.mode, 'direct_preferred');
-    assert.equal(registry.resolve({ type: 'linux.nginx.deploy_certificate' })?.mode, 'direct_preferred');
+    assert.equal(registry.resolve({ type: 'windows.iis.deploy_certificate' })?.mode, 'direct_required');
+    assert.equal(registry.resolve({ type: 'linux.nginx.deploy_certificate' })?.mode, 'direct_required');
   });
 
   it('未知动作不猜测执行模式', () => {
@@ -22,8 +22,8 @@ describe('AgentActionDispatchRegistry', () => {
 
   it('重复 Alias 在注册阶段失败', () => {
     assert.throws(() => new AgentActionDispatchRegistry([
-      { actionType: 'action.one', aliases: ['legacy.deploy'], mode: 'queued' },
-      { actionType: 'action.two', aliases: ['legacy.deploy'], mode: 'direct_preferred' },
+      { actionType: 'action.one', aliases: ['legacy.deploy'], mode: 'direct_required' },
+      { actionType: 'action.two', aliases: ['legacy.deploy'], mode: 'direct_required' },
     ]), /alias 冲突/);
   });
 });

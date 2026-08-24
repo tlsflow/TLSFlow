@@ -34,7 +34,7 @@ const baseCapabilities = [
   'iis.binding',
   'windows.pfx.import',
   'windows.private_key_acl',
-  'tls.remote_probe',
+  'certificate.verify',
 ];
 
 export class IISProvider implements Provider {
@@ -178,7 +178,7 @@ export class IISProvider implements Provider {
       steps.push(step(ids[1]!, '导入 PFX 到 LocalMachine\\My', 'INSTALL_CERTIFICATE', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[0]!], capabilitiesFor(mode, ['windows.cert_store', 'windows.pfx.import']), { storeLocation: 'LocalMachine', storeName: 'My', pfxSecretRef: 'secret://certificate/pfx#next', targetThumbprintRef: `runtime://${binding.key}/new-thumbprint`, executionMode: mode }, 'critical', rollbackHintFor('import', mode)));
       steps.push(step(ids[2]!, '设置 IIS 应用池私钥读取 ACL', 'INSTALL_PRIVATE_KEY', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[1]!], capabilitiesFor(mode, ['windows.private_key_acl', 'iis.binding']), { appPool: binding.rawFacts?.appPool, identityHint: appPoolIdentity(binding.rawFacts?.appPool), thumbprintRef: `runtime://${binding.key}/new-thumbprint`, executionMode: mode }, 'critical', rollbackHintFor('acl', mode)));
       steps.push(step(ids[3]!, '更新 IIS HTTPS Binding 证书', 'RELOAD_SERVICE', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[2]!], capabilitiesFor(mode, ['iis.binding', 'windows.cert_store']), { siteName: binding.rawFacts?.siteName, protocol: endpoint?.protocol, ip: binding.rawFacts?.ip, port: endpoint?.port, hostHeader: binding.domainName, certificateHashRef: `runtime://${binding.key}/new-thumbprint`, executionMode: mode }, 'critical', rollbackHintFor('binding', mode)));
-      steps.push(step(ids[4]!, '验证远程 TLS 证书', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[3]!], capabilitiesFor(mode, ['tls.remote_probe']), { domainName: binding.domainName, port: endpoint?.port ?? 443, expectedThumbprintRef: `runtime://${binding.key}/new-thumbprint`, executionMode: mode }, manual ? 'medium' : 'high', rollbackHintFor('verify', mode)));
+      steps.push(step(ids[4]!, '宿主验证远程 TLS 证书', 'VERIFY_BINDING', result, binding, service?.key, endpoint?.key, service?.hostKey, [ids[3]!], capabilitiesFor(mode, ['certificate.verify']), { domainName: binding.domainName, port: endpoint?.port ?? 443, expectedThumbprintRef: `runtime://${binding.key}/new-thumbprint`, executionMode: mode }, manual ? 'medium' : 'high', rollbackHintFor('verify', mode)));
     }
     return { providerId: result.providerId, providerType: result.providerType, steps, summary: { hostCount: result.hosts.length, serviceCount: result.services.length, endpointCount: result.endpoints.length, bindingCount: result.bindings.length, stepCount: steps.length } };
   }

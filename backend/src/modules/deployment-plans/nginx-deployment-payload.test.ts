@@ -161,8 +161,6 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
     privateKeyPath: '/etc/nginx/certs/nginx-site.key',
     nginxProgram: '/usr/sbin/nginx',
     serviceName: 'nginx',
-    verifyHost: 'app-nginx.example.net',
-    verifyPort: 9443,
   });
 
   const imported = await app.inject({
@@ -255,8 +253,8 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1, JSON.stringify(dryRunBody));
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.equal(dryRunBody.steps.length, 5, JSON.stringify(dryRunBody));
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
   assert.ok(atomicStep, JSON.stringify(dryRunBody));
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
@@ -487,8 +485,6 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
     privateKeyPath: '/etc/nginx/certs/nginx-asset.key',
     nginxProgram: '/usr/sbin/nginx',
     serviceName: 'nginx',
-    verifyHost: 'nginx-asset.example.com',
-    verifyPort: 443,
   });
 
   const discoveredBinding = await app.inject({
@@ -584,8 +580,8 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.equal(dryRunBody.steps.length, 5);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
@@ -741,8 +737,6 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
     privateKeyPath: '/etc/nginx/certs/nginx-legacy.key',
     nginxProgram: '/usr/sbin/nginx',
     serviceName: 'nginx',
-    verifyHost: 'nginx-legacy.example.com',
-    verifyPort: 443,
   });
 
   const binding = await app.inject({
@@ -832,8 +826,8 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 1);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.equal(dryRunBody.steps.length, 5);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');

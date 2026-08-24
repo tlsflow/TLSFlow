@@ -6,6 +6,8 @@ export interface RuntimeCompileInput {
   capability: ResolvedDeploymentCapability;
   context: ResolvedManagedTargetContext;
   applicationAssetId: string;
+  serverName: string;
+  port: number;
   certificateBindingId?: string;
   workflow?: {
     workflowId: string;
@@ -24,6 +26,28 @@ export interface RuntimeExecutionRequest {
     delegatedTargetId: string;
   };
   payload: Record<string, unknown>;
+}
+
+function hostCertificateVerification(input: RuntimeCompileInput): Record<string, unknown> {
+  const connectHost = input.context.host.primaryIp;
+  const serverName = input.serverName;
+  const port = input.port;
+  if (!connectHost || !serverName || !port) {
+    throw new AppError('VALIDATION_FAILED', '部署 Runtime 缺少宿主证书验证目标', {
+      managedTargetId: input.context.managedTarget.id,
+      connectHost,
+      serverName,
+      port,
+    });
+  }
+  return {
+    capabilityKey: 'certificate.verify',
+    schemaVersion: '1.0',
+    connectHost,
+    serverName,
+    port,
+    expectedDomains: [serverName],
+  };
 }
 
 export interface PluginRuntimeAdapter {
@@ -73,6 +97,7 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
         applicationAssetId: input.applicationAssetId,
         certificateBindingId: input.certificateBindingId,
         managedTargetId: input.context.managedTarget.id,
+        certificateVerification: hostCertificateVerification(input),
         siteAssetId: input.context.siteAsset?.id,
         frameworkType: input.context.frameworkType,
         siteName: input.context.siteAsset?.siteName,
@@ -116,6 +141,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
       gatewayRoute: gatewayId ? { gatewayId, adapter: 'curl', delegatedTargetId: input.context.managedTarget.id } : undefined,
       payload: {
         pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
+        certificateVerification: hostCertificateVerification(input),
         workflowRequest: {
           workflowId: input.workflow.workflowId,
           workflowVersionSelection: 'PINNED',

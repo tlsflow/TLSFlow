@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-rollback",
     "displayName": "Citrix ADC certificate rollback",
     "category": "certificate",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -182,29 +182,6 @@
         "successStatusCodes": [200]
       },
       "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
-    },
-    {
-      "name": "verifyPreviousTlsHandshakes",
-      "type": "foreach",
-      "stage": "verify",
-      "foreach": {
-        "itemsPath": "recoverySnapshot.targets",
-        "itemVariable": "target",
-        "maxItems": 1000,
-        "steps": [
-          {
-            "name": "verifyPreviousTlsHandshake",
-            "type": "tls_probe",
-            "tlsProbe": {
-              "host": "{{target.verifyHost}}",
-              "port": 443,
-              "serverName": "{{target.serverName}}",
-              "expectedFingerprintSha256": "{{target.previousFingerprintSha256}}",
-              "timeoutSeconds": 15
-            }
-          }
-        ]
-      }
     }
   ]
 }

@@ -51,8 +51,6 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
       executionPolicy: {
         testCommand: '/usr/sbin/nginx -t',
         reloadCommand: '/usr/bin/systemctl reload nginx',
-        verifyHost: 'example.com',
-        verifyPort: 443,
       },
     }]]),
   });

@@ -216,7 +216,7 @@ describe('spec018 providers 基础框架', () => {
     assert.equal(bundle.steps.every((step) => step.requiredCapabilities?.length), true);
     assert.equal(bundle.steps.every((step) => step.idempotencyKey), true);
 
-    const suggestions = new ProviderFallbackAdvisor().suggest({ missingCapabilities: ['file.write', 'tls.remote_probe'], osType: 'LINUX' });
+    const suggestions = new ProviderFallbackAdvisor().suggest({ missingCapabilities: ['file.write', 'certificate.verify'], osType: 'LINUX' });
     assert.equal(suggestions.some((item) => item.strategy === 'SSH'), true);
     assert.equal(suggestions.some((item) => item.strategy === 'MONITOR_ONLY'), true);
   });

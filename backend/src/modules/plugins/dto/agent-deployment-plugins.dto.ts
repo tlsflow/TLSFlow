@@ -50,7 +50,6 @@ export interface AgentPluginOperation {
     | 'file.set_permissions'
     | 'command.execute'
     | 'service.control'
-    | 'tls.verify'
     | 'windows.certificate.inspect_pfx'
     | 'windows.certificate_store.import_pfx'
     | 'windows.certificate_private_key.grant'
@@ -123,6 +122,7 @@ export interface AgentAtomicExecutionPlanV1 {
   idempotencyKey: string;
   permissions: AgentPluginPermissionDeclaration[];
   variablesDigest: string;
+  executionMode: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
   operations: ResolvedAgentAtomicOperation[];
   rollback: ResolvedAgentAtomicOperation[];
   authorization: {

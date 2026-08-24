@@ -56,10 +56,10 @@ describe('Adapter Resolver', () => {
   });
 
   it('缺少能力时返回 blocked 和解释', () => {
-    const adapter = parseAdapterManifest(manifest('verifier.tls', 'verifier', 'tls.remote_probe', 10));
+    const adapter = parseAdapterManifest(manifest('verifier.tls', 'verifier', 'certificate.verify', 10));
     const result = new AdapterResolver(new AdapterRegistry([adapter])).resolve(request(['verifier'], []));
     assert.equal(result.status, 'blocked');
-    assert.equal(result.missingCapabilities[0]?.capabilityKey, 'tls.remote_probe');
+    assert.equal(result.missingCapabilities[0]?.capabilityKey, 'certificate.verify');
     assert.ok(result.evidence.some((item) => item.code === 'ADAPTER_NOT_FOUND'));
   });
 });
@@ -83,11 +83,11 @@ describe('Compatibility Profile 与目录', () => {
     const declarations = [
       declaration('agent.full.online'),
       declaration('agent.task.receive'),
-      declaration('tls.local_verify'),
+      declaration('certificate.material.validate'),
       declaration('windows.certstore.import_pfx'),
       declaration('iis.binding.update'),
       declaration('service.restart'),
-      declaration('tls.remote_probe'),
+      declaration('certificate.material.validate'),
       declaration('rollback.restore'),
     ];
     const result = new CompatibilityCatalogResolver(new AdapterResolver(catalog.registry))
@@ -106,11 +106,11 @@ describe('Compatibility Profile 与目录', () => {
       declaration('agent.full.online'),
       declaration('runtime.windows.compatibility_agent'),
       declaration('agent.task.receive'),
-      declaration('tls.local_verify'),
+      declaration('certificate.verify'),
       declaration('windows.certstore.import_pfx'),
       declaration('iis.binding.update'),
       declaration('service.restart'),
-      declaration('tls.remote_probe'),
+      declaration('certificate.verify'),
       declaration('rollback.restore'),
     ];
     const result = new CompatibilityCatalogResolver(new AdapterResolver(catalog.registry))
@@ -146,8 +146,7 @@ describe('Compatibility Profile 与目录', () => {
       ...linuxFixtureCapabilities(root, 'systemd-apparmor-amd64.json'),
       'agent.full.online',
       'agent.task.receive',
-      'tls.local_verify',
-      'tls.remote_probe',
+      'certificate.material.validate',
       'nginx.config_parse',
       'nginx.cert.install',
       'rollback.restore',

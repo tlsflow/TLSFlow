@@ -187,11 +187,15 @@ export class ExecutionsApplicationService {
         const rollbackContext = buildRollbackContextFromSourceSteps(sourceRun.id, sourceSteps, targetId);
         const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
         const baseArtifact = readRecord(basePayload.artifact);
+        const baseVerification = readRecord(basePayload.certificateVerification);
         sourcePayloadByTargetId.set(targetId, {
           ...basePayload,
           ...(rollbackCertificateSha256
             ? {
-                expectedCertificateFingerprintSha256: rollbackCertificateSha256,
+                certificateVerification: {
+                  ...(baseVerification ?? {}),
+                  expectedFingerprintSha256: rollbackCertificateSha256,
+                },
                 artifact: {
                   ...(baseArtifact ?? {}),
                   targetFingerprintSha256: rollbackCertificateSha256,
@@ -494,7 +498,7 @@ export class ExecutionsApplicationService {
 	        }
 	        const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
 	        const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
-	        const executorType = resolveStepExecutorType(baseExecutorType, stepType, agentPayload);
+	        const executorType = resolveStepExecutorType(baseExecutorType, stepType, agentPayload, gatewayRoute);
 	        const operation = mapStepTypeToOperation(stepType);
         const sourceRunId = run.type === 'rollback'
           ? readString(agentPayload.sourceRunId) ?? readString(agentPayload.rollbackContext, 'sourceRunId')
@@ -610,7 +614,6 @@ export class ExecutionsApplicationService {
     const normalized = {
       gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
       agentId: typeof route.agentId === 'string' ? route.agentId : undefined,
-      gatewayAgentId: typeof route.gatewayAgentId === 'string' ? route.gatewayAgentId : undefined,
       zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
       adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
       delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
@@ -918,9 +921,13 @@ function mapStepTypeToOperation(stepType: 'DISCOVER' | 'BACKUP' | 'INSTALL' | 'R
   }
 }
 
-function resolveStepExecutorType(baseExecutorType: string, stepType: string, payload: Record<string, unknown>): string {
+function resolveStepExecutorType(baseExecutorType: string, stepType: string, payload: Record<string, unknown>, gatewayRoute?: Record<string, unknown>): string {
   if (baseExecutorType === 'MOCK') return 'MOCK';
-  if (stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
+  if (stepType === 'VERIFY') {
+    return readString(gatewayRoute?.agentId)
+      ? 'GATEWAY_FORWARD'
+      : 'CONTROL_PLANE_TLS';
+  }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
   const runtime = readString(payload.pluginRuntimeCapability, 'runtime');
   const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'AGENT_ATOMIC';

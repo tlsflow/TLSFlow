@@ -96,7 +96,6 @@ test('AgentExecutorAdapter 直连成功时同步返回且不留下待拉取任�
             bindingInformation: '*:443:direct.example.com',
           },
           expectedDomains: ['direct.example.com'],
-          verifyUrl: 'https://direct.example.com:443',
           pfxBase64: 'ZmFrZQ==',
           pfxPassword: 'Secret-123!',
           expectedCertificateFingerprintSha256: 'a'.repeat(64),
@@ -122,13 +121,24 @@ test('AgentExecutorAdapter 直连成功时同步返回且不留下待拉取任�
 test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返回统一检查项', async () => {
   let enqueueCount = 0;
   let directCount = 0;
+  let compiledArtifacts: Record<string, unknown> | undefined;
+  const progressUpdates: Record<string, unknown>[] = [];
   const agents = {
-    enqueueTask: async () => {
+    enqueueDirectTask: async () => {
       enqueueCount += 1;
-      return { id: 'task_atomic_preflight', status: 'PENDING' };
+      return { id: 'task_atomic_preflight', status: 'acked' };
     },
-    executeTaskDirect: async () => {
+    executeTaskDirect: async (...args: unknown[]) => {
       directCount += 1;
+      const reportProgress = args[3] as ((detail: Record<string, unknown>) => Promise<void> | void) | undefined;
+      await reportProgress?.({
+        state: 'RUNNING',
+        currentOperationId: 'nginx-program-preflight',
+        currentOperationType: 'preflight.assert',
+        completedOperationCount: 1,
+        totalOperationCount: 1,
+        operationResults: [{ operationId: 'nginx-program-preflight', operationType: 'preflight.assert', stage: 'prepare', status: 'SUCCEEDED', detail: { passed: true } }],
+      });
       return {
         success: true,
         detail: {
@@ -148,10 +158,13 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
     },
   } as unknown as AgentsApplicationService;
   const compiler = {
-    compile: async () => ({
-      planId: 'agplan_atomic_preflight',
-      operations: [{ id: 'nginx-program-preflight' }],
-    }),
+    compile: async (input: { artifacts: Record<string, unknown> }) => {
+      compiledArtifacts = input.artifacts;
+      return {
+        planId: 'agplan_atomic_preflight',
+        operations: [{ id: 'nginx-program-preflight' }],
+      };
+    },
   };
   const adapter = new AgentExecutorAdapter(agents, undefined, compiler as never);
 
@@ -173,7 +186,12 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
         agentId: 'agt_atomic_preflight',
         actionType: 'agent.atomic_plan.execute',
         pluginBindingId: 'plgb_atomic_preflight',
-        deploymentArtifact: { workflowCertificateMaterials: {} },
+        deploymentArtifact: {
+          workflowCertificateMaterials: {},
+          certificatePem: 'certificate-content',
+          privateKeyPem: 'private-key-content',
+          expectedFingerprintSha256: 'a'.repeat(64),
+        },
       },
       status: 'PENDING',
       createdAt: new Date().toISOString(),
@@ -183,6 +201,9 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
     },
     runType: 'dry_run',
     dryRun: true,
+    reportProgress: async (detail) => {
+      progressUpdates.push(detail);
+    },
   });
 
   assert.equal(enqueueCount, 1);
@@ -190,9 +211,43 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
   assert.equal(result.success, true);
   assert.deepEqual(result.detail?.dryRunSummary, { passed: 1, failed: 0, warning: 0, unknown: 0 });
   assert.equal((result.detail?.dryRunChecks as unknown[]).length, 1);
+  assert.equal((progressUpdates[0]?.dryRunChecks as unknown[]).length, 1);
+  assert.equal(((compiledArtifacts?.certificate as Record<string, unknown>).content), 'certificate-content');
+  assert.equal(((compiledArtifacts?.privateKey as Record<string, unknown>).content), 'private-key-content');
 });
 
-test('AgentExecutorAdapter 直连不可达时回退到轮询任务队列', async () => {
+test('AgentExecutorAdapter 主动直连失败时明确失败且不会调用队列接口', async () => {
+  let directTaskCount = 0;
+  const agents = {
+    enqueueDirectTask: async () => {
+      directTaskCount += 1;
+      return { id: 'task_direct_required', status: 'acked' };
+    },
+    executeTaskDirect: async () => {
+      throw new Error('direct connection failed');
+    },
+  } as unknown as AgentsApplicationService;
+  const adapter = new AgentExecutorAdapter(agents);
+  const result = await adapter.executeStep({
+    step: {
+      id: 'stp_direct_required', tenantId: headers['x-tenant-id'], executionRunId: 'run_direct_required',
+      deploymentPlanTargetId: 'dpt_direct_required', stepNo: 1, stepType: 'INSTALL', name: 'direct required',
+      dependsOn: [], idempotent: true, attemptCount: 1, maxAttempts: 1,
+      inputSnapshot: { executorType: 'AGENT', agentId: 'agt_direct_required', type: 'windows.iis.deploy_certificate' },
+      status: 'PENDING', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdBy: 'tester', version: 1,
+    },
+    runType: 'apply',
+    dryRun: false,
+  });
+
+  assert.equal(directTaskCount, 1);
+  assert.equal(result.success, false);
+  assert.equal(result.asyncPending, undefined);
+  assert.equal(result.detail?.mode, 'agent_direct_execute_failed');
+  assert.equal(result.detail?.dispatchMode, 'direct_required');
+});
+
+test('AgentExecutorAdapter 直连不可达时明确失败且不暴露轮询任务', async () => {
   const app = createApp();
   const register = await app.inject({
     method: 'POST',
@@ -243,7 +298,6 @@ test('AgentExecutorAdapter 直连不可达时回退到轮询任务队列', async
           bindingInformation: '*:443:fallback.example.com',
         },
         expectedDomains: ['fallback.example.com'],
-        verifyUrl: 'https://fallback.example.com:443',
         pfxBase64: 'ZmFrZQ==',
         pfxPassword: 'Secret-123!',
         expectedCertificateFingerprintSha256: 'b'.repeat(64),
@@ -258,10 +312,10 @@ test('AgentExecutorAdapter 直连不可达时回退到轮询任务队列', async
     dryRun: false,
   });
 
-  assert.equal(result.success, true, JSON.stringify(result));
-  assert.equal(result.asyncPending, true);
-  assert.equal(result.detail?.mode, 'agent_task_enqueued');
-  assert.equal((result.detail?.directFallback as { attempted?: boolean } | undefined)?.attempted, true);
+  assert.equal(result.success, false, JSON.stringify(result));
+  assert.equal(result.asyncPending, undefined);
+  assert.equal(result.detail?.mode, 'agent_direct_execute_failed');
+  assert.equal(result.detail?.dispatchMode, 'direct_required');
 
   const pulled = await app.inject({
     method: 'GET',
@@ -270,8 +324,7 @@ test('AgentExecutorAdapter 直连不可达时回退到轮询任务队列', async
   });
   assert.equal(pulled.statusCode, 200);
   const tasks = pulled.body as Array<{ payload?: { type?: string } }>;
-  assert.equal(tasks.length, 1);
-  assert.equal(tasks[0]?.payload?.type, 'windows.iis.deploy_certificate');
+  assert.equal(tasks.length, 0);
 });
 
 test('AgentExecutorAdapter 会把 linux.nginx.deploy_certificate 也视为直连优先动作', async () => {
@@ -364,8 +417,6 @@ test('AgentExecutorAdapter 会把 linux.nginx.deploy_certificate 也视为直连
           executionPolicy: {
             testCommand: 'nginx -t',
             reloadCommand: 'nginx -s reload',
-            verifyHost: 'direct-nginx.example.com',
-            verifyPort: 443,
           },
         },
         status: 'PENDING',

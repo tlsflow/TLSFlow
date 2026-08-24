@@ -16,10 +16,10 @@ export interface ProductAdapterContract {
 }
 
 export const builtInProductAdapterContracts: readonly ProductAdapterContract[] = [
-  contract('iis', ['pkcs12'], ['iis.discover', 'iis.binding.list'], ['iis.binding.update'], ['tls.remote_probe', 'tls.fingerprint.compare'], ['rollback.snapshot', 'rollback.restore'], ['windows.certstore.import_pfx', 'windows.certstore.private_key_acl', 'service.restart']),
-  contract('nginx', ['pem'], ['nginx.discover', 'nginx.config_parse'], ['nginx.cert.install'], ['nginx.config_test', 'tls.remote_probe'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.reload']),
-  contract('apache', ['pem'], ['apache.discover', 'apache.config_parse'], ['apache.cert.install'], ['apache.config_test', 'tls.remote_probe'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.reload']),
-  contract('tomcat', ['pem', 'pkcs12', 'jks'], ['tomcat.discover', 'tomcat.server_xml.parse'], ['tomcat.keystore.replace'], ['tomcat.connector.verify', 'tls.remote_probe'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.restart']),
+  contract('iis', ['pkcs12'], ['iis.discover', 'iis.binding.list'], ['iis.binding.update'], ['certificate.verify'], ['rollback.snapshot', 'rollback.restore'], ['windows.certstore.import_pfx', 'windows.certstore.private_key_acl', 'service.restart']),
+  contract('nginx', ['pem'], ['nginx.discover', 'nginx.config_parse'], ['nginx.cert.install'], ['nginx.config_test', 'certificate.verify'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.reload']),
+  contract('apache', ['pem'], ['apache.discover', 'apache.config_parse'], ['apache.cert.install'], ['apache.config_test', 'certificate.verify'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.reload']),
+  contract('tomcat', ['pem', 'pkcs12', 'jks'], ['tomcat.discover', 'tomcat.server_xml.parse'], ['tomcat.keystore.replace'], ['tomcat.connector.verify', 'certificate.verify'], ['file.backup', 'file.restore'], ['file.atomic_replace', 'service.restart']),
 ] as const;
 
 export function validateProductAdapterContract(value: ProductAdapterContract): ProductAdapterContract {

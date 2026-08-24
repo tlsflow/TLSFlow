@@ -131,7 +131,7 @@ export class NginxProvider implements Provider {
       } else {
         steps.push(step(ids[4]!, 'Reload NGINX', 'RELOAD_SERVICE', result, binding, service?.hostKey, [ids[3]!], ['ssh.connect', 'process.exec', 'nginx.reload'], { command: commandStrategy?.reloadCommand ?? 'nginx -s reload' }, 'high'));
       }
-      steps.push(step(ids[5]!, '验证远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[4]!], ['tls.remote_probe'], { domainName: binding.domainName, port: endpoint?.port ?? 443 }, 'medium'));
+      steps.push(step(ids[5]!, '宿主验证远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[4]!], ['certificate.verify'], { domainName: binding.domainName, port: endpoint?.port ?? 443 }, 'medium'));
     }
     return { providerId: result.providerId, providerType: result.providerType, steps, summary: { hostCount: result.hosts.length, serviceCount: result.services.length, endpointCount: result.endpoints.length, bindingCount: result.bindings.length, stepCount: steps.length } };
   }
@@ -146,7 +146,7 @@ export class NginxProvider implements Provider {
       steps.push(step(ids[0]!, '恢复 NGINX 证书备份', 'ROLLBACK', result, binding, service?.hostKey, [], ['ssh.connect', 'file.rollback'], { backupManifestRef: `backup://${binding.key}` }, 'critical'));
       steps.push(step(ids[1]!, '回滚后执行 nginx -t', 'VALIDATE', result, binding, service?.hostKey, [ids[0]!], ['ssh.connect', 'process.exec', 'nginx.configtest'], { command: commandStrategy?.testCommand ?? 'nginx -t' }, 'medium'));
       steps.push(step(ids[2]!, '回滚后 Reload NGINX', 'RELOAD_SERVICE', result, binding, service?.hostKey, [ids[1]!], commandStrategy?.manualReload ? ['manual.reload'] : ['ssh.connect', 'process.exec', 'nginx.reload'], { command: commandStrategy?.reloadCommand ?? 'nginx -s reload', manualRequired: commandStrategy?.manualReload ?? false }, 'high'));
-      steps.push(step(ids[3]!, '验证回滚后远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[2]!], ['tls.remote_probe'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
+      steps.push(step(ids[3]!, '宿主验证回滚后远程 TLS', 'VERIFY_BINDING', result, binding, service?.hostKey, [ids[2]!], ['certificate.verify'], { domainName: binding.domainName, port: endpoint?.port ?? 443, expected: 'previousFingerprint' }, 'medium'));
     }
     return { providerId: result.providerId, providerType: result.providerType, steps, summary: { hostCount: result.hosts.length, serviceCount: result.services.length, endpointCount: result.endpoints.length, bindingCount: result.bindings.length, stepCount: steps.length } };
   }

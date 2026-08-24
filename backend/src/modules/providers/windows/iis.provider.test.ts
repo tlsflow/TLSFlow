@@ -100,7 +100,7 @@ describe('spec019 IIS Provider', () => {
       'iis.binding',
       'windows.pfx.import',
       'windows.private_key_acl',
-      'tls.remote_probe',
+      'certificate.verify',
     ]);
     assert.equal((result.services[0]?.rawFacts?.requiredCapabilities as string[]).includes('full_agent'), true);
   });
@@ -121,7 +121,7 @@ describe('spec019 IIS Provider', () => {
     assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('winrm.connect')), true);
     assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('smb.file_transfer')), true);
     assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('wmi.query')), true);
-    assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('tls.remote_probe')), true);
+    assert.equal(bundle.steps.some((step) => step.requiredCapabilities?.includes('certificate.verify')), true);
     new ProviderSdk().assertDraftBundle(bundle);
   });
 

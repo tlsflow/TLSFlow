@@ -9,7 +9,6 @@ const commonCompatibility = {
     'file.atomic_replace': ['1.0'],
     'file.restore': ['1.0'],
     'service.control': ['1.0'],
-    'tls.verify': ['1.0'],
   },
 };
 
@@ -20,9 +19,9 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.linux.nginx.pem',
     name: 'linux-nginx-pem-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.3',
+    version: '1.0.4',
     minGcacVersion: GCAC_VERSION,
-    metadata: { displayName: 'NGINX PEM 证书部署', description: '备份并原子替换 NGINX PEM 证书和私钥，执行配置检查、reload 和 TLS 验证。', logoUrl: '/plugin-logos/nginx.svg', category: 'web-server', tags: ['nginx', 'pem', 'linux'] },
+    metadata: { displayName: 'NGINX PEM 证书部署', description: '备份并原子替换 NGINX PEM 证书和私钥，执行配置检查和 reload；TLS 验证由平台或指定 Gateway 执行。', logoUrl: '/plugin-logos/nginx.svg', category: 'web-server', tags: ['nginx', 'pem', 'linux'] },
     compatibility: {
       ...commonCompatibility,
       platforms: ['LINUX'],
@@ -38,8 +37,6 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
       privateKeyPath: { type: 'file', required: true, default: '/etc/nginx/tls/server.key' },
       nginxProgram: { type: 'enum', required: true, default: '/usr/sbin/nginx', enum: ['/usr/sbin/nginx', '/usr/bin/nginx'] },
       serviceName: { type: 'string', required: true, default: 'nginx' },
-      verifyHost: { type: 'string', required: true },
-      verifyPort: { type: 'number', required: true, default: 443, minimum: 1, maximum: 65535 },
     },
     artifactInputs: {
       certificate: { type: 'certificate', required: true },
@@ -49,7 +46,6 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
       { name: 'nginx-files', risk: 'high', scope: 'filesystem', values: ['/etc/nginx/*'] },
       { name: 'nginx-process', risk: 'medium', scope: 'process', values: ['/usr/sbin/nginx', '/usr/bin/nginx'] },
       { name: 'nginx-service', risk: 'high', scope: 'service', values: ['*'] },
-      { name: 'nginx-tls', risk: 'low', scope: 'network', values: ['*'] },
     ],
     operations: nginxOperations(),
     rollback: nginxRollback(),
@@ -60,7 +56,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.windows.iis.pfx',
     name: 'windows-iis-pfx-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.3',
+    version: '1.0.4',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'IIS PFX 证书部署', description: '检查并导入 PFX、授权应用池私钥、更新 IIS HTTPS Binding 并验证 TLS。', logoUrl: '/plugin-logos/iis.svg', category: 'web-server', tags: ['iis', 'pfx', 'windows'] },
     compatibility: {
@@ -75,21 +71,17 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
         'windows.iis.binding.capture': ['1.0'],
         'windows.iis.binding.update_certificate': ['1.0'],
         'windows.iis.binding.restore_certificate': ['1.0'],
-        'tls.verify': ['1.0'],
       },
     },
     variables: {
       siteName: { type: 'string', required: true },
       bindingInformation: { type: 'string', required: true },
       appPoolName: { type: 'string', required: false },
-      verifyHost: { type: 'string', required: true },
-      verifyPort: { type: 'number', required: true, default: 443, minimum: 1, maximum: 65535 },
     },
     artifactInputs: { certificate: { type: 'bundle', required: true } },
     permissions: [
       { name: 'windows-certificate-store', risk: 'high', scope: 'certificate_store', values: ['LocalMachine/My'] },
       { name: 'iis-sites-and-app-pools', risk: 'high', scope: 'iis', values: ['*'] },
-      { name: 'iis-tls', risk: 'low', scope: 'network', values: ['*'] },
     ],
     operations: iisOperations(),
     rollback: iisRollback(),
@@ -100,7 +92,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.rabbitmq.pem',
     name: 'rabbitmq-pem-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.3',
+    version: '1.0.4',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'RabbitMQ PEM 证书部署', description: '替换 RabbitMQ PEM 证书和私钥，重启服务并校验 TLS。', logoUrl: '/plugin-logos/rabbitmq.svg', category: 'messaging', tags: ['rabbitmq', 'pem', 'linux'] },
     compatibility: { ...commonCompatibility, platforms: ['LINUX'], frameworks: ['CUSTOM'] },
@@ -108,8 +100,6 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
       certificatePath: { type: 'file', required: true, default: '/etc/rabbitmq/tls/server.crt' },
       privateKeyPath: { type: 'file', required: true, default: '/etc/rabbitmq/tls/server.key' },
       serviceName: { type: 'string', required: true, default: 'rabbitmq-server' },
-      verifyHost: { type: 'string', required: true },
-      verifyPort: { type: 'number', required: true, default: 5671, minimum: 1, maximum: 65535 },
     },
     artifactInputs: {
       certificate: { type: 'certificate', required: true },
@@ -118,7 +108,6 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     permissions: [
       { name: 'rabbitmq-files', risk: 'medium', scope: 'filesystem', values: ['/etc/rabbitmq/tls/*'] },
       { name: 'rabbitmq-service', risk: 'medium', scope: 'service', values: ['rabbitmq-server'] },
-      { name: 'rabbitmq-tls', risk: 'low', scope: 'network', values: ['*'] },
     ],
     operations: certificateFileOperations('rabbitmq', '${variables.certificatePath}', '${variables.privateKeyPath}', '${variables.serviceName}'),
     rollback: certificateFileRollback('rabbitmq'),
@@ -129,21 +118,18 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.java.pkcs12',
     name: 'java-pkcs12-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.3',
+    version: '1.0.4',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'Java PKCS#12 / KeyStore 部署', description: '原子替换 Java 服务使用的 PKCS#12 或 KeyStore 文件并重启服务。', logoUrl: '/plugin-logos/java.svg', category: 'java', tags: ['java', 'pkcs12', 'keystore', 'linux', 'windows'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS', 'LINUX'], frameworks: ['TOMCAT', 'CUSTOM'] },
     variables: {
       keystorePath: { type: 'file', required: true },
       serviceName: { type: 'string', required: true },
-      verifyHost: { type: 'string', required: true },
-      verifyPort: { type: 'number', required: true, minimum: 1, maximum: 65535 },
     },
     artifactInputs: { keystore: { type: 'bundle', required: true } },
     permissions: [
       { name: 'keystore-files', risk: 'high', scope: 'filesystem', values: ['*'] },
       { name: 'java-service', risk: 'high', scope: 'service', values: ['*'] },
-      { name: 'java-tls', risk: 'low', scope: 'network', values: ['*'] },
     ],
     operations: singleFileOperations('keystore', '${variables.keystorePath}', '${variables.serviceName}', '${artifacts.keystore}'),
     rollback: singleFileRollback('keystore'),
@@ -154,21 +140,18 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.windows-service.certificate-file',
     name: 'windows-service-certificate-file-deployment',
     publisher: 'GCAC',
-    version: '1.0.3',
+    version: '1.0.4',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: '自定义 Windows Service 证书文件部署', description: '替换自定义 Windows 服务读取的证书文件并重启指定服务。', logoUrl: '/plugin-logos/windows-service.svg', category: 'windows-service', tags: ['windows', 'service', 'custom'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS'], frameworks: ['CUSTOM'] },
     variables: {
       certificatePath: { type: 'file', required: true },
       serviceName: { type: 'string', required: true },
-      verifyHost: { type: 'string', required: true },
-      verifyPort: { type: 'number', required: true, minimum: 1, maximum: 65535 },
     },
     artifactInputs: { certificateFile: { type: 'bundle', required: true } },
     permissions: [
       { name: 'service-certificate-file', risk: 'high', scope: 'filesystem', values: ['*'] },
       { name: 'windows-service', risk: 'high', scope: 'service', values: ['*'] },
-      { name: 'service-tls', risk: 'low', scope: 'network', values: ['*'] },
     ],
     operations: singleFileOperations('windows-service', '${variables.certificatePath}', '${variables.serviceName}', '${artifacts.certificateFile}'),
     rollback: singleFileRollback('windows-service'),
@@ -186,13 +169,6 @@ function nginxOperations(): AgentDeploymentPluginManifestV1['operations'] {
     operation('nginx-key-install', 'install', 'file.atomic_replace', { path: '${variables.privateKeyPath}', artifact: '${artifacts.privateKey}', mode: 384 }),
     operation('nginx-config-test', 'refresh', 'command.execute', { program: '${variables.nginxProgram}', args: ['-t'] }),
     operation('nginx-reload', 'refresh', 'service.control', { serviceName: '${variables.serviceName}', action: 'reload' }),
-    operation('nginx-tls-verify', 'verify', 'tls.verify', {
-      host: '${variables.verifyHost}',
-      port: '${variables.verifyPort}',
-      serverName: '${variables.verifyHost}',
-      expectedFingerprint: '${artifacts.certificate.fingerprintSha256}',
-      skipChainValidation: true,
-    }),
   ];
 }
 
@@ -214,13 +190,6 @@ function iisOperations(): AgentDeploymentPluginManifestV1['operations'] {
     operation('iis-pfx-import', 'install', 'windows.certificate_store.import_pfx', { store: 'LocalMachine/My', artifact }),
     operation('iis-private-key-grant', 'install', 'windows.certificate_private_key.grant', { store: 'LocalMachine/My', artifact, appPoolName: '${variables.appPoolName}' }),
     operation('iis-binding-update', 'install', 'windows.iis.binding.update_certificate', { siteName: '${variables.siteName}', bindingSelector, store: 'LocalMachine/My', artifact }),
-    operation('iis-tls-verify', 'verify', 'tls.verify', {
-      host: '${variables.verifyHost}',
-      port: '${variables.verifyPort}',
-      serverName: '${variables.verifyHost}',
-      expectedFingerprint: '${artifacts.certificate.fingerprintSha256}',
-      skipChainValidation: true,
-    }),
   ];
 }
 
@@ -239,7 +208,6 @@ function certificateFileOperations(prefix: string, certificatePath: string, priv
     operation(`${prefix}-cert-install`, 'install', 'file.atomic_replace', { path: certificatePath, artifact: '${artifacts.certificate}', mode: 420 }),
     operation(`${prefix}-key-install`, 'install', 'file.atomic_replace', { path: privateKeyPath, artifact: '${artifacts.privateKey}', mode: 384 }),
     operation(`${prefix}-refresh`, 'refresh', 'service.control', { serviceName, action: 'restart' }),
-    operation(`${prefix}-verify`, 'verify', 'tls.verify', { host: '${variables.verifyHost}', port: '${variables.verifyPort}', serverName: '${variables.verifyHost}' }),
   ];
 }
 
@@ -248,7 +216,6 @@ function singleFileOperations(prefix: string, path: string, serviceName: string,
     operation(`${prefix}-backup`, 'backup', 'file.backup', { path }),
     operation(`${prefix}-install`, 'install', 'file.atomic_replace', { path, artifact, mode: 384 }),
     operation(`${prefix}-refresh`, 'refresh', 'service.control', { serviceName, action: 'restart' }),
-    operation(`${prefix}-verify`, 'verify', 'tls.verify', { host: '${variables.verifyHost}', port: '${variables.verifyPort}', serverName: '${variables.verifyHost}' }),
   ];
 }
 

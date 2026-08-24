@@ -295,7 +295,6 @@ export class DeploymentPlansController {
     return {
       gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
       agentId: typeof route.agentId === 'string' ? route.agentId : undefined,
-      gatewayAgentId: typeof route.gatewayAgentId === 'string' ? route.gatewayAgentId : undefined,
       zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
       adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
       delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
