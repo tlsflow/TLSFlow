@@ -4538,6 +4538,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/adcs-agents/providers/:id/update-sessions:
+    post:
+      operationId: "createAdcsAgentUpdateSession"
+      summary: "创建 AD CS Agent 更新会话"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/adcs-agents/install.ps1:
     get:
       operationId: "getAdcsAgentInstallScript"
@@ -6263,6 +6283,66 @@ paths:
     get:
       operationId: "getUnifiedPluginUpgradeDiff"
       summary: "查询统一插件升级差异"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-bindings:
+    post:
+      operationId: "createPluginBinding"
+      summary: "创建统一插件绑定"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/capability-assignments:
+    post:
+      operationId: "assignPluginCapability"
+      summary: "设置插件能力指派"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/capability-assignments/resolve:
+    post:
+      operationId: "resolvePluginCapability"
+      summary: "解析插件能力来源"
       tags:
         - "Plugins"
       responses:
@@ -8225,4 +8305,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-24T05:45:48.464Z"
+x-generatedAt: "2026-07-24T05:53:09.339Z"
