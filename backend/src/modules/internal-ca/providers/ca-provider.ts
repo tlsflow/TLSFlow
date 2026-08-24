@@ -6,6 +6,8 @@ import type {
   CertificateAuthorityEntity,
   CertificateProfileRules,
 } from '../schema/internal-ca.schema.js';
+import { AcmeProviderAdapter } from './acme-provider.js';
+import { OpenSslCa } from './openssl-ca.js';
 
 export interface IssuedCertificateMaterial {
   certificatePem: string;
@@ -34,7 +36,7 @@ export type CaIssuanceResult =
   | { status: 'pending' | 'unknown'; providerRequestId: string; detail?: string }
   | { status: 'rejected'; providerRequestId: string; detail?: string };
 
-/** CA 执行端口。宿主只依赖此合同，不拥有任何厂商执行代码。 */
+/** CA 执行端口。内置 CA 与 ACME 由宿主实现；外部 CA 由插件提供执行端。 */
 export interface CaProviderAdapter {
   getCapabilities(): CaProviderCapabilities;
   validateConnection(provider: CaProviderEntity): Promise<{ reachable: boolean; capabilities: CaProviderCapabilities; detail?: string }>;
@@ -58,14 +60,74 @@ export class CaProviderRegistry {
   }
 }
 
-/** 默认注册只提供失败关闭行为，Phase 2 才允许由 ca.* Plugin Runner 注入执行端。 */
-export function createDefaultCaProviderRegistry(_secrets: SecretService): CaProviderRegistry {
+/**
+ * 内置 CA 和 ACME 是宿主能力，不能依赖 Plugin Runner。
+ * plugin 类型仍然失败关闭，外部 CA 必须由其插件运行时明确接入。
+ */
+export function createDefaultCaProviderRegistry(secrets: SecretService): CaProviderRegistry {
   const registry = new CaProviderRegistry();
-  const types: CaProviderEntity['type'][] = [
-    'gcac_builtin', 'gcac_managed_node', 'plugin',
-  ];
-  for (const type of types) registry.register(type, new UnavailableCaProviderAdapter(type));
+  registry.register('gcac_builtin', new BuiltinCaProviderAdapter(new OpenSslCa(), secrets));
+  registry.register('gcac_managed_node', new UnavailableCaProviderAdapter('gcac_managed_node'));
+  registry.register('acme', new AcmeProviderAdapter(secrets));
+  registry.register('plugin', new UnavailableCaProviderAdapter('plugin'));
   return registry;
+}
+
+class BuiltinCaProviderAdapter implements CaProviderAdapter {
+  constructor(
+    private readonly openssl: OpenSslCa,
+    private readonly secrets: SecretService,
+  ) {}
+
+  getCapabilities(): CaProviderCapabilities {
+    return {
+      discoverHierarchy: true,
+      createRoot: true,
+      createIntermediate: true,
+      signCsr: true,
+      queryIssuance: true,
+      revokeCertificate: true,
+      publishCrl: false,
+      ocsp: false,
+      listProfiles: true,
+      deviceLocalCsr: false,
+      hardwareBackedKey: false,
+      highAvailability: false,
+    };
+  }
+
+  async validateConnection(): Promise<{ reachable: true; capabilities: CaProviderCapabilities }> {
+    return { reachable: true, capabilities: this.getCapabilities() };
+  }
+
+  async signCsr(command: SignCsrCommand): Promise<CaIssuanceResult> {
+    const authority = command.authority;
+    if (!authority.privateKeySecretRef || !authority.certificatePem || !authority.certificateChainPem) {
+      throw new AppError('CA_KEY_BACKEND_UNAVAILABLE', '内置 CA 缺少密钥或证书链', { caId: authority.id });
+    }
+    const privateKey = await this.secrets.resolveForService({
+      secretRef: authority.privateKeySecretRef,
+      tenantId: authority.tenantId,
+      expectedType: 'certificate_private_key',
+      purpose: 'internal_ca.sign_csr',
+      actorId: command.actorId,
+    });
+    const issued = await this.openssl.signCsr({
+      csrPem: command.csrPem,
+      caPrivateKeyPem: privateKey.plainText,
+      caCertificatePem: authority.certificatePem,
+      caChainPem: authority.certificateChainPem,
+      validityDays: command.validityDays,
+      sans: command.sans,
+      extendedKeyUsages: command.profileRules.extendedKeyUsages,
+      serialNumber: command.serialNumber,
+    });
+    return { status: 'issued', ...issued, providerRequestId: command.idempotencyKey };
+  }
+
+  async revoke(): Promise<{ revokedAt: string }> {
+    return { revokedAt: new Date().toISOString() };
+  }
 }
 
 export class UnavailableCaProviderAdapter implements CaProviderAdapter {

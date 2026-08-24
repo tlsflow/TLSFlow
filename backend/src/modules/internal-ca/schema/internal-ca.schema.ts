@@ -1,4 +1,8 @@
-export const caProviderTypes = ['gcac_builtin', 'gcac_managed_node', 'plugin'] as const;
+/**
+ * ACME 是宿主内置协议能力；plugin 只表示需要由外部插件执行的 CA。
+ * 不再把 Lets Encrypt、DNS Solver 或 OpenSSL CA 伪装成 PluginVersion。
+ */
+export const caProviderTypes = ['gcac_builtin', 'gcac_managed_node', 'acme', 'plugin'] as const;
 export const caDeploymentModes = ['builtin', 'managed_node', 'external'] as const;
 export const caRuntimePlatforms = ['embedded', 'windows', 'linux', 'external'] as const;
 export const caAvailabilityModes = ['offline', 'single', 'active_standby', 'active_active'] as const;

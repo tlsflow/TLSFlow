@@ -9,10 +9,11 @@ import type { CertificatesApplicationService } from '../../certificates/applicat
 import type { SecretService } from '../../secrets/secret.service.js';
 import {
   CaProviderRegistry,
-  caPluginRunnerUnavailable,
   createDefaultCaProviderRegistry,
   type CaIssuanceResult,
 } from '../providers/ca-provider.js';
+import { getAcmeProviderPreset, isAcmeProviderPresetKey, listAcmeProviderPresets, type AcmeProviderPresetKey } from '../providers/acme-provider.catalog.js';
+import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
 import { CaOperationsQueryService } from './ca-operations-query.service.js';
@@ -54,6 +55,8 @@ import {
   type KeyReferenceEntity,
   type TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
+import { AcmeDomainService } from '../domain/acme.domain-service.js';
+import type { AcmeChallengeType, AcmeProviderConfiguration } from '../schema/acme.schema.js';
 
 type CaNodePlatform = 'windows' | 'linux';
 
@@ -66,6 +69,18 @@ export interface CreateCaProviderInput {
   endpoint?: string;
   credentialSecretRef?: string;
   configuration?: Record<string, unknown>;
+}
+
+/** 管理员高级设置使用的 ACME Provider 配置；普通申请页不暴露 Directory URL。 */
+export interface AcmeProviderConfigurationInput {
+  name: string;
+  preset?: AcmeProviderPresetKey;
+  directoryUrl: string;
+  allowedChallenges?: AcmeChallengeType[];
+  requestTimeoutMs?: number;
+  termsOfServiceUrl?: string;
+  termsOfServiceAgreed?: boolean;
+  isDefault?: boolean;
 }
 
 export interface CreateCaTrustDomainInput {
@@ -103,6 +118,8 @@ export interface CreateAuthorityInput extends PreviewCaInput {
   name: string;
   commonName: string;
   securityDomain: string;
+  rootValidityDays?: number;
+  intermediateValidityDays?: number;
   confirmationToken: string;
   actorId: string;
 }
@@ -125,7 +142,12 @@ export interface CreateCertificateRequestInput {
   requestedValidityDays?: number;
   custodyMode: 'local_agent' | 'managed_secret' | 'external_key' | 'device_local';
   csrPem?: string;
-  publicKeyFingerprintSha256?: string;
+  opaqueKeyReference?: string;
+  keyBackend?: KeyBackendType;
+  exportability?: KeyExportability;
+  protectionEvidence?: Record<string, unknown>;
+  /** 宿主托管密钥时的真实密钥算法选择。 */
+  requestedKeyAlgorithm?: 'rsa' | 'ec';
   idempotencyKey?: string;
   deferIssuance?: boolean;
   actorId: string;
@@ -155,6 +177,7 @@ const runtimeNodePlatforms: Readonly<Record<CaRuntimePlatform, readonly CaNodePl
 export class InternalCaApplicationService {
   private readonly repository: InternalCaRepository;
   private readonly providers: CaProviderRegistry;
+  private readonly openssl: OpenSslCa;
   private readonly nodeTaskChannel: CaNodeTaskChannel;
   private readonly operationsQuery: CaOperationsQueryService;
   private readonly syncCoordinator: CaSyncCoordinator;
@@ -167,11 +190,13 @@ export class InternalCaApplicationService {
     approvals?: ApprovalService;
     repository?: InternalCaRepository;
     providers?: CaProviderRegistry;
+    openssl?: OpenSslCa;
     nodeTaskChannel?: CaNodeTaskChannel;
     operationsAdapters?: CaOperationsAdapterRegistry;
   }) {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
+    this.openssl = dependencies.openssl ?? new OpenSslCa();
     this.nodeTaskChannel = dependencies.nodeTaskChannel ?? new CaNodeTaskChannel();
     const operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
     this.operationsQuery = new CaOperationsQueryService(dependencies.db, operationsAdapters, undefined, this.repository);
@@ -215,6 +240,147 @@ export class InternalCaApplicationService {
       ...provider,
       capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
     })));
+  }
+
+  /**
+   * 每个租户懒初始化一个启用的 Lets Encrypt Profile。普通申请直接使用它，
+   * 高级 Provider 才允许在管理员设置中维护。
+   */
+  async ensureBuiltinAcmeProvider(tenantId: string, actorId = 'system'): Promise<CaProviderEntity> {
+    const providers = await this.repository.listProviders(tenantId);
+    const active = providers.filter((item) => item.type === 'acme' && item.status === 'active');
+    if (active.length > 0) return active.find((item) => item.configuration.isDefault === true) ?? active[0]!;
+
+    const now = new Date().toISOString();
+    const existing = providers.find((item) => item.type === 'acme' && (
+      item.configuration.isBuiltIn === true
+      || item.configuration.preset === 'letsencrypt'
+      || item.endpoint === 'https://acme-v02.api.letsencrypt.org/directory'
+    ));
+    if (existing) {
+      const restored: CaProviderEntity = {
+        ...existing,
+        status: 'active',
+        endpoint: 'https://acme-v02.api.letsencrypt.org/directory',
+        configuration: {
+          ...existing.configuration,
+          preset: 'letsencrypt',
+          directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+          allowedChallenges: ['http-01', 'dns-01'],
+          requestTimeoutMs: 15_000,
+          verifyTls: true,
+          termsOfServiceAgreed: true,
+          isDefault: true,
+          isBuiltIn: true,
+        },
+        updatedAt: now,
+      };
+      await this.repository.saveProvider(restored);
+      return restored;
+    }
+
+    const provider: CaProviderEntity = {
+      id: newId('caprov'),
+      tenantId,
+      name: "Let's Encrypt",
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      endpoint: 'https://acme-v02.api.letsencrypt.org/directory',
+      capabilities: this.providers.get('acme').getCapabilities(),
+      status: 'active',
+      configuration: {
+        preset: 'letsencrypt',
+        directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+        allowedChallenges: ['http-01', 'dns-01'],
+        requestTimeoutMs: 15_000,
+        verifyTls: true,
+        termsOfServiceAgreed: true,
+        isDefault: true,
+        isBuiltIn: true,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.repository.saveProvider(provider);
+    await this.saveDeclaredCapabilities(provider);
+    await this.audit('internal_ca.acme_provider.initialized', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', undefined, {
+      preset: 'letsencrypt',
+      isBuiltIn: true,
+    });
+    return provider;
+  }
+
+  async listAcmeProviderSettings(tenantId: string): Promise<{
+    items: Array<Omit<CaProviderEntity, 'credentialSecretRef'>>;
+    presets: ReturnType<typeof listAcmeProviderPresets>;
+  }> {
+    await this.ensureBuiltinAcmeProvider(tenantId);
+    const providers = await this.repository.listProviders(tenantId);
+    return {
+      items: providers.filter((item) => item.type === 'acme').map(sanitizeProvider),
+      presets: listAcmeProviderPresets(),
+    };
+  }
+
+  async createAcmeProvider(
+    tenantId: string,
+    input: AcmeProviderConfigurationInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
+    const configuration = normalizeAcmeProviderConfiguration(input);
+    const created = await this.createProvider(tenantId, {
+      name: input.name,
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      endpoint: configuration.directoryUrl,
+      configuration: { ...configuration },
+    }, actorId, context);
+    if (configuration.isDefault === true) await this.setDefaultAcmeProvider(tenantId, created.id);
+    return sanitizeProvider(await this.requireProvider(tenantId, created.id));
+  }
+
+  async updateAcmeProvider(
+    tenantId: string,
+    providerId: string,
+    input: AcmeProviderConfigurationInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
+    const current = await this.requireProvider(tenantId, providerId);
+    if (current.type !== 'acme') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不是 ACME Provider', { providerId });
+    const configuration = normalizeAcmeProviderConfiguration(input, current.configuration);
+    await this.repository.saveProvider({
+      ...current,
+      name: requiredText(input.name, 'name'),
+      endpoint: configuration.directoryUrl,
+      configuration: { ...configuration },
+      updatedAt: new Date().toISOString(),
+    });
+    if (configuration.isDefault === true) await this.setDefaultAcmeProvider(tenantId, providerId);
+    await this.audit('internal_ca.acme_provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
+      preset: configuration.preset,
+      isDefault: configuration.isDefault,
+    });
+    return sanitizeProvider(await this.requireProvider(tenantId, providerId));
+  }
+
+  private async setDefaultAcmeProvider(tenantId: string, providerId: string): Promise<void> {
+    const now = new Date().toISOString();
+    for (const provider of await this.repository.listProviders(tenantId)) {
+      if (provider.type !== 'acme') continue;
+      if (provider.id === providerId || provider.configuration.isDefault === true) {
+        await this.repository.saveProvider({
+          ...provider,
+          configuration: { ...provider.configuration, isDefault: provider.id === providerId },
+          updatedAt: now,
+        });
+      }
+    }
   }
 
   async createProvider(
@@ -273,6 +439,36 @@ export class InternalCaApplicationService {
     ownerId: string,
   ): Promise<CaCapabilityRecordEntity[]> {
     return this.repository.listCapabilityRecords(tenantId, ownerType, ownerId);
+  }
+
+  async reserveIssuanceRecord(tenantId: string, input: {
+    caId: string;
+    certificateRequestId?: string;
+    applicationAssetId?: string;
+    subjectCommonName?: string;
+    sans?: string[];
+  }): Promise<CaIssuanceRecordEntity> {
+    if (input.certificateRequestId) {
+      const existing = await this.repository.getIssuanceByRequest(tenantId, input.certificateRequestId);
+      if (existing) return existing;
+    }
+    await this.requireAuthority(tenantId, input.caId);
+    const now = new Date().toISOString();
+    return this.repository.saveIssuanceRecord({
+      id: newId('caissue'),
+      tenantId,
+      caId: input.caId,
+      serialNumber: await this.repository.allocateSerialNumber(tenantId, input.caId),
+      certificateRequestId: input.certificateRequestId,
+      applicationAssetId: input.applicationAssetId,
+      status: 'reserved',
+      recordOrigin: 'native',
+      subjectCommonName: input.subjectCommonName,
+      sans: normalizeCertificateNames(input.sans ?? []),
+      observedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   listTrustDomains(tenantId: string): Promise<CaTrustDomainEntity[]> {
@@ -352,35 +548,97 @@ export class InternalCaApplicationService {
     if (!verifyConfirmation(previewPayload(input), input.confirmationToken)) throw new AppError('CA_RISK_CONFIRMATION_REQUIRED', 'CA 风险确认已失效，请重新预览');
     if (preview.blockers.length > 0) throw new AppError('CA_TOPOLOGY_INVALID', 'CA 拓扑存在阻断项', { blockers: preview.blockers });
     const provider = await this.requireProvider(tenantId, input.providerId);
-    assertPluginBinding(provider);
     if (provider.deploymentMode !== input.deploymentMode || provider.runtimePlatform !== input.runtimePlatform) {
       throw new AppError('CA_TOPOLOGY_INVALID', 'CA 创建参数与 Provider 部署模式不一致');
     }
     const trustDomain = input.trustDomainId
       ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
       : await this.createTrustDomain(tenantId, { name: `${requiredText(input.name, 'name')} 信任域`, purpose: input.securityDomain }, input.actorId, context);
-    if (input.parentCaId) await this.requireAuthority(tenantId, input.parentCaId);
+    if (input.parentCaId) {
+      const parent = await this.requireAuthority(tenantId, input.parentCaId);
+      if (provider.type !== 'gcac_builtin' || parent.providerId !== provider.id || parent.role !== 'root' || parent.status !== 'active') {
+        throw new AppError('CA_TOPOLOGY_INVALID', '只能在同一内置 Provider 的活动根 CA 下创建中间 CA');
+      }
+      if (parent.trustDomainId !== trustDomain.id || (parent.pathLengthConstraint ?? 0) < 1) {
+        throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 不属于所选信任域或不允许签发中间 CA');
+      }
+      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, input.commonName, context);
+      await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', intermediate.id, 'critical', context, {
+        providerId: provider.id,
+        trustDomainId: trustDomain.id,
+        parentCaId: parent.id,
+        authorityIds: [intermediate.id],
+        keyBackend: input.keyBackend,
+      });
+      return [sanitizeAuthority(intermediate)];
+    }
+    if (provider.type !== 'gcac_builtin') {
+      const external = await this.createExternalAuthority(tenantId, input, provider, trustDomain.id);
+      await this.audit('internal_ca.authority.connected', input.actorId, 'certificate_authority.create', 'certificate_authority', external.id, 'high', context, {
+        providerId: provider.id,
+        topologyMode: input.topologyMode,
+      });
+      return [sanitizeAuthority(external)];
+    }
     const now = new Date().toISOString();
-    const authority = await this.repository.saveAuthority({
-      id: newId('ca'),
+    const rootId = newId('ca');
+    const rootMaterial = await this.openssl.createRoot(input.commonName, input.rootValidityDays ?? 3650, input.topologyMode === 'root_only' ? 0 : 1);
+    const rootSecret = await this.dependencies.secrets.create({
       tenantId,
-      name: requiredText(input.name, 'name'),
-      role: input.parentCaId ? 'intermediate' : 'root',
-      parentCaId: input.parentCaId,
+      name: `CA 私钥 ${input.name}`,
+      type: 'certificate_private_key',
+      scopeType: 'global',
+      plainText: rootMaterial.privateKeyPem,
+      createdBy: input.actorId,
+      metadata: { ownerType: 'ca', ownerId: rootId, role: 'root' },
+    }, context);
+    const rootKey = await this.repository.saveKeyReference(buildKeyReference({
+      id: newId('keyref'), tenantId, ownerId: rootId, secretRef: rootSecret.secretRef,
+      fingerprint: rootMaterial.publicKeyFingerprintSha256, backendType: input.keyBackend,
+    }));
+    const root: CertificateAuthorityEntity = {
+      id: rootId,
+      tenantId,
+      name: input.topologyMode === 'root_only' ? requiredText(input.name, 'name') : `${requiredText(input.name, 'name')} Root`,
+      role: 'root',
       topologyMode: input.topologyMode,
       providerId: provider.id,
       trustDomainId: trustDomain.id,
+      keyReferenceId: rootKey.id,
+      privateKeySecretRef: rootSecret.secretRef,
+      certificatePem: rootMaterial.certificatePem,
+      certificateChainPem: rootMaterial.certificateChainPem,
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
-      status: 'draft',
+      status: 'active',
+      pathLengthConstraint: input.topologyMode === 'root_only' ? 0 : 1,
       subjectCommonName: requiredText(input.commonName, 'commonName'),
+      notBefore: rootMaterial.notBefore,
+      notAfter: rootMaterial.notAfter,
+      fingerprintSha256: rootMaterial.fingerprintSha256,
       createdAt: now,
       updatedAt: now,
-    });
-    await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', authority.id, 'high', context, {
+    };
+    await this.repository.saveAuthority(root);
+    const authorities = [root];
+    if (input.topologyMode === 'root_with_intermediate') {
+      authorities.push(await this.createBuiltInIntermediate(
+        tenantId,
+        input,
+        root,
+        `${input.name} Issuing`,
+        `${input.commonName} Issuing CA`,
+        context,
+        rootMaterial.privateKeyPem,
+      ));
+    }
+    await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', root.id, 'critical', context, {
       providerId: provider.id,
-      pluginVersionId: textValue(provider.configuration.pluginVersionId),
+      topologyMode: input.topologyMode,
+      authorityIds: authorities.map((item) => item.id),
+      keyBackend: input.keyBackend,
+      availabilityMode: input.availabilityMode,
     });
-    return [sanitizeAuthority(authority)];
+    return authorities.map(sanitizeAuthority);
   }
 
   async listAuthorities(tenantId: string): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
@@ -438,50 +696,121 @@ export class InternalCaApplicationService {
     })));
   }
 
+  /** 普通 ACME 申请的宿主上下文，不暴露逻辑 Authority/Profile 给前端。 */
+  async ensureAcmeIssuanceContext(tenantId: string, providerId: string, actorId: string): Promise<{
+    caId: string;
+    profileVersionId: string;
+    trustDomainId?: string;
+  }> {
+    const provider = await this.requireProvider(tenantId, providerId);
+    if (provider.type !== 'acme') throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前 Provider 不是 ACME Provider', { providerId });
+    let authority = (await this.repository.listAuthorities(tenantId)).find((item) => (
+      item.providerId === provider.id && item.topologyMode === 'external_managed' && item.status === 'active'
+    ));
+    if (!authority) {
+      const preview = this.previewAuthority({
+        topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret',
+      });
+      const created = await this.createAuthority(tenantId, {
+        providerId: provider.id,
+        topologyMode: 'external_managed',
+        deploymentMode: 'external',
+        runtimePlatform: 'external',
+        availabilityMode: 'single',
+        keyBackend: 'secret',
+        name: `ACME ${provider.name} Issuer`,
+        commonName: `${provider.name} ACME Issuer`,
+        securityDomain: 'acme',
+        confirmationToken: preview.confirmationToken,
+        actorId,
+      });
+      authority = await this.repository.getAuthority(tenantId, created[0]!.id);
+    }
+    if (!authority) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'ACME 逻辑证书机构创建失败', { providerId });
+    const profileEntry = (await this.listProfiles(tenantId)).find((item) => (
+      item.profile.securityDomain === 'acme'
+      && item.profile.trustDomainId === authority!.trustDomainId
+      && item.profile.status === 'active'
+    ));
+    const version = profileEntry?.versions.slice().sort((left, right) => right.versionNo - left.versionNo)[0]
+      ?? (await this.createProfile(tenantId, {
+        name: `ACME ${provider.name} Server Certificate Profile`,
+        securityDomain: 'acme',
+        trustDomainId: authority.trustDomainId,
+        rules: {
+          allowedSanTypes: ['dns', 'ip'], keyAlgorithms: ['rsa', 'ec'], minimumRsaBits: 2048,
+          maximumValidityDays: 397, renewalWindowDays: 7, rotateKeyOnRenewal: true,
+          allowWildcard: true, requireApproval: false, extendedKeyUsages: ['serverAuth'],
+        },
+        actorId,
+      })).version;
+    return { caId: authority.id, profileVersionId: version.id, trustDomainId: authority.trustDomainId };
+  }
+
   async createCertificateRequest(tenantId: string, input: CreateCertificateRequestInput, context?: RequestContext): Promise<CertificateRequestEntity> {
     const authority = await this.requireAuthority(tenantId, input.caId);
+    if (authority.status !== 'active') throw new AppError('CA_PROVIDER_UNAVAILABLE', '证书机构当前不可签发', { caId: authority.id, status: authority.status });
     const profileVersion = await this.repository.getProfileVersion(input.profileVersionId);
-    const profile = profileVersion ? await this.repository.getProfile(tenantId, profileVersion.profileId) : undefined;
-    if (!profileVersion || !profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 版本不存在', { profileVersionId: input.profileVersionId });
+    if (!profileVersion) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 版本不存在', { profileVersionId: input.profileVersionId });
+    const profile = await this.repository.getProfile(tenantId, profileVersion.profileId);
+    if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId: profileVersion.profileId });
     validateProfile(input, profileVersion.rules);
-    if (authority.trustDomainId && input.trustDomainId && authority.trustDomainId !== input.trustDomainId) {
-      throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书申请与 CA 信任域不匹配');
+    if (authority.trustDomainId) {
+      await this.requireUsableTrustDomain(tenantId, authority.trustDomainId);
+      if (input.trustDomainId && authority.trustDomainId !== input.trustDomainId) throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书申请与 CA 信任域不匹配');
+      if (profile.trustDomainId && authority.trustDomainId !== profile.trustDomainId) throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书 Profile 与 CA 信任域不匹配');
+    } else if (profile.securityDomain !== authority.securityDomain) {
+      throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '证书 Profile 与 CA 安全域不匹配');
     }
-    const csrPem = requiredText(input.csrPem ?? '', 'csrPem');
-    const publicKeyFingerprintSha256 = normalizeFingerprint(requiredText(input.publicKeyFingerprintSha256 ?? '', 'publicKeyFingerprintSha256'));
     const idempotencyKey = input.idempotencyKey?.trim() || createHash('sha256').update([
       tenantId, input.applicationAssetId, input.caId, input.profileVersionId, input.commonName,
-      [...input.sans].sort().join(','), csrPem,
+      [...input.sans].sort().join(','), new Date().toISOString().slice(0, 10),
     ].join('|')).digest('hex');
     const existing = await this.repository.getRequestByIdempotencyKey(tenantId, idempotencyKey);
     if (existing) return existing;
+    const keyMaterial = await this.prepareKeyMaterial(tenantId, input, profileVersion.rules, context);
     const now = new Date().toISOString();
+    const requestId = newId('certreq');
+    const approval = profileVersion.rules.requireApproval && this.dependencies.approvals
+      ? await this.dependencies.approvals.create({
+          operationType: 'certificate_request.issue',
+          resourceRefs: [{ type: 'certificate_request', id: requestId }],
+          riskLevel: 'high',
+          parameters: { requestId, applicationAssetId: input.applicationAssetId, caId: authority.id, publicKeyFingerprintSha256: keyMaterial.publicKeyFingerprintSha256 },
+          requestedBy: input.actorId,
+        }, context)
+      : undefined;
     const request: CertificateRequestEntity = {
-      id: newId('certreq'),
+      id: requestId,
       tenantId,
       applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
       caId: authority.id,
-      trustDomainId: input.trustDomainId ?? authority.trustDomainId,
+      trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
-      keyReferenceId: '',
-      csrPem,
-      csrSha256: createHash('sha256').update(csrPem).digest('hex'),
-      publicKeyFingerprintSha256,
+      keyReferenceId: keyMaterial.keyReference.id,
+      csrPem: keyMaterial.csrPem,
+      csrSha256: keyMaterial.csrSha256,
+      publicKeyFingerprintSha256: keyMaterial.publicKeyFingerprintSha256,
       idempotencyKey,
-      status: 'draft',
+      status: profileVersion.rules.requireApproval ? 'pending_approval' : 'approved',
       requestedBy: input.actorId,
-      deferIssuance: input.deferIssuance,
+      approvalId: approval?.id,
+      deferIssuance: input.deferIssuance === true,
       subjectCommonName: requiredText(input.commonName, 'commonName'),
       sans: normalizeCertificateNames(input.sans),
-      requestedValidityDays: input.requestedValidityDays ?? profileVersion.rules.maximumValidityDays,
+      requestedValidityDays: Math.min(input.requestedValidityDays ?? profileVersion.rules.maximumValidityDays, profileVersion.rules.maximumValidityDays),
       createdAt: now,
       updatedAt: now,
     };
+    await this.repository.saveRequest(request);
     await this.audit('internal_ca.request.created', input.actorId, 'certificate_request.create', 'certificate_request', request.id, 'high', context, {
+      applicationAssetId: request.applicationAssetId,
       caId: request.caId,
-      pluginVersionId: textValue((await this.requireProvider(tenantId, (await this.requireAuthority(tenantId, request.caId)).providerId)).configuration.pluginVersionId),
+      keyCustodyMode: input.custodyMode,
+      publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
     });
-    return this.repository.saveRequest(request);
+    if (profileVersion.rules.requireApproval || input.deferIssuance === true) return request;
+    return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
   async listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
@@ -490,23 +819,107 @@ export class InternalCaApplicationService {
 
   async approveRequest(tenantId: string, requestId: string, actorId: string, approvalId?: string, context?: RequestContext): Promise<CertificateRequestEntity> {
     const request = await this.requireRequest(tenantId, requestId);
-    const now = new Date().toISOString();
-    const updated = await this.repository.saveRequest({ ...request, status: 'approved', approvedBy: actorId, approvalId, updatedAt: now });
+    if (request.status !== 'pending_approval') throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请当前不在待审批状态', { status: request.status });
+    if (request.approvalId) {
+      if (!approvalId || approvalId !== request.approvalId) throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '证书申请需要匹配的审批单');
+      await this.dependencies.approvals?.consume(approvalId, {
+        requestId: request.id,
+        applicationAssetId: request.applicationAssetId,
+        caId: request.caId,
+        publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
+      });
+    }
+    await this.repository.saveRequest({ ...request, status: 'approved', approvedBy: actorId, updatedAt: new Date().toISOString() });
     await this.audit('internal_ca.request.approved', actorId, 'certificate_request.approve', 'certificate_request', requestId, 'high', context, { approvalId });
-    return updated;
+    return request.deferIssuance === true ? this.requireRequest(tenantId, requestId) : this.issueRequest(tenantId, requestId, actorId, context);
   }
 
-  async issueRequest(tenantId: string, requestId: string, actorId: string, _context?: RequestContext): Promise<CertificateRequestEntity> {
+  async issueRequest(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    if (['issued', 'deploying', 'active'].includes(request.status)) return request;
+    if (!['approved', 'issue_failed'].includes(request.status)) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请尚未批准', { status: request.status });
+    const authority = await this.requireAuthority(tenantId, request.caId);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    if (request.deferIssuance === true && provider.type === 'acme') throw new AppError('ACME_ORDER_REQUIRED', 'ACME 证书申请必须通过 Order 生命周期完成签发');
+    const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!profileVersion || !keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请依赖对象不存在');
+    const ledgerRecord = provider.type === 'gcac_builtin'
+      ? await this.reserveIssuanceRecord(tenantId, { caId: authority.id, certificateRequestId: request.id, applicationAssetId: request.applicationAssetId, subjectCommonName: request.subjectCommonName, sans: request.sans })
+      : await this.repository.getIssuanceByRequest(tenantId, request.id);
+    await this.repository.saveRequest({ ...request, status: 'issuing', updatedAt: new Date().toISOString() });
+    try {
+      const issued = await this.providers.get(provider.type).signCsr({
+        provider,
+        authority,
+        csrPem: request.csrPem,
+        sans: request.sans,
+        validityDays: request.requestedValidityDays,
+        profileRules: profileVersion.rules,
+        idempotencyKey: request.idempotencyKey,
+        actorId,
+        serialNumber: provider.type === 'gcac_builtin' ? ledgerRecord?.serialNumber : undefined,
+      });
+      if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
+      return this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
+    } catch (error) {
+      if (ledgerRecord && ledgerRecord.status !== 'issued') await this.repository.saveIssuanceRecord({ ...ledgerRecord, status: 'failed', updatedAt: new Date().toISOString() });
+      await this.repository.saveRequest({
+        ...request,
+        status: 'issue_failed',
+        failureCode: error instanceof AppError ? error.errorCode : 'CA_PROVIDER_UNAVAILABLE',
+        failureMessage: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
+  }
+
+  async refreshRequestIssuance(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    if (request.status !== 'issuing' || !request.providerRequestId) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请当前没有可查询的远程签发结果', { status: request.status });
+    const authority = await this.requireAuthority(tenantId, request.caId);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    const adapter = this.providers.get(provider.type);
+    if (!adapter.queryIssuance || !provider.capabilities.queryIssuance) throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前 CA Provider 不支持查询签发结果');
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
+    const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId });
+    if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
+    return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
+  }
+
+  async importAcmeCertificate(
+    tenantId: string,
+    requestId: string,
+    material: { certificatePem: string; certificateChainPem: string },
+    providerRequestId: string,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
     const request = await this.requireRequest(tenantId, requestId);
     const authority = await this.requireAuthority(tenantId, request.caId);
-    void actorId;
-    throw caPluginRunnerUnavailable('issue_request', { id: authority.providerId, type: 'plugin' });
-  }
-
-  async refreshRequestIssuance(tenantId: string, requestId: string, actorId: string, _context?: RequestContext): Promise<CertificateRequestEntity> {
-    const request = await this.requireRequest(tenantId, requestId);
-    void actorId;
-    throw caPluginRunnerUnavailable('query_issuance', { id: request.caId, type: 'plugin' });
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    if (provider.type !== 'acme') throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前证书申请不是 ACME Provider');
+    const validation = this.dependencies.certificates.validateImportVersion({
+      certificatePem: material.certificateChainPem,
+      allowCertificateOnly: true,
+      keyReferenceId: request.keyReferenceId,
+      createdBy: actorId,
+    });
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
+    return this.completeIssuedRequest(request, {
+      status: 'issued',
+      providerRequestId,
+      certificatePem: material.certificatePem,
+      certificateChainPem: material.certificateChainPem,
+      serialNumber: validation.certificate.serialNumber,
+      fingerprintSha256: validation.certificate.fingerprintSha256,
+      publicKeyFingerprintSha256: validation.certificate.publicKeyFingerprintSha256 ?? '',
+      notBefore: validation.certificate.notBefore,
+      notAfter: validation.certificate.notAfter,
+    }, provider, authority, keyReference, actorId, context);
   }
 
   async markRequestActive(tenantId: string, requestId: string): Promise<CertificateRequestEntity> {
@@ -519,12 +932,67 @@ export class InternalCaApplicationService {
     return this.repository.listRenewals(tenantId);
   }
 
-  async scheduleDueRenewals(_tenantId: string, _actorId: string, _now = new Date(), _context?: RequestContext): Promise<CertificateRenewalJobEntity[]> {
-    throw caPluginRunnerUnavailable('schedule_renewal');
+  async scheduleDueRenewals(tenantId: string, actorId: string, now = new Date(), context?: RequestContext): Promise<CertificateRenewalJobEntity[]> {
+    const jobs = await this.repository.listRenewals(tenantId);
+    const requests = await this.repository.listRequests(tenantId);
+    const created: CertificateRenewalJobEntity[] = [];
+    for (const request of requests.filter((item) => ['issued', 'active'].includes(item.status) && item.certificateVersionId)) {
+      const version = await this.dependencies.certificates.getRepository().getVersion(request.certificateVersionId!, tenantId);
+      const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
+      const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+      if (!version || !profileVersion || !keyReference) continue;
+      const renewAt = new Date(version.notAfter).getTime() - profileVersion.rules.renewalWindowDays * 86_400_000;
+      if (renewAt > now.getTime()) continue;
+      const renewalWindowKey = `${version.notAfter.slice(0, 10)}:${profileVersion.versionNo}`;
+      if (jobs.some((item) => item.certificateVersionId === version.id && item.renewalWindowKey === renewalWindowKey)) continue;
+      const timestamp = now.toISOString();
+      let job: CertificateRenewalJobEntity = {
+        id: newId('renew'), tenantId, certificateVersionId: version.id, renewalWindowKey,
+        status: ['local_agent', 'device_local'].includes(keyReference.custodyMode) ? 'key_pending' : 'csr_pending',
+        scheduledAt: timestamp, createdAt: timestamp, updatedAt: timestamp,
+      };
+      job = await this.repository.saveRenewal(job);
+      if (keyReference.custodyMode === 'managed_secret') {
+        const renewed = await this.createCertificateRequest(tenantId, {
+          applicationAssetId: request.applicationAssetId,
+          caId: request.caId,
+          profileVersionId: request.profileVersionId,
+          commonName: request.subjectCommonName,
+          sans: request.sans,
+          requestedValidityDays: request.requestedValidityDays,
+          custodyMode: 'managed_secret',
+          idempotencyKey: `renew:${version.id}:${renewalWindowKey}`,
+          actorId,
+        }, context);
+        job = await this.repository.saveRenewal({
+          ...job,
+          certificateRequestId: renewed.id,
+          status: renewed.status === 'issued' ? 'deploying' : renewed.status === 'pending_approval' ? 'csr_pending' : 'issuing',
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      created.push(job);
+    }
+    return created;
   }
 
-  async requestRevocation(_tenantId: string, _certificateVersionId: string, _reason: string, _actorId: string, _context?: RequestContext): Promise<CertificateRevocationEntity> {
-    throw caPluginRunnerUnavailable('request_revocation');
+  async requestRevocation(tenantId: string, certificateVersionId: string, reason: string, actorId: string, context?: RequestContext): Promise<CertificateRevocationEntity> {
+    const version = await this.dependencies.certificates.getRepository().getVersion(certificateVersionId, tenantId);
+    if (!version?.issuingCaId) throw new AppError('RESOURCE_NOT_FOUND', '证书版本没有可用的签发 CA', { certificateVersionId });
+    const authority = await this.requireAuthority(tenantId, version.issuingCaId);
+    const now = new Date().toISOString();
+    const approval = await this.dependencies.approvals?.create({
+      operationType: 'certificate.revoke',
+      resourceRefs: [{ type: 'certificate_version', id: certificateVersionId }],
+      riskLevel: 'critical',
+      parameters: { certificateVersionId, caId: authority.id, serialNumber: version.serialNumber, reason },
+      requestedBy: actorId,
+    }, context);
+    return this.repository.saveRevocation({
+      id: newId('revoke'), tenantId, certificateVersionId, caId: authority.id, trustDomainId: authority.trustDomainId,
+      reason: requiredText(reason, 'reason'), status: 'pending_approval', requestedBy: actorId, approvalId: approval?.id,
+      warnings: [], createdAt: now, updatedAt: now,
+    });
   }
 
   listRevocations(tenantId: string): Promise<CertificateRevocationEntity[]> {
@@ -534,7 +1002,302 @@ export class InternalCaApplicationService {
   async approveRevocation(tenantId: string, revocationId: string, _approvalId: string, _actorId: string): Promise<CertificateRevocationEntity> {
     const revocation = (await this.repository.listRevocations(tenantId)).find((item) => item.id === revocationId);
     if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '证书吊销任务不存在', { revocationId });
-    throw caPluginRunnerUnavailable('revoke_certificate', { id: revocation.caId, type: 'plugin' });
+    const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
+    if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: revocation.certificateVersionId });
+    const authority = await this.requireAuthority(tenantId, revocation.caId);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    const adapter = this.providers.get(provider.type);
+    if (!adapter.revoke) throw new AppError('CERTIFICATE_REVOCATION_UNSUPPORTED', '当前 CA Provider 不支持吊销');
+    const revoked = await adapter.revoke({ provider, authority, serialNumber: version.serialNumber, reason: revocation.reason, actorId: _actorId });
+    return this.repository.saveRevocation({ ...revocation, status: 'revoked', revokedAt: revoked.revokedAt, updatedAt: new Date().toISOString() });
+  }
+
+  private async prepareKeyMaterial(
+    tenantId: string,
+    input: CreateCertificateRequestInput,
+    rules: CertificateProfileRules,
+    context?: RequestContext,
+  ): Promise<{
+    keyReference: KeyReferenceEntity;
+    csrPem: string;
+    csrSha256: string;
+    publicKeyFingerprintSha256: string;
+  }> {
+    const now = new Date().toISOString();
+    if (input.custodyMode === 'managed_secret') {
+      const algorithm = input.requestedKeyAlgorithm
+        ?? (rules.keyAlgorithms.includes('ec') && !rules.keyAlgorithms.includes('rsa') ? 'ec' : 'rsa');
+      if (!rules.keyAlgorithms.includes(algorithm)) {
+        throw new AppError('VALIDATION_FAILED', '证书 Profile 不允许所选密钥算法', { algorithm });
+      }
+      const generated = await this.openssl.generateManagedKeyAndCsr({
+        commonName: input.commonName,
+        sans: normalizeCertificateNames(input.sans),
+        algorithm,
+        rsaBits: rules.minimumRsaBits,
+      });
+      const secret = await this.dependencies.secrets.create({
+        tenantId,
+        name: `应用证书私钥 ${input.commonName}`,
+        type: 'certificate_private_key',
+        scopeType: 'global',
+        plainText: generated.privateKeyPem,
+        createdBy: input.actorId,
+        metadata: { ownerType: 'application_certificate', applicationAssetId: input.applicationAssetId },
+      }, context);
+      const keyReference = await this.repository.saveKeyReference({
+        id: newId('keyref'),
+        tenantId,
+        ownerType: 'application_certificate',
+        ownerId: input.applicationAssetId,
+        custodyMode: 'managed_secret',
+        backendType: 'secret',
+        secretRef: secret.secretRef,
+        publicKeyFingerprintSha256: generated.csr.publicKeyFingerprintSha256,
+        exportability: 'exportable',
+        protectionLevel: 'software_controlled',
+        status: 'active',
+        evidence: { generatedBy: 'gcac', privateKeyTransported: false, algorithm },
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { keyReference, ...generated.csr };
+    }
+    if (!input.csrPem || !input.opaqueKeyReference) {
+      throw new AppError('VALIDATION_FAILED', '本地持钥或外部密钥申请必须提供 CSR 和不透明密钥引用');
+    }
+    const parsed = await this.openssl.parseCsr(input.csrPem);
+    const backendType = input.keyBackend ?? (input.custodyMode === 'device_local' ? 'device' : 'file');
+    const keyReference = await this.repository.saveKeyReference({
+      id: newId('keyref'),
+      tenantId,
+      ownerType: 'application_certificate',
+      ownerId: input.applicationAssetId,
+      custodyMode: input.custodyMode,
+      backendType,
+      opaqueReference: input.opaqueKeyReference,
+      publicKeyFingerprintSha256: parsed.publicKeyFingerprintSha256,
+      exportability: normalizeExportability(backendType, input.exportability),
+      protectionLevel: ['hsm', 'kms', 'tpm', 'pkcs11'].includes(backendType)
+        ? 'hardware_backed'
+        : backendType === 'cng'
+          ? 'os_protected'
+          : 'software_controlled',
+      status: 'active',
+      evidence: structuredClone(input.protectionEvidence ?? {}),
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { keyReference, ...parsed };
+  }
+
+  private async createExternalAuthority(
+    tenantId: string,
+    input: CreateAuthorityInput,
+    provider: CaProviderEntity,
+    trustDomainId: string,
+  ): Promise<CertificateAuthorityEntity> {
+    const now = new Date().toISOString();
+    return this.repository.saveAuthority({
+      id: newId('ca'),
+      tenantId,
+      name: requiredText(input.name, 'name'),
+      role: 'root',
+      topologyMode: 'external_managed',
+      providerId: provider.id,
+      trustDomainId,
+      securityDomain: requiredText(input.securityDomain, 'securityDomain'),
+      status: 'active',
+      subjectCommonName: requiredText(input.commonName, 'commonName'),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  private async createBuiltInIntermediate(
+    tenantId: string,
+    input: CreateAuthorityInput,
+    parent: CertificateAuthorityEntity,
+    name: string,
+    commonName: string,
+    context?: RequestContext,
+    parentPrivateKeyPem?: string,
+  ): Promise<CertificateAuthorityEntity> {
+    if (!parent.certificatePem) throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 缺少证书材料');
+    const resolvedParentKey = parentPrivateKeyPem ?? (parent.privateKeySecretRef
+      ? (await this.dependencies.secrets.resolveForService({
+          secretRef: parent.privateKeySecretRef,
+          tenantId,
+          expectedType: 'certificate_private_key',
+          purpose: 'internal_ca.intermediate.create',
+          actorId: input.actorId,
+          context,
+        })).plainText
+      : undefined);
+    if (!resolvedParentKey) throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 私钥不可用，无法创建中间 CA');
+    const intermediateId = newId('ca');
+    const material = await this.openssl.createIntermediate({
+      commonName,
+      validityDays: input.intermediateValidityDays ?? 1825,
+      pathLengthConstraint: 0,
+      parentPrivateKeyPem: resolvedParentKey,
+      parentCertificatePem: parent.certificatePem,
+      parentChainPem: parent.certificateChainPem ?? parent.certificatePem,
+    });
+    const secret = await this.dependencies.secrets.create({
+      tenantId,
+      name: `CA 私钥 ${name}`,
+      type: 'certificate_private_key',
+      scopeType: 'global',
+      plainText: material.privateKeyPem,
+      createdBy: input.actorId,
+      metadata: { ownerType: 'ca', ownerId: intermediateId, role: 'intermediate', parentCaId: parent.id },
+    }, context);
+    const key = await this.repository.saveKeyReference(buildKeyReference({
+      id: newId('keyref'), tenantId, ownerId: intermediateId, secretRef: secret.secretRef,
+      fingerprint: material.publicKeyFingerprintSha256, backendType: input.keyBackend,
+    }));
+    const now = new Date().toISOString();
+    return this.repository.saveAuthority({
+      id: intermediateId,
+      tenantId,
+      name: requiredText(name, 'name'),
+      role: 'intermediate',
+      parentCaId: parent.id,
+      topologyMode: 'root_with_intermediate',
+      providerId: parent.providerId,
+      trustDomainId: parent.trustDomainId,
+      keyReferenceId: key.id,
+      privateKeySecretRef: secret.secretRef,
+      certificatePem: material.certificatePem,
+      certificateChainPem: material.certificateChainPem,
+      securityDomain: requiredText(input.securityDomain, 'securityDomain'),
+      status: 'active',
+      pathLengthConstraint: 0,
+      subjectCommonName: requiredText(commonName, 'commonName'),
+      notBefore: material.notBefore,
+      notAfter: material.notAfter,
+      fingerprintSha256: material.fingerprintSha256,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  private async saveNonFinalIssuance(
+    request: CertificateRequestEntity,
+    result: Exclude<CaIssuanceResult, { status: 'issued' }>,
+  ): Promise<CertificateRequestEntity> {
+    return this.repository.saveRequest({
+      ...request,
+      status: result.status === 'rejected' ? 'rejected' : 'issuing',
+      providerRequestId: result.providerRequestId,
+      failureCode: result.status === 'rejected' ? 'CA_REQUEST_REJECTED' : undefined,
+      failureMessage: result.detail,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async completeIssuedRequest(
+    request: CertificateRequestEntity,
+    issued: Extract<CaIssuanceResult, { status: 'issued' }>,
+    provider: CaProviderEntity,
+    authority: CertificateAuthorityEntity,
+    keyReference: KeyReferenceEntity,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
+    if (issued.publicKeyFingerprintSha256.toLowerCase() !== request.publicKeyFingerprintSha256.toLowerCase()) {
+      throw new AppError('PUBLIC_KEY_MISMATCH', '签发证书公钥与 CSR 不匹配');
+    }
+    if (provider.type === 'acme') this.assertAcmeIssuedCertificate(request, issued);
+    const ledgerRecord = await this.repository.getIssuanceByRequest(request.tenantId, request.id);
+    if (ledgerRecord && ledgerRecord.serialNumber.toUpperCase() !== issued.serialNumber.toUpperCase()) {
+      throw new AppError('CA_LEDGER_INCONSISTENT', '签发证书序列号与账本预留值不一致', { requestId: request.id, caId: authority.id });
+    }
+    const imported = await this.dependencies.certificates.importVersion({
+      tenantId: request.tenantId,
+      certificatePem: issued.certificateChainPem,
+      allowCertificateOnly: !keyReference.secretRef,
+      existingPrivateKeySecretRef: keyReference.secretRef,
+      issuingCaId: authority.id,
+      certificateRequestId: request.id,
+      certificateProfileVersionId: request.profileVersionId,
+      keyReferenceId: keyReference.id,
+      keyCustodyMode: keyReference.custodyMode,
+      activationState: provider.type === 'acme' ? 'staged' : 'promoted',
+      sourceType: provider.type === 'acme' ? 'acme' : 'internal_ca',
+      name: request.subjectCommonName,
+      tags: ['internal-ca', authority.securityDomain],
+      createdBy: actorId,
+    }, context);
+    if (authority.trustDomainId) {
+      await this.dependencies.db.query('update pg_certificate_versions set trust_domain_id = $2 where id = $1', [imported.version.id, authority.trustDomainId]);
+    }
+    const now = new Date().toISOString();
+    await this.repository.saveIssuanceRecord({
+      id: ledgerRecord?.id ?? newId('caissue'),
+      tenantId: request.tenantId,
+      caId: authority.id,
+      serialNumber: issued.serialNumber.toUpperCase(),
+      certificateRequestId: request.id,
+      certificateVersionId: imported.version.id,
+      applicationAssetId: request.applicationAssetId,
+      status: 'issued',
+      recordOrigin: provider.type === 'gcac_builtin' ? 'native' : 'external',
+      subjectCommonName: request.subjectCommonName,
+      sans: request.sans,
+      certificateFingerprintSha256: imported.version.fingerprintSha256,
+      publicKeyFingerprintSha256: imported.version.publicKeyFingerprintSha256,
+      notBefore: imported.version.notBefore,
+      notAfter: imported.version.notAfter,
+      issuedAt: now,
+      observedAt: ledgerRecord?.observedAt ?? now,
+      createdAt: ledgerRecord?.createdAt ?? now,
+      updatedAt: now,
+    });
+    const completed: CertificateRequestEntity = {
+      ...request,
+      status: 'issued',
+      providerRequestId: issued.providerRequestId,
+      certificateVersionId: imported.version.id,
+      failureCode: undefined,
+      failureMessage: undefined,
+      updatedAt: now,
+    };
+    await this.repository.saveRequest(completed);
+    await this.audit('internal_ca.request.issued', actorId, 'certificate_request.issue', 'certificate_request', request.id, 'high', context, {
+      certificateVersionId: imported.version.id,
+      fingerprintSha256: imported.version.fingerprintSha256,
+      publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
+    });
+    return completed;
+  }
+
+  private assertAcmeIssuedCertificate(request: CertificateRequestEntity, issued: Extract<CaIssuanceResult, { status: 'issued' }>): void {
+    const validation = this.dependencies.certificates.validateImportVersion({
+      certificatePem: issued.certificateChainPem,
+      allowCertificateOnly: true,
+      keyReferenceId: request.keyReferenceId,
+      createdBy: request.requestedBy,
+    });
+    if (validation.certificate.fingerprintSha256.toLowerCase() !== issued.fingerprintSha256.toLowerCase()) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书 fingerprint 与签发结果不一致');
+    }
+    if (validation.certificate.publicKeyFingerprintSha256?.toLowerCase() !== request.publicKeyFingerprintSha256.toLowerCase()) {
+      throw new AppError('PUBLIC_KEY_MISMATCH', 'ACME 证书公钥与 CSR 不匹配');
+    }
+    const requestedNames = new Set(normalizeCertificateNames([request.subjectCommonName, ...request.sans]));
+    const issuedNames = new Set(normalizeCertificateNames([validation.certificate.commonName ?? '', ...validation.certificate.sans]));
+    if (requestedNames.size !== issuedNames.size || [...requestedNames].some((name) => !issuedNames.has(name))) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书 SAN 与申请不一致');
+    }
+    if (!['valid', 'incomplete'].includes(validation.chain.status) || validation.chain.certificateCount < 2) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书链不完整或无效');
+    }
+    if (Date.parse(validation.certificate.notAfter) <= Date.now()
+      || Date.parse(validation.certificate.notAfter) <= Date.parse(validation.certificate.notBefore)) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书有效期无效或已过期');
+    }
   }
 
   async createTrustDistribution(tenantId: string, caId: string, targetScope: Record<string, unknown>, actorId: string, context?: RequestContext): Promise<TrustDistributionEntity> {
@@ -804,14 +1567,69 @@ export class InternalCaApplicationService {
 function assertProviderCombination(provider: CaProviderEntity): void {
   if (provider.deploymentMode === 'builtin' && provider.type !== 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '内置部署必须使用 gcac_builtin Provider');
   if (provider.deploymentMode === 'managed_node' && provider.type !== 'gcac_managed_node') throw new AppError('CA_TOPOLOGY_INVALID', '受控节点部署必须使用 gcac_managed_node Provider');
-  if (provider.deploymentMode === 'external' && provider.type !== 'plugin') throw new AppError('CA_TOPOLOGY_INVALID', '外部部署必须使用 plugin Provider');
+  if (provider.deploymentMode === 'external' && ['gcac_builtin', 'gcac_managed_node'].includes(provider.type)) throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
 }
 
 function assertPluginBinding(provider: CaProviderEntity): void {
   if (provider.type !== 'plugin') return;
   if (!textValue(provider.configuration.pluginId) || !textValue(provider.configuration.pluginVersionId)) {
-    throw caPluginRunnerUnavailable('plugin_version_binding', provider);
+    throw new AppError('CA_PROVIDER_UNAVAILABLE', '外部 CA 插件缺少已发布的 PluginVersion 绑定', {
+      code: 'CA_PLUGIN_BINDING_REQUIRED',
+      providerId: provider.id,
+      providerType: provider.type,
+    });
   }
+}
+
+function normalizeAcmeProviderConfiguration(
+  input: AcmeProviderConfigurationInput,
+  current: Record<string, unknown> = {},
+): AcmeProviderConfiguration {
+  const preset = input.preset ?? (typeof current.preset === 'string' ? current.preset : 'custom');
+  if (!isAcmeProviderPresetKey(preset)) throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'ACME Provider 预置类型无效');
+  const presetDefinition = getAcmeProviderPreset(preset);
+  const configuration: AcmeProviderConfiguration = {
+    directoryUrl: requiredText(input.directoryUrl, 'directoryUrl'),
+    allowedChallenges: input.allowedChallenges?.length
+      ? [...new Set(input.allowedChallenges)]
+      : (presetDefinition?.defaultAllowedChallenges ?? ['http-01', 'dns-01']),
+    requestTimeoutMs: input.requestTimeoutMs ?? Number(current.requestTimeoutMs ?? 15_000),
+    verifyTls: true,
+    termsOfServiceUrl: optionalText(input.termsOfServiceUrl) ?? textValue(current.termsOfServiceUrl),
+    termsOfServiceAgreed: input.termsOfServiceAgreed === true || current.termsOfServiceAgreed === true,
+    preset,
+    isDefault: input.isDefault === true,
+    isBuiltIn: current.isBuiltIn === true,
+  };
+  new AcmeDomainService().validateProviderConfiguration({ ...configuration });
+  return configuration;
+}
+
+function buildKeyReference(input: {
+  id: string;
+  tenantId: string;
+  ownerId: string;
+  secretRef: string;
+  fingerprint: string;
+  backendType: KeyBackendType;
+}): KeyReferenceEntity {
+  const now = new Date().toISOString();
+  return {
+    id: input.id,
+    tenantId: input.tenantId,
+    ownerType: 'ca',
+    ownerId: input.ownerId,
+    custodyMode: input.backendType === 'secret' || input.backendType === 'file' ? 'managed_secret' : 'external_key',
+    backendType: input.backendType,
+    secretRef: input.secretRef,
+    publicKeyFingerprintSha256: input.fingerprint,
+    exportability: normalizeExportability(input.backendType),
+    protectionLevel: ['hsm', 'kms', 'tpm', 'pkcs11'].includes(input.backendType) ? 'hardware_backed' : 'software_controlled',
+    status: 'active',
+    evidence: { generatedBy: 'gcac_builtin' },
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 function normalizeProfileRules(input: Partial<CertificateProfileRules> = {}): CertificateProfileRules {
