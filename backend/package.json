@@ -9,11 +9,14 @@
     "test:unit": "npm run build && node --test \"dist/**/*.test.js\"",
     "test:integration": "npm run build && node --test \"dist/**/*.test.js\"",
     "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
-    "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\""
+    "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
   },
   "devDependencies": {
     "@types/node": "latest",
     "typescript": "latest",
-    "@electric-sql/pglite": "latest"
+    "@electric-sql/pglite": "latest",
+    "tsx": "latest"
   }
 }
