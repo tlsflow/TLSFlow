@@ -891,6 +891,17 @@ export class ExecutionsApplicationService {
     step: ExecutionStepEntity,
     tenantId: string | undefined,
   ): Promise<ExecutionStepEntity> {
+    const executionRuntimeSnapshot = readExecutionRuntimeSnapshot(step.inputSnapshot.executionRuntimeSnapshot);
+    if (executionRuntimeSnapshot) {
+      return {
+        ...step,
+        inputSnapshot: {
+          ...step.inputSnapshot,
+          resolvedDeploymentInput: executionRuntimeSnapshot.resolvedDeploymentInput,
+          deploymentArtifact: executionRuntimeSnapshot.deploymentArtifact,
+        },
+      };
+    }
     const executorType = readString(step.inputSnapshot.executorType);
     if (executorType === 'MOCK' && !step.inputSnapshot.deploymentInputSnapshotRef) return step;
     const ref = readDeploymentInputSnapshotRef(step.inputSnapshot.deploymentInputSnapshotRef, {
@@ -1015,7 +1026,26 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
 }
 
 function persistentExecutionPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeDeploymentInputPersistencePayload(payload);
+  const executionRuntimeSnapshot = readRecord(payload.executionRuntimeSnapshot);
+  return {
+    ...sanitizeDeploymentInputPersistencePayload(payload),
+    ...(executionRuntimeSnapshot ? { executionRuntimeSnapshot: structuredClone(executionRuntimeSnapshot) } : {}),
+  };
+}
+
+function readExecutionRuntimeSnapshot(value: unknown): {
+  resolvedDeploymentInput: Record<string, unknown>;
+  deploymentArtifact: Record<string, unknown>;
+} | undefined {
+  const snapshot = readRecord(value);
+  const resolvedDeploymentInput = readRecord(snapshot?.resolvedDeploymentInput);
+  const deploymentArtifact = readRecord(snapshot?.deploymentArtifact);
+  if (snapshot?.apiVersion !== 'gcac.deployment-input-runtime-snapshot/v1'
+    || resolvedDeploymentInput?.apiVersion !== 'gcac.resolved-deployment-input/v1'
+    || !deploymentArtifact) {
+    return undefined;
+  }
+  return { resolvedDeploymentInput, deploymentArtifact };
 }
 
 function readDeploymentInputSnapshotRef(

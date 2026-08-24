@@ -1270,7 +1270,7 @@ export class DeploymentPlansApplicationService {
     targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
     await this.assertLatestDryRunPassed(plan, input.tenantId);
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
-    const runtimeSnapshots = await this.readDeploymentInputRuntimeSnapshots(plan, targets);
+    const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1299,7 +1299,7 @@ export class DeploymentPlansApplicationService {
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
     targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
-    const runtimeSnapshots = await this.readDeploymentInputRuntimeSnapshots(plan, targets);
+    const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     const created = await this.executions.createDryRun({
@@ -1747,6 +1747,69 @@ export class DeploymentPlansApplicationService {
     return output;
   }
 
+  private async resolveRunDeploymentInputRuntimeSnapshots(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+  ): Promise<Map<string, DeploymentInputRuntimeSnapshotV1>> {
+    if (plan.selectionMode !== 'LATEST_AUTO') {
+      return this.readDeploymentInputRuntimeSnapshots(plan, targets);
+    }
+
+    const output = new Map<string, DeploymentInputRuntimeSnapshotV1>();
+    for (const target of targets) {
+      output.set(target.id, await this.buildLatestAutoRuntimeSnapshot(plan, target));
+    }
+    return output;
+  }
+
+  private async buildLatestAutoRuntimeSnapshot(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+  ): Promise<DeploymentInputRuntimeSnapshotV1> {
+    const tenantId = target.tenantId ?? plan.tenantId;
+    if (!tenantId) {
+      throw new AppError('VALIDATION_FAILED', 'LATEST_AUTO 部署目标缺少 tenantId，无法解析最新证书', {
+        deploymentPlanId: plan.id,
+        deploymentPlanTargetId: target.id,
+      });
+    }
+
+    const binding = target.certificateBindingId
+      ? await this.tryGetBinding(tenantId, target.certificateBindingId)
+      : undefined;
+    const applicationAsset = target.applicationAssetId
+      ? await this.assets.getServiceAsset(tenantId, target.applicationAssetId)
+      : undefined;
+    const certificateVersionId = await this.findLatestDeployableCertificateVersionIdFromSeed(
+      plan.certificateVersionId,
+      binding,
+      applicationAsset?.sniName ?? applicationAsset?.address,
+    );
+    const artifact = await this.resolveDeploymentArtifactForTarget(target, certificateVersionId, plan.certificateFormatId, tenantId);
+    const material = await this.resolveTargetDeploymentInput('preflight', tenantId, {
+      applicationAssetId: target.applicationAssetId,
+      serviceAssetId: target.serviceAssetId,
+      managedTargetId: target.executionTargetId,
+      strategyPayload: target.strategyPayload,
+    }, artifact);
+
+    if (!material) {
+      const persisted = await this.readTargetDeploymentInputRuntimeSnapshot(target, tenantId);
+      return {
+        ...persisted,
+        deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+      };
+    }
+
+    return {
+      apiVersion: 'gcac.deployment-input-runtime-snapshot/v1',
+      contract: structuredClone(material.contract),
+      effectiveBinding: structuredClone(material.effectiveBinding),
+      resolvedDeploymentInput: structuredClone(material.resolvedInput),
+      deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+    };
+  }
+
   private async resolveLiveWorkflowStrategyPayloadForTarget(target: DeploymentPlanTargetEntity): Promise<Record<string, unknown>> {
     const snapshotPayload = target.strategyPayload ?? {};
     if (readRecord(snapshotPayload.executionSource)?.type === 'WORKFLOW') return snapshotPayload;
@@ -1836,6 +1899,9 @@ export class DeploymentPlansApplicationService {
         ...strategyPayload,
         ...(payload ?? {}),
         deploymentInputSnapshotRef: strategyPayload.deploymentInputSnapshotRef,
+        ...(plan.selectionMode === 'LATEST_AUTO'
+          ? { executionRuntimeSnapshot: structuredClone(runtimeSnapshot) }
+          : {}),
       });
     }
     return output;
