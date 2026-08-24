@@ -10,6 +10,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import type { UnifiedPluginsApplicationService } from '../plugins/application/unified-plugins.application-service.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import { DeploymentInputSnapshotsRepository } from '../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 
 const headers = { 'x-actor-id': 'user_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_nginx_payload' };
 
@@ -253,7 +254,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
     body: { planId, idempotencyKey: 'idem_nginx_payload_dry_run' },
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-  const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
+  const dryRunBody = dryRun.body as { run: { id: string }; steps: Array<{ stepType: string; inputSnapshot: any }> };
   const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
   assert.ok(atomicStep, JSON.stringify(dryRunBody));
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
@@ -264,7 +265,9 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   assert.equal(atomicStep!.inputSnapshot.siteName, 'nginx-site.example.com');
   assert.equal(atomicStep!.inputSnapshot.bindingSelector.hostHeader, 'nginx-site.example.com');
   assert.equal(atomicStep!.inputSnapshot.bindingSelector.port, 443);
-  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
+  assert.equal(atomicStep!.inputSnapshot.deploymentInputSnapshotRef?.apiVersion, 'gcac.deployment-input-snapshot/v1');
 });
 
 async function configureApplicationAssetManagedTarget(
@@ -648,6 +651,16 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.deepEqual(snapshotsAfterUpdate.items.map((item) => item.revision), [1, 2]);
   assert.equal(snapshotsAfterUpdate.items[0]?.id, snapshotRef?.snapshotId);
   assert.equal(JSON.stringify(snapshotsAfterUpdate.items).includes(chain.privateKeyPem), false);
+  const persistedTargets = await db.query<{ payload: unknown }>(
+    `select payload from pg_documents
+      where namespace='deployment-plans:targets' and payload->>'deploymentPlanId'=$1`,
+    [plan.id],
+  );
+  const persistedTargetJson = JSON.stringify(persistedTargets.rows);
+  assert.equal(persistedTargetJson.includes(chain.privateKeyPem), false);
+  assert.equal(persistedTargetJson.includes('resolvedDeploymentInput'), false);
+  assert.equal(persistedTargetJson.includes('effectiveInputBindings'), false);
+  assert.equal(persistedTargetJson.includes('inputBindings'), false);
   const planAudits = await waitForDeploymentPlanAudits(security, plan.id, 2);
   const createAudit = planAudits.find((item) => item.action === 'deployment_plan.create');
   const updateAudit = planAudits.find((item) => item.action === 'deployment_plan.update');
@@ -677,24 +690,41 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
     body: { planId: plan.id, idempotencyKey: 'idem_nginx_asset_plan_with_format_dry_run' },
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
-  const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
+  const dryRunBody = dryRun.body as { run: { id: string }; steps: Array<{ stepType: string; inputSnapshot: any }> };
   const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
   assert.ok(atomicStep);
-  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
-  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
-  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.containsPrivateKey, false);
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.apiVersion, 'gcac.resolved-deployment-input/v1');
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.executable, true);
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.resolvedSha256, preflight.resolvedSha256);
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.certificatePath, '/etc/nginx/certs/nginx-asset.pem');
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.privateKeyPath, '/etc/nginx/certs/nginx-asset.key');
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.nginxProgram, '/usr/sbin/nginx');
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.serviceName, 'nginx');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
   assert.deepEqual(atomicStep!.inputSnapshot.deploymentInputSnapshotRef, latestSnapshotRef);
   assert.equal(atomicStep!.inputSnapshot.pluginExecutionContext, undefined);
+
+  const persistedSteps = await db.query<{ input_snapshot: unknown }>(
+    `select input_snapshot from pg_execution_steps where execution_run_id=$1 order by step_no`,
+    [dryRunBody.run.id],
+  );
+  const persistedStepJson = JSON.stringify(persistedSteps.rows);
+  assert.equal(persistedStepJson.includes(chain.privateKeyPem), false);
+  assert.equal(persistedStepJson.includes('resolvedDeploymentInput'), false, persistedStepJson);
+  assert.equal(persistedStepJson.includes('deploymentArtifact'), false, persistedStepJson);
+  assert.equal(persistedStepJson.includes('pfxBase64'), false);
+  assert.equal(persistedStepJson.includes('privateKeyPem'), false, persistedStepJson);
+
+  const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
+    'tenant_1',
+    String(latestSnapshotRef?.snapshotId),
+  );
+  assert.equal(runtimeSnapshot?.deploymentArtifact.certificateFormatId, certificateFormatId);
+  assert.equal(runtimeSnapshot?.deploymentArtifact.format, 'pem');
+  assert.equal(runtimeSnapshot?.contract.apiVersion, 'gcac.deployment-input/v1');
+  assert.equal(runtimeSnapshot?.effectiveBinding.inputBindings.apiVersion, 'gcac.input-bindings/v1');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.resolvedSha256, preflight.resolvedSha256);
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.certificatePath, '/etc/nginx/certs/nginx-asset.pem');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.privateKeyPath, '/etc/nginx/certs/nginx-asset.key');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.nginxProgram, '/usr/sbin/nginx');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.serviceName, 'nginx');
 });
 
 test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async () => {

@@ -66,7 +66,6 @@ export interface CreateExecutionRunInput {
   tenantId?: string;
   executorTypeByTargetId: Map<string, ExecutionTargetKind | 'MOCK' | string>;
   gatewayRouteByTargetId?: Map<string, DeploymentGatewayRouteDto | undefined>;
-  deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>;
   agentPayloadByTargetId?: Map<string, Record<string, unknown>>;
   mockResultByTargetId?: Map<string, 'success' | 'fail'>;
   concurrencyLimit?: number;

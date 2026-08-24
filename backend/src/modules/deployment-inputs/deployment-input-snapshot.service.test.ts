@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DeploymentInputSnapshotService } from './application/deployment-input-snapshot.service.js';
 
-test('部署输入快照保留可重放引用并对外提供脱敏审计视图', () => {
+test('部署输入审计快照只保存脱敏事实和版本引用', () => {
   const secretRef = 'secret://credential-version/password';
   const privateKeyRef = 'artifact://certificate/private-key';
   const resolved = {
@@ -23,13 +23,11 @@ test('部署输入快照保留可重放引用并对外提供脱敏审计视图',
     resolvedSha256: 'a'.repeat(64),
   } as any;
 
-  const contract = { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } as any;
-  const effectiveBinding = { inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }, provenance: {} } as any;
   const snapshot = new DeploymentInputSnapshotService().build(resolved, {
     assignmentId: 'assignment-1',
     pluginVersionId: 'plugin-version-1',
     pluginBindingId: 'binding-1',
-  }, contract, effectiveBinding, '2026-07-30T00:00:00.000Z');
+  }, '2026-07-30T00:00:00.000Z');
 
   assert.equal(snapshot.apiVersion, 'gcac.deployment-input-snapshot/v1');
   assert.match(String(snapshot.input.variables.password), /^\[REDACTED/);
@@ -39,10 +37,11 @@ test('部署输入快照保留可重放引用并对外提供脱敏审计视图',
   assert.equal(JSON.stringify(snapshot.input).includes('runtime-secret'), false);
   assert.equal(JSON.stringify(snapshot.input).includes('runtime-pfx'), false);
   assert.equal('resolvedInput' in snapshot, false);
-  assert.equal(snapshot.resolvedDeploymentInput.credentials.management?.secretRefs?.password, secretRef);
-  assert.equal(snapshot.resolvedDeploymentInput.artifacts.certificate.outputs.privateKey, privateKeyRef);
-  assert.deepEqual(snapshot.contract, contract);
-  assert.deepEqual(snapshot.effectiveBinding, effectiveBinding);
+  assert.equal('resolvedDeploymentInput' in snapshot, false);
+  assert.equal('contract' in snapshot, false);
+  assert.equal('effectiveBinding' in snapshot, false);
+  assert.equal(JSON.stringify(snapshot).includes(secretRef), false);
+  assert.equal(JSON.stringify(snapshot).includes(privateKeyRef), false);
   assert.deepEqual(snapshot.identity, { assignmentId: 'assignment-1', pluginVersionId: 'plugin-version-1', pluginBindingId: 'binding-1' });
   assert.equal(snapshot.sources['variables.target']?.bindingLayer, 'APPLICATION_ASSET');
   assert.equal(snapshot.redaction.sensitivePathCount, 3);

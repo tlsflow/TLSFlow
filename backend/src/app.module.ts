@@ -12,6 +12,7 @@ import { ExecutionsApplicationService } from './modules/executions/application/e
 import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
+import { DeploymentInputSnapshotsRepository } from './modules/deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { WorkflowRecoveryLedgerService } from './modules/executions/application/workflow-recovery-ledger.service.js';
 import { PluginResourceLockService } from './modules/executions/application/plugin-resource-lock.service.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
@@ -262,6 +263,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const deploymentPersistence = dependencies.deploymentPlans
     ? undefined
     : executionPersistence;
+  const deploymentInputSnapshots = dependencies.deploymentPlans
+    ? undefined
+    : new DeploymentInputSnapshotsRepository(appDb);
   const deploymentPlans = dependencies.deploymentPlans ?? new DeploymentPlansController(new DeploymentPlansApplicationService({
     repository: deploymentPersistence!.deploymentPlans,
     executions: new ExecutionsApplicationService({
@@ -272,6 +276,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       executorRegistry,
       resultSync: executionResultSync,
       detailStream: executionDetailStream,
+      deploymentInputSnapshots,
     }),
     approval: security.approvals,
     audit: security.audit,
@@ -288,6 +293,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginWorkflows: pluginWorkflowPublisher,
     secrets: security.secrets,
     database: appDb,
+    deploymentInputSnapshots,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);

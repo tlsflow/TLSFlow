@@ -4,6 +4,7 @@ import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import { ExecutorRegistry, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import { testDeploymentInputSnapshotsRepository, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 class TrackingExecutor implements Executor {
   readonly calls: string[] = [];
@@ -21,6 +22,7 @@ test('Apply 与 Dry-run 共用五阶段和一秒间隔，单体执行器只在�
     const delays: number[] = [];
     const service = new ExecutionsApplicationService({
       deploymentPlansRepository: new DeploymentPlansRepository(),
+      deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
       stageIntervalMs: 1_000,
       delay: async (milliseconds) => { delays.push(milliseconds); },
     });
@@ -33,10 +35,10 @@ test('Apply 与 Dry-run 共用五阶段和一秒间隔，单体执行器只在�
       actorId: 'tester',
       tenantId: 'tenant_1',
       executorTypeByTargetId: new Map([[targetId, 'AGENT']]),
-      agentPayloadByTargetId: new Map([[targetId, {
+      agentPayloadByTargetId: new Map([[targetId, withTestDeploymentInputSnapshot(`plan_lifecycle_${type}`, targetId, {
         pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
         certificateVerification: { connectHost: '127.0.0.1', serverName: 'example.test', port: 443 },
-      }]]),
+      })]]),
     });
     const updateExecutor = new TrackingExecutor('AGENT');
     const verifyExecutor = new TrackingExecutor('CONTROL_PLANE_TLS');

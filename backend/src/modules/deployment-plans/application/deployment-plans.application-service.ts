@@ -63,8 +63,10 @@ import type {
   DeploymentInputSnapshotEntity,
   DeploymentInputSnapshotIdentityV1,
   DeploymentInputSnapshotRefV1,
+  DeploymentInputRuntimeSnapshotV1,
   DeploymentInputSnapshotV1,
 } from '../../deployment-inputs/dto/deployment-input-snapshot.dto.js';
+import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -73,6 +75,7 @@ type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   siteAsset?: SiteAssetDto;
   strategyPayload?: Record<string, unknown>;
   deploymentInputSnapshotDraft?: DeploymentInputSnapshotV1;
+  deploymentInputRuntimeSnapshotDraft?: DeploymentInputRuntimeSnapshotV1;
 };
 
 interface ResolvedDeploymentInputMaterial {
@@ -210,10 +213,7 @@ export class DeploymentPlansApplicationService {
     if (!this.deploymentInputSnapshots) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入快照仓储未接入', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_REPOSITORY_MISSING' });
     }
-    return (await this.deploymentInputSnapshots.listByPlan(tenantId, planId)).map((entity) => ({
-      ...entity,
-      snapshot: { ...entity.snapshot, resolvedDeploymentInput: redactedResolvedInput(entity.snapshot.resolvedDeploymentInput) },
-    }));
+    return this.deploymentInputSnapshots.listByPlan(tenantId, planId);
   }
 
   async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -269,6 +269,7 @@ export class DeploymentPlansApplicationService {
         gatewayRoute,
         strategyPayload: target.strategyPayload,
         deploymentInputSnapshotDraft: target.deploymentInputSnapshotDraft,
+        deploymentInputRuntimeSnapshotDraft: target.deploymentInputRuntimeSnapshotDraft,
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
@@ -336,7 +337,13 @@ export class DeploymentPlansApplicationService {
         createdBy: input.actorId,
         version: 1,
       });
-      const snapshotRef = await this.persistDeploymentInputSnapshot(plan, createdTarget, target.deploymentInputSnapshotDraft, input.actorId);
+      const snapshotRef = await this.persistDeploymentInputSnapshot(
+        plan,
+        createdTarget,
+        target.deploymentInputSnapshotDraft,
+        target.deploymentInputRuntimeSnapshotDraft,
+        input.actorId,
+      );
       if (snapshotRef) inputSnapshotRefs.push(snapshotRef);
     }
 
@@ -452,6 +459,7 @@ export class DeploymentPlansApplicationService {
         gatewayRoute,
         strategyPayload: target.strategyPayload,
         deploymentInputSnapshotDraft: target.deploymentInputSnapshotDraft,
+        deploymentInputRuntimeSnapshotDraft: target.deploymentInputRuntimeSnapshotDraft,
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
@@ -515,7 +523,13 @@ export class DeploymentPlansApplicationService {
         createdBy: draft.actorId,
         version: 1,
       });
-      const snapshotRef = await this.persistDeploymentInputSnapshot(updated, createdTarget, target.deploymentInputSnapshotDraft, draft.actorId);
+      const snapshotRef = await this.persistDeploymentInputSnapshot(
+        updated,
+        createdTarget,
+        target.deploymentInputSnapshotDraft,
+        target.deploymentInputRuntimeSnapshotDraft,
+        draft.actorId,
+      );
       if (snapshotRef) inputSnapshotRefs.push(snapshotRef);
     }
 
@@ -1210,22 +1224,12 @@ export class DeploymentPlansApplicationService {
     if (!['READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 READY 或已结束的计划允许执行/重新执行', { planId: plan.id, status: plan.status });
     }
-    const originalCertificateVersionId = plan.certificateVersionId;
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
     targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
-    const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
-    plan = effective.plan;
-    if (effective.certificateVersionId !== originalCertificateVersionId) {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '自动选择最新证书时，当前最新版本已变化，必须先重新执行一次 Dry-run 影响预览', {
-        planId: plan.id,
-        previousCertificateVersionId: originalCertificateVersionId,
-        currentCertificateVersionId: effective.certificateVersionId,
-      });
-    }
     await this.assertLatestDryRunPassed(plan, input.tenantId);
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
-    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);
+    const runtimeSnapshots = await this.readDeploymentInputRuntimeSnapshots(plan, targets);
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1235,8 +1239,7 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
-      deploymentArtifactByTargetId,
-      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId),
+      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots),
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
@@ -1255,10 +1258,9 @@ export class DeploymentPlansApplicationService {
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
     targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
-    const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
-    plan = effective.plan;
-    const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);
-    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId);
+    const runtimeSnapshots = await this.readDeploymentInputRuntimeSnapshots(plan, targets);
+    const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
+    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1268,7 +1270,6 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
-      deploymentArtifactByTargetId,
       agentPayloadByTargetId,
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
@@ -1461,15 +1462,20 @@ export class DeploymentPlansApplicationService {
     }, certificateVersionId, input.certificateFormatId, input.tenantId);
     const resolvedMaterial = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact);
     if (resolvedMaterial) {
-      const { resolvedInput, contract, effectiveBinding } = resolvedMaterial;
-      const { resolvedDeploymentInput: _runtimeOnlyInput, ...safeStrategyPayload } = target.strategyPayload ?? {};
+      const { contract, effectiveBinding, resolvedInput } = resolvedMaterial;
+      const safeStrategyPayload = sanitizeDeploymentInputPersistencePayload(target.strategyPayload ?? {});
       target.deploymentInputSnapshotDraft = this.deploymentInputSnapshotService.build(
         resolvedInput,
         deploymentInputSnapshotIdentity(safeStrategyPayload),
-        contract,
-        effectiveBinding,
         now,
       );
+      target.deploymentInputRuntimeSnapshotDraft = {
+        apiVersion: 'gcac.deployment-input-runtime-snapshot/v1',
+        contract: structuredClone(contract),
+        effectiveBinding: structuredClone(effectiveBinding),
+        resolvedDeploymentInput: structuredClone(resolvedInput),
+        deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+      };
       target.strategyPayload = {
         ...safeStrategyPayload,
         deploymentInputPreflight: {
@@ -1684,14 +1690,13 @@ export class DeploymentPlansApplicationService {
     return selected.id;
   }
 
-  private async buildDeploymentArtifactByTargetIds(
+  private async readDeploymentInputRuntimeSnapshots(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
-    effectiveCertificateVersionId = plan.certificateVersionId,
-  ): Promise<Map<string, DeploymentArtifactSnapshotDto>> {
-    const output = new Map<string, DeploymentArtifactSnapshotDto>();
+  ): Promise<Map<string, DeploymentInputRuntimeSnapshotV1>> {
+    const output = new Map<string, DeploymentInputRuntimeSnapshotV1>();
     for (const target of targets) {
-      output.set(target.id, await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId));
+      output.set(target.id, await this.readTargetDeploymentInputRuntimeSnapshot(target, target.tenantId ?? plan.tenantId!));
     }
     return output;
   }
@@ -1767,117 +1772,71 @@ export class DeploymentPlansApplicationService {
   private async buildAgentPayloadByTargetIds(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
-    deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
-    effectiveCertificateVersionId = plan.certificateVersionId,
+    runtimeSnapshots: Map<string, DeploymentInputRuntimeSnapshotV1>,
   ): Promise<Map<string, Record<string, unknown>>> {
     const output = new Map<string, Record<string, unknown>>();
     for (const target of targets) {
-      const artifact = deploymentArtifactByTargetId?.get(target.id)
-        ?? await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId);
-      if (!artifact) continue;
-      const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
-      const payload = await this.buildAgentPayloadForTarget({ ...target, strategyPayload }, artifact, plan.tenantId);
-      const resolvedInput = await this.readTargetDeploymentInputSnapshot(target, target.tenantId ?? plan.tenantId!);
-      if (payload || resolvedInput || Object.keys(strategyPayload).length > 0) {
-        output.set(target.id, {
-          ...strategyPayload,
-          ...(payload ?? {}),
-          ...(resolvedInput ? { resolvedDeploymentInput: resolvedInput } : {}),
+      const runtimeSnapshot = runtimeSnapshots.get(target.id);
+      if (!runtimeSnapshot) {
+        throw new AppError('VALIDATION_FAILED', '部署目标缺少密封运行材料，请重新创建计划', {
+          code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+          deploymentPlanTargetId: target.id,
         });
       }
+      const artifact = readDeploymentArtifactRuntimeSnapshot(runtimeSnapshot.deploymentArtifact, target.id);
+      const strategyPayload = target.strategyPayload ?? {};
+      const payload = await this.buildAgentPayloadForTarget({ ...target, strategyPayload }, artifact, plan.tenantId);
+      output.set(target.id, {
+        ...strategyPayload,
+        ...(payload ?? {}),
+        deploymentInputSnapshotRef: strategyPayload.deploymentInputSnapshotRef,
+      });
     }
     return output;
   }
 
-  private async readTargetDeploymentInputSnapshot(target: DeploymentPlanTargetEntity, tenantId: string): Promise<ResolvedDeploymentInputV1 | undefined> {
+  private async readTargetDeploymentInputRuntimeSnapshot(
+    target: DeploymentPlanTargetEntity,
+    tenantId: string,
+  ): Promise<DeploymentInputRuntimeSnapshotV1> {
     const ref = readRecord(target.strategyPayload?.deploymentInputSnapshotRef);
     const snapshotId = readOptionalString(ref?.snapshotId);
-    if (!snapshotId) return undefined;
+    if (!snapshotId) {
+      throw new AppError('VALIDATION_FAILED', '部署目标缺少不可变输入快照，请重新创建计划', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        deploymentPlanTargetId: target.id,
+      });
+    }
+    if (ref?.apiVersion !== 'gcac.deployment-input-snapshot/v1'
+      || !Number.isInteger(ref.revision)
+      || Number(ref.revision) < 1
+      || !readOptionalString(ref.resolvedSha256)) {
+      throw new AppError('VALIDATION_FAILED', '部署目标的输入快照引用格式无效，请重新创建计划', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        deploymentPlanTargetId: target.id,
+        snapshotId,
+      });
+    }
     if (!this.deploymentInputSnapshots) throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入快照仓储未接入', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_REPOSITORY_MISSING' });
     const entity = await this.deploymentInputSnapshots.get(tenantId, snapshotId);
-    if (!entity || entity.deploymentPlanTargetId !== target.id) {
+    if (!entity
+      || entity.deploymentPlanId !== target.deploymentPlanId
+      || entity.deploymentPlanTargetId !== target.id
+      || entity.revision !== ref.revision) {
       throw new AppError('VALIDATION_FAILED', '部署输入快照不存在或目标不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId, deploymentPlanTargetId: target.id });
     }
     const expectedHash = readOptionalString(ref?.resolvedSha256);
-    if (expectedHash !== entity.snapshot.resolvedSha256 || entity.snapshot.resolvedDeploymentInput.resolvedSha256 !== entity.snapshot.resolvedSha256) {
+    if (expectedHash !== entity.snapshot.resolvedSha256) {
       throw new AppError('VALIDATION_FAILED', '部署输入快照摘要不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId });
     }
-    return structuredClone(entity.snapshot.resolvedDeploymentInput);
-  }
-
-  private async resolveEffectivePlanMaterial(
-    plan: DeploymentPlanEntity,
-    targets: DeploymentPlanTargetEntity[],
-    actorId: string,
-  ): Promise<{ plan: DeploymentPlanEntity; certificateVersionId: string }> {
-    if (plan.selectionMode !== 'LATEST_AUTO') {
-      return { plan, certificateVersionId: plan.certificateVersionId };
-    }
-    const certificateVersionId = await this.resolveLatestAutoCertificateVersionId(plan, targets);
-    if (certificateVersionId === plan.certificateVersionId) {
-      return { plan, certificateVersionId };
-    }
-    const updatedAt = new Date().toISOString();
-    const updated = await this.repository.updatePlan(plan.id, {
-      certificateVersionId,
-      snapshotHash: this.domain.buildSnapshotHash({
-        ...plan,
-        certificateVersionId,
-      }, targets),
-      updatedAt,
-      updatedBy: actorId,
-    });
-    return { plan: updated, certificateVersionId };
-  }
-
-  private async resolveLatestAutoCertificateVersionId(
-    plan: DeploymentPlanEntity,
-    targets: DeploymentPlanTargetEntity[],
-  ): Promise<string> {
-    const versionIds = await Promise.all(targets.map(async (target) => {
-      const tenantId = target.tenantId ?? plan.tenantId;
-      if (!tenantId) {
-        throw new AppError('VALIDATION_FAILED', 'LATEST_AUTO 部署目标缺少 tenantId，无法解析最新证书版本', {
-          deploymentPlanId: plan.id,
-          deploymentPlanTargetId: target.id,
-        });
-      }
-      const targetDomain = await this.resolveDeploymentTargetCertificateDomain(tenantId, target);
-      if (!target.certificateBindingId) {
-        return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, undefined, targetDomain);
-      }
-      const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
-      if (!binding) {
-        throw new AppError('RESOURCE_NOT_FOUND', 'LATEST_AUTO 部署目标缺少 CertificateBinding，无法解析最新证书版本', {
-          deploymentPlanId: plan.id,
-          deploymentPlanTargetId: target.id,
-          certificateBindingId: target.certificateBindingId,
-        });
-      }
-      return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding, targetDomain);
-    }));
-    const uniqueVersionIds = [...new Set(versionIds)];
-    if (uniqueVersionIds.length !== 1) {
-      throw new AppError('VALIDATION_FAILED', '当前部署计划模型只支持单一最新证书版本，请按域名或版本拆分计划', {
-        deploymentPlanId: plan.id,
-        certificateVersionIds: uniqueVersionIds,
+    const runtimeSnapshot = await this.deploymentInputSnapshots.getRuntimeSnapshot(tenantId, snapshotId);
+    if (!runtimeSnapshot || runtimeSnapshot.resolvedDeploymentInput.resolvedSha256 !== entity.snapshot.resolvedSha256) {
+      throw new AppError('VALIDATION_FAILED', '部署输入密封运行材料缺失或摘要不匹配，请重新创建计划', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        snapshotId,
       });
     }
-    return uniqueVersionIds[0]!;
-  }
-
-  private async resolveDeploymentTargetCertificateDomain(
-    tenantId: string,
-    target: DeploymentPlanTargetEntity,
-  ): Promise<string | undefined> {
-    const applicationAssetId = target.applicationAssetId ?? target.serviceAssetId;
-    if (applicationAssetId) {
-      const applicationAsset = await this.assets.getServiceAsset(tenantId, applicationAssetId);
-      const applicationAssetDomain = normalizeDomain(applicationAsset?.sniName ?? applicationAsset?.address);
-      if (applicationAssetDomain) return applicationAssetDomain;
-    }
-    const certificateVerification = readRecord(target.strategyPayload)?.certificateVerification;
-    return normalizeDomain(readOptionalString(readRecord(certificateVerification)?.serverName));
+    return runtimeSnapshot;
   }
 
   private async resolveDeploymentArtifactForTarget(
@@ -2481,9 +2440,17 @@ export class DeploymentPlansApplicationService {
     plan: DeploymentPlanEntity,
     target: DeploymentPlanTargetEntity,
     snapshot: DeploymentInputSnapshotV1 | undefined,
+    runtimeSnapshot: DeploymentInputRuntimeSnapshotV1 | undefined,
     actorId: string,
   ): Promise<DeploymentInputSnapshotRefV1 | undefined> {
-    if (!snapshot) return undefined;
+    if (!snapshot && !runtimeSnapshot) return undefined;
+    if (!snapshot || !runtimeSnapshot) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入审计快照与密封运行材料必须同时生成', {
+        code: 'DEPLOYMENT_INPUT_SNAPSHOT_INCOMPLETE',
+        deploymentPlanId: plan.id,
+        deploymentPlanTargetId: target.id,
+      });
+    }
     if (!plan.tenantId || !this.deploymentInputSnapshots) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入快照仓储未接入', {
         code: 'DEPLOYMENT_INPUT_SNAPSHOT_REPOSITORY_MISSING',
@@ -2500,7 +2467,7 @@ export class DeploymentPlansApplicationService {
       snapshot,
       createdAt: snapshot.resolvedAt,
       createdBy: actorId,
-    });
+    }, runtimeSnapshot);
     const ref: DeploymentInputSnapshotRefV1 = {
       apiVersion: entity.snapshot.apiVersion,
       snapshotId: entity.id,
@@ -2567,25 +2534,6 @@ function throwDeploymentPreflightError(issues: DeploymentPreflightIssue[]): neve
     code: 'DEPLOYMENT_PREFLIGHT_FAILED',
     issues,
   });
-}
-
-function redactedResolvedInput(input: ResolvedDeploymentInputV1): ResolvedDeploymentInputV1 {
-  const redacted = structuredClone(input);
-  for (const slot of Object.keys(redacted.credentials)) redacted.credentials[slot] = { credentialId: redacted.credentials[slot]?.credentialId ?? '[REDACTED]' };
-  for (const path of redacted.sensitivePaths) redactResolvedPath(redacted as unknown as Record<string, unknown>, path);
-  return redacted;
-}
-
-function redactResolvedPath(root: Record<string, unknown>, path: string): void {
-  const segments = path.split('.').filter(Boolean);
-  let current: unknown = root;
-  for (const segment of segments.slice(0, -1)) {
-    if (!current || typeof current !== 'object' || Array.isArray(current)) return;
-    current = (current as Record<string, unknown>)[segment];
-  }
-  if (!current || typeof current !== 'object' || Array.isArray(current)) return;
-  const leaf = segments.at(-1);
-  if (leaf && Object.prototype.hasOwnProperty.call(current, leaf)) (current as Record<string, unknown>)[leaf] = '[REDACTED]';
 }
 
 function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
@@ -2691,6 +2639,31 @@ function artifactSnapshotsFromDeploymentArtifact(
     format: artifact.format,
     outputs: readRecord(material.outputs) ?? {},
   }]));
+}
+
+function readDeploymentArtifactRuntimeSnapshot(
+  value: Record<string, unknown>,
+  deploymentPlanTargetId: string,
+): DeploymentArtifactSnapshotDto {
+  if (typeof value.certificateVersionId !== 'string'
+    || typeof value.certificateFormatId !== 'string'
+    || typeof value.format !== 'string'
+    || typeof value.containsPrivateKey !== 'boolean') {
+    throw new AppError('VALIDATION_FAILED', '部署输入密封运行材料中的证书产物无效', {
+      code: 'DEPLOYMENT_INPUT_RUNTIME_ARTIFACT_INVALID',
+      deploymentPlanTargetId,
+    });
+  }
+  return structuredClone(value) as unknown as DeploymentArtifactSnapshotDto;
+}
+
+function deploymentArtifactsFromRuntimeSnapshots(
+  snapshots: Map<string, DeploymentInputRuntimeSnapshotV1>,
+): Map<string, DeploymentArtifactSnapshotDto> {
+  return new Map([...snapshots].map(([targetId, snapshot]) => [
+    targetId,
+    readDeploymentArtifactRuntimeSnapshot(snapshot.deploymentArtifact, targetId),
+  ]));
 }
 
 function readCredentialBindings(value: unknown): Record<string, { credentialId: string }> {

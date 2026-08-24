@@ -1,5 +1,6 @@
 import type { DeploymentAssetContextV1 } from './deployment-asset-context.dto.js';
-import type { DeploymentInputIssueV1, ResolvedDeploymentInputV1 } from './resolved-deployment-input.dto.js';
+import type { DeploymentInputIssueV1 } from './resolved-deployment-input.dto.js';
+import type { ResolvedDeploymentInputV1 } from './resolved-deployment-input.dto.js';
 import type { InputValueProvenanceV1 } from '../domain/deployment-input-provenance.js';
 import type { EffectiveInputBindingV1 } from '../domain/deployment-input-provenance.js';
 import type { DeploymentInputContractV1 } from './deployment-input-contract.dto.js';
@@ -25,8 +26,6 @@ export interface DeploymentInputSnapshotV1 {
   snapshotVersion: 1;
   resolvedAt: string;
   contractVersion: string;
-  contract: DeploymentInputContractV1;
-  effectiveBinding: EffectiveInputBindingV1;
   identity: DeploymentInputSnapshotIdentityV1;
   input: RedactedDeploymentInputV1;
   sources: Record<string, InputValueProvenanceV1>;
@@ -34,7 +33,6 @@ export interface DeploymentInputSnapshotV1 {
   issues: DeploymentInputIssueV1[];
   executable: boolean;
   resolvedSha256: string;
-  resolvedDeploymentInput: ResolvedDeploymentInputV1;
   redaction: {
     sensitivePathCount: number;
     genericRuleMatchCount: number;
@@ -57,4 +55,12 @@ export interface DeploymentInputSnapshotRefV1 {
   snapshotId: string;
   revision: number;
   resolvedSha256: string;
+}
+
+export interface DeploymentInputRuntimeSnapshotV1 {
+  apiVersion: 'gcac.deployment-input-runtime-snapshot/v1';
+  contract: DeploymentInputContractV1;
+  effectiveBinding: EffectiveInputBindingV1;
+  resolvedDeploymentInput: ResolvedDeploymentInputV1;
+  deploymentArtifact: Record<string, unknown>;
 }

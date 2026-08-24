@@ -3,13 +3,14 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { AuditService } from '../../audits/audit.service.js';
 import type { DeploymentPlansRepository } from '../../deployment-plans/repository/deployment-plans.repository.js';
+import type { DeploymentGatewayRouteDto } from '../../deployment-plans/dto/deployment-plans.dto.js';
 import { PgJobRunner } from '../../../queue/pg-job-runner.js';
 import type { QueuePort } from '../../../queue/queue-port.js';
 import { newId } from '../../../shared/id.js';
 import { assertTransition } from '../../../shared/state-machine/core-state-machine.js';
 import type { RequestContext } from '../../../shared/security-types.js';
 import type { StateTransitionEventEntity } from '../../deployment-plans/schema/deployment-plans.schema.js';
-import type { CreateExecutionRunInput, DeploymentArtifactSnapshotDto, ExecutionRunDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
+import type { CreateExecutionRunInput, ExecutionRunDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
 import { ExecutionsDomainService } from '../domain/executions.domain-service.js';
 import { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
@@ -22,6 +23,8 @@ import { Scheduler } from './scheduler.js';
 import { StepRunner } from './step-runner.js';
 import { StepGraphBuilder } from './step-graph-builder.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
+import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
+import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
@@ -37,6 +40,7 @@ export interface ExecutionsApplicationDependencies {
   detailStream?: ExecutionDetailStreamService;
   stageIntervalMs?: number;
   delay?: (milliseconds: number) => Promise<void>;
+  deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
 }
 
 export class ExecutionsApplicationService {
@@ -54,6 +58,7 @@ export class ExecutionsApplicationService {
   private readonly detailStream?: ExecutionDetailStreamService;
   private readonly stageIntervalMs: number;
   private readonly delay: (milliseconds: number) => Promise<void>;
+  private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -69,6 +74,7 @@ export class ExecutionsApplicationService {
     this.detailStream = dependencies.detailStream;
     this.stageIntervalMs = Math.max(0, dependencies.stageIntervalMs ?? 1_000);
     this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots;
     this.queue = dependencies.queue ?? new PgJobRunner(
       (job) => new StepRunner(this, this.executorRegistry).run(job),
       dependencies.queueDb,
@@ -116,23 +122,13 @@ export class ExecutionsApplicationService {
       .filter((id): id is string => Boolean(id));
     const uniqueTargetIds = [...new Set(targetIds)];
     const sourcePayloadByTargetId = new Map<string, Record<string, unknown>>();
-    const sourceArtifactByTargetId = new Map<string, DeploymentArtifactSnapshotDto>();
     for (const step of sourceSteps) {
       const targetId = step.deploymentPlanTargetId;
       if (!targetId) continue;
       if (!sourcePayloadByTargetId.has(targetId)) sourcePayloadByTargetId.set(targetId, step.inputSnapshot);
-      if (!sourceArtifactByTargetId.has(targetId) && isDeploymentArtifactSnapshot(step.inputSnapshot.deploymentArtifact)) {
-        sourceArtifactByTargetId.set(targetId, step.inputSnapshot.deploymentArtifact);
-      }
     }
-    const executorTypeByTargetId = new Map(await Promise.all(uniqueTargetIds.map(async (targetId) => {
-      const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
-      return [targetId, target?.executorType ?? 'AGENT'] as const;
-    })));
-    const gatewayRouteByTargetId = new Map(await Promise.all(uniqueTargetIds.map(async (targetId) => {
-      const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
-      return [targetId, target?.gatewayRoute] as const;
-    })));
+    const executorTypeByTargetId = readSourceExecutorTypes(sourcePayloadByTargetId);
+    const gatewayRouteByTargetId = readSourceGatewayRoutes(sourcePayloadByTargetId);
     return this.createRunAndEnqueue({
       deploymentPlanId: sourceRun.deploymentPlanId,
       deploymentPlanTargetIds: uniqueTargetIds,
@@ -142,7 +138,6 @@ export class ExecutionsApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId,
       gatewayRouteByTargetId,
-      deploymentArtifactByTargetId: sourceArtifactByTargetId,
       agentPayloadByTargetId: sourcePayloadByTargetId,
     }, context);
   }
@@ -156,20 +151,7 @@ export class ExecutionsApplicationService {
     if (!sourceSteps.length || !targetIds.length) {
       throw new AppError('VALIDATION_FAILED', '回滚缺少源步骤或目标，不能静默创建空回滚，请人工介入', { runId: sourceRun.id, sourceStepCount: sourceSteps.length, targetCount: targetIds.length });
     }
-    const executorTypeByTargetId = new Map(await Promise.all(targetIds.map(async (targetId) => {
-      const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
-      return [targetId, target?.executorType ?? 'AGENT'] as const;
-    })));
-    assertLegacyExecutionRetired(
-      [...executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
-      { runId: sourceRun.id },
-    );
-    const gatewayRouteByTargetId = new Map(await Promise.all(targetIds.map(async (targetId) => {
-      const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
-      return [targetId, target?.gatewayRoute] as const;
-    })));
     const sourcePayloadByTargetId = new Map<string, Record<string, unknown>>();
-    const sourceArtifactByTargetId = new Map<string, DeploymentArtifactSnapshotDto>();
     for (const step of sourceSteps) {
       const targetId = step.deploymentPlanTargetId;
       if (!targetId) continue;
@@ -177,7 +159,6 @@ export class ExecutionsApplicationService {
         const basePayload = readRecord(step.inputSnapshot) ?? {};
         const rollbackContext = buildRollbackContextFromSourceSteps(sourceRun.id, sourceSteps, targetId);
         const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
-        const baseArtifact = readRecord(basePayload.artifact);
         const baseVerification = readRecord(basePayload.certificateVerification);
         sourcePayloadByTargetId.set(targetId, {
           ...basePayload,
@@ -187,20 +168,20 @@ export class ExecutionsApplicationService {
                   ...(baseVerification ?? {}),
                   expectedFingerprintSha256: rollbackCertificateSha256,
                 },
-                artifact: {
-                  ...(baseArtifact ?? {}),
-                  targetFingerprintSha256: rollbackCertificateSha256,
-                },
+                expectedCertificateFingerprintSha256: rollbackCertificateSha256,
               }
             : {}),
           sourceRunId: sourceRun.id,
           rollbackContext,
         });
       }
-      if (!sourceArtifactByTargetId.has(targetId) && isDeploymentArtifactSnapshot(step.inputSnapshot.deploymentArtifact)) {
-        sourceArtifactByTargetId.set(targetId, step.inputSnapshot.deploymentArtifact);
-      }
     }
+    const executorTypeByTargetId = readSourceExecutorTypes(sourcePayloadByTargetId);
+    assertLegacyExecutionRetired(
+      [...executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
+      { runId: sourceRun.id },
+    );
+    const gatewayRouteByTargetId = readSourceGatewayRoutes(sourcePayloadByTargetId);
     const transitioned = await this.transitionRunEntity(sourceRun, 'ROLLBACK_RUNNING', input.actorId, 'rollback.requested');
     void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
@@ -224,7 +205,6 @@ export class ExecutionsApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId,
       gatewayRouteByTargetId,
-      deploymentArtifactByTargetId: sourceArtifactByTargetId,
       agentPayloadByTargetId: sourcePayloadByTargetId,
     }, context);
     return { sourceRun: this.toRunDto(transitioned), rollbackRun: created.run, steps: created.steps, jobId: created.jobId };
@@ -451,7 +431,6 @@ export class ExecutionsApplicationService {
       input.mockResultByTargetId,
       stepMaxAttempts,
       input.allowMockExecutor === true,
-      input.deploymentArtifactByTargetId,
       input.agentPayloadByTargetId,
     );
     const job = await this.queue.enqueue({
@@ -490,7 +469,6 @@ export class ExecutionsApplicationService {
     mockResultByTargetId?: Map<string, 'success' | 'fail'>,
     stepMaxAttempts = 1,
     allowMockExecutor = false,
-    deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
     agentPayloadByTargetId?: Map<string, Record<string, unknown>>,
   ): Promise<ExecutionStepEntity[]> {
     const defaultStepTypes = run.type === 'rollback'
@@ -501,7 +479,7 @@ export class ExecutionsApplicationService {
     for (const targetId of targetIds) {
       let previousStepNo: number | undefined;
       const targetExecutorType = executorTypeByTargetId.get(targetId);
-      const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
+      const agentPayload = persistentExecutionPayload(agentPayloadByTargetId?.get(targetId) ?? {});
       const stepTypes = defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
@@ -512,8 +490,10 @@ export class ExecutionsApplicationService {
 	        if (baseExecutorType === 'MOCK' && !allowMockExecutor) {
 	          throw new AppError('VALIDATION_FAILED', 'MockExecutor 只能在测试或显式允许时使用', { targetId });
 	        }
+	        if (baseExecutorType !== 'MOCK') {
+	          readDeploymentInputSnapshotRef(agentPayload.deploymentInputSnapshotRef, { deploymentPlanTargetId: targetId });
+	        }
 	        const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
-	        const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
 	        const executorType = resolveStepExecutorType(baseExecutorType, stepType, agentPayload, gatewayRoute);
 	        const operation = mapStepTypeToOperation(stepType);
         const sourceRunId = run.type === 'rollback'
@@ -537,7 +517,8 @@ export class ExecutionsApplicationService {
               deploymentPlanId: run.deploymentPlanId,
               deploymentPlanTargetId: targetId,
               executionRunId: run.id,
-              certificateBindingId: planTarget?.certificateBindingId,
+              certificateBindingId: readString(agentPayload.certificateBindingId) ?? planTarget?.certificateBindingId,
+              deploymentExecutorType: baseExecutorType,
               executorType,
               dryRun: run.type === 'dry_run',
               stepType,
@@ -549,7 +530,6 @@ export class ExecutionsApplicationService {
             zoneId: gatewayRoute?.zoneId,
             gatewayAdapter: gatewayRoute?.adapter,
             delegatedTargetId: gatewayRoute?.delegatedTargetId,
-            deploymentArtifact,
             retryBackoffSeconds: readRetryBackoff(run.summary),
           },
           status: 'PENDING',
@@ -720,8 +700,9 @@ export class ExecutionsApplicationService {
     const executorType = String(runningStep.inputSnapshot.executorType ?? 'MOCK');
     let result;
     try {
+      const runtimeStep = await this.materializeRuntimeStep(runningStep, tenantId);
       result = await registry.get(executorType).executeStep({
-        step: runningStep,
+        step: runtimeStep,
         runType: run.type,
         dryRun: Boolean(runningStep.inputSnapshot.dryRun),
         reportProgress: async (detail) => {
@@ -906,6 +887,62 @@ export class ExecutionsApplicationService {
     if (remaining > 0) await this.delay(remaining);
   }
 
+  private async materializeRuntimeStep(
+    step: ExecutionStepEntity,
+    tenantId: string | undefined,
+  ): Promise<ExecutionStepEntity> {
+    const executorType = readString(step.inputSnapshot.executorType);
+    if (executorType === 'MOCK' && !step.inputSnapshot.deploymentInputSnapshotRef) return step;
+    const ref = readDeploymentInputSnapshotRef(step.inputSnapshot.deploymentInputSnapshotRef, {
+      executionStepId: step.id,
+      deploymentPlanTargetId: step.deploymentPlanTargetId,
+    });
+    const snapshotId = ref.snapshotId;
+    if (!tenantId || !this.deploymentInputSnapshots) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '执行步骤无法读取部署输入密封运行材料', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_REPOSITORY_MISSING',
+        executionStepId: step.id,
+        snapshotId,
+      });
+    }
+    const auditSnapshot = await this.deploymentInputSnapshots.get(tenantId, snapshotId);
+    const deploymentPlanId = readString(step.inputSnapshot.deploymentPlanId);
+    if (!auditSnapshot
+      || auditSnapshot.deploymentPlanId !== deploymentPlanId
+      || auditSnapshot.deploymentPlanTargetId !== step.deploymentPlanTargetId
+      || auditSnapshot.revision !== ref.revision
+      || auditSnapshot.snapshot.resolvedSha256 !== ref.resolvedSha256) {
+      throw new AppError('VALIDATION_FAILED', '执行步骤引用的部署输入快照身份不匹配', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        executionStepId: step.id,
+        snapshotId,
+      });
+    }
+    const runtimeSnapshot = await this.deploymentInputSnapshots.getRuntimeSnapshot(tenantId, snapshotId);
+    if (!runtimeSnapshot) {
+      throw new AppError('VALIDATION_FAILED', '执行步骤引用的部署输入密封运行材料不存在', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        executionStepId: step.id,
+        snapshotId,
+      });
+    }
+    if (ref.resolvedSha256 !== runtimeSnapshot.resolvedDeploymentInput.resolvedSha256) {
+      throw new AppError('VALIDATION_FAILED', '执行步骤引用的部署输入摘要不匹配', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        executionStepId: step.id,
+        snapshotId,
+      });
+    }
+    return {
+      ...step,
+      inputSnapshot: {
+        ...step.inputSnapshot,
+        resolvedDeploymentInput: runtimeSnapshot.resolvedDeploymentInput,
+        deploymentArtifact: runtimeSnapshot.deploymentArtifact,
+      },
+    };
+  }
+
   private readRunFailurePolicy(run: ExecutionRunEntity): FailurePolicy {
     const value = String(run.summary.failurePolicy ?? 'stop');
     return value === 'continue' || value === 'rollback' ? value : 'stop';
@@ -977,9 +1014,58 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
   return baseExecutorType;
 }
 
+function persistentExecutionPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeDeploymentInputPersistencePayload(payload);
+}
+
+function readDeploymentInputSnapshotRef(
+  value: unknown,
+  detail: Record<string, unknown>,
+): { snapshotId: string; revision: number; resolvedSha256: string } {
+  const ref = readRecord(value);
+  const snapshotId = readString(ref?.snapshotId);
+  const resolvedSha256 = readString(ref?.resolvedSha256);
+  if (ref?.apiVersion !== 'gcac.deployment-input-snapshot/v1'
+    || !snapshotId
+    || !Number.isInteger(ref.revision)
+    || Number(ref.revision) < 1
+    || !resolvedSha256) {
+    throw new AppError('VALIDATION_FAILED', '执行步骤缺少有效的部署输入快照引用', {
+      code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+      ...detail,
+    });
+  }
+  return { snapshotId, revision: Number(ref.revision), resolvedSha256 };
+}
+
+function readSourceExecutorTypes(
+  payloadByTargetId: Map<string, Record<string, unknown>>,
+): Map<string, string> {
+  return new Map([...payloadByTargetId].map(([targetId, payload]) => {
+    const executorType = readString(payload.deploymentExecutorType);
+    if (!executorType) {
+      throw new AppError('VALIDATION_FAILED', '源执行步骤缺少不可变执行器类型，无法重试或回滚', {
+        code: 'DEPLOYMENT_INPUT_RUNTIME_SNAPSHOT_INVALID',
+        deploymentPlanTargetId: targetId,
+      });
+    }
+    return [targetId, executorType] as const;
+  }));
+}
+
+function readSourceGatewayRoutes(
+  payloadByTargetId: Map<string, Record<string, unknown>>,
+): Map<string, DeploymentGatewayRouteDto | undefined> {
+  return new Map([...payloadByTargetId].map(([targetId, payload]) => [
+    targetId,
+    structuredClone(payload.gatewayRoute) as DeploymentGatewayRouteDto | undefined,
+  ]));
+}
+
 function shouldSyncExecutorResult(executorType: string, runType: ExecutionRunEntity['type']): boolean {
+  if (runType === 'dry_run') return false;
   if (executorType === 'CONTROL_PLANE_TLS') return true;
-  return executorType === 'WORKFLOW' && runType !== 'dry_run';
+  return executorType === 'WORKFLOW';
 }
 
 function isTerminalRunStatus(status: ExecutionRunEntity['status']): boolean {
@@ -1018,13 +1104,4 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
 function readString(value: unknown, key?: string): string | undefined {
   const target = key ? readRecord(value)?.[key] : value;
   return typeof target === 'string' && target.trim() ? target.trim() : undefined;
-}
-
-function isDeploymentArtifactSnapshot(value: unknown): value is DeploymentArtifactSnapshotDto {
-  const record = readRecord(value);
-  return Boolean(record
-    && typeof record.certificateVersionId === 'string'
-    && typeof record.certificateFormatId === 'string'
-    && typeof record.format === 'string'
-    && typeof record.containsPrivateKey === 'boolean');
 }

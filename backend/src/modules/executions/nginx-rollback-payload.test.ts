@@ -41,8 +41,18 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
     tenantId: 'tenant_1',
     executorTypeByTargetId: new Map([['target_nginx_rb', 'AGENT']]),
     agentPayloadByTargetId: new Map([['target_nginx_rb', {
-      type: 'linux.nginx.deploy_certificate',
-      providerType: 'NGINX',
+      actionType: 'agent.atomic_plan.execute',
+      actionSchemaVersion: '1.0',
+      deploymentInputSnapshotRef: {
+        apiVersion: 'gcac.deployment-input-snapshot/v1',
+        snapshotId: 'dpis_nginx_rb',
+        revision: 1,
+        resolvedSha256: 'e'.repeat(64),
+      },
+      pluginRuntimeCapability: {
+        runtime: 'AGENT_ATOMIC',
+        capabilityKey: 'certificate.deploy',
+      },
       bindingSelector: {
         certPath: '/var/lib/gcac/nginx-certs/example/fullchain.pem',
         keyPath: '/var/lib/gcac/nginx-certs/example/privkey.pem',
@@ -99,7 +109,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
 
   assert.ok(rollbackStep);
   assert.ok(verifyStep);
-  assert.equal(rollbackStep!.inputSnapshot.type, 'linux.nginx.deploy_certificate');
+  assert.equal(rollbackStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(rollbackStep!.inputSnapshot.operation, 'rollback');
   assert.equal(rollbackStep!.inputSnapshot.sourceRunId, created.run.id);
   assert.equal(rollbackStep!.inputSnapshot.rollbackContext.sourceRunId, created.run.id);
@@ -114,7 +124,9 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
   );
   assert.equal(rollbackStep!.inputSnapshot.rollbackContext.rollbackCertificateSha256, 'd'.repeat(64));
   assert.equal(rollbackStep!.inputSnapshot.expectedCertificateFingerprintSha256, 'd'.repeat(64));
-  assert.equal(rollbackStep!.inputSnapshot.artifact.targetFingerprintSha256, 'd'.repeat(64));
+  assert.equal(rollbackStep!.inputSnapshot.certificateVerification.expectedFingerprintSha256, 'd'.repeat(64));
+  assert.equal(rollbackStep!.inputSnapshot.artifact, undefined);
   assert.equal(verifyStep!.inputSnapshot.expectedCertificateFingerprintSha256, 'd'.repeat(64));
-  assert.equal(verifyStep!.inputSnapshot.artifact.targetFingerprintSha256, 'd'.repeat(64));
+  assert.equal(verifyStep!.inputSnapshot.certificateVerification.expectedFingerprintSha256, 'd'.repeat(64));
+  assert.equal(verifyStep!.inputSnapshot.artifact, undefined);
 });

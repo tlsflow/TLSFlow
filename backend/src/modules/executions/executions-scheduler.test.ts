@@ -10,10 +10,14 @@ import type { Executor, StepExecutionInput, StepExecutionResult } from './applic
 import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAdapter, WorkflowExecutorAdapter } from './application/executors.js';
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
+import { testDeploymentInputSnapshotsRepository, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
-function createService() {
+function createService(dependencies: Record<string, unknown> = {}) {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
+    stageIntervalMs: 0,
+    ...dependencies,
   });
 }
 
@@ -31,6 +35,10 @@ async function createRun(service: ExecutionsApplicationService, input: {
   gatewayRoutes?: Map<string, Record<string, unknown>>;
 }) {
   const targetIds = input.targetIds ?? ['target_a', 'target_b'];
+  const agentPayloads = new Map(targetIds.map((targetId) => [
+    targetId,
+    withTestDeploymentInputSnapshot('plan_1', targetId, input.agentPayloads?.get(targetId)),
+  ]));
   return service.createApplyRun({
     deploymentPlanId: 'plan_1',
     deploymentPlanTargetIds: targetIds,
@@ -45,7 +53,7 @@ async function createRun(service: ExecutionsApplicationService, input: {
     failurePolicy: input.failurePolicy,
     retry: input.retry,
     allowMockExecutor: input.allowMockExecutor,
-    agentPayloadByTargetId: input.agentPayloads,
+    agentPayloadByTargetId: agentPayloads,
     gatewayRouteByTargetId: input.gatewayRoutes,
   });
 }
@@ -74,8 +82,7 @@ class TrackingExecutor implements Executor {
 describe('ExecutionsApplicationService 调度与恢复', () => {
   it('执行器进度会先持久化到运行中步骤，再通过 SSE 逐次发布', async () => {
     const detailStream = new ExecutionDetailStreamService();
-    const service = new ExecutionsApplicationService({
-      deploymentPlansRepository: new DeploymentPlansRepository(),
+    const service = createService({
       detailStream,
     });
     const created = await createRun(service, {
@@ -281,7 +288,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       actorId: 'tester',
       tenantId: 'tenant_1',
       executorTypeByTargetId: new Map([[targetId, 'WORKFLOW']]),
-      agentPayloadByTargetId: new Map([[targetId, {
+      agentPayloadByTargetId: new Map([[targetId, withTestDeploymentInputSnapshot('plan_workflow_shell', targetId, {
         workflowRequest: {
           workflowId: workflow.template.id,
           workflowVersionId: workflow.version.id,
@@ -289,7 +296,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
           variableBindings: { deviceHost: 'workflow-shell.example.com' },
           credentialRefs: { ssh: 'secret://ssh/workflow' },
         },
-      }]]),
+      })]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
     assert.equal(steps.length, 1);
@@ -315,13 +322,13 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       actorId: 'tester',
       tenantId: 'tenant_1',
       executorTypeByTargetId: new Map([[targetId, 'WORKFLOW']]),
-      agentPayloadByTargetId: new Map([[targetId, {
+      agentPayloadByTargetId: new Map([[targetId, withTestDeploymentInputSnapshot('plan_workflow_shell', targetId, {
         workflowRequest: {
           workflowId: 'wf_1',
           workflowVersionId: 'wfv_1',
           runner: 'CONTROL_PLANE',
         },
-      }]]),
+      })]]),
     });
     const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
     assert.equal(applyResult.success, false);

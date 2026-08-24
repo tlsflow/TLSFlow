@@ -4,9 +4,10 @@ import { DeploymentPlansRepository } from '../deployment-plans/repository/deploy
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
 import { ExecutorRegistry } from './application/executors.js';
+import { testDeploymentInputSnapshotsRepository, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 class FailFirstDryRunExecutor implements Executor {
-  readonly type = 'AGENT';
+  readonly type = 'PLATFORM_STAGE';
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     if (input.step.stepType === 'DISCOVER') {
@@ -23,6 +24,8 @@ class FailFirstDryRunExecutor implements Executor {
 test('dry-run 第一步失败后会跳过剩余 PENDING 步骤，避免进度卡住', async () => {
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
+    stageIntervalMs: 0,
   });
   const created = await service.createDryRun({
     deploymentPlanId: 'plan_skip_pending',
@@ -32,6 +35,10 @@ test('dry-run 第一步失败后会跳过剩余 PENDING 步骤，避免进度卡
     actorId: 'tester',
     tenantId: 'tenant_skip_pending',
     executorTypeByTargetId: new Map([['target_skip_pending', 'AGENT']]),
+    agentPayloadByTargetId: new Map([[
+      'target_skip_pending',
+      withTestDeploymentInputSnapshot('plan_skip_pending', 'target_skip_pending'),
+    ]]),
     failurePolicy: 'stop',
   });
 
@@ -55,6 +62,8 @@ test('WORKFLOW 同步执行结果会进入结果同步服务用于资产回写',
   const resultSyncCalls: Array<Record<string, unknown>> = [];
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
+    stageIntervalMs: 0,
     resultSync: {
       applyAgentTaskResult: async (input: Record<string, unknown>) => {
         resultSyncCalls.push(input);
@@ -71,9 +80,9 @@ test('WORKFLOW 同步执行结果会进入结果同步服务用于资产回写',
     executorTypeByTargetId: new Map([['target_workflow_sync', 'WORKFLOW']]),
     agentPayloadByTargetId: new Map([[
       'target_workflow_sync',
-      {
+      withTestDeploymentInputSnapshot('plan_workflow_sync', 'target_workflow_sync', {
         workflowRequest: { workflowVersionId: 'wftplv_sync' },
-      },
+      }),
     ]]),
     stepMaxAttempts: 1,
   });
@@ -107,6 +116,8 @@ test('WORKFLOW dry-run 不进入结果同步服务，避免重复收尾运行', 
   const resultSyncCalls: Array<Record<string, unknown>> = [];
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
+    deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
+    stageIntervalMs: 0,
     resultSync: {
       applyAgentTaskResult: async (input: Record<string, unknown>) => {
         resultSyncCalls.push(input);
@@ -123,9 +134,9 @@ test('WORKFLOW dry-run 不进入结果同步服务，避免重复收尾运行', 
     executorTypeByTargetId: new Map([['target_workflow_dry_sync', 'WORKFLOW']]),
     agentPayloadByTargetId: new Map([[
       'target_workflow_dry_sync',
-      {
+      withTestDeploymentInputSnapshot('plan_workflow_dry_sync', 'target_workflow_dry_sync', {
         workflowRequest: { workflowVersionId: 'wftplv_sync' },
-      },
+      }),
     ]]),
     stepMaxAttempts: 1,
   });
@@ -134,13 +145,16 @@ test('WORKFLOW dry-run 不进入结果同步服务，避免重复收尾运行', 
     created.run.id,
     'tester',
     'tenant_workflow_dry_sync',
-    ExecutorRegistry.forTests([{
-      type: 'WORKFLOW',
-      executeStep: async () => ({
-        success: true,
-        detail: { mode: 'workflow_plan', workflowRun: { status: 'success', plannedOnly: true } },
-      }),
-    }]),
+    ExecutorRegistry.forTests([
+      {
+        type: 'WORKFLOW',
+        executeStep: async () => ({
+          success: true,
+          detail: { mode: 'workflow_plan', workflowRun: { status: 'success', plannedOnly: true } },
+        }),
+      },
+      { type: 'CONTROL_PLANE_TLS', executeStep: async () => ({ success: true }) },
+    ]),
   );
 
   assert.equal(result.success, true);
