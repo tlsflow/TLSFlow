@@ -578,7 +578,7 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
                 from jsonb_each_text(coalesce(device.capability_profile, '{}'::jsonb)) capability
                where capability.value = 'true') as device_capabilities,
              device.plugin_version_id,
-             plugin_version.plugin_version as device_control_version,
+             coalesce(current_plugin_version.plugin_version, plugin_version.plugin_version) as device_control_version,
              device.plugin_binding_id,
              device.last_discovered_at as device_last_discovered_at,
              device.last_error_code,
@@ -611,6 +611,21 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
         left join pg_device_assets device
           on device.tenant_id = host.tenant_id and device.host_id = host.id
         left join unified_plugin_versions plugin_version on plugin_version.id = device.plugin_version_id
+        left join lateral (
+          select candidate.plugin_version
+            from unified_plugin_versions candidate
+           where candidate.tenant_id = plugin_version.tenant_id
+             and candidate.plugin_id = plugin_version.plugin_id
+             and candidate.source = plugin_version.source
+             and candidate.status = 'ENABLED'
+           order by string_to_array(
+                      trim(both '.' from regexp_replace(candidate.plugin_version, '[^0-9.]', '', 'g')),
+                      '.'
+                    )::int[] desc,
+                    candidate.updated_at desc,
+                    candidate.id desc
+           limit 1
+        ) current_plugin_version on true
         left join pg_service_assets service
           on service.tenant_id = device.tenant_id
          and service.id = device.service_asset_id

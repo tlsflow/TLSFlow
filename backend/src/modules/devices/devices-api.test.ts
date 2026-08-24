@@ -328,6 +328,44 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.controlVersion, '7.4.2');
 });
 
+test('设备列表显示原插件来源下当前启用版本且保留历史绑定', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_device_plugin_current_version';
+  const devices = new PgDeviceAssetsRepository(database);
+  const device = await devices.create(tenantId, {
+    displayName: 'Versioned Device',
+    managementAddress: '10.33.2.80',
+    managementPort: 443,
+    deviceFamily: 'fixture.versioned-device',
+    credentialId: 'secret_versioned_device',
+    authMode: 'BASIC',
+    tlsVerify: false,
+  });
+  await database.query(`insert into unified_plugin_versions
+    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
+    values
+      ('plugin-version-old',$1,'fixture.versioned-device','1.0.1','USER','WORKFLOW_DSL','MANAGED','UNSIGNED','SELF_MANAGED','{}','sha256:old','sha256:old','{}','DISABLED','NOT_REQUIRED','[]','{}',now(),now()),
+      ('plugin-version-current',$1,'fixture.versioned-device','1.0.2','USER','WORKFLOW_DSL','MANAGED','UNSIGNED','SELF_MANAGED','{}','sha256:current','sha256:current','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`, [tenantId]);
+  await database.query(
+    'update pg_device_assets set plugin_version_id=$1 where tenant_id=$2 and service_asset_id=$3',
+    ['plugin-version-old', tenantId, device.id],
+  );
+
+  const result = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+
+  assert.equal(result.items[0]?.controlVersion, '1.0.2');
+  const binding = await database.query<{ plugin_version_id: string }>(
+    'select plugin_version_id from pg_device_assets where tenant_id=$1 and service_asset_id=$2',
+    [tenantId, device.id],
+  );
+  assert.equal(binding.rows[0]?.plugin_version_id, 'plugin-version-old');
+});
+
 test('统一设备列表直接返回 Agent 升级摘要而不读取详情', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
