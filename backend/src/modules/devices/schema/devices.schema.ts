@@ -60,7 +60,7 @@ const siteSchema: OpenApiSchema = {
     id: { type: 'string' },
     siteAssetId: { type: 'string' },
     managedTargetId: { type: 'string' },
-    kind: { type: 'string', enum: ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN'] },
+    kind: { type: 'string', enum: ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN', 'CUSTOM'] },
     name: { type: 'string' },
     status: { type: 'string' },
     endpoint: {
@@ -82,7 +82,7 @@ const siteSchema: OpenApiSchema = {
 export const managedDeviceDetailSchema: OpenApiSchema = {
   type: 'object',
   additionalProperties: true,
-  required: ['id', 'displayName', 'overview', 'informationSections', 'sites', 'certificates', 'logs', 'extension', 'extensionSummary'],
+  required: ['id', 'displayName', 'overview', 'informationSections', 'frameworks', 'sites', 'certificates', 'logs', 'extension', 'extensionSummary'],
   properties: {
     id: { type: 'string' },
     displayName: { type: 'string' },
@@ -112,6 +112,7 @@ export const managedDeviceDetailSchema: OpenApiSchema = {
         },
       },
     },
+    frameworks: { type: 'array', items: { type: 'object', additionalProperties: true } },
     sites: { type: 'array', items: siteSchema },
     certificates: {
       type: 'array',

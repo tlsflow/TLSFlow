@@ -68,6 +68,7 @@ export function validateDeviceOnboarding(
   values: Readonly<Record<string, unknown>>,
 ): string[] {
   if (platform.supportStatus !== 'SUPPORTED') return ['UNSUPPORTED_PLATFORM']
+  if (platform.pluginVersionId) return []
   const missing = platform.formSchema
     .filter((field) => field.required && (values[field.key] === undefined || String(values[field.key]).trim() === ''))
     .map((field) => field.key)

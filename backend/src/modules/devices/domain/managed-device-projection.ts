@@ -29,6 +29,7 @@ export interface ManagedDeviceProjectionSource {
     productName?: string;
     softwareVersion?: string;
     softwareBuild?: string;
+    pluginVersion?: string;
     supportTier?: string;
     capabilityProfile: Record<string, unknown>;
     lastDiscoveredAt?: string;
@@ -77,6 +78,7 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       health: liveness.livenessStatus === 'OFFLINE' ? 'UNREACHABLE' : healthStatus,
       sourceStatus,
       softwareVersion: projectAgentSystemVersion(osType, descriptor, source),
+      controlVersion: stringValue(descriptor.version),
       lastContactAt,
       applicationAssetCount: source.applicationAssetCount,
       capabilities: stringArray(descriptor.capabilities),
@@ -109,6 +111,7 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       appliance.lastDiscoveredAt,
     );
     const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['MANAGEMENT_TCP']);
+    const projectedHealth = mergeNetworkHealthWithLiveness(healthStatus, liveness.livenessStatus);
     return {
       id: source.id,
       displayName: source.displayName ?? appliance.managementAddress ?? source.id,
@@ -118,16 +121,26 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       managementAddress: appliance.managementAddress ?? source.primaryIp ?? source.hostname,
       ...liveness,
       livenessSignals: liveness.signals,
-      healthStatus,
-      health: liveness.livenessStatus === 'OFFLINE' ? 'UNREACHABLE' : healthStatus,
+      healthStatus: projectedHealth,
+      health: projectedHealth,
       sourceStatus,
       softwareVersion: joinVersion(appliance.softwareVersion, appliance.softwareBuild),
+      controlVersion: appliance.pluginVersion,
       lastContactAt: appliance.lastDiscoveredAt ?? source.lastDiscoveredAt,
       applicationAssetCount: source.applicationAssetCount,
       capabilities,
       extensionType: 'NETWORK_APPLIANCE',
     };
   }
+}
+
+function mergeNetworkHealthWithLiveness(
+  healthStatus: ManagedDeviceHealth,
+  livenessStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN',
+): ManagedDeviceHealth {
+  if (livenessStatus === 'OFFLINE') return 'UNREACHABLE';
+  if (livenessStatus === 'ONLINE' && healthStatus === 'UNKNOWN') return 'HEALTHY';
+  return healthStatus;
 }
 
 export class ManagedDeviceProjectionRegistry {

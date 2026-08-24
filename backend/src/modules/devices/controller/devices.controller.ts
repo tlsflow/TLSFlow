@@ -39,7 +39,7 @@ export class DevicesController {
 
   private async list(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
-      allowedSortFields: ['displayName', 'category', 'productFamily', 'managementMethod', 'health', 'softwareVersion', 'lastContactAt', 'applicationAssetCount'],
+      allowedSortFields: ['displayName', 'category', 'productFamily', 'managementMethod', 'health', 'softwareVersion', 'controlVersion', 'lastContactAt', 'applicationAssetCount'],
       allowedFilterFields: ['category', 'productFamily', 'managementMethod', 'health'],
     });
     const subject = this.subjectFromRequest(request);

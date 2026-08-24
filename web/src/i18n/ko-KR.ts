@@ -706,7 +706,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: '연결 주소', connectionPort: '연결 포트', basePath: '기본 경로', timeoutSeconds: '시간 제한(초)', gateway: '실행 Gateway',
-      authenticationMode: '인증 방식', username: '사용자 이름', passwordSecret: '암호 SecretRef', apiTokenSecret: 'API 토큰 SecretRef', clientCertificate: '클라이언트 인증서',
+      authenticationMode: '인증 방식', credential: '장치 관리 자격 증명', username: '사용자 이름', passwordSecret: '암호 SecretRef', apiTokenSecret: 'API 토큰 SecretRef', clientCertificate: '클라이언트 인증서',
       tlsEnabled: 'TLS 사용', tlsVerifyPeer: '서버 인증서 검증', tlsServerName: 'TLS 서버 이름', caSecret: 'CA SecretRef', tlsMinimumVersion: '최소 TLS 버전',
       deviceDisplayName: '장치 표시 이름', deviceDescription: '장치 설명', deviceTags: '장치 태그', targetName: '대상 이름', targetLabels: '대상 레이블'
     },

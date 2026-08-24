@@ -3,6 +3,7 @@ import type {
   DeviceDetailAdapter,
   DeviceDetailContext,
   DeviceDetailField,
+  DeviceFrameworkView,
   DeviceDetailSection,
   DeviceLogView,
   DeviceSiteBindingView,
@@ -42,10 +43,26 @@ export function buildGenericContext(detail: Readonly<Record<string, unknown>>): 
   return {
     detail,
     overviewSections: informationSections,
+    frameworks: readList(detail.frameworks).map(readFramework).filter(isDefined),
     sites: readList(detail.sites).map(readSite).filter(isDefined),
     certificates: readList(detail.certificates).map(readCertificate).filter(isDefined),
     logs: readList(detail.logs).map(readLog).filter(isDefined),
     permissions: new Set(readList(detail.allowedActions).map(String)),
+  }
+}
+
+function readFramework(value: unknown): DeviceFrameworkView | undefined {
+  const record = readRecord(value)
+  const id = readString(record.id) || readString(record.stableKey)
+  const name = readString(record.displayName) || readString(record.name)
+  if (!id || !name) return undefined
+  return {
+    id,
+    name,
+    type: readString(record.type) || undefined,
+    version: readString(record.version) || undefined,
+    status: readString(record.status) || undefined,
+    metadata: readRecord(record.metadata),
   }
 }
 
@@ -80,7 +97,7 @@ function readSite(value: unknown): DeviceSiteView | undefined {
   const siteAssetId = readString(record.siteAssetId)
   const kind = readString(record.kind) as DeviceSiteKind
   const name = readString(record.name)
-  if (!id || !siteAssetId || !name || !['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN'].includes(kind)) return undefined
+  if (!id || !siteAssetId || !name || !['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN', 'CUSTOM'].includes(kind)) return undefined
   const endpoint = readRecord(record.endpoint)
   return {
     id,

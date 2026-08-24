@@ -739,7 +739,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: '连接地址', connectionPort: '连接端口', basePath: '基础路径', timeoutSeconds: '超时秒数', gateway: '执行 Gateway',
-      authenticationMode: '认证方式', username: '用户名', passwordSecret: '密码 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '客户端证书',
+      authenticationMode: '认证方式', credential: '设备管理凭据', username: '用户名', passwordSecret: '密码 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '客户端证书',
       tlsEnabled: '启用 TLS', tlsVerifyPeer: '验证服务端证书', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
       deviceDisplayName: '设备显示名称', deviceDescription: '设备说明', deviceTags: '设备标签', targetName: '目标名称', targetLabels: '目标标签'
     },

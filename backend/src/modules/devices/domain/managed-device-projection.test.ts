@@ -41,6 +41,7 @@ test('统一设备投影为 Windows Agent 输出系统版本而非 Agent 版本'
   });
 
   assert.equal(result.softwareVersion, 'Windows Server 2022 21H2');
+  assert.equal(result.controlVersion, '1.2.3');
   assert.notEqual(result.softwareVersion, '1.2.3');
   assert.equal(result.health, 'HEALTHY');
   assert.equal(result.applicationAssetCount, 2);
@@ -122,12 +123,14 @@ test('统一设备投影为 Citrix ADC 输出固件版本和 Build', () => {
       deviceFamily: 'NETSCALER_ADC',
       softwareVersion: '13.1',
       softwareBuild: '55.29.nc',
+      pluginVersion: '1.1.8',
       capabilityProfile: { certificateDeploy: true },
       lastDiscoveredAt,
     },
   });
 
   assert.equal(result.softwareVersion, '13.1 55.29.nc');
+  assert.equal(result.controlVersion, '1.1.8');
   assert.equal(result.health, 'HEALTHY');
   assert.deepEqual(result.capabilities, ['certificateDeploy']);
 });
@@ -169,6 +172,38 @@ test('插件设备只有过期历史发现记录时不再伪装为健康', () =>
   );
 
   assert.equal(result, 'UNKNOWN');
+});
+
+test('插件设备管理端口在线时健康状态不再停留在未知', () => {
+  const observedAt = new Date().toISOString();
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'API',
+    livenessSignals: [{
+      id: 'signal_management_tcp',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'HEALTHY',
+      consecutiveFailures: 0,
+      lastObservedAt: observedAt,
+      lastSuccessAt: observedAt,
+      source: 'CONTROL_PLANE',
+      createdAt: observedAt,
+      updatedAt: observedAt,
+    }],
+    networkAppliance: {
+      deviceFamily: 'NETSCALER_ADC',
+      capabilityProfile: {},
+      lastDiscoveredAt: '2026-07-25T07:50:00.000Z',
+    },
+  });
+
+  assert.equal(result.livenessStatus, 'ONLINE');
+  assert.equal(result.healthStatus, 'HEALTHY');
+  assert.equal(result.health, 'HEALTHY');
 });
 
 test('统一设备投影 Registry 支持注册新的设备类型适配器', () => {

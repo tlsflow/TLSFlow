@@ -706,7 +706,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: 'Адрес подключения', connectionPort: 'Порт подключения', basePath: 'Базовый путь', timeoutSeconds: 'Тайм-аут в секундах', gateway: 'Gateway выполнения',
-      authenticationMode: 'Способ аутентификации', username: 'Имя пользователя', passwordSecret: 'SecretRef пароля', apiTokenSecret: 'SecretRef API-токена', clientCertificate: 'Клиентский сертификат',
+      authenticationMode: 'Способ аутентификации', credential: 'Учетные данные управления устройством', username: 'Имя пользователя', passwordSecret: 'SecretRef пароля', apiTokenSecret: 'SecretRef API-токена', clientCertificate: 'Клиентский сертификат',
       tlsEnabled: 'Включить TLS', tlsVerifyPeer: 'Проверять сертификат сервера', tlsServerName: 'Имя сервера TLS', caSecret: 'SecretRef центра сертификации', tlsMinimumVersion: 'Минимальная версия TLS',
       deviceDisplayName: 'Отображаемое имя устройства', deviceDescription: 'Описание устройства', deviceTags: 'Теги устройства', targetName: 'Имя цели', targetLabels: 'Метки цели'
     },

@@ -38,12 +38,14 @@ describe('统一设备详情动作边界', () => {
         fingerprintSha256: 'a'.repeat(64),
       }],
       logs: [],
+      frameworks: [{ stableKey: 'framework:nitro', displayName: 'NITRO', type: 'ADC' }],
       allowedActions: ['VIEW_RUNTIME'],
     })
     expect(context.overviewSections[0]?.key).toBe('common')
     expect(context.permissions.has('VIEW_RUNTIME')).toBe(true)
     expect(context.certificates[0]?.certificateAssetId).toBe('asset_1')
     expect(context.certificates[0]?.certificateVersionId).toBe('version_1')
+    expect(context.frameworks[0]).toMatchObject({ id: 'framework:nitro', name: 'NITRO', type: 'ADC' })
   })
 
   it('站点绑定证书可使用指纹作为稳定身份', () => {
@@ -98,7 +100,9 @@ describe('统一设备详情动作边界', () => {
     expect(deviceDetailTabRegistry.resolve(empty).map(tab => tab.key)).toEqual(['overview', 'logs'])
 
     const adc = new DeviceDetailAdapterRegistry().buildContext({
+      category: 'NETWORK_APPLIANCE',
       informationSections: [],
+      frameworks: [{ stableKey: 'framework:nitro', displayName: 'NITRO', type: 'ADC' }],
       sites: [
         { id: 'lb_1', siteAssetId: 'lb_1', kind: 'LB', name: 'lb', bindings: [], metadata: {} },
         { id: 'vpn_1', siteAssetId: 'vpn_1', kind: 'VPN', name: 'vpn', bindings: [], metadata: {} },
@@ -107,7 +111,16 @@ describe('统一设备详情动作边界', () => {
       logs: [],
       extension: { type: 'CITRIX_ADC' },
     })
-    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'certificates', 'lb', 'vpn', 'logs'])
+    adc.frameworks = []
+    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'lb', 'vpn', 'certificates', 'logs'])
+  })
+
+  it('设备列表区分设备版本和控制版本', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
+    expect(source).toContain("key: 'deviceVersion'")
+    expect(source).toContain("candidates: ['softwareVersion']")
+    expect(source).toContain("key: 'controlVersion'")
+    expect(source).toContain("candidates: ['controlVersion']")
   })
 
   it('统一详情沿用旧 Agent 视觉骨架且保留双列站点布局', () => {
@@ -117,19 +130,17 @@ describe('统一设备详情动作边界', () => {
     expect(modalSource).toContain('agent-detail-modal__hero')
     expect(modalSource).toContain('agent-detail-modal__spotlight')
     expect(modalSource).toContain('agent-detail-modal__tab')
+    expect(modalSource).toContain('agent-detail-modal__actions')
     expect(modalSource).toContain('width="82vw"')
     expect(modalSource).toContain('@certificate-click="openCertificateDetail"')
     expect(modalSource).toContain('CertificateDetailPanel')
     expect(modalSource).toContain('certificateAssetDetailOpen.value = true')
-    expect(modalSource).toContain("context.value?.permissions.has('REFRESH_DISCOVERY')")
-    expect(modalSource).toContain('refreshManagedDeviceDiscovery(deviceAssetId.value)')
-    expect(modalSource).toContain('@click="refreshDiscovery"')
-    expect(modalSource).toContain('getManagedDevice(openedDeviceId.value)')
-    expect(modalSource).toContain('fingerprintedCertificateCount')
-    expect(modalSource).toContain("tone: 'warning'")
+    expect(modalSource).toContain('@click="executePluginAction(action.capabilityKey)"')
+    expect(modalSource).toContain('getManagedDevice(openedDeviceId.value, locale.value)')
     expect(modalSource).not.toContain('@click="openCertificateAssetDetail"')
     expect(modalSource).not.toContain('selectedCertificate.value !== selection')
     expect(modalSource).not.toContain('device-detail__hero')
+    expect(modalSource).not.toContain('GcDevicePresentation')
     expect(sitesSource).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
   })
 })

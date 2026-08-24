@@ -1,3 +1,5 @@
+import DeviceCertificatesTab from './tabs/DeviceCertificatesTab.vue'
+import DeviceFrameworksTab from './tabs/DeviceFrameworksTab.vue'
 import DeviceLogsTab from './tabs/DeviceLogsTab.vue'
 import DeviceOverviewTab from './tabs/DeviceOverviewTab.vue'
 import DeviceSitesTab from './tabs/DeviceSitesTab.vue'
@@ -16,6 +18,30 @@ const logs: DeviceDetailTabDescriptor = {
   buildProps: context => ({ logs: context.logs }),
 }
 
+const frameworks: DeviceDetailTabDescriptor = {
+  key: 'frameworks', labelKey: 'devices.unifiedDetail.tabs.frameworks', order: 200, component: DeviceFrameworksTab,
+  isVisible: context => context.frameworks.length > 0,
+  buildProps: context => ({ frameworks: context.frameworks }),
+}
+
+const sites: DeviceDetailTabDescriptor = {
+  key: 'sites', labelKey: 'devices.unifiedDetail.tabs.sites', order: 300, component: DeviceSitesTab,
+  isVisible: context => context.sites.length > 0,
+  buildProps: context => ({ sites: context.sites }),
+}
+
+const otherNetworkSites: DeviceDetailTabDescriptor = {
+  ...sites,
+  isVisible: context => context.sites.some(site => site.kind !== 'LB' && site.kind !== 'VPN'),
+  buildProps: context => ({ sites: context.sites.filter(site => site.kind !== 'LB' && site.kind !== 'VPN') }),
+}
+
+const certificates: DeviceDetailTabDescriptor = {
+  key: 'certificates', labelKey: 'devices.unifiedDetail.tabs.certificates', order: 800, component: DeviceCertificatesTab,
+  isVisible: context => context.certificates.length > 0,
+  buildProps: context => ({ certificates: context.certificates }),
+}
+
 function siteTab(key: string, labelKey: string, order: number, kind: DeviceSiteKind): DeviceDetailTabDescriptor {
   return {
     key, labelKey, order, component: DeviceSitesTab,
@@ -27,7 +53,17 @@ function siteTab(key: string, labelKey: string, order: number, kind: DeviceSiteK
 export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
   key: 'default', supports: () => true, getTabs: () => [overview, logs],
 }, {
-  key: 'sites', supports: context => context.sites.length > 0,
+  key: 'resources', supports: context => context.frameworks.length > 0 || context.certificates.length > 0,
+  getTabs: () => [frameworks, certificates],
+}, {
+  key: 'network-sites', supports: isNetworkDevice,
+  getTabs: () => [
+    siteTab('lb', 'devices.unifiedDetail.tabs.lb', 300, 'LB'),
+    siteTab('vpn', 'devices.unifiedDetail.tabs.vpn', 310, 'VPN'),
+    otherNetworkSites,
+  ],
+}, {
+  key: 'agent-sites', supports: context => !isNetworkDevice(context) && context.sites.length > 0,
   getTabs: () => [
     siteTab('iis', 'devices.unifiedDetail.tabs.iis', 300, 'IIS'),
     siteTab('nginx', 'devices.unifiedDetail.tabs.nginx', 310, 'NGINX'),
@@ -37,3 +73,8 @@ export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
     siteTab('vpn', 'devices.unifiedDetail.tabs.vpn', 410, 'VPN'),
   ],
 }])
+
+function isNetworkDevice(context: DeviceDetailContext): boolean {
+  return String(context.detail.category ?? '').toUpperCase() === 'NETWORK_APPLIANCE'
+    || String(context.detail.extensionType ?? '').toUpperCase() === 'NETWORK_APPLIANCE'
+}

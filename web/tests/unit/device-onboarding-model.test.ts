@@ -34,6 +34,33 @@ describe('设备添加向导模型', () => {
     }, 'https://gcac.example.com')).toMatchObject({ tlsVerify: false, insecureTlsAcknowledged: true })
   })
 
+  it('插件设备不套用旧 API 连接的 TLS 风险确认字段', () => {
+    const pluginPlatform: DeviceOnboardingPlatform = {
+      ...citrix,
+      key: 'plugin:citrix-adc',
+      pluginVersionId: 'uplgv_citrix_adc',
+      formSchema: [],
+    }
+    expect(validateDeviceOnboarding(pluginPlatform, { tlsVerify: false })).toEqual([])
+    expect(buildDeviceOnboardingPayload(pluginPlatform, {
+      displayName: 'TEST-ADC',
+      address: '10.255.0.49',
+      port: 443,
+      credential: 'cred_citrix_adc',
+      tlsVerify: false,
+    }, 'https://gcac.example.com')).toEqual({
+      platformKey: 'plugin',
+      pluginVersionId: 'uplgv_citrix_adc',
+      formValues: {
+        displayName: 'TEST-ADC',
+        address: '10.255.0.49',
+        port: 443,
+        credential: 'cred_citrix_adc',
+        tlsVerify: false,
+      },
+    })
+  })
+
   it('Agent 安装分支保留控制面地址用于生成安装命令', () => {
     const windows: DeviceOnboardingPlatform = {
       key: 'windows', displayNameKey: 'devices.platforms.windows', productFamily: 'Windows Server', managementMethod: 'AGENT',

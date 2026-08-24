@@ -732,7 +732,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: '接続アドレス', connectionPort: '接続ポート', basePath: 'ベースパス', timeoutSeconds: 'タイムアウト秒数', gateway: '実行 Gateway',
-      authenticationMode: '認証方式', username: 'ユーザー名', passwordSecret: 'パスワード SecretRef', apiTokenSecret: 'API トークン SecretRef', clientCertificate: 'クライアント証明書',
+      authenticationMode: '認証方式', credential: 'デバイス管理認証情報', username: 'ユーザー名', passwordSecret: 'パスワード SecretRef', apiTokenSecret: 'API トークン SecretRef', clientCertificate: 'クライアント証明書',
       tlsEnabled: 'TLS を有効化', tlsVerifyPeer: 'サーバー証明書を検証', tlsServerName: 'TLS サーバー名', caSecret: 'CA SecretRef', tlsMinimumVersion: '最小 TLS バージョン',
       deviceDisplayName: 'デバイス表示名', deviceDescription: 'デバイス説明', deviceTags: 'デバイスタグ', targetName: 'ターゲット名', targetLabels: 'ターゲットラベル'
     },

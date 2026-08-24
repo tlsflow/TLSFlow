@@ -70,7 +70,10 @@ function fieldLabel(key: string): string {
 
 async function submit(platform = selected.value) {
   if (!platform || pending.value) return
-  if (validateDeviceOnboarding(platform, values.value).length > 0) return
+  if (missingFields.value.length > 0) {
+    error.value = t('devices.errors.onboardingValidationFailed')
+    return
+  }
   pending.value = true
   error.value = ''
   try {
@@ -151,8 +154,14 @@ function defaultFormValues(schema: PluginFormSchema | null): Record<string, unkn
 
 function requiredPluginFields(schema: PluginFormSchema | null, currentValues: Record<string, unknown>): string[] {
   return (schema?.sections ?? []).flatMap((section) => section.fields)
-    .filter((field) => field.required && (currentValues[field.key] ?? field.defaultValue) === undefined)
+    .filter((field) => field.required && isMissingFormValue(currentValues[field.key] ?? field.defaultValue))
     .map((field) => field.key)
+}
+
+function isMissingFormValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (typeof value === 'string') return value.trim() === ''
+  return Array.isArray(value) && value.length === 0
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

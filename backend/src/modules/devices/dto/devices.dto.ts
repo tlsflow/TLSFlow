@@ -18,6 +18,7 @@ export interface ManagedDeviceSummaryDto {
   health: ManagedDeviceHealth;
   sourceStatus: string;
   softwareVersion?: string;
+  controlVersion?: string;
   lastContactAt?: string;
   applicationAssetCount: number;
   capabilities: string[];
@@ -40,7 +41,7 @@ export interface ManagedDevicePageDto {
 }
 
 export type ManagedDeviceInformationValueType = 'TEXT' | 'STATUS' | 'DATETIME' | 'BOOLEAN' | 'NUMBER';
-export type ManagedDeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN';
+export type ManagedDeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN' | 'CUSTOM';
 
 export interface ManagedDeviceOverviewDto {
   deviceId: string;
@@ -149,6 +150,7 @@ export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   };
   overview: ManagedDeviceOverviewDto;
   informationSections: ManagedDeviceInformationSectionDto[];
+  frameworks: Array<Record<string, unknown>>;
   sites: ManagedDeviceSiteDto[];
   certificates: ManagedDeviceCertificateDto[];
   logs: ManagedDeviceLogDto[];

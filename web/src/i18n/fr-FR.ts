@@ -740,7 +740,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: 'Adresse de connexion', connectionPort: 'Port de connexion', basePath: 'Chemin de base', timeoutSeconds: 'Délai en secondes', gateway: 'Gateway d’exécution',
-      authenticationMode: 'Mode d’authentification', username: 'Nom d’utilisateur', passwordSecret: 'SecretRef du mot de passe', apiTokenSecret: 'SecretRef du jeton API', clientCertificate: 'Certificat client',
+      authenticationMode: 'Mode d’authentification', credential: 'Identifiant de gestion de l’appareil', username: 'Nom d’utilisateur', passwordSecret: 'SecretRef du mot de passe', apiTokenSecret: 'SecretRef du jeton API', clientCertificate: 'Certificat client',
       tlsEnabled: 'Activer TLS', tlsVerifyPeer: 'Vérifier le certificat serveur', tlsServerName: 'Nom du serveur TLS', caSecret: 'SecretRef de l’AC', tlsMinimumVersion: 'Version TLS minimale',
       deviceDisplayName: 'Nom d’affichage de l’appareil', deviceDescription: 'Description de l’appareil', deviceTags: 'Étiquettes de l’appareil', targetName: 'Nom de la cible', targetLabels: 'Étiquettes de la cible'
     },

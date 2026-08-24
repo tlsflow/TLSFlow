@@ -739,7 +739,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: 'Connection address', connectionPort: 'Connection port', basePath: 'Base path', timeoutSeconds: 'Timeout seconds', gateway: 'Execution gateway',
-      authenticationMode: 'Authentication mode', username: 'Username', passwordSecret: 'Password SecretRef', apiTokenSecret: 'API token SecretRef', clientCertificate: 'Client certificate',
+      authenticationMode: 'Authentication mode', credential: 'Credential', username: 'Username', passwordSecret: 'Password SecretRef', apiTokenSecret: 'API token SecretRef', clientCertificate: 'Client certificate',
       tlsEnabled: 'Enable TLS', tlsVerifyPeer: 'Verify server certificate', tlsServerName: 'TLS server name', caSecret: 'CA SecretRef', tlsMinimumVersion: 'Minimum TLS version',
       deviceDisplayName: 'Device display name', deviceDescription: 'Device description', deviceTags: 'Device tags', targetName: 'Target name', targetLabels: 'Target labels'
     },

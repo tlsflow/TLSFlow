@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 
-export type DeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN'
+export type DeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN' | 'CUSTOM'
 export type DeviceDetailFieldValueType = 'TEXT' | 'STATUS' | 'DATETIME' | 'BOOLEAN' | 'NUMBER'
 
 export interface DeviceDetailField {
@@ -13,6 +13,15 @@ export interface DeviceDetailField {
 export interface DeviceDetailSection {
   key: string
   fields: readonly DeviceDetailField[]
+}
+
+export interface DeviceFrameworkView {
+  id: string
+  name: string
+  type?: string
+  version?: string
+  status?: string
+  metadata: Readonly<Record<string, unknown>>
 }
 
 export interface DeviceBoundCertificateView {
@@ -82,6 +91,7 @@ export interface DeviceLogView {
 export interface DeviceDetailContext {
   detail: Readonly<Record<string, unknown>>
   overviewSections: readonly DeviceDetailSection[]
+  frameworks: readonly DeviceFrameworkView[]
   sites: readonly DeviceSiteView[]
   certificates: readonly DeviceCertificateView[]
   logs: readonly DeviceLogView[]

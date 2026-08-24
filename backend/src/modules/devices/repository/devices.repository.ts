@@ -76,6 +76,7 @@ export class PgDevicesRepository implements DevicesRepository {
         updatedAt,
       },
       informationSections: buildInformationSections(row, summary, updatedAt, resources),
+      frameworks: resources?.frameworks ?? [],
       sites,
       certificates,
       logs: resources?.logs ?? [],
@@ -94,6 +95,8 @@ export class PgDevicesRepository implements DevicesRepository {
             tlsVerify: row.tls_verify,
             supportTier: row.support_tier,
             softwareBuild: row.software_build,
+            pluginVersion: row.control_version,
+            discoveryMetadata: asRecord(row.device_metadata),
             capabilityProfile: asRecord(row.capability_profile),
             virtualServers: resources?.virtualServers ?? [],
             certificateResources: resources?.certificateResources ?? [],
@@ -104,7 +107,7 @@ export class PgDevicesRepository implements DevicesRepository {
   }
 
   private async getNetworkDeviceResources(tenantId: string, deviceAssetId: string) {
-    const [virtualServers, certificateResources, certificateBindings, deviceLogs] = await Promise.all([
+    const [virtualServers, certificateResources, certificateBindings, deviceLogs, frameworks, discoveredCertificates] = await Promise.all([
       this.db.query<DeviceVirtualServerRow>(
         `select id, virtual_server_type, virtual_server_name, address, port, protocol, runtime_state, sni_names
          from pg_device_virtual_servers
@@ -148,8 +151,43 @@ export class PgDevicesRepository implements DevicesRepository {
          limit 100`,
         [deviceAssetId],
       ),
+      this.db.query<DiscoverySnapshotRow>(
+        `select payload
+         from plugin_discovery_snapshots
+         where tenant_id=$1 and device_asset_id=$2 and status='SUCCEEDED'
+         order by created_at desc
+         limit 1`,
+        [tenantId, deviceAssetId],
+      ),
+      this.db.query<DiscoveredCertificateRow>(
+        `select certificate.id, certificate.stable_key, certificate.fingerprint_sha256,
+                certificate.subject, certificate.issuer, certificate.not_before, certificate.not_after,
+                certificate.metadata, certificate.status, certificate.certificate_version_id,
+                version.certificate_asset_id, asset.name as certificate_name
+          from plugin_discovered_certificates certificate
+          left join pg_certificate_versions version on version.id=certificate.certificate_version_id
+          left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
+          where certificate.tenant_id=$1 and certificate.device_asset_id=$2 and certificate.status='ACTIVE'
+          order by certificate.stable_key`,
+        [tenantId, deviceAssetId],
+      ),
     ]);
+    const standardCertificates = discoveredCertificates.rows.map((item) => ({
+      id: item.id,
+      certificateAssetId: item.certificate_asset_id ?? undefined,
+      certificateVersionId: item.certificate_version_id ?? undefined,
+      name: item.certificate_name ?? String(item.metadata?.certkey ?? item.stable_key),
+      subject: item.subject ?? undefined,
+      issuer: item.issuer ?? undefined,
+      notBefore: optionalTimestamp(item.not_before),
+      notAfter: optionalTimestamp(item.not_after),
+      fingerprintSha256: item.fingerprint_sha256 ?? undefined,
+      status: item.status,
+    }));
     return {
+      frameworks: Array.isArray(frameworks.rows[0]?.payload.frameworks)
+        ? frameworks.rows[0]!.payload.frameworks as Array<Record<string, unknown>>
+        : [],
       virtualServers: virtualServers.rows.map((item) => ({
         id: item.id,
         type: item.virtual_server_type,
@@ -192,7 +230,7 @@ export class PgDevicesRepository implements DevicesRepository {
         detail: item.payload.detail,
         createdAt: item.payload.createdAt,
       })),
-      certificates: certificateResources.rows.map((item) => ({
+      certificates: standardCertificates.length > 0 ? standardCertificates : certificateResources.rows.map((item) => ({
         id: item.id,
         certificateAssetId: item.certificate_asset_id ?? undefined,
         certificateVersionId: item.certificate_version_id ?? undefined,
@@ -408,11 +446,14 @@ const DEVICE_LIST_SQL = `
     device.auth_mode,
     device.tls_verify,
     device.product_name,
+    device.product_family,
     device.software_version,
     device.software_build,
     device.support_tier,
     device.capability_profile,
+    device.metadata as device_metadata,
     device.plugin_version_id,
+    plugin_version.plugin_version as control_version,
     device.plugin_binding_id,
     device.last_discovered_at as device_last_discovered_at,
     device.last_error_code,
@@ -426,6 +467,7 @@ const DEVICE_LIST_SQL = `
     and liveness.resource_type=case when host.agent_id is not null then 'AGENT' else 'DEVICE' end
     and liveness.resource_id=coalesce(host.agent_id, host.id)
   left join pg_device_assets device on device.tenant_id = host.tenant_id and device.host_id = host.id
+  left join unified_plugin_versions plugin_version on plugin_version.tenant_id = device.tenant_id and plugin_version.id = device.plugin_version_id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
   where host.tenant_id = $1
@@ -456,11 +498,14 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   auth_mode: string | null;
   tls_verify: boolean | null;
   product_name: string | null;
+  product_family: string | null;
   software_version: string | null;
   software_build: string | null;
   support_tier: string | null;
   capability_profile: Record<string, unknown> | null;
+  device_metadata: Record<string, unknown> | null;
   plugin_version_id: string | null;
+  control_version: string | null;
   plugin_binding_id: string | null;
   device_last_discovered_at: string | null;
   last_error_code: string | null;
@@ -522,6 +567,25 @@ interface DeviceLogRow extends Record<string, unknown> {
   };
 }
 
+interface DiscoverySnapshotRow extends Record<string, unknown> {
+  payload: Record<string, unknown>;
+}
+
+interface DiscoveredCertificateRow extends Record<string, unknown> {
+  id: string;
+  stable_key: string;
+  fingerprint_sha256: string | null;
+  subject: string | null;
+  issuer: string | null;
+  not_before: string | null;
+  not_after: string | null;
+  metadata: Record<string, unknown> | null;
+  status: string;
+  certificate_version_id: string | null;
+  certificate_asset_id: string | null;
+  certificate_name: string | null;
+}
+
 interface ManagedSiteRow extends Record<string, unknown> {
   id: string;
   provider_type: string;
@@ -573,9 +637,10 @@ function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSourc
   if (row.device_family) {
     source.networkAppliance = {
       deviceFamily: row.device_family,
-      productName: row.product_name ?? undefined,
+      productName: row.product_family ?? row.product_name ?? undefined,
       softwareVersion: row.software_version ?? undefined,
       softwareBuild: row.software_build ?? undefined,
+      pluginVersion: row.control_version ?? undefined,
       supportTier: row.support_tier ?? undefined,
       capabilityProfile: asRecord(row.capability_profile),
       lastDiscoveredAt: row.device_last_discovered_at ?? undefined,
@@ -646,7 +711,7 @@ function siteKind(providerType: string, metadata: unknown): ManagedDeviceSiteDto
   if (provider === 'APACHE') return 'APACHE';
   if (provider === 'TOMCAT') return 'TOMCAT';
   const virtualServerType = String(asRecord(metadata).virtualServerType ?? '').toUpperCase();
-  return virtualServerType === 'LB' || virtualServerType === 'VPN' ? virtualServerType : undefined;
+  return virtualServerType === 'LB' || virtualServerType === 'VPN' ? virtualServerType : 'CUSTOM';
 }
 
 function distinguishedName(value: unknown): string | undefined {
@@ -702,7 +767,7 @@ function buildInformationSections(
     fields: [
       { key: 'hostname', value: row.hostname, valueType: 'TEXT' as const, copyable: true },
       { key: 'osType', value: row.os_type, valueType: 'TEXT' as const },
-      { key: 'managementMode', value: row.management_mode, valueType: 'TEXT' as const },
+      { key: 'managementMode', value: optionalString(asRecord(row.device_metadata).managementProtocol) ?? row.management_mode, valueType: 'TEXT' as const },
       { key: 'updatedAt', value: updatedAt, valueType: 'DATETIME' as const },
     ],
   };
@@ -717,7 +782,9 @@ function buildInformationSections(
       { key: 'tlsVerify', value: row.tls_verify, valueType: 'BOOLEAN' as const },
       { key: 'softwareVersion', value: row.software_version, valueType: 'TEXT' as const },
       { key: 'softwareBuild', value: row.software_build, valueType: 'TEXT' as const },
+      { key: 'pluginVersion', value: row.control_version, valueType: 'TEXT' as const },
       { key: 'supportTier', value: row.support_tier, valueType: 'STATUS' as const },
+      { key: 'healthStatus', value: summary.health, valueType: 'STATUS' as const },
       { key: 'virtualServerCount', value: resources?.virtualServers.length ?? 0, valueType: 'NUMBER' as const },
       { key: 'certificateCount', value: resources?.certificateResources.length ?? 0, valueType: 'NUMBER' as const },
     ],

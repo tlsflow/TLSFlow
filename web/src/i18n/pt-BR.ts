@@ -706,7 +706,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: 'Endereço de conexão', connectionPort: 'Porta de conexão', basePath: 'Caminho base', timeoutSeconds: 'Tempo limite em segundos', gateway: 'Gateway de execução',
-      authenticationMode: 'Modo de autenticação', username: 'Nome de usuário', passwordSecret: 'SecretRef da senha', apiTokenSecret: 'SecretRef do token de API', clientCertificate: 'Certificado do cliente',
+      authenticationMode: 'Modo de autenticação', credential: 'Credencial de gerenciamento do dispositivo', username: 'Nome de usuário', passwordSecret: 'SecretRef da senha', apiTokenSecret: 'SecretRef do token de API', clientCertificate: 'Certificado do cliente',
       tlsEnabled: 'Ativar TLS', tlsVerifyPeer: 'Verificar certificado do servidor', tlsServerName: 'Nome do servidor TLS', caSecret: 'SecretRef da CA', tlsMinimumVersion: 'Versão TLS mínima',
       deviceDisplayName: 'Nome de exibição do dispositivo', deviceDescription: 'Descrição do dispositivo', deviceTags: 'Tags do dispositivo', targetName: 'Nome do destino', targetLabels: 'Rótulos do destino'
     },

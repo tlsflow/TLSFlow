@@ -2,9 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
-import { executeManagedDeviceCapability, getManagedDevice, refreshManagedDeviceDiscovery } from '@/api/modules/devices.api'
+import { executeManagedDeviceCapability, getManagedDevice } from '@/api/modules/devices.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcDevicePresentation, GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
+import { GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import CertificateDetailPanel from '@/views/certificates/CertificateDetailPanel.vue'
 import { DeviceDetailAdapterRegistry } from './device-detail.adapter'
@@ -37,26 +37,11 @@ const pluginPresentation = computed(() => {
   return value && typeof value === 'object' ? value as DevicePresentationSchema : null
 })
 const pluginMessages = computed(() => asRecord(pluginUi.value.messages) as Record<string, string>)
-const pluginTabRows = computed(() => ({
-  frameworks: arrayRecords(detail.value?.frameworks),
-  sites: arrayRecords(detail.value?.sites),
-  certificates: arrayRecords(detail.value?.certificates),
-  logs: arrayRecords(detail.value?.logs),
-}))
+const pluginActions = computed(() => pluginPresentation.value?.actions ?? [])
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
 const status = computed(() => String(detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
 const heroSubtitle = computed(() => String(detail.value?.category ?? detail.value?.managementMode ?? ''))
-const deviceAssetId = computed(() => {
-  const extension = asRecord(detail.value?.extension)
-  const extensionSummary = asRecord(detail.value?.extensionSummary)
-  return String(extension.deviceAssetId ?? extensionSummary.deviceAssetId ?? '')
-})
-const canRefreshDiscovery = computed(() => Boolean(
-  openedDeviceId.value
-  && deviceAssetId.value
-  && context.value?.permissions.has('REFRESH_DISCOVERY'),
-))
 const selectedCertificateTitle = computed(() => {
   const certificate = selectedCertificate.value?.certificate
   return certificate?.name || certificate?.subject || t('devices.unifiedDetail.values.unknownCertificate')
@@ -68,6 +53,10 @@ const selectedCertificateSource = computed(() => {
   const endpointLabel = [endpoint?.protocol, endpoint?.hostName || endpoint?.address, endpoint?.port].filter(Boolean).join(' · ')
   return endpointLabel ? `${selection.site.name} · ${endpointLabel}` : selection.site.name
 })
+
+function pluginLabel(key: string): string {
+  return pluginMessages.value[key] ?? t(key)
+}
 
 watch(tabs, (next) => {
   if (!next.some(tab => tab.key === activeTab.value)) activeTab.value = 'overview'
@@ -92,33 +81,6 @@ async function open(deviceId: string) {
   }
 }
 
-async function refreshDiscovery() {
-  if (!canRefreshDiscovery.value || rediscovering.value || !openedDeviceId.value) return
-  rediscovering.value = true
-  discoveryFeedback.value = null
-  try {
-    const response = await refreshManagedDeviceDiscovery(openedDeviceId.value)
-    const result = response.data ?? {}
-    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
-    if (refreshed.data) detail.value = refreshed.data
-    const succeeded = result.status === 'success'
-    if (!succeeded) {
-      discoveryFeedback.value = {
-        tone: 'danger',
-        message: t('devices.unifiedDetail.discovery.failed', {
-          errorCode: String(result.status ?? t('devices.health.unknown')),
-        }),
-      }
-    } else {
-      discoveryFeedback.value = { tone: 'success', message: t('devices.unifiedDetail.discovery.success') }
-    }
-  } catch {
-    discoveryFeedback.value = { tone: 'danger', message: t('devices.unifiedDetail.discovery.requestFailed') }
-  } finally {
-    rediscovering.value = false
-  }
-}
-
 async function executePluginAction(capabilityKey: string) {
   if (!openedDeviceId.value || rediscovering.value) return
   rediscovering.value = true
@@ -127,7 +89,12 @@ async function executePluginAction(capabilityKey: string) {
     await executeManagedDeviceCapability(openedDeviceId.value, capabilityKey)
     const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
     if (refreshed.data) detail.value = refreshed.data
-    discoveryFeedback.value = { tone: 'success', message: t('devices.onboarding.completed') }
+    discoveryFeedback.value = {
+      tone: 'success',
+      message: t(capabilityKey === 'device.discover'
+        ? 'devices.unifiedDetail.discovery.success'
+        : 'devices.unifiedDetail.action.success'),
+    }
   } catch (cause) {
     discoveryFeedback.value = { tone: 'danger', message: cause instanceof Error ? cause.message : t('devices.unifiedDetail.discovery.requestFailed') }
   } finally {
@@ -226,10 +193,6 @@ function asRecord(value: unknown): ApiRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as ApiRecord : {}
 }
 
-function arrayRecords(value: unknown): ApiRecord[] {
-  return Array.isArray(value) ? value.filter((item): item is ApiRecord => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
-}
-
 defineExpose({ open })
 </script>
 
@@ -268,17 +231,20 @@ defineExpose({ open })
 
       <p v-if="loading" class="agent-detail-modal__loading">{{ t('common.loading') }}</p>
 
-      <GcDevicePresentation
-        v-if="detail && pluginPresentation && !loading"
-        v-model:active-tab="activeTab"
-        :schema="pluginPresentation"
-        :data="detail"
-        :tab-rows="pluginTabRows"
-        :plugin-messages="pluginMessages"
-        @action="executePluginAction"
-      />
+      <nav v-if="detail && pluginActions.length && !loading" class="agent-detail-modal__actions">
+        <button
+          v-for="action in pluginActions"
+          :key="action.capabilityKey"
+          class="gc-button"
+          type="button"
+          :disabled="rediscovering"
+          @click="executePluginAction(action.capabilityKey)"
+        >
+          {{ pluginLabel(action.labelKey) }}
+        </button>
+      </nav>
 
-      <template v-else-if="detail && context && !loading">
+      <template v-if="detail && context && !loading">
         <nav class="agent-detail-modal__tabs" :aria-label="t('devices.unifiedDetail.aria.tabs')">
           <button
             v-for="tab in tabs"
@@ -375,6 +341,7 @@ defineExpose({ open })
 .agent-detail-modal__feedback[data-tone='success'] { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); color: var(--gc-color-success); }
 .agent-detail-modal__feedback[data-tone='warning'] { border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-soft); color: var(--gc-color-warning); }
 .agent-detail-modal__feedback[data-tone='danger'] { border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-soft); color: var(--gc-color-danger); }
+.agent-detail-modal__actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 .agent-detail-modal__spotlight { display: grid; min-width: calc(var(--gc-space-10) * 3); gap: var(--gc-space-1); padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-sm); background: var(--gc-color-text); color: var(--gc-color-surface-solid); }
 .agent-detail-modal__spotlight small { color: var(--gc-color-text-inverse-muted); font-size: var(--gc-font-size-xs); font-weight: 800; text-transform: uppercase; }
 .agent-detail-modal__spotlight strong { font-size: var(--gc-font-size-sm); line-height: 1.15; overflow-wrap: anywhere; }

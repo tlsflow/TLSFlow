@@ -731,7 +731,7 @@ export default {
   plugins: {
     standardFields: {
       connectionAddress: '連線位址', connectionPort: '連線連接埠', basePath: '基礎路徑', timeoutSeconds: '逾時秒數', gateway: '執行 Gateway',
-      authenticationMode: '驗證方式', username: '使用者名稱', passwordSecret: '密碼 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '用戶端憑證',
+      authenticationMode: '驗證方式', credential: '裝置管理憑證', username: '使用者名稱', passwordSecret: '密碼 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '用戶端憑證',
       tlsEnabled: '啟用 TLS', tlsVerifyPeer: '驗證伺服器憑證', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
       deviceDisplayName: '裝置顯示名稱', deviceDescription: '裝置說明', deviceTags: '裝置標籤', targetName: '目標名稱', targetLabels: '目標標籤'
     },
