@@ -30,3 +30,19 @@ export function deleteCloudAccountAsset(id: string): Promise<ApiRecordResult> {
     idempotencyKey: createIdempotencyKey('cloud_account_asset_delete')
   })
 }
+
+export function testCloudAccountConnection(id: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/connection-test`), {}, {
+    idempotencyKey: createIdempotencyKey('cloud_account_asset_connection_test'),
+  })
+}
+
+export function discoverCloudAccountResources(id: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/discover`), {}, {
+    idempotencyKey: createIdempotencyKey('cloud_account_asset_discover'),
+  })
+}
+
+export function listCloudAccountResources(id: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/resources`))
+}

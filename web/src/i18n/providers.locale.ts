@@ -10,6 +10,7 @@ const english = {
     cancel: 'Cancel',
     test: 'Test connection',
     discover: 'Discover resources',
+    resources: 'View resources',
     execute: 'Run operation',
     delete: 'Delete',
     previous: 'Previous',
@@ -30,6 +31,9 @@ const english = {
     status: 'Status',
     actions: 'Actions',
     updatedAt: 'Updated at',
+    frameworkCount: 'Frameworks',
+    deviceCount: 'Control-plane devices',
+    siteCount: 'Sites',
   },
   placeholders: {
     displayName: 'For example: Production cloud account',
@@ -48,12 +52,18 @@ const english = {
     loadFailed: 'Cloud Provider data could not be loaded.',
     createFailed: 'Cloud account asset could not be created.',
     saved: 'Cloud account asset created.',
+    savedAndDiscovered: 'Cloud account saved and resources discovered automatically.',
     updated: 'Cloud account asset updated.',
     deleted: 'Cloud account asset deleted.',
     deleteConfirmText: 'DELETE',
     deleteRisk: 'This removes the cloud account asset.',
     testCompleted: 'Connection test completed.',
+    testCompletedUnverified: 'Connection test returned without a verified signature.',
     discoveryCompleted: 'Resource discovery completed.',
+    discoveryFailedAfterSave: 'The cloud account was saved, but automatic discovery failed. Fix the credential or provider access and retry discovery.',
+    operationFailed: 'Cloud account operation failed.',
+    resourcesLoading: 'Loading discovered resources…',
+    resourcesLoadFailed: 'Discovered resources could not be loaded.',
     operationCompleted: 'Provider operation completed.',
     operationUnavailable: 'Provider PluginVersion/Runner is not connected. The operation was closed without execution.',
     operationOpaqueHint: 'The host stores and forwards these values as opaque descriptions. It does not interpret or execute provider algorithms.',
@@ -80,13 +90,13 @@ const english = {
     },
     stepDescriptions: {
       provider: 'Choose a Provider and review its declared operation descriptions.',
-      asset: 'Save common asset fields, a CredentialRef, and opaque endpoint metadata.',
+      asset: 'Save a display name and managed credential. Endpoint, region, and provider parameters are discovered automatically.',
     },
     panels: {
       providerTitle: 'Choose a Provider',
       providerDescription: 'Provider entries describe capabilities only. Provider-specific execution is unavailable until a PluginVersion and Runner are connected.',
-      assetTitle: 'Configure the common asset',
-      assetDescription: 'Only common identity fields, a credential reference, endpoint, and opaque metadata are stored.',
+      assetTitle: 'Connect the cloud account',
+      assetDescription: 'Only a display name and managed credential are required. The system discovers regions and resources after saving.',
     },
     state: {
       active: 'In progress',
@@ -102,6 +112,10 @@ const english = {
       account: 'Account',
       credential: 'Credential',
     },
+    autoDiscovery: {
+      title: 'Automatic discovery',
+      description: 'After saving, GCAC tests the connection and discovers available regions and resources. You do not need to enter an endpoint or region.',
+    },
   },
   aria: {
     accountForm: 'Cloud account asset form',
@@ -110,6 +124,16 @@ const english = {
   detail: {
     title: 'Cloud service details',
     description: 'Read-only details for the selected cloud service.',
+    resourcesTitle: 'Discovered resources',
+    resourcesDescription: 'The account has one CDN control-plane device. Mainland China and Global are Frameworks, and each CDN instance is a Site.',
+    devices: 'CDN control-plane devices',
+    frameworks: 'Frameworks',
+    sites: 'Sites',
+    regions: 'Regions / zones',
+    noFrameworks: 'No Framework records.',
+    noSites: 'No Site records.',
+    noRegions: 'No regions were returned by the provider.',
+    noDevices: 'No CDN control-plane device was returned by the provider.',
   },
 } as const
 
@@ -121,29 +145,30 @@ export const providersZhCN = {
     description: '管理通用云账号资产，凭据只以引用保存。Provider 操作必须接入 PluginVersion 和 Runner。',
   },
   actions: {
-    add: '添加云账号', edit: '编辑', save: '保存', cancel: '取消', test: '测试连接', discover: '发现资源', execute: '执行操作', delete: '删除', previous: '上一步', next: '下一步',
+    add: '添加云账号', edit: '编辑', save: '保存', cancel: '取消', test: '测试连接', discover: '发现资源', resources: '查看资源', execute: '执行操作', delete: '删除', previous: '上一步', next: '下一步',
   },
   fields: {
-    displayName: '显示名称', provider: 'Provider', accountId: '账号标识', credentialProfile: '凭据引用', scope: 'Endpoint 与元数据', endpoint: 'Endpoint', metadataJson: 'Opaque 元数据 JSON', framework: 'Framework 类型', operation: 'Operation Key', targetJson: 'Opaque Target JSON', inputJson: 'Opaque Input JSON', status: '状态', actions: '操作', updatedAt: '更新时间',
+    displayName: '显示名称', provider: 'Provider', accountId: '账号标识', credentialProfile: '凭据引用', scope: 'Endpoint 与元数据', endpoint: 'Endpoint', metadataJson: 'Opaque 元数据 JSON', framework: 'Framework 类型', deviceCount: '控制面设备数量', frameworkCount: 'Framework 数量', siteCount: 'Site 数量', operation: 'Operation Key', targetJson: 'Opaque Target JSON', inputJson: 'Opaque Input JSON', status: '状态', actions: '操作', updatedAt: '更新时间',
   },
   placeholders: {
     displayName: '例如：生产云账号', accountId: '可选的账号标识', endpoint: '可选的 Endpoint URL', metadataJson: '{"key":"value"}', targetJson: '{"resourceId":"opaque-resource"}', inputJson: '{"property":"value"}',
   },
   sections: { providers: 'Provider 目录', accounts: '云账号资产', operation: 'Opaque Provider 操作' },
   messages: {
-    loadFailed: '云 Provider 数据加载失败。', createFailed: '云账号资产创建失败。', saved: '云账号资产已创建。', updated: '云账号资产已更新。', deleted: '云账号资产已删除。', deleteConfirmText: 'DELETE', deleteRisk: '将删除云账号资产。', testCompleted: '连接测试完成。', discoveryCompleted: '资源发现完成。', operationCompleted: 'Provider 操作完成。', operationUnavailable: 'Provider PluginVersion/Runner 未接入，操作已失败关闭，宿主未执行。', operationOpaqueHint: '这些值只作为 opaque 描述保存和转发，宿主不会解释或执行厂商算法。', operationJsonInvalid: '请输入有效的 JSON 对象。', noAccounts: '暂无云账号资产。', noProviders: '暂无 Provider 定义。', noCapabilities: '暂无已声明操作。', credentialSelectHint: '请选择托管凭据，资产只保存 CredentialRef。', credentialHint: '这里只保存凭据引用，Provider 宿主不会解析密文。', metadataHint: '附加元数据以 opaque JSON 保存，宿主不会解释。', providerLocked: '已有资产不允许修改 Provider。', providerRequired: '请选择已启用的 Provider 插件。', providerUnavailable: '没有可用的已启用 Provider 插件或有效 Form 资源。', versionUnavailable: '当前资产版本不可用，请刷新列表后重试。', credentialRequired: '请先选择凭据引用。', metadataInvalid: '元数据 JSON 必须是对象。', scopeEmpty: '未填写 Endpoint 或元数据',
+    loadFailed: '云 Provider 数据加载失败。', createFailed: '云账号资产创建失败。', saved: '云账号资产已创建。', savedAndDiscovered: '云账号已保存，并已自动发现资源。', updated: '云账号资产已更新。', deleted: '云账号资产已删除。', deleteConfirmText: 'DELETE', deleteRisk: '将删除云账号资产。', testCompleted: '连接测试完成。', testCompletedUnverified: '连接测试返回，但签名未被验证。', discoveryCompleted: '资源发现完成。', discoveryFailedAfterSave: '云账号已保存，但自动发现失败。请修复凭据或 Provider 权限后重试发现。', operationFailed: '云账号操作失败。', resourcesLoading: '正在加载已发现资源…', resourcesLoadFailed: '已发现资源加载失败。', operationCompleted: 'Provider 操作完成。', operationUnavailable: 'Provider PluginVersion/Runner 未接入，操作已失败关闭，宿主未执行。', operationOpaqueHint: '这些值只作为 opaque 描述保存和转发，宿主不会解释或执行厂商算法。', operationJsonInvalid: '请输入有效的 JSON 对象。', noAccounts: '暂无云账号资产。', noProviders: '暂无 Provider 定义。', noCapabilities: '暂无已声明操作。', credentialSelectHint: '请选择托管凭据，资产只保存 CredentialRef。', credentialHint: '这里只保存凭据引用，Provider 宿主不会解析密文。', metadataHint: '附加元数据以 opaque JSON 保存，宿主不会解释。', providerLocked: '已有资产不允许修改 Provider。', providerRequired: '请选择已启用的 Provider 插件。', providerUnavailable: '没有可用的已启用 Provider 插件或有效 Form 资源。', versionUnavailable: '当前资产版本不可用，请刷新列表后重试。', credentialRequired: '请先选择凭据引用。', metadataInvalid: '元数据 JSON 必须是对象。', scopeEmpty: '资源发现完成后自动显示区域',
   },
   wizard: {
     ariaLabel: '云账号资产向导',
     steps: { provider: '选择 Provider', asset: '资产信息' },
-    stepDescriptions: { provider: '选择 Provider 并查看它声明的操作描述。', asset: '保存通用资产字段、CredentialRef 以及 opaque Endpoint 元数据。' },
-    panels: { providerTitle: '选择 Provider', providerDescription: 'Provider 条目只描述能力；接入 PluginVersion 和 Runner 前不会执行厂商操作。', assetTitle: '配置通用资产', assetDescription: '这里只保存通用身份字段、凭据引用、Endpoint 和 opaque 元数据。' },
+    stepDescriptions: { provider: '选择 Provider 并查看它声明的操作描述。', asset: '填写显示名称和托管凭据，区域与资源由系统自动发现。' },
+    panels: { providerTitle: '选择 Provider', providerDescription: '选择要连接的云服务 Provider。', assetTitle: '连接云账号', assetDescription: '这里只需要显示名称和托管凭据，保存后系统会自动测试连接并发现区域与资源。' },
     state: { active: '进行中', ready: '可保存', incomplete: '待完善', locked: '已锁定' },
     providerCard: { products: '已声明 Framework' },
     summary: { provider: 'Provider', account: '账号', credential: '凭据' },
+    autoDiscovery: { title: '自动发现', description: '保存后 GCAC 会自动测试连接并发现可用区域和资源，无需填写 Endpoint 或区域。' },
   },
   aria: { accountForm: '云账号资产表单', operationForm: 'Opaque Provider 操作表单' },
-  detail: { title: '云服务详情', description: '查看选中云服务的只读详情。' },
+  detail: { title: '云服务详情', description: '查看选中云服务的只读详情。', resourcesTitle: '已发现资源', resourcesDescription: '账号只有一个 CDN 控制面设备；中国大陆和全球是 Framework，每个 CDN 实例是一个 Site。', devices: 'CDN 控制面设备', frameworks: 'Framework', sites: 'Site', regions: 'CDN 区域', noDevices: 'Provider 没有返回 CDN 控制面设备。', noFrameworks: '暂无 Framework 记录。', noSites: '暂无 Site 记录。', noRegions: 'Provider 没有返回 CDN 区域信息。' },
 } as const
 
 export const providersZhTW = providersZhCN
