@@ -51,6 +51,8 @@ test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间�
     controlPlaneUrl: 'https://gcac.example.test', tenantId: 'tenant-1', providerId: 'provider-1', token: 'token-1',
   });
   assert.doesNotMatch(script, /pollSeconds/);
+  assert.match(script, /existingConfig\.nodeId/);
+  assert.match(script, /config\.enrollmentToken = ''/);
   assert.equal(getInternalCaRouteContracts().some((route) => route.operationId === 'streamCaNodeTasks'), true);
 });
 
