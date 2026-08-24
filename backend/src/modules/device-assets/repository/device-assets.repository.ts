@@ -31,21 +31,45 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
     );
     if (existing.rows[0]) throw new AppError('RESOURCE_ALREADY_EXISTS', '相同管理地址的设备资产已存在', { deviceAssetId: existing.rows[0].id });
     const id = newId('dev');
+    const hostId = newId('hst');
     const now = new Date().toISOString();
+    const addressType = inferAddressType(input.managementAddress);
     await this.db.transaction(async (tx) => {
+      await tx.query(
+        `insert into pg_hosts (
+          id, tenant_id, hostname, display_name, primary_ip, ip_addresses, os_type, os_name, os_version,
+          management_channels, discovery_source, agent_id, asset_fingerprint, compatibility_level,
+          management_mode, status, tags, created_at, updated_at, version
+        ) values (
+          $1, $2, $3, $4, $5, $6::jsonb, 'NETWORK_DEVICE', $7, null,
+          $8::jsonb, 'MANUAL', null, $9, 'L1', 'AGENTLESS', 'UNKNOWN', '[]'::jsonb, $10, $10, 1
+        )`,
+        [
+          hostId,
+          tenantId,
+          addressType === 'DNS' ? input.managementAddress.toLowerCase() : null,
+          input.displayName,
+          addressType === 'DNS' ? null : input.managementAddress,
+          JSON.stringify(addressType === 'DNS' ? [] : [input.managementAddress]),
+          deviceProductName(input.deviceFamily),
+          JSON.stringify([{ type: 'NITRO', enabled: true, refId: id, metadata: { port: input.managementPort, tlsVerify: input.tlsVerify } }]),
+          `device:${input.deviceFamily}:${input.managementAddress.toLowerCase()}:${input.managementPort}`,
+          now,
+        ],
+      );
       await tx.query(
         `insert into pg_service_assets (
           id, tenant_id, address, address_type, port, protocol, display_name, discovery_source,
-          status, tags, metadata, asset_kind, created_at, updated_at, version
-        ) values ($1, $2, $3, $4, $5, 'HTTPS', $6, 'MANUAL', 'UNKNOWN', '[]'::jsonb, $7::jsonb, 'DEVICE', $8, $8, 1)`,
-        [id, tenantId, input.managementAddress, inferAddressType(input.managementAddress), input.managementPort, input.displayName, JSON.stringify({ deviceFamily: input.deviceFamily }), now],
+          host_id, status, tags, metadata, asset_kind, created_at, updated_at, version
+        ) values ($1, $2, $3, $4, $5, 'HTTPS', $6, 'MANUAL', $7, 'UNKNOWN', '[]'::jsonb, $8::jsonb, 'DEVICE', $9, $9, 1)`,
+        [id, tenantId, input.managementAddress, addressType, input.managementPort, input.displayName, hostId, JSON.stringify({ deviceFamily: input.deviceFamily }), now],
       );
       await tx.query(
         `insert into pg_device_assets (
-          service_asset_id, tenant_id, device_family, management_port, credential_id, auth_mode,
+          service_asset_id, tenant_id, host_id, device_family, management_port, credential_id, auth_mode,
           tls_verify, ca_secret_id, gateway_id, support_tier, capability_profile, created_at, updated_at, version
-        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'READ_ONLY', '{}'::jsonb, $10, $10, 1)`,
-        [id, tenantId, input.deviceFamily, input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now],
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'READ_ONLY', '{}'::jsonb, $11, $11, 1)`,
+        [id, tenantId, hostId, input.deviceFamily, input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now],
       );
     });
     return this.require(tenantId, id);
@@ -66,6 +90,23 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
          ca_secret_id = $5, gateway_id = $6, updated_at = $7, version = version + 1
          where service_asset_id = $8 and tenant_id = $9`,
         [next.managementPort, next.credentialId, next.authMode, next.tlsVerify, next.caSecretId ?? null, next.gatewayId ?? null, now, deviceAssetId, tenantId],
+      );
+      const addressType = inferAddressType(next.managementAddress);
+      await tx.query(
+        `update pg_hosts set hostname = $1, display_name = $2, primary_ip = $3, ip_addresses = $4::jsonb,
+          management_channels = $5::jsonb, asset_fingerprint = $6, updated_at = $7, version = version + 1
+         where id = $8 and tenant_id = $9 and deleted_at is null`,
+        [
+          addressType === 'DNS' ? next.managementAddress.toLowerCase() : null,
+          next.displayName,
+          addressType === 'DNS' ? null : next.managementAddress,
+          JSON.stringify(addressType === 'DNS' ? [] : [next.managementAddress]),
+          JSON.stringify([{ type: 'NITRO', enabled: true, refId: deviceAssetId, metadata: { port: next.managementPort, tlsVerify: next.tlsVerify } }]),
+          `device:${next.deviceFamily}:${next.managementAddress.toLowerCase()}:${next.managementPort}`,
+          now,
+          current.hostId,
+          tenantId,
+        ],
       );
     });
     return this.require(tenantId, deviceAssetId);
@@ -88,6 +129,7 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
 interface DeviceAssetRow extends Record<string, unknown> {
   id: string;
   tenant_id: string;
+  host_id: string;
   display_name: string | null;
   address: string;
   management_port: number;
@@ -122,6 +164,7 @@ function toDto(row: DeviceAssetRow): DeviceAssetDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    hostId: row.host_id,
     displayName: row.display_name ?? row.address,
     managementAddress: row.address,
     managementPort: Number(row.management_port),
@@ -154,4 +197,9 @@ function inferAddressType(address: string): 'IPV4' | 'IPV6' | 'DNS' {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function deviceProductName(deviceFamily: DeviceAssetDto['deviceFamily']): string {
+  if (deviceFamily === 'NETSCALER_ADC') return 'Citrix ADC';
+  return deviceFamily;
 }

@@ -7,6 +7,7 @@ export type DeviceDiscoveryStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' 
 export interface DeviceAssetDto {
   id: string;
   tenantId: string;
+  hostId: string;
   displayName: string;
   managementAddress: string;
   managementPort: number;
