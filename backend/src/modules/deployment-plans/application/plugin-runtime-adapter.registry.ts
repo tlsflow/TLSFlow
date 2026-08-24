@@ -30,7 +30,7 @@ export interface RuntimeExecutionRequest {
   requiredCapabilities: string[];
   gatewayRoute?: {
     gatewayId?: string;
-    adapter: 'curl';
+    adapter: 'relay.tcp';
     delegatedTargetId: string;
   };
   payload: Record<string, unknown>;
@@ -92,15 +92,17 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
         executionMode: input.workflow.executionMode,
       });
     }
-    const gatewayId = input.capability.executionLocation === 'GATEWAY' ? input.context.deviceAsset?.gatewayId : undefined;
-    if (input.capability.executionLocation === 'GATEWAY' && !gatewayId) {
-      throw new AppError('CAPABILITY_MISSING', 'Workflow DSL Runtime 缺少 Gateway 连接', { managedTargetId: input.context.managedTarget.id });
+    if (input.capability.executionLocation === 'GATEWAY') {
+      throw new AppError('VALIDATION_FAILED', 'Gateway 仅支持鉴权后的 TCP Relay，不能作为 Workflow 或业务插件执行位置', {
+        reason: 'GATEWAY_RELAY_ONLY',
+        managedTargetId: input.context.managedTarget.id,
+      });
     }
     return {
       executorType: 'WORKFLOW',
       executionTargetId: input.context.managedTarget.id,
-      requiredCapabilities: gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
-      gatewayRoute: gatewayId ? { gatewayId, adapter: 'curl', delegatedTargetId: input.context.managedTarget.id } : undefined,
+      requiredCapabilities: ['workflow.run'],
+      gatewayRoute: undefined,
       payload: {
         pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
         certificateVerification: hostCertificateVerification(input),
@@ -109,8 +111,8 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
           workflowId: input.workflow.workflowId,
           workflowVersionSelection: 'FIXED',
           workflowVersionId: input.workflow.workflowVersionId,
-          runner: gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
-          gatewayId,
+          runner: 'CONTROL_PLANE',
+          gatewayId: undefined,
           pluginVersionId: input.capability.pluginVersionId,
           pluginBindingId: input.capability.binding.id,
           capabilityKey: input.capability.assignment.capabilityKey,

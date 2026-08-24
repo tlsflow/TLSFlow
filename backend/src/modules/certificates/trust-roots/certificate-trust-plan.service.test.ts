@@ -12,6 +12,11 @@ test('根信任检查只提交 agent.fact.collect，不再直连执行', async (
       discoverRoot: async () => { throw new Error('不应发现'); },
     },
     agents: {
+      findTaskByIdempotencyKey: async () => undefined,
+      createFactCollectionRequest: async (_tenantId, _agentId, _requestedBy, requestId) => ({
+        requestId,
+        payload: signedFactCollectPayload(),
+      } as never),
       enqueueTask: async (_tenantId, input) => {
         payload = input.payload;
         return taskEnvelope('task_fact_collect');
@@ -27,8 +32,12 @@ test('根信任检查只提交 agent.fact.collect，不再直连执行', async (
       && (error.details as { asyncPending?: boolean } | undefined)?.asyncPending === true,
   );
   assert.equal(payload?.actionType, 'agent.fact.collect');
-  assert.deepEqual(payload?.factKinds, ['certificate_store']);
-  assert.equal((payload?.factRequest as Record<string, unknown>).store, 'root');
+  assert.equal(payload?.actionSchemaVersion, '1.0');
+  assert.equal(payload?.refreshWebInventory, false);
+  assert.equal(payload?.token !== undefined, true);
+  assert.equal(payload?.policyDecision !== undefined, true);
+  assert.equal(payload?.factKinds, undefined);
+  assert.equal(payload?.factRequest, undefined);
 });
 
 test('根信任检查发现阶段完成后仍必须等待 Agent v2 Receipt', async () => {
@@ -45,7 +54,11 @@ test('根信任检查发现阶段完成后仍必须等待 Agent v2 Receipt', asy
         return { status: 'found', fingerprintSha256: 'def456', root: rootMaterial('def456').root } as never;
       },
     },
-    agents: { enqueueTask: async () => taskEnvelope('task_fact_collect_after_discovery') },
+    agents: {
+      findTaskByIdempotencyKey: async () => undefined,
+      createFactCollectionRequest: async (_tenantId, _agentId, _requestedBy, requestId) => ({ requestId, payload: signedFactCollectPayload() }),
+      enqueueTask: async () => taskEnvelope('task_fact_collect_after_discovery'),
+    },
   });
 
   await assert.rejects(
@@ -62,13 +75,71 @@ test('根信任检查无法发现根证书时失败关闭', async () => {
       resolveVersionInstallableRoot: async () => undefined,
       discoverRoot: async () => ({ status: 'not_found', fingerprintSha256: 'unknown', failureCode: 'ROOT_NOT_FOUND' } as never),
     },
-    agents: { enqueueTask: async () => { throw new Error('不应提交任务'); } },
+    agents: {
+      findTaskByIdempotencyKey: async () => undefined,
+      createFactCollectionRequest: async () => { throw new Error('不应生成请求'); },
+      enqueueTask: async () => { throw new Error('不应提交任务'); },
+    },
   });
 
   await assert.rejects(
     service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_3', certificateVersionId: 'certver_3', requestId: 'request_3' }),
     (error: unknown) => error instanceof AppError
       && (error.details as { code?: string } | undefined)?.code === 'CERTIFICATE_TRUST_ROOT_UNRESOLVED',
+  );
+});
+
+test('根信任检查复用成功 Receipt 并生成安装或跳过决策', async () => {
+  const material = rootMaterial('a'.repeat(64));
+  const service = new CertificateTrustPlanService({
+    trustRoots: {
+      resolveVersionInstallableRoot: async () => material,
+      discoverRoot: async () => { throw new Error('不应发现'); },
+    },
+    agents: {
+      findTaskByIdempotencyKey: async () => ({
+        ...(taskEnvelope('task_fact_collect_succeeded') as unknown as Record<string, unknown>),
+        status: 'succeeded',
+        result: {
+          success: true,
+          status: 'SUCCESS',
+          detail: {
+            factEnvelope: {
+              digest: 'b'.repeat(64),
+              facts: [{ kind: 'certificate_store', sha256Fingerprint: 'a'.repeat(64), store: 'root', subject: 'CN=Root', thumbprint: 'AA', hasPrivateKey: false }],
+            },
+          },
+        },
+      } as never),
+      createFactCollectionRequest: async () => { throw new Error('已有 Receipt 时不应重新生成请求'); },
+      enqueueTask: async () => { throw new Error('已有 Receipt 时不应重新提交任务'); },
+    },
+  });
+
+  const result = await service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_1', certificateVersionId: 'certver_1', requestId: 'request_3' });
+  assert.equal(result.plan.decision, 'skip');
+  assert.equal(result.plan.inspection.status, 'found');
+});
+
+test('根信任检查 Receipt 缺少事实快照时失败关闭', async () => {
+  const material = rootMaterial('c'.repeat(64));
+  const service = new CertificateTrustPlanService({
+    trustRoots: {
+      resolveVersionInstallableRoot: async () => material,
+      discoverRoot: async () => { throw new Error('不应发现'); },
+    },
+    agents: {
+      findTaskByIdempotencyKey: async () => ({ ...(taskEnvelope('task_fact_collect_invalid') as unknown as Record<string, unknown>), status: 'succeeded', result: { success: true, status: 'SUCCESS', detail: {} } } as never),
+      createFactCollectionRequest: async () => { throw new Error('无效 Receipt 时不应重新生成请求'); },
+      enqueueTask: async () => { throw new Error('无效 Receipt 时不应重新提交任务'); },
+    },
+  });
+
+  await assert.rejects(
+    service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_1', certificateVersionId: 'certver_invalid_receipt', requestId: 'request_invalid_receipt' }),
+    (error: unknown) => error instanceof AppError
+      && error.errorCode === 'VALIDATION_FAILED'
+      && (error.details as { code?: string } | undefined)?.code === 'CERTIFICATE_TRUST_INSPECT_INVALID',
   );
 });
 
@@ -106,4 +177,25 @@ function taskEnvelope(id: string) {
     updatedAt: '2026-08-07T00:00:00.000Z',
     requestId: 'request_test',
   } as never;
+}
+
+function signedFactCollectPayload(): Record<string, unknown> {
+  return {
+    actionType: 'agent.fact.collect',
+    actionSchemaVersion: '1.0',
+    requestId: 'request_fact_collect',
+    agentId: 'agent_1',
+    tenantId: 'tenant_1',
+    pluginId: 'web.nginx',
+    pluginVersion: 'plgver_discovery',
+    capability: 'application.discover',
+    actions: ['filesystem.read', 'process.list', 'service.list'],
+    paths: [],
+    services: [],
+    artifactDigests: [],
+    planDigest: 'a'.repeat(64),
+    token: { tokenVersion: 'gcac.agent-security/v1' },
+    policyDecision: { decisionVersion: 'gcac.agent-security/v1' },
+    refreshWebInventory: false,
+  };
 }

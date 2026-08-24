@@ -22,6 +22,9 @@ func decodeQueuedAgentV2Payload(payload map[string]any) (map[string]any, string,
 	wirePayload := cloneMap(payload)
 	delete(wirePayload, "actionType")
 	delete(wirePayload, "actionSchemaVersion")
+	// mutating 只属于控制面调度元数据，写效果由 AgentPlanV1.writeEffect
+	// 和操作类型共同决定，不能进入严格 Agent v2 wire 合同。
+	delete(wirePayload, "mutating")
 	wirePayload["action"] = action
 	return wirePayload, action, nil
 }

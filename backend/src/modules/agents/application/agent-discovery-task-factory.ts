@@ -39,6 +39,8 @@ export interface AgentDiscoveryRequestFactory {
     agent: AgentRegistration;
     requestedBy: string;
     requestId: string;
+    /** 是否同时刷新 Web 库存；证书根信任检查只需要通用事实。 */
+    refreshWebInventory?: boolean;
   }): Promise<AgentDirectDiscoveryRequest>;
 }
 
@@ -72,10 +74,11 @@ async function createDiscoveryRequest(
   if (!anchor) throw new AppError('CAPABILITY_MISSING', '没有启用且支持 Agent 发现授权的 Canonical 插件版本');
 
   const paths = discoveryPathsFor(input.agent);
+  const refreshWebInventory = input.refreshWebInventory ?? true;
   const isWindows = input.agent.descriptor.osType.toLowerCase().includes('windows');
   // Windows Full Agent 已内置成熟扫描器；插件 Profile 不能再决定扫描入口、默认
   // 配置路径或站点证书关联。Linux 仍沿用既有合同，避免扩大这次修复的影响范围。
-  const discoverySpec = isWindows ? undefined : buildAgentWebDiscoverySpec(versions, input.agent.descriptor.osType);
+  const discoverySpec = !refreshWebInventory || isWindows ? undefined : buildAgentWebDiscoverySpec(versions, input.agent.descriptor.osType);
   const planDigest = digest({
     actionType: 'agent.fact.collect',
     agentId: input.agent.id,
@@ -85,7 +88,7 @@ async function createDiscoveryRequest(
     capability: 'application.discover',
     paths,
     ...(discoverySpec ? { discoverySpec } : {}),
-    refreshWebInventory: true,
+    refreshWebInventory,
   });
   dependencies.policyAuthority.assertReady();
   const authorization = await dependencies.policyAuthority.issueAuthorization({
@@ -129,7 +132,7 @@ async function createDiscoveryRequest(
       token: authorization.token,
       policyDecision: authorization.decision,
       ...(discoverySpec ? { discoverySpec } : {}),
-      refreshWebInventory: true,
+      refreshWebInventory,
       requestedBy: input.requestedBy,
     },
   };

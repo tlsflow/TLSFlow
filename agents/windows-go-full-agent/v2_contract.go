@@ -8,9 +8,11 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -333,6 +335,8 @@ func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, strin
 	}
 	facts = append(facts, ports...)
 	facts = append(facts, collectWindowsPermissions())
+	// 根信任检查只需要 Windows Root 证书库事实，不需要 Web 配置或站点扫描。
+	facts = append(facts, collectWindowsCertificateStores(scanCtx)...)
 	envelope := map[string]any{
 		"contractVersion": agentSecurityContract,
 		"factId":          request.RequestID,
@@ -367,6 +371,65 @@ func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, strin
 	}
 	envelope["digest"] = digest
 	return true, "", "", map[string]any{"factEnvelope": envelope}
+}
+
+// collectWindowsCertificateStores 通过固定的 PowerShell 只读命令读取
+// LocalMachine\\Root 的 DER 原文，再由 Go 计算 SHA-256。命令没有用户输入，
+// 不属于 Agent 计划的自由命令执行路径。
+func collectWindowsCertificateStores(ctx context.Context) []map[string]any {
+	script := "$ErrorActionPreference='Stop'; Get-ChildItem -LiteralPath 'Cert:\\LocalMachine\\Root' | ForEach-Object { [Convert]::ToBase64String($_.RawData) }"
+	command := exec.CommandContext(ctx, windowsPowerShellPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	command.Dir = windowsSystem32Directory
+	command.Env = fixedWindowsEnvironment()
+	output, err := command.Output()
+	if err != nil {
+		return []map[string]any{{"kind": "certificate_store", "store": "root", "storeLocation": "LocalMachine", "storeName": "Root", "subject": "unavailable", "sha256Fingerprint": "unavailable", "hasPrivateKey": false}}
+	}
+	stores := parseWindowsCertificateStoreOutput(output)
+	if len(stores) == 0 {
+		return []map[string]any{{"kind": "certificate_store", "store": "root", "storeLocation": "LocalMachine", "storeName": "Root", "subject": "unavailable", "sha256Fingerprint": "unavailable", "hasPrivateKey": false}}
+	}
+	return stores
+}
+
+func parseWindowsCertificateStoreOutput(output []byte) []map[string]any {
+	stores := make([]map[string]any, 0, 64)
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		encoded := strings.TrimSpace(scanner.Text())
+		if encoded == "" {
+			continue
+		}
+		der, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			continue
+		}
+		certificate, err := x509.ParseCertificate(der)
+		if err != nil {
+			continue
+		}
+		sha256Fingerprint := sha256.Sum256(certificate.Raw)
+		sha1Fingerprint := sha1.Sum(certificate.Raw)
+		stores = append(stores, map[string]any{
+			"kind":              "certificate_store",
+			"store":             "root",
+			"storeLocation":     "LocalMachine",
+			"storeName":         "Root",
+			"path":              "windows-certstore://LocalMachine/Root/" + strings.ToUpper(hex.EncodeToString(sha1Fingerprint[:])),
+			"subject":           certificate.Subject.String(),
+			"issuer":            certificate.Issuer.String(),
+			"serialNumber":      certificate.SerialNumber.String(),
+			"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339Nano),
+			"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339Nano),
+			"sha256Fingerprint": strings.ToUpper(hex.EncodeToString(sha256Fingerprint[:])),
+			"thumbprint":        strings.ToUpper(hex.EncodeToString(sha1Fingerprint[:])),
+			"hasPrivateKey":     false,
+		})
+		if len(stores) >= 256 {
+			break
+		}
+	}
+	return stores
 }
 
 func webInventoryValue(inventory map[string]any, key string) any {
@@ -557,12 +620,8 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 			return errors.New("operation service is outside token scope")
 		}
 		if operation.OperationType == "command.execute_allowlisted" {
-			args, _ := stringArrayValue(operation.Input, "args")
-			if len(args) != 2 || !scopeContains(token.AllowedServices, args[1]) {
-				return errors.New("allowlisted command service is outside token scope")
-			}
-			if digest := stringValue(operation.Input, "executableSha256"); !v2ContainsString(token.ArtifactDigests, digest) {
-				return errors.New("allowlisted command executable is outside token scope")
+			if err := validateAllowlistedCommandScope(operation.Input, token.AllowedPaths, token.ArtifactDigests); err != nil {
+				return err
 			}
 		}
 		if artifact := stringValue(operation.Input, "artifactDigest"); artifact != "" && !v2ContainsString(token.ArtifactDigests, artifact) {
@@ -578,12 +637,8 @@ func validateAgentPlanAuthorization(plan agentPlanV2, decision PolicyAuthorityDe
 			return fmt.Errorf("Policy Decision 未授权 Agent 操作: %s", operation.OperationType)
 		}
 		if operation.OperationType == "command.execute_allowlisted" {
-			args, _ := stringArrayValue(operation.Input, "args")
-			if len(args) != 2 || !scopeContains(decision.AllowedServices, args[1]) {
-				return errors.New("allowlisted command service is outside Policy Decision scope")
-			}
-			if digest := stringValue(operation.Input, "executableSha256"); !v2ContainsString(decision.ArtifactDigests, digest) {
-				return errors.New("allowlisted command executable is outside Policy Decision scope")
+			if err := validateAllowlistedCommandScope(operation.Input, decision.AllowedPaths, decision.ArtifactDigests); err != nil {
+				return err
 			}
 		}
 	}
@@ -603,7 +658,7 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	if operation.Input == nil {
 		return errors.New("operation input is required")
 	}
-	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.tls.verify", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+	if !v2ContainsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "certificate.tls.verify", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 		return fmt.Errorf("unsupported Agent operation: %s", operation.OperationType)
 	}
 	if strings.HasPrefix(operation.OperationType, "service.") && stringValue(operation.Input, "serviceName") == "" {
@@ -611,6 +666,9 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.tls.verify" {
 		return validatePreDeployTLSVerificationInput(operation.Input)
+	}
+	if operation.OperationType == "certificate.store.install" {
+		return validateCertificateStoreInstallInput(operation.Input)
 	}
 	if operation.OperationType == "command.execute_allowlisted" {
 		return validateAllowlistedCommandInput(operation)
@@ -691,6 +749,8 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			switch operation.OperationType {
 			case "certificate.tls.verify":
 				operationDetail, err = executePreDeployTLSVerification(operationCtx, operation)
+			case "certificate.store.install":
+				operationDetail, err = executeCertificateStoreInstall(operationCtx, operation)
 			case "filesystem.atomic_replace":
 				err = executeFileReplace(operationCtx, operation)
 			case "filesystem.restore":
@@ -792,7 +852,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if v2ContainsString([]string{"filesystem.atomic_replace", "filesystem.restore", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if v2ContainsString([]string{"filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}
@@ -802,7 +862,12 @@ func hasAgentWriteOperation(plan agentPlanV2) bool {
 // 保护边界由能力语义决定，不能硬编码内置插件 ID。这样新增的 Windows Web
 // 插件只要声明 certificate.deploy，也必须先证明当前监听端口的运行证书。
 func requiresCertificateDeploymentTLSProof(plan agentPlanV2) bool {
-	return strings.EqualFold(strings.TrimSpace(plan.Capability), "certificate.deploy")
+	if !strings.EqualFold(strings.TrimSpace(plan.Capability), "certificate.deploy") {
+		return false
+	}
+	// 宿主根信任安装只写入 Windows Root Store，没有要验证的 Web 监听端点；
+	// 只有实际证书部署写操作才必须先验证当前 TLS 绑定。
+	return !(len(plan.Operations) == 1 && plan.Operations[0].OperationType == "certificate.store.install")
 }
 
 type windowsPreDeployTLSProbe struct {
@@ -987,6 +1052,83 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 	}
 	return agentContextError(ctx)
 }
+
+func executeCertificateStoreInstall(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+	if err := validateCertificateStoreInstallInput(operation.Input); err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode([]byte(stringValue(operation.Input, "certificatePem")))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, errors.New("certificate.store.install requires a certificate PEM")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || !certificate.IsCA {
+		return nil, errors.New("certificate.store.install requires a CA certificate")
+	}
+	expected := strings.ToLower(strings.ReplaceAll(stringValue(operation.Input, "fingerprintSha256"), ":", ""))
+	actual := sha256.Sum256(certificate.Raw)
+	if hex.EncodeToString(actual[:]) != expected {
+		return nil, errors.New("certificate.store.install fingerprint does not match certificate PEM")
+	}
+	temporary, err := os.CreateTemp(os.TempDir(), "gcac-root-*.cer")
+	if err != nil {
+		return nil, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return nil, err
+	}
+	if _, err := temporary.Write(certificate.Raw); err != nil {
+		temporary.Close()
+		return nil, err
+	}
+	if err := temporary.Close(); err != nil {
+		return nil, err
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	certutil := windowsSystem32Directory + `\certutil.exe`
+	add := exec.CommandContext(ctx, certutil, "-addstore", "-f", "Root", temporaryPath)
+	add.Dir = windowsSystem32Directory
+	add.Env = fixedWindowsEnvironment()
+	if output, err := add.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("certutil -addstore failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	sha1Fingerprint := sha1.Sum(certificate.Raw)
+	verify := exec.CommandContext(ctx, certutil, "-store", "Root", strings.ToUpper(hex.EncodeToString(sha1Fingerprint[:])))
+	verify.Dir = windowsSystem32Directory
+	verify.Env = fixedWindowsEnvironment()
+	if output, err := verify.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("certutil -store verification failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return map[string]any{
+		"store":             "root",
+		"storeLocation":     "LocalMachine",
+		"sha256Fingerprint": expected,
+		"verification":      "certutil-store-sha1-and-pem-sha256",
+	}, nil
+}
+
+func validateCertificateStoreInstallInput(input map[string]any) error {
+	if len(input) != 3 || stringValue(input, "certificatePem") == "" || stringValue(input, "fingerprintSha256") == "" || stringValue(input, "store") != "root" {
+		return errors.New("certificate.store.install input must contain certificatePem, fingerprintSha256 and store=root")
+	}
+	if strings.Count(stringValue(input, "certificatePem"), "BEGIN CERTIFICATE") != 1 {
+		return errors.New("certificate.store.install certificatePem is invalid")
+	}
+	if fingerprint := strings.ToLower(strings.ReplaceAll(stringValue(input, "fingerprintSha256"), ":", "")); len(fingerprint) != sha256.Size*2 || !isHexDigest(fingerprint) {
+		return errors.New("certificate.store.install fingerprintSha256 is invalid")
+	}
+	return nil
+}
+
+func isHexDigest(value string) bool {
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
 func executeAllowlistedService(ctx context.Context, operation agentPlanAction) error {
 	service, verb := stringValue(operation.Input, "serviceName"), strings.TrimPrefix(operation.OperationType, "service.")
 	if !validWindowsServiceName(service) || !v2ContainsString([]string{"start", "stop", "reload"}, verb) {
@@ -1002,9 +1144,11 @@ func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) e
 	if err := validateAllowlistedCommandInput(operation); err != nil {
 		return err
 	}
+	workingDirectory := stringValue(operation.Input, "workingDirectory")
+	program := stringValue(operation.Input, "executablePath")
 	args, _ := stringArrayValue(operation.Input, "args")
-	command := exec.CommandContext(ctx, windowsSystemControlPath, args...)
-	command.Dir = windowsSystem32Directory
+	command := exec.CommandContext(ctx, program, args...)
+	command.Dir = workingDirectory
 	command.Env = fixedWindowsEnvironment()
 	return command.Run()
 }
@@ -1018,18 +1162,18 @@ const (
 func validateAllowlistedCommandInput(operation agentPlanAction) error {
 	input := operation.Input
 	program := stringValue(input, "executablePath")
-	if !strings.EqualFold(filepath.Clean(program), windowsSystemControlPath) {
-		return errors.New("program is not in the fixed absolute-path allowlist")
+	if !isSafeWindowsAbsolutePath(program) {
+		return errors.New("allowlisted command executable path must be absolute and cannot contain parent traversal")
 	}
 	if err := verifyExecutableSha256(program, stringValue(input, "executableSha256")); err != nil {
 		return err
 	}
-	if !strings.EqualFold(filepath.Clean(stringValue(input, "workingDirectory")), windowsSystem32Directory) {
-		return errors.New("allowlisted command working directory is not fixed")
+	if err := validateWindowsWorkingDirectory(stringValue(input, "workingDirectory")); err != nil {
+		return err
 	}
 	args, err := stringArrayValue(input, "args")
-	if err != nil || len(args) != 2 || !v2ContainsString([]string{"start", "stop", "query"}, args[0]) || !validWindowsServiceName(args[1]) {
-		return errors.New("allowlisted command args do not match the fixed template")
+	if err != nil || !validAllowlistedCommandArgs(args) {
+		return errors.New("allowlisted command args do not match the declared template")
 	}
 	template, err := stringArrayValue(input, "argumentTemplate")
 	if err != nil || !matchesWindowsArgumentTemplate(args, template) {
@@ -1080,10 +1224,82 @@ func validateAllowlistedCommandInput(operation agentPlanAction) error {
 }
 
 func matchesWindowsArgumentTemplate(args, template []string) bool {
-	if len(args) != len(template) {
+	if len(args) == 0 || len(args) != len(template) {
 		return false
 	}
-	return (template[0] == args[0] || template[0] == "{verb}") && (template[1] == args[1] || template[1] == "{serviceName}")
+	for index, expected := range template {
+		if expected == args[index] {
+			continue
+		}
+		switch expected {
+		case "{verb}":
+			if !v2ContainsString([]string{"start", "stop", "query", "reload", "restart"}, args[index]) {
+				return false
+			}
+		case "{serviceName}":
+			if !validWindowsServiceName(args[index]) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validateAllowlistedCommandScope(input map[string]any, allowedPaths, allowedDigests []string) error {
+	for _, field := range []string{"executablePath", "workingDirectory"} {
+		value := stringValue(input, field)
+		if value == "" || !pathScopeContains(allowedPaths, value) {
+			return fmt.Errorf("allowlisted command %s is outside token scope", field)
+		}
+	}
+	if digest := stringValue(input, "executableSha256"); digest == "" || !v2ContainsString(allowedDigests, digest) {
+		return errors.New("allowlisted command executable is outside token scope")
+	}
+	return nil
+}
+
+func validAllowlistedCommandArgs(args []string) bool {
+	if len(args) == 0 || len(args) > 32 {
+		return false
+	}
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "" || strings.IndexByte(arg, 0) >= 0 || strings.ContainsAny(arg, "\r\n;&|<>`$()") {
+			return false
+		}
+	}
+	return true
+}
+
+func isSafeWindowsAbsolutePath(value string) bool {
+	if value == "" || strings.IndexByte(value, 0) >= 0 || hasParentPathSegment(value) {
+		return false
+	}
+	if filepath.IsAbs(value) || strings.HasPrefix(value, `\\`) {
+		return true
+	}
+	return len(value) >= 3 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':' && (value[2] == '\\' || value[2] == '/')
+}
+
+func validateWindowsWorkingDirectory(value string) error {
+	if !isSafeWindowsAbsolutePath(value) {
+		return errors.New("allowlisted command working directory must be absolute and cannot contain parent traversal")
+	}
+	info, err := os.Stat(value)
+	if err != nil || !info.IsDir() {
+		return errors.New("allowlisted command working directory is unavailable")
+	}
+	return nil
+}
+
+func hasParentPathSegment(value string) bool {
+	for _, segment := range strings.FieldsFunc(value, func(r rune) bool { return r == '\\' || r == '/' }) {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func stringArrayValue(values map[string]any, key string) ([]string, error) {
@@ -1468,9 +1684,11 @@ func validateAgentPlanLocalPolicy(plan agentPlanV2) error {
 			return errors.New("operation service is denied by local policy")
 		}
 		if operation.OperationType == "command.execute_allowlisted" {
-			args, _ := stringArrayValue(operation.Input, "args")
-			if len(args) != 2 || !scopeContains(policy.AllowedServices, args[1]) {
-				return errors.New("allowlisted command service is denied by local policy")
+			for _, field := range []string{"executablePath", "workingDirectory"} {
+				value := stringValue(operation.Input, field)
+				if value == "" || !pathScopeContains(policy.AllowedPaths, value) {
+					return fmt.Errorf("allowlisted command %s is denied by local policy", field)
+				}
 			}
 		}
 	}

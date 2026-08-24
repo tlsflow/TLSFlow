@@ -8,7 +8,7 @@ import { ExecutionTargetKinds, type ExecutionTargetKind } from '../../../shared/
 import type { RiskLevel, SecuritySubject } from '../../../shared/security-types.js';
 import { securityErrors } from '../../../shared/security-error.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
-import { assertGatewayRouteChannel, type GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
+import { assertGatewayRelayRouteChannel, type GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
@@ -462,7 +462,7 @@ function parseExecutorType(value: unknown, field: string): ExecutionTargetKind |
 
 function parseGatewayChannel(value: unknown, field: string): GatewayAdapterType | undefined {
   if (value === undefined) return undefined;
-  return assertGatewayRouteChannel(value, field);
+  return assertGatewayRelayRouteChannel(value, field);
 }
 
 function rejectFallbackSuggestions(value: unknown, field: string): void {

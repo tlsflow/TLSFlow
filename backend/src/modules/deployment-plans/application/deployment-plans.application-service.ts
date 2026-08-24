@@ -14,7 +14,7 @@ import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
 import { GatewaysApplicationService } from '../../gateways/application/gateways.application-service.js';
-import type { GatewayAdapterType, GatewayCandidate, ZoneRouteResult } from '../../gateway-agents/index.js';
+import { assertGatewayRelayRouteChannel, type GatewayAdapterType, type GatewayCandidate, type ZoneRouteResult } from '../../gateway-agents/index.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import { PgBindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
@@ -825,9 +825,24 @@ export class DeploymentPlansApplicationService {
     const certificateFormatId = input.certificateFormatId
       ?? (deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.certificateFormatId : undefined);
     const executionMode = deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.executionMode ?? 'PLUGIN' : 'PLUGIN';
+    if (!certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', '证书部署计划必须指定证书版本');
+    }
+    const compileCertificateVersionId = selectionMode === 'LATEST_AUTO'
+      ? await this.findLatestDeployableCertificateVersionIdFromSeed(
+        certificateVersionId,
+        readyBinding,
+        applicationAsset.sniName ?? applicationAsset.address,
+        input.tenantId,
+        input.certificateAssetId,
+      )
+      : certificateVersionId;
+    const compileArtifact = certificateFormatId && compileCertificateVersionId
+      ? await this.resolveDeploymentArtifact(compileCertificateVersionId, certificateFormatId, input.tenantId)
+      : undefined;
     const resolvedStrategy = executionMode === 'WORKFLOW_OVERRIDE'
       ? await this.compileWorkflowExecutionBinding(input.tenantId, strategyAsset, deploymentStrategy?.managedTarget?.workflowExecutionBindingId, 'WORKFLOW_OVERRIDE', bindingTarget, managedTargetContext, readyBinding)
-      : await this.compileManagedPluginExecution(input.tenantId, strategyAsset, bindingTarget, managedTargetContext, readyBinding);
+      : await this.compileManagedPluginExecution(input.tenantId, strategyAsset, bindingTarget, managedTargetContext, readyBinding, compileArtifact);
 
     return {
       name: planName,
@@ -927,8 +942,9 @@ export class DeploymentPlansApplicationService {
     bindingTarget: Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>,
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
     certificateBinding?: CertificateBindingDto,
+    artifact?: DeploymentArtifactSnapshotDto,
   ) {
-    const resolved = await this.compileManagedPluginRuntime(tenantId, asset, bindingTarget, context, certificateBinding);
+    const resolved = await this.compileManagedPluginRuntime(tenantId, asset, bindingTarget, context, certificateBinding, artifact);
     return this.attachWorkflowCredentialSnapshots(tenantId, await this.attachPluginExecutionIdentity(asset, resolved));
   }
 
@@ -1030,6 +1046,7 @@ export class DeploymentPlansApplicationService {
     bindingTarget: Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>,
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
     certificateBinding?: CertificateBindingDto,
+    artifact?: DeploymentArtifactSnapshotDto,
   ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
     if (asset.deploymentStrategy?.type !== 'MANAGED_TARGET' || !context) {
       return this.deploymentStrategyResolver.resolve({
@@ -1076,7 +1093,9 @@ export class DeploymentPlansApplicationService {
       capability,
       workflowVersionId: workflow?.workflowVersionId,
     });
-    const inputResult = await this.resolveCapabilityDeploymentInput('configure', tenantId, capability, context, asset);
+    // 计划编译属于部署前预检，必须按 preflight 解析并密封 pre_execution 输入，
+    // 让证书 Artifact、凭据和运行事实在生成 Agent Plan 时完成门禁。
+    const inputResult = await this.resolveCapabilityDeploymentInput('preflight', tenantId, capability, context, asset, artifact);
     const resolvedInput = inputResult.resolvedInput;
     const runtime = await this.pluginRuntimeAdapters.compile({
       tenantId,
@@ -2417,6 +2436,7 @@ export class DeploymentPlansApplicationService {
     for (const target of targets) {
       const agentPayload = agentPayloadByTargetId.get(target.id);
       if (!agentPayload) continue;
+      if (!shouldBuildCertificateTrustPlan(agentPayload)) continue;
       const tenantId = target.tenantId ?? plan.tenantId;
       if (!tenantId) continue;
       const agentId = await this.resolveTrustInspectionAgentId(target, agentPayload, tenantId);
@@ -2720,7 +2740,10 @@ export class DeploymentPlansApplicationService {
       ...verification,
       expectedFingerprintSha256: artifact.expectedFingerprintSha256,
     };
-    const isAgentPlan = readOptionalString(runtimeCapability?.runtime) === 'AGENT_PLAN';
+    const isAgentPlan = isAgentPlanDeploymentPayload({
+      ...strategyPayload,
+      pluginRuntimeCapability: runtimeCapability,
+    });
     const bindingProof = isAgentPlan
       ? await this.resolveCurrentPreDeployBindingProof(target, resolvedTenantId)
       : undefined;
@@ -3033,9 +3056,9 @@ export class DeploymentPlansApplicationService {
     return updated;
   }
 
-  private async requiresApproval(plan: DeploymentPlanEntity): Promise<boolean> {
-    const settings = await this.getDeploymentTaskSettings(plan.tenantId);
-    if (!settings.approvalEnabled) return false;
+  private async requiresApproval(plan: DeploymentPlanEntity, settings?: DeploymentTaskSettings): Promise<boolean> {
+    const resolvedSettings = settings ?? await this.getDeploymentTaskSettings(plan.tenantId);
+    if (!resolvedSettings.approvalEnabled) return false;
     if (Boolean(plan.policy.approvalRequired) || this.domain.isHighRisk(plan.policy)) return true;
     const parameters = await this.approvalParameters(plan);
     const scopes = Array.isArray(parameters.tlsScopes) ? parameters.tlsScopes : [];
@@ -3233,6 +3256,7 @@ export class DeploymentPlansApplicationService {
 
     const protocols = this.routeProtocols(target);
     if (protocols.length === 0) return explicitRoute;
+    const relayProtocols = protocols.map((protocol, index) => assertGatewayRelayRouteChannel(protocol, `protocols[${index}]`));
     if (!tenantId) {
       throw new AppError('TENANT_CONTEXT_INVALID', '部署目标缺少租户上下文，拒绝计算网关路由', {
         executionTargetId: target.executionTargetId,
@@ -3243,7 +3267,7 @@ export class DeploymentPlansApplicationService {
     const routeResult = await this.gateways.route(tenantId, {
       zoneId,
       targetId,
-      protocols,
+      protocols: relayProtocols,
       requiredCapabilities: target.requiredCapabilities ?? this.defaultCapabilities(),
       destructive: target.destructive ?? this.isDestructivePlan(policy),
       action: target.action ?? this.defaultRouteAction(policy),
@@ -3273,6 +3297,9 @@ export class DeploymentPlansApplicationService {
       blockedReason: target.gatewayRoute?.blockedReason,
       approvalRequired: target.gatewayRoute?.approvalRequired,
     };
+    if (route.adapter !== undefined) {
+      route.adapter = assertGatewayRelayRouteChannel(route.adapter, 'gatewayRoute.adapter');
+    }
     return this.compactGatewayRoute(route);
   }
 
@@ -4115,6 +4142,53 @@ export function resolveBoundCertificateOutput(
   return file ?? virtualOutput;
 }
 
+/**
+ * 根信任只服务于会读取 Windows 证书库的部署目标（典型是 IIS HTTPS Binding）。
+ * 证书更新插件的 PEM 快照是明确的跳过证据；其它已知存储类型则以统一输入中的
+ * certificateLocation 为准。普通工作流若没有存储事实，保留历史兜底，避免旧计划
+ * 因新增门禁而改变行为；一旦有明确事实，就不能把 PEM/KeyStore 猜成 Windows Root Store。
+ */
+export function shouldBuildCertificateTrustPlan(agentPayload: Record<string, unknown>): boolean {
+  const storageKind = readDeploymentCertificateStorageKind(agentPayload);
+  if (Object.prototype.hasOwnProperty.call(agentPayload, 'certificateUpdateSnapshot')) {
+    const snapshot = readRecord(agentPayload.certificateUpdateSnapshot);
+    const artifactKind = readOptionalString(snapshot?.artifactKind);
+    if (artifactKind === 'PEM_FILES') return false;
+    if (artifactKind === 'KEYSTORE') return storageKind === 'WINDOWS_CERTIFICATE_STORE';
+    throw new AppError('VALIDATION_FAILED', '证书更新快照缺少受支持的 Artifact 类型，拒绝继续部署', {
+      code: 'CERTIFICATE_ARTIFACT_KIND_INVALID',
+      artifactKind,
+    });
+  }
+
+  if (storageKind === 'WINDOWS_CERTIFICATE_STORE') return true;
+  if (storageKind === 'PEM_FILES' || storageKind === 'KEYSTORE') return false;
+
+  // 普通工作流没有统一证书存储事实时沿用历史根信任逻辑。
+  return true;
+}
+
+function readDeploymentCertificateStorageKind(
+  agentPayload: Record<string, unknown>,
+): 'PEM_FILES' | 'KEYSTORE' | 'WINDOWS_CERTIFICATE_STORE' | undefined {
+  const resolvedInput = readRecord(agentPayload.resolvedDeploymentInput);
+  const assetContext = readRecord(resolvedInput?.assetContext);
+  const target = readRecord(assetContext?.target);
+  const deployment = readRecord(assetContext?.deployment);
+  const deploymentTargets = Array.isArray(deployment?.targets) ? deployment.targets : [];
+  const locations = [
+    readRecord(target?.certificateLocation),
+    ...deploymentTargets.map((item) => readRecord(readRecord(item)?.certificateLocation)),
+  ];
+  for (const location of locations) {
+    const storageKind = readOptionalString(location?.storageKind);
+    if (storageKind === 'PEM_FILES' || storageKind === 'KEYSTORE' || storageKind === 'WINDOWS_CERTIFICATE_STORE') {
+      return storageKind;
+    }
+  }
+  return undefined;
+}
+
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
@@ -4394,8 +4468,12 @@ function normalizeThumbprint(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
-function isAgentPlanDeploymentPayload(payload: Record<string, unknown> | undefined): boolean {
-  return readOptionalString(readRecord(payload?.pluginRuntimeCapability)?.runtime) === 'AGENT_PLAN';
+export function isAgentPlanDeploymentPayload(payload: Record<string, unknown> | undefined): boolean {
+  if (!payload) return false;
+  if (readOptionalString(readRecord(payload.pluginRuntimeCapability)?.runtime) === 'AGENT_PLAN') return true;
+  const actionType = readOptionalString(payload.actionType);
+  const plan = readRecord(payload.plan);
+  return actionType === 'agent.plan.execute' && Array.isArray(plan?.operations) && plan.operations.length > 0;
 }
 
 function isAgentPlanWebBindingTarget(target: ResolvedCreateTarget): boolean {

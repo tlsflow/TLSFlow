@@ -167,9 +167,9 @@ function assertReceiptBinding(receipt: AgentExecutionReceiptV1, grant: GatewayGr
 
 function assertOperationScope(plan: AgentPlanV1, token: AgentCapabilityTokenV1, decision: PolicyAuthorityDecisionV1): void {
   const allowedPath = (value: string) => token.allowedPaths.some((root) => value === root || value.startsWith(`${root.replace(/[\\/]$/, '')}/`) || value.startsWith(`${root.replace(/[\\/]$/, '')}\\`));
-  const pathKeys = ['path', 'sourcePath', 'destinationPath', 'backupPath', 'restorePath'];
+  const pathKeys = ['path', 'sourcePath', 'destinationPath', 'backupPath', 'restorePath', 'executablePath', 'workingDirectory'];
   const serviceKeys = ['service', 'serviceName', 'name'];
-  const artifactKeys = ['artifactDigest', 'artifactSha256', 'artifactDigests'];
+  const artifactKeys = ['artifactDigest', 'artifactSha256', 'artifactDigests', 'executableSha256'];
   for (const operation of plan.operations) {
     if (!token.actions.includes(operation.operationType) || !decision.actions.includes(operation.operationType)) {
       throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Plan 包含未授权操作', { reason: 'GATEWAY_OPERATION_DENIED', operationType: operation.operationType });

@@ -4,8 +4,13 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -52,6 +57,7 @@ func TestRuntimeDispatchesCanonicalQueuedActionType(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	payload := cloneMap(fixture.Request)
 	payload["actionType"] = agentPlanValidate
+	payload["mutating"] = false
 	delete(payload, "action")
 	execution := &taskExecutionContext{
 		ctx:          context.Background(),
@@ -67,6 +73,9 @@ func TestRuntimeDispatchesCanonicalQueuedActionType(t *testing.T) {
 	}
 	if _, exists := execution.task.Payload["actionType"]; exists {
 		t.Fatal("进入 Agent v2 wire 后不得保留 actionType")
+	}
+	if _, exists := execution.task.Payload["mutating"]; exists {
+		t.Fatal("进入 Agent v2 wire 后不得保留控制面 mutating 元数据")
 	}
 }
 
@@ -384,6 +393,21 @@ func TestWindowsWebWritePlanRequiresLocalTLSBindingProofBeforeAnyWrite(t *testin
 	}
 }
 
+func TestPureRootTrustInstallDoesNotRequireWebTLSBindingProof(t *testing.T) {
+	plan := agentPlanV2{
+		Capability: "certificate.deploy",
+		Operations: []agentPlanAction{{OperationType: "certificate.store.install"}},
+	}
+	if requiresCertificateDeploymentTLSProof(plan) {
+		t.Fatal("纯根信任安装计划不应被要求提供 Web 监听 TLS 绑定证明")
+	}
+
+	plan.Operations = append(plan.Operations, agentPlanAction{OperationType: "filesystem.atomic_replace"})
+	if !requiresCertificateDeploymentTLSProof(plan) {
+		t.Fatal("包含实际证书部署写操作的计划仍必须要求 Web 监听 TLS 绑定证明")
+	}
+}
+
 func TestPreDeployTLSVerificationRejectsNonLocalEndpoint(t *testing.T) {
 	err := validatePreDeployTLSVerificationInput(map[string]any{
 		"connectHost":               "10.255.0.83",
@@ -488,11 +512,17 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 			t.Fatalf("事实采集必须返回 factEnvelope: %#v", detail)
 		}
 		facts := factEnvelope["facts"].([]map[string]any)
+		seenCertificateStore := false
 		for _, fact := range facts {
 			switch fact["kind"] {
-			case "file_content", "certificate_file", "certificate_store", "ssl_certificate_binding":
+			case "certificate_store":
+				seenCertificateStore = true
+			case "file_content", "certificate_file", "ssl_certificate_binding":
 				t.Fatalf("非完整 Web 发现不得采集 Web 配置或证书事实: %#v", fact)
 			}
+		}
+		if !seenCertificateStore {
+			t.Fatal("通用事实采集必须包含 Root 证书库事实")
 		}
 		diagnostics, ok := factEnvelope["diagnostics"].(map[string]any)
 		if !ok || diagnostics["requestPathsScanned"] != false {
@@ -503,6 +533,45 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
 		t.Fatalf("事实范围越权必须失败关闭: success=%v code=%s", success, code)
 	}
+}
+
+func TestParseWindowsCertificateStoreOutputPublishesSha256Fingerprint(t *testing.T) {
+	// 解析器只接受真实 DER；使用测试证书生成逻辑覆盖字段合同。
+	certificate := testCertificateForStore(t)
+	encoded := base64.StdEncoding.EncodeToString(certificate.Raw)
+	stores := parseWindowsCertificateStoreOutput([]byte(encoded + "\ninvalid\n"))
+	if len(stores) != 1 {
+		t.Fatalf("证书库输出解析数量错误: %#v", stores)
+	}
+	expected := sha256.Sum256(certificate.Raw)
+	if stores[0]["sha256Fingerprint"] != strings.ToUpper(hex.EncodeToString(expected[:])) {
+		t.Fatalf("证书库事实缺少 SHA-256 指纹: %#v", stores[0])
+	}
+}
+
+func testCertificateForStore(t *testing.T) *x509.Certificate {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("生成测试证书密钥失败: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "GCAC Test Root"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil {
+		t.Fatalf("生成测试证书失败: %v", err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("解析测试证书失败: %v", err)
+	}
+	return certificate
 }
 
 func TestParseWindowsListeningPortsKeepsPIDFromNetstatO(t *testing.T) {

@@ -49,6 +49,35 @@ test('Web 重新发现只创建一条已授权的 Agent 直连请求，不回退
   }));
 });
 
+test('证书信任事实请求复用完整 Agent v2 授权且关闭 Web 库存刷新', async () => {
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: { listAccessibleVersions: async () => [plugin('web.apache')] },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: input.actions, allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  const request = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'trust-plan',
+    requestId: 'request-trust-fact',
+    refreshWebInventory: false,
+  } as never);
+
+  assert.equal(request.payload.actionType, 'agent.fact.collect');
+  assert.equal(request.payload.refreshWebInventory, false);
+  assert.equal('token' in request.payload, true);
+  assert.equal('policyDecision' in request.payload, true);
+  assert.equal('factKinds' in request.payload, false);
+  assert.equal('factRequest' in request.payload, false);
+  assert.equal('discoverySpec' in request.payload, false);
+});
+
 test('没有 Agent 发现授权锚点时失败关闭', async () => {
   const factory = createAgentDiscoveryTaskFactory({
     plugins: { listAccessibleVersions: async () => [] },

@@ -278,8 +278,9 @@ export class AgentExecutorAdapter implements Executor {
       ?? stringFromSnapshot(executionSource?.pluginVersionId)
       ?? stringFromSnapshot(snapshot.pluginVersionId);
     if (!pluginVersionId) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 插件执行缺少固定 PluginVersion' } };
-    const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
-    if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
+    const trustInstall = isCertificateTrustInstallPlan(snapshot.plan);
+    const resolvedInput = trustInstall ? undefined : readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
+    if (!trustInstall && !resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
     const plan = await this.agentPlanCompiler.compile({
       tenantId: requireExecutionTenantId(input.step, 'agent plan compile'),
       agentId,
@@ -288,6 +289,7 @@ export class AgentExecutorAdapter implements Executor {
       pluginVersionId,
       pluginBindingId,
       resolvedInput,
+      purpose: trustInstall ? 'certificate_trust' : 'deployment',
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
       v2Request: {
         actionType,
@@ -306,6 +308,13 @@ export class AgentExecutorAdapter implements Executor {
       policyDecision: plan.policyDecision,
     }, input) };
   }
+}
+
+function isCertificateTrustInstallPlan(value: unknown): boolean {
+  const plan = readRecord(value);
+  return Array.isArray(plan?.operations)
+    && plan.operations.length === 1
+    && readRecord(plan.operations[0])?.operationType === 'certificate.store.install';
 }
 
 function resolveAgentActionType(input: StepExecutionInput, actionType: string): 'agent.fact.collect' | 'agent.plan.validate' | 'agent.plan.execute' | 'agent.execution.receipt' | undefined {
@@ -348,16 +357,15 @@ function buildAgentV2ControlPayload(snapshot: Record<string, unknown>, input: St
   const capability = requireStringValue(token.capability, 'capability');
   const planDigest = requireStringValue(token.planDigest, 'planDigest');
   return {
-    action: actionType,
+    // actionType 是控制面队列的唯一 canonical 动作字段；内部 wire action
+    // 由 Agent 在队列边界转换，宿主不能提前注入第二条动作路径。
     actionType,
-    mutating: actionType === 'agent.plan.execute',
     actionSchemaVersion: stringFromSnapshot(snapshot.actionSchemaVersion) ?? '1.0',
     requestId: stringFromSnapshot(snapshot.requestId) ?? `execution:${input.step.executionRunId}:${input.step.id}`,
     agentId,
     tenantId,
     pluginId,
     pluginVersion: pluginVersionId,
-    pluginVersionId,
     capability,
     actions: readStringArray(token.actions),
     paths: readStringArray(token.allowedPaths),

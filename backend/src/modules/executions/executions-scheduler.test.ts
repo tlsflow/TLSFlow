@@ -13,7 +13,7 @@ import type { Executor, StepExecutionInput, StepExecutionResult } from './applic
 import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAdapter, WorkflowExecutorAdapter } from './application/executors.js';
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
-import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestAgentV2ExecutionAuthorization, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentCapabilityTokenV1, type AgentExecutionReceiptV1, type AgentPlanV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
 import { createDurableGatewayTaskRepositories } from '../gateway-agents/gateway-task.repository.js';
 import { GatewayTaskService } from '../gateway-agents/gateway-task.service.js';
@@ -110,6 +110,53 @@ describe('统一任务控制面', () => {
       if (previous === undefined) delete process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED;
       else process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED = previous;
     }
+  });
+});
+
+describe('Agent v2 证书计划阶段边界', () => {
+  it('完整 Agent Plan 只在 INSTALL 阶段发送一次，避免 BACKUP/RELOAD 重复下发 Artifact', async () => {
+    const service = createService();
+    const targetId = 'target_monolithic_agent_plan';
+    const payload = withTestAgentV2ExecutionAuthorization('plan_1', targetId, {
+      pluginRuntimeCapability: { runtime: 'AGENT_V2', capabilityKey: 'certificate.deploy' },
+      certificateVerification: {
+        capabilityKey: 'certificate.verify',
+        schemaVersion: '1.0',
+        connectHost: '127.0.0.1',
+        serverName: 'example.test',
+        port: 443,
+        expectedFingerprintSha256: 'b'.repeat(64),
+      },
+    });
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_monolithic_agent_plan',
+      targetIds: [targetId],
+      executorType: 'AGENT',
+      agentPayloads: new Map([[targetId, payload]]),
+    });
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    assert.deepEqual(steps.map((step) => step.inputSnapshot.executorType), [
+      'PLATFORM_STAGE',
+      'PLATFORM_STAGE',
+      'AGENT',
+      'PLATFORM_STAGE',
+      'CONTROL_PLANE_TLS',
+    ]);
+
+    const calls: string[] = [];
+    const tracking = new TrackingExecutor(async (input) => {
+      calls.push(`${input.step.stepType}:${input.step.inputSnapshot.executorType}`);
+      return { success: true };
+    });
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(tracking));
+    assert.equal(result.success, true);
+    assert.deepEqual(calls, [
+      'DISCOVER:PLATFORM_STAGE',
+      'BACKUP:PLATFORM_STAGE',
+      'INSTALL:AGENT',
+      'RELOAD:PLATFORM_STAGE',
+      'VERIFY:CONTROL_PLANE_TLS',
+    ]);
   });
 });
 
@@ -1248,12 +1295,16 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const executor = new TrackingExecutor(async (input) => {
       if (input.step.stepType === 'INSTALL') {
         installCalls.push(input.step.id);
-        return {
-          success: false,
-          errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-          errorMessage: 'Plugin Runner 返回结果不明',
-          detail: { executionStatus: 'UNKNOWN', mayBeUnknown: true },
-        };
+          return {
+            success: false,
+            errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+            errorMessage: 'Plugin Runner 返回结果不明',
+            detail: {
+              executionStatus: 'UNKNOWN',
+              mayBeUnknown: true,
+              operations: [{ operationType: 'filesystem.atomic_replace', status: 'SUCCEEDED' }],
+            },
+          };
       }
       return { success: true };
     });
@@ -1268,6 +1319,46 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(recoveryCalls, 1);
     assert.equal(steps.find((step) => step.stepType === 'INSTALL')?.status, 'SUCCESS');
     assert.equal(steps.every((step) => step.status === 'SUCCESS'), true);
+  });
+
+  it('Agent 尚无成功写操作证据时不提前执行部署后 TLS 核验', async () => {
+    let recoveryCalls = 0;
+    const service = createService({
+      unknownResultVerifier: {
+        async executeStep() {
+          recoveryCalls += 1;
+          return { success: true };
+        },
+      },
+    });
+    const targetId = 'target_unknown_before_write';
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_unknown_before_write',
+      targetIds: [targetId],
+      executorType: 'AGENT',
+      agentPayloads: new Map([[targetId, {
+        certificateVerification: {
+          capabilityKey: 'certificate.verify',
+          schemaVersion: '1.0',
+          connectHost: '127.0.0.1',
+          serverName: 'example.test',
+          port: 443,
+          expectedFingerprintSha256: 'c'.repeat(64),
+        },
+      }]]),
+    });
+    const tracking = new TrackingExecutor(async (input) => input.step.stepType === 'BACKUP'
+      ? {
+          success: false,
+          errorCode: 'AGENT_EXECUTION_UNKNOWN',
+          errorMessage: 'Agent 回执签名材料不可用，写入状态不明',
+          detail: { executionStatus: 'UNKNOWN', receiptUnavailable: true },
+        }
+      : { success: true });
+    const first = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(tracking));
+    assert.equal(first.pending, true);
+    assert.equal(recoveryCalls, 0);
+    assert.equal(first.pendingState, 'AWAITING_CONFIRMATION');
   });
 
   it('Workflow 证书部署统一追加宿主 VERIFY，默认由平台后端执行', async () => {

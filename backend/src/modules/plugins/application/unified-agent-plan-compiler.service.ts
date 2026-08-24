@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { posix, win32 } from 'node:path';
 import {
   agentV2ContractTypes,
   sha256Digest,
@@ -51,7 +52,9 @@ export class UnifiedAgentPlanCompilerService {
     executionStepId: string;
     pluginVersionId: string;
     pluginBindingId: string;
-    resolvedInput: ResolvedDeploymentInputV1;
+    resolvedInput?: ResolvedDeploymentInputV1;
+    /** 根证书安装使用宿主通用合同，不读取证书部署 Artifact。 */
+    purpose?: 'deployment' | 'certificate_trust';
     executionMode?: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
     ttlSeconds?: number;
     v2Request?: {
@@ -113,7 +116,8 @@ export class UnifiedAgentPlanCompilerService {
         pluginVersionId: input.pluginVersionId,
       });
     }
-    if (certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+    if (input.purpose !== 'certificate_trust' && certificateUpdatePluginIds.includes(plan.pluginId as never)) {
+      if (!input.resolvedInput) failClosed(input, '证书更新插件缺少统一部署输入快照');
       const contractPath = plugin.manifest.resources.inputContracts?.[plan.capability];
       const contractText = contractPath ? plugin.resources[contractPath] : undefined;
       if (!contractText) failClosed(input, '证书更新插件缺少固定输入合同资源');
@@ -227,8 +231,22 @@ export class UnifiedAgentPlanCompilerService {
         ...(authorization.approvalRef ? { approvalRef: authorization.approvalRef } : {}),
         lifetimeSeconds: authorization.lifetimeSeconds,
       });
-      const token = validateAgentCapabilityToken(result.token);
       const policyDecision = validatePolicyAuthorityDecision(result.decision);
+      // Policy Authority 的拒绝结果按合同可以不带 Token；先核验 Decision，避免把策略拒绝误报成 Token 合同错误。
+      if (!policyDecision.allowed) {
+        throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', 'Policy Authority 拒绝 Agent v2 生产授权', {
+          tenantId: input.tenantId,
+          agentId: input.agentId,
+          pluginVersionId: input.pluginVersionId,
+          pluginBindingId: input.pluginBindingId,
+          policyRef: authorization.policyRef,
+          policyVersion: authorization.policyVersion,
+          reason: policyDecision.reason ?? 'Policy Authority 未提供拒绝原因',
+          fallback: false,
+        });
+      }
+      if (!result.token) failClosed(input, 'Policy Authority 允许授权但未签发 Agent Capability Token');
+      const token = validateAgentCapabilityToken(result.token);
       assertAuthorizationResult(input, plan, authorization, token, policyDecision, localPolicy);
       const boundPlan = validateAgentPlan({
         ...plan,
@@ -290,7 +308,7 @@ function assertAuthorizationResult(
   if (!decision.allowed || token.policyRef !== request.policyRef || decision.policyRef !== request.policyRef
     || token.policyVersion !== request.policyVersion || decision.policyVersion !== request.policyVersion
     || !sameStringArray(token.actions, request.actions) || !sameStringArray(decision.actions, request.actions)
-    || !sameStringArray(token.allowedPaths, request.allowedPaths) || !sameStringArray(decision.allowedPaths, request.allowedPaths)
+    || !samePathArray(token.allowedPaths, request.allowedPaths) || !samePathArray(decision.allowedPaths, request.allowedPaths)
     || !sameStringArray(token.allowedServices, request.allowedServices) || !sameStringArray(decision.allowedServices, request.allowedServices)
     || !sameStringArray(token.artifactDigests, request.artifactDigests) || !sameStringArray(decision.artifactDigests, request.artifactDigests)
     || token.approvalRef !== request.approvalRef || decision.approvalRef !== request.approvalRef
@@ -319,6 +337,20 @@ function assertDraftBindings(
     if (serviceName && !request.allowedServices.includes(serviceName)) failClosed(input, '授权 allowedServices 未覆盖计划服务');
     const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;
     if (artifactDigest && !request.artifactDigests.includes(artifactDigest)) failClosed(input, '授权 artifactDigests 未覆盖计划 Artifact');
+    if (operation.operationType === 'command.execute_allowlisted') {
+      const executablePath = typeof operation.input.executablePath === 'string' ? operation.input.executablePath : undefined;
+      const workingDirectory = typeof operation.input.workingDirectory === 'string' ? operation.input.workingDirectory : undefined;
+      const executableSha256 = typeof operation.input.executableSha256 === 'string' ? operation.input.executableSha256 : undefined;
+      if (!executablePath || !request.allowedPaths.some((prefix) => isPathWithin(executablePath, prefix))) {
+        failClosed(input, '授权 allowedPaths 未覆盖配置检查程序路径');
+      }
+      if (!workingDirectory || !request.allowedPaths.some((prefix) => isPathWithin(workingDirectory, prefix))) {
+        failClosed(input, '授权 allowedPaths 未覆盖配置检查工作目录');
+      }
+      if (!executableSha256 || !request.artifactDigests.includes(executableSha256)) {
+        failClosed(input, '授权 artifactDigests 未覆盖配置检查程序摘要');
+      }
+    }
   }
 }
 
@@ -348,6 +380,16 @@ function readStringArray(value: unknown, field: string, input: { tenantId: strin
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** Token/Decision 合同会规范化 Windows 路径分隔符；比较前统一到同一规范，避免 C:/ 与 C:\\ 被误判为不同授权。 */
+function samePathArray(left: readonly string[], right: readonly string[]): boolean {
+  return sameStringArray(left.map(normalizeComparablePath), right.map(normalizeComparablePath));
+}
+
+function normalizeComparablePath(value: string): string {
+  if (value.startsWith('/')) return posix.normalize(value);
+  return win32.normalize(value.replaceAll('/', '\\'));
 }
 
 function readActionType(value: unknown): string {

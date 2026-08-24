@@ -563,7 +563,8 @@ func collectLinuxCertificateStores() []map[string]any {
 				continue
 			}
 			thumbprint := sha256.Sum256(block.Bytes)
-			stores = append(stores, map[string]any{"kind": "certificate_store", "store": "linux-system-trust", "subject": certificate.Subject.String(), "thumbprint": hex.EncodeToString(thumbprint[:]), "notAfter": certificate.NotAfter.UTC().Format(time.RFC3339Nano), "hasPrivateKey": false})
+			fingerprint := hex.EncodeToString(thumbprint[:])
+			stores = append(stores, map[string]any{"kind": "certificate_store", "store": "linux-system-trust", "subject": certificate.Subject.String(), "sha256Fingerprint": fingerprint, "thumbprint": fingerprint, "notAfter": certificate.NotAfter.UTC().Format(time.RFC3339Nano), "hasPrivateKey": false})
 			if len(stores) >= 100 {
 				return stores
 			}
@@ -599,6 +600,11 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if service := v2StringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return fmt.Errorf("operation service is outside token scope: %s", service)
 		}
+		if operation.OperationType == "command.execute_allowlisted" {
+			if err := validateAllowlistedCommandScope(operation.Input, token.AllowedPaths, token.ArtifactDigests); err != nil {
+				return err
+			}
+		}
 		if artifact := v2StringValue(operation.Input, "artifactDigest"); artifact != "" && !containsString(token.ArtifactDigests, artifact) {
 			return errors.New("operation artifact is outside token scope")
 		}
@@ -610,6 +616,11 @@ func validateAgentPlanAuthorization(plan agentPlanV2, decision PolicyAuthorityDe
 	for _, operation := range plan.Operations {
 		if !containsString(decision.Actions, operation.OperationType) {
 			return fmt.Errorf("Policy Decision 未授权 Agent 操作: %s", operation.OperationType)
+		}
+		if operation.OperationType == "command.execute_allowlisted" {
+			if err := validateAllowlistedCommandScope(operation.Input, decision.AllowedPaths, decision.ArtifactDigests); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -628,11 +639,14 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	if operation.Input == nil {
 		return errors.New("operation input is required")
 	}
-	if !containsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+	if !containsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 		return fmt.Errorf("unsupported Agent operation: %s", operation.OperationType)
 	}
 	if strings.HasPrefix(operation.OperationType, "service.") && v2StringValue(operation.Input, "serviceName") == "" {
 		return errors.New("service operation requires serviceName")
+	}
+	if operation.OperationType == "certificate.store.install" {
+		return validateCertificateStoreInstallInput(operation.Input)
 	}
 	if operation.OperationType == "command.execute_allowlisted" {
 		return validateAllowlistedCommandInput(operation)
@@ -680,6 +694,8 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			switch operation.OperationType {
 			case "filesystem.atomic_replace":
 				err = executeFileReplace(operationCtx, operation)
+			case "certificate.store.install":
+				err = executeCertificateStoreInstall(operationCtx, operation)
 			case "filesystem.restore":
 				err = errors.New("filesystem.restore requires a signed checkpoint and is not available without one")
 			case "service.start", "service.stop", "service.reload":
@@ -780,7 +796,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if containsString([]string{"filesystem.atomic_replace", "filesystem.restore", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if containsString([]string{"filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}
@@ -888,6 +904,113 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 	return agentContextError(ctx)
 }
 
+func executeCertificateStoreInstall(ctx context.Context, operation agentPlanAction) error {
+	if err := validateCertificateStoreInstallInput(operation.Input); err != nil {
+		return err
+	}
+	block, _ := pem.Decode([]byte(v2StringValue(operation.Input, "certificatePem")))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return errors.New("certificate.store.install requires a certificate PEM")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || !certificate.IsCA {
+		return errors.New("certificate.store.install requires a CA certificate")
+	}
+	expected := strings.ToLower(strings.ReplaceAll(v2StringValue(operation.Input, "fingerprintSha256"), ":", ""))
+	actual := sha256.Sum256(certificate.Raw)
+	if hex.EncodeToString(actual[:]) != expected {
+		return errors.New("certificate.store.install fingerprint does not match certificate PEM")
+	}
+	if err := agentContextError(ctx); err != nil {
+		return err
+	}
+	type trustLayout struct {
+		anchorDir string
+		refresh   string
+		bundle    string
+		args      []string
+	}
+	layouts := []trustLayout{
+		{anchorDir: "/usr/local/share/ca-certificates", refresh: "/usr/sbin/update-ca-certificates", bundle: "/etc/ssl/certs/ca-certificates.crt"},
+		{anchorDir: "/etc/pki/ca-trust/source/anchors", refresh: "/usr/bin/update-ca-trust", bundle: "/etc/pki/tls/certs/ca-bundle.crt", args: []string{"extract"}},
+	}
+	var selected *trustLayout
+	for index := range layouts {
+		candidate := &layouts[index]
+		if directoryExists(candidate.anchorDir) && executableExists(candidate.refresh) {
+			selected = candidate
+			break
+		}
+	}
+	if selected == nil {
+		return errors.New("no supported Linux system trust store refresh flow is available")
+	}
+	anchorPath := filepath.Join(selected.anchorDir, "gcac-"+expected+".crt")
+	if err := atomicWriteFile(anchorPath, []byte(v2StringValue(operation.Input, "certificatePem")), 0o644); err != nil {
+		return err
+	}
+	refresh := exec.CommandContext(ctx, selected.refresh, selected.args...)
+	refresh.Dir = "/"
+	refresh.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	if output, err := refresh.CombinedOutput(); err != nil {
+		return fmt.Errorf("system trust refresh failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if !systemTrustBundleContains(selected.bundle, expected) {
+		return errors.New("system trust refresh completed but SHA-256 certificate verification failed")
+	}
+	return nil
+}
+
+func validateCertificateStoreInstallInput(input map[string]any) error {
+	if len(input) != 3 || v2StringValue(input, "certificatePem") == "" || v2StringValue(input, "fingerprintSha256") == "" || v2StringValue(input, "store") != "root" {
+		return errors.New("certificate.store.install input must contain certificatePem, fingerprintSha256 and store=root")
+	}
+	if strings.Count(v2StringValue(input, "certificatePem"), "BEGIN CERTIFICATE") != 1 {
+		return errors.New("certificate.store.install certificatePem is invalid")
+	}
+	fingerprint := strings.ToLower(strings.ReplaceAll(v2StringValue(input, "fingerprintSha256"), ":", ""))
+	if len(fingerprint) != sha256.Size*2 {
+		return errors.New("certificate.store.install fingerprintSha256 is invalid")
+	}
+	if _, err := hex.DecodeString(fingerprint); err != nil {
+		return errors.New("certificate.store.install fingerprintSha256 is invalid")
+	}
+	return nil
+}
+
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func executableExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func systemTrustBundleContains(path, expected string) bool {
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for len(encoded) > 0 {
+		block, remainder := pem.Decode(encoded)
+		if block == nil {
+			break
+		}
+		encoded = remainder
+		certificate, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		fingerprint := sha256.Sum256(certificate.Raw)
+		if hex.EncodeToString(fingerprint[:]) == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func executeAllowlistedService(ctx context.Context, operation agentPlanAction) error {
 	service := v2StringValue(operation.Input, "serviceName")
 	verb := strings.TrimPrefix(operation.OperationType, "service.")
@@ -909,9 +1032,10 @@ func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) e
 		return err
 	}
 	program := v2StringValue(operation.Input, "executablePath")
+	workingDirectory := v2StringValue(operation.Input, "workingDirectory")
 	args, _ := v2StringArray(operation.Input, "args")
 	command := exec.CommandContext(ctx, program, args...)
-	command.Dir = "/"
+	command.Dir = workingDirectory
 	command.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 	return command.Run()
 }
@@ -919,18 +1043,18 @@ func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) e
 func validateAllowlistedCommandInput(operation agentPlanAction) error {
 	input := operation.Input
 	program := v2StringValue(input, "executablePath")
-	if program != "/usr/bin/systemctl" && program != "/bin/systemctl" {
-		return errors.New("program is not in the fixed absolute-path allowlist")
+	if err := validateLinuxExecutablePath(program); err != nil {
+		return err
 	}
 	if err := verifyExecutableSha256(program, v2StringValue(input, "executableSha256")); err != nil {
 		return err
 	}
-	if v2StringValue(input, "workingDirectory") != "/" {
-		return errors.New("allowlisted command working directory is not fixed")
+	if err := validateLinuxWorkingDirectory(v2StringValue(input, "workingDirectory")); err != nil {
+		return err
 	}
 	args, err := v2StringArray(input, "args")
-	if err != nil || len(args) != 2 || !containsString([]string{"reload", "restart", "start", "stop"}, args[0]) || !validLinuxServiceName(args[1]) {
-		return errors.New("allowlisted command args do not match the fixed template")
+	if err != nil || !validAllowlistedCommandArgs(args) {
+		return errors.New("allowlisted command args do not match the declared template")
 	}
 	template, err := v2StringArray(input, "argumentTemplate")
 	if err != nil || !matchesLinuxArgumentTemplate(args, template) {
@@ -978,10 +1102,27 @@ func validateAllowlistedCommandInput(operation agentPlanAction) error {
 }
 
 func matchesLinuxArgumentTemplate(args, template []string) bool {
-	if len(args) != len(template) {
+	if len(args) == 0 || len(args) != len(template) {
 		return false
 	}
-	return (template[0] == args[0] || template[0] == "{verb}") && (template[1] == args[1] || template[1] == "{serviceName}")
+	for index, expected := range template {
+		if expected == args[index] {
+			continue
+		}
+		switch expected {
+		case "{verb}":
+			if !containsString([]string{"reload", "restart", "start", "stop"}, args[index]) {
+				return false
+			}
+		case "{serviceName}":
+			if !validLinuxServiceName(args[index]) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func v2StringArray(values map[string]any, key string) ([]string, error) {
@@ -1074,6 +1215,70 @@ func resolveLinuxSystemctl() (string, error) {
 		}
 	}
 	return "", errors.New("allowlisted service program is unavailable")
+}
+
+func validateAllowlistedCommandScope(input map[string]any, allowedPaths, allowedDigests []string) error {
+	for _, field := range []string{"executablePath", "workingDirectory"} {
+		value := v2StringValue(input, field)
+		if value == "" || !pathScopeContains(allowedPaths, value) {
+			return fmt.Errorf("allowlisted command %s is outside token scope", field)
+		}
+	}
+	if digest := v2StringValue(input, "executableSha256"); digest == "" || !containsString(allowedDigests, digest) {
+		return errors.New("allowlisted command executable is outside token scope")
+	}
+	return nil
+}
+
+func validAllowlistedCommandArgs(args []string) bool {
+	if len(args) == 0 || len(args) > 32 {
+		return false
+	}
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "" || strings.IndexByte(arg, 0) >= 0 || strings.ContainsAny(arg, "\r\n;&|<>`$()") {
+			return false
+		}
+	}
+	return true
+}
+
+func validateLinuxExecutablePath(value string) error {
+	if value == "" || !filepath.IsAbs(value) || hasParentPathSegment(value) {
+		return errors.New("allowlisted command executable path must be absolute and cannot contain parent traversal")
+	}
+	info, err := os.Stat(value)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return errors.New("allowlisted command executable is unavailable or not executable")
+	}
+	base := strings.ToLower(filepath.Base(value))
+	switch base {
+	case "sh", "bash", "dash", "zsh", "fish", "python", "python3", "perl", "ruby", "node":
+		return errors.New("allowlisted command executable cannot be a shell, script or interpreter")
+	}
+	if strings.HasSuffix(base, ".sh") || strings.HasSuffix(base, ".py") || strings.HasSuffix(base, ".pl") || strings.HasSuffix(base, ".rb") {
+		return errors.New("allowlisted command executable cannot be a shell, script or interpreter")
+	}
+	return nil
+}
+
+func validateLinuxWorkingDirectory(value string) error {
+	if value == "" || !filepath.IsAbs(value) || hasParentPathSegment(value) {
+		return errors.New("allowlisted command working directory must be absolute and cannot contain parent traversal")
+	}
+	info, err := os.Stat(value)
+	if err != nil || !info.IsDir() {
+		return errors.New("allowlisted command working directory is unavailable")
+	}
+	return nil
+}
+
+func hasParentPathSegment(value string) bool {
+	for _, segment := range strings.FieldsFunc(value, func(r rune) bool { return r == '\\' || r == '/' }) {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func validLinuxServiceName(value string) bool {

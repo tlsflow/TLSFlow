@@ -23,6 +23,7 @@ import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
+import { computeAgentPlanDigest, type AgentPlanV1 } from '../../agents/security/agent-security.contract.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 
@@ -745,17 +746,32 @@ export class ExecutionsApplicationService {
     await this.recordTransition('executionRun', run.id, undefined, 'PENDING', 'run.created', input.actorId, input.tenantId);
 
     const stepMaxAttempts = input.retry?.maxAttempts ?? input.stepMaxAttempts ?? 1;
-    const steps = await this.createDefaultSteps(
-      run,
-      input.deploymentPlanTargetIds,
-      input.actorId,
-      input.executorTypeByTargetId,
-      input.gatewayRouteByTargetId,
-      input.mockResultByTargetId,
-      stepMaxAttempts,
-      input.allowMockExecutor === true,
-      input.agentPayloadByTargetId,
-    );
+    let steps: ExecutionStepEntity[];
+    try {
+      steps = await this.createDefaultSteps(
+        run,
+        input.deploymentPlanTargetIds,
+        input.actorId,
+        input.executorTypeByTargetId,
+        input.gatewayRouteByTargetId,
+        input.mockResultByTargetId,
+        stepMaxAttempts,
+        input.allowMockExecutor === true,
+        input.agentPayloadByTargetId,
+      );
+    } catch (error) {
+      // 步骤创建阶段也会执行 Agent v2 Grant 绑定。这里失败时运行已经落库，
+      // 必须把它收敛为 FAILED 并同步计划，否则执行入口会遗留 RUNNING 计划，
+      // 后续重试和状态查询都会被错误阻断。
+      const errorCode = error instanceof AppError ? error.errorCode : 'EXECUTION_STEP_CREATION_FAILED';
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const failedRun = await this.transitionRunEntity(run, 'FAILED', input.actorId, 'run.creation.failed', {
+        errorCode,
+        errorMessage,
+      });
+      await this.syncDeploymentPlanAfterRun(failedRun, input.actorId, tenantId);
+      throw error;
+    }
     const deploymentPlan = await this.deploymentPlansRepository.getPlan(input.deploymentPlanId, tenantId);
     const task = await tasks.enqueue({
       tenantId,
@@ -821,23 +837,21 @@ export class ExecutionsApplicationService {
       const trustPlan = run.type === 'apply' ? readCertificateTrustPlan(agentPayload.certificateTrustPlan) : undefined;
       if (trustPlan?.decision === 'install') {
         const now = new Date().toISOString();
-        const trustStep = await this.repository.createStep({
-          id: newId('stp'),
-          tenantId: run.tenantId,
-          executionRunId: run.id,
-          deploymentPlanTargetId: targetId,
-          stepNo,
-          stepType: 'CUSTOM',
-          name: `TRUST_INSTALL ${targetId}`,
-          dependsOn: [],
-          idempotent: true,
-          attemptCount: 0,
-          maxAttempts: stepMaxAttempts,
+        const trustStepId = newId('stp');
+        const trustAgentPlan = buildCertificateTrustAgentPlan(agentPayload, trustPlan, run, targetId);
+        const trustAuthorization = buildCertificateTrustAuthorization(agentPayload, trustPlan);
+        const trustInputSnapshot = await this.bindAgentExecutionGrant({
+          run,
+          stepId: trustStepId,
+          targetId,
+          executorType: 'AGENT',
           inputSnapshot: {
             ...agentPayload,
-            actionType: trustPlan.actionType,
-            actionSchemaVersion: trustPlan.actionSchemaVersion,
+            actionType: 'agent.plan.execute',
+            actionSchemaVersion: '1.0',
             agentId: trustPlan.agentId,
+            plan: trustAgentPlan,
+            executionAuthorization: trustAuthorization,
             certificatePem: trustPlan.certificatePem,
             fingerprintSha256: trustPlan.fingerprintSha256,
             trustStore: trustPlan.store,
@@ -851,6 +865,20 @@ export class ExecutionsApplicationService {
             operation: 'install_trust_root',
             retryBackoffSeconds: readRetryBackoff(run.summary),
           },
+        });
+        const trustStep = await this.repository.createStep({
+          id: trustStepId,
+          tenantId: run.tenantId,
+          executionRunId: run.id,
+          deploymentPlanTargetId: targetId,
+          stepNo,
+          stepType: 'CUSTOM',
+          name: `TRUST_INSTALL ${targetId}`,
+          dependsOn: [],
+          idempotent: true,
+          attemptCount: 0,
+          maxAttempts: stepMaxAttempts,
+          inputSnapshot: trustInputSnapshot,
           status: 'PENDING',
           createdAt: now,
           updatedAt: now,
@@ -1238,7 +1266,18 @@ export class ExecutionsApplicationService {
           ...(currentRun.status === 'CANCELLED' ? { cancellationRace: true } : {}),
         },
       });
-      const pendingState = hasAutomaticUnknownRecoverySource(latestStep)
+      const unknownResultStep = {
+        ...latestStep,
+        inputSnapshot: {
+          ...latestStep.inputSnapshot,
+          resultDetail: {
+            ...(readRecord(latestStep.inputSnapshot.resultDetail) ?? {}),
+            ...(result.detail ?? {}),
+            executionStatus: 'UNKNOWN',
+          },
+        },
+      };
+      const pendingState = hasAutomaticUnknownRecoverySource(unknownResultStep)
         ? 'WAITING_RESULT'
         : 'AWAITING_CONFIRMATION';
       return {
@@ -1607,9 +1646,31 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
       : 'CONTROL_PLANE_TLS';
   }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
+  // certificate.deploy 的 Agent Plan 是一个完整的原子生命周期计划，内部已经
+  // 包含备份、替换、配置检查和服务重载。它只能在 INSTALL 宿主阶段入队一次；
+  // BACKUP/RELOAD 仅保留展示和依赖边界，不能再次发送同一份证书 Artifact。
+  if (isMonolithicAgentPlanPayload(payload) && (stepType === 'BACKUP' || stepType === 'RELOAD')) {
+    return 'PLATFORM_STAGE';
+  }
   const monolithicUpdate = baseExecutorType === 'WORKFLOW';
   if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
+}
+
+function isMonolithicAgentPlanPayload(payload: Record<string, unknown>): boolean {
+  if (readString(payload.actionType) !== 'agent.plan.execute') return false;
+  const plan = readRecord(payload.plan);
+  const operations = Array.isArray(plan?.operations) ? plan.operations : [];
+  if (operations.length === 0) return false;
+  return operations.some((operation) => {
+    const operationType = readString(readRecord(operation)?.operationType);
+    return operationType === 'filesystem.atomic_replace'
+      || operationType === 'certificate.store.install'
+      || operationType === 'service.start'
+      || operationType === 'service.stop'
+      || operationType === 'service.reload'
+      || operationType === 'command.execute_allowlisted';
+  });
 }
 
 function persistentExecutionPayload(payload: Record<string, unknown>): Record<string, unknown> {
@@ -1695,6 +1756,78 @@ function readCertificateTrustPlan(value: unknown): {
     fingerprintSha256,
     certificatePem,
     store: 'root',
+  };
+}
+
+/**
+ * 宿主根证书安装是通用 Agent 能力，不属于某个插件的部署 Artifact。
+ * 外层仍使用长期 Agent v2 Plan 合同，避免再把内部生命周期动作暴露给旧 Action 注册表。
+ */
+function buildCertificateTrustAgentPlan(
+  agentPayload: Record<string, unknown>,
+  trustPlan: {
+    agentId: string;
+    fingerprintSha256: string;
+    certificatePem: string;
+    store: 'root';
+  },
+  run: ExecutionRunEntity,
+  targetId: string,
+): AgentPlanV1 {
+  const sourcePlan = readRecord(agentPayload.plan);
+  const runtime = readRecord(agentPayload.pluginRuntimeCapability);
+  const pluginId = readString(sourcePlan?.pluginId) ?? readString(runtime?.pluginId);
+  const pluginVersionId = readString(sourcePlan?.pluginVersionId) ?? readString(runtime?.pluginVersionId);
+  const capability = readString(sourcePlan?.capability) ?? readString(runtime?.capabilityKey) ?? 'certificate.deploy';
+  const tenantId = run.tenantId;
+  if (!tenantId || !pluginId || !pluginVersionId) {
+    throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '宿主根信任安装缺少固定插件身份，拒绝绕过统一 Agent v2 授权', {
+      fallback: false,
+      agentId: trustPlan.agentId,
+      deploymentPlanTargetId: targetId,
+    });
+  }
+  const planBase: AgentPlanV1 = {
+    planVersion: 'gcac.agent-security/v1',
+    planId: `certificate-trust:${run.id}:${targetId}`,
+    agentId: trustPlan.agentId,
+    tenantId,
+    pluginId,
+    pluginVersionId,
+    capability,
+    operations: [{
+      operationId: `certificate-trust-install:${run.id}:${targetId}`,
+      operationType: 'certificate.store.install',
+      stage: 'execute',
+      input: {
+        certificatePem: trustPlan.certificatePem,
+        fingerprintSha256: trustPlan.fingerprintSha256.replaceAll(':', '').toLowerCase(),
+        store: trustPlan.store,
+      },
+      dependsOn: [],
+      idempotencyKey: `certificate-trust-install:${run.id}:${targetId}`,
+      timeoutSeconds: 120,
+    }],
+    planDigest: '',
+    tokenId: 'draft-token',
+    policyDecisionId: 'draft-decision',
+    nonce: 'draft-nonce',
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    writeEffect: true,
+  };
+  planBase.planDigest = computeAgentPlanDigest(planBase);
+  return planBase;
+}
+
+function buildCertificateTrustAuthorization(
+  agentPayload: Record<string, unknown>,
+  trustPlan: { actionSchemaVersion: '1.0' },
+): Record<string, unknown> {
+  const source = readRecord(agentPayload.executionAuthorization) ?? {};
+  return {
+    ...source,
+    actions: ['certificate.store.install'],
+    actionSchemaVersion: trustPlan.actionSchemaVersion,
   };
 }
 
@@ -1803,9 +1936,33 @@ function hasUnknownExecutionResult(step: ExecutionStepEntity): boolean {
 function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
   if (step.inputSnapshot.dryRun === true) return false;
   const verification = readRecord(step.inputSnapshot.certificateVerification);
-  return verification?.capabilityKey === 'certificate.verify'
-    && verification?.schemaVersion === '1.0'
-    && Boolean(readExpectedCertificateFingerprint(step.inputSnapshot));
+  if (verification?.capabilityKey !== 'certificate.verify' || verification?.schemaVersion !== '1.0') return false;
+  if (!readExpectedCertificateFingerprint(step.inputSnapshot)) return false;
+
+  // Agent v2 在签发回执前失败时可能尚未执行任何写操作。此时直接拿目标证书
+  // 指纹做控制面核验，会把部署前的旧证书错误报告成“目标不一致”。只有 Agent
+  // 回执中至少出现一个成功的写操作，才有事实基础进行部署后只读核验。
+  if (String(step.inputSnapshot.executorType ?? '').toUpperCase() === 'AGENT') {
+    const detail = readRecord(step.inputSnapshot.resultDetail);
+    const operationResults = Array.isArray(detail?.operationResults)
+      ? detail.operationResults
+      : Array.isArray(detail?.operations) ? detail.operations : [];
+    const writeOperationTypes = new Set([
+      'filesystem.atomic_replace',
+      'filesystem.restore',
+      'certificate.store.install',
+      'service.start',
+      'service.stop',
+      'service.reload',
+      'command.execute_allowlisted',
+    ]);
+    return operationResults.some((operation) => {
+      const record = readRecord(operation);
+      return writeOperationTypes.has(readString(record?.operationType) ?? '')
+        && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
+    });
+  }
+  return true;
 }
 
 /**

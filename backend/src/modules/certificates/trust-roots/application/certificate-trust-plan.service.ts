@@ -1,6 +1,7 @@
 import { X509Certificate } from 'node:crypto';
 import { AppError } from '../../../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../../../agents/application/agents.application-service.js';
+import type { AgentTaskEnvelope } from '../../../agents/schema/agents.schema.js';
 import type { TrustRootsApplicationService } from './trust-roots.application-service.js';
 import type { RootCertificateRecordDto } from '../dto/trust-roots.dto.js';
 
@@ -39,9 +40,13 @@ export interface BuildCertificateTrustPlanResult {
 }
 
 export interface CertificateTrustPlanDependencies {
-  agents: Pick<AgentsApplicationService, 'enqueueTask'>;
+  agents: Pick<AgentsApplicationService, 'enqueueTask' | 'createFactCollectionRequest' | 'findTaskByIdempotencyKey'>;
   trustRoots: Pick<TrustRootsApplicationService, 'discoverRoot' | 'resolveVersionInstallableRoot'>;
 }
+
+// 事实采集合同时绑定了 Windows Root 证书库字段。合同升级后不能复用旧版
+// `certificate.trust.inspect` 失败任务，否则历史失败会永久阻断新的只读检查。
+const CERTIFICATE_TRUST_INSPECT_CONTRACT_VERSION = 'v2';
 
 export class CertificateTrustPlanService {
   constructor(private readonly dependencies: CertificateTrustPlanDependencies) {}
@@ -80,20 +85,37 @@ export class CertificateTrustPlanService {
       });
     }
 
+    const idempotencyKey = `certificate.trust.inspect:${CERTIFICATE_TRUST_INSPECT_CONTRACT_VERSION}:${input.agentId}:${material.root.fingerprintSha256}`;
+    const existingTask = await this.dependencies.agents.findTaskByIdempotencyKey(
+      input.tenantId,
+      input.agentId,
+      idempotencyKey,
+    );
+    if (existingTask?.status === 'succeeded') {
+      return buildTrustPlanFromFactTask(existingTask, material.root, material.certificatePem, input);
+    }
+    if (existingTask?.status === 'failed' || existingTask?.status === 'rejected') {
+      throw new AppError('VALIDATION_FAILED', '宿主根信任检查任务失败，拒绝继续部署', {
+        code: 'CERTIFICATE_TRUST_INSPECT_FAILED',
+        certificateVersionId: input.certificateVersionId,
+        agentId: input.agentId,
+        taskId: existingTask.id,
+        errorCode: readRecord(existingTask.result)?.errorCode,
+        errorMessage: readRecord(existingTask.result)?.errorMessage,
+      });
+    }
+    const factRequest = await this.dependencies.agents.createFactCollectionRequest(
+      input.tenantId,
+      input.agentId,
+      input.actorId,
+      input.requestId,
+    );
     const inspectTask = await this.dependencies.agents.enqueueTask(input.tenantId, {
       agentId: input.agentId,
       executionRunId: `trustplan:${input.certificateVersionId}`,
       executionStepId: `trustinspect:${input.agentId}:${material.root.fingerprintSha256}`,
-      idempotencyKey: `certificate.trust.inspect:${input.agentId}:${material.root.fingerprintSha256}:${input.requestId}`,
-      payload: {
-        actionType: 'agent.fact.collect',
-        actionSchemaVersion: '1.0',
-        factKinds: ['certificate_store'],
-        factRequest: {
-          store: 'root',
-          fingerprintSha256: material.root.fingerprintSha256,
-        },
-      },
+      idempotencyKey,
+      payload: factRequest.payload,
     }, input.requestId);
     throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
       code: 'CERTIFICATE_TRUST_INSPECT_PENDING',
@@ -104,6 +126,68 @@ export class CertificateTrustPlanService {
       asyncPending: true,
     });
   }
+}
+
+function buildTrustPlanFromFactTask(
+  task: AgentTaskEnvelope,
+  root: RootCertificateRecordDto,
+  certificatePem: string,
+  input: BuildCertificateTrustPlanInput,
+): BuildCertificateTrustPlanResult {
+  const result = readRecord(task.result);
+  const detail = readRecord(result?.detail);
+  const factEnvelope = readRecord(detail?.factEnvelope);
+  if (!factEnvelope || !Array.isArray(factEnvelope.facts)) {
+    throw new AppError('VALIDATION_FAILED', '宿主根信任检查 Receipt 缺少有效事实快照，拒绝继续部署', {
+      code: 'CERTIFICATE_TRUST_INSPECT_INVALID',
+      taskId: task.id,
+      certificateVersionId: input.certificateVersionId,
+    });
+  }
+  const facts = factEnvelope.facts;
+  const expected = normalizeFingerprint(root.fingerprintSha256);
+  const found = facts.some((fact) => {
+    const item = readRecord(fact);
+    const fingerprint = normalizeFingerprint(readString(item?.sha256Fingerprint) ?? readString(item?.fingerprintSha256));
+    return item?.kind === 'certificate_store' && fingerprint === expected;
+  });
+  const status = found ? 'found' : 'not_found';
+  const plannedAt = new Date().toISOString();
+  return {
+    root,
+    plan: {
+      apiVersion: 'gcac.certificate-trust-plan/v1',
+      decision: found ? 'skip' : 'install',
+      reasonCode: found ? 'root_already_trusted' : 'root_missing_install_required',
+      actionType: 'certificate.trust.install',
+      actionSchemaVersion: '1.0',
+      store: 'root',
+      agentId: input.agentId,
+      rootCertificateId: root.id,
+      fingerprintSha256: root.fingerprintSha256,
+      certificatePem,
+      plannedAt,
+      inspection: {
+        actionType: 'certificate.trust.inspect',
+        actionSchemaVersion: '1.0',
+        status,
+        inspectedAt: plannedAt,
+        detail: { taskId: task.id, factCount: facts.length, factEnvelopeDigest: readString(factEnvelope?.digest) },
+      },
+    },
+  };
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeFingerprint(value: string | undefined): string | undefined {
+  return value?.replaceAll(':', '').trim().toLowerCase() || undefined;
 }
 
 export function derToPem(der: Buffer): string {

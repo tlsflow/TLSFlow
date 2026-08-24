@@ -42,9 +42,46 @@ test('AgentExecutorAdapter 将完整 Agent v2 授权材料接线到 plan.execute
     authorization: materials.authorization,
   });
   assert.equal(enqueuedPayload?.actionType, 'agent.plan.execute');
+  assert.equal(enqueuedPayload?.action, undefined);
+  assert.equal(enqueuedPayload?.pluginVersionId, undefined);
   assert.deepEqual(enqueuedPayload?.plan, materials.plan);
   assert.deepEqual(enqueuedPayload?.token, materials.token);
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
+});
+
+test('AgentExecutorAdapter 将根信任安装送入通用 Plan 合同且不要求证书部署输入', async () => {
+  let compilerInput: Record<string, unknown> | undefined;
+  const materials = v2Materials();
+  const trustPlan = {
+    ...materials.plan,
+    operations: [{
+      operationId: 'certificate-trust-operation',
+      operationType: 'certificate.store.install',
+      stage: 'execute',
+      input: { certificatePem: '-----BEGIN CERTIFICATE-----', fingerprintSha256: 'a'.repeat(64), store: 'root' },
+      dependsOn: [],
+      idempotencyKey: 'certificate-trust-operation',
+      timeoutSeconds: 120,
+    }],
+  };
+  const agents = agentsProbe(async (_tenantId, input) => createTaskEnvelope('task_trust_fixture', input.payload ?? {}));
+  const compiler = {
+    compile: async (input: Record<string, unknown>) => {
+      compilerInput = input;
+      return { actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const, ...materials };
+    },
+  };
+
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    actionType: 'agent.plan.execute',
+    plan: trustPlan,
+    resolvedDeploymentInput: undefined,
+  }));
+
+  assert.equal(result.success, true);
+  assert.equal(compilerInput?.purpose, 'certificate_trust');
+  assert.equal(compilerInput?.resolvedInput, undefined);
 });
 
 test('AgentExecutorAdapter 将 agent.plan.validate 送入同一 Agent v2 compiler 主链', async () => {
@@ -76,7 +113,7 @@ test('AgentExecutorAdapter 将 agent.plan.validate 送入同一 Agent v2 compile
   assert.equal(result.success, true);
   assert.equal(compilerActionType, 'agent.plan.validate');
   assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
-  assert.equal(enqueuedPayload?.mutating, false);
+  assert.equal(enqueuedPayload?.mutating, undefined);
   assert.deepEqual(enqueuedPayload?.plan, materials.plan);
   assert.deepEqual(enqueuedPayload?.token, materials.token);
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
@@ -166,7 +203,7 @@ test('AgentExecutorAdapter 的 dry-run 将计划执行收敛为只读 plan.valid
   assert.equal(result.success, true);
   assert.equal(compilerActionType, 'agent.plan.validate');
   assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
-  assert.equal(enqueuedPayload?.mutating, false);
+  assert.equal(enqueuedPayload?.mutating, undefined);
 });
 
 test('AgentExecutorAdapter 缺少完整 Policy/Token 时失败关闭且不入队', async () => {

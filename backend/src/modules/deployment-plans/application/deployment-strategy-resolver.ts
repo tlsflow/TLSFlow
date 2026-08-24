@@ -93,28 +93,21 @@ export class DeploymentStrategyResolver {
         workflowVersionId: workflow.workflowVersionId,
       });
     }
-    const managedTargetId = input.bindingTarget?.managedTargetId;
-    const gatewayRoute = workflow.runner === 'GATEWAY'
-      ? {
-          gatewayId: workflow.gatewayId,
-          adapter: 'ssh' as const,
-          delegatedTargetId: managedTargetId ?? input.applicationAsset.id,
-          blockedReason: workflow.gatewayId ? undefined : 'runner=GATEWAY 但未配置 gatewayId',
-        }
-      : undefined;
-    if (workflow.runner === 'GATEWAY' && !workflow.gatewayId) {
-      throw new AppError('VALIDATION_FAILED', 'Gateway 工作流策略缺少 gatewayId', {
-        code: 'WORKFLOW_RUNNER_UNAVAILABLE',
+    if (workflow.runner === 'GATEWAY') {
+      throw new AppError('VALIDATION_FAILED', 'Gateway 仅支持鉴权后的 TCP Relay，不能作为 Workflow 或业务插件执行位置', {
+        code: 'GATEWAY_RELAY_ONLY',
         applicationAssetId: input.applicationAsset.id,
         workflowVersionId: workflow.workflowVersionId,
       });
     }
+    const managedTargetId = input.bindingTarget?.managedTargetId;
+    const gatewayRoute = undefined;
     const target = workflow.target ?? readWorkflowTarget(input.applicationAsset.metadata);
     return {
       strategyType: 'WORKFLOW',
       executorType: 'WORKFLOW',
       executionTargetId: managedTargetId ?? input.applicationAsset.id,
-      requiredCapabilities: workflow.runner === 'GATEWAY' ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
+      requiredCapabilities: ['workflow.run'],
       gatewayRoute,
       payload: {
         deploymentStrategy: strategy,
