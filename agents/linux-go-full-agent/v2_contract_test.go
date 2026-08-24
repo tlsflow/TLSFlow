@@ -4,8 +4,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -416,6 +422,88 @@ func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
 	} else if receipt, ok := detail["receipt"].(AgentExecutionReceiptV1); !ok || receipt.Status != "UNKNOWN" || receipt.UnknownReason == "" {
 		t.Fatalf("超时写操作必须生成 UNKNOWN Receipt: %+v", detail)
 	}
+}
+
+func TestLinuxCertificateMaterialValidateParsesCertificateAndPrivateKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "apache.test"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	privateKeyPem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: mustMarshalPKCS8(t, key)})
+	certificateCount, privateKeyCount, err := parseLinuxPEMMaterial("/tmp/apache.crt", certificatePem)
+	if err != nil || certificateCount != 1 || privateKeyCount != 0 {
+		t.Fatalf("证书 PEM 校验失败: certificateCount=%d privateKeyCount=%d err=%v", certificateCount, privateKeyCount, err)
+	}
+	certificateCount, privateKeyCount, err = parseLinuxPEMMaterial("/tmp/apache.key", privateKeyPem)
+	if err != nil || certificateCount != 0 || privateKeyCount != 1 {
+		t.Fatalf("私钥 PEM 校验失败: certificateCount=%d privateKeyCount=%d err=%v", certificateCount, privateKeyCount, err)
+	}
+}
+
+func TestLinuxFilesystemBackupAndRestoreRequireSignedCheckpoint(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(fixture.Root, "apache.crt")
+	if err := os.WriteFile(target, []byte("old-certificate"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	operation := agentPlanAction{OperationID: "backup-1", OperationType: "filesystem.backup", Input: map[string]any{
+		"path": target, "ledgerRef": "execution-recovery-ledger",
+	}}
+	detail, err := executeFilesystemBackup(context.Background(), operation, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, ok := detail["checkpoint"].(map[string]any)
+	if !ok || checkpoint["signature"] == "" {
+		t.Fatalf("备份必须返回签名 checkpoint: %+v", detail)
+	}
+	if err := os.WriteFile(target, []byte("new-certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restore := agentPlanAction{OperationID: "restore-1", OperationType: "filesystem.restore", Input: map[string]any{
+		"path": target, "checkpoint": checkpoint,
+	}}
+	if _, err := executeFilesystemRestore(context.Background(), restore); err != nil {
+		t.Fatalf("签名 checkpoint 恢复失败: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "old-certificate" {
+		t.Fatalf("恢复内容不正确: content=%q err=%v", content, err)
+	}
+	checkpoint["targetPath"] = filepath.Join(fixture.Root, "tampered")
+	if _, err := executeFilesystemRestore(context.Background(), restore); err == nil {
+		t.Fatal("篡改 checkpoint 必须被拒绝")
+	}
+	withoutCheckpoint := agentPlanAction{OperationID: "restore-2", OperationType: "filesystem.restore", Input: map[string]any{"path": target, "ledgerRef": "execution-recovery-ledger"}}
+	if _, err := executeFilesystemRestore(context.Background(), withoutCheckpoint); err == nil {
+		t.Fatal("仅传递 ledgerRef 的恢复请求必须被拒绝")
+	}
+}
+
+func mustMarshalPKCS8(t *testing.T, key *rsa.PrivateKey) []byte {
+	t.Helper()
+	encoded, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {

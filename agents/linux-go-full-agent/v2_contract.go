@@ -690,14 +690,21 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 		result := map[string]any{"operationId": operation.OperationID, "operationType": operation.OperationType, "stage": operation.Stage, "status": "SUCCEEDED"}
 		operationCtx, cancel := context.WithTimeout(ctx, time.Duration(operation.TimeoutSeconds)*time.Second)
 		var err error
+		var operationDetail map[string]any
 		if err = agentContextError(operationCtx); err == nil {
 			switch operation.OperationType {
+			case "service.status":
+				operationDetail, err = executeServiceStatus(operationCtx, operation)
+			case "filesystem.backup":
+				operationDetail, err = executeFilesystemBackup(operationCtx, operation, signer)
+			case "certificate.material.validate":
+				operationDetail, err = executeCertificateMaterialValidate(operationCtx, operation)
 			case "filesystem.atomic_replace":
 				err = executeFileReplace(operationCtx, operation)
 			case "certificate.store.install":
 				err = executeCertificateStoreInstall(operationCtx, operation)
 			case "filesystem.restore":
-				err = errors.New("filesystem.restore requires a signed checkpoint and is not available without one")
+				operationDetail, err = executeFilesystemRestore(operationCtx, operation)
 			case "service.start", "service.stop", "service.reload":
 				err = executeAllowlistedService(operationCtx, operation)
 			case "command.execute_allowlisted":
@@ -710,6 +717,9 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			err = agentContextError(operationCtx)
 		}
 		cancel()
+		for key, value := range operationDetail {
+			result[key] = value
+		}
 		if err != nil {
 			result["status"] = "UNKNOWN"
 			result["error"] = err.Error()
@@ -796,7 +806,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if containsString([]string{"filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if containsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}
@@ -887,6 +897,291 @@ func loadAndValidateAgentExecutionReceipt(request agentV2Request) (AgentExecutio
 		return AgentExecutionReceiptV1{}, errors.New("submitted receipt does not match the persisted Agent receipt")
 	}
 	return receipt, nil
+}
+
+// executeServiceStatus 只查询固定 systemd 服务，不接受 shell 或任意命令参数。
+func executeServiceStatus(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+	service := v2StringValue(operation.Input, "serviceName")
+	if !validLinuxServiceName(service) {
+		return nil, errors.New("service.status requires a fixed service name")
+	}
+	program, err := resolveLinuxSystemctl()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, program, "is-active", service)
+	command.Dir = "/"
+	command.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	output, commandErr := command.CombinedOutput()
+	state := strings.TrimSpace(string(output))
+	switch state {
+	case "active":
+		state = "running"
+	case "inactive", "dead":
+		state = "stopped"
+	case "failed":
+		state = "failed"
+	case "activating", "deactivating":
+		state = "transitioning"
+	default:
+		if commandErr != nil {
+			return nil, fmt.Errorf("systemctl is-active failed: %w", commandErr)
+		}
+		state = "unknown"
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"status":  "SUCCEEDED",
+		"service": map[string]any{"kind": "service", "name": service, "status": state},
+	}, nil
+}
+
+// executeFilesystemBackup 生成本机备份并返回带 Agent Receipt 密钥签名的 checkpoint。
+// checkpoint 内包含恢复所需的完整路径、文件摘要和权限信息，恢复时不接受 ledgerRef 代替。
+func executeFilesystemBackup(ctx context.Context, operation agentPlanAction, signer agentReceiptSigner) (map[string]any, error) {
+	path := v2StringValue(operation.Input, "path")
+	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) || v2StringValue(operation.Input, "ledgerRef") != "execution-recovery-ledger" {
+		return nil, errors.New("filesystem.backup requires an absolute path and recovery ledger")
+	}
+	cleanPath := filepath.Clean(path)
+	backupPath := cleanPath + ".gcac-backup"
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(cleanPath)
+	if os.IsNotExist(err) {
+		checkpoint := map[string]any{
+			"schemaVersion": "gcac.linux.signed-checkpoint/v1",
+			"operationId":   operation.OperationID,
+			"targetPath":    cleanPath,
+			"backupPath":    backupPath,
+			"existed":       false,
+			"mode":          0,
+			"sha256":        "",
+		}
+		return signedCheckpointResult(checkpoint, signer)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, errors.New("filesystem.backup refuses symbolic links and non-regular files")
+	}
+	content, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	if err := atomicWriteFile(backupPath, content, info.Mode().Perm()); err != nil {
+		return nil, fmt.Errorf("备份文件写入结果不明: %w", err)
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, fmt.Errorf("备份已写入但操作上下文已取消: %w", err)
+	}
+	checkpoint := map[string]any{
+		"schemaVersion": "gcac.linux.signed-checkpoint/v1",
+		"operationId":   operation.OperationID,
+		"targetPath":    cleanPath,
+		"backupPath":    backupPath,
+		"existed":       true,
+		"mode":          int(info.Mode().Perm()),
+		"sha256":        hex.EncodeToString(digest[:]),
+		"bytes":         len(content),
+	}
+	result, err := signedCheckpointResult(checkpoint, signer)
+	if err != nil {
+		return nil, err
+	}
+	result["backupPath"] = backupPath
+	result["bytesCopied"] = len(content)
+	result["sha256"] = hex.EncodeToString(digest[:])
+	return result, nil
+}
+
+func signedCheckpointResult(checkpoint map[string]any, signer agentReceiptSigner) (map[string]any, error) {
+	if strings.TrimSpace(signer.KeyID) == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
+		return nil, errors.New("Agent checkpoint 签名器不可用")
+	}
+	signature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSON(checkpoint)))
+	signed := make(map[string]any, len(checkpoint)+2)
+	for key, value := range checkpoint {
+		signed[key] = value
+	}
+	signed["keyId"] = signer.KeyID
+	signed["signature"] = signature
+	return map[string]any{"status": "SUCCEEDED", "checkpoint": signed}, nil
+}
+
+func executeFilesystemRestore(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+	path := v2StringValue(operation.Input, "path")
+	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) {
+		return nil, errors.New("filesystem.restore requires an absolute target path")
+	}
+	checkpoint, ok := operation.Input["checkpoint"].(map[string]any)
+	if !ok {
+		return nil, errors.New("filesystem.restore requires a signed checkpoint")
+	}
+	if err := validateSignedCheckpoint(path, checkpoint); err != nil {
+		return nil, err
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	cleanPath := filepath.Clean(path)
+	if info, err := os.Lstat(cleanPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("filesystem.restore refuses symbolic link targets")
+	}
+	existed, _ := checkpoint["existed"].(bool)
+	if !existed {
+		if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": false, "targetPath": cleanPath}, nil
+	}
+	backupPath := v2StringValue(checkpoint, "backupPath")
+	content, err := os.ReadFile(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := atomicWriteFile(cleanPath, content, checkpointMode(checkpoint)); err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": true, "targetPath": cleanPath, "restoredSha256": hex.EncodeToString(digest[:])}, nil
+}
+
+func validateSignedCheckpoint(path string, checkpoint map[string]any) error {
+	if v2StringValue(checkpoint, "schemaVersion") != "gcac.linux.signed-checkpoint/v1" {
+		return errors.New("filesystem.restore checkpoint schema is unsupported")
+	}
+	if v2StringValue(checkpoint, "targetPath") != filepath.Clean(path) {
+		return errors.New("filesystem.restore checkpoint target does not match operation path")
+	}
+	keyID := v2StringValue(checkpoint, "keyId")
+	signature := v2StringValue(checkpoint, "signature")
+	unsigned := make(map[string]any, len(checkpoint))
+	for key, value := range checkpoint {
+		if key != "keyId" && key != "signature" {
+			unsigned[key] = value
+		}
+	}
+	if err := verifySignedValue(keyID, signature, unsigned, "GCAC_AGENT_RECEIPT_KEYSET_JSON"); err != nil {
+		return fmt.Errorf("filesystem.restore checkpoint signature verification failed: %w", err)
+	}
+	existed, ok := checkpoint["existed"].(bool)
+	if !ok {
+		return errors.New("filesystem.restore checkpoint existed flag is invalid")
+	}
+	if !existed {
+		return nil
+	}
+	backupPath := v2StringValue(checkpoint, "backupPath")
+	if backupPath != filepath.Clean(path)+".gcac-backup" || !filepath.IsAbs(backupPath) || hasParentPathSegment(backupPath) {
+		return errors.New("filesystem.restore checkpoint backup path is invalid")
+	}
+	if !isSHA256Hex(v2StringValue(checkpoint, "sha256")) {
+		return errors.New("filesystem.restore checkpoint digest is invalid")
+	}
+	if _, ok := checkpoint["mode"]; !ok {
+		return errors.New("filesystem.restore checkpoint mode is missing")
+	}
+	return nil
+}
+
+func checkpointMode(checkpoint map[string]any) os.FileMode {
+	value, ok := integerValue(checkpoint["mode"])
+	if !ok || value <= 0 {
+		return 0o600
+	}
+	return os.FileMode(value) & os.ModePerm
+}
+
+func executeCertificateMaterialValidate(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+	path := v2StringValue(operation.Input, "path")
+	storageKind := v2StringValue(operation.Input, "storageKind")
+	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) || storageKind != "PEM_FILES" {
+		return nil, errors.New("certificate.material.validate input is invalid")
+	}
+	content, err := decodeOperationContent(operation.Input)
+	if err != nil {
+		return nil, err
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	certificates, privateKeys, err := parseLinuxPEMMaterial(path, content)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	return map[string]any{
+		"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
+		"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
+		"certificateCount": certificates, "privateKeyCount": privateKeys,
+	}, nil
+}
+
+func parseLinuxPEMMaterial(path string, content []byte) (int, int, error) {
+	remaining := content
+	certificateCount, privateKeyCount := 0, 0
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			if strings.TrimSpace(string(remaining)) != "" {
+				return 0, 0, errors.New("证书材料包含无法解析的 PEM 数据")
+			}
+			break
+		}
+		remaining = rest
+		switch block.Type {
+		case "CERTIFICATE":
+			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+				return 0, 0, fmt.Errorf("证书 PEM 无法解析: %w", err)
+			}
+			certificateCount++
+		case "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "DSA PRIVATE KEY":
+			if err := parseLinuxPrivateKey(block); err != nil {
+				return 0, 0, err
+			}
+			privateKeyCount++
+		default:
+			return 0, 0, fmt.Errorf("不支持的 PEM 块类型: %s", block.Type)
+		}
+	}
+	if certificateCount == 0 && privateKeyCount == 0 {
+		return 0, 0, errors.New("证书材料不包含有效 PEM 块")
+	}
+	if strings.Contains(strings.ToLower(filepath.Base(path)), "key") && privateKeyCount == 0 {
+		return 0, 0, errors.New("私钥路径未包含私钥 PEM")
+	}
+	return certificateCount, privateKeyCount, nil
+}
+
+func parseLinuxPrivateKey(block *pem.Block) error {
+	if _, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		return nil
+	}
+	if _, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return nil
+	}
+	if _, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return nil
+	}
+	return errors.New("私钥 PEM 无法解析")
+}
+
+func decodeOperationContent(input map[string]any) ([]byte, error) {
+	value := v2StringValue(input, "contentBase64")
+	if value == "" {
+		return nil, errors.New("operation requires contentBase64")
+	}
+	content, err := base64.StdEncoding.DecodeString(value)
+	if err != nil || len(content) == 0 || len(content) > 64*1024 {
+		return nil, errors.New("operation contentBase64 is invalid or exceeds the contract limit")
+	}
+	return content, nil
 }
 
 func executeFileReplace(ctx context.Context, operation agentPlanAction) error {

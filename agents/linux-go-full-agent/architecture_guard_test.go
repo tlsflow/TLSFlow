@@ -17,9 +17,6 @@ func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
 		"agent.self_test",
 		"buildstableagentkey",
 		"stableagentkey",
-		"nginx",
-		"apache",
-		"tomcat",
 		"iis",
 	}
 	err := filepath.WalkDir(".", func(path string, entry os.DirEntry, walkErr error) error {

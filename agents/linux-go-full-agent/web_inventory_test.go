@@ -5,9 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +52,159 @@ func TestCollectLinuxWebCertificateFilesReadsTomcatPKCS12AndPreservesConfiguredP
 	}
 	if got := sanitizeLinuxWebConfigFiles([]map[string]any{{"content": `<Connector certificateKeystorePassword="changeit"/>`}})[0]["content"]; got != `<Connector certificateKeystorePassword="***"/>` {
 		t.Fatalf("keystore 密码不得进入能力快照: %v", got)
+	}
+}
+
+func TestParseLinuxApacheConfigTreeUsesEffectiveIncludeAndTLSVirtualHost(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "apache2.conf")
+	sitePath := filepath.Join(root, "sites-enabled", "happy.conf")
+	if err := os.MkdirAll(filepath.Dir(sitePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainPath, []byte("ServerName happy.example.test\nListen 8081\nInclude sites-enabled/*.conf\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sitePath, []byte("<VirtualHost *:8444>\n ServerName happy.example.test\n SSLEngine on\n SSLCertificateFile /etc/gcac-test/certs/test.crt\n SSLCertificateKeyFile /etc/gcac-test/certs/test.key\n</VirtualHost>\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	files, sites, fingerprint, warnings := parseLinuxApacheConfigTree(mainPath, root)
+	if len(warnings) != 0 || fingerprint == "" || len(files) != 2 || len(sites) != 1 {
+		t.Fatalf("Apache 有效配置树解析失败 files=%v sites=%v fingerprint=%q warnings=%v", files, sites, fingerprint, warnings)
+	}
+	metadata := sites[0]["metadata"].(map[string]any)
+	listeners := metadata["listeners"].([]map[string]any)
+	if len(listeners) != 1 || listeners[0]["port"] != 8444 || listeners[0]["protocol"] != "HTTPS" || listeners[0]["certificatePath"] != "/etc/gcac-test/certs/test.crt" {
+		t.Fatalf("Apache TLS VirtualHost 事实不完整: %#v", listeners)
+	}
+}
+
+func TestParseLinuxNginxConfigTreeUsesCompiledPrefixAndDeduplicatesIncludes(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "nginx.conf")
+	sitePath := filepath.Join(root, "conf.d", "happy.conf")
+	if err := os.MkdirAll(filepath.Dir(sitePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainPath, []byte("include conf.d/*.conf;\ninclude conf.d/*.conf;\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sitePath, []byte("server {\n listen 8444 ssl;\n server_name happy.example.test;\n ssl_certificate /etc/gcac-test/certs/test.crt;\n ssl_certificate_key /etc/gcac-test/certs/test.key;\n}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	files, sites, fingerprint, warnings := parseLinuxNginxConfigTree(mainPath, root)
+	if len(warnings) != 0 || fingerprint == "" || len(files) != 2 || len(sites) != 1 {
+		t.Fatalf("NGINX 有效配置树解析失败 files=%v sites=%v fingerprint=%q warnings=%v", files, sites, fingerprint, warnings)
+	}
+	listeners := sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)
+	if len(listeners) != 1 || listeners[0]["port"] != 8444 || listeners[0]["protocol"] != "HTTPS" || listeners[0]["certificateKeyPath"] != "/etc/gcac-test/certs/test.key" {
+		t.Fatalf("NGINX TLS listener 事实不完整: %#v", listeners)
+	}
+}
+
+func TestParseLinuxTomcatServerXMLIgnoresCommentExampleAndKeepsKeystoreKind(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "conf", "server.xml")
+	content := []byte(`<?xml version="1.0"?><Server>
+<!-- <Connector port="8443" scheme="https" certificateFile="comment.crt"/> -->
+<Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" scheme="https" certificateKeystoreFile="conf/test.p12" certificateKeystoreType="PKCS12" keystorePass="changeit"/><Engine><Host name="happy.example.test"/></Engine></Service>
+</Server>`)
+	files, sites, warnings := parseLinuxTomcatServerXML(configPath, root, content)
+	if len(warnings) != 0 || len(files) != 1 || len(sites) != 1 {
+		t.Fatalf("Tomcat XML 解析失败 files=%v sites=%v warnings=%v", files, sites, warnings)
+	}
+	state := &linuxWebDiscoveryState{certSeen: map[string]map[string]any{}, configSeen: map[string]struct{}{}}
+	appendLinuxSite(state, linuxWebRuntime{frameworkType: "app.tomcat", configPath: configPath, configFingerprint: strings.Repeat("a", 64), configCheckArgs: []string{"configtest"}}, sites[0])
+	listener := state.sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)[0]
+	if listener["port"] != 8445 || listener["keystoreType"] != "PKCS12" || listener["keystorePath"] != filepath.Join(root, "conf", "test.p12") {
+		t.Fatalf("Tomcat KeyStore 事实不完整: %#v", listener)
+	}
+	if strings.Contains(fmt.Sprint(listener), "changeit") {
+		t.Fatal("Tomcat KeyStore 密码不得进入运行事实")
+	}
+}
+
+func TestParseLinuxTomcatServerXMLSupportsConnectorKeystoreFile(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "conf", "server.xml")
+	content := []byte(`<Server><Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" scheme="https" keystoreFile="conf/localhost-rsa.p12" keystorePass="changeit"/><Engine><Host name="happy.example.test"/></Engine></Service></Server>`)
+	_, sites, warnings := parseLinuxTomcatServerXML(configPath, root, content)
+	if len(warnings) != 0 || len(sites) != 1 {
+		t.Fatalf("Tomcat keystoreFile 解析失败 sites=%v warnings=%v", sites, warnings)
+	}
+	state := &linuxWebDiscoveryState{certSeen: map[string]map[string]any{}, configSeen: map[string]struct{}{}}
+	appendLinuxSite(state, linuxWebRuntime{frameworkType: "app.tomcat", configPath: configPath, configFingerprint: strings.Repeat("b", 64), configCheckArgs: []string{"configtest"}}, sites[0])
+	projectedSite := state.sites[0]
+	listener := projectedSite["metadata"].(map[string]any)["listeners"].([]map[string]any)[0]
+	if listener["keystorePath"] != filepath.Join(root, "conf", "localhost-rsa.p12") || listener["keystoreType"] != "PKCS12" {
+		t.Fatalf("Tomcat keystoreFile 未解析为实际 PKCS12 路径: %#v", listener)
+	}
+	if strings.Contains(fmt.Sprint(listener), "changeit") {
+		t.Fatal("Tomcat keystore 密码不得进入运行事实")
+	}
+}
+
+func TestParseLinuxTomcatServerXMLPreservesLegacyKeystoreType(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "conf", "server.xml")
+	content := []byte(`<Server><Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" scheme="https" keystoreFile="/etc/gcac-test/certs/test.p12" keystorePass="changeit" keystoreType="PKCS12"/></Service></Server>`)
+	_, sites, warnings := parseLinuxTomcatServerXML(configPath, root, content)
+	if len(warnings) != 0 || len(sites) != 1 {
+		t.Fatalf("Tomcat 传统 keystoreType 解析失败 sites=%v warnings=%v", sites, warnings)
+	}
+	listener := sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)[0]
+	if listener["keystorePath"] != "/etc/gcac-test/certs/test.p12" || listener["keystoreType"] != "PKCS12" {
+		t.Fatalf("Tomcat 传统 keystoreType 未保留: %#v", listener)
+	}
+}
+
+func TestAuthoritativeTomcatDiscoveryReadsConfiguredKeystorePassword(t *testing.T) {
+	certificate, privateKey := testCertificate(t)
+	root := t.TempDir()
+	configPath := filepath.Join(root, "conf", "server.xml")
+	keystorePath := filepath.Join(root, "certs", "test.p12")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(keystorePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content, err := pkcs12.Modern2023.Encode(privateKey, certificate, nil, "changeit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keystorePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previousRoots := webDiscoveryRoots
+	webDiscoveryRoots = []string{root}
+	t.Cleanup(func() { webDiscoveryRoots = previousRoots })
+
+	serverXML := []byte(`<Server><Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" scheme="https" keystoreFile="` + keystorePath + `" keystorePass="changeit" keystoreType="PKCS12"/></Service></Server>`)
+	_, sites, warnings := parseLinuxTomcatServerXML(configPath, root, serverXML)
+	if len(warnings) != 0 || len(sites) != 1 {
+		t.Fatalf("Tomcat 权威配置解析失败 sites=%v warnings=%v", sites, warnings)
+	}
+	state := &linuxWebDiscoveryState{certSeen: map[string]map[string]any{}, configSeen: map[string]struct{}{}}
+	appendLinuxSite(state, linuxWebRuntime{frameworkType: "app.tomcat", configPath: configPath, configFingerprint: strings.Repeat("c", 64), configCheckArgs: []string{"configtest"}}, sites[0])
+	if len(state.certificates) != 1 || state.certificates[0]["path"] != keystorePath {
+		t.Fatalf("Agent 必须使用 server.xml 密码读取实际 keystore: %#v", state.certificates)
+	}
+	listener := state.sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)[0]
+	if strings.Contains(fmt.Sprint(listener), "changeit") {
+		t.Fatal("keystore 密码不得进入权威运行事实")
+	}
+}
+
+func TestLinuxWebRuntimeVersionsUseActualProgramOutput(t *testing.T) {
+	if got := linuxApacheVersion("Server version: Apache/2.4.52 (Ubuntu)"); got != "2.4.52" {
+		t.Fatalf("Apache 版本解析错误: %q", got)
+	}
+	if got := linuxNginxVersion("nginx version: nginx/1.18.0"); got != "1.18.0" {
+		t.Fatalf("NGINX 版本解析错误: %q", got)
+	}
+	if got := linuxApacheVersion("Apache version unavailable"); got != "" {
+		t.Fatalf("无法取得版本时不得猜测: %q", got)
 	}
 }
 

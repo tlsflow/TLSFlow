@@ -1379,6 +1379,9 @@ func collectCapabilityReports() []reportedCapability {
 }
 
 func collectLinuxWebInventory() map[string]any {
+	if inventory := collectLinuxAuthoritativeWebInventory(); inventory != nil {
+		return inventory
+	}
 	processes := collectLinuxProcesses()
 	processPaths := make([]string, 0, len(processes))
 	for _, process := range processes {
