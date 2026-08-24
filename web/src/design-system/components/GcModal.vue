@@ -18,9 +18,12 @@ const props = withDefaults(defineProps<{
   closeOnBackdrop?: boolean
   /** 自定义模态框宽度，优先级高于 size（例如 '60vw'、'800px'）。 */
   width?: string
+  /** 只保留遮罩和内容插槽，不渲染默认卡片标题、内边距和 footer。 */
+  frameless?: boolean
 }>(), {
   size: 'md',
   closeOnBackdrop: true,
+  frameless: false,
 })
 
 const emit = defineEmits<{
@@ -38,7 +41,12 @@ const isOpen = computed({
   },
 })
 
-const modalClass = computed(() => `gc-modal gc-modal--${props.size}`)
+const modalClass = computed(() => [
+  'gc-modal',
+  `gc-modal--${props.size}`,
+  props.frameless ? '' : 'gc-card',
+  props.frameless ? 'gc-modal--frameless' : '',
+].filter(Boolean).join(' '))
 const modalStyle = computed(() => (props.width ? { '--gc-modal-width': props.width } : undefined))
 
 function closeModal() {
@@ -80,13 +88,12 @@ onBeforeUnmount(() => {
       <section
         :class="modalClass"
         :style="modalStyle"
-        class="gc-card"
         role="dialog"
         aria-modal="true"
         :aria-label="title"
         @click.stop
       >
-        <header v-if="title || description" class="gc-modal__header">
+        <header v-if="!frameless && (title || description)" class="gc-modal__header">
           <div>
             <h2 v-if="title">{{ title }}</h2>
             <p v-if="description">{{ description }}</p>
@@ -100,7 +107,7 @@ onBeforeUnmount(() => {
           <slot />
         </div>
 
-        <footer v-if="$slots.actions" class="gc-modal__actions">
+        <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
           <slot name="actions" />
         </footer>
       </section>
@@ -185,6 +192,19 @@ onBeforeUnmount(() => {
   gap: var(--gc-space-2);
   padding-top: 10px;
   border-top: 1px solid var(--gc-color-border);
+}
+
+.gc-modal--frameless {
+  padding: 0;
+  gap: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.gc-modal--frameless .gc-modal__body {
+  overflow: visible;
 }
 
 @media (max-width: 640px) {

@@ -34,6 +34,7 @@ const emit = defineEmits<{
   dryRun: [plan: DeploymentWizardPlan]
   submit: [plan: DeploymentWizardPlan]
   execute: [plan: DeploymentWizardPlan]
+  cancel: []
 }>()
 
 const LATEST_VERSION_MARKER = '__LATEST__'
@@ -308,6 +309,18 @@ function versionLabel(item: ApiRecord): string {
   return `${id} (${notBefore || '未知开始'} ~ ${notAfter || '未知结束'})`
 }
 
+function autoLatestVersionLabel(current: ApiRecord | null): string {
+  const currentLabel = current ? versionLabel(current) : '当前暂无可部署证书版本'
+  return `始终自动选择最新可部署证书（当前为 ${currentLabel}）`
+}
+
+function selectedVersionSummary(): string {
+  if (selectedCertificateVersionId.value === LATEST_VERSION_MARKER) {
+    return autoLatestVersionLabel(latestVersion.value)
+  }
+  return selectedVersion.value ? versionLabel(selectedVersion.value) : '未选择'
+}
+
 function formatLabel(item: ApiRecord): string {
   const format = readString(item, ['format'], 'unknown').toUpperCase()
   const privateKey = readBoolean(item, ['containsPrivateKey']) ? '含私钥' : '无私钥'
@@ -407,7 +420,6 @@ function normalizeDomainKey(value: string): string {
       <div class="gc-deployment-wizard__title">
         <span class="gc-deployment-wizard__eyebrow">部署向导</span>
         <strong>分步骤完成部署计划配置</strong>
-        <p>把证书材料、部署目标和执行前预检拆开处理，减少一次性堆叠的输入干扰。</p>
       </div>
       <div class="gc-deployment-wizard__header-meta">
         <span class="gc-deployment-wizard__status" :class="`is-${readinessTone}`">
@@ -460,7 +472,6 @@ function normalizeDomainKey(value: string): string {
         <header class="gc-deployment-wizard__panel-header">
           <div>
             <h3>1. 证书材料</h3>
-            <p>先确定本次部署使用的证书资产、证书版本和产物配置。</p>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${stepOneReady ? 'done' : 'active'}`">
             {{ stepOneReady ? '可进入下一步' : '待完成' }}
@@ -481,7 +492,7 @@ function normalizeDomainKey(value: string): string {
             <span>证书版本</span>
             <select v-model="selectedCertificateVersionId" :disabled="loading || sortedVersions.length === 0">
               <option v-if="latestVersion" :value="LATEST_VERSION_MARKER">
-                自动选择最新可部署证书 / {{ versionLabel(latestVersion) }}
+                {{ autoLatestVersionLabel(latestVersion) }}
               </option>
               <option v-for="item in sortedVersions" :key="readString(item, ['id', 'certificateVersionId'])" :value="readString(item, ['id', 'certificateVersionId'])">
                 {{ versionLabel(item) }}
@@ -508,7 +519,7 @@ function normalizeDomainKey(value: string): string {
           </div>
           <div class="gc-deployment-wizard__summary-item">
             <span>证书版本</span>
-            <strong>{{ selectedVersion ? versionLabel(selectedVersion) : '未选择' }}</strong>
+            <strong>{{ selectedVersionSummary() }}</strong>
           </div>
           <div class="gc-deployment-wizard__summary-item">
             <span>产物配置</span>
@@ -522,31 +533,11 @@ function normalizeDomainKey(value: string): string {
         <header class="gc-deployment-wizard__panel-header">
           <div>
             <h3>2. 部署目标</h3>
-            <p>选择本次换证要落到哪个应用资产目标。</p>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${stepTwoReady ? 'done' : 'active'}`">
             {{ stepTwoReady ? '可进入下一步' : '待完成' }}
           </span>
         </header>
-
-        <div class="gc-deployment-wizard__compact-review">
-          <div class="gc-deployment-wizard__compact-review-head">
-            <span>当前证书材料</span>
-            <strong>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], '未选择') }}</strong>
-          </div>
-          <div class="gc-deployment-wizard__tag-row">
-            <span class="gc-deployment-wizard__tag">
-              {{ selectedCertificateVersionId === LATEST_VERSION_MARKER ? '自动最新版本' : '固定版本' }}
-            </span>
-            <span class="gc-deployment-wizard__tag">
-              {{ readString(selectedFormat, ['format'], 'unknown').toUpperCase() }}
-            </span>
-            <span class="gc-deployment-wizard__tag">
-              {{ readBoolean(selectedFormat, ['parameters.generatePrivateKeyFile']) ? '分离私钥文件' : '单文件产物' }}
-            </span>
-          </div>
-          <small>{{ selectedFormat ? formatLabel(selectedFormat) : '未选择产物配置' }}</small>
-        </div>
 
         <div class="gc-deployment-wizard__field-grid">
           <label class="gc-form-field gc-deployment-wizard__field-span-2">
@@ -588,7 +579,6 @@ function normalizeDomainKey(value: string): string {
         <header class="gc-deployment-wizard__panel-header">
           <div>
             <h3>3. 预检与提交</h3>
-            <p>确认计划内容后发起 dry-run、保存计划、提交审批或直接执行。</p>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${canOperate ? 'active' : 'pending'}`">
             {{ canOperate ? '可操作' : '待完成前置选择' }}
@@ -602,7 +592,7 @@ function normalizeDomainKey(value: string): string {
           </div>
           <div>
             <dt>证书版本</dt>
-            <dd>{{ selectedVersion ? versionLabel(selectedVersion) : '未选择' }}</dd>
+            <dd>{{ selectedVersionSummary() }}</dd>
           </div>
           <div>
             <dt>产物配置</dt>
@@ -646,12 +636,11 @@ function normalizeDomainKey(value: string): string {
       <button class="gc-button" type="button" :disabled="!canGoPrevious || loading" @click="goPrevious">上一步</button>
 
       <div class="gc-deployment-wizard__footer-actions">
+        <button class="gc-button" type="button" :disabled="loading" @click="emit('cancel')">取消</button>
         <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" :disabled="!canGoNext || loading" @click="goNext">下一步</button>
         <template v-else>
           <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">先做 Dry-run</button>
           <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('save', buildPlan())">保存计划</button>
-          <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('submit', buildPlan())">提交计划</button>
-          <button class="gc-button gc-button--danger" type="button" :disabled="!canOperate || loading" @click="emit('execute', buildPlan())">提交并执行</button>
         </template>
       </div>
     </footer>
@@ -661,8 +650,8 @@ function normalizeDomainKey(value: string): string {
 <style scoped>
 .gc-deployment-wizard {
   display: grid;
-  gap: 16px;
-  padding: 8px;
+  gap: 12px;
+  padding: 6px;
   border-radius: 20px;
   background:
     radial-gradient(circle at top right, rgb(219 234 254 / 52%), transparent 30%),
@@ -674,12 +663,12 @@ function normalizeDomainKey(value: string): string {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  padding: 2px 4px 0;
+  padding: 0 2px;
 }
 
 .gc-deployment-wizard__eyebrow {
   display: inline-flex;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   color: rgb(10 132 255);
   font-size: 12px;
   font-weight: 700;
@@ -692,14 +681,6 @@ function normalizeDomainKey(value: string): string {
   font-size: 24px;
   line-height: 1.15;
   letter-spacing: 0;
-}
-
-.gc-deployment-wizard__title p {
-  max-width: 700px;
-  margin: 6px 0 0;
-  color: var(--gc-color-text-muted);
-  font-size: 14px;
-  line-height: 1.5;
 }
 
 .gc-deployment-wizard__header-meta {
@@ -780,7 +761,7 @@ function normalizeDomainKey(value: string): string {
 .gc-deployment-wizard__progress {
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 18px;
   background:
@@ -949,11 +930,11 @@ function normalizeDomainKey(value: string): string {
 
 .gc-deployment-wizard__panel {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   min-height: 0;
   border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 20px;
-  padding: 20px;
+  padding: 16px;
   background:
     linear-gradient(180deg, rgb(255 255 255 / 96%), rgb(248 250 252 / 94%));
   box-shadow:
@@ -965,8 +946,8 @@ function normalizeDomainKey(value: string): string {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: flex-start;
-  padding-bottom: 2px;
+  align-items: center;
+  padding-bottom: 0;
   border-bottom: 1px solid rgb(226 232 240 / 72%);
 }
 
@@ -974,12 +955,6 @@ function normalizeDomainKey(value: string): string {
   margin: 0;
   font-size: 24px;
   line-height: 1.15;
-}
-
-.gc-deployment-wizard__panel-header p {
-  margin: 6px 0 0;
-  color: var(--gc-color-text-muted);
-  font-size: 14px;
 }
 
 .gc-deployment-wizard__field-grid {
@@ -1045,7 +1020,6 @@ function normalizeDomainKey(value: string): string {
 }
 
 .gc-deployment-wizard__summary-item,
-.gc-deployment-wizard__compact-review,
 .gc-deployment-wizard__target-card,
 .gc-deployment-wizard__feedback-inline,
 .gc-deployment-wizard__check-item {
@@ -1058,15 +1032,13 @@ function normalizeDomainKey(value: string): string {
     0 10px 24px rgb(15 23 42 / 4%);
 }
 
-.gc-deployment-wizard__summary-item,
-.gc-deployment-wizard__compact-review {
+.gc-deployment-wizard__summary-item {
   display: grid;
   gap: 8px;
   padding: 14px;
 }
 
 .gc-deployment-wizard__summary-item span,
-.gc-deployment-wizard__compact-review span,
 .gc-deployment-wizard__review-list dt,
 .gc-deployment-wizard__target-meta dt {
   color: var(--gc-color-text-muted);
@@ -1075,7 +1047,6 @@ function normalizeDomainKey(value: string): string {
 }
 
 .gc-deployment-wizard__summary-item strong,
-.gc-deployment-wizard__compact-review strong,
 .gc-deployment-wizard__review-list dd,
 .gc-deployment-wizard__target-meta dd {
   margin: 0;
@@ -1084,17 +1055,11 @@ function normalizeDomainKey(value: string): string {
   line-height: 1.25;
 }
 
-.gc-deployment-wizard__summary-item small,
-.gc-deployment-wizard__compact-review small {
+.gc-deployment-wizard__summary-item small {
   color: var(--gc-color-text-muted);
   overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.4;
-}
-
-.gc-deployment-wizard__compact-review-head {
-  display: grid;
-  gap: 6px;
 }
 
 .gc-deployment-wizard__tag-row {
@@ -1311,7 +1276,7 @@ function normalizeDomainKey(value: string): string {
   justify-content: space-between;
   gap: 16px;
   align-items: center;
-  padding: 14px 16px;
+  padding: 10px 12px;
   border: 1px solid rgb(255 255 255 / 65%);
   border-radius: 16px;
   background:
@@ -1369,8 +1334,7 @@ function normalizeDomainKey(value: string): string {
   }
 
   .gc-deployment-wizard__target-head strong,
-  .gc-deployment-wizard__summary-item strong,
-  .gc-deployment-wizard__compact-review strong {
+  .gc-deployment-wizard__summary-item strong {
     font-size: 18px;
   }
 }
