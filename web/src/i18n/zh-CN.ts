@@ -2273,11 +2273,11 @@ export default {
     deploymentTasks: {
       eyebrow: '部署任务',
       title: '部署任务参数',
-      description: '按当前租户控制证书部署是否先执行 Dry-run，以及高风险部署是否需要审批。',
+      description: '按当前租户控制证书部署是否先执行 Dry-run，以及未单独指定审批的应用是否需要审批。',
       readonly: '当前账号只有查看权限。',
       fields: {
         dryRun: { title: '启用 Dry-run', description: '部署证书前执行只读预检；检查结论仅供参考，不阻止正式部署。', aria: '启用证书部署 Dry-run' },
-        approval: { title: '启用审批流程', description: '高风险证书部署提交后进入审批，批准后才允许执行。', aria: '启用证书部署审批流程' }
+        approval: { title: '启用审批流程', description: '应用未单独勾选“需要审批”时，使用此全局参数决定证书部署是否先审批。', aria: '启用证书部署审批流程' }
       },
       actions: { save: '保存设置', saving: '保存中...' },
       messages: { saved: '部署任务参数已保存。' },

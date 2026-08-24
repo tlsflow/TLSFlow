@@ -2984,7 +2984,8 @@ export default {
       publishedVersion: "已釋出版本",
       runner: "執行位置",
       artifactFormat: "產物格式設定",
-      updatePlugin: "憑證更新外掛"
+      updatePlugin: "憑證更新外掛",
+      approvalRequired: "憑證部署需要審批"
     },
     capability: { source: "能力來源", plugin: "外掛版本", runtime: "執行階段", executionLocation: "執行位置", pendingAssignment: "儲存後將建立應用資產層級的部署能力指派。" },
     links: {

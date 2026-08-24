@@ -2985,7 +2985,8 @@ export default {
       publishedVersion: '公開済みバージョン',
       runner: '実行場所',
       artifactFormat: '成果物形式設定',
-      updatePlugin: '証明書更新プラグイン'
+      updatePlugin: '証明書更新プラグイン',
+      approvalRequired: '証明書デプロイに承認を要求'
     },
     capability: { source: '機能の取得元', plugin: 'プラグインバージョン', runtime: 'ランタイム', executionLocation: '実行場所', pendingAssignment: '保存すると、アプリケーション資産レベルのデプロイ機能割り当てが作成されます。' },
     links: {

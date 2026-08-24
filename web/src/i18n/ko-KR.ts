@@ -3111,6 +3111,7 @@ export default {
       createRequestCompleted: '생성 요청이 완료되었습니다.',
       editRequestCompleted: '저장 요청이 완료되었습니다.',
       agentCertificateFormatHint: 'Agent 모드에서 이 인증서 아티팩트 구성을 사용해 배포 자료를 생성합니다.',
+      approvalRequiredHint: '선택하면 이 애플리케이션의 배포는 항상 승인이 필요하며, 선택하지 않으면 테넌트 전체 배포 설정을 사용합니다.',
       placeholders: {
         displayName: '예를 들어, 생산 사이트 액세스',
         verifyUrl: '예: https://example.com/health',

@@ -2168,11 +2168,11 @@ export default {
     deploymentTasks: {
       eyebrow: 'Tâches de déploiement',
       title: 'Paramètres des tâches de déploiement',
-      description: 'Contrôlez pour ce tenant le Dry-run avant déploiement et l’approbation des déploiements à haut risque.',
+      description: 'Contrôlez pour ce tenant le Dry-run et l’approbation des applications qui ne définissent pas leur propre exigence.',
       readonly: 'Ce compte dispose d’un accès en lecture seule.',
       fields: {
         dryRun: { title: 'Activer le Dry-run', description: 'Exécuter un contrôle en lecture seule avant le déploiement ; les résultats sont indicatifs et ne bloquent pas l’exécution.', aria: 'Activer le Dry-run des déploiements de certificats' },
-        approval: { title: 'Activer le circuit d’approbation', description: 'Soumettre les déploiements de certificats à haut risque à approbation avant exécution.', aria: 'Activer le circuit d’approbation des déploiements de certificats' }
+        approval: { title: 'Activer le circuit d’approbation', description: 'Pour les applications sans exigence explicite, ce paramètre du tenant détermine si le déploiement du certificat doit être approuvé.', aria: 'Activer le circuit d’approbation des déploiements de certificats' }
       },
       actions: { save: 'Enregistrer', saving: 'Enregistrement...' },
       messages: { saved: 'Les paramètres des tâches de déploiement sont enregistrés.' },
