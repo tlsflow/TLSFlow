@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
+import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +36,8 @@ const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemAct
 const activeChildren = computed(() => activeTopItem.value?.children ?? [])
 const lockContentScroll = computed(() => route.path === '/certificates')
 const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
+const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
+const taskDrawerOpen = ref(false)
 const userMenuOpen = ref(false)
 const languageMenuOpen = ref(false)
 const userMenuRoot = ref<HTMLElement | null>(null)
@@ -90,6 +93,11 @@ function refreshDashboard() {
 function toggleUserMenu() {
   userMenuOpen.value = !userMenuOpen.value
   if (!userMenuOpen.value) languageMenuOpen.value = false
+}
+
+function openTaskDrawer() {
+  closeUserMenu()
+  taskDrawerOpen.value = true
 }
 
 function closeUserMenu() {
@@ -193,6 +201,20 @@ onBeforeUnmount(() => {
           <span>{{ menuTitle(item) }}</span>
         </RouterLink>
       </nav>
+
+      <button
+        v-if="showTaskEntry"
+        class="gc-shell__task-button"
+        type="button"
+        :aria-label="t('tasks.aria.openDrawer')"
+        :aria-expanded="taskDrawerOpen"
+        @click="openTaskDrawer"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" />
+          <path d="m8 12 2.2 2.2L16 8.5" />
+        </svg>
+      </button>
 
       <div ref="userMenuRoot" class="gc-shell__user" :aria-label="t('userMenu.currentUser')">
         <button
@@ -353,5 +375,7 @@ onBeforeUnmount(() => {
         </div>
       </form>
     </GcModal>
+
+    <TaskDrawer :open="taskDrawerOpen" @close="taskDrawerOpen = false" />
   </div>
 </template>

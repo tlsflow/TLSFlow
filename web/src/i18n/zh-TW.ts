@@ -70,6 +70,9 @@ export default {
     modal: {
       closeAria: "關閉彈出視窗"
     },
+    drawer: {
+      closeAria: "關閉抽屜"
+    },
     secretInput: {
       label: "Secret 引用",
       placeholder: "選擇或輸入密文引用（SecretRef），內容不會明文儲存",
@@ -404,6 +407,31 @@ export default {
       subtitle: "分步驟完成部署計畫設定",
       title: "部署精靈"
     }
+  },
+  tasks: {
+    title: "全域任務",
+    description: "查看目前租戶中的排隊、執行、監控與系統任務。",
+    tabs: { all: "全部任務", execution: "執行任務", monitoring: "監控任務", system: "系統任務" },
+    aria: { openDrawer: "開啟全域任務", tabs: "任務分類" },
+    filters: {
+      includeAll: "顯示全部任務",
+      keyword: "搜尋任務、錯誤或 ID",
+      taskType: "任務類型",
+      status: "狀態",
+      allStatuses: "全部狀態",
+      resourceType: "資源類型",
+      resourceId: "資源 ID",
+      requestedBy: "發起使用者",
+      taskId: "任務 ID",
+      createdFrom: "開始時間",
+      createdTo: "結束時間"
+    },
+    fields: { requestedBy: "發起使用者", triggerSource: "觸發來源", createdAt: "建立時間", startedAt: "開始時間", finishedAt: "結束時間", error: "最後錯誤" },
+    sections: { timeline: "狀態時間線", attempts: "嘗試記錄", logs: "日誌", children: "子任務", errors: "錯誤", audit: "稽核事件", monitoringProbes: "探測記錄" },
+    actions: { backToList: "返回任務列表", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁" },
+    messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。" },
+    values: { system: "系統", empty: "暫無記錄", none: "無" },
+    status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
   },
   shell: {
     currentLocation: "目前位置",

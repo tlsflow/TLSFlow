@@ -70,6 +70,9 @@ export default {
     modal: {
       closeAria: 'Close modal'
     },
+    drawer: {
+      closeAria: 'Close drawer'
+    },
     secretInput: {
       label: 'Secret reference',
       placeholder: 'Select or enter a SecretRef. Plain text is not saved.',
@@ -404,6 +407,31 @@ export default {
       subtitle: 'Configure the deployment plan step by step',
       title: 'Deployment wizard'
     }
+  },
+  tasks: {
+    title: 'Global tasks',
+    description: 'Review queued, running, monitoring, and system tasks in the current tenant.',
+    tabs: { all: 'All tasks', execution: 'Execution tasks', monitoring: 'Monitoring tasks', system: 'System tasks' },
+    aria: { openDrawer: 'Open global tasks', tabs: 'Task categories' },
+    filters: {
+      includeAll: 'Show all tasks',
+      keyword: 'Search tasks, errors, or IDs',
+      taskType: 'Task type',
+      status: 'Status',
+      allStatuses: 'All statuses',
+      resourceType: 'Resource type',
+      resourceId: 'Resource ID',
+      requestedBy: 'Requested by',
+      taskId: 'Task ID',
+      createdFrom: 'Start time',
+      createdTo: 'End time'
+    },
+    fields: { requestedBy: 'Requested by', triggerSource: 'Trigger source', createdAt: 'Created at', startedAt: 'Started at', finishedAt: 'Finished at', error: 'Last error' },
+    sections: { timeline: 'Status timeline', attempts: 'Attempts', logs: 'Logs', children: 'Child tasks', errors: 'Errors', audit: 'Audit events', monitoringProbes: 'Probe records' },
+    actions: { backToList: 'Back to task list', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
+    messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.' },
+    values: { system: 'System', empty: 'No records', none: 'None' },
+    status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
   },
   shell: {
     currentLocation: 'Current location',

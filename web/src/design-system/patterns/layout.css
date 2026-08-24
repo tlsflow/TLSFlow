@@ -98,6 +98,36 @@
   font-weight: 600;
 }
 
+.gc-shell__task-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--gc-control-height-md);
+  height: var(--gc-control-height-md);
+  margin-right: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-field);
+  cursor: pointer;
+}
+
+.gc-shell__task-button:hover,
+.gc-shell__task-button[aria-expanded="true"] {
+  border-color: var(--gc-color-primary-border);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.gc-shell__task-button svg {
+  width: var(--gc-font-size-md);
+  height: var(--gc-font-size-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .gc-shell__user-button {
   display: inline-flex;
   align-items: center;

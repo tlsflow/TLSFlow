@@ -71,6 +71,9 @@ export default {
     modal: {
       closeAria: 'ダイアログを閉じる'
     },
+    drawer: {
+      closeAria: 'ドロワーを閉じる'
+    },
     secretInput: {
       label: 'Secret 参照',
       placeholder: 'シークレット参照（SecretRef）を選択または入力してください。内容は平文で保存されません',
@@ -405,6 +408,31 @@ export default {
       subtitle: '段階的にデプロイプラン設定を完了します',
       title: 'デプロイウィザード'
     }
+  },
+  tasks: {
+    title: 'グローバルタスク',
+    description: '現在のテナントのキュー、実行、監視、システムタスクを確認します。',
+    tabs: { all: 'すべて', execution: '実行タスク', monitoring: '監視タスク', system: 'システムタスク' },
+    aria: { openDrawer: 'グローバルタスクを開く', tabs: 'タスク分類' },
+    filters: {
+      includeAll: 'すべてのタスクを表示',
+      keyword: 'タスク、エラー、IDを検索',
+      taskType: 'タスク種別',
+      status: '状態',
+      allStatuses: 'すべての状態',
+      resourceType: 'リソース種別',
+      resourceId: 'リソース ID',
+      requestedBy: '実行ユーザー',
+      taskId: 'タスク ID',
+      createdFrom: '開始時刻',
+      createdTo: '終了時刻'
+    },
+    fields: { requestedBy: '実行ユーザー', triggerSource: 'トリガー', createdAt: '作成日時', startedAt: '開始日時', finishedAt: '終了日時', error: '最後のエラー' },
+    sections: { timeline: '状態タイムライン', attempts: '試行履歴', logs: 'ログ', children: '子タスク', errors: 'エラー', audit: '監査イベント', monitoringProbes: 'プローブ記録' },
+    actions: { backToList: '一覧に戻る', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
+    messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。' },
+    values: { system: 'システム', empty: '記録なし', none: 'なし' },
+    status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
   },
   shell: {
     currentLocation: '現在位置',

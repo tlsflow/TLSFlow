@@ -71,6 +71,9 @@ export default {
     modal: {
       closeAria: '모달을 닫다'
     },
+    drawer: {
+      closeAria: '드로어 닫기'
+    },
     secretInput: {
       label: 'Secret 참조',
       placeholder: '암호문 참조 (SecretRef)를 선택하거나 입력하세요. 내용은 평문으로 저장되지 않습니다',
@@ -405,6 +408,31 @@ export default {
       subtitle: '배포 계획 설정을 단계별로 완료합니다',
       title: '배포 마법사'
     }
+  },
+  tasks: {
+    title: '전역 작업',
+    description: '현재 테넌트의 대기, 실행, 모니터링 및 시스템 작업을 확인합니다.',
+    tabs: { all: '전체 작업', execution: '실행 작업', monitoring: '모니터링 작업', system: '시스템 작업' },
+    aria: { openDrawer: '전역 작업 열기', tabs: '작업 분류' },
+    filters: {
+      includeAll: '전체 작업 표시',
+      keyword: '작업, 오류 또는 ID 검색',
+      taskType: '작업 유형',
+      status: '상태',
+      allStatuses: '모든 상태',
+      resourceType: '리소스 유형',
+      resourceId: '리소스 ID',
+      requestedBy: '요청 사용자',
+      taskId: '작업 ID',
+      createdFrom: '시작 시간',
+      createdTo: '종료 시간'
+    },
+    fields: { requestedBy: '요청 사용자', triggerSource: '트리거 소스', createdAt: '생성 시간', startedAt: '시작 시간', finishedAt: '완료 시간', error: '마지막 오류' },
+    sections: { timeline: '상태 타임라인', attempts: '시도 기록', logs: '로그', children: '하위 작업', errors: '오류', audit: '감사 이벤트', monitoringProbes: '탐지 기록' },
+    actions: { backToList: '목록으로 돌아가기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
+    messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.' },
+    values: { system: '시스템', empty: '기록 없음', none: '없음' },
+    status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
   },
   shell: {
     currentLocation: '현재 위치',

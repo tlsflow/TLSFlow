@@ -70,6 +70,9 @@ export default {
     modal: {
       closeAria: '关闭弹窗'
     },
+    drawer: {
+      closeAria: '关闭抽屉'
+    },
     secretInput: {
       label: 'Secret 引用',
       placeholder: '选择或输入密文引用（SecretRef），内容不会明文存储',
@@ -404,6 +407,31 @@ export default {
       subtitle: '分步骤完成部署计划配置',
       title: '部署向导'
     }
+  },
+  tasks: {
+    title: '全局任务',
+    description: '查看当前租户内的排队、执行、监控和系统任务。',
+    tabs: { all: '全部任务', execution: '执行任务', monitoring: '监控任务', system: '系统任务' },
+    aria: { openDrawer: '打开全局任务', tabs: '任务分类' },
+    filters: {
+      includeAll: '显示全部任务',
+      keyword: '搜索任务、错误或 ID',
+      taskType: '任务类型',
+      status: '状态',
+      allStatuses: '全部状态',
+      resourceType: '资源类型',
+      resourceId: '资源 ID',
+      requestedBy: '发起用户',
+      taskId: '任务 ID',
+      createdFrom: '开始时间',
+      createdTo: '结束时间'
+    },
+    fields: { requestedBy: '发起用户', triggerSource: '触发来源', createdAt: '创建时间', startedAt: '开始时间', finishedAt: '结束时间', error: '最后错误' },
+    sections: { timeline: '状态时间线', attempts: '尝试记录', logs: '日志', children: '子任务', errors: '错误', audit: '审计事件', monitoringProbes: '探测记录' },
+    actions: { backToList: '返回任务列表', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
+    messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。' },
+    values: { system: '系统', empty: '暂无记录', none: '无' },
+    status: { QUEUED: '排队中', RUNNING: '执行中', RETRY_WAITING: '等待重试', CANCELLING: '取消中', SUCCEEDED: '成功', FAILED: '失败', CANCELLED: '已取消' }
   },
   shell: {
     currentLocation: '当前位置',

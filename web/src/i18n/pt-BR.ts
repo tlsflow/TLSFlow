@@ -71,6 +71,9 @@ export default {
     modal: {
       closeAria: 'Fechar modal'
     },
+    drawer: {
+      closeAria: 'Fechar painel'
+    },
     secretInput: {
       label: 'Referência de Secret',
       placeholder: 'Selecione ou informe uma referência de segredo (SecretRef); o conteúdo não será armazenado em texto claro',
@@ -405,6 +408,31 @@ export default {
       subtitle: 'Configure o plano de implantação passo a passo',
       title: 'Assistente de implantação'
     }
+  },
+  tasks: {
+    title: 'Tarefas globais',
+    description: 'Consulte tarefas em fila, em execução, de monitoramento e do sistema no tenant atual.',
+    tabs: { all: 'Todas', execution: 'Tarefas de execução', monitoring: 'Tarefas de monitoramento', system: 'Tarefas do sistema' },
+    aria: { openDrawer: 'Abrir tarefas globais', tabs: 'Categorias de tarefas' },
+    filters: {
+      includeAll: 'Mostrar todas as tarefas',
+      keyword: 'Pesquisar tarefa, erro ou ID',
+      taskType: 'Tipo de tarefa',
+      status: 'Status',
+      allStatuses: 'Todos os status',
+      resourceType: 'Tipo de recurso',
+      resourceId: 'ID do recurso',
+      requestedBy: 'Usuário solicitante',
+      taskId: 'ID da tarefa',
+      createdFrom: 'Início',
+      createdTo: 'Fim'
+    },
+    fields: { requestedBy: 'Usuário solicitante', triggerSource: 'Origem', createdAt: 'Criada em', startedAt: 'Iniciada em', finishedAt: 'Finalizada em', error: 'Último erro' },
+    sections: { timeline: 'Linha do tempo do status', attempts: 'Tentativas', logs: 'Logs', children: 'Subtarefas', errors: 'Erros', audit: 'Eventos de auditoria', monitoringProbes: 'Registros de sondagem' },
+    actions: { backToList: 'Voltar à lista', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
+    messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.' },
+    values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
+    status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
   },
   shell: {
     currentLocation: 'Localização atual',

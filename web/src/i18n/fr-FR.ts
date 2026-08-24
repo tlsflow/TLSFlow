@@ -71,6 +71,9 @@ export default {
     modal: {
       closeAria: 'Fermer la fenêtre modale'
     },
+    drawer: {
+      closeAria: 'Fermer le panneau'
+    },
     secretInput: {
       label: 'Référence Secret',
       placeholder: 'Sélectionnez ou saisissez un SecretRef. Le texte clair n’est pas enregistré',
@@ -405,6 +408,31 @@ export default {
       subtitle: 'Configure the deployment plan step by step',
       title: 'Deployment wizard'
     }
+  },
+  tasks: {
+    title: 'Tâches globales',
+    description: 'Consultez les tâches en file, en cours, de surveillance et système du locataire actuel.',
+    tabs: { all: 'Toutes', execution: "Tâches d'exécution", monitoring: 'Tâches de surveillance', system: 'Tâches système' },
+    aria: { openDrawer: 'Ouvrir les tâches globales', tabs: 'Catégories de tâches' },
+    filters: {
+      includeAll: 'Afficher toutes les tâches',
+      keyword: 'Rechercher une tâche, une erreur ou un ID',
+      taskType: 'Type de tâche',
+      status: 'Statut',
+      allStatuses: 'Tous les statuts',
+      resourceType: 'Type de ressource',
+      resourceId: 'ID de ressource',
+      requestedBy: 'Utilisateur demandeur',
+      taskId: 'ID de tâche',
+      createdFrom: 'Début',
+      createdTo: 'Fin'
+    },
+    fields: { requestedBy: 'Utilisateur demandeur', triggerSource: 'Source', createdAt: 'Créée le', startedAt: 'Démarrée le', finishedAt: 'Terminée le', error: 'Dernière erreur' },
+    sections: { timeline: 'Chronologie du statut', attempts: 'Tentatives', logs: 'Journaux', children: 'Sous-tâches', errors: 'Erreurs', audit: "Événements d'audit", monitoringProbes: 'Enregistrements de sondage' },
+    actions: { backToList: 'Retour à la liste', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante' },
+    messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.' },
+    values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
+    status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
   },
   shell: {
     currentLocation: 'Current location',

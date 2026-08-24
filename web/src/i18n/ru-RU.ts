@@ -71,6 +71,9 @@ export default {
     modal: {
       closeAria: 'Закрыть диалоговое окно'
     },
+    drawer: {
+      closeAria: 'Закрыть панель'
+    },
     secretInput: {
       label: 'Ссылка Secret',
       placeholder: 'Выберите или введите ссылку на секрет (SecretRef), значение не будет храниться в открытом виде',
@@ -405,6 +408,31 @@ export default {
       subtitle: 'Пошаговая настройка плана развертывания',
       title: 'Мастер развертывания'
     }
+  },
+  tasks: {
+    title: 'Глобальные задачи',
+    description: 'Просмотр задач очереди, выполнения, мониторинга и системы в текущем тенанте.',
+    tabs: { all: 'Все задачи', execution: 'Задачи выполнения', monitoring: 'Задачи мониторинга', system: 'Системные задачи' },
+    aria: { openDrawer: 'Открыть глобальные задачи', tabs: 'Категории задач' },
+    filters: {
+      includeAll: 'Показывать все задачи',
+      keyword: 'Поиск задачи, ошибки или ID',
+      taskType: 'Тип задачи',
+      status: 'Статус',
+      allStatuses: 'Все статусы',
+      resourceType: 'Тип ресурса',
+      resourceId: 'ID ресурса',
+      requestedBy: 'Инициатор',
+      taskId: 'ID задачи',
+      createdFrom: 'Начало',
+      createdTo: 'Конец'
+    },
+    fields: { requestedBy: 'Инициатор', triggerSource: 'Источник', createdAt: 'Создано', startedAt: 'Начато', finishedAt: 'Завершено', error: 'Последняя ошибка' },
+    sections: { timeline: 'Хронология статуса', attempts: 'Попытки', logs: 'Журналы', children: 'Дочерние задачи', errors: 'Ошибки', audit: 'События аудита', monitoringProbes: 'Записи проверок' },
+    actions: { backToList: 'Вернуться к списку', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница' },
+    messages: { loadFailed: 'Не удалось загрузить задачи.', detailFailed: 'Не удалось загрузить сведения о задаче.' },
+    values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
+    status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
   },
   shell: {
     currentLocation: 'Текущее местоположение',
