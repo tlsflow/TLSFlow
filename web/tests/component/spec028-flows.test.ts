@@ -346,7 +346,7 @@ describe('spec028 前端闭环', () => {
 
     expect(bodyText()).toContain('选择部署目标')
     expect(bodyText()).toContain('预检并提交')
-    expect(bodyText()).toContain('Linux-NGINX-PEM')
+    expect(bodyText()).not.toContain('Linux-NGINX-PEM')
 
     clickBodyButton('下一步')
     await flushPromises()
@@ -357,7 +357,7 @@ describe('spec028 前端闭环', () => {
 
     expect(deploymentMocks.createDeploymentPlanFromApplicationAsset).toHaveBeenCalledWith(expect.objectContaining({
       applicationAssetId: 'asset-1',
-      certificateFormatId: 'fmt-1',
+      selectionMode: 'LATEST_AUTO',
     }))
     expect(deploymentMocks.dryRunDeploymentPlan).toHaveBeenCalledWith({ planId: 'plan-1' })
     expect(bodyText()).toContain('Dry-run 结果')
@@ -410,7 +410,7 @@ describe('spec028 前端闭环', () => {
     await flushPromises()
 
     expect(bodyText()).toContain('部署向导')
-    expect(bodyText()).toContain('Linux-NGINX-PEM')
+    expect(bodyText()).not.toContain('Linux-NGINX-PEM')
 
     clickBodyButton('下一步')
     await flushPromises()
@@ -424,9 +424,9 @@ describe('spec028 前端闭环', () => {
       planId: 'plan-draft-1',
       applicationAssetId: 'asset-1',
       targetCertificateVersionId: 'certver-1',
-      certificateFormatId: 'fmt-1',
       selectionMode: 'EXPLICIT',
     }))
+    expect(bodyText()).not.toContain('部署向导')
   })
 
   it('已执行部署计划进入编辑视图后会直接更新原计划', async () => {
@@ -490,9 +490,9 @@ describe('spec028 前端闭环', () => {
       planId: 'plan-success-1',
       applicationAssetId: 'asset-1',
       targetCertificateVersionId: 'certver-1',
-      certificateFormatId: 'fmt-1',
       selectionMode: 'EXPLICIT',
     }))
+    expect(bodyText()).not.toContain('部署向导')
   })
 
   it('执行部署缺少有效 dry-run 时，会弹出前端确认模态框引导用户先做 dry-run', async () => {

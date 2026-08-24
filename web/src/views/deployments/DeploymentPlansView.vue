@@ -421,8 +421,8 @@ async function openEditDialog(row: ViewRow) {
   wizardInitialPlan.value = buildInitialPlanFromRow(row.raw)
 }
 
-function closeCreateDialog() {
-  if (loading.value) return
+function closeCreateDialog(force = false) {
+  if (loading.value && !force) return
   createDialogOpen.value = false
   editingPlanId.value = ''
   wizardInitialPlan.value = null
@@ -501,14 +501,14 @@ async function handleSave(plan: DeploymentWizardPlan) {
       const updated = await updateDeploymentPlanDraft(editingPlanId.value, plan)
       infoMessage.value = `部署计划已保存。planId: ${String(updated.data?.id ?? editingPlanId.value)}`
       await pageRef.value?.reload()
-      closeCreateDialog()
+      closeCreateDialog(true)
       return
     }
     const planId = await createPlanDraft(plan)
     infoMessage.value = `部署计划已保存。planId: ${planId}`
     editingPlanId.value = planId
     await pageRef.value?.reload()
-    closeCreateDialog()
+    closeCreateDialog(true)
   } catch (cause) {
     errorMessage.value = toErrorMessage(cause, '保存部署计划失败')
   } finally {
