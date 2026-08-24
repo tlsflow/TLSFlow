@@ -371,6 +371,73 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.controlVersion, '7.4.2');
 });
 
+test('统一设备列表应用数量只统计当前发现的站点', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_device_application_count';
+  const host = await new PgAssetsRepository(database).createHost(tenantId, {
+    hostname: 'happy',
+    displayName: 'happy',
+    primaryIp: '10.33.2.38',
+    osType: 'LINUX',
+    agentId: 'agent-happy',
+    managementMode: 'AGENT',
+    status: 'ACTIVE',
+  });
+  const projector = new StandardDeviceDiscoveryProjector(database);
+  const context = {
+    tenantId,
+    hostId: host.id,
+    discoveryProviderKey: 'agent:agent-happy',
+    discoverySource: 'AGENT' as const,
+  };
+  const discovery = (siteKeys: string[]) => ({
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'agent-host:agent-happy', displayName: 'happy', productFamily: 'AGENT_HOST' },
+    capabilities: [],
+    frameworks: [{ stableKey: 'framework:nginx', frameworkType: 'web.nginx', displayName: 'NGINX' }],
+    sites: siteKeys.map((stableKey) => ({
+      stableKey,
+      frameworkStableKey: 'framework:nginx',
+      siteType: 'web.virtual-host',
+      displayName: stableKey,
+      addresses: ['127.0.0.1'],
+      port: 443,
+      protocol: 'HTTPS',
+    })),
+    managedTargets: [],
+    certificates: [],
+    certificateBindings: [],
+    warnings: [],
+  });
+  const historicalSiteKeys = Array.from({ length: 38 }, (_, index) => `site:${index + 1}`);
+
+  await projector.project(context, discovery(historicalSiteKeys));
+  const firstList = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+  assert.equal(firstList.items[0]?.applicationAssetCount, 38);
+
+  await projector.project(context, discovery(historicalSiteKeys.slice(0, 7)));
+  const activeAndStale = await database.query<{ status: string; count: string }>(
+    `select status, count(*)::text as count
+     from pg_site_assets
+     where tenant_id=$1 and device_id=$2
+     group by status
+     order by status`,
+    [tenantId, host.id],
+  );
+  assert.deepEqual(activeAndStale.rows, [{ status: 'ACTIVE', count: '7' }, { status: 'STALE', count: '31' }]);
+  const refreshedList = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+  assert.equal(refreshedList.items[0]?.applicationAssetCount, 7);
+});
+
 test('Spec033 统一设备列表支持筛选、分页和 Host 权限范围', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');

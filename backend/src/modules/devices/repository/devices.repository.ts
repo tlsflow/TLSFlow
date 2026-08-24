@@ -301,7 +301,7 @@ const DEVICE_LIST_SQL = `
       select si.device_id as host_id, site.id as asset_id
       from pg_site_assets site
       join pg_framework_instances si on si.id = site.framework_instance_id and si.tenant_id = site.tenant_id
-      where site.tenant_id = $1 and site.deleted_at is null and si.deleted_at is null
+      where site.tenant_id = $1 and site.status = 'ACTIVE' and site.deleted_at is null and si.deleted_at is null
     ) related_assets
     where host_id is not null
     group by host_id
