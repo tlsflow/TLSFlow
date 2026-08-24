@@ -32,6 +32,7 @@ export class ProvidersController {
   register(router: Router): void {
     router.get('/api/v1/providers', '查询云服务 Provider', tags, async (request) => this.listProviders(request));
     router.get('/api/v1/providers/:providerKey/capabilities', '查询 Provider 产品能力', tags, (request) => this.listCapabilities(request));
+    router.post('/api/v1/providers/:providerKey/draft-discovery', '草稿探测云账号资源', tags, (request) => this.previewDraftDiscovery(request));
     router.get('/api/v1/provider-capability-plugins', '查询 Provider 能力插件', tags, (request) => this.listCapabilities(request));
     router.get('/api/v1/cloud-account-assets', '查询云账号资产', tags, (request) => this.listCloudAccounts(request));
     router.post('/api/v1/cloud-account-assets', '创建云账号资产', tags, (request) => this.createCloudAccount(request));
@@ -59,6 +60,63 @@ export class ProvidersController {
         frameworkType: optionalString(request.query.frameworkType),
         operationKey: optionalString(request.query.operationKey),
       }),
+    };
+  }
+
+  private async previewDraftDiscovery(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    const providerKey = providerKeyFromPath(request, /^\/api\/v1\/providers\/([^/]+)\/draft-discovery$/);
+    if (!providerKey) throw new Error('Provider 路径无效');
+    const body = validateObject(request.body, {
+      assetId: { type: 'string' },
+      displayName: { type: 'string', required: true },
+      accountId: { type: 'string' },
+      credentialRef: { type: 'string', required: true },
+      scope: { type: 'object' },
+      metadata: { type: 'object' },
+      frameworkTypes: { type: 'array' },
+    });
+    const assetId = optionalString(body.assetId);
+    if (assetId) {
+      const current = await this.cloudAccounts.get(security.tenantId, assetId);
+      await assertRouteAction(security, 'cloud_account_asset.update', 'cloud_account_asset', { resourceId: current.id });
+      await assertRouteObjectAccess(security, 'edit', { objectType: 'cloud_account_asset', objectId: current.id, tenantId: current.tenantId });
+    } else {
+      await assertRouteAction(security, 'cloud_account_asset.create', 'cloud_account_asset');
+    }
+    const provider = await this.catalog.requireDefinition(providerKey);
+    const frameworkTypes = Array.isArray(body.frameworkTypes)
+      ? body.frameworkTypes.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+      : [];
+    const asset: CloudAccountAsset = {
+      id: assetId || `draft_${providerKey.replaceAll('.', '_')}`,
+      tenantId: security.tenantId,
+      assetKind: 'cloud.account',
+      providerKey,
+      displayName: String(body.displayName).trim(),
+      ...(optionalString(body.accountId) ? { accountId: optionalString(body.accountId) } : {}),
+      credentialRef: String(body.credentialRef).trim(),
+      scope: body.scope && typeof body.scope === 'object' ? body.scope as CloudAccountAsset['scope'] : {},
+      status: 'ACTIVE',
+      metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata as Record<string, unknown> : {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: 1,
+    };
+    const connection = await this.catalog.testConnection(asset, request.context.requestId);
+    const discovery = frameworkTypes.length > 0
+      ? await this.catalog.discover(asset, frameworkTypes, request.context.requestId)
+      : emptyDiscoveryPayload();
+    return {
+      providerKey,
+      availableFrameworks: provider.supportedProducts,
+      connection,
+      discovery,
+      summary: {
+        frameworks: Array.isArray(discovery.frameworks) ? discovery.frameworks.length : 0,
+        sites: Array.isArray(discovery.sites) ? discovery.sites.length : 0,
+        managedTargets: Array.isArray(discovery.managedTargets) ? discovery.managedTargets.length : 0,
+      },
     };
   }
 
@@ -212,6 +270,7 @@ export function getProvidersRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/providers', operationId: 'listProviders', summary: '查询云服务 Provider', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/providers/:providerKey/capabilities', operationId: 'listProviderCapabilities', summary: '查询 Provider 产品能力', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/providers/:providerKey/draft-discovery', operationId: 'previewProviderDraftDiscovery', summary: '草稿探测云账号资源', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/provider-capability-plugins', operationId: 'listProviderCapabilityPlugins', summary: '查询 Provider 能力插件', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/cloud-account-assets', operationId: 'listCloudAccountAssets', summary: '查询云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets', operationId: 'createCloudAccountAsset', summary: '创建云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
@@ -224,11 +283,22 @@ export function getProvidersRouteContracts(): RouteContract[] {
   ];
 }
 
-function providerKeyFromPath(request: HttpRequest): string | undefined {
-  const match = request.path.match(/^\/api\/v1\/providers\/([^/]+)\/capabilities$/);
+function providerKeyFromPath(request: HttpRequest, pattern = /^\/api\/v1\/providers\/([^/]+)\/capabilities$/): string | undefined {
+  const match = request.path.match(pattern);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+function emptyDiscoveryPayload() {
+  return {
+    frameworks: [],
+    sites: [],
+    managedTargets: [],
+    certificates: [],
+    certificateBindings: [],
+    warnings: [],
+  };
 }

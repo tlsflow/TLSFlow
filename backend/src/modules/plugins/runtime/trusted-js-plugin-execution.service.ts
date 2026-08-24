@@ -354,13 +354,16 @@ export class TrustedJsPluginExecutionService {
       cloudAccount: {
         get: async (assetId: string) => {
           assertTrustedJsHostApiAccess('cloudAccount.get', permissions);
+          if (assetId === asset.id) return structuredClone(asset);
           return this.dependencies.cloudAccounts.get(asset.tenantId, assetId);
         },
       },
       credential: {
         resolveCloudCredential: async (assetId: string) => {
           assertTrustedJsHostApiAccess('credential.resolveCloudCredential', permissions);
-          const cloudAsset = await this.dependencies.cloudAccounts.get(asset.tenantId, assetId);
+          const cloudAsset = assetId === asset.id
+            ? asset
+            : await this.dependencies.cloudAccounts.get(asset.tenantId, assetId);
           return this.credentialResolver.resolve(cloudAsset);
         },
       },

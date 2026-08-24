@@ -24,6 +24,10 @@ export class ProviderCatalogApplicationService {
     return this.trustedJs.testConnection(asset, requestId);
   }
 
+  async discover(asset: CloudAccountAsset, frameworkTypes?: string[], requestId?: string) {
+    return this.trustedJs.discover(asset, frameworkTypes, requestId);
+  }
+
   async execute(input: {
     tenantId: string;
     asset: CloudAccountAsset;

@@ -89,6 +89,78 @@ test('云账号资产支持四类 Provider、作用域幂等冲突和无 Host �
   assert.equal(topology.rows.length, 3);
 });
 
+test('云账号草稿探测支持未落库凭据校验且不会提前创建资产', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const app = createApp({ db, allowLegacyHeaderContext: true });
+  const security = app.getResource<any>('securityServices');
+  await security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: 'user_admin',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+  await security.auth.currentSession('user_admin');
+  const headers = { 'x-tenant-id': 'tenant-provider-draft', 'x-actor-id': 'user_admin' };
+
+  const credential = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers,
+    body: {
+      name: '阿里云草稿凭据',
+      kind: 'CLOUD_PROVIDER',
+      scopeType: 'global',
+      metadata: { providerKey: 'cloud.aliyun' },
+      secretValues: {
+        accessKeyId: { plainText: 'draft-ak' },
+        accessKeySecret: { plainText: 'draft-sk' },
+      },
+    },
+  });
+  assert.equal(credential.statusCode, 201, JSON.stringify(credential.body));
+  const credentialId = String((credential.body as { id: string }).id);
+
+  const preview = await app.inject({
+    method: 'POST',
+    path: '/api/v1/providers/cloud.aliyun/draft-discovery',
+    headers,
+    body: {
+      displayName: '阿里云草稿账号',
+      accountId: 'draft-account',
+      credentialRef: `credential://${credentialId}`,
+      scope: { regions: ['cn-hangzhou'] },
+      frameworkTypes: [],
+    },
+  });
+  assert.equal(preview.statusCode, 200, JSON.stringify(preview.body));
+  const previewBody = preview.body as Record<string, unknown>;
+  assert.equal(previewBody.providerKey, 'cloud.aliyun');
+  assert.deepEqual(previewBody.availableFrameworks, [
+    'cloud.aliyun.cdn',
+    'cloud.aliyun.alb',
+    'cloud.aliyun.clb',
+    'cloud.aliyun.oss',
+    'cloud.aliyun.waf-cname',
+    'cloud.aliyun.waf-cloud',
+    'cloud.aliyun.live',
+    'cloud.aliyun.vod',
+  ]);
+  assert.equal((previewBody.connection as { reachable: boolean }).reachable, true);
+  assert.equal((previewBody.connection as { accountId: string }).accountId, 'draft-account');
+  assert.equal(((previewBody.summary as Record<string, number>).frameworks), 0);
+
+  const listed = await app.inject({
+    method: 'GET',
+    path: '/api/v1/cloud-account-assets',
+    headers,
+  });
+  assert.equal(listed.statusCode, 200, JSON.stringify(listed.body));
+  assert.equal((listed.body as { items: unknown[] }).items.length, 0);
+});
+
 test('Application 新入口与旧 ServiceAsset 入口指向同一事实', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
