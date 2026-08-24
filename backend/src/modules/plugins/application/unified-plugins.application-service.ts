@@ -137,7 +137,9 @@ export class UnifiedPluginsApplicationService {
   }
 
   async listVersionGroups(tenantId: string): Promise<UnifiedPluginVersionGroup[]> {
-    const versions = await this.listAccessibleVersions(tenantId);
+    // 管理查询仍保留历史快照；运行时入口使用 listAccessibleVersions 的当前投影。
+    const versions = (await this.repository.listAccessibleVersions(tenantId))
+      .filter((version) => isSupportedPluginRuntime(version.runtime));
     const summaries = await Promise.all(versions.map((version) => this.toVersionSummary(tenantId, version)));
     const grouped = new Map<string, UnifiedPluginVersionSummary[]>();
     for (const summary of summaries) grouped.set(summary.pluginId, [...(grouped.get(summary.pluginId) ?? []), summary]);
@@ -293,11 +295,21 @@ export class UnifiedPluginsApplicationService {
     // 启用前按目标状态预检；目录运行时仍只允许读取已启用版本。
     // 不能直接传入 DISABLED 记录，否则带配方的插件永远无法完成 DISABLED -> ENABLED 转换。
     new ApplicationOnboardingRecipeLoader().loadOptional({ ...record, status: 'ENABLED' });
-    return this.repository.saveVersion({
+    const updatedAt = new Date().toISOString();
+    const next = {
       ...(record.source === 'USER' ? normalizeUserPluginLifecycle(record) : record),
       status: 'ENABLED',
-      updatedAt: new Date().toISOString(),
-    });
+      updatedAt,
+    } satisfies UnifiedPluginVersionRecord;
+    if (this.repository.activateVersion) return this.repository.activateVersion(next, updatedAt);
+
+    // 测试仓储和轻量适配器可能尚未提供事务接口，仍保持唯一当前版本的业务语义。
+    const siblings = (await this.repository.listVersions(record.tenantId))
+      .filter((item) => item.id !== record.id && item.pluginId === record.pluginId && item.status === 'ENABLED');
+    for (const sibling of siblings) {
+      await this.repository.saveVersion({ ...sibling, status: 'RETIRED', updatedAt });
+    }
+    return this.repository.saveVersion(next);
   }
 
   async disableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
@@ -336,7 +348,7 @@ export class UnifiedPluginsApplicationService {
     locale = 'zh-CN',
     filters: { runtime?: UnifiedPluginManifestV1['runtime'] } = {},
   ): Promise<UnifiedPluginCatalogItem[]> {
-    const versions = (await this.listAccessibleVersions(tenantId))
+    const versions = (await this.repository.listAccessibleVersions(tenantId))
       .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED')
       .filter((record) => !filters.runtime || record.runtime === filters.runtime);
     const versionsByPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
@@ -345,7 +357,9 @@ export class UnifiedPluginsApplicationService {
     }
     const items: UnifiedPluginCatalogItem[] = [];
     for (const [pluginId, pluginVersions] of [...versionsByPlugin.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-      const ordered = pluginVersions.sort((left, right) => compareSemanticVersions(right.version, left.version) || right.updatedAt.localeCompare(left.updatedAt));
+      const ordered = pluginVersions.sort((left, right) => Number(right.status === 'ENABLED') - Number(left.status === 'ENABLED')
+        || compareSemanticVersions(right.version, left.version)
+        || right.updatedAt.localeCompare(left.updatedAt));
       const item = ordered.map((record) => this.toCatalogItem(record, locale)).find((candidate) => candidate !== undefined);
       if (item) items.push(item);
       else if (ordered.length > 0) {
@@ -367,9 +381,12 @@ export class UnifiedPluginsApplicationService {
     const versions = await this.repository.listAccessibleVersions(tenantId);
     const byIdentity = new Map<string, UnifiedPluginVersionRecord>();
     for (const version of versions) {
-      const key = `${version.pluginId}@${version.version}`;
+      // 运行期每个插件只暴露一个当前投影；没有 ENABLED 版本时保留最新待启用记录，
+      // 供管理员完成审批/启用。RETIRED/QUARANTINED 仍可通过精确 ID 读取历史快照。
+      if (version.status === 'RETIRED' || version.status === 'QUARANTINED') continue;
+      const key = version.pluginId;
       const current = byIdentity.get(key);
-      if (!current || shouldPreferAccessibleVersion(version, current)) {
+      if (!current || shouldPreferAccessibleVersion(version, current) || (current.status !== 'ENABLED' && version.status === 'ENABLED')) {
         byIdentity.set(key, version);
       }
     }
@@ -470,11 +487,16 @@ function shouldPreferAccessibleVersion(
   candidate: UnifiedPluginVersionRecord,
   current: UnifiedPluginVersionRecord,
 ): boolean {
+  if (candidate.status !== current.status) {
+    if (candidate.status === 'ENABLED') return true;
+    if (current.status === 'ENABLED') return false;
+  }
   const candidateRetired = candidate.status === 'RETIRED' || candidate.status === 'QUARANTINED';
   const currentRetired = current.status === 'RETIRED' || current.status === 'QUARANTINED';
   if (candidateRetired !== currentRetired) return !candidateRetired;
   if (candidate.source !== current.source) return candidate.source === 'BUILTIN';
-  return candidate.updatedAt > current.updatedAt;
+  return compareSemanticVersions(candidate.version, current.version) > 0
+    || (candidate.version === current.version && candidate.updatedAt > current.updatedAt);
 }
 
 export function pluginLogoResourceUrl(pluginVersionId: string, variant: keyof UnifiedPluginLogoResources): string {

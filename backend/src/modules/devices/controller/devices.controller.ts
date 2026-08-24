@@ -7,7 +7,7 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../application/devices.application-service.js';
-import type { CreateManagedDeviceOnboardingDto, SwitchManagedDevicePluginVersionInput } from '../dto/devices.dto.js';
+import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import type { DeviceDetailInclude } from '../repository/devices.repository.js';
 import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
 import type { WorkflowExecutionAuthorization } from '../../workflow-templates/dto/workflow-templates.dto.js';
@@ -21,8 +21,6 @@ export class DevicesController {
     router.get('/api/v1/devices', '查询统一设备列表', tags, (request) => this.list(request));
     router.get('/api/v1/devices/onboarding-platforms', '查询设备添加平台', tags, () => this.service.listOnboardingPlatforms());
     router.post('/api/v1/devices/onboarding', '添加受管设备', tags, (request) => this.onboard(request));
-    router.get('/api/v1/devices/:deviceId/plugin-versions', '查询设备可用插件版本', tags, (request) => this.listPluginVersions(request));
-    router.post('/api/v1/devices/:deviceId/plugin-version', '切换设备生效插件版本', tags, (request) => this.switchPluginVersion(request));
     router.post('/api/v1/devices/:deviceId/actions', '执行统一设备能力', tags, (request) => this.executeCapability(request));
     router.get('/api/v1/devices/:deviceId', '查询统一设备详情', tags, (request) => this.get(request));
   }
@@ -94,32 +92,6 @@ export class DevicesController {
     );
   }
 
-  private async listPluginVersions(request: HttpRequest) {
-    const deviceId = request.path.match(/^\/api\/v1\/devices\/([^/]+)\/plugin-versions$/)?.[1];
-    if (!deviceId) throw new AppError('VALIDATION_FAILED', 'deviceId 不能为空', { field: 'deviceId' });
-    const subject = this.subjectFromRequest(request);
-    await this.security?.rbac.assertCan(subject, 'host.read', {
-      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
-    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
-    return { items: await this.service.listPluginVersionCandidates(tenantId(request), deviceId) };
-  }
-
-  private async switchPluginVersion(request: HttpRequest) {
-    const deviceId = request.path.match(/^\/api\/v1\/devices\/([^/]+)\/plugin-version$/)?.[1];
-    if (!deviceId) throw new AppError('VALIDATION_FAILED', 'deviceId 不能为空', { field: 'deviceId' });
-    const body = (request.body ?? {}) as Partial<SwitchManagedDevicePluginVersionInput>;
-    if (typeof body.targetPluginVersionId !== 'string' || typeof body.expectedCurrentPluginVersionId !== 'string') {
-      throw new AppError('VALIDATION_FAILED', '目标插件版本和期望当前版本不能为空');
-    }
-    const subject = this.subjectFromRequest(request);
-    await this.security?.rbac.assertCan(subject, 'host.update', {
-      type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
-    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
-    return this.service.switchPluginVersion(tenantId(request), deviceId, {
-      targetPluginVersionId: body.targetPluginVersionId,
-      expectedCurrentPluginVersionId: body.expectedCurrentPluginVersionId,
-    });
-  }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
     if (!this.security) return { id: request.context.actorId ?? 'system_devices', type: 'system', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
@@ -172,20 +144,6 @@ export function getDeviceRouteContracts(): RouteContract[] {
     path: '/api/v1/devices',
     operationId: 'listManagedDevices',
     summary: '查询统一设备列表',
-    tags,
-    responseSchema: { type: 'object' },
-  }, {
-    method: 'GET',
-    path: '/api/v1/devices/:deviceId/plugin-versions',
-    operationId: 'listManagedDevicePluginVersions',
-    summary: '查询设备可用插件版本',
-    tags,
-    responseSchema: { type: 'object', required: ['items'], properties: { items: { type: 'array', items: { type: 'object' } } } },
-  }, {
-    method: 'POST',
-    path: '/api/v1/devices/:deviceId/plugin-version',
-    operationId: 'switchManagedDevicePluginVersion',
-    summary: '切换设备生效插件版本',
     tags,
     responseSchema: { type: 'object' },
   }, {

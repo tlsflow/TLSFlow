@@ -768,7 +768,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
         <div class="workflow-template-detail__tabs">
           <button class="workflow-template-detail__tab" type="button" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">{{ t('workflows.templates.tabs.summary') }}</button>
-          <button class="workflow-template-detail__tab" type="button" :data-active="activeTab === 'versions'" @click="activeTab = 'versions'">{{ t('workflows.templates.tabs.versions') }}</button>
+          <button v-if="!isPluginInternal(detailRow)" class="workflow-template-detail__tab" type="button" :data-active="activeTab === 'versions'" @click="activeTab = 'versions'">{{ t('workflows.templates.tabs.versions') }}</button>
         </div>
 
         <section v-if="activeTab === 'summary'" class="workflow-template-detail__section">
@@ -783,7 +783,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           </dl>
         </section>
 
-        <section v-else class="workflow-template-detail__section">
+        <section v-else-if="!isPluginInternal(detailRow)" class="workflow-template-detail__section">
           <p v-if="publishMessage" class="workflow-template-detail__message">{{ publishMessage }}</p>
           <p v-if="versionLoading" class="workflow-template-detail__loading">{{ t('workflows.templates.loading.versions') }}</p>
           <p v-else-if="versionError" class="workflow-template-detail__error">{{ versionError }}</p>
@@ -953,7 +953,6 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             empty: t('workflows.templates.pluginSources.empty'),
             deploy: t('workflows.templates.pluginSources.capabilities.deploy'),
             rollback: t('workflows.templates.pluginSources.capabilities.rollback'),
-            version: t('workflows.templates.pluginSources.version'),
           }"
         />
       </section>

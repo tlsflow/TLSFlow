@@ -38,7 +38,7 @@ function text(value: unknown): string {
     <select class="gc-native-select" :value="modelValue" :disabled="loading" :required="required" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option value="">{{ loading ? loadingText : items.length ? selectText : emptyText }}</option>
       <option v-for="plugin in items" :key="String(plugin.pluginVersionId)" :value="String(plugin.pluginVersionId)">
-        {{ pluginLabel(plugin) }} · {{ String(plugin.version ?? '') }} · {{ String(plugin.runtime ?? '') }}
+        {{ pluginLabel(plugin) }}
       </option>
     </select>
   </label>

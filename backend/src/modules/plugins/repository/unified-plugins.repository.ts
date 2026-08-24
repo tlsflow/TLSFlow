@@ -4,6 +4,8 @@ import type { UnifiedPluginReferenceCounts, UnifiedPluginVersionRecord } from '.
 
 export interface UnifiedPluginsRepository {
   saveVersion(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord>;
+  /** 原子地把同一插件的当前版本替换为目标版本，历史版本保留为 RETIRED。 */
+  activateVersion?(record: UnifiedPluginVersionRecord, updatedAt: string): Promise<UnifiedPluginVersionRecord>;
   findVersion(id: string): Promise<UnifiedPluginVersionRecord | undefined>;
   findByIdentity(tenantId: string, pluginId: string, version: string): Promise<UnifiedPluginVersionRecord | undefined>;
   listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]>;
@@ -52,6 +54,26 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
     if (this.manageTransactions) await this.db.transaction(write);
     else await write(this.db);
     return record;
+  }
+
+  async activateVersion(record: UnifiedPluginVersionRecord, updatedAt: string): Promise<UnifiedPluginVersionRecord> {
+    const write = async (tx: DatabasePort): Promise<void> => {
+      await tx.query(
+        `update unified_plugin_versions
+            set status='RETIRED', updated_at=$4
+          where tenant_id=$1 and plugin_id=$2 and status='ENABLED' and id<>$3`,
+        [record.tenantId, record.pluginId, record.id, updatedAt],
+      );
+      await tx.query(
+        `update unified_plugin_versions
+            set status='ENABLED', updated_at=$2
+          where id=$1`,
+        [record.id, updatedAt],
+      );
+    };
+    if (this.manageTransactions) await this.db.transaction(write);
+    else await write(this.db);
+    return { ...record, status: 'ENABLED', updatedAt };
   }
 
   async findVersion(id: string): Promise<UnifiedPluginVersionRecord | undefined> {

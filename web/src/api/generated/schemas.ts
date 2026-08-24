@@ -119,13 +119,21 @@ export type PluginVersionRecord = {
   readonly "artifactContracts"?: ReadonlyArray<string>
 }
   readonly "resources": {
+  readonly "logos"?: {
+  readonly "horizontal": string
+  readonly "square": string
+}
+  readonly "runtimeEntrypoint"?: string
   readonly "agentPlans"?: Record<string, string>
   readonly "workflows"?: Record<string, string>
+  readonly "inputContracts"?: Record<string, string>
+  readonly "actionContracts"?: Record<string, string>
   readonly "forms"?: Record<string, string>
   readonly "presentations"?: Record<string, string>
   readonly "locales"?: Record<string, string>
   readonly "discoveryMappings"?: Record<string, string>
   readonly "agentDiscoveryMappings"?: Record<string, string>
+  readonly "onboarding"?: Record<string, unknown>
 }
 }
   readonly "resources": Record<string, string>

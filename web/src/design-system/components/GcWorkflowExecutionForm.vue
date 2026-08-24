@@ -3,24 +3,15 @@ import type { ApiRecord } from '@/api/modules/common'
 
 defineProps<{
   workflowId: string
-  versionSelection: 'PINNED' | 'LATEST_PUBLISHED'
-  workflowVersionId: string
   runner: 'CONTROL_PLANE' | 'GATEWAY'
   gatewayId: string
   workflows: readonly ApiRecord[]
-  versions: readonly ApiRecord[]
   gateways: readonly ApiRecord[]
   workflowLoading?: boolean
-  versionLoading?: boolean
   gatewayLoading?: boolean
   labels: {
     workflow: string
     workflowPlaceholder: string
-    versionSelection: string
-    pinned: string
-    latestPublished: string
-    version: string
-    versionPlaceholder: string
     runner: string
     controlPlane: string
     gateway: string
@@ -30,8 +21,6 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:workflowId': [value: string]
-  'update:versionSelection': [value: 'PINNED' | 'LATEST_PUBLISHED']
-  'update:workflowVersionId': [value: string]
   'update:runner': [value: 'CONTROL_PLANE' | 'GATEWAY']
   'update:gatewayId': [value: string]
 }>()
@@ -45,9 +34,6 @@ function recordText(record: ApiRecord, keys: readonly string[]): string {
   return ''
 }
 
-function workflowVersionText(record: ApiRecord): string {
-  return recordText(record, ['displayVersion', 'versionNumber', 'version', 'id'])
-}
 </script>
 
 <template>
@@ -58,22 +44,6 @@ function workflowVersionText(record: ApiRecord): string {
         <option value="">{{ labels.workflowPlaceholder }}</option>
         <option v-for="workflow in workflows" :key="String(workflow.id)" :value="String(workflow.id)">
           {{ recordText(workflow, ['name', 'displayName', 'id']) }}
-        </option>
-      </select>
-    </label>
-    <label>
-      <span>{{ labels.versionSelection }}</span>
-      <select :value="versionSelection" :disabled="!workflowId" @change="emit('update:versionSelection', ($event.target as HTMLSelectElement).value as 'PINNED' | 'LATEST_PUBLISHED')">
-        <option value="PINNED">{{ labels.pinned }}</option>
-        <option value="LATEST_PUBLISHED">{{ labels.latestPublished }}</option>
-      </select>
-    </label>
-    <label v-if="versionSelection === 'PINNED'">
-      <span>{{ labels.version }}</span>
-      <select :value="workflowVersionId" :disabled="versionLoading || !workflowId" @change="emit('update:workflowVersionId', ($event.target as HTMLSelectElement).value)">
-        <option value="">{{ labels.versionPlaceholder }}</option>
-        <option v-for="version in versions" :key="String(version.id)" :value="String(version.id)">
-          {{ workflowVersionText(version) }}
         </option>
       </select>
     </label>

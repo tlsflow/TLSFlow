@@ -12,17 +12,10 @@ const props = defineProps<{
     empty: string
     deploy: string
     rollback: string
-    version: string
   }
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
-
-interface PluginWorkflowSourceVersionGroup {
-  pluginVersionId: string
-  pluginVersion: string
-  items: ApiRecord[]
-}
 
 interface PluginWorkflowSourceWorkflowGroup {
   workflowKey: string
@@ -30,7 +23,7 @@ interface PluginWorkflowSourceWorkflowGroup {
   workflowDisplayName: string
   pluginDisplayName: string
   capabilities: Array<'certificate.deploy' | 'certificate.rollback'>
-  versions: PluginWorkflowSourceVersionGroup[]
+  items: ApiRecord[]
 }
 
 const groups = computed<PluginWorkflowSourceWorkflowGroup[]>(() => {
@@ -49,30 +42,19 @@ const groups = computed<PluginWorkflowSourceWorkflowGroup[]>(() => {
         workflowDisplayName,
         pluginDisplayName,
         capabilities: capabilityKey ? [capabilityKey] : [],
-        versions: [],
+        items: [],
       })
     } else if (capabilityKey && !current.capabilities.includes(capabilityKey)) {
       current.capabilities.push(capabilityKey)
     }
     const group = grouped.get(workflowKey)!
-    const pluginVersionId = String(item.pluginVersionId ?? '')
-    if (!pluginVersionId) continue
-    const existingVersion = group.versions.find((version) => version.pluginVersionId === pluginVersionId)
-    if (existingVersion) {
-      existingVersion.items.push(item)
-      continue
-    }
-    group.versions.push({
-      pluginVersionId,
-      pluginVersion: String(item.pluginVersion ?? pluginVersionId),
-      items: [item],
-    })
+    if (String(item.pluginVersionId ?? '')) group.items.push(item)
   }
   return [...grouped.values()]
     .map((group) => ({
       ...group,
       capabilities: [...group.capabilities].sort(compareCapabilityKeys),
-      versions: [...group.versions].sort(compareVersionGroups),
+      items: [...group.items].sort(compareItems),
     }))
     .sort((left, right) =>
       left.workflowDisplayName.localeCompare(right.workflowDisplayName)
@@ -136,20 +118,9 @@ function compareCapabilityKeys(left: 'certificate.deploy' | 'certificate.rollbac
   return (order.get(left) ?? 99) - (order.get(right) ?? 99)
 }
 
-function compareVersionGroups(left: PluginWorkflowSourceVersionGroup, right: PluginWorkflowSourceVersionGroup): number {
-  return compareSemanticVersions(right.pluginVersion, left.pluginVersion)
-    || right.pluginVersionId.localeCompare(left.pluginVersionId)
-}
-
-function compareSemanticVersions(left: string, right: string): number {
-  const leftParts = left.split('.').map((part) => Number(part))
-  const rightParts = right.split('.').map((part) => Number(part))
-  const length = Math.max(leftParts.length, rightParts.length)
-  for (let index = 0; index < length; index += 1) {
-    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0)
-    if (delta !== 0) return delta
-  }
-  return 0
+function compareItems(left: ApiRecord, right: ApiRecord): number {
+  return compareCapabilityKeys(normalizeCapabilityKey(left.capabilityKey) ?? 'certificate.deploy', normalizeCapabilityKey(right.capabilityKey) ?? 'certificate.deploy')
+    || sourceId(left).localeCompare(sourceId(right))
 }
 
 function findItemBySourceId(items: readonly ApiRecord[], value: string): ApiRecord | undefined {
@@ -160,21 +131,10 @@ function toggleWorkflow(group: PluginWorkflowSourceWorkflowGroup) {
   expandedWorkflowKey.value = expandedWorkflowKey.value === group.workflowKey ? '' : group.workflowKey
 }
 
-function selectVersion(group: PluginWorkflowSourceWorkflowGroup, version: PluginWorkflowSourceVersionGroup) {
-  selectedWorkflowKey.value = group.workflowKey
-  expandedWorkflowKey.value = group.workflowKey
-  const preferred = preferredItem(version.items)
-  if (preferred) emit('update:modelValue', sourceId(preferred))
-}
-
 function selectCapability(group: PluginWorkflowSourceWorkflowGroup, item: ApiRecord) {
   selectedWorkflowKey.value = group.workflowKey
   expandedWorkflowKey.value = group.workflowKey
   emit('update:modelValue', sourceId(item))
-}
-
-function preferredItem(items: readonly ApiRecord[]): ApiRecord | undefined {
-  return items.find((item) => item.capabilityKey === 'certificate.deploy') ?? items[0]
 }
 
 function workflowSelected(group: PluginWorkflowSourceWorkflowGroup): boolean {
@@ -185,9 +145,6 @@ function workflowExpanded(group: PluginWorkflowSourceWorkflowGroup): boolean {
   return expandedWorkflowKey.value === group.workflowKey
 }
 
-function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
-  return version.items.some((item) => sourceId(item) === props.modelValue)
-}
 </script>
 
 <template>
@@ -224,34 +181,18 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
         </span>
       </button>
 
-      <div v-if="workflowExpanded(group)" class="gc-plugin-workflow-source-selector__versions">
-        <article
-          v-for="version in group.versions"
-          :key="version.pluginVersionId"
-          class="gc-plugin-workflow-source-selector__version"
-          :data-selected="versionSelected(version) ? 'true' : 'false'"
+      <div v-if="workflowExpanded(group)" class="gc-plugin-workflow-source-selector__capabilities">
+        <button
+          v-for="item in group.items"
+          :key="sourceId(item)"
+          class="gc-plugin-workflow-source-selector__capability"
+          type="button"
+          :data-selected="modelValue === sourceId(item) ? 'true' : 'false'"
+          :data-tone="sourceTone(item)"
+          @click="selectCapability(group, item)"
         >
-          <button
-            class="gc-plugin-workflow-source-selector__version-copy"
-            type="button"
-            @click="selectVersion(group, version)"
-          >
-            <strong>{{ labels.version }} {{ version.pluginVersion }}</strong>
-          </button>
-          <span class="gc-plugin-workflow-source-selector__version-capabilities">
-            <button
-              v-for="item in version.items"
-              :key="sourceId(item)"
-              class="gc-plugin-workflow-source-selector__version-capability"
-              type="button"
-              :data-selected="modelValue === sourceId(item) ? 'true' : 'false'"
-              :data-tone="sourceTone(item)"
-              @click="selectCapability(group, item)"
-            >
-              {{ capabilityLabel(item.capabilityKey) }}
-            </button>
-          </span>
-        </article>
+          {{ capabilityLabel(item.capabilityKey) }}
+        </button>
       </div>
     </div>
   </div>
@@ -290,8 +231,7 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
 
 .gc-plugin-workflow-source-selector__workflow-copy,
 .gc-plugin-workflow-source-selector__workflow-capabilities,
-.gc-plugin-workflow-source-selector__version-copy,
-.gc-plugin-workflow-source-selector__version-capabilities {
+.gc-plugin-workflow-source-selector__capabilities {
   display: flex;
   gap: var(--gc-space-2);
   flex-wrap: wrap;
@@ -304,13 +244,12 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
   gap: var(--gc-space-1);
 }
 
-.gc-plugin-workflow-source-selector__workflow-copy small,
-.gc-plugin-workflow-source-selector__version-copy small {
+.gc-plugin-workflow-source-selector__workflow-copy small {
   color: var(--gc-color-text-muted);
 }
 
 .gc-plugin-workflow-source-selector__capability-chip,
-.gc-plugin-workflow-source-selector__version-capability {
+.gc-plugin-workflow-source-selector__capability {
   display: inline-flex;
   align-items: center;
   min-height: var(--gc-control-height-sm);
@@ -322,67 +261,39 @@ function versionSelected(version: PluginWorkflowSourceVersionGroup): boolean {
 }
 
 .gc-plugin-workflow-source-selector__capability-chip[data-tone='info'],
-.gc-plugin-workflow-source-selector__version-capability[data-tone='info'][data-selected='true'] {
+.gc-plugin-workflow-source-selector__capability[data-tone='info'][data-selected='true'] {
   border-color: var(--gc-color-info-border);
 }
 
 .gc-plugin-workflow-source-selector__capability-chip[data-tone='warning'],
-.gc-plugin-workflow-source-selector__version-capability[data-tone='warning'][data-selected='true'] {
+.gc-plugin-workflow-source-selector__capability[data-tone='warning'][data-selected='true'] {
   border-color: var(--gc-color-warning-border);
 }
 
-.gc-plugin-workflow-source-selector__versions {
+.gc-plugin-workflow-source-selector__capabilities {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: var(--gc-space-2);
   padding: 0 var(--gc-space-3) var(--gc-space-3);
 }
 
-.gc-plugin-workflow-source-selector__version {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--gc-space-3);
-  padding: var(--gc-space-2) var(--gc-space-3);
-  border: var(--gc-border-width) solid var(--gc-color-border-soft);
-  border-radius: var(--gc-radius-sm);
-  background: var(--gc-color-surface-glass);
-}
-
-.gc-plugin-workflow-source-selector__version[data-selected='true'] {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-primary-soft);
-}
-
-.gc-plugin-workflow-source-selector__version-copy,
-.gc-plugin-workflow-source-selector__version-capability {
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-.gc-plugin-workflow-source-selector__version-copy {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--gc-space-1);
-}
-
-.gc-plugin-workflow-source-selector__version-capability {
-  padding: 0 var(--gc-space-2);
+.gc-plugin-workflow-source-selector__capability {
+  min-height: var(--gc-control-height-sm);
   border: var(--gc-border-width) solid var(--gc-color-border-muted);
   border-radius: var(--gc-radius-sm);
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text-muted);
+  padding: 0 var(--gc-space-2);
+  cursor: pointer;
 }
 
-.gc-plugin-workflow-source-selector__version-capability[data-selected='true'] {
+.gc-plugin-workflow-source-selector__capability[data-selected='true'] {
   background: var(--gc-color-primary-soft);
   color: var(--gc-color-primary-strong);
 }
 
 @media (max-width: 40rem) {
-  .gc-plugin-workflow-source-selector__workflow-head,
-  .gc-plugin-workflow-source-selector__version {
+  .gc-plugin-workflow-source-selector__workflow-head {
     grid-template-columns: 1fr;
   }
 }

@@ -606,9 +606,8 @@ const latestPublishedWorkflowVersion = computed(() => {
 })
 
 const selectedWorkflowVersion = computed(() =>
-  assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
-    ? latestPublishedWorkflowVersion.value
-    : publishedWorkflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
+  publishedWorkflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId)
+    ?? latestPublishedWorkflowVersion.value,
 )
 
 const selectedGateway = computed(() =>
@@ -757,9 +756,7 @@ const workflowStepReady = computed(() => {
   if (!workflowExecutionEnabled.value) return true
   const selectedVersionIsPublished = assetDraft.workflowVersionId
     && workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
-  const versionSelectionReady = assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
-    ? workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
-    : selectedVersionIsPublished
+  const versionSelectionReady = selectedVersionIsPublished
   const gatewayReady = assetDraft.workflowRunner === 'CONTROL_PLANE' || assetDraft.workflowGatewayId.trim()
   return Boolean(
     assetDraft.workflowId.trim()
@@ -1261,12 +1258,11 @@ async function loadWorkflowVersions(workflowId: string) {
   try {
     const result = await listWorkflowTemplateVersions(workflowId)
     workflowVersionItems.value = [...(result.data?.items ?? [])] as ApiRecord[]
-    if (assetDraft.workflowVersionId && !workflowVersionItems.value.some((item) => String(item.id ?? '') === assetDraft.workflowVersionId)) {
-      assetDraft.workflowVersionId = ''
-    }
-    if (assetDraft.workflowVersionSelection === 'PINNED' && !assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
-      assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
-    }
+    const currentVersionId = String(readNested(workflowItems.value.find((item) => String(item.id ?? '') === workflowId), ['currentVersionId']) ?? '')
+    const current = publishedWorkflowVersionItems.value.find((item) => String(item.id ?? '') === currentVersionId)
+    const latest = current ?? publishedWorkflowVersionItems.value[0]
+    assetDraft.workflowVersionSelection = 'PINNED'
+    assetDraft.workflowVersionId = String(latest?.id ?? '')
     if (selectedWorkflowVersion.value) {
       await refreshWorkflowBindingProjection()
     }
@@ -2514,12 +2510,9 @@ function readDeploymentStrategy(source: unknown): ApiRecord | null {
 }
 
 function readWorkflowVersionSelection(deploymentStrategy: ApiRecord | null): WorkflowVersionSelection {
-  const value = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionSelection']) ?? '')
-  if (value === 'LATEST_PUBLISHED') return 'LATEST_PUBLISHED'
-  if (value === 'PINNED') return 'PINNED'
-  return String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '').trim()
-    ? 'PINNED'
-    : 'LATEST_PUBLISHED'
+  // 页面不再暴露版本策略；当前发布版本会在加载工作流后解析并固定为执行快照。
+  void deploymentStrategy
+  return 'PINNED'
 }
 
 function readWorkflowTargetFromAsset(source: unknown, deploymentStrategy: ApiRecord | null = readDeploymentStrategy(source)): WorkflowTargetInfo | null {
@@ -2915,19 +2908,6 @@ watch(
       pluginBindingVersion.value = 0
     }
     if (!workflowExecutionEnabled.value) return
-    await refreshWorkflowBindingProjection()
-  },
-)
-
-watch(
-  () => assetDraft.workflowVersionSelection,
-  async () => {
-    if (!workflowExecutionEnabled.value) return
-    if (assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED') {
-      assetDraft.workflowVersionId = ''
-    } else if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
-      assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
-    }
     await refreshWorkflowBindingProjection()
   },
 )
@@ -4166,21 +4146,15 @@ function managedTargetLabel(target: ApiRecord): string {
             <div class="asset-form__grid">
               <GcWorkflowExecutionForm
                 v-model:workflow-id="assetDraft.workflowId"
-                v-model:version-selection="assetDraft.workflowVersionSelection"
-                v-model:workflow-version-id="assetDraft.workflowVersionId"
                 v-model:runner="assetDraft.workflowRunner"
                 v-model:gateway-id="assetDraft.workflowGatewayId"
                 class="asset-form__field--wide"
                 :workflows="workflowItems"
-                :versions="publishedWorkflowVersionItems"
                 :gateways="gatewayItems"
                 :workflow-loading="workflowListLoading"
-                :version-loading="workflowVersionListLoading"
                 :gateway-loading="gatewayListLoading"
                 :labels="{
-                  workflow: t('assets.fields.selectWorkflow'), workflowPlaceholder: t('assets.select.workflow'),
-                  versionSelection: t('assets.fields.workflowVersionSelection'), pinned: t('assets.workflowVersionSelection.pinned'), latestPublished: t('assets.workflowVersionSelection.latestPublished'),
-                  version: t('assets.fields.publishedVersion'), versionPlaceholder: t('assets.select.publishedVersion'), runner: t('assets.fields.runner'), controlPlane: t('assets.runners.controlPlane'), gateway: t('assets.runners.gateway'), gatewayPlaceholder: t('assets.select.gateway'),
+                  workflow: t('assets.fields.selectWorkflow'), workflowPlaceholder: t('assets.select.workflow'), runner: t('assets.fields.runner'), controlPlane: t('assets.runners.controlPlane'), gateway: t('assets.runners.gateway'), gatewayPlaceholder: t('assets.select.gateway'),
                 }"
               />
               <section class="asset-form__field--wide workflow-target-form" :aria-label="t('assets.workflowTarget.title')">
@@ -4302,7 +4276,7 @@ function managedTargetLabel(target: ApiRecord): string {
             </div>
             <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.review.workflowVersion') }}</dt>
-              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED' ? t('assets.workflowVersionSelection.latestPublished') : workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
+              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.workflowTarget.title') }}</dt>

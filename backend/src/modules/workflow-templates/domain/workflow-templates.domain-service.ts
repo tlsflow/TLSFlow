@@ -107,6 +107,7 @@ export class WorkflowTemplatesDomainService {
       input.changeSummary,
       input.pluginSource,
     );
+    version.lifecycle = 'CURRENT';
     template.currentVersionId = version.id;
     this.templates.set(template.id, template);
     this.versions.set(template.id, [version]);
@@ -190,6 +191,14 @@ export class WorkflowTemplatesDomainService {
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
     const list = this.versions.get(template.id) ?? [];
+    if (template.origin === 'plugin_internal') {
+      for (const previous of list) {
+        if (previous.id === version.id || previous.status !== 'published') continue;
+        previous.lifecycle = 'HISTORICAL';
+        await this.versionsRepository.upsert(previous);
+      }
+      version.lifecycle = 'CURRENT';
+    }
     version.status = 'published';
     template.status = this.deriveTemplateStatus(list);
     template.currentVersionId = version.id;

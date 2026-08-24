@@ -156,37 +156,6 @@ export interface ManagedDevicePluginUiDto {
   messages: Record<string, string>;
 }
 
-export interface ManagedDevicePluginVersionCandidateDto {
-  pluginVersionId: string;
-  pluginId: string;
-  version: string;
-  status: string;
-  source: string;
-  current: boolean;
-  switchable: boolean;
-  compatibility: {
-    compatible: boolean;
-    reasons: Array<{ dimension: string; expected: string[]; actual?: string }>;
-  };
-  capabilities: string[];
-}
-
-export interface SwitchManagedDevicePluginVersionInput {
-  targetPluginVersionId: string;
-  expectedCurrentPluginVersionId: string;
-}
-
-export interface SwitchManagedDevicePluginVersionResultDto {
-  deviceId: string;
-  previousPluginVersionId: string;
-  pluginVersionId: string;
-  previousPluginBindingId: string;
-  pluginBindingId: string;
-  assignments: { activated: number; disabled: number };
-  switchedAt: string;
-  validationRequired: ['device.connection.test', 'device.discover'];
-}
-
 export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   statusReason?: string;
   allowedActions: string[];

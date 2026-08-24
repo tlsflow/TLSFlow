@@ -860,7 +860,16 @@ export class AssetsApplicationService {
           workflowVersionId: workflow.workflowVersionId,
         });
       }
-      const version = await this.workflowTemplates.getVersion(workflow.workflowVersionId);
+      const currentVersion = await this.workflowTemplates.getRuntimePublishedVersion(workflow.workflowId);
+      if (!currentVersion) {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略没有当前已发布版本', {
+          code: 'WORKFLOW_CURRENT_VERSION_REQUIRED',
+          workflowId: workflow.workflowId,
+        });
+      }
+      // 用户不再提交可回切版本；历史请求也在保存时收口到当前指针，执行绑定随后保存精确快照 ID。
+      workflow.workflowVersionId = currentVersion.id;
+      const version = currentVersion;
       if (version.templateId !== workflow.workflowId) {
         throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略引用的 workflowId 与 workflowVersionId 不匹配', {
           code: 'DEPLOYMENT_STRATEGY_INVALID',

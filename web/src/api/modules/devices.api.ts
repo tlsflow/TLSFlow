@@ -22,16 +22,6 @@ export function getManagedDevice(deviceId: string, locale?: string, includes?: r
   return apiClient.get<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}${query}`)
 }
 
-export function listManagedDevicePluginVersions(deviceId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(toClientPath(`${DEVICES_PATH}/${encodeURIComponent(deviceId)}/plugin-versions`))
-}
-
-export function switchManagedDevicePluginVersion(deviceId: string, payload: { targetPluginVersionId: string; expectedCurrentPluginVersionId: string }): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${DEVICES_PATH}/${encodeURIComponent(deviceId)}/plugin-version`), payload, {
-    idempotencyKey: createIdempotencyKey('managed_device_plugin_version_switch'),
-  })
-}
-
 export function listDeviceOnboardingPlatforms() {
   return apiClient.get<readonly Record<string, unknown>[]>(`${toClientPath(DEVICES_PATH)}/onboarding-platforms`)
 }

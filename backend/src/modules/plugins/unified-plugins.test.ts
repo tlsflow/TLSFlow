@@ -32,6 +32,27 @@ test('用户插件导入后保持禁用并可直接手动启用', async () => {
   );
 });
 
+test('同一插件发布新版本会退休旧当前版本并只向运行时暴露最新版本', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const first = await service.importVersion('tenant-1', {
+    ...workflowPluginInput(),
+    packageContent: 'current-v1',
+    manifest: { ...workflowPluginInput().manifest, version: '1.0.0' },
+  });
+  await service.enableVersion(first.id);
+  const second = await service.importVersion('tenant-1', {
+    ...workflowPluginInput(),
+    packageContent: 'current-v2',
+    manifest: { ...workflowPluginInput().manifest, version: '2.0.0' },
+  });
+  await service.enableVersion(second.id);
+
+  assert.equal((await service.getVersion(first.id)).status, 'RETIRED');
+  assert.equal((await service.listAccessibleVersions('tenant-1')).map((item) => item.id).join(','), second.id);
+  assert.equal((await service.getVersion(first.id)).packageSha256.length > 0, true);
+});
+
 test('用户插件新版本必须严格高于已导入版本', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));

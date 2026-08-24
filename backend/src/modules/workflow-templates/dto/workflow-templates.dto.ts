@@ -433,6 +433,8 @@ export interface WorkflowTemplateVersion {
   /** P2 Runner 载荷的固定执行模式；旧宿主 DSL 版本不设置该字段。 */
   executionMode?: 'PLUGIN_RUNNER';
   status: WorkflowTemplateVersionStatus;
+  /** 内置工作流发布后，旧快照仍可供历史执行读取，但不再是当前入口。 */
+  lifecycle?: 'CURRENT' | 'HISTORICAL';
   changeSummary?: string;
   pluginSource?: WorkflowPluginSource;
   createdAt: string;

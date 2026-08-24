@@ -4000,51 +4000,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/devices/:deviceId/plugin-versions:
-    get:
-      operationId: "listManagedDevicePluginVersions"
-      summary: "查询设备可用插件版本"
-      tags:
-        - "Devices"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                required:
-                  - "items"
-                properties:
-                  items:
-                    type: "array"
-                    items:
-                      type: "object"
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
-  /api/v1/devices/:deviceId/plugin-version:
-    post:
-      operationId: "switchManagedDevicePluginVersion"
-      summary: "切换设备生效插件版本"
-      tags:
-        - "Devices"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/devices/:deviceId/actions:
     post:
       operationId: "executeManagedDeviceCapability"
@@ -8984,11 +8939,32 @@ paths:
                             resources:
                               type: "object"
                               properties:
+                                logos:
+                                  type: "object"
+                                  properties:
+                                    horizontal:
+                                      type: "string"
+                                    square:
+                                      type: "string"
+                                  required:
+                                    - "horizontal"
+                                    - "square"
+                                  additionalProperties: false
+                                runtimeEntrypoint:
+                                  type: "string"
                                 agentPlans:
                                   type: "object"
                                   additionalProperties:
                                     type: "string"
                                 workflows:
+                                  type: "object"
+                                  additionalProperties:
+                                    type: "string"
+                                inputContracts:
+                                  type: "object"
+                                  additionalProperties:
+                                    type: "string"
+                                actionContracts:
                                   type: "object"
                                   additionalProperties:
                                     type: "string"
@@ -9012,6 +8988,10 @@ paths:
                                   type: "object"
                                   additionalProperties:
                                     type: "string"
+                                onboarding:
+                                  type: "object"
+                                  additionalProperties:
+{}
                               additionalProperties: false
                           required:
                             - "apiVersion"
@@ -9407,11 +9387,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -9435,6 +9436,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -9612,11 +9617,32 @@ paths:
                     resources:
                       type: "object"
                       properties:
+                        logos:
+                          type: "object"
+                          properties:
+                            horizontal:
+                              type: "string"
+                            square:
+                              type: "string"
+                          required:
+                            - "horizontal"
+                            - "square"
+                          additionalProperties: false
+                        runtimeEntrypoint:
+                          type: "string"
                         agentPlans:
                           type: "object"
                           additionalProperties:
                             type: "string"
                         workflows:
+                          type: "object"
+                          additionalProperties:
+                            type: "string"
+                        inputContracts:
+                          type: "object"
+                          additionalProperties:
+                            type: "string"
+                        actionContracts:
                           type: "object"
                           additionalProperties:
                             type: "string"
@@ -9640,6 +9666,10 @@ paths:
                           type: "object"
                           additionalProperties:
                             type: "string"
+                        onboarding:
+                          type: "object"
+                          additionalProperties:
+{}
                       additionalProperties: false
                   required:
                     - "apiVersion"
@@ -9849,11 +9879,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -9877,6 +9928,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -10177,11 +10232,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -10205,6 +10281,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -10504,11 +10584,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -10532,6 +10633,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -10831,11 +10936,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -10859,6 +10985,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -11158,11 +11288,32 @@ paths:
                       resources:
                         type: "object"
                         properties:
+                          logos:
+                            type: "object"
+                            properties:
+                              horizontal:
+                                type: "string"
+                              square:
+                                type: "string"
+                            required:
+                              - "horizontal"
+                              - "square"
+                            additionalProperties: false
+                          runtimeEntrypoint:
+                            type: "string"
                           agentPlans:
                             type: "object"
                             additionalProperties:
                               type: "string"
                           workflows:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          inputContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          actionContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -11186,6 +11337,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          onboarding:
+                            type: "object"
+                            additionalProperties:
+{}
                         additionalProperties: false
                     required:
                       - "apiVersion"
@@ -11381,6 +11536,27 @@ paths:
                   - "forms"
                   - "presentations"
                 additionalProperties: false
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-versions/:pluginVersionId/resources/logos/:variant:
+    get:
+      operationId: "getUnifiedPluginLogo"
+      summary: "读取插件包 Logo 资源"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            image/svg+xml:
+              schema:
+                type: "string"
+                format: "binary"
+                description: "插件包内固定尺寸 SVG Logo"
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -11978,7 +12154,8 @@ paths:
             application/json:
               schema:
                 type: "object"
-                additionalProperties: true
+                additionalProperties:
+{}
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -15237,4 +15414,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-22T14:04:14.723Z"
+x-generatedAt: "2026-08-22T18:55:22.678Z"

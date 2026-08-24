@@ -8,6 +8,8 @@ import { WorkflowTemplatesApplicationService } from './application/workflow-temp
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { WorkflowDslV1, WorkflowPluginActionStep, WorkflowRunProgress } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
@@ -438,6 +440,28 @@ describe('WorkflowTemplates', () => {
     assert.equal(clonedDraft.version, 2);
     assert.equal(clonedDraft.status, 'draft');
     assert.equal(clonedDraft.contentHash, created.version.contentHash);
+  });
+
+  it('内置工作流发布新版本后只保留一个当前指针并标记历史快照', async () => {
+    const db = new PgliteDatabase();
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(
+        new PgDocumentRepository(db, 'workflow.templates'),
+        new PgDocumentRepository(db, 'workflow.template_versions'),
+      ),
+      {},
+      workflowBindingsRepository([]),
+    );
+    const initialContent = { ...templateFixture(), metadata: { ...templateFixture().metadata, version: '1.0.0' } };
+    const created = await service.createPluginTemplate({ content: initialContent });
+    const first = await service.publishPluginVersion(created.version.id);
+    const nextContent = { ...initialContent, metadata: { ...initialContent.metadata, version: '1.1.0', displayName: '升级后' } };
+    const draft = await service.createPluginInternalDraftVersion({ templateId: created.template.id, content: nextContent });
+    const second = await service.publishPluginVersion(draft.id);
+
+    assert.equal(second.lifecycle, 'CURRENT');
+    assert.equal((await service.getVersion(first.id)).lifecycle, 'HISTORICAL');
+    assert.equal((await service.getRuntimePublishedVersion(created.template.id))?.id, second.id);
   });
 
   it('版本草稿只接受当前 Workflow 合同，拒绝旧 DSL 字段', async () => {
