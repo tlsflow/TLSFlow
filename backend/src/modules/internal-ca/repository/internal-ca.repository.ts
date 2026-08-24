@@ -220,6 +220,16 @@ export class InternalCaRepository {
     return structuredClone(entity);
   }
 
+  async findActiveNodeEnrollmentToken(tokenHash: string, now: string): Promise<CaNodeEnrollmentTokenEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `select * from pg_ca_node_enrollment_tokens
+       where token_hash = $1 and status = 'active' and expires_at > $2
+       limit 1`,
+      [tokenHash, now],
+    );
+    return result.rows[0] ? nodeEnrollmentTokenFromRow(result.rows[0]) : undefined;
+  }
+
   async consumeNodeEnrollmentToken(tokenHash: string, now: string): Promise<CaNodeEnrollmentTokenEntity | undefined> {
     return this.db.transaction(async (tx) => {
       const result = await tx.query<Record<string, unknown>>(

@@ -181,7 +181,7 @@ export interface CaNodeTaskEntity {
   tenantId: string;
   providerId: string;
   nodeId?: string;
-  taskType: 'sign_csr' | 'revoke_certificate' | 'publish_crl' | 'health_check';
+  taskType: 'discover_adcs' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
   idempotencyKey: string;
   payload: Record<string, unknown>;
   status: 'queued' | 'leased' | 'succeeded' | 'failed';

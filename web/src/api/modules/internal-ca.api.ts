@@ -33,6 +33,7 @@ export const internalCaApi = {
   queryRequest: (requestId: string) => post(`/api/v1/certificate-requests/${encodeURIComponent(requestId)}/query`),
   listNodes: () => getList('/api/v1/ca-nodes'),
   createNodeEnrollmentToken: (providerId: string, ttlMinutes = 30) => post('/api/v1/ca-nodes/enrollment-tokens', { providerId, ttlMinutes }),
+  createAdcsAgentInstallSession: (body: ApiBody = {}) => post('/api/v1/adcs-agents/install-sessions', body),
   listRenewals: () => getList('/api/v1/certificate-renewals'),
   scanRenewals: () => post('/api/v1/certificate-renewals/scan'),
   listRevocations: () => getList('/api/v1/certificate-revocations'),

@@ -960,7 +960,9 @@ export class InternalCaApplicationService {
 
   async createNodeEnrollmentToken(tenantId: string, providerId: string, actorId: string, ttlMinutes = 15): Promise<{ tokenId: string; token: string; expiresAt: string }> {
     const provider = await this.requireProvider(tenantId, providerId);
-    if (provider.type !== 'gcac_managed_node') throw new AppError('CA_TOPOLOGY_INVALID', '只有 GCAC Managed Node Provider 可以注册 CA Node');
+    if (!['gcac_managed_node', 'microsoft_adcs'].includes(provider.type)) {
+      throw new AppError('CA_TOPOLOGY_INVALID', '只有 GCAC Managed Node 或 Microsoft AD CS Provider 可以注册节点');
+    }
     const token = `gcn_${randomBytes(32).toString('base64url')}`;
     const now = new Date();
     const entity = await this.repository.createNodeEnrollmentToken({
@@ -974,6 +976,42 @@ export class InternalCaApplicationService {
       createdAt: now.toISOString(),
     });
     return { tokenId: entity.id, token, expiresAt: entity.expiresAt };
+  }
+
+  async createAdcsAgentInstallSession(
+    tenantId: string,
+    input: { name?: string; availabilityMode?: CaAvailabilityMode },
+    actorId: string,
+    baseUrl: string,
+    context?: RequestContext,
+  ): Promise<Record<string, unknown>> {
+    const provider = await this.createProvider(tenantId, {
+      name: optionalText(input.name) ?? 'Microsoft AD CS',
+      type: 'microsoft_adcs',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: input.availabilityMode ?? 'single',
+      configuration: { adapterMode: 'managed_agent', releaseLevel: 'preview' },
+    }, actorId, context);
+    const enrollment = await this.createNodeEnrollmentToken(tenantId, provider.id, actorId, 15);
+    const scriptUrl = `${baseUrl}/api/v1/adcs-agents/install.ps1?token=${encodeURIComponent(enrollment.token)}`;
+    return {
+      provider,
+      expiresAt: enrollment.expiresAt,
+      installCommand: `irm '${scriptUrl}' | iex`,
+      scriptUrl,
+    };
+  }
+
+  async getAdcsAgentInstallContext(token: string): Promise<{ providerId: string; tenantId: string; token: string }> {
+    const enrollment = await this.repository.findActiveNodeEnrollmentToken(
+      createHash('sha256').update(requiredText(token, 'token')).digest('hex'),
+      new Date().toISOString(),
+    );
+    if (!enrollment) throw new AppError('AUTH_FORBIDDEN', 'AD CS Agent 安装令牌无效或已过期');
+    const provider = await this.requireProvider(enrollment.tenantId, enrollment.providerId);
+    if (provider.type !== 'microsoft_adcs') throw new AppError('AUTH_FORBIDDEN', '安装令牌不属于 AD CS Agent');
+    return { providerId: provider.id, tenantId: provider.tenantId, token };
   }
 
   async registerNode(input: {
@@ -994,7 +1032,9 @@ export class InternalCaApplicationService {
       throw new AppError('AUTH_FORBIDDEN', 'CA Node 注册令牌无效、已使用或已过期');
     }
     const provider = await this.requireProvider(consumed.tenantId, consumed.providerId);
-    if (provider.runtimePlatform !== input.platform) throw new AppError('CA_TOPOLOGY_INVALID', 'CA Node 平台与 Provider 配置不一致');
+    if (provider.type === 'microsoft_adcs' ? input.platform !== 'windows' : provider.runtimePlatform !== input.platform) {
+      throw new AppError('CA_TOPOLOGY_INVALID', '节点平台与 Provider 配置不一致');
+    }
     const node: CaNodeEntity = {
       id: newId('canode'),
       tenantId: consumed.tenantId,

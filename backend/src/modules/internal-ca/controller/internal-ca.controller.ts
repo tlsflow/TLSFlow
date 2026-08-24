@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
@@ -59,6 +61,9 @@ export class InternalCaController {
     router.post('/api/v1/ca-nodes/heartbeat', '上报 CA Node 心跳', tags, (request) => this.heartbeatNode(request));
     router.post('/api/v1/ca-nodes/tasks/lease', '获取 CA Node 任务', tags, (request) => this.leaseNodeTask(request));
     router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
+    router.post('/api/v1/adcs-agents/install-sessions', '创建 AD CS Agent 一键安装会话', tags, (request) => this.createAdcsAgentInstallSession(request));
+    router.get('/api/v1/adcs-agents/install.ps1', '下载 AD CS Agent 安装脚本', tags, (request) => this.getAdcsAgentInstallScript(request));
+    router.get('/api/v1/adcs-agents/binary', '下载 AD CS Agent 程序', tags, (request) => this.getAdcsAgentBinary(request));
   }
 
   private async listProviders(request: HttpRequest) {
@@ -302,6 +307,48 @@ export class InternalCaController {
     return this.service.completeNodeTask(tenantId(request), requiredString(body, 'nodeId'), pathId(request), body as never);
   }
 
+  private async createAdcsAgentInstallSession(request: HttpRequest) {
+    await this.assertManage(request, 'ca_node');
+    return {
+      statusCode: 201,
+      body: await this.service.createAdcsAgentInstallSession(
+        tenantId(request), objectBody(request), actorId(request), publicBaseUrl(request), request.context,
+      ),
+    };
+  }
+
+  private async getAdcsAgentInstallScript(request: HttpRequest) {
+    const context = await this.service.getAdcsAgentInstallContext(requiredQuery(request, 'token'));
+    return {
+      statusCode: 200,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+      body: renderAdcsAgentInstallScript({ ...context, controlPlaneUrl: publicBaseUrl(request) }),
+    };
+  }
+
+  private async getAdcsAgentBinary(_request: HttpRequest) {
+    const candidates = [
+      resolve(process.cwd(), '../agents/windows-adcs-agent/gcac-adcs-agent.exe'),
+      resolve(process.cwd(), 'agents/windows-adcs-agent/gcac-adcs-agent.exe'),
+    ];
+    for (const path of candidates) {
+      try {
+        return {
+          statusCode: 200,
+          headers: {
+            'content-type': 'application/vnd.microsoft.portable-executable',
+            'content-disposition': 'attachment; filename="gcac-adcs-agent.exe"',
+            'cache-control': 'no-store',
+          },
+          body: await readFile(path),
+        };
+      } catch {
+        // 继续尝试下一条部署路径。
+      }
+    }
+    throw new AppError('RESOURCE_NOT_FOUND', 'AD CS Agent 二进制文件尚未构建');
+  }
+
   private async assertRead(request: HttpRequest, resourceType: string): Promise<void> {
     await this.assertCanAny(request, ['certificate.read', 'certificate.asset.read'], resourceType);
   }
@@ -370,6 +417,9 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/ca-nodes/heartbeat', operationId: 'heartbeatCaNode', summary: '上报 CA Node 心跳', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/lease', operationId: 'leaseCaNodeTask', summary: '获取 CA Node 任务', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-nodes/tasks/:id/result', operationId: 'completeCaNodeTask', summary: '回传 CA Node 任务结果', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/adcs-agents/install-sessions', operationId: 'createAdcsAgentInstallSession', summary: '创建 AD CS Agent 一键安装会话', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/adcs-agents/install.ps1', operationId: 'getAdcsAgentInstallScript', summary: '下载 AD CS Agent 安装脚本', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/adcs-agents/binary', operationId: 'getAdcsAgentBinary', summary: '下载 AD CS Agent 程序', tags, responseSchema },
   ];
 }
 
@@ -420,4 +470,52 @@ function optionalNumber(body: Record<string, unknown>, field: string): number | 
   const number = Number(value);
   if (!Number.isFinite(number)) throw new AppError('VALIDATION_FAILED', `${field} 必须是数字`, { field });
   return number;
+}
+
+function requiredQuery(request: HttpRequest, name: string): string {
+  const value = optionalQuery(request, name)?.trim();
+  if (!value) throw new AppError('VALIDATION_FAILED', `${name} 不能为空`);
+  return value;
+}
+
+function publicBaseUrl(request: HttpRequest): string {
+  const configured = process.env.GCAC_PUBLIC_BASE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+  const protocol = String(request.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
+  const host = String(request.headers['x-forwarded-host'] ?? request.headers.host ?? '127.0.0.1:3000').split(',')[0].trim();
+  return `${protocol}://${host}`;
+}
+
+function renderAdcsAgentInstallScript(input: { controlPlaneUrl: string; tenantId: string; providerId: string; token: string }): string {
+  const manifest = JSON.stringify(input).replace(/'/g, "''");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()",
+    "if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw '请使用管理员 PowerShell 执行安装命令。' }",
+    `$manifest = '${manifest}' | ConvertFrom-Json`,
+    "$installRoot = 'C:\\Program Files\\GCAC\\ADCSAgent'",
+    "$dataRoot = 'C:\\ProgramData\\GCAC\\ADCSAgent'",
+    "$configPath = Join-Path $dataRoot 'agent.config.json'",
+    "$binaryPath = Join-Path $installRoot 'gcac-adcs-agent.exe'",
+    "$serviceName = 'gcac-adcs-agent'",
+    "New-Item -ItemType Directory -Force -Path $installRoot, $dataRoot | Out-Null",
+    "$binaryUrl = ([string]$manifest.controlPlaneUrl).TrimEnd('/') + '/api/v1/adcs-agents/binary'",
+    "Invoke-WebRequest -UseBasicParsing -Uri $binaryUrl -OutFile $binaryPath",
+    "$config = [ordered]@{ controlPlaneUrl = $manifest.controlPlaneUrl; tenantId = $manifest.tenantId; providerId = $manifest.providerId; enrollmentToken = $manifest.token; nodeName = $env:COMPUTERNAME; pollSeconds = 10; dataDir = $dataRoot }",
+    "$utf8 = New-Object System.Text.UTF8Encoding($false)",
+    "[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 8), $utf8)",
+    "icacls.exe $dataRoot /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\\Administrators:(OI)(CI)F' | Out-Null",
+    "& $binaryPath preflight --config $configPath",
+    "if ($LASTEXITCODE -ne 0) { throw 'AD CS 环境预检失败，服务未安装。' }",
+    "$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue",
+    "if ($null -ne $existing) { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue; sc.exe delete $serviceName | Out-Null; Start-Sleep -Seconds 1 }",
+    "$serviceCommand = ('\"{0}\" service run --config \"{1}\"' -f $binaryPath, $configPath)",
+    "New-Service -Name $serviceName -BinaryPathName $serviceCommand -DisplayName 'GCAC AD CS Agent' -Description 'GCAC Microsoft AD CS management adapter' -StartupType Automatic | Out-Null",
+    "sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/30000 | Out-Null",
+    "Start-Service -Name $serviceName",
+    "Start-Sleep -Seconds 3",
+    "$service = Get-Service -Name $serviceName",
+    "if ($service.Status -ne 'Running') { throw 'AD CS Agent 服务启动失败。' }",
+    "Write-Host ('GCAC AD CS Agent 安装完成，服务状态：' + $service.Status) -ForegroundColor Green",
+  ].join('\r\n');
 }

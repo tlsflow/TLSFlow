@@ -341,6 +341,45 @@ test('内置 CA 签名失败时账本不会留下半完成 issued 记录', async
   assert.equal(ledger.certificateVersionId, undefined);
 });
 
+test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能使用一次', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-adcs-agent-install';
+  const install = await service.createAdcsAgentInstallSession(
+    tenantId,
+    { name: '域证书服务 Agent' },
+    'user-admin',
+    'https://gcac.example.test',
+  );
+  assert.match(String(install.installCommand), /^irm 'https:\/\/gcac\.example\.test\/api\/v1\/adcs-agents\/install\.ps1\?token=/);
+  const token = decodeURIComponent(String(install.scriptUrl).split('token=')[1]);
+  const context = await service.getAdcsAgentInstallContext(token);
+  assert.equal(context.tenantId, tenantId);
+  const provider = (await service.listProviders(tenantId)).find((item) => item.id === context.providerId);
+  assert.equal(provider?.type, 'microsoft_adcs');
+  const node = await service.registerNode({
+    token,
+    name: 'CA01',
+    platform: 'windows',
+    role: 'member',
+    identityFingerprint: 'a'.repeat(64),
+    keyBackend: 'cng',
+    exportability: 'non_exportable',
+    capabilities: provider!.capabilities,
+    version: '0.1.0',
+  });
+  assert.equal(node.providerId, provider?.id);
+  assert.equal(node.platform, 'windows');
+  await assert.rejects(service.registerNode({
+    token,
+    name: 'CA01-duplicate',
+    platform: 'windows',
+    identityFingerprint: 'b'.repeat(64),
+    keyBackend: 'cng',
+    exportability: 'non_exportable',
+    capabilities: provider!.capabilities,
+  }), /无效、已使用或已过期/);
+});
+
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-multi-root-ca';
