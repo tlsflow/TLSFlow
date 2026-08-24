@@ -30,15 +30,18 @@ export class PluginWorkflowPublisherService {
       const contentText = record.resources[resourcePath];
       if (!contentText) throw new AppError('VALIDATION_FAILED', '插件 Workflow 资源不存在', { pluginVersionId: record.id, capabilityKey, resourcePath });
       const content = JSON.parse(contentText) as WorkflowDslV1;
-      const created = await this.workflows.createTemplate({ content, changeSummary: `由插件 ${record.pluginId}@${record.version} 发布` });
-      const published = await this.workflows.publishVersion(created.version.id);
+      const contentSha256 = sha256(contentText);
+      const previous = await this.repository.findLatestByPluginResource(record.tenantId, record.pluginId, resourcePath);
+      const published = previous?.workflowContentSha256 === contentSha256
+        ? { templateId: previous.workflowTemplateId, versionId: previous.workflowVersionId }
+        : await this.publishWorkflowVersion(record, content, previous);
       output.push(await this.repository.save({
         pluginVersionId: record.id,
         capabilityKey,
         workflowResourcePath: resourcePath,
-        workflowTemplateId: created.template.id,
-        workflowVersionId: published.id,
-        workflowContentSha256: sha256(contentText),
+        workflowTemplateId: published.templateId,
+        workflowVersionId: published.versionId,
+        workflowContentSha256: contentSha256,
         createdAt: new Date().toISOString(),
       }));
     }
@@ -56,6 +59,26 @@ export class PluginWorkflowPublisherService {
     if (existing.workflowResourcePath !== resourcePath || !content || existing.workflowContentSha256 !== sha256(content)) {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '已发布插件版本的 Workflow 绑定不可覆盖', { pluginVersionId: record.id, capabilityKey });
     }
+  }
+
+  private async publishWorkflowVersion(
+    record: UnifiedPluginVersionRecord,
+    content: WorkflowDslV1,
+    previous: PluginWorkflowBindingRecord | undefined,
+  ): Promise<{ templateId: string; versionId: string }> {
+    const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布`;
+    if (!previous) {
+      const created = await this.workflows.createPluginTemplate({ content, changeSummary });
+      const published = await this.workflows.publishVersion(created.version.id);
+      return { templateId: created.template.id, versionId: published.id };
+    }
+    const draft = await this.workflows.createDraftVersion({
+      templateId: previous.workflowTemplateId,
+      content,
+      changeSummary,
+    });
+    const published = await this.workflows.publishVersion(draft.id);
+    return { templateId: previous.workflowTemplateId, versionId: published.id };
   }
 }
 

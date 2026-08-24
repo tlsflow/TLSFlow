@@ -1,6 +1,7 @@
 import { WorkflowTemplatesDomainService } from '../domain/workflow-templates.domain-service.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { PgPluginsRepository, type PluginsRepository } from '../../plugins/repository/plugins.repository.js';
+import { PluginWorkflowBindingsRepository, type PluginWorkflowBindingsRepositoryPort } from '../../plugins/repository/plugin-workflow-bindings.repository.js';
 import { compileWorkflowCanvas, validateWorkflowCanvasInput } from '../domain/workflow-canvas.compiler.js';
 import type {
   ApplyWorkflowTemplateFromFileInput,
@@ -32,10 +33,19 @@ export class WorkflowTemplatesApplicationService {
     private readonly domain = new WorkflowTemplatesDomainService(),
     private readonly options: WorkflowTemplatesApplicationServiceOptions = {},
     private readonly pluginsRepository: PluginsRepository = new PgPluginsRepository(),
+    private readonly workflowBindingsRepository: PluginWorkflowBindingsRepositoryPort = new PluginWorkflowBindingsRepository(),
   ) {}
 
   async createTemplate(input: CreateWorkflowTemplateInput) {
     return this.domain.createTemplate(input);
+  }
+
+  async createWorkflow(input: CreateWorkflowTemplateInput) {
+    return this.domain.createTemplate(input, 'user');
+  }
+
+  async createPluginTemplate(input: CreateWorkflowTemplateInput) {
+    return this.domain.createTemplate(input, 'plugin');
   }
 
   async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
@@ -98,6 +108,15 @@ export class WorkflowTemplatesApplicationService {
 
   async listTemplates(): Promise<WorkflowTemplate[]> {
     return this.domain.listTemplates();
+  }
+
+  async listWorkflows(tenantId: string): Promise<WorkflowTemplate[]> {
+    const currentPluginTemplateIds = new Set(
+      (await this.workflowBindingsRepository.listCurrent(tenantId)).map((binding) => binding.workflowTemplateId),
+    );
+    return (await this.domain.listTemplates()).filter((template) => (
+      template.origin === 'user' || currentPluginTemplateIds.has(template.id)
+    ));
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {

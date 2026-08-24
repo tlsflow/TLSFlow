@@ -22,6 +22,8 @@ export class WorkflowTemplatesController {
   constructor(private readonly service = new WorkflowTemplatesApplicationService(), private readonly security?: SecurityServices) {}
 
   register(router: Router): void {
+    router.get('/api/v1/workflows', '列出工作流', tag, async (request) => this.listWorkflows(request));
+    router.post('/api/v1/workflows', '创建工作流草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createWorkflow(request.body as CreateWorkflowTemplateInput) }));
     router.get('/api/v1/workflow-templates', '列出工作流模板', tag, async (request) => this.listTemplates(request));
     router.post('/api/v1/workflow-templates', '创建工作流模板草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplate(request.body as CreateWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-templates/rename', '修改工作流名称', tag, async (request) => ({ statusCode: 200, body: await this.service.renameTemplate(request.body as RenameWorkflowTemplateInput) }));
@@ -53,6 +55,11 @@ export class WorkflowTemplatesController {
     return { statusCode: 200, body: { items: await this.authorizedItems(this.subjectFromRequest(request), 'workflow', items) } };
   }
 
+  private async listWorkflows(request: HttpRequest) {
+    const items = await this.service.listWorkflows(tenantId(request));
+    return { statusCode: 200, body: { items: await this.authorizedItems(this.subjectFromRequest(request), 'workflow', items) } };
+  }
+
   private async listVersions(request: HttpRequest) {
     const templateId = String(request.query.templateId ?? '');
     const items = await this.service.listVersions(templateId);
@@ -80,6 +87,8 @@ function tenantId(request: HttpRequest): string {
 export function getWorkflowTemplateRouteContracts(): RouteContract[] {
   const objectSchema = { type: 'object', additionalProperties: true };
   return [
+    { method: 'GET', path: '/api/v1/workflows', operationId: 'listWorkflows', summary: '列出工作流', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows', operationId: 'createWorkflow', summary: '创建工作流草稿', tags: tag, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '列出工作流模板', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates', operationId: 'createWorkflowTemplate', summary: '创建工作流模板草稿', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/rename', operationId: 'renameWorkflowTemplate', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },

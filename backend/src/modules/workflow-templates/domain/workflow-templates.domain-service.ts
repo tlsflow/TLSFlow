@@ -80,13 +80,17 @@ export class WorkflowTemplatesDomainService {
     return await this.fileTemplateLibrary.list();
   }
 
-  async createTemplate(input: CreateWorkflowTemplateInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
+  async createTemplate(
+    input: CreateWorkflowTemplateInput,
+    origin: NonNullable<WorkflowTemplate['origin']> = 'legacy',
+  ): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
     await this.ready;
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const now = new Date().toISOString();
     const template: WorkflowTemplate = {
       id: `wftpl_${randomUUID()}`,
       name: content.metadata.name,
+      origin,
       status: 'draft',
       createdAt: now,
       updatedAt: now,
@@ -114,12 +118,15 @@ export class WorkflowTemplatesDomainService {
     return this.withCurrentVersionSummary(template);
   }
 
-  async createTemplateFromFile(input: CreateWorkflowTemplateFromFileInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
+  async createTemplateFromFile(
+    input: CreateWorkflowTemplateFromFileInput,
+    origin: NonNullable<WorkflowTemplate['origin']> = 'user',
+  ): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
     const content = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
     return await this.createTemplate({
       content,
       changeSummary: input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 创建工作流草稿`,
-    });
+    }, origin);
   }
 
   async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {

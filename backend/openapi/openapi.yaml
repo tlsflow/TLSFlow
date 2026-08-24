@@ -6499,6 +6499,45 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/workflows:
+    get:
+      operationId: "listWorkflows"
+      summary: "列出工作流"
+      tags:
+        - "WorkflowTemplates"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createWorkflow"
+      summary: "创建工作流草稿"
+      tags:
+        - "WorkflowTemplates"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/workflow-templates:
     get:
       operationId: "listWorkflowTemplates"
@@ -8136,4 +8175,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-26T17:05:28.137Z"
+x-generatedAt: "2026-07-27T03:08:12.014Z"

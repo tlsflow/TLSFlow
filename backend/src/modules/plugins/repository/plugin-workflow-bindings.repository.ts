@@ -6,6 +6,8 @@ export interface PluginWorkflowBindingsRepositoryPort {
   save(record: PluginWorkflowBindingRecord): Promise<PluginWorkflowBindingRecord>;
   find(pluginVersionId: string, capabilityKey: string): Promise<PluginWorkflowBindingRecord | undefined>;
   findByResource(pluginVersionId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined>;
+  findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined>;
+  listCurrent(tenantId: string): Promise<PluginWorkflowBindingRecord[]>;
   list(pluginVersionId: string): Promise<PluginWorkflowBindingRecord[]>;
 }
 
@@ -37,6 +39,39 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
       [pluginVersionId, workflowResourcePath],
     )).rows[0];
     return row ? toRecord(row) : undefined;
+  }
+
+  async findLatestByPluginResource(tenantId: string, pluginId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined> {
+    const row = (await this.db.query<WorkflowBindingRow>(`
+      select binding.*
+        from unified_plugin_workflow_bindings binding
+        join unified_plugin_versions plugin on plugin.id = binding.plugin_version_id
+       where plugin.tenant_id = $1
+         and plugin.plugin_id = $2
+         and binding.workflow_resource_path = $3
+       order by plugin.created_at desc, binding.created_at desc
+       limit 1
+    `, [tenantId, pluginId, workflowResourcePath])).rows[0];
+    return row ? toRecord(row) : undefined;
+  }
+
+  async listCurrent(tenantId: string): Promise<PluginWorkflowBindingRecord[]> {
+    const rows = (await this.db.query<WorkflowBindingRow>(`
+      with current_plugin_versions as (
+        select id,
+               row_number() over (partition by plugin_id order by created_at desc, id desc) position
+          from unified_plugin_versions
+         where tenant_id = $1
+           and status = 'ENABLED'
+      )
+      select distinct on (binding.workflow_resource_path, binding.workflow_template_id) binding.*
+        from unified_plugin_workflow_bindings binding
+        join current_plugin_versions plugin
+          on plugin.id = binding.plugin_version_id
+         and plugin.position = 1
+       order by binding.workflow_resource_path, binding.workflow_template_id, binding.capability_key
+    `, [tenantId])).rows;
+    return rows.map(toRecord);
   }
 
   async list(pluginVersionId: string): Promise<PluginWorkflowBindingRecord[]> {

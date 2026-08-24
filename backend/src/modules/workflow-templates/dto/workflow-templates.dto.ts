@@ -343,6 +343,7 @@ export interface UpdateWorkflowTemplateVersionNoteInput {
 export interface WorkflowTemplate {
   id: string;
   name: string;
+  origin?: 'legacy' | 'user' | 'plugin';
   status: WorkflowTemplateStatus;
   currentVersionId?: string;
   currentVersion?: number;

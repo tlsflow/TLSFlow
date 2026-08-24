@@ -163,6 +163,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
     },
     pluginsRepository,
+    new PluginWorkflowBindingsRepository(appDb),
   );
   const pluginsService = new PluginsApplicationService(pluginsRepository);
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));

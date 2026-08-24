@@ -14,6 +14,8 @@ import { WorkflowTemplatesDomainService } from './domain/workflow-templates.doma
 import { WorkflowTemplateFileLibrary } from './domain/workflow-template-file-library.js';
 import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
+import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
+import type { PluginWorkflowBindingsRepositoryPort } from '../plugins/repository/plugin-workflow-bindings.repository.js';
 
 function templateFixture(): WorkflowDslV1 {
   return {
@@ -385,6 +387,55 @@ describe('WorkflowTemplates', () => {
     const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
     assert.equal(versions.statusCode, 200);
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
+  });
+
+  it('新工作流接口排除旧模板接口创建的兼容记录', async () => {
+    const app = new App();
+    const currentBindings: PluginWorkflowBindingRecord[] = [];
+    const service = new WorkflowTemplatesApplicationService(undefined, {}, undefined, workflowBindingsRepository(currentBindings));
+    new WorkflowTemplatesController(service).register(app.router);
+
+    const legacy = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      body: { content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } },
+    });
+    const current = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflows',
+      body: { content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-workflow' } } },
+    });
+
+    assert.equal(legacy.statusCode, 201);
+    assert.equal(current.statusCode, 201);
+    const legacyId = (legacy.body as { template: { id: string } }).template.id;
+    const currentId = (current.body as { template: { id: string } }).template.id;
+
+    const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
+    const compatibilityIds = (compatibilityList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
+    const workflowIds = (workflowList.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
+
+    assert.equal(compatibilityIds.includes(legacyId), true);
+    assert.equal(compatibilityIds.includes(currentId), true);
+    assert.equal(workflowIds.includes(legacyId), false);
+    assert.equal(workflowIds.includes(currentId), true);
+
+    const pluginWorkflow = await service.createPluginTemplate({
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
+    });
+    currentBindings.push({
+      pluginVersionId: 'uplgv_current',
+      capabilityKey: 'certificate.deploy',
+      workflowResourcePath: 'workflows/deploy.json',
+      workflowTemplateId: pluginWorkflow.template.id,
+      workflowVersionId: pluginWorkflow.version.id,
+      workflowContentSha256: pluginWorkflow.version.contentHash,
+      createdAt: pluginWorkflow.template.createdAt,
+    });
+    const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
+    const workflowIdsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
+    assert.equal(workflowIdsWithPlugin.includes(pluginWorkflow.template.id), true);
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {
@@ -1641,3 +1692,14 @@ describe('WorkflowTemplates', () => {
     }), /不允许捕获敏感变量/);
   });
 });
+
+function workflowBindingsRepository(records: PluginWorkflowBindingRecord[]): PluginWorkflowBindingsRepositoryPort {
+  return {
+    save: async (record) => record,
+    find: async () => undefined,
+    findByResource: async () => undefined,
+    findLatestByPluginResource: async () => undefined,
+    listCurrent: async () => [...records],
+    list: async () => [...records],
+  };
+}
