@@ -8,9 +8,8 @@ services:
       dockerfile: docker/Dockerfile.small
       args:
         VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
-    image: gcac-small:${GCAC_RELEASE_VERSION:-0.1.0}
+    image: gcac-small:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
-      GCAC_RELEASE_VERSION: ${GCAC_RELEASE_VERSION:-0.1.0}
       GCAC_DEPLOYMENT_ARCHITECTURE: small
       GCAC_PERSISTENCE_BACKEND: pglite
       GCAC_PGLITE_DATA_DIR: /var/lib/gcac/pglite
@@ -67,7 +66,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.db
-    image: gcac-db:${GCAC_RELEASE_VERSION:-0.1.0}
+    image: gcac-db:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gcac}
       POSTGRES_USER: ${POSTGRES_USER:-gcac}
@@ -86,9 +85,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    image: gcac-backend:${GCAC_RELEASE_VERSION:-0.1.0}
+    image: gcac-backend:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
-      GCAC_RELEASE_VERSION: ${GCAC_RELEASE_VERSION:-0.1.0}
       GCAC_DEPLOYMENT_ARCHITECTURE: standard
       GCAC_PERSISTENCE_BACKEND: postgres
       GCAC_DATABASE_HOST: db
@@ -158,7 +156,7 @@ services:
       dockerfile: docker/Dockerfile.web
       args:
         VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
-    image: gcac-web:${GCAC_RELEASE_VERSION:-0.1.0}
+    image: gcac-web:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     depends_on:
       backend:
         condition: service_started
@@ -173,7 +171,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.browser-runtime
-    image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:-0.1.0}
+    image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}

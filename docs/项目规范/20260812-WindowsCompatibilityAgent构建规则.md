@@ -231,7 +231,7 @@ Bundle 构建还需要本机可用的 Go 工具链；它会编译 Linux amd64/ar
 Agent Release Bundle 校验通过
 ```
 
-当前仓库 `version` 文件为 `0.1.0`，而 Compatibility Agent 源码中的 `ProductIdentity.Version` 当前为 `0.1.11`。这是版本策略问题，不要在普通修复构建中擅自修改；正式发布前必须由版本发布任务统一处理。
+当前仓库 `version` 文件为 `1.0.0`，而 Compatibility Agent 源码中的 `ProductIdentity.Version` 当前为 `0.1.11`。二者分别属于 GCAC 产品版本和 Agent 产物版本，必须由各自的发布流程管理；不要在普通修复构建中擅自修改 Agent 版本。
 
 ## 8. 失败排查顺序
 

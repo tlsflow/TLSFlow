@@ -26,7 +26,6 @@ FROM ${NODE_IMAGE} AS runtime
 ARG TARGETARCH
 WORKDIR /app
 ENV NODE_ENV=production \
-    GCAC_RELEASE_VERSION=0.1.0 \
     GCAC_DEPLOYMENT_ARCHITECTURE=small \
     GCAC_PERSISTENCE_BACKEND=pglite \
     GCAC_PGLITE_DATA_DIR=/var/lib/gcac/pglite \
@@ -50,6 +49,7 @@ RUN apt-get update \
 
 COPY --from=backend-build /src/backend/package.json ./package.json
 COPY --from=backend-build /src/backend/package-lock.json ./package-lock.json
+COPY version /version
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=backend-build /src/backend/dist ./dist
 RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js

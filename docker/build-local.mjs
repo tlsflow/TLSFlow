@@ -5,10 +5,11 @@ import { dirname, join, resolve } from 'node:path';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'versions.json'), 'utf8'));
+const releaseVersion = (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
 const options = parseArguments(process.argv.slice(2));
 const architecture = options.architecture ?? 'all';
 const platform = options.platform ?? defaultPlatform();
-const tag = options.tag ?? versions.releaseVersion;
+const tag = options.tag ?? releaseVersion;
 const productEdition = options.edition ?? process.env.VITE_PRODUCT_EDITION?.trim() ?? 'public';
 
 if (!['small', 'standard', 'all'].includes(architecture)) {

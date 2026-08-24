@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const outputRoot = resolve(process.env.GCAC_AGENT_BUNDLE_OUTPUT ?? join(repositoryRoot, 'build', 'agent-release-bundle'));
-const releaseVersion = process.env.GCAC_RELEASE_VERSION?.trim() || (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
+const releaseVersion = (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
 
 if (!outputRoot.startsWith(`${repositoryRoot}${process.platform === 'win32' ? '\\' : '/'}`)) {
   throw new Error(`拒绝写入仓库外部目录：${outputRoot}`);

@@ -15,7 +15,6 @@ FROM ${NODE_IMAGE}
 ARG TARGETARCH
 WORKDIR /app
 ENV NODE_ENV=production \
-    GCAC_RELEASE_VERSION=0.1.0 \
     GCAC_DEPLOYMENT_ARCHITECTURE=standard \
     GCAC_PERSISTENCE_BACKEND=postgres \
     GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
@@ -37,6 +36,7 @@ RUN apt-get update \
 
 COPY --from=build /src/backend/package.json ./package.json
 COPY --from=build /src/backend/package-lock.json ./package-lock.json
+COPY version /version
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /src/backend/dist ./dist
 RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js

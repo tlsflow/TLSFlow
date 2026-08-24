@@ -1,5 +1,4 @@
 {
-  "releaseVersion": "0.1.0",
   "node": "22",
   "postgres": "16",
   "nginx": "1.27",
