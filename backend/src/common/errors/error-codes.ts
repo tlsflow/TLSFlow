@@ -31,6 +31,7 @@ export const errorCodes = {
   TENANT_CONTEXT_STALE: { httpStatus: 409, message: '租户上下文已失效' },
   TENANT_SCOPE_DENIED: { httpStatus: 403, message: '租户范围不允许当前操作' },
   TENANT_PREFLIGHT_FAILED: { httpStatus: 409, message: '多租户启用预检查失败' },
+  TENANT_PREFLIGHT_STALE: { httpStatus: 409, message: '多租户预检查批次已过期' },
   TENANT_MODE_CONFLICT: { httpStatus: 409, message: '多租户模式状态冲突' },
   TENANT_MIGRATION_FAILED: { httpStatus: 409, message: '多租户启用或回滚失败' },
   TENANT_ROLLBACK_UNAVAILABLE: { httpStatus: 409, message: '当前没有可用的多租户回滚状态' },

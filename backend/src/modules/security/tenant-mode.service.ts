@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { AppError } from '../../common/errors/app-error.js';
 import type { DatabasePort } from '../../database/database-port.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
@@ -64,6 +65,16 @@ export interface TenantModeBatchEntity {
   startedAt: string;
   finishedAt?: string;
   version: number;
+}
+
+interface TenantModePreflightSnapshot {
+  capturedAt: string;
+  checksum: string;
+  tenantCount: number;
+  membershipCount: number;
+  objectSetCount: number;
+  roleBindingCount: number;
+  accessGrantCount: number;
 }
 
 export interface TenantModeStateSummary {
@@ -140,9 +151,13 @@ export class TenantModeService implements TenantModeReader {
 
     try {
       const report = await this.buildPreflightReport('hierarchical', state.mode);
+      const snapshot = await this.capturePreflightSnapshot();
       const completedBatch = await this.finishBatch(runningBatch, report.blockers > 0 ? 'FAILED' : 'COMPLETED', {
         lifecycleStateAfter: state.mode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
         report,
+        detail: {
+          snapshot,
+        },
       });
       const nextState = await this.updateState({
         lifecycleState: state.mode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
@@ -159,11 +174,13 @@ export class TenantModeService implements TenantModeReader {
           blockers: report.blockers,
           warnings: report.warnings,
           status: completedBatch.status,
+          preflightChecksum: snapshot.checksum,
         },
+        result: completedBatch.status === 'COMPLETED' ? 'success' : 'failure',
       });
       return { state: nextState, batch: completedBatch, report };
     } catch (error) {
-      await this.finishBatch(runningBatch, 'FAILED', {
+      const failedBatch = await this.finishBatch(runningBatch, 'FAILED', {
         lifecycleStateAfter: state.mode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
         errorCode: 'TENANT_PREFLIGHT_FAILED',
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -171,6 +188,18 @@ export class TenantModeService implements TenantModeReader {
       await this.updateState({
         lifecycleState: state.mode === 'hierarchical' ? 'HIERARCHICAL' : 'SINGLE',
         activeBatchId: undefined,
+      });
+      await this.writeAudit({
+        eventType: AUDIT_EVENT_TYPES.TENANT_MODE_PREFLIGHT_COMPLETED,
+        actorId: input.actorId,
+        action: 'tenant.mode.preflight',
+        context: input.context,
+        detail: {
+          batchId: failedBatch.id,
+          error: error instanceof Error ? error.message : String(error),
+          status: failedBatch.status,
+        },
+        result: 'failure',
       });
       throw error;
     }
@@ -194,7 +223,7 @@ export class TenantModeService implements TenantModeReader {
       });
     }
 
-    const preflight = await this.requirePreflightBatch(input.preflightBatchId);
+    const preflight = await this.requirePreflightBatch(input.preflightBatchId, state);
     const runningBatch = await this.createBatch('ENABLE', state, input.actorId, input.context, input.confirmation, 'hierarchical');
     await this.updateState({
       lifecycleState: 'MIGRATING',
@@ -229,6 +258,7 @@ export class TenantModeService implements TenantModeReader {
           preflightBatchId: preflight.id,
           invalidatedContextCount,
         },
+        result: 'success',
       });
       return { state: nextState, batch: completedBatch };
     } catch (error) {
@@ -253,6 +283,7 @@ export class TenantModeService implements TenantModeReader {
           preflightBatchId: preflight.id,
           error: error instanceof Error ? error.message : String(error),
         },
+        result: 'failure',
       });
       throw new AppError('TENANT_MIGRATION_FAILED', '层级多租户启用失败', {
         batchId: failedBatch.id,
@@ -307,6 +338,7 @@ export class TenantModeService implements TenantModeReader {
           batchId: completedBatch.id,
           invalidatedContextCount,
         },
+        result: 'success',
       });
       return { state: nextState, batch: completedBatch };
     } catch (error) {
@@ -330,6 +362,7 @@ export class TenantModeService implements TenantModeReader {
           batchId: failedBatch.id,
           error: error instanceof Error ? error.message : String(error),
         },
+        result: 'failure',
       });
       throw new AppError('TENANT_MIGRATION_FAILED', '层级多租户回滚失败', {
         batchId: failedBatch.id,
@@ -337,7 +370,7 @@ export class TenantModeService implements TenantModeReader {
     }
   }
 
-  private async requirePreflightBatch(batchId: string): Promise<TenantModeBatchEntity> {
+  private async requirePreflightBatch(batchId: string, state: TenantModeStateEntity): Promise<TenantModeBatchEntity> {
     const batch = await this.batches.get(batchId);
     if (!batch || batch.kind !== 'PREFLIGHT') {
       throw new AppError('TENANT_MODE_CONFLICT', '预检查批次不存在', { batchId });
@@ -346,6 +379,26 @@ export class TenantModeService implements TenantModeReader {
       throw new AppError('TENANT_PREFLIGHT_FAILED', '预检查存在阻断项，不能启用层级多租户', {
         batchId,
         blockers: batch.report?.blockers ?? 0,
+      });
+    }
+    if (state.lastPreflightBatchId !== batch.id) {
+      throw new AppError('TENANT_PREFLIGHT_STALE', '预检查批次不是最新版本，请重新执行预检查', {
+        batchId,
+        lastPreflightBatchId: state.lastPreflightBatchId,
+      });
+    }
+    const snapshot = this.getPreflightSnapshot(batch);
+    if (!snapshot) {
+      throw new AppError('TENANT_PREFLIGHT_STALE', '预检查批次缺少版本快照，请重新执行预检查', {
+        batchId,
+      });
+    }
+    const currentSnapshot = await this.capturePreflightSnapshot();
+    if (currentSnapshot.checksum !== snapshot.checksum) {
+      throw new AppError('TENANT_PREFLIGHT_STALE', '预检查批次已过期，请重新执行预检查', {
+        batchId,
+        expectedChecksum: snapshot.checksum,
+        actualChecksum: currentSnapshot.checksum,
       });
     }
     return batch;
@@ -429,22 +482,7 @@ export class TenantModeService implements TenantModeReader {
   }
 
   private async checkWildcardObjectPermissions(): Promise<TenantModeCheckItem> {
-    const [objectSets, roleBindings, accessGrants] = await Promise.all([
-      this.objectPermissions.listObjectSets(),
-      this.objectPermissions.listRoleBindings(),
-      this.objectPermissions.listAccessGrants(),
-    ]);
-    const offenders = [
-      ...objectSets
-        .filter((item) => item.tenantId === '*' && !BUILTIN_OBJECT_SET_PREFIXES.some((prefix) => item.id.startsWith(prefix)))
-        .map((item) => `objectSet:${item.id}`),
-      ...roleBindings
-        .filter((item) => item.tenantId === '*' && !BUILTIN_ROLE_BINDING_PREFIXES.some((prefix) => item.id.startsWith(prefix)))
-        .map((item) => `roleBinding:${item.id}`),
-      ...accessGrants
-        .filter((item) => item.constraints?.tenantId === '*' && !BUILTIN_ACCESS_GRANT_PREFIXES.some((prefix) => item.id.startsWith(prefix)))
-        .map((item) => `accessGrant:${item.id}`),
-    ];
+    const offenders = await this.collectWildcardPermissionOffenders();
     if (offenders.length > 0) {
       return blockedItem('legacy-wildcard-permissions', '历史通配权限治理', '仍存在不能自动解释为集团子树的历史 tenantId=* 权限记录', offenders);
     }
@@ -452,32 +490,7 @@ export class TenantModeService implements TenantModeReader {
   }
 
   private async checkLegacyTenantOwnership(): Promise<TenantModeCheckItem> {
-    const columns = await this.db.query<{ table_name: string; column_name: string }>(
-      `select table_name, column_name
-         from information_schema.columns
-        where table_schema = 'public'
-          and column_name in ('tenant_id', 'owner_tenant_id')
-        order by table_name, column_name`,
-    );
-    const offenders: string[] = [];
-    for (const column of columns.rows) {
-      const countResult = await this.db.query<{ count: number }>(
-        `select count(*)::int as count
-           from ${quoteIdent(column.table_name)}
-          where ${quoteIdent(column.column_name)} is not null
-            and (
-              ${quoteIdent(column.column_name)}::text in ('default', 'tenant_default', '00000000-0000-0000-0000-000000000000')
-              or not exists (
-                select 1
-                  from tenants
-                 where tenants.id::text = ${quoteIdent(column.table_name)}.${quoteIdent(column.column_name)}::text
-              )
-            )`,
-      );
-      if ((countResult.rows[0]?.count ?? 0) > 0) {
-        offenders.push(`${column.table_name}.${column.column_name}:${countResult.rows[0]?.count ?? 0}`);
-      }
-    }
+    const offenders = await this.collectLegacyTenantOwnershipOffenders();
     if (offenders.length > 0) {
       return blockedItem('legacy-tenant-ownership', '历史租户标识归一化', '仍存在 default / tenant_default / 零值 UUID 或无效租户引用', offenders);
     }
@@ -485,19 +498,7 @@ export class TenantModeService implements TenantModeReader {
   }
 
   private async checkSecurityDocumentTenants(): Promise<TenantModeCheckItem> {
-    const offenders: string[] = [];
-    for (const namespace of TENANT_DOCUMENT_NAMESPACES) {
-      const result = await this.db.query<{ count: number }>(
-        `select count(*)::int as count
-           from pg_documents
-          where namespace = $1
-            and coalesce(payload->>'tenantId', '') = ''`,
-        [namespace],
-      );
-      if ((result.rows[0]?.count ?? 0) > 0) {
-        offenders.push(`${namespace}:${result.rows[0]?.count ?? 0}`);
-      }
-    }
+    const offenders = await this.collectSecurityDocumentTenantOffenders();
     if (offenders.length > 0) {
       return blockedItem('security-document-tenant', '安全对象租户上下文', 'Approval / ExecutionGrant / Audit / Secret 仍存在缺少 tenantId 的历史记录', offenders);
     }
@@ -558,6 +559,85 @@ export class TenantModeService implements TenantModeReader {
     return batch;
   }
 
+  private async capturePreflightSnapshot(): Promise<TenantModePreflightSnapshot> {
+    const capturedAt = new Date().toISOString();
+    const [tenants, memberships, objectSets, roleBindings, accessGrants, legacyOwnershipOffenders, securityDocumentOffenders] = await Promise.all([
+      this.tenantHierarchy.listTenants(),
+      this.tenantHierarchy.listMemberships({ at: capturedAt }),
+      this.objectPermissions.listObjectSets(),
+      this.objectPermissions.listRoleBindings(),
+      this.objectPermissions.listAccessGrants(),
+      this.collectLegacyTenantOwnershipOffenders(),
+      this.collectSecurityDocumentTenantOffenders(),
+    ]);
+    return {
+      capturedAt,
+      checksum: hashValue({
+        tenants: tenants.map((item) => ({
+          id: item.id,
+          code: item.code,
+          type: item.type,
+          parentId: item.parentId ?? null,
+          status: item.status,
+          version: item.version,
+          updatedAt: item.updatedAt,
+        })).sort(compareById),
+        memberships: memberships.map((item) => ({
+          id: item.id,
+          subjectType: item.subjectType,
+          subjectId: item.subjectId,
+          tenantId: item.tenantId,
+          membershipType: item.membershipType,
+          status: item.status,
+          effectiveFrom: item.effectiveFrom,
+          effectiveUntil: item.effectiveUntil ?? null,
+          revokedAt: item.revokedAt ?? null,
+          expiredAt: item.expiredAt ?? null,
+          version: item.version,
+          updatedAt: item.updatedAt,
+        })).sort(compareById),
+        objectSets: objectSets.map((item) => ({
+          id: item.id,
+          tenantId: item.tenantId,
+          status: item.status,
+          kind: item.kind,
+          objectTypes: [...item.objectTypes].sort(),
+          conditions: item.conditions ?? null,
+          updatedAt: item.updatedAt,
+        })).sort(compareById),
+        roleBindings: roleBindings.map((item) => ({
+          id: item.id,
+          tenantId: item.tenantId,
+          principalType: item.principalType,
+          principalId: item.principalId,
+          roleId: item.roleId,
+          objectSetId: item.objectSetId,
+          effect: item.effect,
+          enabled: item.enabled,
+          validFrom: item.validFrom ?? null,
+          validTo: item.validTo ?? null,
+          updatedAt: item.updatedAt,
+        })).sort(compareById),
+        accessGrants: accessGrants.map((item) => ({
+          id: item.id,
+          roleId: item.roleId,
+          objectSetId: item.objectSetId,
+          accessLevel: item.accessLevel,
+          effect: item.effect,
+          constraints: item.constraints ?? null,
+          updatedAt: item.updatedAt,
+        })).sort(compareById),
+        legacyOwnershipOffenders: [...legacyOwnershipOffenders].sort(),
+        securityDocumentOffenders: [...securityDocumentOffenders].sort(),
+      }),
+      tenantCount: tenants.length,
+      membershipCount: memberships.length,
+      objectSetCount: objectSets.length,
+      roleBindingCount: roleBindings.length,
+      accessGrantCount: accessGrants.length,
+    };
+  }
+
   private async finishBatch(
     batch: TenantModeBatchEntity,
     status: TenantModeBatchStatus,
@@ -574,12 +654,114 @@ export class TenantModeService implements TenantModeReader {
     return next;
   }
 
+  private getPreflightSnapshot(batch: TenantModeBatchEntity): TenantModePreflightSnapshot | undefined {
+    const detail = batch.detail;
+    if (!detail || typeof detail !== 'object') {
+      return undefined;
+    }
+    const snapshot = (detail as Record<string, unknown>).snapshot;
+    if (!snapshot || typeof snapshot !== 'object') {
+      return undefined;
+    }
+    const candidate = snapshot as Record<string, unknown>;
+    if (
+      typeof candidate.capturedAt !== 'string'
+      || typeof candidate.checksum !== 'string'
+      || typeof candidate.tenantCount !== 'number'
+      || typeof candidate.membershipCount !== 'number'
+      || typeof candidate.objectSetCount !== 'number'
+      || typeof candidate.roleBindingCount !== 'number'
+      || typeof candidate.accessGrantCount !== 'number'
+    ) {
+      return undefined;
+    }
+    return candidate as unknown as TenantModePreflightSnapshot;
+  }
+
+  private async collectWildcardPermissionOffenders(): Promise<string[]> {
+    const [objectSets, roleBindings, accessGrants] = await Promise.all([
+      this.objectPermissions.listObjectSets(),
+      this.objectPermissions.listRoleBindings(),
+      this.objectPermissions.listAccessGrants(),
+    ]);
+    const wildcardObjectSetIds = new Set(
+      objectSets
+        .filter((item) => item.tenantId === '*')
+        .map((item) => item.id),
+    );
+    const offenders = new Set<string>();
+    for (const item of objectSets) {
+      if (item.tenantId === '*' && !BUILTIN_OBJECT_SET_PREFIXES.some((prefix) => item.id.startsWith(prefix))) {
+        offenders.add(`objectSet:${item.id}`);
+      }
+    }
+    for (const item of roleBindings) {
+      if ((item.tenantId === '*' || wildcardObjectSetIds.has(item.objectSetId)) && !BUILTIN_ROLE_BINDING_PREFIXES.some((prefix) => item.id.startsWith(prefix))) {
+        offenders.add(`roleBinding:${item.id}`);
+      }
+    }
+    for (const item of accessGrants) {
+      if ((wildcardObjectSetIds.has(item.objectSetId) || item.constraints?.tenantId === '*') && !BUILTIN_ACCESS_GRANT_PREFIXES.some((prefix) => item.id.startsWith(prefix))) {
+        offenders.add(`accessGrant:${item.id}`);
+      }
+    }
+    return [...offenders].sort();
+  }
+
+  private async collectLegacyTenantOwnershipOffenders(): Promise<string[]> {
+    const columns = await this.db.query<{ table_name: string; column_name: string }>(
+      `select table_name, column_name
+         from information_schema.columns
+        where table_schema = 'public'
+          and column_name in ('tenant_id', 'owner_tenant_id')
+        order by table_name, column_name`,
+    );
+    const offenders: string[] = [];
+    for (const column of columns.rows) {
+      const countResult = await this.db.query<{ count: number }>(
+        `select count(*)::int as count
+           from ${quoteIdent(column.table_name)}
+          where ${quoteIdent(column.column_name)} is not null
+            and (
+              ${quoteIdent(column.column_name)}::text in ('default', 'tenant_default', '00000000-0000-0000-0000-000000000000')
+              or not exists (
+                select 1
+                  from tenants
+                 where tenants.id::text = ${quoteIdent(column.table_name)}.${quoteIdent(column.column_name)}::text
+              )
+            )`,
+      );
+      if ((countResult.rows[0]?.count ?? 0) > 0) {
+        offenders.push(`${column.table_name}.${column.column_name}:${countResult.rows[0]?.count ?? 0}`);
+      }
+    }
+    return offenders;
+  }
+
+  private async collectSecurityDocumentTenantOffenders(): Promise<string[]> {
+    const offenders: string[] = [];
+    for (const namespace of TENANT_DOCUMENT_NAMESPACES) {
+      const result = await this.db.query<{ count: number }>(
+        `select count(*)::int as count
+           from pg_documents
+          where namespace = $1
+            and coalesce(payload->>'tenantId', '') = ''`,
+        [namespace],
+      );
+      if ((result.rows[0]?.count ?? 0) > 0) {
+        offenders.push(`${namespace}:${result.rows[0]?.count ?? 0}`);
+      }
+    }
+    return offenders;
+  }
+
   private async writeAudit(input: {
     eventType: string;
     actorId: string;
     action: string;
     context?: RequestContext;
     detail?: Record<string, unknown>;
+    result: 'success' | 'failure';
   }): Promise<void> {
     await this.audit.write({
       eventType: input.eventType,
@@ -588,7 +770,7 @@ export class TenantModeService implements TenantModeReader {
       action: input.action,
       resourceType: 'tenantMode',
       resourceId: STATE_ID,
-      result: 'success',
+      result: input.result,
       riskLevel: 'high',
       context: input.context,
       detail: input.detail,
@@ -611,6 +793,27 @@ function blockedItem(id: string, title: string, message: string, sampleIds: stri
     count: sampleIds.length,
     sampleIds: sampleIds.slice(0, 20),
   };
+}
+
+function compareById(left: { id: string }, right: { id: string }): number {
+  return left.id.localeCompare(right.id);
+}
+
+function hashValue(value: unknown): string {
+  return createHash('sha256').update(stableSerialize(value)).digest('hex');
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableSerialize(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function quoteIdent(value: string): string {

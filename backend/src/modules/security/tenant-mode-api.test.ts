@@ -116,6 +116,145 @@ describe('多租户模式 API', () => {
     assert.equal(stateBody.state.mode, 'single');
     assert.equal(stateBody.state.lifecycleState, 'SINGLE');
     assert.equal(stateBody.lastPreflightBatch?.status, 'FAILED');
+
+    const audits = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/audit-events?resourceType=tenantMode&eventType=tenant.mode.preflight.completed',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(audits.statusCode, 200);
+    const auditBody = audits.body as {
+      items: Array<{ result: string; detail?: { status?: string } }>;
+    };
+    assert.equal(auditBody.items[0]?.result, 'failure');
+    assert.equal(auditBody.items[0]?.detail?.status, 'FAILED');
+  });
+
+  it('预检查通过后如租户数据发生变化，旧批次必须失效并拒绝启用', async () => {
+    const fixture = await createFixture('single');
+    const token = await fixture.loginAdmin();
+
+    const preflight = await fixture.app.inject({
+      method: 'POST',
+      path: '/api/v1/system/tenant-mode/preflight',
+      headers: { authorization: `Bearer ${token}` },
+      body: { confirmation: 'preflight-stale-20260806' },
+    });
+    assert.equal(preflight.statusCode, 200);
+    const preflightBatchId = (preflight.body as { batch: { id: string } }).batch.id;
+
+    const root = (await fixture.security.tenantHierarchy!.listTenants()).find((tenant) => tenant.code === 'default');
+    assert.ok(root);
+    await fixture.security.tenantHierarchy!.createTenant({
+      name: '启用前新增公司',
+      code: 'company_preflight_stale',
+      type: 'COMPANY',
+      parentId: root.id,
+      actorId: 'user_admin',
+      contextTenantId: root.id,
+    });
+
+    const stale = await fixture.app.inject({
+      method: 'POST',
+      path: '/api/v1/system/tenant-mode/enable',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        preflightBatchId,
+        confirmation: 'enable-stale-20260806',
+      },
+    });
+    assert.equal(stale.statusCode, 409);
+    assert.equal((stale.body as { errorCode: string }).errorCode, 'TENANT_PREFLIGHT_STALE');
+
+    const state = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/system/tenant-mode',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(state.statusCode, 200);
+    const stateBody = state.body as {
+      state: { mode: string; lifecycleState: string };
+      lastEnableBatch?: { status: string };
+    };
+    assert.equal(stateBody.state.mode, 'single');
+    assert.equal(stateBody.state.lifecycleState, 'SINGLE');
+    assert.equal(stateBody.lastEnableBatch, undefined);
+  });
+
+  it('预检查会阻断普通租户复用历史全局对象集合的角色绑定和授权', async () => {
+    const fixture = await createFixture('single');
+    const token = await fixture.loginAdmin();
+    const root = (await fixture.security.tenantHierarchy!.listTenants()).find((tenant) => tenant.code === 'default');
+    assert.ok(root);
+    const company = await fixture.security.tenantHierarchy!.createTenant({
+      name: '历史权限公司',
+      code: 'company_hist_global',
+      type: 'COMPANY',
+      parentId: root.id,
+      actorId: 'user_admin',
+      contextTenantId: root.id,
+    });
+    await fixture.security.objectPermissions.createObjectSet({
+      id: 'oset_hist_global_reused',
+      tenantId: '*',
+      name: '历史全局对象集合',
+      kind: 'dynamic',
+      objectTypes: ['certificate'],
+      conditions: {},
+      status: 'active',
+    });
+    const now = new Date().toISOString();
+    await fixture.db.query(
+      `insert into pg_documents (namespace, document_id, payload, updated_at)
+       values ($1, $2, $3::jsonb, now())`,
+      ['security.role_bindings', 'rbnd_hist_company_global', JSON.stringify({
+        id: 'rbnd_hist_company_global',
+        tenantId: company.id,
+        principalType: 'user',
+        principalId: 'user_admin',
+        roleId: 'role_admin',
+        objectSetId: 'oset_hist_global_reused',
+        effect: 'allow',
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })],
+    );
+    await fixture.db.query(
+      `insert into pg_documents (namespace, document_id, payload, updated_at)
+       values ($1, $2, $3::jsonb, now())`,
+      ['security.access_grants', 'agrant_hist_company_global', JSON.stringify({
+        id: 'agrant_hist_company_global',
+        roleId: 'role_admin',
+        objectSetId: 'oset_hist_global_reused',
+        accessLevel: 'read',
+        effect: 'allow',
+        constraints: {},
+        createdAt: now,
+        updatedAt: now,
+      })],
+    );
+
+    const preflight = await fixture.app.inject({
+      method: 'POST',
+      path: '/api/v1/system/tenant-mode/preflight',
+      headers: { authorization: `Bearer ${token}` },
+      body: { confirmation: 'preflight-historical-global-20260806' },
+    });
+    assert.equal(preflight.statusCode, 200);
+    const preflightBody = preflight.body as {
+      batch: { status: string };
+      report: {
+        blockers: number;
+        items: Array<{ id: string; status: string; sampleIds?: string[] }>;
+      };
+    };
+    assert.equal(preflightBody.batch.status, 'FAILED');
+    assert.equal(preflightBody.report.blockers > 0, true);
+    const wildcardItem = preflightBody.report.items.find((item) => item.id === 'legacy-wildcard-permissions');
+    assert.equal(wildcardItem?.status, 'blocked');
+    assert.equal(wildcardItem?.sampleIds?.includes('roleBinding:rbnd_hist_company_global'), true);
+    assert.equal(wildcardItem?.sampleIds?.includes('accessGrant:agrant_hist_company_global'), true);
   });
 
   it('启用故障注入时保持 SINGLE 并记录失败批次', async () => {
@@ -157,6 +296,14 @@ describe('多租户模式 API', () => {
     assert.equal(stateBody.state.lifecycleState, 'SINGLE');
     assert.equal(stateBody.lastEnableBatch?.status, 'FAILED');
     assert.equal(stateBody.lastEnableBatch?.errorCode, 'TENANT_MIGRATION_FAILED');
+
+    const audits = await fixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/audit-events?resourceType=tenantMode&eventType=tenant.mode.enable.failed',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(audits.statusCode, 200);
+    assert.equal((audits.body as { items: Array<{ result: string }> }).items[0]?.result, 'failure');
   });
 
   it('启用后可以成功回滚到 SINGLE，回滚故障会停在受控状态', async () => {
@@ -246,6 +393,14 @@ describe('多租户模式 API', () => {
     assert.equal(failedStateBody.state.lifecycleState, 'ROLLING_BACK');
     assert.equal(failedStateBody.lastRollbackBatch?.status, 'FAILED');
     assert.equal(failedStateBody.lastRollbackBatch?.errorCode, 'TENANT_MIGRATION_FAILED');
+
+    const audits = await failedFixture.app.inject({
+      method: 'GET',
+      path: '/api/v1/audit-events?resourceType=tenantMode&eventType=tenant.mode.rollback.failed',
+      headers: { authorization: `Bearer ${hierarchicalToken}` },
+    });
+    assert.equal(audits.statusCode, 200);
+    assert.equal((audits.body as { items: Array<{ result: string }> }).items[0]?.result, 'failure');
   });
 });
 
@@ -268,6 +423,7 @@ async function createFixture(mode: 'single' | 'hierarchical') {
 
   return {
     app,
+    db,
     security,
     loginAdmin: async () => {
       const response = await app.inject({
