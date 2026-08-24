@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcStatusTag } from '@/design-system/components'
-import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { formatBrowserLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
 import type { DeviceBoundCertificateView } from '../device-detail.model'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   certificate: DeviceBoundCertificateView
   variant?: 'resource' | 'binding'
 }>(), {
@@ -14,6 +15,11 @@ const { t } = useI18n()
 const emit = defineEmits<{
   select: [certificate: DeviceBoundCertificateView]
 }>()
+
+const expiryCountdown = computed(() => {
+  if (props.variant !== 'binding') return null
+  return getExpiryCountdown(props.certificate.notAfter)
+})
 </script>
 
 <template>
@@ -36,6 +42,18 @@ const emit = defineEmits<{
       <div><dt>{{ t('devices.unifiedDetail.fields.notBefore') }}</dt><dd>{{ certificate.notBefore ? formatBrowserLocalTime(certificate.notBefore) : t('devices.unifiedDetail.values.empty') }}</dd></div>
       <div><dt>{{ t('devices.unifiedDetail.fields.notAfter') }}</dt><dd>{{ certificate.notAfter ? formatBrowserLocalTime(certificate.notAfter) : t('devices.unifiedDetail.values.empty') }}</dd></div>
     </dl>
+    <p
+      v-if="expiryCountdown"
+      class="agent-detail-modal__certificate-expiry"
+      :data-tone="expiryCountdown.expired ? 'danger' : 'success'"
+    >
+      {{ t(
+        expiryCountdown.expired
+          ? 'devices.expiryCountdown.expired'
+          : 'devices.expiryCountdown.remaining',
+        { days: expiryCountdown.days },
+      ) }}
+    </p>
   </article>
 </template>
 
@@ -53,5 +71,8 @@ const emit = defineEmits<{
 .agent-detail-modal__certificate-grid dd { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); font-weight: 700; overflow-wrap: anywhere; }
 .agent-detail-modal__certificate-card[data-variant='binding'] .agent-detail-modal__certificate-grid dt { color: var(--gc-color-text-inverse-muted); }
 .agent-detail-modal__certificate-card[data-variant='binding'] .agent-detail-modal__certificate-grid dd { color: var(--gc-color-surface-solid); }
+.agent-detail-modal__certificate-expiry { margin: 0; font-size: var(--gc-font-size-xs); font-weight: 900; }
+.agent-detail-modal__certificate-expiry[data-tone='success'] { color: var(--gc-color-success); }
+.agent-detail-modal__certificate-expiry[data-tone='danger'] { color: var(--gc-color-danger); }
 @media (max-width: 47.5rem) { .agent-detail-modal__certificate-grid { grid-template-columns: 1fr; } }
 </style>
