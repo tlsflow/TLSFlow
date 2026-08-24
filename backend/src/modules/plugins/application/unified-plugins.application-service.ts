@@ -287,6 +287,9 @@ export class UnifiedPluginsApplicationService {
 
   async enableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
+    if (record.status === 'RETIRED' || record.status === 'QUARANTINED') {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '历史或隔离插件版本不能重新启用；请发布新包替换当前版本', { id, status: record.status });
+    }
     const approved = new Set(record.approvedPermissions);
     const missing = record.source === 'USER'
       ? []

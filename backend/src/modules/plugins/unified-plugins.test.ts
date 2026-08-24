@@ -51,6 +51,10 @@ test('同一插件发布新版本会退休旧当前版本并只向运行时暴�
   assert.equal((await service.getVersion(first.id)).status, 'RETIRED');
   assert.equal((await service.listAccessibleVersions('tenant-1')).map((item) => item.id).join(','), second.id);
   assert.equal((await service.getVersion(first.id)).packageSha256.length > 0, true);
+  await assert.rejects(
+    () => service.enableVersion(first.id),
+    (error: any) => error.errorCode === 'RESOURCE_VERSION_CONFLICT',
+  );
 });
 
 test('用户插件新版本必须严格高于已导入版本', async () => {
