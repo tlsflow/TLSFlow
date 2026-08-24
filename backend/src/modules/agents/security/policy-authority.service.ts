@@ -489,7 +489,7 @@ export class PolicyAuthorityServiceV1 {
       validUntil,
       authorityKeyId: activeKey.keyId,
       revocationRef: `revocation-${randomUUID()}`,
-      ...(validatedRequest.approvalRef ? { approvalRef: validatedRequest.approvalRef } : {}),
+      ...(validatedRequest.approvalRef !== undefined ? { approvalRef: validatedRequest.approvalRef } : {}),
       ...(evaluation.reason ? { reason: evaluation.reason } : {}),
     };
     const decision = validatePolicyAuthorityDecision({ ...decisionValue, signature: signPolicyPayload(decisionValue, activeKey.privateKey) });
@@ -507,7 +507,7 @@ export class PolicyAuthorityServiceV1 {
       allowedPaths: evaluation.allowedPaths,
       allowedServices: evaluation.allowedServices,
       artifactDigests: evaluation.artifactDigests,
-      ...(validatedRequest.approvalRef ? { approvalRef: validatedRequest.approvalRef } : {}),
+      ...(validatedRequest.approvalRef !== undefined ? { approvalRef: validatedRequest.approvalRef } : {}),
       policyRef: evaluation.policyRef,
       policyVersion: evaluation.policyVersion,
       issuedAt,
@@ -978,7 +978,7 @@ function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, is
     allowedPaths: request.allowedPaths,
     allowedServices: request.allowedServices,
     artifactDigests: request.artifactDigests,
-    ...(request.approvalRef ? { approvalRef: request.approvalRef } : {}),
+    ...(request.approvalRef !== undefined ? { approvalRef: request.approvalRef } : {}),
     policyRef: request.policyRef,
     policyVersion: request.policyVersion,
     issuedAt,
@@ -1002,7 +1002,7 @@ function validateIssueRequest(request: PolicyAuthorityAuthorizationRequestV1, is
     policyRef: value.policyRef,
     policyVersion: value.policyVersion,
     planDigest: value.planDigest,
-    ...(value.approvalRef ? { approvalRef: value.approvalRef } : {}),
+    ...(value.approvalRef !== undefined ? { approvalRef: value.approvalRef } : {}),
     lifetimeSeconds: request.lifetimeSeconds,
   };
 }
@@ -1015,7 +1015,10 @@ function validateEvaluation(evaluation: PolicyAuthorityEvaluationV1, request: Po
   assertSubset(value.allowedServices, request.allowedServices, '策略评估服务');
   assertSubset(value.artifactDigests, request.artifactDigests, '策略评估 Artifact');
   if (evaluation.policyRef !== request.policyRef || evaluation.policyVersion !== request.policyVersion) failClosed('策略引用绑定不匹配');
-  if (evaluation.reason !== undefined && !evaluation.reason.trim()) failClosed('策略拒绝原因不能为空');
+  if (evaluation.reason !== undefined
+    && (typeof evaluation.reason !== 'string' || evaluation.reason.trim() === '')) {
+    failClosed('策略拒绝原因不能为空');
+  }
   return {
     allowed: evaluation.allowed,
     actions: value.actions,

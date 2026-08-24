@@ -75,6 +75,44 @@ test('Policy Authority IPC health 版本不匹配时失败关闭', async () => {
   }
 });
 
+test('Policy Authority IPC 握手缺少健康身份字段时失败关闭', async () => {
+  const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
+  const client = new PolicyAuthorityProcessClientV1({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: [fixture, 'incomplete-hello'],
+    environment: { NODE_ENV: 'test' },
+    startupTimeoutMs: 2_000,
+    requestTimeoutMs: 2_000,
+  });
+
+  try {
+    await assert.rejects(() => client.health(), /health 响应字段不完整/);
+    assert.equal((client as unknown as { child?: unknown }).child, undefined);
+  } finally {
+    await client.close();
+  }
+});
+
+test('Policy Authority IPC 握手 authorityId 必须匹配生产配置', async () => {
+  const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
+  const client = new PolicyAuthorityProcessClientV1({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: [fixture],
+    environment: { NODE_ENV: 'production', GCAC_POLICY_AUTHORITY_ID: 'authority-expected' },
+    startupTimeoutMs: 2_000,
+    requestTimeoutMs: 2_000,
+  });
+
+  try {
+    await assert.rejects(() => client.health(), /身份不匹配/);
+    assert.equal((client as unknown as { child?: unknown }).child, undefined);
+  } finally {
+    await client.close();
+  }
+});
+
 test('Policy Authority IPC 请求超时后回收子进程并失败关闭', async () => {
   const fixture = resolve(process.cwd(), 'dist/modules/agents/security/fixtures/policy-authority-ipc.fixture.js');
   const client = new PolicyAuthorityProcessClientV1({

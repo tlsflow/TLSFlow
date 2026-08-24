@@ -62,6 +62,38 @@ test('生产签发结果的 allowed 必须来自根签名策略，宿主请求�
   }
 });
 
+test('授权请求未知字段和空审批引用必须失败关闭', () => {
+  const context = createContext();
+  assert.throws(
+    () => context.service.issueAuthorization({ ...context.request, unexpected: true } as never),
+    /未知字段/,
+  );
+  assert.throws(
+    () => context.service.issueAuthorization({ ...context.request, approvalRef: '' }),
+    /非空字符串|标识符不合法|失败关闭/,
+  );
+});
+
+test('策略评估原因必须是受约束的非空字符串', () => {
+  const context = createContext();
+  const service = new PolicyAuthorityServiceV1({
+    ...context.options,
+    evaluator: {
+      evaluate: () => ({
+        allowed: false,
+        actions: context.request.actions,
+        allowedPaths: context.request.allowedPaths,
+        allowedServices: context.request.allowedServices,
+        artifactDigests: context.request.artifactDigests,
+        policyRef: context.request.policyRef,
+        policyVersion: context.request.policyVersion,
+        reason: 42 as never,
+      }),
+    },
+  });
+  assert.throws(() => service.issueAuthorization(context.request), /策略拒绝原因不能为空|失败关闭/);
+});
+
 test('Token 与 Decision 的授权范围不能互相扩大', () => {
   const context = createContext();
   const result = context.service.issueAuthorization(context.request);

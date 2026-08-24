@@ -174,21 +174,14 @@ export class PolicyAuthorityProcessClientV1 {
   }
 
   async health(): Promise<PolicyAuthorityProcessHealthV1> {
-    const result = await this.request('health');
-    if (result.serviceVersion !== agentSecurityContractVersion
-      || typeof result.authorityId !== 'string'
-      || typeof result.activeKeyId !== 'string'
-      || typeof result.keySetIssuedAt !== 'string') {
-      const error = unavailable('Policy Authority health 响应字段不完整');
-      this.failProcess(error);
-      throw error;
+    try {
+      const result = await this.request('health');
+      return validateHealthResult(result, this.config.environment.GCAC_POLICY_AUTHORITY_ID);
+    } catch (error) {
+      const failure = error instanceof AppError ? error : unavailable('Policy Authority health 响应无效', error);
+      this.failProcess(failure);
+      throw failure;
     }
-    return {
-      serviceVersion: result.serviceVersion as typeof agentSecurityContractVersion,
-      authorityId: result.authorityId,
-      activeKeyId: result.activeKeyId,
-      keySetIssuedAt: result.keySetIssuedAt,
-    };
   }
 
   async issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): Promise<PolicyAuthorityAuthorizationResultV1> {
@@ -261,7 +254,10 @@ export class PolicyAuthorityProcessClientV1 {
       if (this.child !== child) return;
       if (Buffer.byteLength(chunk, 'utf8') > maximumIpcLineBytes) this.failProcess(unavailable('Policy Authority stderr 超过上限'));
     });
-    child.on('error', (error) => this.failProcess(unavailable('Policy Authority 进程启动失败', error)));
+    child.on('error', (error) => {
+      if (this.child !== child) return;
+      this.failProcess(unavailable('Policy Authority 进程启动失败', error));
+    });
     child.on('exit', (code, signal) => {
       if (this.child === child) {
         this.child = undefined;
@@ -272,10 +268,7 @@ export class PolicyAuthorityProcessClientV1 {
     try {
       const response = await this.sendRaw('hello', undefined, this.config.startupTimeoutMs);
       if (!response.ok) throw remoteError(response.error);
-      const result = response.result;
-      if (!result || result.serviceVersion !== agentSecurityContractVersion || typeof result.authorityId !== 'string') {
-        throw unavailable('Policy Authority 握手版本或身份不匹配');
-      }
+      validateHealthResult(response.result, this.config.environment.GCAC_POLICY_AUTHORITY_ID);
       this.ready = true;
     } catch (error) {
       const failure = error instanceof AppError ? error : unavailable('Policy Authority 握手失败', error);
@@ -381,6 +374,30 @@ interface PendingRequest {
   resolve: (response: PolicyAuthorityIpcResponseV1) => void;
   reject: (error: unknown) => void;
   timer: NodeJS.Timeout;
+}
+
+function validateHealthResult(
+  result: Record<string, unknown> | undefined,
+  expectedAuthorityId?: string,
+): PolicyAuthorityProcessHealthV1 {
+  if (!result
+    || result.serviceVersion !== agentSecurityContractVersion
+    || typeof result.authorityId !== 'string'
+    || result.authorityId.trim() === ''
+    || (expectedAuthorityId !== undefined && result.authorityId !== expectedAuthorityId)
+    || typeof result.activeKeyId !== 'string'
+    || result.activeKeyId.trim() === ''
+    || typeof result.keySetIssuedAt !== 'string'
+    || result.keySetIssuedAt.trim() === ''
+    || Number.isNaN(Date.parse(result.keySetIssuedAt))) {
+    throw unavailable('Policy Authority health 响应字段不完整或身份不匹配');
+  }
+  return {
+    serviceVersion: agentSecurityContractVersion,
+    authorityId: result.authorityId,
+    activeKeyId: result.activeKeyId,
+    keySetIssuedAt: result.keySetIssuedAt,
+  };
 }
 
 /** 独立 Policy Authority 进程入口；只在直接执行该文件时运行。 */

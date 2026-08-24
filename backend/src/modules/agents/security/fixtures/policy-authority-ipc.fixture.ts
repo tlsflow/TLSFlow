@@ -18,6 +18,8 @@ function handle(line: string): void {
     if (mode === 'timeout' && value.method === 'health') return;
     const responseResult = mode === 'wrong-health-version' && value.method === 'health'
       ? { ...result, serviceVersion: 'gcac.agent-security/v0' }
+      : mode === 'incomplete-hello' && value.method === 'hello'
+        ? { serviceVersion: result.serviceVersion, authorityId: result.authorityId }
       : result;
     const responseMethod = mode === 'wrong-method' && value.method === 'health' ? 'hello' : value.method;
     process.stdout.write(`${JSON.stringify({ protocolVersion: 'gcac.policy-authority-ipc/v1', requestId: value.requestId, method: responseMethod, ok: true, result: responseResult })}\n`);
