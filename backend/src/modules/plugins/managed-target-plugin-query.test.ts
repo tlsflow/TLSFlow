@@ -144,6 +144,14 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
       `sha256:locale-builtin-${locale}`,
     ]);
   }
+  await db.query(`insert into unified_plugin_workflow_bindings
+    (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+    values ($1,'SYSTEM',null,'certificate.deploy','certificate.deploy','workflows/deploy.json',$2,$3,$4,now())`, [
+    builtinLatestVersionId,
+    publishedWorkflow.workflowTemplateId,
+    publishedWorkflow.workflowVersionId,
+    publishedWorkflow.contentHash,
+  ]);
   const legacy = await plugins.importVersion(tenantId, {
     manifest: {
       ...imported.manifest,
@@ -165,6 +173,13 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(compatible.items.some((item) => item.pluginVersionId === older.id), false);
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.legacy')?.compatible, false);
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.legacy')?.reasons.some((reason) => reason.dimension === 'compatibilityContract'), true);
+
+  // 已启用但尚未完成 Workflow 派生绑定的版本不能进入应用资产可选项。
+  await db.query('delete from unified_plugin_workflow_bindings where plugin_version_id=$1', [builtinLatestVersionId]);
+  const withoutBinding = await service.listCompatiblePlugins({ tenantId, managedTargetId: target.id, capabilityKey: 'certificate.deploy', locale: 'zh-CN' });
+  const unavailableBuiltin = withoutBinding.items.find((item) => item.pluginVersionId === builtinLatestVersionId);
+  assert.equal(unavailableBuiltin?.compatible, false);
+  assert.equal(unavailableBuiltin?.reasons.some((reason) => reason.dimension === 'workflow'), true);
 
   const draftProjection = await service.projectApplicationAssetPluginInputs({
     tenantId,

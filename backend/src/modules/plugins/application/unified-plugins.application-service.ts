@@ -74,6 +74,18 @@ export class UnifiedPluginsApplicationService {
       }
       return existing;
     }
+    if (sourceChannel === 'USER') {
+      const previous = (await this.repository.listVersions(tenantId))
+        .filter((version) => version.source === 'USER' && version.pluginId === manifest.pluginId)
+        .sort((left, right) => compareSemanticVersions(right.version, left.version))[0];
+      if (previous && compareSemanticVersions(manifest.version, previous.version) <= 0) {
+        throw new AppError('VALIDATION_FAILED', '用户插件新版本必须高于已导入版本', {
+          pluginId: manifest.pluginId,
+          previousVersion: previous.version,
+          nextVersion: manifest.version,
+        });
+      }
+    }
     const requiredPermissions = sourceChannel === 'USER' ? [] : requiredApprovalPermissions(manifest);
     const permissionApprovalStatus = requiredPermissions.length === 0 ? 'NOT_REQUIRED' : 'PENDING';
     const validationReport: UnifiedPluginValidationReport = {
@@ -544,14 +556,34 @@ function readStringField(value: unknown, key: string): string | undefined {
 }
 
 export function compareSemanticVersions(left: string, right: string): number {
-  const leftParts = left.split(/[.-]/).map((part) => Number.parseInt(part, 10));
-  const rightParts = right.split(/[.-]/).map((part) => Number.parseInt(part, 10));
-  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
-    const difference = (Number.isFinite(leftParts[index]) ? leftParts[index]! : 0)
-      - (Number.isFinite(rightParts[index]) ? rightParts[index]! : 0);
+  const [leftCoreText, leftPreRelease = ''] = left.split('+', 1)[0]!.split('-', 2);
+  const [rightCoreText, rightPreRelease = ''] = right.split('+', 1)[0]!.split('-', 2);
+  const leftCore = leftCoreText!.split('.').map(Number);
+  const rightCore = rightCoreText!.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (Number.isFinite(leftCore[index]) ? leftCore[index]! : 0)
+      - (Number.isFinite(rightCore[index]) ? rightCore[index]! : 0);
     if (difference !== 0) return difference;
   }
-  return left.localeCompare(right);
+  if (!leftPreRelease && !rightPreRelease) return 0;
+  if (!leftPreRelease) return 1;
+  if (!rightPreRelease) return -1;
+  const leftParts = leftPreRelease.split('.');
+  const rightParts = rightPreRelease.split('.');
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const leftPart = leftParts[index];
+    const rightPart = rightParts[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^\d+$/.test(leftPart) ? Number(leftPart) : undefined;
+    const rightNumber = /^\d+$/.test(rightPart) ? Number(rightPart) : undefined;
+    if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber - rightNumber;
+    if (leftNumber !== undefined) return -1;
+    if (rightNumber !== undefined) return 1;
+    return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
 }
 
 function diffKeys(before: string[], after: string[]): { added: string[]; removed: string[] } {

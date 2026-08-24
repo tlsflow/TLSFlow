@@ -3953,12 +3953,77 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/devices/:deviceId/plugin-versions:
+    get:
+      operationId: "listManagedDevicePluginVersions"
+      summary: "查询设备可用插件版本"
+      tags:
+        - "Devices"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      type: "object"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/devices/:deviceId/plugin-version:
+    post:
+      operationId: "switchManagedDevicePluginVersion"
+      summary: "切换设备生效插件版本"
+      tags:
+        - "Devices"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/devices/:deviceId/actions:
     post:
       operationId: "executeManagedDeviceCapability"
       summary: "执行统一设备能力"
       tags:
         - "Devices"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              required:
+                - "capabilityKey"
+              properties:
+                capabilityKey:
+                  type: "string"
+                authorization:
+                  type: "object"
+                  properties:
+                    approved:
+                      type: "boolean"
+                    approvalId:
+                      type: "string"
+                  additionalProperties: false
+              additionalProperties: false
       responses:
         200:
           description: "成功"

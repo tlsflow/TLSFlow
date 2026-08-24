@@ -4,6 +4,11 @@ import { buildListPath, toClientPath } from './common'
 
 const DEVICES_PATH = '/api/v1/devices'
 
+export interface DeviceActionAuthorization {
+  approved?: boolean
+  approvalId?: string
+}
+
 export function listManagedDevices(query: BusinessListQuery = {}): Promise<ApiPageResult> {
   return apiClient.get<ApiPage>(buildListPath(DEVICES_PATH, query))
 }
@@ -37,8 +42,11 @@ export function onboardManagedDevice(payload: ApiBody): Promise<ApiRecordResult>
   })
 }
 
-export function executeManagedDeviceCapability(deviceId: string, capabilityKey: string): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}/actions`, { capabilityKey }, {
+export function executeManagedDeviceCapability(deviceId: string, capabilityKey: string, authorization?: DeviceActionAuthorization): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(`${toClientPath(DEVICES_PATH)}/${encodeURIComponent(deviceId)}/actions`, {
+    capabilityKey,
+    ...(authorization ? { authorization } : {}),
+  }, {
     idempotencyKey: createIdempotencyKey('device_capability'),
     ...(capabilityKey === 'device.discover' ? { timeoutMs: 90_000 } : {}),
   })
@@ -50,9 +58,10 @@ export function deleteManagedDeviceAsset(deviceAssetId: string): Promise<ApiReco
   })
 }
 
-export function refreshManagedDeviceDiscovery(deviceId: string): Promise<ApiRecordResult> {
+export function refreshManagedDeviceDiscovery(deviceId: string, authorization?: DeviceActionAuthorization): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(`/api/v1/devices/${encodeURIComponent(deviceId)}/actions`), {
     capabilityKey: 'device.discover',
+    ...(authorization ? { authorization } : {}),
   }, {
     idempotencyKey: createIdempotencyKey('managed_device_discovery'),
     timeoutMs: 90_000,

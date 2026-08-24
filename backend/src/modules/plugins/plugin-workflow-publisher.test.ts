@@ -56,6 +56,25 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
   assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
+test('历史插件模板已停用时，新版本改用独立内部模板完成发布', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const firstPlugin = pluginRecord('disabled-template-first', '1.0.0', '1.0.0');
+  const nextPlugin = pluginRecord('disabled-template-next', '1.1.0', '1.1.0');
+
+  const [first] = await publisher.publishPlugin(firstPlugin);
+  assert.ok(first);
+  await workflows.disableTemplate(first!.workflowTemplateId);
+
+  const [next] = await publisher.publishPlugin(nextPlugin);
+
+  assert.ok(next);
+  assert.notEqual(next!.workflowTemplateId, first!.workflowTemplateId);
+  assert.equal((await workflows.getTemplate(next!.workflowTemplateId)).origin, 'plugin_internal');
+  assert.equal((await workflows.getVersion(next!.workflowVersionId)).content.metadata.version, '1.1.0');
+});
+
 test('插件 Workflow 内容变化且版本与 PluginVersion 同步时可发布', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
@@ -167,22 +186,15 @@ test('插件版本变化但 Workflow 版本未同步时拒绝发布', async () =
   );
 });
 
-test('插件发布遇到已存在的 Workflow 内容时复用现有版本', async () => {
+test('插件版本递进时即使业务步骤未变也追加新的 WorkflowVersion', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
   const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
   const legacyPlugin = pluginRecord('legacy-publish', '1.0.0', '1.0.0');
   const nextPlugin = pluginRecord('legacy-publish-next', '1.1.0', '1.1.0');
   const legacyContent = JSON.parse(legacyPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
-  const nextContent = JSON.parse(nextPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
   const internal = await workflows.createPluginTemplate({ content: legacyContent }, { ownerType: 'SYSTEM', ownerId: 'SYSTEM' });
   const publishedLegacy = await workflows.publishPluginVersion(internal.version.id);
-  const nextDraft = await workflows.createPluginInternalDraftVersion({
-    templateId: internal.template.id,
-    content: nextContent,
-    changeSummary: 'seed existing published version',
-  });
-  const publishedNext = await workflows.publishPluginVersion(nextDraft.id);
   bindings.set(`${legacyPlugin.id}:certificate.deploy`, {
     pluginVersionId: legacyPlugin.id,
     pluginId: legacyPlugin.pluginId,
@@ -199,8 +211,10 @@ test('插件发布遇到已存在的 Workflow 内容时复用现有版本', asyn
   const [binding] = await publisher.publishPlugin(nextPlugin);
 
   assert.equal(binding?.workflowTemplateId, internal.template.id);
-  assert.equal(binding?.workflowVersionId, publishedNext.id);
-  assert.equal((await publisher.require(nextPlugin.id, 'certificate.deploy')).workflowVersionId, publishedNext.id);
+  assert.notEqual(binding?.workflowVersionId, publishedLegacy.id);
+  const publishedNext = await workflows.getVersion(binding!.workflowVersionId);
+  assert.equal(publishedNext.content.metadata.version, '1.1.0');
+  assert.deepEqual((await workflows.listVersions(internal.template.id)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
 test('历史绑定指向旧 DSL 版本时，插件发布会幂等修复绑定目标', async () => {

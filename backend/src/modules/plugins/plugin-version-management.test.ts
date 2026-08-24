@@ -67,6 +67,44 @@ test('插件版本管理查询路由返回版本分组和详情', async () => {
   assert.equal((detail.body as { id: string }).id, 'builtin-version-1');
 });
 
+test('统一插件导入路由会为 Workflow DSL 发布派生绑定', async () => {
+  const imported = version('user-version-workflow', 'fixture.workflow', '1.0.0', 'USER', 'tenant-1', 'DISABLED');
+  imported.runtime = 'WORKFLOW_DSL';
+  let publishedPluginVersionId: string | undefined;
+  const service = {
+    importVersion: async () => imported,
+  };
+  const publisher = {
+    publishPlugin: async (record: UnifiedPluginVersionRecord) => {
+      publishedPluginVersionId = record.id;
+      return [];
+    },
+  };
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
+  new PluginsController(
+    service as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    routeSecurity(),
+    undefined,
+    publisher,
+  ).register(app.router);
+
+  const response = await app.inject({
+    method: 'POST',
+    path: '/api/v1/plugin-packages/import',
+    headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' },
+    body: { manifest: {}, resources: {} },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(publishedPluginVersionId, imported.id);
+});
+
 test('刷新内置插件注册表路由调用运行期扫描服务', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository([]));
   let refreshCount = 0;

@@ -37,6 +37,7 @@ import { DeploymentAssetContextBuilder } from '../../deployment-inputs/applicati
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import { evaluatePluginCompatibility } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
+import { PluginCapabilityRegistry } from '../../plugins/capabilities/plugin-capability.registry.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -102,9 +103,10 @@ export class DevicesApplicationService {
   }
 
   async listPluginVersionCandidates(tenantId: string, deviceId: string): Promise<ManagedDevicePluginVersionCandidateDto[]> {
-    const device = await this.repository.get(tenantId, deviceId, { includes: new Set() });
+    const device = await this.repository.get(tenantId, deviceId, { includes: new Set(['frameworks', 'sites']) });
     const current = this.requireSwitchableDevice(deviceId, device);
     if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const compatibilityContext = await this.resolvePluginCompatibilityContext(tenantId, current);
     const currentVersion = current.extension.pluginVersionId
       ? await this.unifiedPlugins.getVersionForTenant(tenantId, current.extension.pluginVersionId)
       : undefined;
@@ -116,15 +118,15 @@ export class DevicesApplicationService {
     const candidates: ManagedDevicePluginVersionCandidateDto[] = [];
     for (const version of visible.filter((item) => item.pluginId === currentVersion.pluginId)) {
       const compatibility = evaluatePluginCompatibility(version.manifest, {
-        productFamily: current.productFamily,
+        ...compatibilityContext,
         managementMethod: 'PLUGIN',
         executionLocation: 'CONTROL_PLANE',
       });
       const contract = await this.inspectDevicePluginContract(version);
       const isCurrent = version.id === currentVersion.id;
-      const hasResourceSnapshot = Object.keys(version.resources ?? {}).length > 0;
-      // 历史版本必须可见，以便确认版本快照仍被保留；只有启用且通过兼容性/能力合同的版本才允许切换。
-      if (!isCurrent && (!hasResourceSnapshot || (version.status === 'ENABLED' && (!compatibility.compatible || !contract.valid)))) continue;
+      const switchable = version.status === 'ENABLED' && compatibility.compatible && contract.valid;
+      // 当前版本即使已失效也必须保留；其他版本只有真正可以切换时才进入候选集。
+      if (!isCurrent && !switchable) continue;
       candidates.push({
         pluginVersionId: version.id,
         pluginId: version.pluginId,
@@ -132,7 +134,7 @@ export class DevicesApplicationService {
         status: version.status,
         source: version.source,
         current: isCurrent,
-        switchable: version.status === 'ENABLED' && compatibility.compatible && contract.valid,
+        switchable,
         compatibility: {
           compatible: compatibility.compatible && contract.valid,
           reasons: [...compatibility.reasons, ...contract.reasons],
@@ -148,9 +150,10 @@ export class DevicesApplicationService {
     deviceId: string,
     input: SwitchManagedDevicePluginVersionInput,
   ): Promise<SwitchManagedDevicePluginVersionResultDto> {
-    const device = await this.repository.get(tenantId, deviceId, { includes: new Set() });
+    const device = await this.repository.get(tenantId, deviceId, { includes: new Set(['frameworks', 'sites']) });
     const current = this.requireSwitchableDevice(deviceId, device);
     if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const compatibilityContext = await this.resolvePluginCompatibilityContext(tenantId, current);
     const currentVersionId = current.extension.pluginVersionId;
     const currentBindingId = current.extension.pluginBindingId;
     if (!currentVersionId || !currentBindingId) throw new AppError('VALIDATION_FAILED', '设备缺少当前插件版本或 Binding');
@@ -172,7 +175,7 @@ export class DevicesApplicationService {
       throw new AppError('VALIDATION_FAILED', '目标插件必须属于同一 pluginId', { currentPluginId: currentVersion.pluginId, targetPluginId: targetVersion.pluginId });
     }
     const compatibility = evaluatePluginCompatibility(targetVersion.manifest, {
-      productFamily: current.productFamily,
+      ...compatibilityContext,
       managementMethod: 'PLUGIN',
       executionLocation: 'CONTROL_PLANE',
     });
@@ -261,6 +264,45 @@ export class DevicesApplicationService {
       throw new AppError('VALIDATION_FAILED', '只有 NETWORK_APPLIANCE 插件设备支持版本切换', { deviceId });
     }
     return device as ManagedDeviceDetailDto & { extension: Extract<ManagedDeviceDetailDto['extension'], { type: 'PLUGIN' }> };
+  }
+
+  private async resolvePluginCompatibilityContext(
+    tenantId: string,
+    device: ManagedDeviceDetailDto & { extension: Extract<ManagedDeviceDetailDto['extension'], { type: 'PLUGIN' }> },
+  ): Promise<{
+    productFamily?: string;
+    frameworkType?: string;
+    targetType?: string;
+    artifactContract?: string;
+  }> {
+    const frameworkType = optionalString(device.frameworks?.[0]?.frameworkType) ?? device.sites?.[0]?.frameworkType;
+    const context: {
+      productFamily?: string;
+      frameworkType?: string;
+      targetType?: string;
+      artifactContract?: string;
+    } = {
+      productFamily: typeof device.productFamily === 'string' ? device.productFamily : undefined,
+      frameworkType,
+    };
+    if (!frameworkType || typeof this.db?.query !== 'function') return context;
+    const target = (await this.db.query<{ target_type: string; supported_capabilities: unknown }>(
+      `select target_type, supported_capabilities
+         from pg_managed_targets
+        where tenant_id=$1 and device_id=$2 and status='ACTIVE' and deleted_at is null
+        order by updated_at desc, id desc
+        limit 1`,
+      [tenantId, device.id],
+    )).rows[0];
+    if (!target) return context;
+    context.targetType = target.target_type;
+    const capabilities = Array.isArray(target.supported_capabilities)
+      ? target.supported_capabilities.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (capabilities.includes('certificate.deploy')) {
+      context.artifactContract = new PluginCapabilityRegistry().require('certificate.deploy').actionContractId;
+    }
+    return context;
   }
 
   private async inspectDevicePluginContract(version: UnifiedPluginVersionRecord): Promise<{ valid: boolean; reasons: Array<{ dimension: string; expected: string[]; actual?: string }> }> {

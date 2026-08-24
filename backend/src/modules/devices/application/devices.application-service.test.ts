@@ -330,7 +330,7 @@ function versionFixture(id: string, version: string, overrides: Partial<UnifiedP
   };
 }
 
-test('设备插件版本候选保留同插件兼容版本，并展示历史不可切换版本', async () => {
+test('设备插件版本候选仅保留当前版本和可切换版本', async () => {
   const current = versionFixture('version-current', '1.0.0', { status: 'DISABLED' });
   const compatible = versionFixture('version-compatible', '1.1.0');
   const historical = versionFixture('version-history', '0.9.0', { status: 'RETIRED' });
@@ -351,10 +351,46 @@ test('设备插件版本候选保留同插件兼容版本，并展示历史不�
     listAccessibleVersions: async () => [current, compatible, historical, wrongFamily, otherPlugin],
   } as unknown as UnifiedPluginsApplicationService;
   const result = await new DevicesApplicationService(repository, undefined, undefined, {} as never, plugins).listPluginVersionCandidates('tenant-1', device.id);
-  assert.deepEqual(result.map((item) => item.pluginVersionId), ['version-current', 'version-compatible', 'version-history']);
+  assert.deepEqual(result.map((item) => item.pluginVersionId), ['version-current', 'version-compatible']);
   assert.equal(result[0]?.current, true);
   assert.equal(result[0]?.switchable, false);
   assert.equal(result[1]?.switchable, true);
-  assert.equal(result[2]?.status, 'RETIRED');
-  assert.equal(result[2]?.switchable, false);
+  assert.equal(result.some((item) => item.status !== 'ENABLED' && !item.current), false);
+});
+
+test('设备插件版本候选使用已发现框架和 ManagedTarget 兼容性上下文', async () => {
+  const current = versionFixture('version-synology-current', '2.0.1', { pluginId: 'device.synology-dsm' });
+  const next = versionFixture('version-synology-next', '2.0.2', {
+    manifest: {
+      ...versionFixture('version-synology-next', '2.0.2').manifest,
+      pluginId: 'device.synology-dsm',
+      compatibility: {
+        productFamilies: ['device.synology-dsm'],
+        frameworkTypes: ['synology.dsm-web'],
+        targetTypes: ['tls.binding'],
+        managementMethods: ['PLUGIN'],
+        executionLocations: ['CONTROL_PLANE'],
+        artifactContracts: ['certificate.deploy.v1'],
+      },
+    },
+    pluginId: 'device.synology-dsm',
+  });
+  const device = {
+    id: 'host-synology-candidate', displayName: 'Synology', category: 'NETWORK_APPLIANCE', productFamily: 'device.synology-dsm',
+    managementMethod: 'PLUGIN', extensionType: 'NETWORK_APPLIANCE', applicationAssetCount: 0, capabilities: [],
+    health: 'HEALTHY', sourceStatus: 'ONLINE', extension: { type: 'PLUGIN', deviceAssetId: 'asset-synology', pluginVersionId: current.id, pluginBindingId: 'binding-synology' },
+    publicSummary: { osType: 'NETWORK', managementMode: 'PLUGIN', updatedAt: current.updatedAt }, overview: { deviceId: 'host-synology-candidate', displayName: 'Synology', deviceType: 'NETWORK_APPLIANCE', status: 'HEALTHY', updatedAt: current.updatedAt },
+    informationSections: [], frameworks: [{ frameworkType: 'synology.dsm-web' }], sites: [{ frameworkType: 'synology.dsm-web' }], certificates: [], logs: [], extensionSummary: {},
+  } as unknown as ManagedDeviceDetailDto;
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const plugins = {
+    getVersionForTenant: async (_tenantId: string, id: string) => id === next.id ? next : current,
+    listAccessibleVersions: async () => [current, next],
+  } as unknown as UnifiedPluginsApplicationService;
+  const db = {
+    query: async () => ({ rows: [{ target_type: 'tls.binding', supported_capabilities: ['certificate.deploy'] }] }),
+  };
+  const result = await new DevicesApplicationService(repository, undefined, undefined, db as never, plugins).listPluginVersionCandidates('tenant-1', device.id);
+  assert.equal(result.find((item) => item.pluginVersionId === next.id)?.switchable, true);
+  assert.deepEqual(result.find((item) => item.pluginVersionId === next.id)?.compatibility, { compatible: true, reasons: [] });
 });

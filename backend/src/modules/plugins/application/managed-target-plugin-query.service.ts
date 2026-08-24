@@ -15,6 +15,7 @@ import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import type { ApplicationOnboardingDeploymentDefaultsV1 } from '../onboarding/application-onboarding-recipe.dto.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginBindingsRepository } from '../repository/plugin-bindings.repository.js';
+import { PluginWorkflowBindingsRepository } from '../repository/plugin-workflow-bindings.repository.js';
 import { PgUnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import { DeploymentCapabilityResolver, type ResolvedDeploymentCapability } from './deployment-capability.resolver.js';
 import { PluginBindingsApplicationService } from './plugin-bindings.application-service.js';
@@ -89,13 +90,26 @@ export class ManagedTargetPluginQueryService {
     this.assertTargetCapability(context, input.capabilityKey);
     const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, input.capabilityKey);
     const versions = selectLatestEnabledManagedVersions(await services.plugins.listAccessibleVersions(input.tenantId));
-    const items = versions.map((plugin) => evaluateCompatiblePlugin(
-      plugin,
-      input.capabilityKey,
-      context.availableExecutionLocations,
-      compatibility,
-      this.resolvePluginDisplayName(plugin, input.locale ?? 'zh-CN'),
-    ));
+    const workflowBindings = new PluginWorkflowBindingsRepository(this.db);
+    const items = await Promise.all(versions.map(async (plugin) => {
+      const evaluated = evaluateCompatiblePlugin(
+        plugin,
+        input.capabilityKey,
+        context.availableExecutionLocations,
+        compatibility,
+        this.resolvePluginDisplayName(plugin, input.locale ?? 'zh-CN'),
+      );
+      if (!evaluated.compatible || await hasPublishedWorkflowBinding(plugin, input.capabilityKey, workflowBindings)) return evaluated;
+      return {
+        ...evaluated,
+        compatible: false,
+        executionLocations: [],
+        reasons: deduplicateReasons([
+          ...evaluated.reasons,
+          { dimension: 'workflow', expected: ['published'], actual: 'missing' },
+        ]),
+      };
+    }));
     return { items };
   }
 
@@ -748,6 +762,16 @@ function selectLatestEnabledManagedVersions(versions: UnifiedPluginVersionRecord
     if (!current || compareSemanticVersions(plugin.version, current.version) > 0) latestVersions.set(plugin.pluginId, plugin);
   }
   return [...latestVersions.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId));
+}
+
+async function hasPublishedWorkflowBinding(
+  plugin: UnifiedPluginVersionRecord,
+  capabilityKey: string,
+  bindings: PluginWorkflowBindingsRepository,
+): Promise<boolean> {
+  const workflowPath = plugin.manifest.resources.workflows?.[capabilityKey];
+  if (!workflowPath || typeof plugin.resources[workflowPath] !== 'string') return false;
+  return (await bindings.find(plugin.id, capabilityKey, capabilityKey)) !== undefined;
 }
 
 function summarizeCapability(resolved: ResolvedDeploymentCapability) {

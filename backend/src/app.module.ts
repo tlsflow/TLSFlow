@@ -1263,6 +1263,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasksService,
     security,
     cloudAccountAssetsService,
+    pluginWorkflowPublisher,
   ).register(app.router);
   new GlobalSearchController(globalSearchService, security).register(app.router);
   new WorkflowTemplatesController(

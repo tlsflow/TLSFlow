@@ -10,6 +10,7 @@ import type { DevicesApplicationService } from '../application/devices.applicati
 import type { CreateManagedDeviceOnboardingDto, SwitchManagedDevicePluginVersionInput } from '../dto/devices.dto.js';
 import type { DeviceDetailInclude } from '../repository/devices.repository.js';
 import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
+import type { WorkflowExecutionAuthorization } from '../../workflow-templates/dto/workflow-templates.dto.js';
 
 const tags = ['Devices'];
 
@@ -75,8 +76,10 @@ export class DevicesController {
 
   private async executeCapability(request: HttpRequest) {
     const deviceId = request.path.match(/^\/api\/v1\/devices\/([^/]+)\/actions$/)?.[1];
-    const capabilityKey = String((request.body as Record<string, unknown> | undefined)?.capabilityKey ?? '').trim();
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const capabilityKey = String(body.capabilityKey ?? '').trim();
     if (!deviceId || !capabilityKey) throw new AppError('VALIDATION_FAILED', 'deviceId 和 capabilityKey 不能为空');
+    const authorization = parseWorkflowExecutionAuthorization(body.authorization);
     const subject = this.subjectFromRequest(request);
     await this.security?.rbac.assertCan(subject, 'host.update', {
       type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
@@ -87,6 +90,7 @@ export class DevicesController {
       capabilityKey,
       subject.id,
       request.context.requestId ?? 'device-action',
+      authorization,
     );
   }
 
@@ -140,6 +144,28 @@ function queryString(value: string | string[] | undefined): string | undefined {
   return normalized || undefined;
 }
 
+function parseWorkflowExecutionAuthorization(value: unknown): WorkflowExecutionAuthorization | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_FAILED', 'authorization 必须是对象');
+  }
+  const body = value as Record<string, unknown>;
+  const unknownKeys = Object.keys(body).filter((key) => key !== 'approved' && key !== 'approvalId');
+  if (unknownKeys.length > 0) {
+    throw new AppError('VALIDATION_FAILED', 'authorization 包含未知字段', { fields: unknownKeys });
+  }
+  if (body.approved !== undefined && typeof body.approved !== 'boolean') {
+    throw new AppError('VALIDATION_FAILED', 'authorization.approved 必须是布尔值');
+  }
+  if (body.approvalId !== undefined && (typeof body.approvalId !== 'string' || body.approvalId.trim() === '')) {
+    throw new AppError('VALIDATION_FAILED', 'authorization.approvalId 必须是非空字符串');
+  }
+  return {
+    ...(body.approved !== undefined ? { approved: body.approved } : {}),
+    ...(body.approvalId !== undefined ? { approvalId: String(body.approvalId).trim() } : {}),
+  };
+}
+
 export function getDeviceRouteContracts(): RouteContract[] {
   return [{
     method: 'GET',
@@ -168,6 +194,22 @@ export function getDeviceRouteContracts(): RouteContract[] {
     operationId: 'executeManagedDeviceCapability',
     summary: '执行统一设备能力',
     tags,
+    requestSchema: {
+      type: 'object',
+      required: ['capabilityKey'],
+      properties: {
+        capabilityKey: { type: 'string' },
+        authorization: {
+          type: 'object',
+          properties: {
+            approved: { type: 'boolean' },
+            approvalId: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+      },
+      additionalProperties: false,
+    },
     responseSchema: { type: 'object' },
   }, {
     method: 'POST',

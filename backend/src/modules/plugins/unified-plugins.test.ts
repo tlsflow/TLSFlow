@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
-import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
+import { compareSemanticVersions, UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { hostLocales } from './locales/plugin-locale.service.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
+
+test('用户插件版本比较遵循 SemVer 预发布优先级', () => {
+  assert.ok(compareSemanticVersions('1.0.0', '1.0.0-beta.2') > 0);
+  assert.ok(compareSemanticVersions('1.0.0-beta.2', '1.0.0-beta.11') < 0);
+});
 
 test('用户插件导入后保持禁用并可直接手动启用', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
@@ -25,6 +30,30 @@ test('用户插件导入后保持禁用并可直接手动启用', async () => {
     () => service.importVersion('tenant-1', { ...input, packageContent: 'changed' }),
     /不可覆盖/,
   );
+});
+
+test('用户插件新版本必须严格高于已导入版本', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const first = await service.importVersion('tenant-1', workflowPluginInput());
+
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      packageContent: 'package-0.9.0',
+      manifest: { ...workflowPluginInput().manifest, version: '0.9.0' },
+    }),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED'
+      && error.details?.previousVersion === first.version
+      && error.details?.nextVersion === '0.9.0',
+  );
+
+  const next = await service.importVersion('tenant-1', {
+    ...workflowPluginInput(),
+    packageContent: 'package-1.1.0',
+    manifest: { ...workflowPluginInput().manifest, version: '1.1.0' },
+  });
+  assert.equal(next.version, '1.1.0');
 });
 
 test('内置插件仍需权限审批后才能启用', async () => {

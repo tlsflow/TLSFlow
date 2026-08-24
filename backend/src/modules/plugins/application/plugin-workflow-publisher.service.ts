@@ -85,9 +85,8 @@ export class PluginWorkflowPublisherService {
         capabilityKey,
         workflowKey,
       );
-      const published = previous?.workflowContentSha256 === contentSha256
-        ? await this.reusePublishedBinding(previous, record.id, capabilityKey, record.version)
-        : await this.publishWorkflowVersion(record, parsed.content, previous);
+      // 新 PluginVersion 必须生成新的不可变 WorkflowVersion，不能因业务步骤未变而复用旧绑定。
+      const published = await this.publishWorkflowVersion(record, parsed.content, previous);
       output.push(await this.repository.save({
         pluginVersionId: record.id,
         capabilityKey,
@@ -172,20 +171,6 @@ export class PluginWorkflowPublisherService {
     if (existing.workflowResourcePath !== resourcePath || existing.workflowContentSha256 !== contentSha256) {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '已发布插件版本的 Workflow 绑定不可覆盖', { pluginVersionId, capabilityKey, workflowKey });
     }
-  }
-
-  private async reusePublishedBinding(
-    binding: PluginWorkflowBindingRecord,
-    pluginVersionId: string,
-    capabilityKey: string,
-    expectedWorkflowVersion: string,
-  ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
-    await this.assertPublishedBinding(binding, pluginVersionId, capabilityKey, expectedWorkflowVersion);
-    return {
-      templateId: binding.workflowTemplateId,
-      versionId: binding.workflowVersionId,
-      contentHash: binding.workflowContentSha256,
-    };
   }
 
   /**
@@ -339,13 +324,7 @@ export class PluginWorkflowPublisherService {
   ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
     const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布`;
     if (!previous) {
-      const created = await this.workflows.createPluginTemplate({ content, changeSummary }, {
-        ownerType: ownerTypeOf(record),
-        ownerId: ownerIdOf(record),
-        tenantId: record.tenantId,
-      });
-      const published = await this.workflows.publishPluginVersion(created.version.id);
-      return { templateId: created.template.id, versionId: published.id, contentHash: published.contentHash };
+      return this.createAndPublishPluginWorkflow(record, content, changeSummary);
     }
     try {
       const draft = await this.workflows.createPluginInternalDraftVersion({
@@ -356,19 +335,25 @@ export class PluginWorkflowPublisherService {
       const published = await this.workflows.publishPluginVersion(draft.id);
       return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
     } catch (error) {
-      if (!isDuplicateWorkflowContentError(error)) throw error;
-      const existing = await this.findReusableWorkflowVersion(previous.workflowTemplateId, computeWorkflowContentHash(content));
-      if (!existing) throw error;
-      const published = existing.status === 'published' ? existing : await this.workflows.publishPluginVersion(existing.id);
-      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
+      // 历史插件模板可能被管理员停用；停用模板不可追加版本，但不应阻断新插件版本发布。
+      // 新建内部模板保留旧版本审计链，同时让当前版本获得独立、可执行的 Workflow 绑定。
+      if (!isDisabledWorkflowTemplateError(error)) throw error;
+      return this.createAndPublishPluginWorkflow(record, content, changeSummary);
     }
   }
 
-  private async findReusableWorkflowVersion(templateId: string, contentHash: string): Promise<WorkflowTemplateVersion | undefined> {
-    const versions = await this.workflows.listVersions(templateId);
-    return [...versions]
-      .filter((version) => version.templateId === templateId && version.contentHash === contentHash && version.status !== 'disabled')
-      .sort((left, right) => right.version - left.version || right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0];
+  private async createAndPublishPluginWorkflow(
+    record: UnifiedPluginVersionRecord,
+    content: WorkflowDslV1,
+    changeSummary: string,
+  ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
+    const created = await this.workflows.createPluginTemplate({ content, changeSummary }, {
+      ownerType: ownerTypeOf(record),
+      ownerId: ownerIdOf(record),
+      tenantId: record.tenantId,
+    });
+    const published = await this.workflows.publishPluginVersion(created.version.id);
+    return { templateId: created.template.id, versionId: published.id, contentHash: published.contentHash };
   }
 }
 
@@ -380,12 +365,11 @@ function ownerIdOf(record: UnifiedPluginVersionRecord): string | undefined {
   return record.ownerId ?? (ownerTypeOf(record) === 'TENANT' ? record.tenantId : undefined);
 }
 
-function isDuplicateWorkflowContentError(error: unknown): boolean {
-  return error instanceof AppError
-    && error.errorCode === 'VALIDATION_FAILED'
-    && typeof error.message === 'string'
-    && error.message.includes('duplicate workflow version content');
-}
-
 type ParsedWorkflowResource =
   { kind: 'dsl'; content: WorkflowDslV1 };
+
+function isDisabledWorkflowTemplateError(error: unknown): boolean {
+  return error instanceof AppError
+    && error.errorCode === 'VALIDATION_FAILED'
+    && error.message === 'template is disabled';
+}

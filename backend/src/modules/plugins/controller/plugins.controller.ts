@@ -27,6 +27,7 @@ import { unifiedPluginVersionOwnerType } from '../application/unified-plugins.ap
 import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
 import type { PluginRefreshResult } from '../dto/plugin-refresh-result.dto.js';
 import type { ApplicationOnboardingDeploymentDefaultsV1 } from '../onboarding/application-onboarding-recipe.dto.js';
+import type { PluginWorkflowPublisherService } from '../application/plugin-workflow-publisher.service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<PluginRefreshResult>;
@@ -46,6 +47,7 @@ export class PluginsController {
     private readonly tasks?: TaskEnqueuer,
     private readonly security?: SecurityServices,
     private readonly cloudAccounts?: CloudAccountAssetsApplicationService,
+    private readonly pluginWorkflowPublisher?: Pick<PluginWorkflowPublisherService, 'publishPlugin'>,
   ) {}
 
   register(router: Router): void {
@@ -154,9 +156,11 @@ export class PluginsController {
       resources: { type: 'object' },
       packageContent: { type: 'string' },
     });
+    const imported = await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput);
+    if (imported.runtime === 'WORKFLOW_DSL') await this.pluginWorkflowPublisher?.publishPlugin(imported);
     return {
       statusCode: 201,
-      body: withPluginVersionIdentity(await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput)),
+      body: withPluginVersionIdentity(imported),
     };
   }
 
