@@ -51,10 +51,11 @@ export interface FileTransferCapabilities {
 }
 
 export interface FileTransferAuditDetail {
-  event: 'scp_fallback';
+  event: 'scp_fallback' | 'rename_overwrite_fallback';
   risk: 'high';
   reason: string;
   remotePath: string;
+  temporaryPath?: string;
 }
 
 export interface FileTransferResult {
@@ -100,12 +101,12 @@ export class FileTransferService {
     const temporaryContent = await this.client.readFile(temporaryPath);
     verifyContent(remotePath, temporaryContent, expectedSize, expectedHash, plan.verifyHash !== false);
 
-    try {
-      await this.client.rename(temporaryPath, remotePath);
-    } catch (error) {
+    const renameFallback = await this.renameWithOverwriteFallback(temporaryPath, remotePath);
+    if (!renameFallback.success) {
       throw transferError('远程 rename 原子替换失败，临时文件已保留用于诊断', 'rename', remotePath, {
         temporaryPath,
-        cause: errorMessage(error),
+        cause: renameFallback.cause,
+        fallbackCause: renameFallback.fallbackCause,
       });
     }
 
@@ -122,7 +123,7 @@ export class FileTransferService {
       size: expectedSize,
       hash: expectedHash,
       metadata,
-      auditDetails: scpAudit(protocol, remotePath),
+      auditDetails: [...scpAudit(protocol, remotePath), ...renameFallback.auditDetails],
     };
   }
 
@@ -154,6 +155,33 @@ export class FileTransferService {
     if (typeof plan.content === 'string') return Buffer.from(plan.content, 'utf8');
     if (!this.localStore) throw transferError('上传需要 content 或 LocalFileStore', 'upload', plan.remotePath);
     return this.localStore.readFile(plan.localPath);
+  }
+
+  private async renameWithOverwriteFallback(temporaryPath: string, remotePath: string): Promise<{ success: true; auditDetails: FileTransferAuditDetail[] } | { success: false; cause: string; fallbackCause?: string; auditDetails: [] }> {
+    const targetExisted = await this.client.exists(remotePath);
+    try {
+      await this.client.rename(temporaryPath, remotePath);
+      return { success: true, auditDetails: [] };
+    } catch (error) {
+      const cause = errorMessage(error);
+      if (!targetExisted) return { success: false, cause, auditDetails: [] };
+      try {
+        await this.client.deleteFile(remotePath);
+        await this.client.rename(temporaryPath, remotePath);
+        return {
+          success: true,
+          auditDetails: [{
+            event: 'rename_overwrite_fallback',
+            risk: 'high',
+            reason: '目标 SFTP 服务不支持 rename 覆盖已有文件，已删除旧目标后重试替换；该降级路径不具备原子性',
+            remotePath,
+            temporaryPath,
+          }],
+        };
+      } catch (fallbackError) {
+        return { success: false, cause, fallbackCause: errorMessage(fallbackError), auditDetails: [] };
+      }
+    }
   }
 }
 

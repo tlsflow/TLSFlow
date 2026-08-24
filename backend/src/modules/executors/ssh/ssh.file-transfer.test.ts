@@ -87,6 +87,31 @@ describe('spec015 SSH 文件传输、备份和回滚服务', () => {
     assert.equal((await remote.readFile('/etc/nginx/.key.pem.tmp')).toString('utf8'), 'private-key-body');
   });
 
+  it('目标已存在且 SFTP rename 不支持覆盖时删除旧目标后重试替换', async () => {
+    const remote = new MemoryRemoteFileClient();
+    await remote.writeFile('/etc/nginx/cert.pem', Buffer.from('old-cert'), 'sftp');
+    remote.failRenameCount = 1;
+    const service = new FileTransferService(remote);
+
+    const result = await service.upload({
+      direction: 'upload',
+      localPath: '/artifact/cert.pem',
+      remotePath: '/etc/nginx/cert.pem',
+      temporaryPath: '/etc/nginx/.cert.pem.tmp',
+      content: 'new-cert',
+      expectedHash: sha256(Buffer.from('new-cert')),
+    }, { sftp: true, scp: false });
+
+    assert.equal((await remote.readFile('/etc/nginx/cert.pem')).toString('utf8'), 'new-cert');
+    assert.equal(result.auditDetails[0]?.event, 'rename_overwrite_fallback');
+    assert.deepEqual(remote.operations, [
+      'write:sftp:/etc/nginx/cert.pem',
+      'write:sftp:/etc/nginx/.cert.pem.tmp',
+      'delete:/etc/nginx/cert.pem',
+      'rename:/etc/nginx/.cert.pem.tmp:/etc/nginx/cert.pem',
+    ]);
+  });
+
   it('只有策略允许时才 SCP 降级，并返回高风险审计 detail', async () => {
     const remote = new MemoryRemoteFileClient();
     const service = new FileTransferService(remote);
@@ -326,6 +351,7 @@ class MemoryRemoteFileClient implements RemoteFileClient {
   readonly files = new Map<string, { content: Buffer; metadata: Omit<RemoteFileMetadata, 'size' | 'hash'> }>();
   readonly operations: string[] = [];
   failRename = false;
+  failRenameCount = 0;
 
   constructor(private readonly failureMessage?: string) {}
 
@@ -349,6 +375,10 @@ class MemoryRemoteFileClient implements RemoteFileClient {
   }
 
   async rename(sourcePath: string, targetPath: string): Promise<void> {
+    if (this.failRenameCount > 0) {
+      this.failRenameCount -= 1;
+      throw new Error('rename denied');
+    }
     if (this.failRename) throw new Error('rename denied');
     this.operations.push(`rename:${sourcePath}:${targetPath}`);
     const file = this.file(sourcePath);
