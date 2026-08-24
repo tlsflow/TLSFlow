@@ -11,11 +11,13 @@ vi.mock('@/api/modules/certificates.api', () => ({
 describe('AutomationEditor', () => {
   it('提交定时自动化的目标条件、动作和安全护栏', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
-    await wrapper.findAll('input')[0].setValue('生产证书更新')
     await wrapper.get('[data-testid="automation-certificate-domains"]').setValue('example.com, api.example.com')
+    await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await wrapper.get('[data-testid="automation-trigger"]').setValue('schedule')
-    await wrapper.findAll('input')[2].setValue('15 3 * * *')
-    await wrapper.findAll('input')[3].setValue('Asia/Shanghai')
+    await wrapper.findAll('input')[0].setValue('15 3 * * *')
+    await wrapper.findAll('input')[1].setValue('Asia/Shanghai')
+    await wrapper.get('[data-testid="automation-next"]').trigger('click')
+    await wrapper.findAll('input')[0].setValue('生产证书更新')
     await wrapper.find('form').trigger('submit')
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as Record<string, any>
@@ -30,11 +32,13 @@ describe('AutomationEditor', () => {
   it('可以指定证书域名和证书版本', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
 
-    await wrapper.findAll('input')[0].setValue('指定证书版本更新')
     await wrapper.get('[data-testid="automation-certificate-domains"]').setValue('example.com')
     await wrapper.get('[data-testid="automation-version-selection"]').setValue('specific')
     await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-version-ids"] option')).toHaveLength(2))
     await wrapper.get('[data-testid="automation-certificate-version-ids"]').setValue(['version-a', 'version-b'])
+    await wrapper.get('[data-testid="automation-next"]').trigger('click')
+    await wrapper.get('[data-testid="automation-next"]').trigger('click')
+    await wrapper.findAll('input')[0].setValue('指定证书版本更新')
     await wrapper.find('form').trigger('submit')
 
     const payload = wrapper.emitted('save')?.[0]?.[0] as Record<string, any>

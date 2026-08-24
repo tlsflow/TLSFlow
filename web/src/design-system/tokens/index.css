@@ -116,6 +116,7 @@
   --gc-border-width: 1px;
   --gc-control-height-md: 40px;
   --gc-size-card-min: 180px;
+  --gc-size-modal-wide: 1280px;
   --gc-opacity-disabled: 0.56;
   --gc-border-width-default: 1px;
   --gc-font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;

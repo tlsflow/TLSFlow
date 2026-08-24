@@ -456,6 +456,13 @@ const zhCN = {
     common: {
       notAvailable: '暂无'
     },
+    formStep: {
+      stepProgress: '第 {current} 步，共 {total} 步',
+      previous: '上一步',
+      next: '下一步',
+      reviewTitle: '配置摘要',
+      reviewText: '将处理 {domains}，证书版本策略为：{version}。运行开始后会冻结目标快照。'
+    },
     form: {
       existingAssetTitle: '只更新现有应用资产',
       existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。',
@@ -3662,6 +3669,13 @@ const enUS = {
     empty: 'No automations yet.',
     emptyDescription: 'No description',
     common: { notAvailable: 'Not available' },
+    formStep: {
+      stepProgress: 'Step {current} of {total}',
+      previous: 'Back',
+      next: 'Next',
+      reviewTitle: 'Configuration summary',
+      reviewText: 'The automation will process {domains} using: {version}. The target snapshot is frozen when the run starts.'
+    },
     form: {
       existingAssetTitle: 'Update existing application assets only',
       existingAssetDescription: 'The automation only processes application assets with existing certificate bindings. It does not install certificates for the first time or add deployment targets.',

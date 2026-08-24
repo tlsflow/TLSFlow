@@ -990,7 +990,7 @@ async function fetchAllPages(
     <GcModal
       v-model:open="createDialogOpen"
       size="xxl"
-      width="1120px"
+      width="var(--gc-size-modal-wide)"
       frameless
     >
       <p v-if="errorMessage" class="deployment-plans-page__error deployment-plans-page__wizard-message">{{ errorMessage }}</p>
