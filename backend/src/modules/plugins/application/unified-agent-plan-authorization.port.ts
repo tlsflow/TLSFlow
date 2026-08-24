@@ -73,9 +73,10 @@ export function createUnifiedAgentPlanPolicyAuthorityProcessPortV1(
 function assertProductionPolicyAuthorityReady(services: ProductionPolicyAuthorityServicesV1): void {
   try {
     const trustRoot = services.trustRoot.getTrustRoot();
+    const bootstrap = services.bootstrap.load(trustRoot);
     const keySetEnvelope = services.keySet.load();
     const keySet = services.service.getTrustedKeySet();
-    if (!trustRoot || !keySetEnvelope || !keySet || !services.state
+    if (!trustRoot || !bootstrap || !keySetEnvelope || !keySet || !services.state
       || typeof services.state.isKeyRevoked !== 'function'
       || typeof services.state.isTokenRevoked !== 'function'
       || typeof services.state.consume !== 'function') {

@@ -174,6 +174,39 @@ test('生产 KeySet 或签名密钥配置缺失时装配失败关闭', () => {
   }
 });
 
+test('生产 Bootstrap 缺失、根绑定篡改或过期时失败关闭', () => {
+  const context = createContext();
+  const environment = createProductionEnvironment(context);
+  try {
+    const missing = { ...environment };
+    delete missing.GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON;
+    assert.throws(() => createProductionPolicyAuthorityServicesV1(missing), /Bootstrap|失败关闭/);
+
+    const bootstrap = JSON.parse(environment.GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON!) as Record<string, unknown>;
+    const tamperedValue = { ...bootstrap, rootKeyId: 'other-root-key' };
+    const tampered = {
+      ...environment,
+      GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON: JSON.stringify({
+        ...tamperedValue,
+        signature: signPolicyPayload(tamperedValue, context.rootPrivateKey),
+      }),
+    };
+    assert.throws(() => createProductionPolicyAuthorityServicesV1(tampered), /未绑定|失败关闭/);
+
+    const expiredValue = { ...bootstrap, validUntil: '2026-08-10T00:00:00.000Z' };
+    const expired = {
+      ...environment,
+      GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON: JSON.stringify({
+        ...expiredValue,
+        signature: signPolicyPayload(expiredValue, context.rootPrivateKey),
+      }),
+    };
+    assert.throws(() => createProductionPolicyAuthorityServicesV1(expired), /过期|尚未生效|失败关闭/);
+  } finally {
+    cleanupProductionEnvironment(environment);
+  }
+});
+
 test('生产状态或 Agent 本地策略缺失时失败关闭', () => {
   const context = createContext();
   const environment = createProductionEnvironment(context);
@@ -429,12 +462,24 @@ function createProductionEnvironment(context: ReturnType<typeof createContext>):
     }],
   };
   const policy = { ...policyValue, signature: signPolicyPayload(policyValue, context.rootPrivateKey) };
+  const bootstrapValue = {
+    bootstrapVersion: 'gcac.policy-authority-bootstrap/v1',
+    bootstrapId: 'bootstrap-1',
+    authorityId: context.trustRoot.authorityId,
+    rootKeyId: context.trustRoot.rootKeyId,
+    rootFingerprintSha256: context.trustRoot.fingerprintSha256,
+    issuedAt: '2026-08-07T00:00:00.000Z',
+    validUntil: '2099-01-01T00:00:00.000Z',
+  };
+  const bootstrap = { ...bootstrapValue, signature: signPolicyPayload(bootstrapValue, context.rootPrivateKey) };
   return {
+    NODE_ENV: 'production',
     GCAC_POLICY_AUTHORITY_PROCESS_ROLE: 'standalone',
     GCAC_POLICY_AUTHORITY_ROOT_KEY_ID: context.trustRoot.rootKeyId,
     GCAC_POLICY_AUTHORITY_ID: context.trustRoot.authorityId,
     GCAC_POLICY_AUTHORITY_ROOT_PUBLIC_KEY_PEM: context.trustRoot.publicKeyPem,
     GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256: context.trustRoot.fingerprintSha256,
+    GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON: JSON.stringify(bootstrap),
     GCAC_POLICY_AUTHORITY_KEYSET_JSON: JSON.stringify(productionEnvelope),
     GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON: JSON.stringify(policy),
     GCAC_POLICY_AUTHORITY_STATE_FILE: stateFile,

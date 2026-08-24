@@ -17,6 +17,16 @@
         "publicKeyPem": { "type": "string", "pattern": "BEGIN PUBLIC KEY" }, "fingerprintSha256": { "$ref": "#/$defs/digest" }
       }
     },
+    "bootstrap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["bootstrapVersion", "bootstrapId", "authorityId", "rootKeyId", "rootFingerprintSha256", "issuedAt", "validUntil", "signature"],
+      "properties": {
+        "bootstrapVersion": { "const": "gcac.policy-authority-bootstrap/v1" }, "bootstrapId": { "$ref": "#/$defs/id" },
+        "authorityId": { "$ref": "#/$defs/id" }, "rootKeyId": { "$ref": "#/$defs/id" },
+        "rootFingerprintSha256": { "$ref": "#/$defs/digest" }, "issuedAt": { "$ref": "#/$defs/dateTime" },
+        "validUntil": { "$ref": "#/$defs/dateTime" }, "signature": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
     "policyKey": {
       "type": "object", "additionalProperties": false,
       "required": ["keyId", "algorithm", "publicKeyPem", "status", "notBefore", "notAfter"],
@@ -57,6 +67,6 @@
     }
   },
   "oneOf": [
-    { "$ref": "#/$defs/trustRoot" }, { "$ref": "#/$defs/keySetEnvelope" }, { "$ref": "#/$defs/authorizationRequest" }
+    { "$ref": "#/$defs/trustRoot" }, { "$ref": "#/$defs/bootstrap" }, { "$ref": "#/$defs/keySetEnvelope" }, { "$ref": "#/$defs/authorizationRequest" }
   ]
 }

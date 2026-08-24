@@ -704,6 +704,7 @@ export function registerPolicyAuthorityServices(
   if ('service' in policyAuthority) {
     app.setResource('policyAuthorityService', policyAuthority.service);
     app.setResource('policyAuthorityTrustRootService', policyAuthority.trustRoot);
+    app.setResource('policyAuthorityBootstrapService', policyAuthority.bootstrap);
     app.setResource('policyAuthorityKeySetService', policyAuthority.keySet);
     app.setResource('policyAuthoritySigningKeySource', policyAuthority.signingKeys);
   } else {

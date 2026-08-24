@@ -36,6 +36,27 @@ export interface PolicyAuthorityTrustRootV1 {
   fingerprintSha256: string;
 }
 
+export const policyAuthorityBootstrapVersion = 'gcac.policy-authority-bootstrap/v1' as const;
+
+/**
+ * Agent 首次注册使用的 Bootstrap 材料。它只固定 Policy Authority 身份和根指纹，
+ * 不包含高风险执行 Token，也不能替代后续 KeySet、审批和本地策略校验。
+ */
+export interface PolicyAuthorityBootstrapV1 {
+  bootstrapVersion: typeof policyAuthorityBootstrapVersion;
+  bootstrapId: string;
+  authorityId: string;
+  rootKeyId: string;
+  rootFingerprintSha256: string;
+  issuedAt: string;
+  validUntil: string;
+  signature: string;
+}
+
+export interface PolicyAuthorityBootstrapSourceV1 {
+  load(trustRoot: PolicyAuthorityTrustRootV1, now?: string): PolicyAuthorityBootstrapV1;
+}
+
 export interface SignedPolicyAuthorityKeySetV1 {
   envelopeVersion: typeof agentSecurityContractVersion;
   rootKeyId: string;
@@ -191,6 +212,10 @@ export class FilePolicyAuthorityStateStoreV1 implements AtomicPolicyAuthoritySta
     if (!isAbsolute(statePath)) failClosed('Policy Authority 状态文件必须使用绝对路径');
     this.lockPath = `${statePath}.lock`;
     this.readState();
+  }
+
+  getStatePath(): string {
+    return this.statePath;
   }
 
   isTokenRevoked(tokenId: string, authorityKeyId: string): boolean {
@@ -380,6 +405,8 @@ export interface PolicyAuthorityAuthorizationResultV1 {
 export interface PolicyAuthorityServiceOptionsV1 {
   trustRoot: PolicyAuthorityTrustRootV1;
   keySet: SignedPolicyAuthorityKeySetV1 | PolicyAuthorityKeySetSourceV1;
+  /** 生产装配必须显式提供已由根签名的 Bootstrap；合同测试可省略此生产材料。 */
+  bootstrap?: PolicyAuthorityBootstrapV1;
   signingKeySource: PolicyAuthoritySigningKeySourceV1;
   evaluator: PolicyAuthorityEvaluatorV1;
   revocations: PolicyAuthorityRevocationStoreV1;
@@ -399,6 +426,7 @@ export class PolicyAuthorityServiceV1 {
   private readonly revocations: PolicyAuthorityRevocationStoreV1;
   private readonly nonceStore: NonceStoreV1Port;
   private readonly now: () => string;
+  private readonly bootstrap?: PolicyAuthorityBootstrapV1;
   private currentKeySet: PolicyAuthorityKeySetV1;
 
   constructor(options: PolicyAuthorityServiceOptionsV1) {
@@ -419,6 +447,10 @@ export class PolicyAuthorityServiceV1 {
     requireCallable(this.revocations, 'revokeKey');
     requireCallable(this.nonceStore, 'consume');
     this.now = options.now ?? (() => new Date().toISOString());
+    const configuredNow = this.currentTime();
+    this.bootstrap = options.bootstrap === undefined
+      ? undefined
+      : validatePolicyAuthorityBootstrap(options.bootstrap, this.trustRoot, configuredNow);
     let initialKeySet: SignedPolicyAuthorityKeySetV1;
     try {
       initialKeySet = resolveKeySet(options.keySet);
@@ -426,13 +458,17 @@ export class PolicyAuthorityServiceV1 {
       if (error instanceof AppError) throw error;
       failClosed('KeySet 来源不可用');
     }
-    const now = this.currentTime();
+    const now = configuredNow;
     this.currentKeySet = this.loadAndVerifyKeySet(initialKeySet, now);
     this.assertSigningKey(this.currentKeySet, now);
   }
 
   getTrustedKeySet(): PolicyAuthorityKeySetV1 {
     return structuredClone(this.currentKeySet);
+  }
+
+  getBootstrap(): PolicyAuthorityBootstrapV1 | undefined {
+    return this.bootstrap ? structuredClone(this.bootstrap) : undefined;
   }
 
   /** 轮换只替换已由信任根签名且具备可用 ACTIVE 私钥的新 KeySet。 */
@@ -445,12 +481,14 @@ export class PolicyAuthorityServiceV1 {
       failClosed('KeySet 来源不可用');
     }
     const now = this.currentTime();
+    this.assertBootstrap(now);
     const next = this.loadAndVerifyKeySet(nextSource, now);
     this.applyKeySet(next, now);
   }
 
   issueAuthorization(request: PolicyAuthorityAuthorizationRequestV1): PolicyAuthorityAuthorizationResultV1 {
     this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
     const issuedAt = this.currentTime();
     const validatedRequest = validateIssueRequest(request, issuedAt);
     const validUntil = addSeconds(issuedAt, validatedRequest.lifetimeSeconds);
@@ -523,6 +561,7 @@ export class PolicyAuthorityServiceV1 {
   /** Agent 侧最终授权入口：重新校验合同、签名、绑定、撤销、过期和一次性 Nonce。 */
   authorize(input: { plan: unknown; token: unknown; decision: unknown; localPolicy: unknown }): NonceConsumptionRecordV1 {
     this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
     const plan = validateAgentPlan(input.plan);
     const token = validateAgentCapabilityToken(input.token);
     const decision = validatePolicyAuthorityDecision(input.decision);
@@ -551,6 +590,7 @@ export class PolicyAuthorityServiceV1 {
 
   revokeToken(tokenInput: unknown, reason: string): TokenRevocationRecordV1 {
     this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
     const token = validateAgentCapabilityToken(tokenInput);
     const now = this.currentTime();
     const key = this.findKey(token.authorityKeyId, now, false);
@@ -573,6 +613,7 @@ export class PolicyAuthorityServiceV1 {
 
   revokeDecision(decisionInput: unknown, reason: string): DecisionRevocationRecordV1 {
     this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
     const decision = validatePolicyAuthorityDecision(decisionInput);
     const now = this.currentTime();
     const key = this.findKey(decision.authorityKeyId, now, false);
@@ -599,6 +640,7 @@ export class PolicyAuthorityServiceV1 {
    */
   revokeKey(authorityKeyId: string): void {
     this.refreshConfiguredKeySet();
+    this.assertBootstrap(this.currentTime());
     const keyId = requireText(authorityKeyId, 'authorityKeyId');
     if (!isSafeIdentifier(keyId)) failClosed('authorityKeyId 格式不合法');
     rejectDevelopmentIdentifier(keyId, 'authorityKeyId');
@@ -647,6 +689,11 @@ export class PolicyAuthorityServiceV1 {
     return key;
   }
 
+  private assertBootstrap(now: string): void {
+    if (this.bootstrap === undefined) return;
+    validatePolicyAuthorityBootstrap(this.bootstrap, this.trustRoot, now);
+  }
+
   private currentTime(): string {
     let value: string;
     try {
@@ -676,6 +723,8 @@ export class PolicyAuthorityServiceV1 {
   }
 
   private refreshConfiguredKeySet(): void {
+    const now = this.currentTime();
+    this.assertBootstrap(now);
     if (!this.keySetSource) return;
     let envelope: SignedPolicyAuthorityKeySetV1;
     try {
@@ -684,7 +733,6 @@ export class PolicyAuthorityServiceV1 {
       if (error instanceof AppError) throw error;
       failClosed('KeySet 来源不可用');
     }
-    const now = this.currentTime();
     const next = this.loadAndVerifyKeySet(envelope, now);
     this.applyKeySet(next, now);
   }
@@ -724,6 +772,25 @@ export class ProductionPolicyAuthorityTrustRootServiceV1 {
       publicKeyPem: requiredEnvironment(this.environment, 'GCAC_POLICY_AUTHORITY_ROOT_PUBLIC_KEY_PEM').replaceAll('\\n', '\n'),
       fingerprintSha256: requiredEnvironment(this.environment, 'GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256'),
     };
+  }
+}
+
+/**
+ * 生产 Bootstrap 来源。Bootstrap 必须由独立根签名，并且只能固定 authority 与根指纹；
+ * 它不携带签发私钥、Token 或可直接执行的动作范围。
+ */
+export class ProductionPolicyAuthorityBootstrapServiceV1 implements PolicyAuthorityBootstrapSourceV1 {
+  constructor(private readonly environment: NodeJS.ProcessEnv = process.env) {}
+
+  load(trustRoot: PolicyAuthorityTrustRootV1, now = new Date().toISOString()): PolicyAuthorityBootstrapV1 {
+    const raw = requiredEnvironment(this.environment, 'GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      failClosed('Policy Authority Bootstrap JSON 无法解析');
+    }
+    return validatePolicyAuthorityBootstrap(parsed, trustRoot, now);
   }
 }
 
@@ -778,6 +845,7 @@ export class ProductionPolicyAuthoritySigningKeySourceV1 implements PolicyAuthor
 export interface ProductionPolicyAuthorityServicesV1 {
   service: PolicyAuthorityServiceV1;
   trustRoot: ProductionPolicyAuthorityTrustRootServiceV1;
+  bootstrap: ProductionPolicyAuthorityBootstrapServiceV1;
   keySet: ProductionPolicyAuthorityKeySetServiceV1;
   signingKeys: ProductionPolicyAuthoritySigningKeySourceV1;
   policy: ProductionPolicyAuthorityPolicyServiceV1;
@@ -803,24 +871,30 @@ export function requireProductionPolicyAuthorityServicesV1(value: unknown): Prod
 export function createProductionPolicyAuthorityServicesV1(
   environment: NodeJS.ProcessEnv = process.env,
 ): ProductionPolicyAuthorityServicesV1 {
+  if (requiredEnvironment(environment, 'NODE_ENV') !== 'production') {
+    failClosed('Policy Authority 生产装配必须运行在 production');
+  }
   if (requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_PROCESS_ROLE') !== 'standalone') {
     failClosed('Policy Authority 必须以 standalone 进程角色启动');
   }
   const trustRoot = new ProductionPolicyAuthorityTrustRootServiceV1(environment);
+  const bootstrap = new ProductionPolicyAuthorityBootstrapServiceV1(environment);
   const keySet = new ProductionPolicyAuthorityKeySetServiceV1(environment);
   const signingKeys = new ProductionPolicyAuthoritySigningKeySourceV1(environment);
   const trustRootValue = trustRoot.getTrustRoot();
+  const bootstrapValue = bootstrap.load(trustRootValue);
   const policy = new ProductionPolicyAuthorityPolicyServiceV1(environment);
   const state = new FilePolicyAuthorityStateStoreV1(requiredEnvironment(environment, 'GCAC_POLICY_AUTHORITY_STATE_FILE'));
   const service = new PolicyAuthorityServiceV1({
     trustRoot: trustRootValue,
     keySet,
+    bootstrap: bootstrapValue,
     signingKeySource: signingKeys,
     evaluator: new SignedPolicyAuthorityPolicyEvaluatorV1(policy.load(trustRootValue), trustRootValue),
     revocations: state,
     nonceStore: state,
   });
-  const services = Object.freeze({ service, trustRoot, keySet, signingKeys, policy, state });
+  const services = Object.freeze({ service, trustRoot, bootstrap, keySet, signingKeys, policy, state });
   productionPolicyAuthorityServices.add(services);
   return services;
 }
@@ -947,6 +1021,57 @@ function requireText(value: string, path: string): string { if (typeof value !==
 function isDevelopmentIdentifier(value: string): boolean {
   return /(?:^|[-_.:])(?:default|development|dev|test|fixture)(?:[-_.:]|$)/i.test(value);
 }
+
+export function validatePolicyAuthorityBootstrap(
+  input: unknown,
+  trustRoot: PolicyAuthorityTrustRootV1,
+  now = new Date().toISOString(),
+): PolicyAuthorityBootstrapV1 {
+  const value = input as Record<string, unknown>;
+  exactRuntimeKeys(value, ['bootstrapVersion', 'bootstrapId', 'authorityId', 'rootKeyId', 'rootFingerprintSha256', 'issuedAt', 'validUntil', 'signature'], 'Policy Authority Bootstrap');
+  if (value.bootstrapVersion !== policyAuthorityBootstrapVersion
+    || typeof value.bootstrapId !== 'string'
+    || typeof value.authorityId !== 'string'
+    || typeof value.rootKeyId !== 'string'
+    || typeof value.rootFingerprintSha256 !== 'string'
+    || typeof value.issuedAt !== 'string'
+    || typeof value.validUntil !== 'string'
+    || typeof value.signature !== 'string'
+    || value.signature.trim() === '') {
+    failClosed('Policy Authority Bootstrap 字段不完整');
+  }
+  if (!isSafeIdentifier(value.bootstrapId) || !isSafeIdentifier(value.authorityId) || !isSafeIdentifier(value.rootKeyId)) {
+    failClosed('Policy Authority Bootstrap 标识符无效');
+  }
+  if (value.authorityId !== trustRoot.authorityId || value.rootKeyId !== trustRoot.rootKeyId) {
+    failClosed('Policy Authority Bootstrap 未绑定独立信任根');
+  }
+  if (!/^[a-f0-9]{64}$/.test(value.rootFingerprintSha256)
+    || value.rootFingerprintSha256 !== trustRoot.fingerprintSha256) {
+    failClosed('Policy Authority Bootstrap 根指纹不匹配');
+  }
+  const issuedAt = Date.parse(value.issuedAt);
+  const validUntil = Date.parse(value.validUntil);
+  const nowValue = Date.parse(now);
+  if (![issuedAt, validUntil, nowValue].every(Number.isFinite) || issuedAt > validUntil || nowValue < issuedAt || nowValue > validUntil) {
+    failClosed('Policy Authority Bootstrap 已过期或尚未生效');
+  }
+  const bootstrap = {
+    bootstrapVersion: policyAuthorityBootstrapVersion,
+    bootstrapId: value.bootstrapId,
+    authorityId: value.authorityId,
+    rootKeyId: value.rootKeyId,
+    rootFingerprintSha256: value.rootFingerprintSha256,
+    issuedAt: value.issuedAt,
+    validUntil: value.validUntil,
+    signature: value.signature,
+  } as PolicyAuthorityBootstrapV1;
+  if (!verifyPolicyPayload(bootstrap, bootstrap.signature, trustRoot.publicKeyPem)) {
+    failClosed('Policy Authority Bootstrap 根签名无效');
+  }
+  return structuredClone(bootstrap);
+}
+
 function validateTrustRoot(root: PolicyAuthorityTrustRootV1): PolicyAuthorityTrustRootV1 {
   exactRuntimeKeys(root, ['rootKeyId', 'authorityId', 'algorithm', 'publicKeyPem', 'fingerprintSha256'], '独立信任根');
   if (!root || root.algorithm !== 'Ed25519' || !root.rootKeyId || !root.authorityId || !root.publicKeyPem || !/^[a-f0-9]{64}$/.test(root.fingerprintSha256)) failClosed('独立信任根配置不完整');
