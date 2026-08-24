@@ -622,6 +622,11 @@ function buildResponseResult(request: CurlExecutionRequest, prepared: PreparedRe
   const extracted = runExtractors(normalized, request.extractors ?? [], success);
   const responseRedactionValues = collectSensitiveExtractorValues(normalized, request.extractors ?? []);
   const redactionValues = [...prepared.redactionValues, ...responseRedactionValues];
+  const responseLogs = [
+    ...logs,
+    `response:status:${normalized.statusCode}`,
+    ...vendorResponseLogLines(normalized.bodyJson ?? normalized.body, redactionValues),
+  ];
   return {
     success,
     rendered: prepared.rendered,
@@ -636,7 +641,7 @@ function buildResponseResult(request: CurlExecutionRequest, prepared: PreparedRe
     errorMessage: success ? undefined : 'HTTP 响应未满足成功策略',
     assertions,
     extracted,
-    logs,
+    logs: responseLogs,
   };
 }
 
@@ -690,6 +695,17 @@ function evaluateAssertions(response: HttpResponse, assertions: HttpAssertion[])
     const actual = String(response.bodyText ?? response.body ?? '');
     return { type: assertion.type, passed: actual.includes(assertion.text) || actual.toLowerCase().includes(assertion.text.toLowerCase()), message: 'body contains' };
   });
+}
+
+function vendorResponseLogLines(body: unknown, redactionValues: string[]): string[] {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return [];
+  const record = body as Record<string, unknown>;
+  const lines: string[] = [];
+  if (typeof record.errorcode === 'number') lines.push(`response:nitroErrorCode:${record.errorcode}`);
+  if (typeof record.message === 'string' && record.message.length > 0) {
+    lines.push(`response:nitroMessage:${maskText(record.message, redactionValues)}`);
+  }
+  return lines;
 }
 
 function runExtractors(response: HttpResponse, extractors: HttpExtractor[], enforceRequired = true): Record<string, unknown> {

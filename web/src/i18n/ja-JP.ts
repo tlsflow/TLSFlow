@@ -2454,6 +2454,11 @@ export default {
     actions: { expand: '詳細設定を展開', collapse: '詳細設定を折りたたむ' },
     placeholders: { select: '選択してください', credential: '認証情報を選択', artifact: '成果物形式を選択', output: '出力を選択' },
     artifacts: { format: '成果物形式' },
+    allowInsecureTls: {
+      label: 'TLS 証明書の検証をスキップする',
+      description: 'デバイスが自己署名または信頼されていない証明書を使用する場合に、今回のデプロイで TLS 証明書の検証をスキップすることを明示的に許可します。',
+      help: 'これはデプロイの意図を記録するだけで、実行権限は付与しません。承認とホストが発行する実行許可が引き続き必要です。'
+    },
     runtimeValue: '実行時に {source} から提供',
     source: 'ソース：{source}',
     sourceKinds: { asset: 'アセット', binding: 'バインディング', default: 'デフォルト値', derived: '派生値', system: 'システム値', step_output: 'ステップ出力', unknown: '不明なソース' },

@@ -2536,6 +2536,11 @@ export default {
     actions: { expand: 'Expand advanced configuration', collapse: 'Collapse advanced configuration' },
     placeholders: { select: 'Select an option', credential: 'Select a credential', artifact: 'Select an artifact format', output: 'Select an output' },
     artifacts: { format: 'Artifact format' },
+    allowInsecureTls: {
+      label: 'Allow skipping TLS certificate verification',
+      description: 'Explicitly authorize this deployment to skip TLS certificate verification when the device uses a self-signed or untrusted certificate.',
+      help: 'This records deployment intent only; it does not grant execution permission. Approval and a host-issued execution grant are still required.'
+    },
     runtimeValue: 'Provided by {source} at runtime',
     source: 'Source: {source}',
     sourceKinds: {

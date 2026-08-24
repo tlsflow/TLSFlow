@@ -2453,6 +2453,11 @@ export default {
     actions: { expand: '展開進階設定', collapse: '收合進階設定' },
     placeholders: { select: '請選擇', credential: '請選擇憑證', artifact: '請選擇產物格式', output: '請選擇輸出' },
     artifacts: { format: '產物格式' },
+    allowInsecureTls: {
+      label: '允許略過 TLS 憑證驗證',
+      description: '明確授權本次部署在裝置使用自簽或不受信任憑證時略過 TLS 憑證驗證。',
+      help: '這只表示你的部署意圖，不會自動取得執行權限；仍需通過核准並由主機簽發執行授權。'
+    },
     runtimeValue: '執行階段由 {source} 提供',
     source: '來源：{source}',
     sourceKinds: { asset: '資產', binding: '繫結', default: '預設值', derived: '衍生值', system: '系統值', step_output: '步驟輸出', unknown: '未知來源' },

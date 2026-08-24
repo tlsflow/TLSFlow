@@ -67,6 +67,21 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     assert.equal(failed.assertions.some((item) => item.passed === false), true);
   });
 
+  it('响应日志保留 HTTP 状态和 NITRO 业务错误诊断', async () => {
+    const executor = new CurlExecutor();
+    const result = await executor.execute({
+      idempotencyKey: 'idem_curl_nitro_diagnostics',
+      template: { method: 'GET', url: 'https://example.com/nitro' },
+      responsePolicy: { successStatusCodes: [500] },
+      mockResponse: { statusCode: 500, body: { errorcode: 273, message: 'Resource already exists' } },
+    });
+
+    assert.equal(result.success, true);
+    assert.ok(result.logs.includes('response:status:500'));
+    assert.ok(result.logs.includes('response:nitroErrorCode:273'));
+    assert.ok(result.logs.includes('response:nitroMessage:Resource already exists'));
+  });
+
   it('拒绝非法协议、明文敏感字段和重复幂等键', async () => {
     const executor = new CurlExecutor();
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_proto', template: { url: 'file:///etc/passwd' } }), /只允许/);

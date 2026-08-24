@@ -2428,6 +2428,11 @@ export default {
     actions: { expand: '고급 구성 펼치기', collapse: '고급 구성 접기' },
     placeholders: { select: '선택하세요', credential: '자격 증명 선택', artifact: '아티팩트 형식 선택', output: '출력 선택' },
     artifacts: { format: '아티팩트 형식' },
+    allowInsecureTls: {
+      label: 'TLS 인증서 검증 건너뛰기 허용',
+      description: '장비가 자체 서명 또는 신뢰할 수 없는 인증서를 사용하는 경우 이번 배포에서 TLS 인증서 검증을 건너뛰도록 명시적으로 허용합니다.',
+      help: '이는 배포 의도만 기록하며 실행 권한을 부여하지 않습니다. 승인과 호스트가 발급한 실행 권한이 계속 필요합니다.'
+    },
     runtimeValue: '런타임에 {source}에서 제공',
     source: '출처: {source}',
     sourceKinds: { asset: '자산', binding: '바인딩', default: '기본값', derived: '파생값', system: '시스템 값', step_output: '단계 출력', unknown: '알 수 없는 출처' },

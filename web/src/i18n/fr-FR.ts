@@ -2503,6 +2503,11 @@ export default {
     actions: { expand: 'Développer la configuration avancée', collapse: 'Réduire la configuration avancée' },
     placeholders: { select: 'Sélectionner', credential: 'Sélectionner un identifiant', artifact: "Sélectionner un format d'artefact", output: 'Sélectionner une sortie' },
     artifacts: { format: "Format d'artefact" },
+    allowInsecureTls: {
+      label: 'Autoriser l’ignorance de la vérification TLS',
+      description: 'Autorise explicitement ce déploiement à ignorer la vérification du certificat TLS lorsque l’appareil utilise un certificat autosigné ou non approuvé.',
+      help: 'Cela enregistre uniquement l’intention de déploiement et n’accorde pas le droit d’exécution. Une approbation et une autorisation d’exécution émise par l’hôte restent nécessaires.'
+    },
     runtimeValue: "Fourni par {source} lors de l'exécution",
     source: 'Source : {source}',
     sourceKinds: { asset: 'Actif', binding: 'Liaison', default: 'Valeur par défaut', derived: 'Valeur dérivée', system: 'Valeur système', step_output: 'Sortie de l’étape', unknown: 'Source inconnue' },

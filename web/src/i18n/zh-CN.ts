@@ -2574,6 +2574,11 @@ export default {
     actions: { expand: '展开高级配置', collapse: '收起高级配置' },
     placeholders: { select: '请选择', credential: '请选择凭据', artifact: '请选择产物格式', output: '请选择输出' },
     artifacts: { format: '产物格式' },
+    allowInsecureTls: {
+      label: '允许跳过 TLS 证书校验',
+      description: '显式授权本次部署在设备使用自签名或不受信任证书时跳过 TLS 证书校验。',
+      help: '仅表示你的部署意图，不会自动获得执行权限；仍需通过审批和宿主签发的执行授权。'
+    },
     runtimeValue: '运行时由 {source} 提供',
     source: '来源：{source}',
     sourceKinds: {

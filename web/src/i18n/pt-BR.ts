@@ -2428,6 +2428,11 @@ export default {
     actions: { expand: 'Expandir configuração avançada', collapse: 'Recolher configuração avançada' },
     placeholders: { select: 'Selecione', credential: 'Selecione uma credencial', artifact: 'Selecione um formato de artefato', output: 'Selecione uma saída' },
     artifacts: { format: 'Formato do artefato' },
+    allowInsecureTls: {
+      label: 'Permitir ignorar a verificação do certificado TLS',
+      description: 'Autoriza explicitamente esta implantação a ignorar a verificação do certificado TLS quando o dispositivo usa um certificado autoassinado ou não confiável.',
+      help: 'Isso registra apenas a intenção da implantação e não concede permissão de execução. A aprovação e uma autorização de execução emitida pelo host continuam sendo necessárias.'
+    },
     runtimeValue: 'Fornecido por {source} durante a execução',
     source: 'Origem: {source}',
     sourceKinds: { asset: 'Ativo', binding: 'Vínculo', default: 'Valor padrão', derived: 'Valor derivado', system: 'Valor do sistema', step_output: 'Saída da etapa', unknown: 'Origem desconhecida' },

@@ -1521,6 +1521,13 @@ describe('WorkflowTemplates', () => {
     assert.equal(content.inputContract.variables.allowInsecureTls?.required, true);
     assert.equal(content.inputContract.variables.allowInsecureTls?.configurationMode, 'required');
     assert.equal(content.inputContract.variables.allowInsecureTls?.bindingPolicy, 'required_binding');
+    assert.equal(content.inputContract.variables.allowInsecureTls?.descriptionKey, 'deploymentInputs.allowInsecureTls.description');
+    assert.deepEqual(content.inputContract.variables.allowInsecureTls?.ui, {
+      labelKey: 'deploymentInputs.allowInsecureTls.label',
+      group: 'security',
+      order: 10,
+      helpKey: 'deploymentInputs.allowInsecureTls.help',
+    });
     const synologyTransforms = content.steps
       .filter((step) => step.type === 'transform')
       .map((step) => step.transform.timeoutMs);
@@ -1576,6 +1583,27 @@ describe('WorkflowTemplates', () => {
       { service: 'DSM', old_id: 'old-cert', id: 'new-cert' },
       { service: 'WebStation', old_id: 'old-cert', id: 'new-cert' },
     ]));
+  });
+
+  it('所有内置证书工作流的 TLS bypass 都声明统一的用户输入字段', async () => {
+    for (const fileName of ['apache-8444-cert-switch.json', 'synology-dsm-cert-import.json']) {
+      const raw = await readFile(`src/modules/workflow-templates/builtin-workflows/${fileName}`, 'utf8');
+      const content = workflowTemplatesSchemaRegistry.validate(JSON.parse(raw));
+      const allowInsecureTls = content.inputContract.variables.allowInsecureTls;
+      assert.equal(allowInsecureTls?.type, 'boolean', fileName);
+      assert.equal(allowInsecureTls?.required, true, fileName);
+      assert.equal(allowInsecureTls?.configurationMode, 'required', fileName);
+      assert.deepEqual(allowInsecureTls?.source, { kind: 'binding' }, fileName);
+      assert.equal(allowInsecureTls?.lifecycle, 'pre_execution', fileName);
+      assert.equal(allowInsecureTls?.bindingPolicy, 'required_binding', fileName);
+      assert.equal(allowInsecureTls?.descriptionKey, 'deploymentInputs.allowInsecureTls.description', fileName);
+      assert.deepEqual(allowInsecureTls?.ui, {
+        labelKey: 'deploymentInputs.allowInsecureTls.label',
+        group: 'security',
+        order: 10,
+        helpKey: 'deploymentInputs.allowInsecureTls.help',
+      }, fileName);
+    }
   });
 
   it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {
