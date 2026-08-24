@@ -13,6 +13,7 @@ import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolve
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
+import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
 export interface StepExecutionInput {
@@ -80,7 +81,11 @@ export class ExecutorRegistry {
   }
 
   register(executor: Executor): void {
-    this.executors.set(normalizeExecutorType(executor.type), executor);
+    const type = normalizeExecutorType(executor.type);
+    if (this.executors.has(type)) {
+      throw new AppError('VALIDATION_FAILED', '执行器重复注册，拒绝静默覆盖', { executorType: type });
+    }
+    this.executors.set(type, executor);
   }
 
   has(type: string): boolean {
@@ -157,7 +162,10 @@ class WindowsRemoteExecutorAdapter implements Executor {
 export class AgentExecutorAdapter implements Executor {
   readonly type = 'AGENT';
 
-  constructor(private readonly agents = new AgentsApplicationService()) {}
+  constructor(
+    private readonly agents = new AgentsApplicationService(),
+    private readonly actionDispatch = new AgentActionDispatchRegistry(),
+  ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const agentId = stringFromSnapshot(input.step.inputSnapshot.agentId) ?? stringFromSnapshot(input.step.inputSnapshot.executionTargetId) ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanTargetId);
@@ -169,7 +177,7 @@ export class AgentExecutorAdapter implements Executor {
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
       payload: { ...input.step.inputSnapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun },
     }, `execution-step:${input.step.id}`);
-    if (shouldPreferDirectExecute(input.step.inputSnapshot)) {
+    if (this.actionDispatch.resolve(input.step.inputSnapshot)?.mode === 'direct_preferred') {
       try {
         const direct = await this.agents.executeTaskDirect(input.step.tenantId ?? '', task.id, `execution-direct:${input.step.id}`);
         return {
@@ -216,11 +224,26 @@ export class WorkflowExecutorAdapter implements Executor {
   private readonly workflows: WorkflowTemplatesApplicationService;
   private readonly curlExecutor: CurlExecutor;
   private readonly sshExecutor: SSHExecutor;
+  private readonly stepExecutors: WorkflowStepExecutorRegistry;
 
   constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor } = {}) {
     this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
     this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
     this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
+    this.stepExecutors = new WorkflowStepExecutorRegistry([
+      {
+        executorId: '017.CURL_HTTP',
+        execute: async (context) => this.executeCurlWorkflowStep(context),
+      },
+      {
+        executorId: '015.SSH',
+        execute: async (context) => this.executeSshWorkflowStep(context),
+      },
+      ...['workflow.condition', 'workflow.transform', 'workflow.wait', 'workflow.manual'].map((executorId) => ({
+        executorId,
+        execute: async () => ({ success: true, body: { success: true, plannedOnly: true, executor: executorId }, logs: [`workflow:${executorId}:planned`] }),
+      })),
+    ]);
   }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -288,37 +311,84 @@ export class WorkflowExecutorAdapter implements Executor {
   private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, workflowStepName: string, attempt: number): Promise<WorkflowExecutorDispatchResult> {
     const plan = readRecord(renderedPlan);
     const executor = stringFromSnapshot(plan?.executor);
-    if (executor === '017.CURL_HTTP') {
-      const childStep = workflowChildStep(input.step, `workflow-curl-${workflowStepName}-${attempt}`, {
-        curlRequest: toWorkflowCurlRequest(plan, input.step, workflowStepName, attempt),
+    return this.stepExecutors.execute(executor, { input, plan, workflowStepName, attempt });
+  }
+
+  private async executeCurlWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    const childStep = workflowChildStep(context.input.step, `workflow-curl-${context.workflowStepName}-${context.attempt}`, {
+      curlRequest: toWorkflowCurlRequest(context.plan, context.input.step, context.workflowStepName, context.attempt),
+    });
+    if (typeof this.curlExecutor.executeForWorkflow === 'function') {
+      const request = childStep.inputSnapshot.curlRequest as CurlExecutionRequest | undefined;
+      if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
+      const execution = await this.curlExecutor.executeForWorkflow(request, false, {
+        runId: childStep.executionRunId,
+        stepId: childStep.id,
+        tenantId: childStep.tenantId,
+        actorId: 'curl-executor',
       });
-      if (typeof this.curlExecutor.executeForWorkflow === 'function') {
-        const request = childStep.inputSnapshot.curlRequest as CurlExecutionRequest | undefined;
-        if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
-        const execution = await this.curlExecutor.executeForWorkflow(request, false, {
-          runId: childStep.executionRunId,
-          stepId: childStep.id,
-          tenantId: childStep.tenantId,
-          actorId: 'curl-executor',
-        });
-        return curlWorkflowOutput(execution.result, execution.runtimeResponse);
-      }
-      const result = await this.curlExecutor.executeStep({
-        ...input,
-        step: childStep,
-        dryRun: false,
-      });
-      return curlWorkflowOutput(result);
+      return curlWorkflowOutput(execution.result, execution.runtimeResponse);
     }
-    if (executor === '015.SSH') {
-      const result = await this.sshExecutor.executeStep({
-        ...input,
-        step: workflowChildStep(input.step, `workflow-ssh-${workflowStepName}-${attempt}`, { sshRequest: toWorkflowSshRequest(plan, input.step, workflowStepName, attempt) }),
-        dryRun: false,
-      });
-      return sshWorkflowOutput(result);
+    const result = await this.curlExecutor.executeStep({ ...context.input, step: childStep, dryRun: false });
+    return curlWorkflowOutput(result);
+  }
+
+  private async executeSshWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    const result = await this.sshExecutor.executeStep({
+      ...context.input,
+      step: workflowChildStep(context.input.step, `workflow-ssh-${context.workflowStepName}-${context.attempt}`, {
+        sshRequest: toWorkflowSshRequest(context.plan, context.input.step, context.workflowStepName, context.attempt),
+      }),
+      dryRun: false,
+    });
+    return sshWorkflowOutput(result);
+  }
+}
+
+export interface WorkflowStepExecutorContext {
+  input: StepExecutionInput;
+  plan: Record<string, unknown> | undefined;
+  workflowStepName: string;
+  attempt: number;
+}
+
+export interface WorkflowStepExecutorRegistration {
+  executorId: string;
+  execute(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult>;
+}
+
+export class WorkflowStepExecutorRegistry {
+  private readonly registrations = new Map<string, WorkflowStepExecutorRegistration>();
+
+  constructor(registrations: WorkflowStepExecutorRegistration[] = []) {
+    for (const registration of registrations) this.register(registration);
+  }
+
+  register(registration: WorkflowStepExecutorRegistration): void {
+    const executorId = registration.executorId.trim();
+    if (!executorId) throw new AppError('VALIDATION_FAILED', '工作流执行器 ID 不能为空');
+    if (this.registrations.has(executorId)) {
+      throw new AppError('VALIDATION_FAILED', '工作流执行器重复注册，拒绝静默覆盖', { executorId });
     }
-    return { success: true, body: { success: true }, logs: [`workflow:${executor ?? 'internal'}:planned`] };
+    this.registrations.set(executorId, { ...registration, executorId });
+  }
+
+  async execute(executorId: string | undefined, context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    if (!executorId) return { success: false, errorCode: 'WORKFLOW_EXECUTOR_REQUIRED', errorMessage: '工作流节点缺少 executor' };
+    const registration = this.registrations.get(executorId);
+    if (!registration) {
+      return {
+        success: false,
+        errorCode: 'WORKFLOW_EXECUTOR_NOT_REGISTERED',
+        errorMessage: `工作流执行器未注册：${executorId}`,
+        body: { executorId, registeredExecutors: this.list() },
+      };
+    }
+    return registration.execute(context);
+  }
+
+  list(): string[] {
+    return [...this.registrations.keys()].sort();
   }
 }
 
@@ -856,12 +926,6 @@ function sshWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatc
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
   };
-}
-
-function shouldPreferDirectExecute(snapshot: Record<string, unknown>): boolean {
-  const taskType = stringFromSnapshot(snapshot.type);
-  return taskType === 'windows.iis.deploy_certificate'
-    || taskType === 'linux.nginx.deploy_certificate';
 }
 
 function shouldFallbackDirectError(error: AppError | undefined): boolean {
