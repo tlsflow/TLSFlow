@@ -11,6 +11,7 @@
     "test:unit": "vitest run tests/unit tests/contract",
     "test:component": "vitest run tests/component",
     "test:e2e": "vitest run tests/e2e",
+    "i18n:scan": "node scripts/scan-i18n-literals.mjs",
     "openapi:generate": "node scripts/generate-openapi-types.mjs"
   },
   "dependencies": {
