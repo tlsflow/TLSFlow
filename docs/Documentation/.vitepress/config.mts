@@ -80,6 +80,7 @@ const zhSidebar = [
     text: "三、开发文档",
     link: "/developer/",
     items: [
+      { text: "宿主插件能力清单", link: "/developer/host-plugin-capabilities" },
       { text: "插件开发", link: "/developer/plugin-development" },
       { text: "插件示例：Nginx Proxy Manager", link: "/developer/plugin-example-nginx-proxy-manager" },
       { text: "工作流开发规范", link: "/developer/workflow-development" },
