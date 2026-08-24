@@ -59,12 +59,9 @@ describe('CertificatesView', () => {
     expect(wrapper.find('.certificate-page__search-field').exists()).toBe(false)
 
     const workspaceView = wrapper.get('.certificate-page__workspace-view')
-    const workspaceChildren = [...workspaceView.element.children]
-    const categoryTabsIndex = workspaceChildren.findIndex((element) => element.classList.contains('certificate-page__category-tabs'))
-    const assetCountIndex = workspaceChildren.findIndex((element) => element.classList.contains('certificate-page__asset-count'))
     expect(workspaceView.findAll('.certificate-page__category-tab')).toHaveLength(4)
-    expect(categoryTabsIndex).toBeGreaterThanOrEqual(0)
-    expect(categoryTabsIndex).toBeLessThan(assetCountIndex)
+    expect(workspaceView.find('.certificate-page__asset-count').exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__panel-controls').exists()).toBe(false)
 
     document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()
     await flushPromises()
