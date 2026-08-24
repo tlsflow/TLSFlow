@@ -621,12 +621,20 @@ func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *a
 }
 
 func localPolicyWithoutSignature(policy agentLocalPolicyWire) map[string]any {
+	// Node 控制面按对象键的字典序规范化 JSON；结构体字段顺序会导致跨语言签名不一致。
+	pathRules := make([]map[string]any, 0, len(policy.PathRules))
+	for _, rule := range policy.PathRules {
+		pathRules = append(pathRules, map[string]any{
+			"operations": rule.Operations,
+			"prefix":     rule.Prefix,
+		})
+	}
 	return map[string]any{
 		"policyVersion":   policy.PolicyVersion,
 		"agentId":         policy.AgentID,
 		"authorityKeyIds": policy.AuthorityKeyIDs,
 		"allowedActions":  policy.AllowedActions,
-		"pathRules":       policy.PathRules,
+		"pathRules":       pathRules,
 		"serviceRules":    policy.ServiceRules,
 		"commandRules":    policy.CommandRules,
 		"disabled":        policy.Disabled,

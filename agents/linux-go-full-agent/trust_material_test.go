@@ -8,6 +8,27 @@ import (
 	"time"
 )
 
+func TestLocalPolicyCanonicalJSONMatchesControlPlaneOrdering(t *testing.T) {
+	policy := agentLocalPolicyWire{
+		PolicyVersion:   agentSecurityContract,
+		AgentID:         "agt-happy",
+		AuthorityKeyIDs: []string{"local-signing-1"},
+		AllowedActions:  []string{"filesystem.read"},
+		ServiceRules:    []string{},
+		CommandRules:    []any{},
+		UpdatedAt:       "2026-08-13T00:00:00.000Z",
+	}
+	policy.PathRules = append(policy.PathRules, struct {
+		Prefix     string   `json:"prefix"`
+		Operations []string `json:"operations"`
+	}{Prefix: "/etc", Operations: []string{"filesystem.read"}})
+
+	expected := `{"agentId":"agt-happy","allowedActions":["filesystem.read"],"authorityKeyIds":["local-signing-1"],"commandRules":[],"disabled":false,"pathRules":[{"operations":["filesystem.read"],"prefix":"/etc"}],"policyVersion":"` + agentSecurityContract + `","serviceRules":[],"updatedAt":"2026-08-13T00:00:00.000Z"}`
+	if actual := string(canonicalJSON(localPolicyWithoutSignature(policy))); actual != expected {
+		t.Fatalf("本地策略规范化 JSON 必须与控制面一致:\nactual:   %s\nexpected: %s", actual, expected)
+	}
+}
+
 func TestPersistedTrustMaterialUsesInstallPinnedKeySet(t *testing.T) {
 	defer setAgentTrustMaterial(nil)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
