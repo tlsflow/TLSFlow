@@ -2,7 +2,7 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import type { ApiResult } from '@/api/generated/client-types'
 import { toClientPath } from './common'
 
-export type CredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'DNS_PROVIDER' | 'BROWSER_SESSION'
+export type CredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'DNS_PROVIDER' | 'CLOUD_PROVIDER' | 'BROWSER_SESSION'
 
 export interface CredentialProfileSummary {
   id: string
@@ -56,6 +56,7 @@ export interface UpdateCredentialInput {
   scopeId?: string
   username?: string
   delivery?: CredentialProfileDetail['delivery']
+  metadata?: Record<string, unknown>
   secretValues?: Record<string, CredentialSecretValueInput>
   expectedVersion: number
 }

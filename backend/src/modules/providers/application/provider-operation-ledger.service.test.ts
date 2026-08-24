@@ -86,7 +86,7 @@ function asset(): CloudAccountAsset {
     assetKind: 'cloud.account',
     providerKey: 'cloud.aliyun',
     displayName: '账本测试账号',
-    credentialRef: 'secret://provider/sec_ledger#current',
+    credentialRef: 'credential://cred_ledger',
     scope: {},
     status: 'ACTIVE',
     metadata: {},

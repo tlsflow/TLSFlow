@@ -6,7 +6,6 @@ import {
   CredentialProfileProviderCredentialResolver,
   FetchProviderTransport,
   type ProviderCredentialResolver,
-  SecretProviderCredentialResolver,
 } from '../runtime/provider-runtime.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
@@ -37,17 +36,12 @@ export function createTrustedProviderExtensions(
   secrets: SecretService,
   options: {
     credentialResolver?: ProviderCredentialResolver;
-    credentialProfileRepository?: CredentialsRepository;
+    credentialProfileRepository: CredentialsRepository;
     transport?: FetchProviderTransport;
-  } = {},
+  },
 ): ProviderExtension[] {
   const resolver = options.credentialResolver
-    ?? (options.credentialProfileRepository
-      ? new CompositeProviderCredentialResolver(
-        new SecretProviderCredentialResolver(secrets),
-        new CredentialProfileProviderCredentialResolver(options.credentialProfileRepository, secrets),
-      )
-      : new SecretProviderCredentialResolver(secrets));
+    ?? new CredentialProfileProviderCredentialResolver(options.credentialProfileRepository, secrets);
   const transport = options.transport ?? new FetchProviderTransport();
   return [
     new AliyunProviderExtension(resolver, transport),
@@ -55,19 +49,6 @@ export function createTrustedProviderExtensions(
     new HuaweiProviderExtension(resolver, transport),
     new VolcengineProviderExtension(resolver, transport),
   ];
-}
-
-class CompositeProviderCredentialResolver implements ProviderCredentialResolver {
-  constructor(
-    private readonly secretResolver: ProviderCredentialResolver,
-    private readonly credentialResolver: ProviderCredentialResolver,
-  ) {}
-
-  resolve(asset: import('../dto/providers.dto.js').CloudAccountAsset): Promise<Record<string, string>> {
-    return asset.credentialRef.startsWith('credential://')
-      ? this.credentialResolver.resolve(asset)
-      : this.secretResolver.resolve(asset);
-  }
 }
 
 export function listDefaultProviderDefinitions(): ProviderDefinition[] {

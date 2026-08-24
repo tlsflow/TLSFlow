@@ -41,7 +41,7 @@ function asset(providerKey: CloudAccountAsset['providerKey']): CloudAccountAsset
     assetKind: 'cloud.account',
     providerKey,
     displayName: '测试账号',
-    credentialRef: 'secret://api_token/sec_test#current',
+    credentialRef: 'credential://cred_test',
     scope: {},
     status: 'ACTIVE',
     metadata: {},

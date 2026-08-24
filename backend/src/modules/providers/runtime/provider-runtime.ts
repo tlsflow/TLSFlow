@@ -84,24 +84,6 @@ export class SecretProviderCertificateMaterialResolver implements ProviderCertif
   }
 }
 
-export class SecretProviderCredentialResolver implements ProviderCredentialResolver {
-  constructor(private readonly secrets: SecretService) {}
-
-  async resolve(asset: CloudAccountAsset): Promise<Record<string, string>> {
-    if (!asset.credentialRef.startsWith('secret://')) {
-      throw new AppError('SECRET_REF_INVALID', 'Provider 运行时只允许使用 SecretRef', {
-        credentialRef: asset.credentialRef,
-      });
-    }
-    const resolved = await this.secrets.resolveForService({
-      secretRef: asset.credentialRef,
-      purpose: 'secret.health_check',
-      actorId: 'provider-extension',
-    });
-    return parseCredentialPayload(resolved.plainText);
-  }
-}
-
 /**
  * 将 CredentialProfile 作为 Provider 的凭据来源。
  * CredentialProfile 只保存 SecretRef；这里在运行时逐个解析 SecretRef，绝不把明文写回资产、日志或结果。
@@ -121,6 +103,19 @@ export class CredentialProfileProviderCredentialResolver implements ProviderCred
       throw new AppError('VALIDATION_FAILED', 'CredentialProfile 当前不可用于 Provider 执行', {
         credentialId: profileId,
         status: profile.status,
+      });
+    }
+    if (profile.kind !== 'CLOUD_PROVIDER') {
+      throw new AppError('VALIDATION_FAILED', '云账号必须引用 CLOUD_PROVIDER 类型凭据', {
+        credentialId: profileId,
+        credentialKind: profile.kind,
+      });
+    }
+    if (profile.metadata.providerKey !== asset.providerKey) {
+      throw new AppError('VALIDATION_FAILED', '云账号与凭据的 Provider 不匹配', {
+        credentialId: profileId,
+        assetProviderKey: asset.providerKey,
+        credentialProviderKey: profile.metadata.providerKey,
       });
     }
     const resolved: Record<string, string> = {};

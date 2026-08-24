@@ -1,6 +1,7 @@
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type AuditResult = 'success' | 'failure' | 'denied';
 export type ActorType = 'user' | 'system' | 'agent' | 'plugin' | 'executor';
+export type TenantScopeType = 'SELF' | 'SUBTREE' | 'EXPLICIT' | 'SYSTEM';
 
 export const SECRET_TYPES = [
   'ssh_key',
@@ -42,6 +43,7 @@ export interface TenantContext {
   currentTenantId: string;
   homeTenantId: string;
   accessibleTenantIds: string[];
+  managementScope?: TenantScope;
   version: string;
 }
 
@@ -55,6 +57,13 @@ export interface AccessibleTenant {
   membershipStatus: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
   current: boolean;
   mode: TenantMode;
+  scopeType?: TenantScopeType;
+}
+
+export interface TenantScope {
+  type: TenantScopeType;
+  rootTenantId?: string;
+  tenantIds?: string[];
 }
 
 export interface ResourceDescriptor {

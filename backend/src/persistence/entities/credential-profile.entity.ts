@@ -7,6 +7,7 @@ export const CREDENTIAL_KINDS = [
   'API_KEY',
   'CLIENT_CERTIFICATE',
   'DNS_PROVIDER',
+  'CLOUD_PROVIDER',
   'BROWSER_SESSION',
 ] as const;
 

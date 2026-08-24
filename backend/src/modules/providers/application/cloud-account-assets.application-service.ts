@@ -160,7 +160,7 @@ function toAsset(row: CloudAccountAssetRow): CloudAccountAsset {
 }
 
 function validateCredentialRef(value: string): void {
-  if (!value.trim().startsWith('secret://') && !value.trim().startsWith('credential://')) {
-    throw new AppError('VALIDATION_FAILED', '云账号凭据必须使用 SecretRef 或 CredentialRef', { field: 'credentialRef' });
+  if (!value.trim().startsWith('credential://')) {
+    throw new AppError('VALIDATION_FAILED', '云账号凭据必须使用 CredentialRef', { field: 'credentialRef' });
   }
 }

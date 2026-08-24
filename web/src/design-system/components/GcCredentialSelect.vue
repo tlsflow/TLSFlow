@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCredentials, type CredentialKind, type CredentialProfileSummary } from '@/api/modules/credentials.api'
 
@@ -11,9 +11,12 @@ const props = withDefaults(defineProps<{
   required?: boolean
   acceptedKinds?: CredentialKind[]
   acceptedScopes?: string[]
+  requiredMetadata?: Record<string, string>
+  refreshKey?: number
 }>(), {
   acceptedKinds: () => [],
   acceptedScopes: () => [],
+  requiredMetadata: () => ({}),
 })
 
 const { t } = useI18n()
@@ -22,9 +25,10 @@ const options = ref<CredentialProfileSummary[]>([])
 const filtered = computed(() => options.value.filter((item) =>
   item.status === 'active'
   && (props.acceptedKinds.length === 0 || props.acceptedKinds.includes(item.kind))
-  && (props.acceptedScopes.length === 0 || props.acceptedScopes.includes(item.scopeType))))
+  && (props.acceptedScopes.length === 0 || props.acceptedScopes.includes(item.scopeType))
+  && Object.entries(props.requiredMetadata).every(([key, value]) => item.metadata?.[key] === value)))
 
-onMounted(async () => {
+async function load(): Promise<void> {
   loading.value = true
   try {
     const result = await listCredentials({ kinds: props.acceptedKinds })
@@ -32,7 +36,17 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+onMounted(() => {
+  void load()
 })
+
+watch(() => props.refreshKey, () => {
+  void load()
+})
+
+defineExpose({ reload: load })
 </script>
 
 <template>

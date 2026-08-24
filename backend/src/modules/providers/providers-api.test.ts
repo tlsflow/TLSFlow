@@ -23,7 +23,7 @@ test('云账号资产支持四类 Provider、作用域幂等冲突和无 Host �
     displayName: '测试阿里云账号',
     providerKey: 'cloud.aliyun',
     accountId: 'account-1',
-    credentialRef: 'secret://provider/sec_provider#current',
+    credentialRef: 'credential://cred_provider',
     scope: { regions: ['cn-hangzhou'], endpoint: 'https://example.invalid' },
   };
 
