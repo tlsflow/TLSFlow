@@ -5,6 +5,8 @@ export const caAvailabilityModes = ['offline', 'single', 'active_standby', 'acti
 export const caTopologyModes = ['root_only', 'root_with_intermediate', 'external_managed'] as const;
 export const caRoles = ['root', 'intermediate'] as const;
 export const caStatuses = ['draft', 'pending_activation', 'active', 'suspended', 'retiring', 'retired', 'compromised'] as const;
+export const caTrustDomainStatuses = ['draft', 'active', 'rotating', 'retiring', 'retired', 'compromised'] as const;
+export const caTrustDomainIsolationLevels = ['standard', 'strict', 'regulated'] as const;
 export const keyCustodyModes = ['local_agent', 'managed_secret', 'external_key', 'device_local'] as const;
 export const keyBackendTypes = ['file', 'secret', 'cng', 'tpm', 'hsm', 'kms', 'pkcs11', 'device'] as const;
 export const keyExportabilities = ['non_exportable', 'exportable', 'unknown'] as const;
@@ -17,6 +19,8 @@ export type CaAvailabilityMode = typeof caAvailabilityModes[number];
 export type CaTopologyMode = typeof caTopologyModes[number];
 export type CaRole = typeof caRoles[number];
 export type CaStatus = typeof caStatuses[number];
+export type CaTrustDomainStatus = typeof caTrustDomainStatuses[number];
+export type CaTrustDomainIsolationLevel = typeof caTrustDomainIsolationLevels[number];
 export type KeyCustodyMode = typeof keyCustodyModes[number];
 export type KeyBackendType = typeof keyBackendTypes[number];
 export type KeyExportability = typeof keyExportabilities[number];
@@ -35,6 +39,21 @@ export interface CaProviderCapabilities {
   deviceLocalCsr: boolean;
   hardwareBackedKey: boolean;
   highAvailability: boolean;
+}
+
+export interface CaTrustDomainEntity {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  purpose: string;
+  status: CaTrustDomainStatus;
+  isDefault: boolean;
+  isolationLevel: CaTrustDomainIsolationLevel;
+  rootPolicy: Record<string, unknown>;
+  trustPolicy: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CaProviderEntity {
@@ -62,6 +81,7 @@ export interface CertificateAuthorityEntity {
   parentCaId?: string;
   topologyMode: CaTopologyMode;
   providerId: string;
+  trustDomainId?: string;
   keyReferenceId?: string;
   privateKeySecretRef?: string;
   certificateVersionId?: string;
@@ -166,6 +186,7 @@ export interface CertificateProfileEntity {
   tenantId: string;
   name: string;
   securityDomain: string;
+  trustDomainId?: string;
   status: 'active' | 'disabled';
   currentVersion: number;
   createdAt: string;
@@ -186,6 +207,7 @@ export interface CertificateRequestEntity {
   tenantId: string;
   applicationAssetId: string;
   caId: string;
+  trustDomainId?: string;
   profileVersionId: string;
   keyReferenceId: string;
   csrPem: string;
@@ -224,6 +246,7 @@ export interface CertificateRevocationEntity {
   tenantId: string;
   certificateVersionId: string;
   caId: string;
+  trustDomainId?: string;
   reason: string;
   status: 'pending_approval' | 'approved' | 'revoking' | 'revoked' | 'failed';
   requestedBy: string;
@@ -238,6 +261,7 @@ export interface TrustDistributionEntity {
   id: string;
   tenantId: string;
   caId: string;
+  trustDomainId?: string;
   targetScope: Record<string, unknown>;
   status: 'draft' | 'pending_approval' | 'approved' | 'deploying' | 'verified' | 'rollback_required' | 'failed';
   requestedBy: string;

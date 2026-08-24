@@ -4,6 +4,7 @@ import type {
   CaNodeEnrollmentTokenEntity,
   CaNodeTaskEntity,
   CaProviderEntity,
+  CaTrustDomainEntity,
   CertificateAuthorityEntity,
   CertificateProfileEntity,
   CertificateProfileVersionEntity,
@@ -40,6 +41,28 @@ export class InternalCaRepository {
     return this.list('pg_ca_providers', tenantId);
   }
 
+  saveTrustDomain(entity: CaTrustDomainEntity): Promise<CaTrustDomainEntity> {
+    return this.upsert('pg_ca_trust_domains', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      name: entity.name,
+      code: entity.code,
+      purpose: entity.purpose,
+      status: entity.status,
+      is_default: entity.isDefault,
+      isolation_level: entity.isolationLevel,
+      root_policy: entity.rootPolicy,
+      trust_policy: entity.trustPolicy,
+    });
+  }
+
+  getTrustDomain(tenantId: string, id: string): Promise<CaTrustDomainEntity | undefined> {
+    return this.get('pg_ca_trust_domains', tenantId, id);
+  }
+
+  listTrustDomains(tenantId: string): Promise<CaTrustDomainEntity[]> {
+    return this.list('pg_ca_trust_domains', tenantId);
+  }
+
   saveAuthority(entity: CertificateAuthorityEntity): Promise<CertificateAuthorityEntity> {
     return this.upsert('pg_certificate_authorities', entity.id, entity, {
       tenant_id: entity.tenantId,
@@ -48,6 +71,7 @@ export class InternalCaRepository {
       parent_ca_id: entity.parentCaId ?? null,
       topology_mode: entity.topologyMode,
       provider_id: entity.providerId,
+      trust_domain_id: entity.trustDomainId ?? null,
       key_reference_id: entity.keyReferenceId ?? null,
       certificate_version_id: entity.certificateVersionId ?? null,
       security_domain: entity.securityDomain,
@@ -197,6 +221,7 @@ export class InternalCaRepository {
       tenant_id: entity.tenantId,
       name: entity.name,
       security_domain: entity.securityDomain,
+      trust_domain_id: entity.trustDomainId ?? null,
       status: entity.status,
       current_version: entity.currentVersion,
     });
@@ -236,6 +261,7 @@ export class InternalCaRepository {
       tenant_id: entity.tenantId,
       application_asset_id: entity.applicationAssetId,
       ca_id: entity.caId,
+      trust_domain_id: entity.trustDomainId ?? null,
       profile_version_id: entity.profileVersionId,
       key_reference_id: entity.keyReferenceId,
       csr_pem: entity.csrPem,
@@ -288,6 +314,7 @@ export class InternalCaRepository {
       tenant_id: entity.tenantId,
       certificate_version_id: entity.certificateVersionId,
       ca_id: entity.caId,
+      trust_domain_id: entity.trustDomainId ?? null,
       reason: entity.reason,
       status: entity.status,
       requested_by: entity.requestedBy,
@@ -303,6 +330,7 @@ export class InternalCaRepository {
     return this.upsert('pg_trust_distributions', entity.id, entity, {
       tenant_id: entity.tenantId,
       ca_id: entity.caId,
+      trust_domain_id: entity.trustDomainId ?? null,
       target_scope: entity.targetScope,
       status: entity.status,
       requested_by: entity.requestedBy,
@@ -364,7 +392,7 @@ export class InternalCaRepository {
   }
 }
 
-const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope']);
+const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy']);
 
 function profileVersionFromRow(row: Record<string, unknown>): CertificateProfileVersionEntity {
   return {
