@@ -1,0 +1,64 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "web.nginx",
+  "version": "1.0.15",
+  "displayNameKey": "plugin.webNginx.name",
+  "descriptionKey": "plugin.webNginx.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "MANAGED",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    {
+      "key": "application.discover",
+      "contractVersion": "v1",
+      "actionContractId": "application.discover.v1",
+      "riskLevel": "LOW",
+      "executionLocations": ["AGENT"]
+    }
+  ],
+  "permissions": [
+    "agent.fact.collect",
+    "agent.plan.validate",
+    "agent.execution.receipt"
+  ],
+  "compatibility": {
+    "productFamilies": ["WINDOWS_SERVER", "LINUX_SERVER"],
+    "frameworkTypes": ["web.nginx"],
+    "targetTypes": ["tls.binding"],
+    "managementMethods": ["AGENT"],
+    "executionLocations": ["AGENT"]
+  },
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "actionContracts": {
+      "application.discover.v1": "action-contracts/application-discover.json"
+    },
+    "workflows": {
+      "application.discover": "workflows/discover.json"
+    },
+    "locales": {
+      "zh-CN": "locales/zh-CN.json",
+      "zh-TW": "locales/zh-TW.json",
+      "en-US": "locales/en-US.json",
+      "ja-JP": "locales/ja-JP.json",
+      "ko-KR": "locales/ko-KR.json",
+      "fr-FR": "locales/fr-FR.json",
+      "ru-RU": "locales/ru-RU.json",
+      "pt-BR": "locales/pt-BR.json"
+    },
+    "discoveryMappings": {
+      "profiles": "discovery/profiles.json"
+    },
+    "onboarding": {
+      "applicationAsset": "onboarding/application-asset.json"
+    },
+    "presentations": {
+      "application": "presentations/application.json"
+    }
+  }
+}

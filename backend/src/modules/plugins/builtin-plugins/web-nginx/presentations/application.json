@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.webNginx.name",
+    "profile": "plugin.webNginx.field.profile"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webNginx.section.identity",
+      "fields": [
+        { "key": "productFamily", "labelKey": "plugin.webNginx.field.productFamily", "valuePath": "productFamily", "type": "text" },
+        { "key": "profile", "labelKey": "plugin.webNginx.field.profile", "valuePath": "profile", "type": "text" },
+        { "key": "softwareVersion", "labelKey": "plugin.webNginx.field.version", "valuePath": "softwareVersion", "type": "text" }
+      ]
+    },
+    {
+      "id": "runtimeFacts",
+      "titleKey": "plugin.webNginx.section.runtimeFacts",
+      "fields": [
+        { "key": "serviceName", "labelKey": "plugin.webNginx.field.service", "valuePath": "metadata.serviceName", "type": "text" },
+        { "key": "programPath", "labelKey": "plugin.webNginx.field.programPath", "valuePath": "metadata.programPath", "type": "text" },
+        { "key": "configFingerprint", "labelKey": "plugin.webNginx.field.configFingerprint", "valuePath": "metadata.configFingerprint", "type": "text" }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "application.discover",
+      "labelKey": "plugin.webNginx.action.discover",
+      "tone": "info"
+    }
+  ]
+}

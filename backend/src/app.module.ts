@@ -26,7 +26,7 @@ import { ApplicationAssetExecutionService } from './modules/assets/application/a
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
-import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamily } from './modules/devices/index.js';
+import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamilies } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
@@ -661,7 +661,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
           assetsService.getRepository().getHost(tenantId, target.deviceId),
         ]);
         const configFingerprint = configFingerprintFromManagedTargetMetadata(target.metadata);
-        if (!framework || !frameworkTypes.includes(framework.frameworkType) || !configFingerprint) return undefined;
+        if (!framework || !frameworkTypes.some((frameworkType) => frameworkType === framework.frameworkType) || !configFingerprint) return undefined;
         return { target, framework, site, host, configFingerprint };
       }));
     return resolved.filter((item): item is Exclude<typeof item, undefined> => item !== undefined);
@@ -784,27 +784,61 @@ export function createApp(dependencies: AppDependencies = {}): App {
           : [recipe.recipe.capabilities.connectionTest, recipe.recipe.capabilities.discovery];
         // 设备摘要的 productFamily 来自插件 Manifest 的 compatibility.productFamilies，
         // 不能用 device.citrix.netscaler-adc 这类插件 ID 直接比较，否则 Citrix 等设备会被错误过滤。
-        const productFamily = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
-          ? undefined
-          : resolvePluginDeviceFamily(await unifiedPluginsService.getVersionForTenant(tenantId, recipe.pluginVersionId));
-        const page = await devicesService.list(tenantId, {
-          page: 1,
-          pageSize: 200,
-          filter: productFamily ? { productFamily } : {},
-        });
-        return page.items.map((device) => {
-          const unavailable = device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN';
-          const missing = required.filter((capability) => !device.capabilities.includes(capability));
-          const compatible = !directWorkflowDeviceIds || directWorkflowDeviceIds.has(device.id);
+        const productFamilies = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
+          ? []
+          : resolvePluginDeviceFamilies(await unifiedPluginsService.getVersionForTenant(tenantId, recipe.pluginVersionId));
+        const pages = await Promise.all(
+          productFamilies.length === 0
+            ? [devicesService.list(tenantId, { page: 1, pageSize: 200, filter: {} })]
+            : productFamilies.map((productFamily) => devicesService.list(tenantId, {
+                page: 1,
+                pageSize: 200,
+                filter: { productFamily },
+              })),
+        );
+        const compatibleDevices = [...new Map(
+          pages.flatMap((page) => page.items).map((device) => [device.id, device]),
+        ).values()];
+        if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
+          return compatibleDevices.map((device) => {
+            const unavailable = device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN';
+            const compatible = !directWorkflowDeviceIds || directWorkflowDeviceIds.has(device.id);
+            return {
+              deviceId: device.id,
+              displayName: device.displayName,
+              address: device.managementAddress,
+              health: device.health,
+              selectable: compatible && !unavailable,
+              reasonCode: !compatible ? 'PLATFORM_TARGET_MISSING' : unavailable ? 'DEVICE_UNHEALTHY' : undefined,
+            };
+          }).filter((device) => device.selectable);
+        }
+
+        // 列表摘要中的 capabilities 来自最近一次发现投影，可能缺少仍由当前插件绑定提供的连接测试能力。
+        // 详情的 pluginUi.capabilities 才是当前生效的能力分配；这里复用它，避免把可执行的 Citrix 设备误过滤。
+        const candidates = await Promise.all(compatibleDevices.map(async (device) => {
+          if (device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN') return undefined;
+          let detail;
+          try {
+            detail = await devicesService.get(tenantId, device.id, 'zh-CN', new Set());
+          } catch (cause) {
+            // 历史设备可能绑定了已撤销的插件版本；它不应阻断同租户其他设备的候选列表。
+            if (cause instanceof AppError && cause.errorCode === 'RESOURCE_NOT_FOUND') return undefined;
+            throw cause;
+          }
+          const unavailable = detail.health === 'DISABLED' || detail.health === 'UNREACHABLE' || detail.health === 'UNKNOWN';
+          const compatible = detail.extension.type === 'PLUGIN' && detail.pluginUi?.pluginId === recipe.pluginId;
+          const missing = required.filter((capability) => !detail.capabilities.includes(capability));
+          if (!compatible || unavailable || missing.length > 0) return undefined;
           return {
-            deviceId: device.id,
-            displayName: device.displayName,
-            address: device.managementAddress,
-            health: device.health,
-            selectable: compatible && !unavailable && missing.length === 0,
-            reasonCode: !compatible ? 'PLATFORM_TARGET_MISSING' : unavailable ? 'DEVICE_UNHEALTHY' : missing.length > 0 ? 'CAPABILITY_MISSING' : undefined,
+            deviceId: detail.id,
+            displayName: detail.displayName,
+            address: detail.managementAddress,
+            health: detail.health,
+            selectable: true,
           };
-        }).filter((device) => device.selectable);
+        }));
+        return candidates.filter((device): device is NonNullable<typeof device> => device !== undefined);
       },
       supportsDirectWorkflow: (_platformKey, recipe) => directWorkflowOnboarding.supports(recipe),
       testConnection: async (tenantId, session, recipe) => {

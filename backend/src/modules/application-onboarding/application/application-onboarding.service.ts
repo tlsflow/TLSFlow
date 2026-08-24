@@ -149,6 +149,11 @@ export class ApplicationOnboardingService {
     }
     if (!isResourceSelectionState(session.state)) throw invalidState(session, '不能重复选择设备来源');
     if (recipe.recipe.deviceSelection !== 'EXISTING_OR_NEW') throw new AppError('VALIDATION_FAILED', '该平台不支持新增设备', { code: 'ONBOARDING_NEW_DEVICE_NOT_ALLOWED' });
+    if (recipe.recipe.newDeviceOnboarding?.kind === 'AGENT_INSTALL') {
+      throw new AppError('VALIDATION_FAILED', '新增 Agent Host 必须通过统一设备向导完成，注册和发现事实可用后再返回应用接入向导', {
+        code: 'ONBOARDING_AGENT_INSTALL_WIZARD_REQUIRED',
+      });
+    }
     if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
       throw new AppError('VALIDATION_FAILED', '直接工作流的新增设备必须通过统一设备向导完成', {
         code: 'ONBOARDING_DEVICE_WIZARD_REQUIRED',

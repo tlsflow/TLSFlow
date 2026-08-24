@@ -63,6 +63,12 @@ export interface ApplicationOnboardingRecipeV1 {
   };
   targetProjection: {
     targetType: string;
+    /**
+     * 可选的 Framework 类型白名单。声明后，宿主只展示同时命中
+     * ManagedTarget.targetType 与该 Framework 的真实目标，避免按插件 ID
+     * 或设备产品族猜测产品。
+     */
+    frameworkTypes?: string[];
     displayFields: string[];
     identityFields: string[];
     selectableWhen: string;

@@ -17,7 +17,7 @@ const newDeviceOnboardingAgentKeys = new Set(['kind', 'platformKey', 'platformKe
 const newDeviceOnboardingPluginKeys = new Set(['kind', 'pluginId']);
 const formKeys = new Set(['device', 'advanced']);
 const capabilityKeys = new Set(['connectionTest', 'identity', 'discovery', 'workflowExecution']);
-const targetProjectionKeys = new Set(['targetType', 'displayFields', 'identityFields', 'selectableWhen']);
+const targetProjectionKeys = new Set(['targetType', 'frameworkTypes', 'displayFields', 'identityFields', 'selectableWhen']);
 const certificateKeys = new Set(['acceptedFormats', 'requiredArtifacts', 'defaultVersion']);
 const commitKeys = new Set(['executionSource', 'inputContract']);
 const identifierPattern = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/;
@@ -57,7 +57,7 @@ export function validateApplicationOnboardingRecipe(
   if (deploymentMode === 'MANAGED_TARGET') {
     if (!deviceResourceType) invalid('recipe.deviceResourceType', 'MANAGED_TARGET 配方必须声明设备资源类型');
     if (deviceSelection === 'NONE') invalid('recipe.deviceSelection', 'MANAGED_TARGET 配方不能跳过设备选择');
-    if (deviceSelection === 'EXISTING_OR_NEW' && !forms.device) {
+    if (deviceSelection === 'EXISTING_OR_NEW' && newDeviceOnboarding?.kind !== 'AGENT_INSTALL' && !forms.device) {
       invalid('recipe.forms.device', '允许新增设备时必须引用设备表单资源');
     }
     if (capabilities.workflowExecution) invalid('recipe.capabilities.workflowExecution', 'MANAGED_TARGET 配方不能声明工作流执行能力');
@@ -207,6 +207,12 @@ function optionalCapabilityReference(
 function validateTargetProjection(input: unknown): ApplicationOnboardingRecipeV1['targetProjection'] {
   const value = record(input, 'recipe.targetProjection');
   assertKnownKeys(value, targetProjectionKeys, 'recipe.targetProjection');
+  const frameworkTypes = value.frameworkTypes === undefined
+    ? undefined
+    : uniqueTokens(value.frameworkTypes, 'recipe.targetProjection.frameworkTypes');
+  if (frameworkTypes !== undefined && frameworkTypes.length === 0) {
+    invalid('recipe.targetProjection.frameworkTypes', '至少声明一个 Framework 类型');
+  }
   const displayFields = uniqueValuePaths(value.displayFields, 'recipe.targetProjection.displayFields');
   if (displayFields.length === 0) invalid('recipe.targetProjection.displayFields', '至少声明一个业务展示字段');
   const identityFields = uniqueValuePaths(value.identityFields, 'recipe.targetProjection.identityFields');
@@ -219,6 +225,7 @@ function validateTargetProjection(input: unknown): ApplicationOnboardingRecipeV1
   const selectableWhen = selectableExpression(value.selectableWhen, 'recipe.targetProjection.selectableWhen');
   return {
     targetType: identifier(value.targetType, 'recipe.targetProjection.targetType'),
+    ...(frameworkTypes ? { frameworkTypes } : {}),
     displayFields,
     identityFields,
     selectableWhen,

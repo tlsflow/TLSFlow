@@ -1,0 +1,15 @@
+{
+  "plugin.webNginx.name": "Nginx 애플리케이션 검색",
+  "plugin.webNginx.description": "Agent가 확인한 Nginx 런타임 사실을 읽고 공통 마법사를 통해 애플리케이션 자산을 연결합니다.",
+  "plugin.webNginx.section.identity": "애플리케이션 식별",
+  "plugin.webNginx.section.runtimeFacts": "런타임 사실",
+  "plugin.webNginx.field.productFamily": "제품군",
+  "plugin.webNginx.field.profile": "검색 프로필",
+  "plugin.webNginx.field.version": "소프트웨어 버전",
+  "plugin.webNginx.field.service": "서비스 이름",
+  "plugin.webNginx.field.programPath": "프로그램 경로",
+  "plugin.webNginx.field.configFingerprint": "구성 지문",
+  "plugin.webNginx.action.discover": "Nginx 검색",
+  "plugin.webNginx.onboarding.compatibility": "Nginx(버전은 Agent 사실로 확인)",
+  "plugin.webNginx.onboarding.requiredTarget": "검색된 Nginx HTTPS 대상"
+}

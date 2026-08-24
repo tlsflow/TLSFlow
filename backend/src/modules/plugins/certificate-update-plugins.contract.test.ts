@@ -8,18 +8,18 @@ import { allowedAgentOperationTypes } from '../agents/security/agent-security.co
 import { validateCertificateUpdateInputContract, type CertificateUpdateInputContractV1 } from '../deployment-inputs/certificate-update/certificate-update.contract.js';
 
 const certificatePluginProfiles = {
-  'web.nginx.linux': { frameworkType: 'web.nginx', platform: 'linux', artifactKind: 'PEM_FILES' },
-  'web.nginx.windows': { frameworkType: 'web.nginx', platform: 'windows', artifactKind: 'PEM_FILES' },
-  'web.apache.linux': { frameworkType: 'web.apache', platform: 'linux', artifactKind: 'PEM_FILES' },
-  'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', artifactKind: 'PEM_FILES' },
-  'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', artifactKind: 'KEYSTORE' },
-  'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', artifactKind: 'KEYSTORE' },
+  'web.nginx.linux': { frameworkType: 'web.nginx', platform: 'linux', productFamily: 'LINUX_SERVER', artifactKind: 'PEM_FILES' },
+  'web.nginx.windows': { frameworkType: 'web.nginx', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'PEM_FILES' },
+  'web.apache.linux': { frameworkType: 'web.apache', platform: 'linux', productFamily: 'LINUX_SERVER', artifactKind: 'PEM_FILES' },
+  'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'PEM_FILES' },
+  'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', productFamily: 'LINUX_SERVER', artifactKind: 'KEYSTORE' },
+  'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', productFamily: 'WINDOWS_SERVER', artifactKind: 'KEYSTORE' },
 } as const;
 
 const capabilities = ['certificate.deploy', 'certificate.verify', 'certificate.rollback'] as const;
 const requiredResourceKinds = ['inputContracts', 'workflows', 'agentPlans'] as const;
 const workflowStages = ['prepare', 'backup', 'install', 'refresh', 'verify'] as const;
-type CertificatePluginProfile = Pick<CertificateUpdateInputContractV1, 'frameworkType' | 'platform' | 'artifactKind'>;
+type CertificatePluginProfile = Pick<CertificateUpdateInputContractV1, 'frameworkType' | 'platform' | 'artifactKind'> & { productFamily: 'LINUX_SERVER' | 'WINDOWS_SERVER' };
 
 test('六个证书更新包的 Manifest、Registry 和双资源合同彼此独立', async () => {
   const loader = new BuiltinUnifiedPluginLoader();
@@ -43,7 +43,10 @@ test('六个证书更新包的 Manifest、Registry 和双资源合同彼此独�
     assert.equal(entry.resourceHash.startsWith('sha256:'), true);
     assert.ok(Object.keys(entry.resourceSha256).length >= 10);
   }
-  assert.equal(entries.some((item) => ['web.nginx', 'web.apache', 'app.tomcat'].includes(item.pluginId)), false);
+  const nginxDiscoveryEntry = entries.find((item) => item.pluginId === 'web.nginx');
+  assert.ok(nginxDiscoveryEntry, 'web.nginx 发现/接入包必须进入 Registry');
+  assert.deepEqual(nginxDiscoveryEntry.capabilities.map((item) => item.key), ['application.discover']);
+  assert.equal(entries.some((item) => ['web.apache', 'app.tomcat'].includes(item.pluginId)), false);
 });
 
 test('证书更新包拒绝 Runner、发现能力和跨包资源引用', async () => {
@@ -78,7 +81,8 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, '1.0.0');
+  assert.equal(manifest.version, '1.0.1');
+  assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
   assert.equal(manifest.trust, 'OFFICIAL_SIGNED');

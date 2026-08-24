@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
+import { GcSelectionCard } from '@/design-system/components'
 import {
   cancelOnboardingSession,
   completeOnboardingSession,
@@ -30,6 +31,16 @@ interface Target { managedTargetId: string; displayName: string; targetType: str
 interface DeviceOption { deviceId: string; displayName: string; address?: string; health: string; selectable: boolean }
 interface CertificateOption { id: string; label: string }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
+type FooterPrimaryAction = 'RESOURCE' | 'CERTIFICATE' | 'COMPLETE' | null
+interface OnboardingFooterActions {
+  visible: boolean
+  showCancel: boolean
+  showPrevious: boolean
+  previousDisabled: boolean
+  primaryAction: FooterPrimaryAction
+  primaryLabel: string
+  primaryDisabled: boolean
+}
 /** 与部署计划向导保持一致的“始终使用最新版本”选项标记。 */
 const LATEST_VERSION_MARKER = '__LATEST__'
 
@@ -42,6 +53,7 @@ const emit = defineEmits<{
   close: []
   customManual: []
   addDevice: [initialSelection: DeviceOnboardingInitialSelection]
+  'footer-actions-change': [actions: OnboardingFooterActions]
 }>()
 
 const { t, locale } = useI18n()
@@ -77,6 +89,40 @@ const step = computed<OnboardingStep>(() => {
   return selectedPlatform.value ? backendStep.value : 1
 })
 const canGoPrevious = computed(() => step.value > 1 && step.value < 5 && !loading.value && !deviceListLoading.value)
+const footerActions = computed<OnboardingFooterActions>(() => {
+  const activeSession = Boolean(session.value && !['PLAN_CREATED', 'CANCELLED'].includes(session.value.state))
+  let primaryAction: FooterPrimaryAction = null
+  let primaryLabel = ''
+  let primaryDisabled = true
+
+  if (step.value === 2 && session.value) {
+    primaryAction = 'RESOURCE'
+    primaryLabel = deviceMode.value === 'NEW_DEVICE'
+      ? t('applicationOnboarding.device.newAction')
+      : t('applicationOnboarding.actions.continue')
+    primaryDisabled = deviceMode.value === 'EXISTING_DEVICE' ? !canContinueExistingDevice.value : !canOpenNewDevice.value
+  } else if (step.value === 4 && session.value) {
+    primaryAction = session.value.state === 'READY_TO_COMMIT' ? 'COMPLETE' : 'CERTIFICATE'
+    primaryLabel = session.value.state === 'READY_TO_COMMIT'
+      ? t('applicationOnboarding.actions.complete')
+      : t('applicationOnboarding.actions.review')
+    primaryDisabled = session.value.state === 'READY_TO_COMMIT'
+      ? loading.value
+      : loading.value || !certificateId.value || !certificateVersionId.value
+  }
+
+  const showPrevious = canGoPrevious.value
+  const showCancel = activeSession
+  return {
+    visible: showCancel || showPrevious || primaryAction !== null,
+    showCancel,
+    showPrevious,
+    previousDisabled: loading.value || deviceListLoading.value,
+    primaryAction,
+    primaryLabel,
+    primaryDisabled,
+  }
+})
 const stepLabels = computed(() => [
   t('applicationOnboarding.steps.platform'), t('applicationOnboarding.steps.device'), t('applicationOnboarding.steps.target'), t('applicationOnboarding.steps.certificate'), t('applicationOnboarding.steps.complete')
 ])
@@ -96,6 +142,9 @@ onMounted(restoreSession)
 watch(deviceMode, (mode) => {
   if (mode === 'EXISTING_DEVICE' && session.value && step.value === 2) void refreshDevices()
 })
+watch(footerActions, (actions) => {
+  if (props.embedded) emit('footer-actions-change', actions)
+}, { immediate: true })
 
 async function loadPlatforms(): Promise<void> {
   loading.value = true; error.value = ''
@@ -141,6 +190,18 @@ async function submitResource(): Promise<void> {
   } catch (cause) { error.value = messageFor(cause) } finally { submitInFlight.value = false; loading.value = false }
 }
 
+async function runFooterPrimary(): Promise<void> {
+  if (footerActions.value.primaryAction === 'RESOURCE') {
+    await submitResource()
+    return
+  }
+  if (footerActions.value.primaryAction === 'CERTIFICATE') {
+    await saveCertificate()
+    return
+  }
+  if (footerActions.value.primaryAction === 'COMPLETE') await complete()
+}
+
 async function refreshTargets(): Promise<void> { if (session.value) targets.value = readArray<Target>((await listOnboardingTargets(session.value.id)).data) }
 async function refreshDevices(): Promise<void> {
   if (!session.value || !supportsExistingDevice.value) return
@@ -155,6 +216,16 @@ async function refreshDevices(): Promise<void> {
   } finally {
     deviceListLoading.value = false
   }
+}
+function selectExistingDevice(device: DeviceOption): void {
+  if (!device.selectable || loading.value || deviceListLoading.value) return
+  deviceMode.value = 'EXISTING_DEVICE'
+  deviceId.value = device.deviceId
+}
+function selectNewDevice(): void {
+  if (!supportsNewDevice.value || loading.value || deviceListLoading.value) return
+  deviceMode.value = 'NEW_DEVICE'
+  deviceId.value = ''
 }
 async function chooseTarget(target: Target): Promise<void> {
   if (!session.value || !target.selectable) return
@@ -509,6 +580,8 @@ function isRestartableSessionState(state: string): boolean {
 function readObject<T>(value: unknown): T { const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; return (record.data && typeof record.data === 'object' ? record.data : record) as T }
 function readArray<T>(value: unknown): T[] { if (Array.isArray(value)) return value as T[]; const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}; return Array.isArray(record.items) ? record.items as T[] : [] }
 function messageFor(cause: unknown): string { return cause instanceof ApiClientError ? cause.message : t('applicationOnboarding.messages.requestFailed') }
+
+defineExpose({ goPrevious, runFooterPrimary, cancel })
 </script>
 
 <template>
@@ -560,11 +633,10 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
       <p v-if="!loading && platforms.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.messages.noPlatforms') }}</p>
     </section>
     <section v-else class="onboarding-workspace">
-      <div v-if="step === 2" class="onboarding-panel">
-        <div class="onboarding-panel__header">
-          <h2>{{ t('applicationOnboarding.device.title') }}</h2>
+      <section v-if="step === 2" class="onboarding-device-step" aria-labelledby="onboarding-device-title">
+        <div class="onboarding-device-step__header">
+          <h2 id="onboarding-device-title">{{ t('applicationOnboarding.device.title') }}</h2>
           <button
-            v-if="deviceMode === 'EXISTING_DEVICE'"
             class="gc-button gc-button--secondary"
             type="button"
             :disabled="loading || deviceListLoading"
@@ -573,37 +645,38 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
             {{ deviceListLoading ? t('common.loading') : t('applicationOnboarding.device.refreshExisting') }}
           </button>
         </div>
-        <div class="mode-switch">
-          <label v-if="supportsExistingDevice"><input v-model="deviceMode" type="radio" value="EXISTING_DEVICE"> {{ t('applicationOnboarding.device.existing') }}</label>
-          <label v-if="supportsNewDevice"><input v-model="deviceMode" type="radio" value="NEW_DEVICE"> {{ t('applicationOnboarding.device.new') }}</label>
-        </div>
-        <template v-if="deviceMode === 'EXISTING_DEVICE'">
-          <label>{{ t('applicationOnboarding.device.existing') }}
-            <select v-model="deviceId" :disabled="loading || deviceListLoading || devices.length === 0">
-              <option value="">{{ t('applicationOnboarding.device.selectPlaceholder') }}</option>
-              <option v-for="device in devices" :key="device.deviceId" :value="device.deviceId" :disabled="!device.selectable">{{ device.displayName }}{{ device.address ? ` (${device.address})` : '' }}</option>
-            </select>
-          </label>
-          <p v-if="deviceListLoading" class="onboarding-empty">{{ t('applicationOnboarding.device.existingLoading') }}</p>
-          <p v-else-if="deviceListLoaded && devices.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.device.noExisting') }}</p>
-        </template>
-        <section v-else class="new-device-panel">
-          <strong>{{ t('applicationOnboarding.device.new') }}</strong>
-          <p>{{ t('applicationOnboarding.device.newDescription') }}</p>
-          <p>{{ t('applicationOnboarding.device.newHint') }}</p>
-        </section>
-        <div class="onboarding-actions">
-          <button v-if="canGoPrevious" class="gc-button gc-button--secondary" type="button" :disabled="loading || deviceListLoading" @click="goPrevious">{{ t('applicationOnboarding.actions.previous') }}</button>
-          <button
-            class="gc-button gc-button--primary"
-            type="button"
-            :disabled="deviceMode === 'EXISTING_DEVICE' ? !canContinueExistingDevice : !canOpenNewDevice"
-            @click="submitResource"
+        <div class="onboarding-device-grid" :aria-label="t('applicationOnboarding.device.title')">
+          <GcSelectionCard
+            class="onboarding-device-card onboarding-device-card--new"
+            :title="t('applicationOnboarding.device.new')"
+            :description="supportsNewDevice ? t('applicationOnboarding.device.newDescription') : undefined"
+            :selected="deviceMode === 'NEW_DEVICE'"
+            :disabled="loading || deviceListLoading || !supportsNewDevice"
+            @select="selectNewDevice"
           >
-            {{ deviceMode === 'NEW_DEVICE' ? t('applicationOnboarding.device.newAction') : t('applicationOnboarding.actions.continue') }}
-          </button>
+            <template #icon>
+              <span class="onboarding-device-card__glyph onboarding-device-card__glyph--new" aria-hidden="true">+</span>
+            </template>
+            <span v-if="supportsNewDevice">{{ t('applicationOnboarding.device.newHint') }}</span>
+          </GcSelectionCard>
+          <GcSelectionCard
+            v-for="device in devices"
+            :key="device.deviceId"
+            class="onboarding-device-card"
+            :title="device.displayName"
+            :description="device.address || t('applicationOnboarding.device.selectPlaceholder')"
+            :selected="deviceMode === 'EXISTING_DEVICE' && deviceId === device.deviceId"
+            :disabled="loading || deviceListLoading || !device.selectable"
+            @select="selectExistingDevice(device)"
+          >
+            <template #icon>
+              <span class="onboarding-device-card__glyph onboarding-device-card__glyph--device" aria-hidden="true"><span /><span /><span /></span>
+            </template>
+          </GcSelectionCard>
         </div>
-      </div>
+        <p v-if="deviceListLoading" class="onboarding-empty">{{ t('applicationOnboarding.device.existingLoading') }}</p>
+        <p v-else-if="deviceListLoaded && devices.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.device.noExisting') }}</p>
+      </section>
       <div v-else-if="step === 3" class="onboarding-panel">
         <div class="onboarding-panel__header">
           <h2>{{ t('applicationOnboarding.target.title') }}</h2>
@@ -648,9 +721,6 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
             </span>
           </button>
         </div>
-        <div class="onboarding-actions">
-          <button v-if="canGoPrevious" class="gc-button gc-button--secondary" type="button" :disabled="loading" @click="goPrevious">{{ t('applicationOnboarding.actions.previous') }}</button>
-        </div>
       </div>
       <div v-else-if="step === 4" class="onboarding-panel">
         <h2>{{ t('applicationOnboarding.certificate.title') }}</h2>
@@ -666,14 +736,14 @@ function messageFor(cause: unknown): string { return cause instanceof ApiClientE
             <option v-for="version in certificateVersions" :key="certificateVersionIdOf(version)" :value="certificateVersionIdOf(version)">{{ certificateVersionOptionLabel(version) }}</option>
           </select>
         </label>
-        <div class="onboarding-actions">
-          <button v-if="canGoPrevious" class="gc-button gc-button--secondary" type="button" :disabled="loading" @click="goPrevious">{{ t('applicationOnboarding.actions.previous') }}</button>
-          <button class="gc-button gc-button--primary" type="button" :disabled="loading || !certificateId || !certificateVersionId" @click="saveCertificate">{{ t('applicationOnboarding.actions.review') }}</button>
-        </div>
       </div>
       <div v-else-if="step === 5" class="onboarding-panel onboarding-panel--success"><h2>{{ t('applicationOnboarding.complete.title') }}</h2><p>{{ t('applicationOnboarding.complete.description') }}</p></div>
-      <div v-if="session && step === 4 && session.state === 'READY_TO_COMMIT'" class="onboarding-footer"><button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="complete">{{ t('applicationOnboarding.actions.complete') }}</button></div>
-      <button v-if="session && !['PLAN_CREATED', 'CANCELLED'].includes(session.state)" class="gc-button gc-button--ghost" type="button" @click="cancel">{{ t('applicationOnboarding.actions.cancel') }}</button>
+      <div v-if="!props.embedded && footerActions.visible" class="onboarding-actions">
+        <button v-if="footerActions.showCancel" class="gc-button gc-button--ghost" type="button" @click="cancel">{{ t('applicationOnboarding.actions.cancel') }}</button>
+        <span class="onboarding-actions__spacer" aria-hidden="true" />
+        <button v-if="footerActions.showPrevious" class="gc-button gc-button--secondary" type="button" :disabled="footerActions.previousDisabled" @click="goPrevious">{{ t('applicationOnboarding.actions.previous') }}</button>
+        <button v-if="footerActions.primaryAction" class="gc-button gc-button--primary" type="button" :disabled="footerActions.primaryDisabled" @click="runFooterPrimary">{{ footerActions.primaryLabel }}</button>
+      </div>
     </section>
   </main>
 </template>
@@ -730,21 +800,27 @@ h1, h2, p { margin: 0; }
 .target-row__reason span { color: var(--gc-color-danger); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-normal); }
 .onboarding-workspace { display: grid; gap: var(--gc-space-4); max-width: var(--gc-size-content-readable); }
 .onboarding-panel { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-6); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
-.onboarding-panel__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
+.onboarding-panel__header, .onboarding-device-step__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
 .onboarding-panel label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); }
 .onboarding-panel input, .onboarding-panel select { min-height: var(--gc-control-height-md); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: 0 var(--gc-space-3); background: var(--gc-color-surface-field); color: var(--gc-color-text); }
-.mode-switch { display: flex; flex-wrap: wrap; gap: var(--gc-space-4); }
-.mode-switch label { display: flex; align-items: center; gap: var(--gc-space-2); }
-.onboarding-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--gc-space-3); }
-.onboarding-actions .gc-button--primary { margin-inline-start: auto; }
-.new-device-panel { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); color: var(--gc-color-text-muted); background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-sm); }
-.new-device-panel strong { color: var(--gc-color-text-strong); }
+.onboarding-device-step { display: grid; gap: var(--gc-space-5); }
+.onboarding-device-step__header h2 { color: var(--gc-color-text-strong); }
+.onboarding-device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.onboarding-device-card { min-block-size: var(--gc-size-card-compact); }
+.onboarding-device-card--new { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-soft); }
+.onboarding-device-card--new:disabled { border-color: var(--gc-color-border); background: var(--gc-color-surface-soft); }
+.onboarding-device-card__glyph { display: inline-grid; place-items: center; color: var(--gc-color-primary-strong); }
+.onboarding-device-card__glyph--new { font-size: var(--gc-font-size-heading-sm); font-weight: var(--gc-font-weight-semibold); line-height: 1; }
+.onboarding-device-card__glyph--device { gap: var(--gc-space-1); }
+.onboarding-device-card__glyph--device span { display: block; inline-size: var(--gc-space-4); block-size: var(--gc-space-hairline); background: currentColor; border-radius: var(--gc-radius-pill); }
+.onboarding-device-card--new :deep(.gc-selection-card__icon) { color: var(--gc-color-primary-strong); background: var(--gc-color-primary-soft); }
+.onboarding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); }
+.onboarding-actions__spacer { flex: 1 1 auto; }
 .target-list { display: grid; gap: var(--gc-space-2); }
 .onboarding-error { color: var(--gc-color-danger); background: var(--gc-color-danger-soft); padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); }
 .onboarding-empty { color: var(--gc-color-text-muted); }
 .onboarding-hint { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
-.onboarding-footer { display: flex; justify-content: flex-end; }
 .onboarding-panel--success { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); }
-@media (max-width: 64rem) { .onboarding-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata { grid-template-columns: 1fr; } }
+@media (max-width: 64rem) { .onboarding-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .platform-grid, .onboarding-device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid, .onboarding-device-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata { grid-template-columns: 1fr; } }
 </style>

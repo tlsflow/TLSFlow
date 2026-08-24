@@ -1,0 +1,15 @@
+{
+  "plugin.webNginx.name": "Découverte d'application Nginx",
+  "plugin.webNginx.description": "Lit les faits d'exécution Nginx confirmés par l'Agent et connecte les actifs applicatifs via l'assistant partagé.",
+  "plugin.webNginx.section.identity": "Identité de l'application",
+  "plugin.webNginx.section.runtimeFacts": "Faits d'exécution",
+  "plugin.webNginx.field.productFamily": "Famille de produits",
+  "plugin.webNginx.field.profile": "Profil de découverte",
+  "plugin.webNginx.field.version": "Version du logiciel",
+  "plugin.webNginx.field.service": "Nom du service",
+  "plugin.webNginx.field.programPath": "Chemin du programme",
+  "plugin.webNginx.field.configFingerprint": "Empreinte de configuration",
+  "plugin.webNginx.action.discover": "Découvrir Nginx",
+  "plugin.webNginx.onboarding.compatibility": "Nginx (version confirmée par les faits de l'Agent)",
+  "plugin.webNginx.onboarding.requiredTarget": "Cible HTTPS Nginx découverte"
+}

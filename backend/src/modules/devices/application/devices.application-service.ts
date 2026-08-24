@@ -407,8 +407,8 @@ function resolveDeviceInstallCommand(
   return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(New-Object System.Net.WebClient).DownloadFile('${bootstrapUrl}', ${scriptPath}); & ${scriptPath}"`;
 }
 
-function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {
-  const productFamilies = plugin.manifest.compatibility?.productFamilies ?? [];
+export function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {
+  const productFamilies = resolvePluginDeviceFamilies(plugin);
   if (productFamilies.length !== 1) {
     throw new AppError('VALIDATION_FAILED', '设备插件必须声明唯一产品族', {
       pluginVersionId: plugin.id,
@@ -417,6 +417,25 @@ function resolvePluginDeviceFamily(plugin: UnifiedPluginVersionRecord): string {
     });
   }
   return productFamilies[0]!;
+}
+
+/**
+ * 应用接入向导按插件 Manifest 的兼容产品族筛选已有设备。
+ * 一个接入平台可以兼容多个产品族；设备注册本身仍由 resolvePluginDeviceFamily
+ * 维持“一台设备一个产品族”的存储约束。
+ */
+export function resolvePluginDeviceFamilies(plugin: UnifiedPluginVersionRecord): string[] {
+  const productFamilies = [...new Set(
+    (plugin.manifest.compatibility?.productFamilies ?? [])
+      .filter((productFamily) => productFamily.trim().length > 0),
+  )];
+  if (productFamilies.length === 0) {
+    throw new AppError('VALIDATION_FAILED', '插件必须声明至少一个兼容产品族', {
+      pluginVersionId: plugin.id,
+      pluginId: plugin.pluginId,
+    });
+  }
+  return productFamilies;
 }
 
 function findWorkflowExtractedValue(

@@ -10,6 +10,7 @@ const onboardingMocks = vi.hoisted(() => ({
   createOnboardingSession: vi.fn(),
   discoverOnboardingTargets: vi.fn(),
   getOnboardingSession: vi.fn(),
+  listOnboardingCertificateOptions: vi.fn(),
   listOnboardingDevices: vi.fn(),
   listOnboardingPlatforms: vi.fn(),
   listOnboardingTargets: vi.fn(),
@@ -18,15 +19,10 @@ const onboardingMocks = vi.hoisted(() => ({
   selectOnboardingTarget: vi.fn(),
   testOnboardingConnection: vi.fn(),
 }))
-const certificateMocks = vi.hoisted(() => ({
-  listCertificates: vi.fn(),
-  listCertificateVersions: vi.fn(),
-}))
 const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 const routeMock = vi.hoisted(() => ({ query: {} as Record<string, string> }))
 
 vi.mock('@/api/modules/application-onboarding.api', () => onboardingMocks)
-vi.mock('@/api/modules/certificates.api', () => certificateMocks)
 vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMocks }))
 
 import ApplicationOnboardingView from '@/views/application-onboarding/ApplicationOnboardingView.vue'
@@ -42,13 +38,12 @@ describe('ApplicationOnboardingView', () => {
     routeMock.query = {}
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({ items: [] }))
     onboardingMocks.getOnboardingSession.mockResolvedValue(response({}))
-    certificateMocks.listCertificates.mockResolvedValue(response({ items: [] }))
-    certificateMocks.listCertificateVersions.mockResolvedValue(response({ items: [] }))
+    onboardingMocks.listOnboardingCertificateOptions.mockResolvedValue(response({ assets: [], versions: [] }))
   })
 
   it('受管设备路径列出站点并默认选择首个可部署证书版本', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
-      items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/plugin-logos/citrix-adc.svg', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
+      items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/plugin-logos/citrix-adc.svg', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
     }))
     onboardingMocks.createOnboardingSession.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'PLATFORM_SELECTED', stateVersion: 1 }))
     onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-1', displayName: 'ADC', health: 'HEALTHY', selectable: true }] }))
@@ -56,8 +51,11 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'DISCOVERING', stateVersion: 3 }))
     onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'target-1', displayName: 'example.com:443', targetType: 'tls.binding', configFingerprint: 'target-fingerprint', selectable: true }] }))
     onboardingMocks.selectOnboardingTarget.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'CERTIFICATE_SELECTION_REQUIRED', stateVersion: 5 }))
-    certificateMocks.listCertificates.mockResolvedValue(response({ items: [{ id: 'certificate-1', primaryDomain: 'example.com' }] }))
-    certificateMocks.listCertificateVersions.mockResolvedValue(response({ items: [{ id: 'version-latest', commonName: 'example.com', status: 'active', deployable: true, activationState: 'promoted' }] }))
+    onboardingMocks.listOnboardingCertificateOptions.mockImplementation((_sessionId: string, certificateId?: string) => Promise.resolve(response(
+      certificateId
+        ? { versions: [{ id: 'version-latest', commonName: 'example.com', status: 'active', deployable: true, activationState: 'promoted', notAfter: '2030-01-01T00:00:00.000Z' }] }
+        : { assets: [{ id: 'certificate-1', primaryDomain: 'example.com' }] },
+    )))
 
     const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
     await flushPromises()
@@ -69,8 +67,8 @@ describe('ApplicationOnboardingView', () => {
     expect(wrapper.text()).not.toContain('由平台插件提供固定流程')
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
-    await wrapper.find('select').setValue('device-1')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
     await wrapper.find('.target-row').trigger('click')
     await flushPromises()
@@ -78,7 +76,8 @@ describe('ApplicationOnboardingView', () => {
     const selects = wrapper.findAll('select')
     expect(selects).toHaveLength(2)
     expect((selects[0].element as HTMLSelectElement).value).toBe('certificate-1')
-    expect((selects[1].element as HTMLSelectElement).value).toBe('version-latest')
+    expect((selects[1].element as HTMLSelectElement).value).toBe('__LATEST__')
+    expect(selects[1].text()).toContain('example.com')
   })
 
   it('直接工作流与受管设备一样先选择设备，再查询所选设备的站点', async () => {
@@ -98,12 +97,12 @@ describe('ApplicationOnboardingView', () => {
 
     expect(onboardingMocks.testOnboardingConnection).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('连接业务平台')
-    expect(wrapper.text()).toContain('使用已有设备')
+    expect(wrapper.text()).toContain('Nginx Host')
     expect(wrapper.text()).toContain('新增设备')
     expect(wrapper.text()).not.toContain('选择业务站点')
-    expect(wrapper.find('.mode-switch').exists()).toBe(true)
-    await wrapper.find('select').setValue('host-direct')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    expect(wrapper.find('.mode-switch').exists()).toBe(false)
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(onboardingMocks.testOnboardingConnection).toHaveBeenCalledWith('session-direct', 2)
@@ -111,7 +110,7 @@ describe('ApplicationOnboardingView', () => {
     expect(wrapper.find('.target-row').exists()).toBe(true)
   })
 
-  it('站点列表展示监听信息、可选状态和不可选原因', async () => {
+  it('站点列表只展示当前可选择的监听目标', async () => {
     routeMock.query = { session: 'session-targets' }
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
       items: [{ platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'plugin.web.iis', deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'EXISTING_OR_NEW', supportStatus: 'SUPPORTED' }],
@@ -133,19 +132,14 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
 
     const targetRows = wrapper.findAll('.target-row')
-    expect(targetRows).toHaveLength(2)
+    expect(targetRows).toHaveLength(1)
     expect(targetRows[0].text()).toContain('Default Web Site')
     expect(targetRows[0].text()).toContain('rds.jacksonz.cn')
     expect(targetRows[0].text()).toContain('4443')
     expect(targetRows[0].text()).toContain('HTTPS')
     expect(targetRows[0].text()).toContain('可选择的受管目标')
     expect(targetRows[0].attributes('disabled')).toBeUndefined()
-    expect(targetRows[1].text()).toContain('WSUS 管理')
-    expect(targetRows[1].text()).toContain('*')
-    expect(targetRows[1].text()).toContain('8531')
-    expect(targetRows[1].text()).toContain('不可选择原因')
-    expect(targetRows[1].text()).toContain('这个受管目标已经停用。')
-    expect(targetRows[1].attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('WSUS 管理')
     expect(wrapper.text()).not.toContain('tls.binding')
   })
 
@@ -160,9 +154,9 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
-    await wrapper.find('input[value="NEW_DEVICE"]').setValue()
+    await wrapper.find('.onboarding-device-card--new').trigger('click')
     expect(wrapper.text()).toContain('打开设备接入向导')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.vm.runFooterPrimary()
 
     expect(wrapper.emitted('addDevice')).toEqual([[{ kind: 'AGENT_INSTALL', platformKey: 'linux' }]])
     expect(onboardingMocks.selectOnboardingResource).not.toHaveBeenCalled()
@@ -202,7 +196,7 @@ describe('ApplicationOnboardingView', () => {
 
     const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(onboardingMocks.selectOnboardingResource).not.toHaveBeenCalled()
@@ -241,8 +235,8 @@ describe('ApplicationOnboardingView', () => {
 
     expect(onboardingMocks.createOnboardingSession).toHaveBeenCalledWith('web.iis')
     expect(routerMocks.replace).toHaveBeenCalledWith({ query: { session: 'session-restarted', onboarding: '1' } })
-    await wrapper.find('select').setValue('windows-host')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(onboardingMocks.selectOnboardingResource).toHaveBeenCalledWith('session-restarted', {
@@ -281,8 +275,8 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
-    await wrapper.find('select').setValue('windows-host')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(onboardingMocks.getOnboardingSession).toHaveBeenCalledWith('session-race')
@@ -333,8 +327,8 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
-    await wrapper.find('select').setValue('windows-host')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(onboardingMocks.selectOnboardingResource).toHaveBeenCalledTimes(1)
@@ -360,9 +354,7 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('连接业务平台')
-    const previousButton = wrapper.findAll('button').find((button) => button.text() === '上一步')
-    expect(previousButton).toBeTruthy()
-    await previousButton?.trigger('click')
+    await wrapper.vm.goPrevious()
     await flushPromises()
 
     expect(wrapper.find('.platform-grid').exists()).toBe(true)
@@ -384,8 +376,8 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
-    await wrapper.find('select').setValue('windows-host')
-    await wrapper.find('.onboarding-panel .gc-button--primary').trigger('click')
+    await wrapper.find('.onboarding-device-card:not(.onboarding-device-card--new)').trigger('click')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     expect(wrapper.text()).toContain('选择业务站点')
@@ -415,7 +407,7 @@ describe('ApplicationOnboardingView', () => {
     await wrapper.find('.platform-card').trigger('click')
     await flushPromises()
     routeMock.query = { session: 'session-cancel', onboarding: '1', keep: '1' }
-    await wrapper.find('.gc-button--ghost').trigger('click')
+    await wrapper.vm.cancel()
     await flushPromises()
 
     expect(onboardingMocks.cancelOnboardingSession).toHaveBeenCalledWith('session-cancel', 1)
@@ -440,6 +432,45 @@ describe('ApplicationOnboardingView', () => {
 
     expect(routerMocks.replace).toHaveBeenCalledWith({ query: { session: 'session-modal', onboarding: '1' } })
     expect(wrapper.find('.onboarding-page__header').exists()).toBe(false)
+  })
+
+  it('模态框把向导操作统一渲染到标准页脚', async () => {
+    const calls = { previous: vi.fn(), primary: vi.fn(), cancel: vi.fn() }
+    const GcModalStub = defineComponent({
+      name: 'GcModal',
+      props: { open: { type: Boolean, default: false } },
+      emits: ['update:open'],
+      template: '<div v-if="open"><slot /><footer class="modal-actions"><slot name="actions" /></footer></div>',
+    })
+    const ApplicationOnboardingViewStub = defineComponent({
+      name: 'ApplicationOnboardingView',
+      emits: ['footer-actions-change'],
+      setup(_, { expose }) {
+        expose({ goPrevious: calls.previous, runFooterPrimary: calls.primary, cancel: calls.cancel })
+        return {}
+      },
+      template: '<button class="publish-actions" type="button" @click="$emit(\'footer-actions-change\', { visible: true, showCancel: true, showPrevious: true, previousDisabled: false, primaryAction: \'RESOURCE\', primaryLabel: \'继续\', primaryDisabled: false })">同步页脚</button>',
+    })
+
+    const wrapper = mount(ApplicationOnboardingModal, {
+      props: { open: true },
+      global: {
+        plugins: [i18n],
+        stubs: { GcModal: GcModalStub, ApplicationOnboardingView: ApplicationOnboardingViewStub },
+      },
+    })
+
+    await wrapper.find('.publish-actions').trigger('click')
+    const footer = wrapper.find('.modal-actions')
+    expect(footer.text()).toContain('取消向导')
+    expect(footer.text()).toContain('上一步')
+    expect(footer.text()).toContain('继续')
+    await footer.find('.gc-button--ghost').trigger('click')
+    await footer.find('.gc-button--secondary').trigger('click')
+    await footer.find('.gc-button--primary').trigger('click')
+    expect(calls.cancel).toHaveBeenCalledTimes(1)
+    expect(calls.previous).toHaveBeenCalledTimes(1)
+    expect(calls.primary).toHaveBeenCalledTimes(1)
   })
 
   it('选择自定义手动创建时向父弹窗发出打开资产创建页事件', async () => {

@@ -5,7 +5,28 @@ import type { AgentsApplicationService } from '../../agents/application/agents.a
 import type { AgentDetailProjection } from '../../agents/dto/agents.dto.js';
 import type { ManagedDeviceDetailDto } from '../dto/devices.dto.js';
 import type { DevicesRepository } from '../repository/devices.repository.js';
-import { DevicesApplicationService } from './devices.application-service.js';
+import { DevicesApplicationService, resolvePluginDeviceFamilies, resolvePluginDeviceFamily } from './devices.application-service.js';
+import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
+
+test('插件设备兼容过滤使用 Manifest 声明的产品族而不是插件 ID', () => {
+  const plugin = {
+    id: 'plugin-version-citrix',
+    pluginId: 'device.citrix.netscaler-adc',
+    manifest: { compatibility: { productFamilies: ['citrix.netscaler-adc'] } },
+  } as unknown as UnifiedPluginVersionRecord;
+
+  assert.equal(resolvePluginDeviceFamily(plugin), 'citrix.netscaler-adc');
+});
+
+test('应用接入向导保留 Manifest 声明的全部兼容产品族', () => {
+  const plugin = {
+    id: 'plugin-version-nginx',
+    pluginId: 'web.nginx',
+    manifest: { compatibility: { productFamilies: ['WINDOWS_SERVER', 'LINUX_SERVER', 'WINDOWS_SERVER'] } },
+  } as unknown as UnifiedPluginVersionRecord;
+
+  assert.deepEqual(resolvePluginDeviceFamilies(plugin), ['WINDOWS_SERVER', 'LINUX_SERVER']);
+});
 
 test('统一设备发现动作会进入 Agent 标准发现流程', async () => {
   const device = {

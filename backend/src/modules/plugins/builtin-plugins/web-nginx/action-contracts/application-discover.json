@@ -1,0 +1,20 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "application.discover.v1",
+  "capability": "application.discover",
+  "actionContractVersion": "v1",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["normalizedObjects"],
+    "properties": {
+      "normalizedObjects": { "type": "array" }
+    },
+    "additionalProperties": true
+  },
+  "writeEffect": false,
+  "hostPermissions": ["agent.fact.collect", "agent.plan.validate", "agent.execution.receipt"]
+}

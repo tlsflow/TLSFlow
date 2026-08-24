@@ -1,0 +1,15 @@
+{
+  "plugin.webNginx.name": "Nginx 應用程式探索",
+  "plugin.webNginx.description": "讀取 Agent 已確認的 Nginx 執行階段事實，並透過統一精靈接入應用程式資產。",
+  "plugin.webNginx.section.identity": "應用程式識別",
+  "plugin.webNginx.section.runtimeFacts": "執行階段事實",
+  "plugin.webNginx.field.productFamily": "產品族",
+  "plugin.webNginx.field.profile": "探索設定檔",
+  "plugin.webNginx.field.version": "軟體版本",
+  "plugin.webNginx.field.service": "服務名稱",
+  "plugin.webNginx.field.programPath": "程式路徑",
+  "plugin.webNginx.field.configFingerprint": "設定指紋",
+  "plugin.webNginx.action.discover": "探索 Nginx",
+  "plugin.webNginx.onboarding.compatibility": "Nginx（版本由 Agent 事實確認）",
+  "plugin.webNginx.onboarding.requiredTarget": "已探索的 Nginx HTTPS 目標"
+}

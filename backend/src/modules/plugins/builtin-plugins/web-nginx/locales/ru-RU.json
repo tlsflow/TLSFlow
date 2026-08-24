@@ -1,0 +1,15 @@
+{
+  "plugin.webNginx.name": "Обнаружение приложения Nginx",
+  "plugin.webNginx.description": "Читает подтвержденные агентом факты среды выполнения Nginx и подключает активы приложения через общий мастер.",
+  "plugin.webNginx.section.identity": "Идентификация приложения",
+  "plugin.webNginx.section.runtimeFacts": "Факты среды выполнения",
+  "plugin.webNginx.field.productFamily": "Семейство продуктов",
+  "plugin.webNginx.field.profile": "Профиль обнаружения",
+  "plugin.webNginx.field.version": "Версия ПО",
+  "plugin.webNginx.field.service": "Имя службы",
+  "plugin.webNginx.field.programPath": "Путь к программе",
+  "plugin.webNginx.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.webNginx.action.discover": "Обнаружить Nginx",
+  "plugin.webNginx.onboarding.compatibility": "Nginx (версия подтверждена фактами агента)",
+  "plugin.webNginx.onboarding.requiredTarget": "Обнаруженная HTTPS-цель Nginx"
+}

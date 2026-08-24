@@ -1,0 +1,40 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "web.nginx",
+  "version": "1.0.15",
+  "profiles": [
+    {
+      "id": "linux.agent_facts",
+      "pluginId": "web.nginx",
+      "version": "1.0.15",
+      "sources": ["linux"],
+      "pathMode": "observed",
+      "processExecutables": ["nginx"],
+      "serviceNames": ["nginx"],
+      "configArgKeys": ["-c"],
+      "rootArgKeys": ["-p"],
+      "configFileNames": ["nginx.conf", "*.conf"],
+      "certificateFileExtensions": [".cer", ".crt", ".der", ".pem"],
+      "listeningPorts": [80, 443],
+      "frameworkType": "web.nginx",
+      "parserKind": "nginx"
+    },
+    {
+      "id": "windows.agent_facts",
+      "pluginId": "web.nginx",
+      "version": "1.0.15",
+      "sources": ["windows"],
+      "pathMode": "observed",
+      "processExecutables": ["nginx.exe", "nginx"],
+      "serviceNames": ["nginx"],
+      "configArgKeys": ["-c"],
+      "rootArgKeys": ["-p"],
+      "configFileNames": ["nginx.conf", "*.conf"],
+      "certificateFileExtensions": [".cer", ".crt", ".der", ".pem"],
+      "listeningPorts": [80, 443],
+      "frameworkType": "web.nginx",
+      "parserKind": "nginx"
+    }
+  ]
+}
