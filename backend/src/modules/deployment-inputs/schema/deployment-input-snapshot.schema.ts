@@ -4,9 +4,11 @@ export function readDeploymentInputSnapshotV1(value: unknown): DeploymentInputSn
   if (!isRecord(value)) return undefined;
   if (value.apiVersion !== 'gcac.deployment-input-snapshot/v1' || value.snapshotVersion !== 1) return undefined;
   if (typeof value.resolvedAt !== 'string' || typeof value.contractVersion !== 'string') return undefined;
+  if (!isRecord(value.contract) || !isRecord(value.effectiveBinding)) return undefined;
   if (!isRecord(value.identity) || !isRecord(value.input) || !isRecord(value.sources)) return undefined;
   if (!Array.isArray(value.sensitivePaths) || !Array.isArray(value.issues)) return undefined;
   if (typeof value.executable !== 'boolean' || typeof value.resolvedSha256 !== 'string') return undefined;
+  if (!isRecord(value.resolvedInput) || value.resolvedInput.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
   if (!isRecord(value.redaction)
     || typeof value.redaction.sensitivePathCount !== 'number'
     || typeof value.redaction.genericRuleMatchCount !== 'number') return undefined;

@@ -616,6 +616,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(snapshots.items[0]?.snapshot.resolvedSha256, preflight.resolvedSha256);
   assert.equal(snapshots.items[0]?.snapshot.identity.pluginVersionId, plan.targets[0]?.strategyPayload?.pluginRuntimeCapability?.pluginVersionId);
   assert.equal(JSON.stringify(snapshots.items).includes(chain.privateKeyPem), false);
+  assert.equal(JSON.stringify(snapshots.items).includes('secretRefs'), false);
 
   const updatedResponse = await app.inject({
     method: 'POST',
@@ -654,6 +655,13 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal((updateAudit?.detail as any)?.deploymentInputSnapshots?.[0]?.snapshotId, latestSnapshotRef?.snapshotId);
   assert.equal(JSON.stringify(planAudits).includes(chain.privateKeyPem), false);
 
+  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+    certificatePath: '/etc/nginx/certs/changed-after-plan.pem',
+    privateKeyPath: '/etc/nginx/certs/changed-after-plan.key',
+    nginxProgram: '/usr/bin/nginx',
+    serviceName: 'nginx-changed-after-plan',
+  });
+
   const submitted = await app.inject({
     method: 'POST',
     path: '/api/v1/deployment-plans/submit',
@@ -681,6 +689,10 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.apiVersion, 'gcac.resolved-deployment-input/v1');
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.executable, true);
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.resolvedSha256, preflight.resolvedSha256);
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.certificatePath, '/etc/nginx/certs/nginx-asset.pem');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.privateKeyPath, '/etc/nginx/certs/nginx-asset.key');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.nginxProgram, '/usr/sbin/nginx');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.variables.serviceName, 'nginx');
   assert.deepEqual(atomicStep!.inputSnapshot.deploymentInputSnapshotRef, latestSnapshotRef);
   assert.equal(atomicStep!.inputSnapshot.pluginExecutionContext, undefined);
 });

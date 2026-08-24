@@ -22,18 +22,24 @@ test('部署输入快照按敏感路径和通用字段双重脱敏并保留来�
     resolvedSha256: 'a'.repeat(64),
   } as any;
 
+  const contract = { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } as any;
+  const effectiveBinding = { inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }, provenance: {} } as any;
   const snapshot = new DeploymentInputSnapshotService().build(resolved, {
     assignmentId: 'assignment-1',
     pluginVersionId: 'plugin-version-1',
     pluginBindingId: 'binding-1',
-  }, '2026-07-30T00:00:00.000Z');
+  }, contract, effectiveBinding, '2026-07-30T00:00:00.000Z');
 
   assert.equal(snapshot.apiVersion, 'gcac.deployment-input-snapshot/v1');
   assert.match(String(snapshot.input.variables.password), /^\[REDACTED/);
   assert.equal(snapshot.input.credentials.management, '[REDACTED]');
   assert.match(String((snapshot.input.artifacts.certificate as any).outputs.privateKey), /^\[REDACTED/);
   assert.match(String(snapshot.input.variables.pfxBase64), /^\[REDACTED/);
-  assert.equal(JSON.stringify(snapshot).includes(secret), false);
+  assert.equal(JSON.stringify(snapshot.input).includes(secret), false);
+  assert.equal(snapshot.resolvedInput.credentials.management?.secretRefs?.password, secret);
+  assert.equal((snapshot.resolvedInput.artifacts.certificate.outputs as any).privateKey, secret);
+  assert.deepEqual(snapshot.contract, contract);
+  assert.deepEqual(snapshot.effectiveBinding, effectiveBinding);
   assert.deepEqual(snapshot.identity, { assignmentId: 'assignment-1', pluginVersionId: 'plugin-version-1', pluginBindingId: 'binding-1' });
   assert.equal(snapshot.sources['variables.target']?.bindingLayer, 'APPLICATION_ASSET');
   assert.equal(snapshot.redaction.sensitivePathCount, 3);

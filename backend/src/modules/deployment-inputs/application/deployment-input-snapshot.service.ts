@@ -5,6 +5,8 @@ import type {
   RedactedDeploymentInputV1,
 } from '../dto/deployment-input-snapshot.dto.js';
 import type { ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
+import type { DeploymentInputContractV1 } from '../dto/deployment-input-contract.dto.js';
+import type { EffectiveInputBindingV1 } from '../domain/deployment-input-provenance.js';
 
 const REDACTED_VALUE = '[REDACTED]';
 
@@ -14,6 +16,8 @@ export class DeploymentInputSnapshotService {
   build(
     resolved: ResolvedDeploymentInputV1,
     identity: DeploymentInputSnapshotIdentityV1,
+    contract: DeploymentInputContractV1,
+    effectiveBinding: EffectiveInputBindingV1,
     resolvedAt = new Date().toISOString(),
   ): DeploymentInputSnapshotV1 {
     const input: RedactedDeploymentInputV1 = structuredClone({
@@ -34,6 +38,8 @@ export class DeploymentInputSnapshotService {
       snapshotVersion: 1,
       resolvedAt,
       contractVersion: resolved.contractVersion,
+      contract: structuredClone(contract),
+      effectiveBinding: structuredClone(effectiveBinding),
       identity: compactIdentity(identity),
       input: genericRedaction.value,
       sources: structuredClone(resolved.provenance),
@@ -41,6 +47,7 @@ export class DeploymentInputSnapshotService {
       issues: structuredClone(resolved.issues),
       executable: resolved.executable,
       resolvedSha256: resolved.resolvedSha256,
+      resolvedInput: structuredClone(resolved),
       redaction: {
         sensitivePathCount: resolved.sensitivePaths.length,
         genericRuleMatchCount: genericRedaction.matches.length,

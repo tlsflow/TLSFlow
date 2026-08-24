@@ -23,6 +23,8 @@ test('部署输入快照迁移后可查询且数据库拒绝更新和删除', as
       snapshotVersion: 1,
       resolvedAt: '2026-07-30T00:00:00.000Z',
       contractVersion: 'gcac.deployment-input/v1',
+      contract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} },
+      effectiveBinding: { inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }, provenance: {} },
       identity: { pluginVersionId: 'plugin-version-1' },
       input: { assetContext: {} as any, variables: {}, connections: {}, credentials: {}, artifacts: {} },
       sources: {},
@@ -30,6 +32,13 @@ test('部署输入快照迁移后可查询且数据库拒绝更新和删除', as
       issues: [],
       executable: true,
       resolvedSha256: 'a'.repeat(64),
+      resolvedInput: {
+        apiVersion: 'gcac.resolved-deployment-input/v1',
+        contractVersion: 'gcac.deployment-input/v1',
+        assetContext: {} as any,
+        variables: {}, connections: {}, credentials: {}, artifacts: {}, provenance: {}, sensitivePaths: [], issues: [], executable: true,
+        resolvedSha256: 'a'.repeat(64),
+      },
       redaction: { sensitivePathCount: 0, genericRuleMatchCount: 0 },
     },
   };

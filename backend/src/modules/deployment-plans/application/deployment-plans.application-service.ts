@@ -53,6 +53,8 @@ import { DeploymentInputContractLoader } from '../../deployment-inputs/applicati
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { ResolveDeploymentInputPhase, ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+import type { EffectiveInputBindingV1 } from '../../deployment-inputs/domain/deployment-input-provenance.js';
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import { DeploymentInputSnapshotService } from '../../deployment-inputs/application/deployment-input-snapshot.service.js';
 import { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
@@ -72,6 +74,12 @@ type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   strategyPayload?: Record<string, unknown>;
   deploymentInputSnapshotDraft?: DeploymentInputSnapshotV1;
 };
+
+interface ResolvedDeploymentInputMaterial {
+  contract: DeploymentInputContractV1;
+  effectiveBinding: EffectiveInputBindingV1;
+  resolvedInput: ResolvedDeploymentInputV1;
+}
 
 interface ResolvedCreatePlanInput {
   certificateVersionId: string;
@@ -202,7 +210,10 @@ export class DeploymentPlansApplicationService {
     if (!this.deploymentInputSnapshots) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入快照仓储未接入', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_REPOSITORY_MISSING' });
     }
-    return this.deploymentInputSnapshots.listByPlan(tenantId, planId);
+    return (await this.deploymentInputSnapshots.listByPlan(tenantId, planId)).map((entity) => ({
+      ...entity,
+      snapshot: { ...entity.snapshot, resolvedInput: redactedResolvedInput(entity.snapshot.resolvedInput) },
+    }));
   }
 
   async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -711,7 +722,7 @@ export class DeploymentPlansApplicationService {
       bindingLayers: { assetOverride: { pluginVersionId: workflowVersionId, inputBindings: binding.inputBindings } },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
     }).effectiveBinding;
-    const resolvedInput = await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context);
+    const resolvedInput = (await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context)).resolvedInput;
     const materializedAsset: ServiceAssetDto = {
       ...asset,
       deploymentStrategy: {
@@ -904,12 +915,16 @@ export class DeploymentPlansApplicationService {
       strategyPayload?: Record<string, unknown>;
     },
     artifact: DeploymentArtifactSnapshotDto,
-  ): Promise<ResolvedDeploymentInputV1 | undefined> {
+  ): Promise<ResolvedDeploymentInputMaterial | undefined> {
     const strategyPayload = target.strategyPayload ?? {};
     const runtimeCapability = readRecord(strategyPayload.pluginRuntimeCapability);
     if (!runtimeCapability) {
       const workflowRequest = readRecord(strategyPayload.workflowRequest);
-      if (!workflowRequest) return readResolvedDeploymentInputV1(strategyPayload.resolvedDeploymentInput);
+      if (!workflowRequest) {
+        const resolvedInput = readResolvedDeploymentInputV1(strategyPayload.resolvedDeploymentInput);
+        if (!resolvedInput) return undefined;
+        throw new AppError('VALIDATION_FAILED', '部署目标缺少可重放的完整输入材料', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID' });
+      }
       const executionSource = readRecord(strategyPayload.executionSource);
       const workflowBindingId = readOptionalString(executionSource?.workflowExecutionBindingId);
       const workflowVersionId = readOptionalString(executionSource?.workflowVersionId)
@@ -988,7 +1003,9 @@ export class DeploymentPlansApplicationService {
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
       artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact),
     };
-    return phase === 'configure' ? this.deploymentInputResolver.resolveResult(request) : this.deploymentInputResolver.resolve(request);
+    const projection = this.deploymentInputResolver.resolveProjectionResult(request);
+    const resolvedInput = phase === 'configure' ? projection.resolvedInput : this.deploymentInputResolver.resolve(request);
+    return { contract, effectiveBinding: projection.effectiveBinding, resolvedInput };
   }
 
   private async resolveWorkflowBindingDeploymentInput(
@@ -999,7 +1016,7 @@ export class DeploymentPlansApplicationService {
     asset: ServiceAssetDto,
     context?: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     artifact?: DeploymentArtifactSnapshotDto,
-  ): Promise<ResolvedDeploymentInputV1> {
+  ): Promise<ResolvedDeploymentInputMaterial> {
     if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
     const version = await this.workflows.getVersion(workflowVersionId);
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(version);
@@ -1016,7 +1033,9 @@ export class DeploymentPlansApplicationService {
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
       artifactSnapshots: artifact ? artifactSnapshotsFromDeploymentArtifact(artifact) : undefined,
     };
-    return phase === 'configure' ? this.deploymentInputResolver.resolveResult(request) : this.deploymentInputResolver.resolve(request);
+    const projection = this.deploymentInputResolver.resolveProjectionResult(request);
+    const resolvedInput = phase === 'configure' ? projection.resolvedInput : this.deploymentInputResolver.resolve(request);
+    return { contract, effectiveBinding: projection.effectiveBinding, resolvedInput };
   }
 
   private async snapshotCredentials(tenantId: string, bindings: Record<string, { credentialId: string }>) {
@@ -1217,7 +1236,7 @@ export class DeploymentPlansApplicationService {
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
       deploymentArtifactByTargetId,
-      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId, 'execute'),
+      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId),
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
@@ -1239,7 +1258,7 @@ export class DeploymentPlansApplicationService {
     const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
     plan = effective.plan;
     const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);
-    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId, 'preflight');
+    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId, effective.certificateVersionId);
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1440,12 +1459,15 @@ export class DeploymentPlansApplicationService {
       createdBy: input.actorId,
       version: 1,
     }, certificateVersionId, input.certificateFormatId, input.tenantId);
-    const resolvedInput = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact);
-    if (resolvedInput) {
+    const resolvedMaterial = await this.resolveTargetDeploymentInput('preflight', input.tenantId!, target, artifact);
+    if (resolvedMaterial) {
+      const { resolvedInput, contract, effectiveBinding } = resolvedMaterial;
       const { resolvedDeploymentInput: _runtimeOnlyInput, ...safeStrategyPayload } = target.strategyPayload ?? {};
       target.deploymentInputSnapshotDraft = this.deploymentInputSnapshotService.build(
         resolvedInput,
         deploymentInputSnapshotIdentity(safeStrategyPayload),
+        contract,
+        effectiveBinding,
         now,
       );
       target.strategyPayload = {
@@ -1747,7 +1769,6 @@ export class DeploymentPlansApplicationService {
     targets: DeploymentPlanTargetEntity[],
     deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
     effectiveCertificateVersionId = plan.certificateVersionId,
-    phase: 'preflight' | 'execute' = 'execute',
   ): Promise<Map<string, Record<string, unknown>>> {
     const output = new Map<string, Record<string, unknown>>();
     for (const target of targets) {
@@ -1756,7 +1777,7 @@ export class DeploymentPlansApplicationService {
       if (!artifact) continue;
       const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
       const payload = await this.buildAgentPayloadForTarget({ ...target, strategyPayload }, artifact, plan.tenantId);
-      const resolvedInput = await this.resolveTargetDeploymentInput(phase, target.tenantId ?? plan.tenantId!, { ...target, strategyPayload }, artifact);
+      const resolvedInput = await this.readTargetDeploymentInputSnapshot(target, target.tenantId ?? plan.tenantId!);
       if (payload || resolvedInput || Object.keys(strategyPayload).length > 0) {
         output.set(target.id, {
           ...strategyPayload,
@@ -1766,6 +1787,22 @@ export class DeploymentPlansApplicationService {
       }
     }
     return output;
+  }
+
+  private async readTargetDeploymentInputSnapshot(target: DeploymentPlanTargetEntity, tenantId: string): Promise<ResolvedDeploymentInputV1 | undefined> {
+    const ref = readRecord(target.strategyPayload?.deploymentInputSnapshotRef);
+    const snapshotId = readOptionalString(ref?.snapshotId);
+    if (!snapshotId) return undefined;
+    if (!this.deploymentInputSnapshots) throw new AppError('SYSTEM_INTERNAL_ERROR', '部署输入快照仓储未接入', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_REPOSITORY_MISSING' });
+    const entity = await this.deploymentInputSnapshots.get(tenantId, snapshotId);
+    if (!entity || entity.deploymentPlanTargetId !== target.id) {
+      throw new AppError('VALIDATION_FAILED', '部署输入快照不存在或目标不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId, deploymentPlanTargetId: target.id });
+    }
+    const expectedHash = readOptionalString(ref?.resolvedSha256);
+    if (expectedHash !== entity.snapshot.resolvedSha256 || entity.snapshot.resolvedInput.resolvedSha256 !== entity.snapshot.resolvedSha256) {
+      throw new AppError('VALIDATION_FAILED', '部署输入快照摘要不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId });
+    }
+    return structuredClone(entity.snapshot.resolvedInput);
   }
 
   private async resolveEffectivePlanMaterial(
@@ -2530,6 +2567,25 @@ function throwDeploymentPreflightError(issues: DeploymentPreflightIssue[]): neve
     code: 'DEPLOYMENT_PREFLIGHT_FAILED',
     issues,
   });
+}
+
+function redactedResolvedInput(input: ResolvedDeploymentInputV1): ResolvedDeploymentInputV1 {
+  const redacted = structuredClone(input);
+  for (const slot of Object.keys(redacted.credentials)) redacted.credentials[slot] = { credentialId: redacted.credentials[slot]?.credentialId ?? '[REDACTED]' };
+  for (const path of redacted.sensitivePaths) redactResolvedPath(redacted as unknown as Record<string, unknown>, path);
+  return redacted;
+}
+
+function redactResolvedPath(root: Record<string, unknown>, path: string): void {
+  const segments = path.split('.').filter(Boolean);
+  let current: unknown = root;
+  for (const segment of segments.slice(0, -1)) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  if (!current || typeof current !== 'object' || Array.isArray(current)) return;
+  const leaf = segments.at(-1);
+  if (leaf && Object.prototype.hasOwnProperty.call(current, leaf)) (current as Record<string, unknown>)[leaf] = '[REDACTED]';
 }
 
 function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
