@@ -4,6 +4,7 @@ import type {
   ManagedDeviceDetailDto,
   ManagedDeviceListQuery,
   ManagedDevicePageDto,
+  ManagedDeviceSiteDto,
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
 import {
@@ -43,10 +44,16 @@ export class PgDevicesRepository implements DevicesRepository {
   }
 
   async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined> {
-    const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and host.id = $2`, [tenantId, deviceId])).rows[0];
+    const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and (host.id = $2 or host.agent_id = $2)`, [tenantId, deviceId])).rows[0];
     if (!row) return undefined;
     const summary = this.projectionRegistry.project(toProjectionSource(row));
-    const resources = row.device_asset_id ? await this.getNetworkDeviceResources(tenantId, row.device_asset_id) : undefined;
+    const [managedSites, resources] = await Promise.all([
+      this.getManagedSites(tenantId, row.agent_id, row.device_asset_id),
+      row.device_asset_id ? this.getNetworkDeviceResources(tenantId, row.device_asset_id) : Promise.resolve(undefined),
+    ]);
+    const sites = resources ? mergeNetworkSites(managedSites, resources.sites) : managedSites;
+    const certificates = resources?.certificates ?? collectSiteCertificates(sites);
+    const updatedAt = String(row.updated_at);
     return {
       ...summary,
       statusReason: row.last_error_code ?? undefined,
@@ -57,8 +64,26 @@ export class PgDevicesRepository implements DevicesRepository {
         hostname: row.hostname ?? undefined,
         osType: row.os_type,
         managementMode: row.management_mode,
-        updatedAt: String(row.updated_at),
+        updatedAt,
       },
+      overview: {
+        deviceId: summary.id,
+        displayName: summary.displayName,
+        deviceType: summary.extensionType === 'AGENT' ? 'AGENT' : row.device_family ?? 'NETWORK_APPLIANCE',
+        productFamily: summary.productFamily,
+        managementMode: row.management_mode,
+        status: summary.health,
+        updatedAt,
+      },
+      informationSections: buildInformationSections(row, summary, updatedAt, resources),
+      sites,
+      certificates,
+      logs: resources?.logs ?? [],
+      extension: summary.extensionType === 'AGENT'
+        ? { type: 'AGENT', agentId: row.agent_id ?? '' }
+        : row.device_family?.toUpperCase().includes('NETSCALER') || row.device_family?.toUpperCase().includes('CITRIX') || row.device_family?.toUpperCase().includes('ADC')
+          ? { type: 'CITRIX_ADC', deviceAssetId: row.device_asset_id ?? '', deviceFamily: row.device_family }
+          : { type: 'GENERIC', rawType: row.device_family ?? undefined },
       extensionSummary: summary.extensionType === 'AGENT'
         ? { agentId: row.agent_id, descriptor: asRecord(asRecord(row.agent_payload).descriptor) }
         : {
@@ -88,20 +113,27 @@ export class PgDevicesRepository implements DevicesRepository {
         [tenantId, deviceAssetId],
       ),
       this.db.query<DeviceCertificateResourceRow>(
-        `select id, certkey_name, subject, issuer, not_before, not_after, remote_status
-         from pg_device_certificate_resources
-         where tenant_id=$1 and device_asset_id=$2 and deleted_at is null
-         order by certkey_name`,
+        `select resource.id, resource.certkey_name, resource.subject, resource.issuer,
+                resource.not_before, resource.not_after, resource.remote_status, resource.fingerprint_sha256,
+                version.id as certificate_version_id, version.certificate_asset_id
+         from pg_device_certificate_resources resource
+         left join pg_certificate_versions version
+           on version.fingerprint_sha256=resource.fingerprint_sha256
+         where resource.tenant_id=$1 and resource.device_asset_id=$2 and resource.deleted_at is null
+         order by resource.certkey_name`,
         [tenantId, deviceAssetId],
       ),
       this.db.query<DeviceCertificateBindingRow>(
-        `select binding.id, virtual_server.virtual_server_type, virtual_server.virtual_server_name,
-                certificate.certkey_name, certificate.subject, certificate.issuer,
-                certificate.not_before, certificate.not_after, certificate.remote_status,
-                binding.sni_certificate
-         from pg_device_certificate_bindings binding
-         join pg_device_virtual_servers virtual_server on virtual_server.id=binding.virtual_server_id
-         join pg_device_certificate_resources certificate on certificate.id=binding.certificate_resource_id
+         `select binding.id, virtual_server.virtual_server_type, virtual_server.virtual_server_name,
+                 certificate.certkey_name, certificate.subject, certificate.issuer,
+                 certificate.not_before, certificate.not_after, certificate.remote_status,
+                 certificate.fingerprint_sha256, version.id as certificate_version_id,
+                 version.certificate_asset_id, binding.sni_certificate
+          from pg_device_certificate_bindings binding
+          join pg_device_virtual_servers virtual_server on virtual_server.id=binding.virtual_server_id
+          join pg_device_certificate_resources certificate on certificate.id=binding.certificate_resource_id
+          left join pg_certificate_versions version
+            on version.fingerprint_sha256=certificate.fingerprint_sha256
          where binding.tenant_id=$1 and binding.device_asset_id=$2 and binding.deleted_at is null
          order by virtual_server.virtual_server_name, certificate.certkey_name`,
         [tenantId, deviceAssetId],
@@ -160,7 +192,141 @@ export class PgDevicesRepository implements DevicesRepository {
         detail: item.payload.detail,
         createdAt: item.payload.createdAt,
       })),
+      certificates: certificateResources.rows.map((item) => ({
+        id: item.id,
+        certificateAssetId: item.certificate_asset_id ?? undefined,
+        certificateVersionId: item.certificate_version_id ?? undefined,
+        name: item.certkey_name,
+        subject: item.subject ?? undefined,
+        issuer: item.issuer ?? undefined,
+        notBefore: optionalTimestamp(item.not_before),
+        notAfter: optionalTimestamp(item.not_after),
+        fingerprintSha256: item.fingerprint_sha256 ?? undefined,
+        status: item.remote_status ?? undefined,
+      })),
+      sites: virtualServers.rows
+        .filter((item) => item.virtual_server_type === 'LB' || item.virtual_server_type === 'VPN')
+        .map((item) => ({
+          id: item.id,
+          siteAssetId: item.id,
+          kind: item.virtual_server_type as 'LB' | 'VPN',
+          name: item.virtual_server_name,
+          status: item.runtime_state ?? undefined,
+          endpoint: {
+            address: item.address ?? undefined,
+            hostName: Array.isArray(item.sni_names) ? String(item.sni_names[0] ?? '') || undefined : undefined,
+            port: item.port ?? undefined,
+            protocol: item.protocol ?? undefined,
+          },
+          bindings: certificateBindings.rows
+            .filter((binding) => binding.virtual_server_type === item.virtual_server_type && binding.virtual_server_name === item.virtual_server_name)
+            .map((binding) => ({
+              id: binding.id,
+              bindingKey: `${binding.virtual_server_type}:${binding.virtual_server_name}:${binding.certkey_name}`,
+              bindingType: binding.sni_certificate ? 'SNI' : 'DEFAULT',
+              status: binding.remote_status ?? 'ACTIVE',
+              certificate: {
+                certificateAssetId: binding.certificate_asset_id ?? undefined,
+                certificateVersionId: binding.certificate_version_id ?? undefined,
+                name: binding.certkey_name,
+                subject: binding.subject ?? undefined,
+                issuer: binding.issuer ?? undefined,
+                notBefore: optionalTimestamp(binding.not_before),
+                notAfter: optionalTimestamp(binding.not_after),
+                fingerprintSha256: binding.fingerprint_sha256 ?? undefined,
+                status: binding.remote_status ?? undefined,
+              },
+              replacement: { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
+            })),
+          metadata: { virtualServerType: item.virtual_server_type, sniNames: item.sni_names },
+        })),
+      logs: deviceLogs.rows.map((item) => ({
+        id: item.document_id,
+        eventType: item.payload.eventType ?? item.payload.action ?? 'device.event',
+        result: item.payload.result,
+        summary: typeof item.payload.detail === 'string' ? item.payload.detail : item.payload.action,
+        occurredAt: item.payload.createdAt ?? new Date(0).toISOString(),
+        actorId: item.payload.actorId,
+        metadata: {
+          action: item.payload.action,
+          riskLevel: item.payload.riskLevel,
+          requestId: item.payload.requestId,
+        },
+      })),
     };
+  }
+
+  private async getManagedSites(tenantId: string, agentId: string | null, deviceAssetId: string | null): Promise<ManagedDeviceSiteDto[]> {
+    const rows = (await this.db.query<ManagedSiteRow>(
+      `select site.id, site.provider_type, site.site_name, site.binding_information, site.host_header,
+              site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
+              target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
+              binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
+              binding.status as binding_status, binding.certificate_version_id,
+               version.common_name, version.subject as certificate_subject, version.issuer as certificate_issuer,
+               version.not_before, version.not_after, version.fingerprint_sha256, version.status as certificate_status,
+               version.certificate_asset_id, asset.name as certificate_name
+       from pg_site_assets site
+       left join pg_managed_targets target
+         on target.tenant_id=site.tenant_id and target.site_asset_id=site.id and target.deleted_at is null
+       left join pg_certificate_bindings binding
+         on binding.tenant_id=site.tenant_id and binding.deleted_at is null
+        and (binding.site_asset_id=site.id or (target.id is not null and binding.managed_target_id=target.id))
+       left join pg_certificate_versions version on version.id=binding.certificate_version_id
+       left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
+       where site.tenant_id=$1 and site.deleted_at is null
+         and (($2::text is not null and site.agent_id=$2)
+           or ($3::text is not null and site.metadata->>'deviceAssetId'=$3))
+       order by site.site_name, binding.binding_key`,
+      [tenantId, agentId, deviceAssetId],
+    )).rows;
+    const sites = new Map<string, ManagedDeviceSiteDto>();
+    for (const row of rows) {
+      const kind = siteKind(row.provider_type, row.metadata);
+      if (!kind) continue;
+      const existing = sites.get(row.id) ?? {
+        id: row.id,
+        siteAssetId: row.id,
+        managedTargetId: row.managed_target_id ?? undefined,
+        kind,
+        name: row.site_name,
+        status: row.runtime_status ?? row.status,
+        endpoint: {
+          address: row.listen_ip ?? undefined,
+          hostName: row.host_header ?? undefined,
+          port: row.port ?? undefined,
+          protocol: row.protocol ?? undefined,
+        },
+        configPath: row.config_path ?? undefined,
+        bindings: [],
+        metadata: asRecord(row.metadata),
+      } satisfies ManagedDeviceSiteDto;
+      if (row.binding_id && !existing.bindings.some((binding) => binding.id === row.binding_id)) {
+        existing.bindings.push({
+          id: row.binding_id,
+          bindingKey: row.binding_key ?? row.target_binding_key ?? row.binding_id,
+          bindingType: row.binding_type ?? 'UNKNOWN',
+          hostName: row.domain_name ?? undefined,
+          status: row.binding_status ?? 'UNKNOWN',
+          certificate: row.certificate_version_id ? {
+            certificateAssetId: row.certificate_asset_id ?? undefined,
+            certificateVersionId: row.certificate_version_id,
+            name: row.certificate_name ?? row.common_name ?? undefined,
+            subject: distinguishedName(row.certificate_subject),
+            issuer: distinguishedName(row.certificate_issuer),
+            notBefore: optionalTimestamp(row.not_before),
+            notAfter: optionalTimestamp(row.not_after),
+            fingerprintSha256: row.fingerprint_sha256 ?? undefined,
+            status: row.certificate_status ?? undefined,
+          } : undefined,
+          replacement: row.managed_target_id && row.target_status === 'ACTIVE'
+            ? { allowed: true, managedTargetId: row.managed_target_id }
+            : { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
+        });
+      }
+      sites.set(row.id, existing);
+    }
+    return [...sites.values()];
   }
 }
 
@@ -279,6 +445,9 @@ interface DeviceCertificateResourceRow extends Record<string, unknown> {
   not_before: string | null;
   not_after: string | null;
   remote_status: string | null;
+  fingerprint_sha256: string | null;
+  certificate_version_id: string | null;
+  certificate_asset_id: string | null;
 }
 
 interface DeviceCertificateBindingRow extends Record<string, unknown> {
@@ -291,6 +460,9 @@ interface DeviceCertificateBindingRow extends Record<string, unknown> {
   not_before: string | null;
   not_after: string | null;
   remote_status: string | null;
+  fingerprint_sha256: string | null;
+  certificate_version_id: string | null;
+  certificate_asset_id: string | null;
   sni_certificate: boolean;
 }
 
@@ -306,6 +478,39 @@ interface DeviceLogRow extends Record<string, unknown> {
     detail?: unknown;
     createdAt?: string;
   };
+}
+
+interface ManagedSiteRow extends Record<string, unknown> {
+  id: string;
+  provider_type: string;
+  site_name: string;
+  binding_information: string | null;
+  host_header: string | null;
+  listen_ip: string | null;
+  port: number | null;
+  protocol: string | null;
+  config_path: string | null;
+  runtime_status: string | null;
+  status: string;
+  metadata: Record<string, unknown> | null;
+  managed_target_id: string | null;
+  target_binding_key: string | null;
+  target_status: string | null;
+  binding_id: string | null;
+  binding_key: string | null;
+  binding_type: string | null;
+  domain_name: string | null;
+  binding_status: string | null;
+  certificate_version_id: string | null;
+  certificate_asset_id: string | null;
+  common_name: string | null;
+  certificate_subject: unknown;
+  certificate_issuer: unknown;
+  not_before: string | null;
+  not_after: string | null;
+  fingerprint_sha256: string | null;
+  certificate_status: string | null;
+  certificate_name: string | null;
 }
 
 function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSource {
@@ -360,4 +565,89 @@ function asRecord(value: unknown): Record<string, unknown> {
 function optionalTimestamp(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function siteKind(providerType: string, metadata: unknown): ManagedDeviceSiteDto['kind'] | undefined {
+  const provider = providerType.toUpperCase();
+  if (provider === 'IIS') return 'IIS';
+  if (provider === 'NGINX') return 'NGINX';
+  if (provider === 'APACHE') return 'APACHE';
+  if (provider === 'TOMCAT') return 'TOMCAT';
+  const virtualServerType = String(asRecord(metadata).virtualServerType ?? '').toUpperCase();
+  return virtualServerType === 'LB' || virtualServerType === 'VPN' ? virtualServerType : undefined;
+}
+
+function distinguishedName(value: unknown): string | undefined {
+  if (typeof value === 'string') return value || undefined;
+  const record = asRecord(value);
+  const commonName = record.commonName ?? record.CN ?? record.cn;
+  if (commonName) return `CN=${String(commonName)}`;
+  const entries = Object.entries(record).filter(([, entry]) => entry !== undefined && entry !== null && entry !== '');
+  return entries.length ? entries.map(([key, entry]) => `${key}=${String(entry)}`).join(', ') : undefined;
+}
+
+function mergeNetworkSites(managedSites: ManagedDeviceSiteDto[], discoveredSites: ManagedDeviceSiteDto[]): ManagedDeviceSiteDto[] {
+  if (!managedSites.length) return discoveredSites;
+  return managedSites.map((site) => {
+    const virtualServerType = String(site.metadata.virtualServerType ?? site.kind).toUpperCase();
+    const virtualServerName = String(site.metadata.virtualServerName ?? site.name);
+    const discovered = discoveredSites.find((item) => item.kind === virtualServerType && item.name === virtualServerName);
+    return discovered ? {
+      ...site,
+      status: discovered.status ?? site.status,
+      endpoint: discovered.endpoint ?? site.endpoint,
+      bindings: discovered.bindings.map((binding) => ({
+        ...binding,
+        replacement: site.managedTargetId
+          ? { allowed: true, managedTargetId: site.managedTargetId }
+          : binding.replacement,
+      })),
+    } : site;
+  });
+}
+
+function collectSiteCertificates(sites: ManagedDeviceSiteDto[]) {
+  const certificates = new Map<string, NonNullable<ManagedDeviceSiteDto['bindings'][number]['certificate']> & { id: string }>();
+  for (const site of sites) {
+    for (const binding of site.bindings) {
+      const certificate = binding.certificate;
+      if (!certificate) continue;
+      const id = certificate.certificateVersionId ?? certificate.fingerprintSha256 ?? certificate.name ?? binding.id;
+      certificates.set(id, { id, ...certificate });
+    }
+  }
+  return [...certificates.values()];
+}
+
+function buildInformationSections(
+  row: ManagedDeviceRow,
+  summary: ManagedDeviceSummaryDto,
+  updatedAt: string,
+  resources: Awaited<ReturnType<PgDevicesRepository['getNetworkDeviceResources']>> | undefined,
+) {
+  const common = {
+    key: 'common',
+    fields: [
+      { key: 'hostname', value: row.hostname, valueType: 'TEXT' as const, copyable: true },
+      { key: 'osType', value: row.os_type, valueType: 'TEXT' as const },
+      { key: 'managementMode', value: row.management_mode, valueType: 'TEXT' as const },
+      { key: 'updatedAt', value: updatedAt, valueType: 'DATETIME' as const },
+    ],
+  };
+  if (summary.extensionType === 'AGENT') return [common];
+  return [common, {
+    key: 'networkAppliance',
+    fields: [
+      { key: 'deviceFamily', value: row.device_family, valueType: 'TEXT' as const },
+      { key: 'managementAddress', value: row.device_address, valueType: 'TEXT' as const, copyable: true },
+      { key: 'managementPort', value: row.management_port, valueType: 'NUMBER' as const },
+      { key: 'authMode', value: row.auth_mode, valueType: 'TEXT' as const },
+      { key: 'tlsVerify', value: row.tls_verify, valueType: 'BOOLEAN' as const },
+      { key: 'softwareVersion', value: row.software_version, valueType: 'TEXT' as const },
+      { key: 'softwareBuild', value: row.software_build, valueType: 'TEXT' as const },
+      { key: 'supportTier', value: row.support_tier, valueType: 'STATUS' as const },
+      { key: 'virtualServerCount', value: resources?.virtualServers.length ?? 0, valueType: 'NUMBER' as const },
+      { key: 'certificateCount', value: resources?.certificateResources.length ?? 0, valueType: 'NUMBER' as const },
+    ],
+  }];
 }

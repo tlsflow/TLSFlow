@@ -33,6 +33,94 @@ export interface ManagedDevicePageDto {
   total: number;
 }
 
+export type ManagedDeviceInformationValueType = 'TEXT' | 'STATUS' | 'DATETIME' | 'BOOLEAN' | 'NUMBER';
+export type ManagedDeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN';
+
+export interface ManagedDeviceOverviewDto {
+  deviceId: string;
+  displayName: string;
+  deviceType: string;
+  productFamily?: string;
+  managementMode: string;
+  status: string;
+  updatedAt: string;
+}
+
+export interface ManagedDeviceInformationFieldDto {
+  key: string;
+  value: string | number | boolean | null;
+  valueType: ManagedDeviceInformationValueType;
+  copyable?: boolean;
+}
+
+export interface ManagedDeviceInformationSectionDto {
+  key: string;
+  fields: ManagedDeviceInformationFieldDto[];
+}
+
+export interface ManagedDeviceBoundCertificateDto {
+  certificateAssetId?: string;
+  certificateVersionId?: string;
+  name?: string;
+  subject?: string;
+  issuer?: string;
+  notBefore?: string;
+  notAfter?: string;
+  fingerprintSha256?: string;
+  status?: string;
+}
+
+export interface ManagedDeviceSiteBindingDto {
+  id: string;
+  bindingKey: string;
+  bindingType: string;
+  hostName?: string;
+  status: string;
+  certificate?: ManagedDeviceBoundCertificateDto;
+  replacement: {
+    allowed: boolean;
+    managedTargetId?: string;
+    reasonCode?: string;
+  };
+}
+
+export interface ManagedDeviceSiteDto {
+  id: string;
+  siteAssetId: string;
+  managedTargetId?: string;
+  kind: ManagedDeviceSiteKind;
+  name: string;
+  status?: string;
+  endpoint?: {
+    address?: string;
+    hostName?: string;
+    port?: number;
+    protocol?: string;
+  };
+  configPath?: string;
+  bindings: ManagedDeviceSiteBindingDto[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ManagedDeviceCertificateDto extends ManagedDeviceBoundCertificateDto {
+  id: string;
+}
+
+export interface ManagedDeviceLogDto {
+  id: string;
+  eventType: string;
+  result?: string;
+  summary?: string;
+  occurredAt: string;
+  actorId?: string;
+  metadata: Record<string, unknown>;
+}
+
+export type ManagedDeviceExtensionDto =
+  | { type: 'AGENT'; agentId: string; agentType?: string }
+  | { type: 'CITRIX_ADC'; deviceAssetId: string; deviceFamily: string }
+  | { type: 'GENERIC'; rawType?: string };
+
 export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   statusReason?: string;
   allowedActions: string[];
@@ -42,6 +130,12 @@ export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
     managementMode: string;
     updatedAt: string;
   };
+  overview: ManagedDeviceOverviewDto;
+  informationSections: ManagedDeviceInformationSectionDto[];
+  sites: ManagedDeviceSiteDto[];
+  certificates: ManagedDeviceCertificateDto[];
+  logs: ManagedDeviceLogDto[];
+  extension: ManagedDeviceExtensionDto;
   extensionSummary: Record<string, unknown>;
 }
 

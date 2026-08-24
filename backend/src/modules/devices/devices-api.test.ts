@@ -89,6 +89,36 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(result.items[0]?.managementMethod, 'AGENT');
   assert.equal(result.items[0]?.softwareVersion, 'Windows Server 2008 R2');
   assert.equal(result.items[0]?.extensionType, 'AGENT');
+  await agents.reportCapabilities('tenant_windows_2008_r2', {
+    agentId: registered.id,
+    compatibilityLevel: 'L1',
+    capabilities: [{
+      capabilityKey: 'windows.iis.detail',
+      value: {
+        Installed: true,
+        VersionString: 'Version 7.5',
+        Sites: [{
+          Name: 'Default Web Site',
+          State: 'Started',
+          AppPool: 'DefaultAppPool',
+          PhysicalPath: 'C:\\inetpub\\wwwroot',
+          Bindings: [{ Protocol: 'http', IPAddress: '*', Port: 80, HostHeader: '', BindingInformation: '*:80:' }],
+        }],
+      },
+      confidence: 0.95,
+    }],
+  }, 'request_windows_2008_r2_capabilities');
+  const unifiedDetail = await new DevicesApplicationService(new PgDevicesRepository(database), undefined, agents).get(
+    'tenant_windows_2008_r2',
+    registered.id,
+  );
+  assert.equal(unifiedDetail.extension.type, 'AGENT');
+  assert.equal(unifiedDetail.overview.deviceType, 'AGENT');
+  assert.ok(unifiedDetail.informationSections.some((section) => section.key === 'agent'));
+  assert.ok(unifiedDetail.informationSections.some((section) => section.fields.some((field) => field.key === 'agentVersion' && field.value === '1.0.0')));
+  assert.equal(unifiedDetail.sites[0]?.kind, 'IIS');
+  assert.equal(unifiedDetail.sites[0]?.name, 'Default Web Site');
+  assert.equal(unifiedDetail.sites[0]?.endpoint?.port, 80);
 
   await agents.register('tenant_windows_2008_r2', {
     agentKey: 'windows-2008-r2-agent-reinstalled',
@@ -110,6 +140,109 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(hosts.rows[0]?.asset_fingerprint, 'windows-2008-r2-machine');
   assert.equal(hosts.rows[0]?.os_version, 'Windows Server 2008 R2');
   assert.equal(hosts.rows[0]?.status, 'ACTIVE');
+});
+
+test('Linux Agent 接受带连字符的能力键并从能力快照识别 Nginx 站点', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const agents = new AgentsApplicationService(new PgAgentsRepository(database));
+  const registered = await agents.register('tenant_linux_capabilities', {
+    agentKey: 'linux-agent',
+    machineId: 'linux-machine',
+    hostname: 'linux-host',
+    version: '0.1.0-dev',
+    osType: 'linux',
+    osVersion: 'Ubuntu 22.04',
+    arch: 'amd64',
+    ipAddress: '10.33.2.9',
+  }, 'request_linux_register');
+
+  await agents.reportCapabilities('tenant_linux_capabilities', {
+    agentId: registered.id,
+    compatibilityLevel: 'L1',
+    capabilities: [
+      { capabilityKey: 'linux.filesystem.posix-atomic.v1', value: true, confidence: 0.95 },
+      {
+        capabilityKey: 'linux.nginx.detail',
+        value: {
+          Installed: true,
+          Version: '1.24.0',
+          Sites: [{
+            Name: 'portal.example.com',
+            SitePath: '/var/www/portal',
+            ServerNames: ['portal.example.com'],
+            Bindings: [{
+              Address: '0.0.0.0',
+              Port: 443,
+              Protocol: 'https',
+              Certificate: {
+                Subject: 'CN=portal.example.com',
+                Issuer: 'CN=Test CA',
+                FingerprintSHA256: 'a'.repeat(64),
+              },
+            }],
+          }, {
+            Name: 'portal.example.com',
+            SitePath: '/var/www/portal',
+            ServerNames: ['portal.example.com'],
+            Bindings: [{ Address: '0.0.0.0', Port: 80, Protocol: 'http' }],
+          }],
+        },
+        confidence: 0.92,
+      },
+      {
+        capabilityKey: 'linux.apache.detail',
+        value: {
+          Installed: true,
+          Sites: [{
+            Name: 'apache.example.com',
+            SitePath: '/var/www/apache',
+            Listen: [{
+              Address: '0.0.0.0',
+              Port: 8443,
+              Protocol: 'https',
+              Certificate: {
+                Subject: 'CN=apache.example.com',
+                FingerprintSHA256: 'b'.repeat(64),
+              },
+            }],
+          }],
+        },
+        confidence: 0.9,
+      },
+      {
+        capabilityKey: 'linux.tomcat.detail',
+        value: {
+          Installed: true,
+          ConfigPath: '/opt/tomcat/conf/server.xml',
+          Connectors: [{
+            Address: '*',
+            Port: 8445,
+            Protocol: 'HTTP/1.1',
+            TLS: true,
+            Certificate: {
+              Subject: 'CN=tomcat.example.com',
+              FingerprintSHA256: 'c'.repeat(64),
+            },
+          }],
+        },
+        confidence: 0.88,
+      },
+    ],
+  }, 'request_linux_capabilities');
+
+  const detail = await new DevicesApplicationService(new PgDevicesRepository(database), undefined, agents).get(
+    'tenant_linux_capabilities',
+    registered.id,
+  );
+  assert.equal(detail.sites[0]?.kind, 'NGINX');
+  assert.equal(detail.sites[0]?.name, 'portal.example.com');
+  assert.equal(detail.sites[0]?.endpoint?.protocol, 'https');
+  assert.equal(detail.sites[0]?.bindings[0]?.certificate?.subject, 'CN=portal.example.com');
+  assert.equal(detail.sites.length, 4);
+  assert.equal(detail.sites[1]?.endpoint?.protocol, 'http');
+  assert.equal(detail.sites.find((site) => site.kind === 'APACHE')?.bindings[0]?.certificate?.subject, 'CN=apache.example.com');
+  assert.equal(detail.sites.find((site) => site.kind === 'TOMCAT')?.bindings[0]?.certificate?.subject, 'CN=tomcat.example.com');
 });
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
@@ -235,7 +368,6 @@ test('Spec033 统一设备列表不展示服务资产已删除的 ADC 残留 Hos
     `update pg_service_assets set status='DELETED', deleted_at=now() where tenant_id=$1 and id=$2`,
     [tenantId, device.id],
   );
-
   const result = await new PgDevicesRepository(database).list(tenantId, {
     page: 1,
     pageSize: 20,
@@ -284,16 +416,47 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
     [tenantId, device.id],
   );
   await database.query(
+    `insert into pg_device_virtual_servers (
+      id, tenant_id, device_asset_id, virtual_server_type, virtual_server_name, target_key,
+      address, port, protocol, runtime_state, sni_names, status
+    ) values ('vs_vpn_detail', $1, $2, 'VPN', 'vpn-detail', 'VPN:vpn-detail', '10.33.4.61', 443, 'SSL', 'UP', '["vpn.example.test"]'::jsonb, 'ACTIVE')`,
+    [tenantId, device.id],
+  );
+  await database.query(
+    `insert into pg_certificate_assets (
+      id, name, primary_domain, source_type, status, created_by
+    ) values ('asset_detail', 'Managed Detail', 'detail.example', 'IMPORTED', 'ACTIVE', 'user_admin')`,
+  );
+  await database.query(
+    `insert into pg_certificate_versions (
+      id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+      leaf_storage_ref, chain_status, deployable, source_type, status, created_by
+    ) values (
+      'version_detail', 'asset_detail', 1, 'detail.example', '{"commonName":"issuer"}'::jsonb,
+      '{"commonName":"detail.example"}'::jsonb, '01', '2026-01-01T00:00:00.000Z',
+      '2027-01-01T00:00:00.000Z', repeat('a', 64), 'RSA', 'SHA256-RSA',
+      'storage://detail', 'COMPLETE', true, 'IMPORTED', 'ACTIVE', 'user_admin'
+    )`,
+  );
+  await database.query(
     `insert into pg_device_certificate_resources (
-      id, tenant_id, device_asset_id, certkey_name, subject, issuer, not_before, not_after, source_version
+      id, tenant_id, device_asset_id, certkey_name, subject, issuer, not_before, not_after,
+      fingerprint_sha256, source_version
     ) values ('cert_detail', $1, $2, 'cert-detail', 'CN=detail.example', 'CN=issuer',
-      '2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', '13.1')`,
+      '2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', repeat('a', 64), '13.1')`,
     [tenantId, device.id],
   );
   await database.query(
     `insert into pg_device_certificate_bindings (
       id, tenant_id, device_asset_id, virtual_server_id, certificate_resource_id, binding_key
     ) values ('binding_detail', $1, $2, 'vs_detail', 'cert_detail', 'LB:lb-detail:cert-detail')`,
+    [tenantId, device.id],
+  );
+  await database.query(
+    `insert into pg_device_certificate_bindings (
+      id, tenant_id, device_asset_id, virtual_server_id, certificate_resource_id, binding_key
+    ) values ('binding_vpn_detail', $1, $2, 'vs_vpn_detail', 'cert_detail', 'VPN:vpn-detail:cert-detail')`,
     [tenantId, device.id],
   );
   await database.query(
@@ -323,14 +486,23 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
     }>;
     deviceLogs: Array<{ eventType: string }>;
   };
-  assert.equal(extension.virtualServers.length, 1);
+  assert.equal(extension.virtualServers.length, 2);
   assert.equal(extension.certificateResources.length, 1);
-  assert.equal(extension.certificateBindings.length, 1);
+  assert.equal(extension.certificateBindings.length, 2);
   assert.equal(extension.certificateBindings[0]?.virtualServerType, 'LB');
   assert.equal(extension.certificateBindings[0]?.certificateIssuer, 'CN=issuer');
   assert.match(extension.certificateBindings[0]?.certificateNotBefore ?? '', /^2026-01-01/);
   assert.match(extension.certificateBindings[0]?.certificateNotAfter ?? '', /^2027-01-01/);
   assert.equal(extension.deviceLogs[0]?.eventType, 'device_asset.connection_tested');
+  assert.equal(detail?.overview.deviceType, 'NETSCALER_ADC');
+  assert.equal(detail?.certificates[0]?.issuer, 'CN=issuer');
+  assert.equal(detail?.certificates[0]?.certificateAssetId, 'asset_detail');
+  assert.equal(detail?.certificates[0]?.certificateVersionId, 'version_detail');
+  assert.equal(detail?.sites.find((site) => site.kind === 'LB')?.bindings[0]?.certificate?.name, 'cert-detail');
+  assert.equal(detail?.sites.find((site) => site.kind === 'LB')?.bindings[0]?.certificate?.certificateAssetId, 'asset_detail');
+  assert.equal(detail?.sites.find((site) => site.kind === 'VPN')?.bindings[0]?.certificate?.issuer, 'CN=issuer');
+  assert.match(detail?.sites.find((site) => site.kind === 'VPN')?.bindings[0]?.certificate?.notAfter ?? '', /^2027-01-01/);
+  assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
 
 test('Spec033 平台 Registry 返回六个平台并拒绝未支持厂商', () => {

@@ -7,6 +7,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../application/devices.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
+import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
 
 const tags = ['Devices'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -95,7 +96,7 @@ export function getDeviceRouteContracts(): RouteContract[] {
     operationId: 'getManagedDevice',
     summary: '查询统一设备详情',
     tags,
-    responseSchema: { type: 'object' },
+    responseSchema: managedDeviceDetailSchema,
   }];
 }
 

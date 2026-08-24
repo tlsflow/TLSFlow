@@ -1,20 +1,18 @@
-export type DeviceDetailKind = 'agent' | 'citrix-adc' | 'unsupported'
+import type { DeviceDetailContext, DeviceDetailTabDescriptor, DeviceDetailTabProvider } from './device-detail.model'
 
-export function resolveDeviceDetailKind(detail: Record<string, unknown>): DeviceDetailKind {
-  if (String(detail.extensionType ?? '').toUpperCase() === 'AGENT') return 'agent'
+export class DeviceDetailTabRegistry {
+  constructor(private readonly providers: readonly DeviceDetailTabProvider[] = []) {}
 
-  const extensionSummary = isRecord(detail.extensionSummary) ? detail.extensionSummary : {}
-  const family = String(
-    detail.productFamily
-      ?? extensionSummary.deviceFamily
-      ?? extensionSummary.productFamily
-      ?? '',
-  ).toUpperCase()
+  register(provider: DeviceDetailTabProvider): DeviceDetailTabRegistry {
+    return new DeviceDetailTabRegistry([...this.providers.filter(item => item.key !== provider.key), provider])
+  }
 
-  if (family.includes('CITRIX') || family.includes('NETSCALER') || family.includes('ADC')) return 'citrix-adc'
-  return 'unsupported'
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+  resolve(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {
+    const descriptors = this.providers
+      .filter(provider => provider.supports(context))
+      .flatMap(provider => provider.getTabs(context))
+      .filter(tab => tab.isVisible(context))
+      .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key))
+    return [...new Map(descriptors.map(tab => [tab.key, tab])).values()]
+  }
 }

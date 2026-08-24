@@ -27,3 +27,9 @@ export function deleteManagedDeviceAsset(deviceAssetId: string): Promise<ApiReco
     idempotencyKey: createIdempotencyKey('device_asset_delete'),
   })
 }
+
+export function refreshManagedDeviceDiscovery(deviceAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath('/api/v1/device-assets/discover'), { deviceAssetId }, {
+    idempotencyKey: createIdempotencyKey('device_asset_discovery'),
+  })
+}
