@@ -20,6 +20,8 @@ internal static class Tests
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
         Run("注册请求包含独立 Direct Control 端口", RegistrationRequestIncludesDirectControl);
+        Run("旧配置自动启用 Direct Control 和十秒心跳", LegacyConfigEnablesDirectControl);
+        Run("显式关闭 Direct Control 时保持关闭", ExplicitDirectControlDisableIsPreserved);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
         Run("能力报告包含 IIS 详情和站点", CapabilityRequestIncludesIisInspection);
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
@@ -27,7 +29,7 @@ internal static class Tests
         Run("IIS Binding 信息解析兼容主机头", IisBindingInformationParsesHostHeader);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
-        Console.WriteLine("tests=" + 18 + " failures=" + failures);
+        Console.WriteLine("tests=" + 20 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -113,6 +115,37 @@ internal static class Tests
         Dictionary<string, object> directControl = request["directControl"] as Dictionary<string, object>;
         Assert(directControl != null, "注册请求未上传 Direct Control");
         Assert(Convert.ToString(directControl["listenAddress"]) == "10.20.30.40:18933", "Compatibility Agent 管理端口错误");
+    }
+
+    private static void LegacyConfigEnablesDirectControl()
+    {
+        string path = WriteConfig("{\"tenantId\":\"tenant-1\",\"agentKey\":\"agent-1\",\"controlPlaneUrl\":\"http://127.0.0.1:5172\",\"heartbeatIntervalSeconds\":30}");
+        try
+        {
+            AgentConfig config = AgentConfig.Load(path);
+            Assert(config.directControlEnabled, "旧配置未自动启用 Direct Control");
+            Assert(config.directControlListenPort == 18933, "旧配置未补齐 Direct Control 端口");
+            Assert(config.heartbeatIntervalSeconds == 10, "旧配置未迁移到十秒心跳");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static void ExplicitDirectControlDisableIsPreserved()
+    {
+        string path = WriteConfig("{\"tenantId\":\"tenant-1\",\"agentKey\":\"agent-1\",\"controlPlaneUrl\":\"http://127.0.0.1:5172\",\"heartbeatIntervalSeconds\":15,\"directControlEnabled\":false}");
+        try
+        {
+            AgentConfig config = AgentConfig.Load(path);
+            Assert(!config.directControlEnabled, "显式关闭 Direct Control 被错误覆盖");
+            Assert(config.heartbeatIntervalSeconds == 15, "显式心跳周期被错误覆盖");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     private static void CapabilityRequestUsesStructuredL2Declarations()
@@ -215,6 +248,13 @@ internal static class Tests
             directControlListenPort = 18933,
             requiredHotfixes = new string[0]
         };
+    }
+
+    private static string WriteConfig(string json)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "gcac-compat-config-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(path, json);
+        return path;
     }
 
     private static CapabilitySnapshot Snapshot()

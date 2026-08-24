@@ -15,6 +15,10 @@ if ($service.Status -ne "Stopped") { Stop-Service -Name $serviceName -Force; $se
 if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination $backup -Force }
 try {
     Copy-Item -LiteralPath $incoming -Destination $target -Force
+    $firewallRuleName = "GCAC Windows Compatibility Agent Direct Control"
+    & netsh.exe advfirewall firewall delete rule name=$firewallRuleName | Out-Null
+    & netsh.exe advfirewall firewall add rule name=$firewallRuleName dir=in action=allow protocol=TCP localport=18933 program=$target enable=yes | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Direct Control firewall rule configuration failed" }
     Start-Service -Name $serviceName
 }
 catch {
