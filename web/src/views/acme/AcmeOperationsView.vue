@@ -863,14 +863,6 @@ function dateValue(value: unknown): number {
     </GcPageToolbar>
 
     <p v-if="error" class="acme-page__error" role="alert">{{ error }}</p>
-    <header class="acme-page__intro">
-      <div>
-        <h2>{{ t('acme.title') }}</h2>
-        <p>{{ t('acme.description') }}</p>
-      </div>
-      <GcStatusTag :status="status" :label="t(`acme.status.${status === 'READY' ? 'ready' : status === 'BLOCKED' ? 'blocked' : 'unknown'}`)" :tone="statusTone" />
-    </header>
-
     <div class="acme-page__summary">
       <article v-for="metric in summaryMetrics" :key="metric.key" class="acme-page__metric-card" :class="`acme-page__metric-card--${metric.tone}`">
         <div class="acme-page__metric-topline">
@@ -1081,10 +1073,7 @@ function dateValue(value: unknown): number {
 
 <style scoped>
 .acme-page { display: grid; gap: var(--gc-space-5); min-width: 0; }
-.acme-page__intro, .acme-page__row-actions, .acme-page__form-actions, .acme-page__checkbox { display: flex; gap: var(--gc-space-3); align-items: center; }
-.acme-page__intro { justify-content: space-between; }
-.acme-page__intro h2 { margin: 0; color: var(--gc-color-text); }
-.acme-page__intro p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
+.acme-page__row-actions, .acme-page__form-actions, .acme-page__checkbox { display: flex; gap: var(--gc-space-3); align-items: center; }
 .acme-page__error { margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .acme-page__summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-3); }
 .acme-page__metric-card { display: grid; align-content: space-between; min-width: 0; min-height: calc(var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-8)); gap: var(--gc-space-1); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-workspace-glass); box-shadow: var(--gc-shadow-card); backdrop-filter: blur(var(--gc-space-4)); -webkit-backdrop-filter: blur(var(--gc-space-4)); }
@@ -1134,7 +1123,6 @@ function dateValue(value: unknown): number {
 .acme-page__detail-facts dd { margin: 0; color: var(--gc-color-text); overflow-wrap: anywhere; }
 @media (max-width: 48rem) {
   .acme-page__summary, .acme-page__form, .acme-page__dns-fields, .acme-page__detail-facts { grid-template-columns: 1fr; }
-  .acme-page__intro { align-items: flex-start; flex-direction: column; }
   .acme-page__provider { grid-template-columns: 1fr; }
   .acme-page__provider-actions { justify-content: flex-start; flex-wrap: wrap; }
 }
