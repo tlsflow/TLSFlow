@@ -19,6 +19,7 @@
   --gc-color-text: #111827;
   --gc-color-text-strong: #05070d;
   --gc-color-text-inverse: #ffffff;
+  --gc-color-text-inverse-muted: rgb(255 255 255 / 68%);
   --gc-color-text-muted: #6b7280;
   --gc-color-text-soft: #9ca3af;
   --gc-color-border: rgb(15 23 42 / 10%);
@@ -164,6 +165,7 @@
   --gc-color-text: #eef2f7;
   --gc-color-text-strong: #f8fafc;
   --gc-color-text-inverse: #ffffff;
+  --gc-color-text-inverse-muted: rgb(255 255 255 / 68%);
   --gc-color-text-muted: #aeb8c5;
   --gc-color-text-soft: #7f8b99;
   --gc-color-border: rgb(226 232 240 / 13%);

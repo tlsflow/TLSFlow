@@ -1328,15 +1328,15 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   gap: 12px;
   min-height: 640px;
-  color: #0f172a;
+  color: var(--gc-color-text);
 }
 
 .workflow-canvas-editor__toolbar,
 .workflow-canvas-editor__main,
 .workflow-canvas-editor__bottom {
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .workflow-canvas-editor__toolbar {
@@ -1356,7 +1356,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__palette-item span,
 .workflow-canvas-editor__properties p,
 .workflow-canvas-editor__panel small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1371,10 +1371,10 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__message {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--gc-color-primary-border);
   border-radius: 8px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--gc-color-surface-selected);
+  color: var(--gc-color-primary-strong);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1392,15 +1392,15 @@ function firstNumber(...values: unknown[]): number | undefined {
   align-content: start;
   gap: 8px;
   padding: 12px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__palette {
-  border-right: 1px solid #dbe6f4;
+  border-right: 1px solid var(--gc-color-border-muted);
 }
 
 .workflow-canvas-editor__properties {
-  border-left: 1px solid #dbe6f4;
+  border-left: 1px solid var(--gc-color-border-muted);
 }
 
 .workflow-canvas-editor h3 {
@@ -1413,9 +1413,9 @@ function firstNumber(...values: unknown[]): number | undefined {
   gap: 3px;
   width: 100%;
   padding: 9px 10px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   text-align: left;
   cursor: pointer;
 }
@@ -1429,13 +1429,13 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   gap: 4px;
   padding: 9px 10px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .workflow-canvas-editor__stage-picker span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1443,11 +1443,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__stage-picker select {
   width: 100%;
   min-height: 34px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
   padding: 7px 9px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1457,8 +1457,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   min-width: 0;
   overflow: auto;
   background:
-    linear-gradient(#eef4fb 1px, transparent 1px),
-    linear-gradient(90deg, #eef4fb 1px, transparent 1px);
+    linear-gradient(var(--gc-color-surface-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--gc-color-surface-subtle) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -1467,11 +1467,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__properties textarea {
   width: 100%;
   min-height: 34px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
   padding: 7px 9px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1495,8 +1495,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   align-content: start;
   gap: 4px;
   padding: 12px 14px 0;
-  border-top: 2px dashed #cbd7e6;
-  background: rgb(248 251 255 / 52%);
+  border-top: 2px dashed var(--gc-color-legacy-cbd7e6);
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__stage-lane::after {
@@ -1506,18 +1506,18 @@ function firstNumber(...values: unknown[]): number | undefined {
   top: 50px;
   bottom: 0;
   width: 2px;
-  background: rgb(148 163 184 / 36%);
+  background: var(--gc-color-muted-bg);
   transform: translateX(-50%);
 }
 
 .workflow-canvas-editor__stage-lane strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 900;
 }
 
 .workflow-canvas-editor__stage-lane span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1526,8 +1526,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   width: fit-content;
   border-radius: 999px;
   padding: 2px 7px;
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--gc-color-muted-bg);
+  color: var(--gc-color-muted);
   font-size: 10px;
   font-weight: 900;
 }
@@ -1540,17 +1540,17 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__edges line {
-  stroke: #94a3b8;
+  stroke: var(--gc-color-legacy-94a3b8);
   stroke-width: 2;
 }
 
 .workflow-canvas-editor__edges line[data-edge-type='failure'] {
-  stroke: #dc2626;
+  stroke: var(--gc-color-danger);
   stroke-dasharray: 6 5;
 }
 
 .workflow-canvas-editor__edges line[data-edge-type='rollback'] {
-  stroke: #7c3aed;
+  stroke: var(--gc-color-legacy-7c3aed);
   stroke-dasharray: 3 4;
 }
 
@@ -1562,21 +1562,21 @@ function firstNumber(...values: unknown[]): number | undefined {
   width: 220px;
   min-height: 82px;
   padding: 10px 12px;
-  border: 2px solid #cbd7e6;
+  border: 2px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   text-align: left;
-  box-shadow: 0 10px 28px rgb(15 23 42 / 8%);
+  box-shadow: 0 10px 28px var(--gc-color-border-soft);
   cursor: pointer;
 }
 
 .workflow-canvas-editor__node--selected {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgb(37 99 235 / 14%), 0 10px 28px rgb(15 23 42 / 10%);
+  border-color: var(--gc-color-primary-strong);
+  box-shadow: 0 0 0 4px var(--gc-color-primary-soft), 0 10px 28px var(--gc-color-border);
 }
 
 .workflow-canvas-editor__node span {
-  color: #2563eb;
+  color: var(--gc-color-primary-strong);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1587,7 +1587,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__node small {
-  color: #94a3b8;
+  color: var(--gc-color-legacy-94a3b8);
   font-size: 10px;
   overflow-wrap: anywhere;
 }
@@ -1596,8 +1596,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   width: fit-content;
   border-radius: 999px;
   padding: 2px 7px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--gc-color-surface-selected);
+  color: var(--gc-color-primary-strong);
   font-size: 10px;
   font-style: normal;
   font-weight: 900;
@@ -1609,7 +1609,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__properties label span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1618,25 +1618,25 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__property-group > strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
 .workflow-canvas-editor__property-hint {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.4;
 }
 
 .workflow-canvas-editor__property-empty {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -1656,7 +1656,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__test-hint {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -1678,8 +1678,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   justify-content: space-between;
   gap: 8px;
   padding: 8px;
-  border-bottom: 1px solid #dbe6f4;
-  background: #f8fbff;
+  border-bottom: 1px solid var(--gc-color-border-muted);
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-canvas-editor__bottom--collapsed .workflow-canvas-editor__bottom-header {
@@ -1697,10 +1697,10 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__bottom-toggle {
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
-  background: #fff;
-  color: #475569;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -1711,12 +1711,12 @@ function firstNumber(...values: unknown[]): number | undefined {
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  background: #f8fafc;
+  background: var(--gc-color-surface-subtle);
 }
 
 .workflow-canvas-editor__bottom-toggle:hover {
-  border-color: #94a3b8;
-  color: #0f172a;
+  border-color: var(--gc-color-legacy-94a3b8);
+  color: var(--gc-color-text);
 }
 
 .workflow-canvas-editor__bottom-toggle-icon {
@@ -1732,9 +1732,9 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__tabs button[data-active='true'] {
-  background: #0f172a;
-  color: #fff;
-  border-color: #0f172a;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
+  border-color: var(--gc-color-text);
 }
 
 .workflow-canvas-editor__panel {
@@ -1745,7 +1745,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 .workflow-canvas-editor__panel p {
   margin: 0;
-  color: #15803d;
+  color: var(--gc-color-success);
   font-size: 13px;
   font-weight: 800;
 }
@@ -1762,7 +1762,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__dsl-actions strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
 }
 
@@ -1779,10 +1779,10 @@ function firstNumber(...values: unknown[]): number | undefined {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fbff;
-  color: #334155;
+  background: var(--gc-color-surface-hover);
+  color: var(--gc-color-text);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1800,11 +1800,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__dsl-hint {
-  color: #475569;
+  color: var(--gc-color-muted);
 }
 
 .workflow-canvas-editor__dsl-message {
-  color: #1d4ed8;
+  color: var(--gc-color-primary-strong);
   font-weight: 700;
 }
 
@@ -1830,7 +1830,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__variables-header strong {
-  color: #334155;
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1849,7 +1849,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__variable-editor label span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 10px;
   font-weight: 800;
 }
@@ -1858,11 +1858,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__variable-editor select {
   width: 100%;
   min-height: 32px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1879,7 +1879,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-header span {
-  color: #2563eb;
+  color: var(--gc-color-primary-strong);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1891,7 +1891,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-inputs > strong {
-  color: #334155;
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1907,7 +1907,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-form label span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 10px;
   font-weight: 800;
 }
@@ -1917,11 +1917,11 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__runtime-form textarea {
   width: 100%;
   min-height: 32px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -1931,7 +1931,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-empty {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1945,14 +1945,14 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #fecaca;
-  border-left: 4px solid #dc2626;
+  border: 1px solid var(--gc-color-danger-border);
+  border-left: 4px solid var(--gc-color-danger);
   border-radius: 8px;
-  background: #fff7f7;
+  background: var(--gc-color-legacy-fff7f7);
 }
 
 .workflow-canvas-editor__runtime-error > strong {
-  color: #991b1b;
+  color: var(--gc-color-danger);
   font-size: 12px;
 }
 
@@ -1969,14 +1969,14 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-error dt {
-  color: #7f1d1d;
+  color: var(--gc-color-legacy-7f1d1d);
   font-size: 11px;
   font-weight: 900;
 }
 
 .workflow-canvas-editor__runtime-error dd {
   margin: 0;
-  color: #334155;
+  color: var(--gc-color-text);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -1986,10 +1986,10 @@ function firstNumber(...values: unknown[]): number | undefined {
   gap: 8px;
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid #bfdbfe;
-  border-left: 4px solid #2563eb;
+  border: 1px solid var(--gc-color-primary-border);
+  border-left: 4px solid var(--gc-color-primary-strong);
   border-radius: 8px;
-  background: #eff6ff;
+  background: var(--gc-color-surface-selected);
 }
 
 .workflow-canvas-editor__runtime-summary > div {
@@ -1999,7 +1999,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-summary dt {
-  color: #1d4ed8;
+  color: var(--gc-color-primary-strong);
   font-size: 11px;
   font-weight: 900;
 }
@@ -2007,7 +2007,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__runtime-summary dd {
   min-width: 0;
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -2020,7 +2020,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-result > strong {
-  color: #334155;
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
@@ -2030,8 +2030,8 @@ function firstNumber(...values: unknown[]): number | undefined {
   padding: 10px;
   overflow: auto;
   border-radius: 8px;
-  background: #0f172a;
-  color: #dbeafe;
+  background: var(--gc-color-text);
+  color: var(--gc-color-info-border);
   font-size: 12px;
 }
 
@@ -2047,18 +2047,18 @@ function firstNumber(...values: unknown[]): number | undefined {
   display: grid;
   gap: 3px;
   padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-  border-left: 4px solid #64748b;
+  border: 1px solid var(--gc-color-muted-bg);
+  border-left: 4px solid var(--gc-color-text-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .workflow-canvas-editor__panel li[data-severity='error'] {
-  border-left-color: #dc2626;
+  border-left-color: var(--gc-color-danger);
 }
 
 .workflow-canvas-editor__panel li[data-severity='warning'] {
-  border-left-color: #d97706;
+  border-left-color: var(--gc-color-warning);
 }
 
 .workflow-canvas-editor__panel li span {
@@ -2070,20 +2070,20 @@ function firstNumber(...values: unknown[]): number | undefined {
   margin: 0;
   padding: 12px;
   overflow: auto;
-  background: #0f172a;
-  color: #dbeafe;
+  background: var(--gc-color-text);
+  color: var(--gc-color-info-border);
   font-size: 12px;
 }
 
 .workflow-canvas-editor__dsl-editor {
   width: 100%;
   min-height: 280px;
-  border: 1px solid #cbd7e6;
+  border: 1px solid var(--gc-color-legacy-cbd7e6);
   border-radius: 8px;
   padding: 10px 12px;
   resize: vertical;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--gc-color-text);
+  color: var(--gc-color-muted-bg);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
   line-height: 1.5;
@@ -2097,7 +2097,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   .workflow-canvas-editor__palette,
   .workflow-canvas-editor__properties {
     border: 0;
-    border-bottom: 1px solid #dbe6f4;
+    border-bottom: 1px solid var(--gc-color-border-muted);
   }
 }
 </style>

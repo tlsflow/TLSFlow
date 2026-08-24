@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   padding: clamp(10px, 2vw, 20px);
-  background: rgb(15 23 42 / 36%);
+  background: var(--gc-color-backdrop);
   backdrop-filter: blur(14px) saturate(125%);
 }
 
@@ -131,8 +131,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-radius: 22px;
   padding: 16px;
-  border-color: rgb(255 255 255 / 70%);
-  box-shadow: 0 24px 80px rgb(15 23 42 / 16%);
+  border-color: var(--gc-color-surface-field);
+  box-shadow: 0 24px 80px var(--gc-color-border-strong);
 }
 
 .gc-modal--sm { --gc-modal-width: 420px; }

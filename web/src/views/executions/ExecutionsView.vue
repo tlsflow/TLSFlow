@@ -259,11 +259,11 @@ function openExecutionDetail(row: ViewRow) {
   align-items: stretch;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid #d9e5f7;
+  border: 1px solid var(--gc-color-info-border);
   border-radius: 18px;
   background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
+    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
 .execution-detail-modal__hero-copy {
@@ -274,7 +274,7 @@ function openExecutionDetail(row: ViewRow) {
 
 .execution-detail-modal__eyebrow {
   margin: 0;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -283,14 +283,14 @@ function openExecutionDetail(row: ViewRow) {
 
 .execution-detail-modal__hero-copy h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.06;
   overflow-wrap: anywhere;
 }
 
 .execution-detail-modal__hero-copy span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -310,12 +310,12 @@ function openExecutionDetail(row: ViewRow) {
   min-width: 150px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
 }
 
 .execution-detail-modal__spotlight small {
-  color: rgb(255 255 255 / 68%);
+  color: var(--gc-color-text-inverse-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -334,9 +334,9 @@ function openExecutionDetail(row: ViewRow) {
   gap: 6px;
   width: fit-content;
   padding: 4px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 999px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .execution-detail-modal__tab {
@@ -345,16 +345,16 @@ function openExecutionDetail(row: ViewRow) {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .execution-detail-modal__tab[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  box-shadow: 0 4px 14px var(--gc-color-border);
 }
 
 .execution-detail-modal__section,
@@ -362,9 +362,9 @@ function openExecutionDetail(row: ViewRow) {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid #e3ebf5;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
 
 .execution-detail-modal__facts {
@@ -380,12 +380,12 @@ function openExecutionDetail(row: ViewRow) {
   min-height: 70px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #f8fbff;
-  border: 1px solid #e4edf8;
+  background: var(--gc-color-surface-hover);
+  border: 1px solid var(--gc-color-border-muted);
 }
 
 .execution-detail-modal__facts dt {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -394,7 +394,7 @@ function openExecutionDetail(row: ViewRow) {
 
 .execution-detail-modal__facts dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 800;
   overflow-wrap: anywhere;
@@ -406,12 +406,12 @@ function openExecutionDetail(row: ViewRow) {
 }
 
 .execution-detail-modal__summary-head strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 15px;
 }
 
 .execution-detail-modal__summary-head span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -427,12 +427,12 @@ function openExecutionDetail(row: ViewRow) {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #e4edf8;
-  background: #f8fbff;
+  border: 1px solid var(--gc-color-border-muted);
+  background: var(--gc-color-surface-hover);
 }
 
 .execution-detail-modal__summary-grid small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
@@ -440,29 +440,29 @@ function openExecutionDetail(row: ViewRow) {
 
 .execution-detail-modal__summary-grid strong {
   font-size: 18px;
-  color: #0f172a;
+  color: var(--gc-color-text);
 }
 
 .execution-detail-modal__summary[data-state='passed'] {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: var(--gc-color-success-border);
+  background: var(--gc-color-success-soft);
 }
 
 .execution-detail-modal__summary[data-state='warning'] {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: var(--gc-color-warning-border);
+  background: var(--gc-color-warning-soft);
 }
 
 .execution-detail-modal__summary[data-state='failed'] {
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
 }
 
 .execution-detail-modal__summary[data-state='pending'],
 .execution-detail-modal__summary[data-state='queued'],
 .execution-detail-modal__summary[data-state='running'] {
-  border-color: #bfdbfe;
-  background: #eff6ff;
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-selected);
 }
 
 .execution-detail-modal__list,
@@ -479,9 +479,9 @@ function openExecutionDetail(row: ViewRow) {
   display: grid;
   gap: 6px;
   padding: 12px;
-  border: 1px solid #e4edf8;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 12px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .execution-detail-modal__list-head,
@@ -498,25 +498,25 @@ function openExecutionDetail(row: ViewRow) {
 .execution-detail-modal__list-item small,
 .execution-detail-modal__log-meta span {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .execution-detail-modal__log-meta strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
 }
 
 .execution-detail-modal__log-item[data-level='error'] {
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
 }
 
 .execution-detail-modal__log-item[data-level='warn'] {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: var(--gc-color-warning-border);
+  background: var(--gc-color-warning-soft);
 }
 
 .execution-detail-modal__loading,

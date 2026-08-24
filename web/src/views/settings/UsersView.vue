@@ -737,7 +737,7 @@ onMounted(async () => {
 }
 .users-view__tab--active {
   color: var(--gc-color-text) !important;
-  background: #fff !important;
+  background: var(--gc-color-surface-solid) !important;
   box-shadow: var(--gc-shadow-sm);
 }
 .users-view__table-scroll { overflow-x: auto; }
@@ -775,7 +775,7 @@ onMounted(async () => {
 .users-view__mode-switch input { accent-color: var(--gc-color-primary); }
 .users-view__mode-option--active {
   color: var(--gc-color-text) !important;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-sm);
 }
 .users-view__form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
@@ -793,9 +793,9 @@ onMounted(async () => {
 }
 .users-view__field input:focus,
 .users-view__field select:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 4px rgb(96 165 250 / 14%);
-  background: #fff;
+  border-color: var(--gc-color-focus);
+  box-shadow: 0 0 0 4px var(--gc-color-focus-ring);
+  background: var(--gc-color-surface-solid);
 }
 .users-view__lookup { display: grid; gap: var(--gc-space-3); }
 .users-view__lookup > .gc-button { justify-self: start; }
@@ -803,15 +803,15 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-3);
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--gc-color-primary-border);
   border-radius: 14px;
   padding: 14px;
-  background: #eff6ff;
+  background: var(--gc-color-surface-selected);
 }
 .users-view__profile-preview div { display: grid; gap: 5px; min-width: 0; }
 .users-view__profile-preview span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 800; }
 .users-view__profile-preview strong { overflow-wrap: anywhere; font-size: var(--gc-font-size-sm); }
-.users-view__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.users-view__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 
 @media (max-width: 860px) {
   .users-view__header { justify-content: stretch; }

@@ -780,7 +780,7 @@ async function removeVersion(row: CertificateVersionRow) {
   min-height: 32px;
   padding: 6px 10px;
   color: var(--gc-color-text);
-  background: rgb(255 255 255 / 76%);
+  background: var(--gc-color-surface-glass);
 }
 
 .certificate-page__filter-actions {
@@ -804,19 +804,19 @@ async function removeVersion(row: CertificateVersionRow) {
   padding: 0 18px;
   border: 0;
   border-radius: 16px;
-  color: #fff;
-  background: linear-gradient(180deg, #1783ff, #0a6bff);
-  box-shadow: 0 10px 24px rgb(10 107 255 / 22%);
+  color: var(--gc-color-surface-solid);
+  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
+  box-shadow: 0 10px 24px var(--gc-color-primary-weak);
   font-weight: 700;
   white-space: nowrap;
 }
 
 .certificate-page__import-button:hover {
-  background: linear-gradient(180deg, #2a8eff, #1678ff);
+  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
 }
 
 .certificate-page__import-button:focus-visible {
-  outline: 2px solid rgb(10 107 255 / 28%);
+  outline: 2px solid var(--gc-color-primary-border);
   outline-offset: 2px;
 }
 
@@ -845,7 +845,7 @@ async function removeVersion(row: CertificateVersionRow) {
   align-items: flex-start;
   gap: 10px;
   padding: 4px 0 10px;
-  border-bottom: 1px solid rgb(15 23 42 / 6%);
+  border-bottom: 1px solid var(--gc-color-border-subtle);
 }
 
 .certificate-page__panel-header h2,
@@ -884,22 +884,22 @@ async function removeVersion(row: CertificateVersionRow) {
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 10px 11px;
-  background: rgb(255 255 255 / 30%);
+  background: var(--gc-color-surface-soft);
   text-align: left;
   cursor: pointer;
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
 
 .certificate-page__asset-item:hover {
-  border-color: rgb(15 23 42 / 8%);
-  background: rgb(255 255 255 / 56%);
-  box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
+  border-color: var(--gc-color-border-soft);
+  background: var(--gc-color-surface-muted);
+  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
 }
 
 .certificate-page__asset-item--active {
-  border-color: rgb(10 132 255 / 26%);
-  box-shadow: inset 0 0 0 1px rgb(10 132 255 / 18%);
-  background: linear-gradient(180deg, rgb(255 255 255 / 80%), rgb(242 247 255 / 78%));
+  border-color: var(--gc-color-primary-border);
+  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
+  background: linear-gradient(180deg, var(--gc-color-surface-panel), var(--gc-color-surface-selected));
 }
 
 .certificate-page__asset-main {
@@ -934,9 +934,9 @@ async function removeVersion(row: CertificateVersionRow) {
   justify-content: center;
   min-height: 24px;
   padding: 0 10px;
-  border: 1px solid rgb(15 23 42 / 8%);
+  border: 1px solid var(--gc-color-border-soft);
   border-radius: 999px;
-  background: rgb(255 255 255 / 75%);
+  background: var(--gc-color-surface-glass);
   color: var(--gc-color-text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -956,10 +956,10 @@ async function removeVersion(row: CertificateVersionRow) {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--gc-color-danger-border);
   border-radius: 14px;
-  background: #fff1f2;
-  color: #b42318;
+  background: var(--gc-color-danger-soft);
+  color: var(--gc-color-danger);
 }
 
 .certificate-page__versions-body {
@@ -979,7 +979,7 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__assets {
   grid-template-rows: auto minmax(0, 1fr);
   padding-right: 18px;
-  border-right: 1px solid rgb(15 23 42 / 8%);
+  border-right: 1px solid var(--gc-color-border-soft);
 }
 
 .certificate-page__assets > .certificate-page__state,
@@ -1057,7 +1057,7 @@ async function removeVersion(row: CertificateVersionRow) {
   min-height: 34px;
   padding: 6px 10px;
   color: var(--gc-color-text);
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .certificate-page__header-sort {
@@ -1098,14 +1098,14 @@ async function removeVersion(row: CertificateVersionRow) {
   position: sticky;
   right: 0;
   z-index: 1;
-  background: #fff;
-  box-shadow: -8px 0 12px rgb(255 255 255 / 92%);
+  background: var(--gc-color-surface-solid);
+  box-shadow: -8px 0 12px var(--gc-color-surface-overlay);
 }
 
 .certificate-page__version-table :deep(th:last-child) {
   z-index: 2;
   background: var(--gc-color-surface-muted);
-  box-shadow: -8px 0 12px rgb(245 247 250 / 96%);
+  box-shadow: -8px 0 12px var(--gc-color-surface-subtle);
 }
 
 .certificate-page__version-table :deep(td:last-child) {
@@ -1174,7 +1174,7 @@ async function removeVersion(row: CertificateVersionRow) {
     padding-right: 0;
     padding-bottom: 12px;
     border-right: 0;
-    border-bottom: 1px solid rgb(15 23 42 / 8%);
+    border-bottom: 1px solid var(--gc-color-border-soft);
   }
 
   .certificate-page__versions {

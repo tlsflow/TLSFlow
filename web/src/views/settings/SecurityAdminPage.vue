@@ -164,12 +164,12 @@ onMounted(load)
 .security-admin__header-copy h1, .security-admin__header-copy h2 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
 .security-admin--embedded .security-admin__header-copy h2 { font-size: 22px; letter-spacing: -0.035em; }
 .security-admin__header-copy span { display: block; max-width: 760px; margin-top: 10px; color: var(--gc-color-text-muted); line-height: 1.65; font-weight: 650; }
-.security-admin__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
+.security-admin__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 .security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; }
 .security-admin__form label { display: grid; gap: 7px; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
 .security-admin__form input, .security-admin__form select, .security-admin__form textarea { width: 100%; min-height: 42px; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; background: var(--gc-color-surface-muted); outline: none; }
 .security-admin__form textarea { min-height: 42px; resize: vertical; }
-.security-admin__form input:focus, .security-admin__form select:focus, .security-admin__form textarea:focus { border-color: #60a5fa; box-shadow: 0 0 0 4px rgb(96 165 250 / 14%); background: #fff; }
+.security-admin__form input:focus, .security-admin__form select:focus, .security-admin__form textarea:focus { border-color: var(--gc-color-focus); box-shadow: 0 0 0 4px var(--gc-color-focus-ring); background: var(--gc-color-surface-solid); }
 .security-admin__table { overflow: hidden; padding: 0; }
 .security-admin__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
 .security-admin__table-head strong { font-size: 17px; }

@@ -569,7 +569,7 @@ function feedStatusText(status: TaskStatus): string {
   margin: 0;
   border-radius: 12px;
   padding: 12px 14px;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--gc-color-danger-border);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
 }
@@ -582,28 +582,28 @@ function feedStatusText(status: TaskStatus): string {
   border-radius: 8px;
   border: 1px solid var(--gc-color-border);
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 96%), rgb(248 250 252 / 92%)),
-    linear-gradient(120deg, #dbeafe, #dcfce7);
+    linear-gradient(135deg, var(--gc-color-surface-overlay), var(--gc-color-surface-subtle)),
+    linear-gradient(120deg, var(--gc-color-info-border), var(--gc-color-success-bg));
 }
 
 .gc-dry-run-modern__hero[data-state='failed'] {
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 96%), rgb(254 242 242 / 92%)),
-    linear-gradient(120deg, #fecaca, #fee2e2);
+    linear-gradient(135deg, var(--gc-color-surface-overlay), var(--gc-color-danger-soft)),
+    linear-gradient(120deg, var(--gc-color-danger-border), var(--gc-color-danger-bg));
 }
 
 .gc-dry-run-modern__hero[data-state='warning'] {
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 96%), rgb(255 251 235 / 92%)),
-    linear-gradient(120deg, #fde68a, #fef3c7);
+    linear-gradient(135deg, var(--gc-color-surface-overlay), var(--gc-color-warning-soft)),
+    linear-gradient(120deg, var(--gc-color-warning-border), var(--gc-color-warning-bg));
 }
 
 .gc-dry-run-modern__hero[data-state='queued'],
 .gc-dry-run-modern__hero[data-state='running'],
 .gc-dry-run-modern__hero[data-state='pending'] {
   background:
-    linear-gradient(135deg, rgb(255 255 255 / 96%), rgb(239 246 255 / 92%)),
-    linear-gradient(120deg, #bfdbfe, #dbeafe);
+    linear-gradient(135deg, var(--gc-color-surface-overlay), var(--gc-color-surface-selected)),
+    linear-gradient(120deg, var(--gc-color-primary-border), var(--gc-color-info-border));
 }
 
 .gc-dry-run-modern__hero-copy,
@@ -642,9 +642,9 @@ function feedStatusText(status: TaskStatus): string {
 
 .gc-dry-run-modern__hero-badge,
 .gc-dry-run-modern__section-pill {
-  color: #0f172a;
-  background: rgb(255 255 255 / 74%);
-  border: 1px solid rgb(148 163 184 / 28%);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-glass);
+  border: 1px solid var(--gc-color-border-strong);
 }
 
 .gc-dry-run-modern__hero p,
@@ -689,7 +689,7 @@ function feedStatusText(status: TaskStatus): string {
   width: 100%;
   height: 8px;
   border-radius: 999px;
-  background: rgb(148 163 184 / 18%);
+  background: var(--gc-color-muted-bg);
   overflow: hidden;
 }
 
@@ -697,7 +697,7 @@ function feedStatusText(status: TaskStatus): string {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #0f172a, #2563eb 55%, #10b981);
+  background: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary-strong) 55%, var(--gc-color-legacy-10b981));
   transition: width 360ms ease;
 }
 
@@ -714,8 +714,8 @@ function feedStatusText(status: TaskStatus): string {
   gap: 2px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgb(255 255 255 / 78%);
-  border: 1px solid rgb(148 163 184 / 18%);
+  background: var(--gc-color-surface);
+  border: 1px solid var(--gc-color-muted-bg);
 }
 
 .gc-dry-run-modern__metrics dt {
@@ -788,8 +788,8 @@ function feedStatusText(status: TaskStatus): string {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--gc-color-muted-bg);
+  color: var(--gc-color-text);
   font-weight: 800;
   font-size: 11px;
 }
@@ -797,7 +797,7 @@ function feedStatusText(status: TaskStatus): string {
 .gc-dry-run-modern__task-line {
   width: 2px;
   min-height: 28px;
-  background: #cbd5e1;
+  background: var(--gc-color-border-strong);
 }
 
 .gc-dry-run-modern__task-card {
@@ -806,7 +806,7 @@ function feedStatusText(status: TaskStatus): string {
   padding: 12px 14px;
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .gc-dry-run-modern__task-head {
@@ -875,7 +875,7 @@ function feedStatusText(status: TaskStatus): string {
   padding: 12px 14px;
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .gc-dry-run-modern__feed-icon {
@@ -886,16 +886,16 @@ function feedStatusText(status: TaskStatus): string {
   border-radius: 999px;
   font-size: 13px;
   font-weight: 900;
-  color: #fff;
-  background: #22c55e;
+  color: var(--gc-color-surface-solid);
+  background: var(--gc-color-success);
 }
 
 .gc-dry-run-modern__feed-item[data-status='warning'] .gc-dry-run-modern__feed-icon {
-  background: #f59e0b;
+  background: var(--gc-color-warning);
 }
 
 .gc-dry-run-modern__feed-item[data-status='failed'] .gc-dry-run-modern__feed-icon {
-  background: #ef4444;
+  background: var(--gc-color-danger);
 }
 
 .gc-dry-run-modern__feed-copy {

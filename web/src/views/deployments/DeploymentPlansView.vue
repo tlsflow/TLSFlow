@@ -1074,15 +1074,15 @@ async function fetchAllPages(
 }
 
 .deployment-plans-page__error {
-  border: 1px solid #fecaca;
+  border: 1px solid var(--gc-color-danger-border);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
 }
 
 .deployment-plans-page__info {
-  border: 1px solid #dbeafe;
-  color: #1d4ed8;
-  background: #eff6ff;
+  border: 1px solid var(--gc-color-info-border);
+  color: var(--gc-color-primary-strong);
+  background: var(--gc-color-surface-selected);
 }
 
 .deployment-plans-page__wizard-message {
@@ -1100,11 +1100,11 @@ async function fetchAllPages(
   align-items: stretch;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid #d9e5f7;
+  border: 1px solid var(--gc-color-info-border);
   border-radius: 18px;
   background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
+    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
 .deployment-plan-detail__hero-copy {
@@ -1115,7 +1115,7 @@ async function fetchAllPages(
 
 .deployment-plan-detail__eyebrow {
   margin: 0;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -1124,14 +1124,14 @@ async function fetchAllPages(
 
 .deployment-plan-detail__hero-copy h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.06;
   overflow-wrap: anywhere;
 }
 
 .deployment-plan-detail__hero-copy span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1150,12 +1150,12 @@ async function fetchAllPages(
   min-width: 150px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
 }
 
 .deployment-plan-detail__spotlight small {
-  color: rgb(255 255 255 / 68%);
+  color: var(--gc-color-text-inverse-muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1172,9 +1172,9 @@ async function fetchAllPages(
   gap: 6px;
   width: fit-content;
   padding: 4px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 999px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .deployment-plan-detail__tab {
@@ -1183,25 +1183,25 @@ async function fetchAllPages(
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .deployment-plan-detail__tab[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  box-shadow: 0 4px 14px var(--gc-color-border);
 }
 
 .deployment-plan-detail__section {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid #e3ebf5;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
 
 .deployment-plan-detail__facts {
@@ -1217,12 +1217,12 @@ async function fetchAllPages(
   min-height: 70px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #f8fbff;
-  border: 1px solid #e4edf8;
+  background: var(--gc-color-surface-hover);
+  border: 1px solid var(--gc-color-border-muted);
 }
 
 .deployment-plan-detail__facts dt {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -1231,7 +1231,7 @@ async function fetchAllPages(
 
 .deployment-plan-detail__facts dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 800;
   overflow-wrap: anywhere;
@@ -1249,9 +1249,9 @@ async function fetchAllPages(
   display: grid;
   gap: 6px;
   padding: 12px;
-  border: 1px solid #e4edf8;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 12px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .deployment-plan-detail__related-list {
@@ -1282,15 +1282,15 @@ async function fetchAllPages(
 }
 
 .deployment-plan-detail__record-tag[data-kind='dry-run'] {
-  color: #1d4ed8;
-  background: #dbeafe;
-  border-color: #bfdbfe;
+  color: var(--gc-color-primary-strong);
+  background: var(--gc-color-info-border);
+  border-color: var(--gc-color-primary-border);
 }
 
 .deployment-plan-detail__record-tag[data-kind='certificate-update'] {
-  color: #0f766e;
-  background: #ccfbf1;
-  border-color: #99f6e4;
+  color: var(--gc-color-success);
+  background: var(--gc-color-legacy-ccfbf1);
+  border-color: var(--gc-color-legacy-99f6e4);
 }
 
 .deployment-plan-detail__related-status {
@@ -1303,7 +1303,7 @@ async function fetchAllPages(
 
 .deployment-plan-detail__related-meta span,
 .deployment-plan-detail__related-footer small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -1320,13 +1320,13 @@ async function fetchAllPages(
 }
 
 .deployment-plan-detail__related-label {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-weight: 700;
 }
 
 .deployment-plan-detail__related-separator {
   margin: 0 6px;
-  color: #94a3b8;
+  color: var(--gc-color-legacy-94a3b8);
 }
 
 .deployment-plan-detail__related-action {
@@ -1346,7 +1346,7 @@ async function fetchAllPages(
 .deployment-plan-detail__list-item p,
 .deployment-plan-detail__list-item small {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;

@@ -1045,11 +1045,11 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   align-items: stretch;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid #d9e5f7;
+  border: 1px solid var(--gc-color-info-border);
   border-radius: 18px;
   background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
+    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
 .workflow-template-detail__hero-copy {
@@ -1060,7 +1060,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail__eyebrow {
   margin: 0;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -1069,14 +1069,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail__hero-copy h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.06;
   overflow-wrap: anywhere;
 }
 
 .workflow-template-detail__hero-copy span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1095,12 +1095,12 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   min-width: 150px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
 }
 
 .workflow-template-detail__spotlight small {
-  color: rgb(255 255 255 / 68%);
+  color: var(--gc-color-text-inverse-muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1118,9 +1118,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 6px;
   width: fit-content;
   padding: 4px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 999px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-template-detail__tab {
@@ -1129,25 +1129,25 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .workflow-template-detail__tab[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  box-shadow: 0 4px 14px var(--gc-color-border);
 }
 
 .workflow-template-detail__section {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid #e3ebf5;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
 
 .workflow-template-detail__facts {
@@ -1163,12 +1163,12 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 5px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #f8fbff;
-  border: 1px solid #e4edf8;
+  background: var(--gc-color-surface-hover);
+  border: 1px solid var(--gc-color-border-muted);
 }
 
 .workflow-template-detail__facts dt {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -1177,7 +1177,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-template-detail__facts dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 800;
   overflow-wrap: anywhere;
@@ -1205,7 +1205,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-template-detail__message,
 .workflow-template-detail__error {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1226,9 +1226,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 10px;
   margin: 0;
   padding: 10px 12px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-version-manager__current {
@@ -1240,21 +1240,21 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-version-manager__current span {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .workflow-version-manager__current strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 18px;
   line-height: 1;
   white-space: nowrap;
 }
 
 .workflow-version-manager__current small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
@@ -1277,9 +1277,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 10px;
   min-height: 58px;
   padding: 9px 10px;
-  border: 1px solid #e4edf8;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .workflow-version-manager__version,
@@ -1293,13 +1293,13 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-version-manager__version strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 18px;
   line-height: 1;
 }
 
 .workflow-version-manager__version small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
@@ -1318,7 +1318,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-version-manager__summary label span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1327,17 +1327,17 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   width: 100%;
   min-height: 34px;
   padding: 0 9px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--gc-color-border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 13px;
   outline: none;
 }
 
 .workflow-version-manager__summary .gc-input:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+  border-color: var(--gc-color-focus);
+  box-shadow: 0 0 0 3px var(--gc-color-focus-ring);
 }
 
 .workflow-version-manager__badges {
@@ -1380,8 +1380,8 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-version-manager__status[data-status='current'] {
-  color: #1d4ed8;
-  background: #dbeafe;
+  color: var(--gc-color-primary-strong);
+  background: var(--gc-color-info-border);
 }
 
 .workflow-version-manager__status[data-status='published'] {
@@ -1403,10 +1403,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   height: calc(100vh - 28px);
   padding: 12px;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 72%);
+  border: 1px solid var(--gc-color-surface-field);
   border-radius: 18px;
-  background: #f4f8fd;
-  box-shadow: 0 24px 80px rgb(15 23 42 / 18%);
+  background: var(--gc-color-surface-subtle);
+  box-shadow: 0 24px 80px var(--gc-color-border-strong);
 }
 
 .workflow-template-editor-shell__editor {
@@ -1441,7 +1441,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-file-template-modal__target,
 .workflow-file-template-modal__loading {
-  color: #475569;
+  color: var(--gc-color-muted);
 }
 
 .workflow-file-template-modal__error {
@@ -1459,14 +1459,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-file-template-modal__item {
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .workflow-file-template-modal__item[data-valid='false'] {
-  background: #fff7f7;
-  border-color: #fecaca;
+  background: var(--gc-color-legacy-fff7f7);
+  border-color: var(--gc-color-danger-border);
 }
 
 .workflow-file-template-modal__choice {
@@ -1494,14 +1494,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-file-template-modal__head strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
 }
 
 .workflow-file-template-modal__body small,
 .workflow-file-template-modal__body p {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1512,18 +1512,18 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--gc-color-muted-bg);
+  color: var(--gc-color-muted);
 }
 
 .workflow-file-template-modal__pill[data-valid='true'] {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--gc-color-success-bg);
+  color: var(--gc-color-success);
 }
 
 .workflow-file-template-modal__pill[data-valid='false'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--gc-color-danger-bg);
+  color: var(--gc-color-danger);
 }
 
 .credential-manager {
@@ -1537,11 +1537,11 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager__list-section {
   display: grid;
   gap: 14px;
-  border: 1px solid #d8e4f2;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid) 0%, var(--gc-color-surface-hover) 100%);
   padding: 16px;
-  box-shadow: 0 12px 30px rgb(15 23 42 / 6%);
+  box-shadow: 0 12px 30px var(--gc-color-border-subtle);
 }
 
 .credential-manager__form-head,
@@ -1556,7 +1556,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager__form-head strong,
 .credential-manager__section-head strong,
 .credential-manager__item-head strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 14px;
 }
 
@@ -1565,7 +1565,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager__item-head span {
   display: block;
   margin-top: 2px;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
 }
 
@@ -1575,10 +1575,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   align-items: center;
   min-height: 26px;
   padding: 0 10px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--gc-color-primary-border);
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--gc-color-surface-selected);
+  color: var(--gc-color-primary-strong);
   font-size: 11px;
   font-weight: 800;
   white-space: nowrap;
@@ -1590,15 +1590,15 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 8px;
   margin: 0;
   padding: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--gc-color-surface-subtle);
 }
 
 .credential-manager__type-picker legend,
 .credential-manager__segmented legend {
   padding: 0 4px;
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1608,9 +1608,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 3px;
   min-height: 58px;
   padding: 10px 11px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
@@ -1618,27 +1618,27 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .credential-manager__type-option:hover,
 .credential-manager__type-option[data-active='true'] {
-  border-color: #60a5fa;
-  background: #f0f7ff;
-  box-shadow: 0 8px 20px rgb(37 99 235 / 10%);
+  border-color: var(--gc-color-focus);
+  background: var(--gc-color-surface-selected);
+  box-shadow: 0 8px 20px var(--gc-color-primary-soft);
 }
 
 .credential-manager__type-option span {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 800;
 }
 
 .credential-manager__type-option small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   line-height: 1.35;
 }
 
 .credential-manager__type-option[data-family='CURL'][data-active='true'] {
-  border-color: #34d399;
-  background: #f0fdf4;
-  box-shadow: 0 8px 20px rgb(22 163 74 / 10%);
+  border-color: var(--gc-color-success);
+  background: var(--gc-color-success-soft);
+  box-shadow: 0 8px 20px var(--gc-color-success-soft);
 }
 
 .credential-manager__grid {
@@ -1656,7 +1656,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .credential-manager label span,
 .credential-manager__secret span {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 12px;
   font-weight: 800;
 }
@@ -1664,18 +1664,18 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager :deep(.gc-input),
 .credential-manager .gc-input {
   min-height: 38px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--gc-color-border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #0f172a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
   font-size: 13px;
   outline: none;
 }
 
 .credential-manager :deep(.gc-input:focus),
 .credential-manager .gc-input:focus {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+  border-color: var(--gc-color-focus);
+  box-shadow: 0 0 0 3px var(--gc-color-focus-ring);
 }
 
 .credential-manager__secret-control {
@@ -1701,9 +1701,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   gap: 4px;
   margin: 0;
   padding: 4px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #eef4fb;
+  background: var(--gc-color-surface-subtle);
 }
 
 .credential-manager__segmented legend {
@@ -1720,16 +1720,16 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .credential-manager__segmented button[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 12px rgb(15 23 42 / 10%);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  box-shadow: 0 4px 12px var(--gc-color-border);
 }
 
 .credential-manager textarea {
@@ -1750,13 +1750,13 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   display: grid;
   gap: 3px;
   padding: 10px 12px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .credential-manager__form-summary span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -1764,7 +1764,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .credential-manager__form-summary strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
 }
 
@@ -1777,7 +1777,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .credential-manager__message {
-  color: #166534;
+  color: var(--gc-color-success);
 }
 
 .credential-manager__error {
@@ -1785,7 +1785,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .credential-manager__empty {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
 }
 
 .credential-manager__form-actions,
@@ -1817,9 +1817,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager__item {
   display: block;
   padding: 10px 12px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .credential-manager__item-meta {
@@ -1830,7 +1830,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .credential-manager__item-usage {
   margin-top: 0;
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 12px;
   font-weight: 700;
 }

@@ -1040,7 +1040,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
   border-radius: 12px;
   min-height: 32px;
   padding: 6px 10px;
-  background: rgb(255 255 255 / 76%);
+  background: var(--gc-color-surface-glass);
 }
 
 .artifact-page__filter-actions,
@@ -1061,9 +1061,9 @@ function toErrorMessage(cause: unknown, fallback: string) {
   padding: 0 18px;
   border: 0;
   border-radius: 16px;
-  color: #fff;
-  background: linear-gradient(180deg, #1783ff, #0a6bff);
-  box-shadow: 0 10px 24px rgb(10 107 255 / 22%);
+  color: var(--gc-color-surface-solid);
+  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
+  box-shadow: 0 10px 24px var(--gc-color-primary-weak);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1117,17 +1117,17 @@ function toErrorMessage(cause: unknown, fallback: string) {
   display: grid;
   gap: 14px;
   padding: 18px;
-  border: 1px solid rgb(15 23 42 / 8%);
+  border: 1px solid var(--gc-color-border-soft);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 96%), rgb(247 250 255 / 92%)),
-    radial-gradient(circle at top right, rgb(23 131 255 / 8%), transparent 40%);
+    linear-gradient(180deg, var(--gc-color-surface-overlay), var(--gc-color-surface-hover)),
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 40%);
 }
 
 .artifact-form__section--template {
   background:
-    linear-gradient(180deg, rgb(240 247 255 / 96%), rgb(255 255 255 / 92%)),
-    radial-gradient(circle at top left, rgb(10 107 255 / 10%), transparent 45%);
+    linear-gradient(180deg, var(--gc-color-surface-selected), var(--gc-color-surface-overlay)),
+    radial-gradient(circle at top left, var(--gc-color-primary-soft), transparent 45%);
 }
 
 .artifact-form__section-header {
@@ -1175,11 +1175,11 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-form__field input,
 .artifact-form__field select {
   width: 100%;
-  border: 1px solid rgb(15 23 42 / 10%);
+  border: 1px solid var(--gc-color-border);
   border-radius: 14px;
   padding: 12px 14px;
-  background: #fff;
-  box-shadow: inset 0 1px 2px rgb(15 23 42 / 3%);
+  background: var(--gc-color-surface-solid);
+  box-shadow: inset 0 1px 2px var(--gc-color-border-subtle);
 }
 
 .artifact-form__check {

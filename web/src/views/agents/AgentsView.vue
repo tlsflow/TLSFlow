@@ -1978,11 +1978,11 @@ const config: BusinessPageConfig = {
   align-items: stretch;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid #d9e5f7;
+  border: 1px solid var(--gc-color-info-border);
   border-radius: 18px;
   background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%),
+    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
 .agent-detail-modal__hero-copy {
@@ -1993,7 +1993,7 @@ const config: BusinessPageConfig = {
 
 .agent-detail-modal__eyebrow {
   margin: 0;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -2002,7 +2002,7 @@ const config: BusinessPageConfig = {
 
 .agent-detail-modal__hero-copy h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.06;
   letter-spacing: -0.05em;
@@ -2010,7 +2010,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__hero-copy span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -2030,12 +2030,12 @@ const config: BusinessPageConfig = {
   min-width: 150px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
 }
 
 .agent-detail-modal__spotlight small {
-  color: rgb(255 255 255 / 68%);
+  color: var(--gc-color-text-inverse-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -2056,11 +2056,11 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__tab {
-  border: 1px solid #d7e2f0;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 999px;
   padding: 8px 14px;
-  background: #fff;
-  color: #52627a;
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text-muted);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
@@ -2068,10 +2068,10 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__tab[data-active='true'] {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgb(96 165 250 / 12%);
-  background: linear-gradient(135deg, #eff6ff, #ffffff);
-  color: #0f172a;
+  border-color: var(--gc-color-focus);
+  box-shadow: 0 0 0 3px var(--gc-color-focus-ring);
+  background: linear-gradient(135deg, var(--gc-color-surface-selected), var(--gc-color-surface-solid));
+  color: var(--gc-color-text);
 }
 
 .agent-detail-modal__sections {
@@ -2083,9 +2083,9 @@ const config: BusinessPageConfig = {
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid #e3ebf5;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff, #fbfdff);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
 
 .agent-detail-modal__section-head {
@@ -2099,13 +2099,13 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__section-head h3 {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 15px;
   letter-spacing: -0.03em;
 }
 
 .agent-detail-modal__section-head p {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2123,17 +2123,17 @@ const config: BusinessPageConfig = {
   min-height: 70px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #f8fbff;
-  border: 1px solid #e4edf8;
+  background: var(--gc-color-surface-hover);
+  border: 1px solid var(--gc-color-border-muted);
 }
 
 .agent-detail-modal__item[data-emphasis='true'] {
-  background: linear-gradient(135deg, #edf5ff, #ffffff);
-  border-color: #bfdbfe;
+  background: linear-gradient(135deg, var(--gc-color-surface-selected), var(--gc-color-surface-solid));
+  border-color: var(--gc-color-primary-border);
 }
 
 .agent-detail-modal__item dt {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -2142,7 +2142,7 @@ const config: BusinessPageConfig = {
 
 .agent-detail-modal__item dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   line-height: 1.35;
   font-weight: 800;
@@ -2156,8 +2156,8 @@ const config: BusinessPageConfig = {
   gap: 12px;
   padding: 14px;
   border-radius: 14px;
-  border: 1px solid #dce7f5;
-  background: linear-gradient(180deg, #f8fbff, #ffffff);
+  border: 1px solid var(--gc-color-border-muted);
+  background: linear-gradient(180deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
 }
 
 .agent-detail-modal__site-card[data-clickable='true'] {
@@ -2168,8 +2168,8 @@ const config: BusinessPageConfig = {
 .agent-detail-modal__site-card[data-clickable='true']:hover,
 .agent-detail-modal__site-card[data-clickable='true']:focus-visible {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgb(15 23 42 / 10%);
-  border-color: #93c5fd;
+  box-shadow: 0 10px 22px var(--gc-color-border);
+  border-color: var(--gc-color-primary-border-strong);
   outline: none;
 }
 
@@ -2191,7 +2191,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__site-name {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 16px;
   font-weight: 900;
   letter-spacing: -0.03em;
@@ -2201,7 +2201,7 @@ const config: BusinessPageConfig = {
 
 .agent-detail-modal__site-path {
   margin-top: 4px;
-  color: #52627a;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -2217,7 +2217,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__site-meta span {
-  color: #2563eb;
+  color: var(--gc-color-primary-strong);
   font-size: 11px;
   font-weight: 800;
   overflow-wrap: anywhere;
@@ -2225,7 +2225,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__site-meta strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
   overflow-wrap: anywhere;
   text-align: right;
@@ -2250,13 +2250,13 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__linux-meta strong {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 11px;
   font-weight: 800;
 }
 
 .agent-detail-modal__linux-meta span {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-line;
@@ -2274,8 +2274,8 @@ const config: BusinessPageConfig = {
   gap: 10px;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid #dce7f5;
-  background: linear-gradient(180deg, #f8fbff, #ffffff);
+  border: 1px solid var(--gc-color-border-muted);
+  background: linear-gradient(180deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
 }
 
 .agent-detail-modal__log-toggle {
@@ -2287,7 +2287,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__log-toggle:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid var(--gc-color-focus);
   outline-offset: 4px;
   border-radius: 12px;
 }
@@ -2311,7 +2311,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__log-main strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 14px;
   font-weight: 900;
   letter-spacing: -0.02em;
@@ -2319,7 +2319,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__log-main p {
-  color: #52627a;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -2329,7 +2329,7 @@ const config: BusinessPageConfig = {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 14px;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2343,20 +2343,20 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__log-meta span {
-  color: #52627a;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   font-weight: 700;
 }
 
 .agent-detail-modal__log-meta b {
-  color: #2563eb;
+  color: var(--gc-color-primary-strong);
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
 .agent-detail-modal__log-meta small {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 11px;
   font-weight: 800;
 }
@@ -2366,8 +2366,8 @@ const config: BusinessPageConfig = {
   overflow: auto;
   border-radius: 12px;
   padding: 12px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--gc-color-text);
+  color: var(--gc-color-muted-bg);
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -2383,8 +2383,8 @@ const config: BusinessPageConfig = {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
   border: 1px solid transparent;
 }
 
@@ -2396,19 +2396,19 @@ const config: BusinessPageConfig = {
 .agent-detail-modal__binding-chip[data-clickable='true']:hover,
 .agent-detail-modal__binding-chip[data-clickable='true']:focus-visible {
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgb(15 23 42 / 18%);
-  background: linear-gradient(180deg, #0f172a, #1d4ed8);
+  box-shadow: 0 10px 22px var(--gc-color-border-strong);
+  background: linear-gradient(180deg, var(--gc-color-text), var(--gc-color-primary-strong));
   outline: none;
 }
 
 .agent-detail-modal__binding-chip[data-cert-status='expiring'] {
-  background: linear-gradient(180deg, #422006, #7c2d12);
-  border-color: rgb(251 191 36 / 42%);
+  background: linear-gradient(180deg, var(--gc-color-legacy-422006), var(--gc-color-legacy-7c2d12));
+  border-color: var(--gc-color-legacy-rgb-251-191-36-a42p);
 }
 
 .agent-detail-modal__binding-chip[data-cert-status='expired'] {
-  background: linear-gradient(180deg, #3f0d16, #7f1d1d);
-  border-color: rgb(248 113 113 / 38%);
+  background: linear-gradient(180deg, var(--gc-color-legacy-3f0d16), var(--gc-color-legacy-7f1d1d));
+  border-color: var(--gc-color-danger-border);
 }
 
 .agent-detail-modal__binding-topline {
@@ -2432,23 +2432,23 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__cert-badge[data-status='valid'] {
-  color: #052e16;
-  background: #86efac;
+  color: var(--gc-color-legacy-052e16);
+  background: var(--gc-color-legacy-86efac);
 }
 
 .agent-detail-modal__cert-badge[data-status='expiring'] {
-  color: #78350f;
-  background: #fcd34d;
+  color: var(--gc-color-warning);
+  background: var(--gc-color-legacy-fcd34d);
 }
 
 .agent-detail-modal__cert-badge[data-status='expired'] {
-  color: #fff1f2;
-  background: #ef4444;
+  color: var(--gc-color-danger-soft);
+  background: var(--gc-color-danger);
 }
 
 .agent-detail-modal__cert-badge[data-status='unknown'] {
-  color: #e2e8f0;
-  background: rgb(148 163 184 / 30%);
+  color: var(--gc-color-muted-bg);
+  background: var(--gc-color-muted-bg);
 }
 
 .agent-detail-modal__binding-chip strong,
@@ -2463,19 +2463,19 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__binding-chip span {
-  color: rgb(255 255 255 / 72%);
+  color: var(--gc-color-surface-field);
   font-size: 11px;
   font-weight: 700;
 }
 
 .agent-detail-modal__binding-chip small {
-  color: #bfdbfe;
+  color: var(--gc-color-primary-border);
   font-size: 11px;
   line-height: 1.4;
 }
 
 .agent-detail-modal__binding-chip em {
-  color: #f8fafc;
+  color: var(--gc-color-surface-subtle);
   font-size: 10px;
   font-style: normal;
   font-weight: 800;
@@ -2489,7 +2489,7 @@ const config: BusinessPageConfig = {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #93c5fd;
+  color: var(--gc-color-primary-border-strong);
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
@@ -2497,7 +2497,7 @@ const config: BusinessPageConfig = {
 
 .agent-detail-modal__binding-link:hover,
 .agent-detail-modal__binding-link:focus-visible {
-  color: #dbeafe;
+  color: var(--gc-color-info-border);
   outline: none;
   text-decoration: underline;
 }
@@ -2512,11 +2512,11 @@ const config: BusinessPageConfig = {
   justify-content: space-between;
   gap: 12px;
   padding: 16px;
-  border: 1px solid #d9e5f7;
+  border: 1px solid var(--gc-color-info-border);
   border-radius: 18px;
   background:
-    radial-gradient(circle at top right, rgb(59 130 246 / 14%), transparent 30%),
-    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+    radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 30%),
+    linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
 .agent-certificate-modal__hero h3,
@@ -2526,7 +2526,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-certificate-modal__hero h3 {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.08;
   letter-spacing: -0.05em;
@@ -2536,13 +2536,13 @@ const config: BusinessPageConfig = {
 .agent-certificate-modal__hero span {
   display: block;
   margin-top: 6px;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .agent-certificate-modal__eyebrow {
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -2556,12 +2556,12 @@ const config: BusinessPageConfig = {
   align-content: start;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  background: var(--gc-color-text);
+  color: var(--gc-color-surface-solid);
 }
 
 .agent-certificate-modal__status small {
-  color: rgb(255 255 255 / 68%);
+  color: var(--gc-color-text-inverse-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -2575,7 +2575,7 @@ const config: BusinessPageConfig = {
 }
 
 .agent-certificate-modal__status span {
-  color: rgb(255 255 255 / 72%);
+  color: var(--gc-color-surface-field);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2584,9 +2584,9 @@ const config: BusinessPageConfig = {
   margin: 0;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #9f1239;
+  border: 1px solid var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
+  color: var(--gc-color-danger);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2602,8 +2602,8 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__loading {
-  color: #64748b;
-  background: #f5f8fc;
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-subtle);
 }
 
 .agent-detail-modal__error,
@@ -2639,18 +2639,18 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 12px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   cursor: pointer;
 }
 
 .agent-install-modal__platform[data-active='true'] {
-  border-color: #60a5fa;
-  box-shadow: 0 0 0 3px rgb(96 165 250 / 12%);
-  background: linear-gradient(135deg, #eff6ff, #ffffff);
+  border-color: var(--gc-color-focus);
+  box-shadow: 0 0 0 3px var(--gc-color-focus-ring);
+  background: linear-gradient(135deg, var(--gc-color-surface-selected), var(--gc-color-surface-solid));
 }
 
 .agent-install-modal__platform strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
 }
 
@@ -2668,7 +2668,7 @@ const config: BusinessPageConfig = {
   border-radius: 10px;
   padding: 8px 10px;
   color: var(--gc-color-text);
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   font-size: 12px;
 }
 
@@ -2685,14 +2685,14 @@ const config: BusinessPageConfig = {
 .agent-install-modal__primary {
   border-color: var(--gc-color-primary);
   background: var(--gc-color-primary);
-  color: #fff;
+  color: var(--gc-color-surface-solid);
 }
 
 .agent-install-modal__primary:hover:not(:disabled),
 .agent-install-modal__primary:focus-visible:not(:disabled) {
   border-color: var(--gc-color-primary-hover);
   background: var(--gc-color-primary-hover);
-  color: #fff;
+  color: var(--gc-color-surface-solid);
 }
 
 .agent-install-modal__result {
@@ -2711,7 +2711,7 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 12px;
   padding: 9px 11px;
-  background: #fbfdff;
+  background: var(--gc-color-surface-raised);
 }
 
 .agent-install-modal__meta dt {

@@ -905,12 +905,12 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__section-head strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 15px;
 }
 
 .monitor-page__section-head span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 700;
 }
@@ -921,17 +921,17 @@ function trimProbeStateToTargets() {
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   text-align: left;
   cursor: pointer;
 }
 
 .monitor-page__target.is-active {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--gc-color-primary-strong);
+  background: var(--gc-color-surface-selected);
 }
 
 .monitor-page__target div {
@@ -946,12 +946,12 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__target span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
 }
 
 .monitor-page__target small {
-  color: #475569;
+  color: var(--gc-color-muted);
   font-size: 11px;
   font-weight: 750;
 }
@@ -969,19 +969,19 @@ function trimProbeStateToTargets() {
   display: block;
   aspect-ratio: 1;
   border-radius: 4px;
-  background: #e2e8f0;
+  background: var(--gc-color-muted-bg);
 }
 
 .monitor-page__probe-blocks i[data-status='READY'] {
-  background: #22c55e;
+  background: var(--gc-color-success);
 }
 
 .monitor-page__probe-blocks i[data-status='WARNING'] {
-  background: #f59e0b;
+  background: var(--gc-color-warning);
 }
 
 .monitor-page__probe-blocks i[data-status='ERROR'] {
-  background: #ef4444;
+  background: var(--gc-color-danger);
 }
 
 .monitor-page__target-status {
@@ -995,23 +995,23 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__target-status[data-status='READY'] {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--gc-color-success-bg);
+  color: var(--gc-color-success);
 }
 
 .monitor-page__target-status[data-status='WARNING'] {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--gc-color-warning-bg);
+  color: var(--gc-color-warning);
 }
 
 .monitor-page__target-status[data-status='ERROR'] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--gc-color-danger-bg);
+  color: var(--gc-color-danger);
 }
 
 .monitor-page__target-status[data-status='NONE'] {
-  background: #e0f2fe;
-  color: #64748b;
+  background: var(--gc-color-info-bg);
+  color: var(--gc-color-text-muted);
 }
 
 .monitor-page__dialog-form {
@@ -1022,7 +1022,7 @@ function trimProbeStateToTargets() {
 .monitor-page__dialog-form label {
   display: grid;
   gap: 8px;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 850;
 }
@@ -1033,7 +1033,7 @@ function trimProbeStateToTargets() {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
 }
 
@@ -1048,12 +1048,12 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__dialog-number b {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
 }
 
 .monitor-page__dialog-form p {
   margin: 0;
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 13px;
   font-weight: 700;
 }
@@ -1077,7 +1077,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__summary-title span,
 .monitor-page__summary-title p {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 750;
 }
@@ -1088,7 +1088,7 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__summary-title h2 {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 24px;
   line-height: 1.12;
   overflow-wrap: anywhere;
@@ -1107,25 +1107,25 @@ function trimProbeStateToTargets() {
   gap: 8px;
   min-height: 40px;
   padding: 0 12px;
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--gc-color-surface-subtle);
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 800;
 }
 
 .monitor-page__target-interval input {
   width: 76px;
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 6px;
   padding: 5px 8px;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font: inherit;
 }
 
 .monitor-page__target-interval b {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
 }
 
 .monitor-page__kpi-grid {
@@ -1138,20 +1138,20 @@ function trimProbeStateToTargets() {
   display: grid;
   gap: 6px;
   min-height: 78px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
   padding: 12px;
-  background: #f8fafc;
+  background: var(--gc-color-surface-subtle);
 }
 
 .monitor-page__kpi-grid span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
 }
 
 .monitor-page__kpi-grid strong {
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.45;
@@ -1176,7 +1176,7 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__empty-line {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 13px;
   font-weight: 700;
 }
@@ -1200,21 +1200,21 @@ function trimProbeStateToTargets() {
   display: grid;
   gap: 5px;
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
   padding: 10px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .monitor-page__certificate-detail dt {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 850;
 }
 
 .monitor-page__certificate-detail dd {
   margin: 0;
-  color: #0f172a;
+  color: var(--gc-color-text);
   font-size: 12px;
   font-weight: 750;
   overflow-wrap: anywhere;
@@ -1228,7 +1228,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__table th,
 .monitor-page__table td {
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--gc-color-muted-bg);
   padding: 9px 8px;
   text-align: left;
   vertical-align: top;
@@ -1236,7 +1236,7 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__table th {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-weight: 850;
 }
 
@@ -1245,10 +1245,10 @@ function trimProbeStateToTargets() {
   align-items: start;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
   padding: 10px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .monitor-page__risk-list li div {
@@ -1264,11 +1264,11 @@ function trimProbeStateToTargets() {
 }
 
 .monitor-page__risk-link:hover strong {
-  color: #0f766e;
+  color: var(--gc-color-success);
 }
 
 .monitor-page__risk-list li span {
-  color: #64748b;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   line-height: 1.45;
 }

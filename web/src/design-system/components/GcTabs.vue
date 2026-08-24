@@ -40,9 +40,9 @@ const emit = defineEmits<{
   gap: 6px;
   width: fit-content;
   padding: 4px;
-  border: 1px solid #dbe6f4;
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 999px;
-  background: #f8fbff;
+  background: var(--gc-color-surface-hover);
 }
 
 .gc-tabs__item {
@@ -51,7 +51,7 @@ const emit = defineEmits<{
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #5b6f88;
+  color: var(--gc-color-text-muted);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -59,8 +59,8 @@ const emit = defineEmits<{
 }
 
 .gc-tabs__item[data-active='true'] {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  box-shadow: 0 4px 14px var(--gc-color-border);
 }
 </style>

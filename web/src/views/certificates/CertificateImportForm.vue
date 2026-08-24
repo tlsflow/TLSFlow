@@ -458,11 +458,11 @@ function cancelImport() {
 }
 
 .certificate-import-wizard__steps li {
-  border: 1px solid rgb(15 23 42 / 8%);
+  border: 1px solid var(--gc-color-border-soft);
   border-radius: 999px;
   padding: 8px 12px;
   color: var(--gc-color-text-muted);
-  background: rgb(255 255 255 / 40%);
+  background: var(--gc-color-surface-soft);
   text-align: center;
   font-size: 12px;
   font-weight: 650;
@@ -470,9 +470,9 @@ function cancelImport() {
 
 .certificate-import-wizard__steps li.is-active,
 .certificate-import-wizard__steps li.is-done {
-  border-color: rgb(10 132 255 / 24%);
-  color: #0a84ff;
-  background: rgb(10 132 255 / 8%);
+  border-color: var(--gc-color-primary-border);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
 }
 
 .certificate-import-wizard__header h3,
@@ -526,8 +526,8 @@ function cancelImport() {
   width: fit-content;
   border-radius: 999px;
   padding: 2px 8px;
-  background: rgb(10 132 255 / 10%);
-  color: #0a84ff;
+  background: var(--gc-color-primary-soft);
+  color: var(--gc-color-primary);
   font-size: 10px;
   font-weight: 700;
 }
@@ -540,8 +540,8 @@ function cancelImport() {
 }
 
 .certificate-import-wizard__card.is-active {
-  border-color: rgb(10 132 255 / 24%);
-  box-shadow: inset 0 0 0 1px rgb(10 132 255 / 14%);
+  border-color: var(--gc-color-primary-border);
+  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
 }
 
 .certificate-import-wizard__card.is-disabled {
@@ -580,10 +580,10 @@ function cancelImport() {
 .certificate-import-wizard__chain-item {
   display: grid;
   gap: 4px;
-  border: 1px solid rgb(15 23 42 / 6%);
+  border: 1px solid var(--gc-color-border-subtle);
   border-radius: 14px;
   padding: 12px;
-  background: rgb(255 255 255 / 42%);
+  background: var(--gc-color-surface-soft);
 }
 
 .certificate-import-wizard__summary span,
@@ -600,13 +600,13 @@ function cancelImport() {
 }
 
 .certificate-import-wizard__status.is-success {
-  color: #047857;
-  background: #ecfdf5;
+  color: var(--gc-color-success);
+  background: var(--gc-color-legacy-ecfdf5);
 }
 
 .certificate-import-wizard__status.is-fail {
-  color: #b91c1c;
-  background: #fef2f2;
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
 }
 
 .certificate-import-wizard__report-card dl {
@@ -637,13 +637,13 @@ function cancelImport() {
 }
 
 .certificate-import-wizard__messages--error {
-  background: #fef2f2;
-  color: #991b1b;
+  background: var(--gc-color-danger-soft);
+  color: var(--gc-color-danger);
 }
 
 .certificate-import-wizard__messages--warning {
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--gc-color-warning-soft);
+  color: var(--gc-color-warning);
 }
 
 .certificate-import-wizard__list {

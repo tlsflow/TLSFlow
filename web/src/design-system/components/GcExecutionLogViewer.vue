@@ -162,8 +162,8 @@ pre {
   margin: 0;
   max-height: 320px;
   overflow: auto;
-  background: #020617;
-  color: #e2e8f0;
+  background: var(--gc-color-legacy-020617);
+  color: var(--gc-color-muted-bg);
   padding: var(--gc-space-4);
   border-radius: var(--gc-radius-md);
   white-space: pre-wrap;

@@ -177,7 +177,7 @@ function readPath(record: ApiRecord, path: string): unknown {
 
 .audit-page__error {
   margin: 0;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--gc-color-danger-border);
   border-radius: 8px;
   padding: 12px 14px;
   color: var(--gc-color-danger);
@@ -206,7 +206,7 @@ function readPath(record: ApiRecord, path: string): unknown {
 }
 
 .audit-page__metric strong {
-  color: #05070d;
+  color: var(--gc-color-text-strong);
   font-size: 34px;
   line-height: 1;
   font-weight: 950;
@@ -233,7 +233,7 @@ function readPath(record: ApiRecord, path: string): unknown {
   align-items: center;
   padding: 16px;
   border-bottom: 1px solid var(--gc-color-border);
-  background: rgb(255 255 255 / 64%);
+  background: var(--gc-color-surface-muted);
 }
 
 .audit-list__header h2,
@@ -274,7 +274,7 @@ function readPath(record: ApiRecord, path: string): unknown {
   gap: 10px 12px;
   align-items: start;
   padding: 14px 16px;
-  border-bottom: 1px solid rgb(15 23 42 / 7%);
+  border-bottom: 1px solid var(--gc-color-border-subtle);
 }
 
 .audit-list__items li:last-child {
@@ -299,19 +299,19 @@ function readPath(record: ApiRecord, path: string): unknown {
 .audit-list__result[data-result="success"] {
   color: var(--gc-color-success);
   background: var(--gc-color-success-bg);
-  border-color: rgb(22 163 74 / 22%);
+  border-color: var(--gc-color-success-border);
 }
 
 .audit-list__result[data-result="failure"] {
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
-  border-color: rgb(220 38 38 / 22%);
+  border-color: var(--gc-color-danger-border);
 }
 
 .audit-list__result[data-result="denied"] {
-  color: #92400e;
-  background: #fef3c7;
-  border-color: rgb(245 158 11 / 28%);
+  color: var(--gc-color-warning);
+  background: var(--gc-color-warning-bg);
+  border-color: var(--gc-color-warning-border);
 }
 
 .audit-list__body {

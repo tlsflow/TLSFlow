@@ -459,9 +459,9 @@ async function loadDetail() {
   display: grid;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid rgb(15 23 42 / 6%);
+  border: 1px solid var(--gc-color-border-subtle);
   border-radius: 12px;
-  background: rgb(255 255 255 / 72%);
+  background: var(--gc-color-surface-field);
 }
 
 .certificate-detail-panel__summary span,
@@ -487,8 +487,8 @@ async function loadDetail() {
 .certificate-detail-panel__validity {
   gap: 8px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgb(236 245 255 / 96%), rgb(249 252 255 / 98%));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%);
+  background: linear-gradient(135deg, var(--gc-color-surface-selected), var(--gc-color-surface-hover));
+  box-shadow: inset 0 1px 0 var(--gc-color-surface-field);
 }
 
 
@@ -498,7 +498,7 @@ async function loadDetail() {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding-top: 6px;
-  border-top: 1px solid rgb(15 23 42 / 8%);
+  border-top: 1px solid var(--gc-color-border-soft);
 }
 
 .certificate-detail-panel__validity-meta span {

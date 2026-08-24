@@ -629,7 +629,7 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 14px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
   text-align: left;
   cursor: pointer;
@@ -659,7 +659,7 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
   color: var(--gc-color-text);
   font: inherit;
 }
@@ -673,7 +673,7 @@ const config: BusinessPageConfig = {
 .gateway-command-modal__primary {
   justify-self: start;
   background: var(--gc-color-primary);
-  color: #fff;
+  color: var(--gc-color-surface-solid);
 }
 
 .gateway-command-modal__error {
@@ -698,7 +698,7 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 14px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .gateway-command-modal__meta dt {
@@ -773,7 +773,7 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 14px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .gateway-detail-modal__section-head h3 {
@@ -793,22 +793,22 @@ const config: BusinessPageConfig = {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 
 .gateway-detail-modal__summary-item[data-tone='good'] {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: var(--gc-color-success-border);
+  background: var(--gc-color-success-soft);
 }
 
 .gateway-detail-modal__summary-item[data-tone='warn'] {
-  border-color: #fde68a;
-  background: #fffbeb;
+  border-color: var(--gc-color-warning-border);
+  background: var(--gc-color-warning-soft);
 }
 
 .gateway-detail-modal__summary-item[data-tone='bad'] {
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
 }
 
 .gateway-detail-modal__summary-item dt {

@@ -31,7 +31,7 @@ defineProps<{
 }
 h1 {
   margin: 0;
-  color: #05070d;
+  color: var(--gc-color-text-strong);
   font-size: 24px;
   line-height: 1.1;
   letter-spacing: 0;
@@ -48,10 +48,10 @@ p {
 .gc-page-header__actions :slotted(.gc-button) {
   min-height: 36px;
   padding-inline: 14px;
-  color: #fff;
+  color: var(--gc-color-surface-solid);
   background: var(--gc-color-primary);
   border-color: var(--gc-color-primary);
-  box-shadow: 0 8px 20px rgb(37 99 235 / 18%);
+  box-shadow: 0 8px 20px var(--gc-color-primary-weak);
 }
 .gc-page-header__actions :slotted(.gc-button:hover) { background: var(--gc-color-primary-hover); }
 

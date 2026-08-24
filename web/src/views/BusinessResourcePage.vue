@@ -380,7 +380,7 @@ defineExpose({
 .business-page { display: grid; gap: var(--gc-space-5); }
 .business-page__primary-error {
   margin: 0;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--gc-color-danger-border);
   border-radius: 14px;
   padding: 12px 14px;
   color: var(--gc-color-danger);
@@ -405,12 +405,12 @@ defineExpose({
   width: 42px;
   height: 42px;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--gc-color-primary-weak), #fff);
-  box-shadow: inset 0 0 0 1px #dbeafe;
+  background: linear-gradient(135deg, var(--gc-color-primary-weak), var(--gc-color-surface-solid));
+  box-shadow: inset 0 0 0 1px var(--gc-color-info-border);
 }
-.business-page__metric:hover { transform: translateY(-2px); box-shadow: var(--gc-shadow-md); border-color: #dbeafe; }
+.business-page__metric:hover { transform: translateY(-2px); box-shadow: var(--gc-shadow-md); border-color: var(--gc-color-info-border); }
 .business-page__metric strong { color: var(--gc-color-text-muted); font-weight: 850; }
-.business-page__metric-count { color: #05070d; font-size: 40px; line-height: 1; font-weight: 950; letter-spacing: -0.055em; }
+.business-page__metric-count { color: var(--gc-color-text-strong); font-size: 40px; line-height: 1; font-weight: 950; letter-spacing: -0.055em; }
 .business-page__metric p { max-width: 86%; margin: 0; color: var(--gc-color-text-muted); line-height: 1.55; }
 .business-page__metric footer { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); align-items: center; }
 .business-page__toolbar { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: center; }
@@ -447,7 +447,7 @@ defineExpose({
   border-radius: 11px;
   padding: 9px 11px;
   color: var(--gc-color-text);
-  background: #fff;
+  background: var(--gc-color-surface-solid);
 }
 .business-page__pill {
   display: inline-flex;
@@ -463,13 +463,13 @@ defineExpose({
 .business-page__primary-button {
   border-color: var(--gc-color-primary);
   background: var(--gc-color-primary);
-  color: #fff;
+  color: var(--gc-color-surface-solid);
 }
 .business-page__primary-button:hover:not(:disabled),
 .business-page__primary-button:focus-visible:not(:disabled) {
   border-color: var(--gc-color-primary-hover);
   background: var(--gc-color-primary-hover);
-  color: #fff;
+  color: var(--gc-color-surface-solid);
 }
 .business-page__pill--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
