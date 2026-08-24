@@ -33,6 +33,8 @@ ENV NODE_ENV=production \
     GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
     GCAC_WEB_ROOT=/app/web \
     GCAC_WORKFLOW_DATA_DIR=/app/data/workflows \
+    GCAC_RUNTIME_SECRETS_FILE=/app/data/runtime/runtime-secrets.enc \
+    GCAC_POLICY_AUTHORITY_STATE_FILE=/app/data/runtime/policy-authority-state.json \
     GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
     GCAC_LEGO_PATH=/usr/local/bin/lego
 
@@ -43,7 +45,7 @@ RUN apt-get update \
   && rm -f /tmp/lego.tar.gz /tmp/install-lego.mjs /tmp/versions.json \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
-  && mkdir -p /var/lib/gcac/pglite /app/data/workflows /app/data/plugins /app/src/database/migrations \
+  && mkdir -p /var/lib/gcac/pglite /app/data/workflows /app/data/runtime /app/data/plugins /app/src/database/migrations \
       /app/src/modules/plugins/builtin-plugins /app/src/modules/workflow-templates/builtin-workflows \
       /app/web /opt/gcac/agent-release-bundle \
   && chown -R gcac:gcac /var/lib/gcac /app /opt/gcac

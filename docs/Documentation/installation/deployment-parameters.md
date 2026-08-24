@@ -36,15 +36,15 @@ lastVerified: 2026-08-22
 | `GCAC_TOKEN_SECRET` | 登录令牌签名密钥 |
 | `GCAC_SECRET_KEK` | Secret（敏感值）加密密钥 |
 | `GCAC_CA_CONFIRMATION_SECRET` | CA 高风险操作确认密钥 |
+| `GCAC_LICENSE_TRUST_KEYS_JSON` | 许可证签发根的 Ed25519 公钥映射（Base64URL SPKI） |
 | `POSTGRES_PASSWORD` | 标准版 PostgreSQL 密码 |
 | `BROWSER_RUNTIME_SHARED_SECRET` | Backend 与浏览器运行时之间的共享密钥 |
-| `GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH`、`GCAC_PLUGIN_RUNNER_VERSION`、`GCAC_PLUGIN_SDK_VERSION` | 插件 Runner（隔离插件进程）启动材料 |
-| `GCAC_POLICY_AUTHORITY_*` | 策略授权进程的根密钥、签名材料和状态文件 |
-| `GCAC_AGENT_LOCAL_POLICY_*` | Agent 本地策略验证所需材料 |
 
-`GCAC_POLICY_AUTHORITY_*` 和 `GCAC_AGENT_LOCAL_POLICY_*` 的每个变量都必须按 `docker/compose.yml` 提供，不能用空字符串代替。不要在文档、日志或工单中粘贴私钥内容。
-
-策略授权材料（Policy Authority，负责签发执行授权的策略组件）和 Agent 本地策略材料由发布或安全流程提供。本页不生成密钥示例，也不把测试夹具中的值当作生产默认值。
+Plugin Runner 的固定路径和版本由镜像提供，不需要写入环境文件。Policy Authority
+和 Agent Local Policy 的实例级信任根、签名私钥、Bootstrap、KeySet 和策略包由生产
+容器首启随机生成，并使用 `GCAC_SECRET_KEK` 加密保存到 `/app/data/runtime/runtime-secrets.enc`。
+该目录必须持久化；删除它会生成全新的信任根，替换 `GCAC_SECRET_KEK` 会导致服务失败关闭。
+不要在文档、日志或工单中粘贴解密后的材料。
 
 ## 数据库与持久化目录
 
@@ -56,6 +56,7 @@ lastVerified: 2026-08-22
 | `GCAC_PGLITE_DATA_DIR` | 单机版 PGlite 数据目录 |
 | `GCAC_MIGRATIONS_DIR` | 数据库迁移目录，Compose 默认 `/app/src/database/migrations` |
 | `GCAC_WORKFLOW_DATA_DIR` | 用户工作流目录，Compose 默认 `/app/data/workflows` |
+| `GCAC_RUNTIME_SECRETS_FILE` | 加密运行时安全材料路径，Compose 默认 `/app/data/runtime/runtime-secrets.enc` |
 | `GCAC_WEB_ROOT` | 单机版静态前端目录，Compose 默认 `/app/web` |
 
 ## 身份、会话和许可证
