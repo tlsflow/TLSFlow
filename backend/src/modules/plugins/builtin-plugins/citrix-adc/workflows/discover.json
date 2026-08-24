@@ -1,0 +1,32 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": { "name": "citrix-adc-discover", "displayName": "Citrix ADC discovery", "category": "device", "version": "1.0.0", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "variables": {
+    "deviceHost": { "type": "string", "required": true },
+    "managementPort": { "type": "number", "required": true, "default": 443 },
+    "credential": { "type": "credential", "required": true, "sensitive": true },
+    "tlsVerify": { "type": "boolean", "required": true, "default": true }
+  },
+  "steps": [
+    { "name": "readVersion", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
+    { "name": "readLbVirtualServers", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/lbvserver", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
+    { "name": "readVpnVirtualServers", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/vpnvserver", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
+    { "name": "readCertificateBindings", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding", "query": { "bulkbindings": "yes" }, "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
+    { "name": "readCertificates", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
+    {
+      "name": "projectDiscovery",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "version": "{{steps.readVersion.body}}", "lb": "{{steps.readLbVirtualServers.body}}", "vpn": "{{steps.readVpnVirtualServers.body}}", "bindings": "{{steps.readCertificateBindings.body}}", "certificates": "{{steps.readCertificates.body}}" },
+        "outputs": {
+          "discovery": { "expression": "{'schemaVersion':'gcac.device-discovery/v1','identity':{'productName':'Citrix ADC','version':version.nsversion.version},'frameworks':[],'sites':$append($map(lb.lbvserver,function($v){$v.servicetype in ['SSL','SSL_TCP'] ? {'stableKey':'LB:' & $v.name,'name':$v.name,'type':'LB','address':$v.ipv46,'port':$v.port,'protocol':$v.servicetype} : undefined}),$map(vpn.vpnvserver,function($v){'stableKey':'VPN:' & $v.name,'name':$v.name,'type':'VPN','address':$v.ipv46,'port':$v.port,'protocol':'SSL'})),'certificates':certificates.sslcertkey,'bindings':bindings.sslvserver_sslcertkey_binding,'warnings':[]}" }
+        },
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    }
+  ]
+}

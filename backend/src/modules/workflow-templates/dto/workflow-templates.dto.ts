@@ -151,7 +151,7 @@ export interface WorkflowHttpRequest {
     | { type: 'cookie'; secretRef: string; name?: string }
     | { type: 'custom_header'; secretRef: string; headerName: string }
     | { type: 'mtls'; certSecretRef: string; keySecretRef: string };
-  tls?: { verify?: boolean; caSecretRef?: string; clientCertSecretRef?: string; clientKeySecretRef?: string; sni?: string; allowInsecure?: boolean };
+  tls?: { verify?: boolean | string; caSecretRef?: string; clientCertSecretRef?: string; clientKeySecretRef?: string; sni?: string; allowInsecure?: boolean };
   timeoutSeconds?: number;
   maxResponseBytes?: number;
   successStatusCodes?: number[];

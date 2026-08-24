@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.citrixAdc.presentation.identity",
+      "fields": [
+        { "key": "product", "labelKey": "plugin.citrixAdc.field.product", "valuePath": "identity.productName", "type": "text" },
+        { "key": "version", "labelKey": "plugin.citrixAdc.field.version", "valuePath": "identity.version", "type": "text" },
+        { "key": "build", "labelKey": "plugin.citrixAdc.field.build", "valuePath": "identity.build", "type": "text" },
+        { "key": "health", "labelKey": "plugin.citrixAdc.field.health", "valuePath": "device.health", "type": "status" }
+      ]
+    }
+  ],
+  "tabs": [
+    { "type": "frameworks", "id": "frameworks", "titleKey": "plugin.citrixAdc.tab.frameworks", "columns": [] },
+    { "type": "sites", "id": "sites", "titleKey": "plugin.citrixAdc.tab.sites", "columns": [] },
+    { "type": "certificate_bindings", "id": "certificates", "titleKey": "plugin.citrixAdc.tab.certificates", "columns": [] },
+    { "type": "device_logs", "id": "logs", "titleKey": "plugin.citrixAdc.tab.logs", "columns": [] }
+  ],
+  "actions": [
+    { "capabilityKey": "device.connection.test", "labelKey": "plugin.citrixAdc.action.testConnection", "tone": "info" },
+    { "capabilityKey": "device.discover", "labelKey": "plugin.citrixAdc.action.discover", "tone": "info" },
+    { "capabilityKey": "certificate.deploy", "labelKey": "plugin.citrixAdc.action.deploy", "tone": "warning" }
+  ]
+}

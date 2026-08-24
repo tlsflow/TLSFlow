@@ -18,6 +18,7 @@ import type {
   WorkflowConnectionBinding,
   WorkflowDslV1,
   WorkflowExtractor,
+  WorkflowHttpRequest,
   WorkflowMockStepOutput,
   WorkflowProgressReporter,
   WorkflowProgressStep,
@@ -748,7 +749,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         formSecretRefs: adaptFormCredentialRefs(step.request.formCredentialRefs, context.values, mode === 'render_only'),
         multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
         auth: adaptHttpAuth(step.request.auth, context.values, mode === 'render_only'),
-        tls: step.request.tls,
+        tls: adaptHttpTls(step.request.tls, context.values, mode === 'render_only'),
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
         maxResponseBytes: step.request.maxResponseBytes,
       },
@@ -871,6 +872,29 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
   }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
+}
+
+function adaptHttpTls(
+  tls: WorkflowHttpRequest['tls'],
+  values: Record<string, unknown>,
+  keepMissing: boolean,
+): WorkflowHttpRequest['tls'] {
+  if (!tls) return undefined;
+  return {
+    ...tls,
+    verify: renderBoolean(tls.verify, values, keepMissing),
+    sni: tls.sni ? renderString(tls.sni, values, keepMissing) : undefined,
+  };
+}
+
+function renderBoolean(value: boolean | string | undefined, variables: Record<string, unknown>, keepMissing: boolean): boolean | string | undefined {
+  if (typeof value !== 'string') return value;
+  const match = value.match(/^\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}$/);
+  if (!match) throw new AppError('VALIDATION_FAILED', '布尔变量表达式无效', { value });
+  const resolved = readPath(variables, match[1]!);
+  if (resolved === undefined && keepMissing) return value;
+  if (typeof resolved !== 'boolean') throw new AppError('VALIDATION_FAILED', 'TLS verify 变量必须是布尔值', { key: match[1] });
+  return resolved;
 }
 
 function adaptHttpResponseAssertions(assertions: WorkflowAssertion[], values: Record<string, unknown>, keepMissing: boolean): Array<

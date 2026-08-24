@@ -7,6 +7,7 @@ import { StandardPluginFieldRegistry } from './forms/standard-plugin-field.regis
 import { PluginLocaleService, hostLocales } from './locales/plugin-locale.service.js';
 import { PluginPresentationSchemaService } from './presentations/plugin-presentation-schema.service.js';
 import type { UnifiedPluginManifestV1 } from './dto/unified-plugins.dto.js';
+import { PluginPackageResourcesService } from './application/plugin-package-resources.service.js';
 
 test('标准字段 Registry 覆盖连接、认证、TLS、Gateway 和 SecretRef', () => {
   const registry = new StandardPluginFieldRegistry();
@@ -65,6 +66,22 @@ test('Locale 服务校验内置八语言、用户默认语言、回退和恶意 
   assert.throws(() => service.validate(manifest('USER', { 'en-US': 'locales/en-US.json' }), {
     'locales/en-US.json': JSON.stringify({ 'plugin.test.name': '<b>unsafe</b>' }),
   }, ['plugin.test.name']), /HTML/);
+});
+
+test('插件 Locale 不重复承担宿主标准字段翻译', () => {
+  const packageService = new PluginPackageResourcesService();
+  const builtin = manifest('BUILTIN', Object.fromEntries(hostLocales.map((locale) => [locale, `locales/${locale}.json`])));
+  builtin.resources.forms = { device: 'forms/device.json' };
+  const messages = { 'plugin.test.name': 'Test' };
+  const resources = {
+    'forms/device.json': JSON.stringify({
+      schemaVersion: 'gcac.plugin-form/v1',
+      mode: 'BOTH',
+      sections: [{ id: 'device', titleKey: 'plugin.test.name', fields: [{ key: 'address', type: 'text', labelKey: 'plugin.test.name', standardField: 'connection.address' }] }],
+    }),
+    ...Object.fromEntries(hostLocales.map((locale) => [`locales/${locale}.json`, JSON.stringify(messages)])),
+  };
+  assert.ok(packageService.validate(builtin, resources).locales);
 });
 
 test('Presentation Schema 统一支持设备详情、框架、站点、证书和日志', () => {

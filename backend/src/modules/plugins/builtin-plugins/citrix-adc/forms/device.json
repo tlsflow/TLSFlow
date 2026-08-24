@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "BOTH",
+  "sections": [
+    {
+      "id": "device",
+      "titleKey": "plugin.citrixAdc.form.device",
+      "fields": [
+        { "key": "displayName", "type": "text", "labelKey": "plugin.citrixAdc.field.displayName", "standardField": "device.displayName", "required": true },
+        { "key": "address", "type": "text", "labelKey": "plugin.citrixAdc.field.address", "standardField": "connection.address", "required": true },
+        { "key": "port", "type": "integer", "labelKey": "plugin.citrixAdc.field.port", "standardField": "connection.port", "required": true, "defaultValue": 443 },
+        { "key": "gatewayId", "type": "select", "labelKey": "plugin.citrixAdc.field.gateway", "standardField": "connection.gatewayId" }
+      ]
+    },
+    {
+      "id": "authentication",
+      "titleKey": "plugin.citrixAdc.form.authentication",
+      "fields": [
+        { "key": "authMode", "type": "radio", "labelKey": "plugin.citrixAdc.field.authMode", "standardField": "authentication.mode", "required": true, "defaultValue": "NITRO_HEADER", "options": [{ "value": "NITRO_HEADER", "labelKey": "plugin.citrixAdc.option.nitroHeader" }] },
+        { "key": "username", "type": "text", "labelKey": "plugin.citrixAdc.field.username", "standardField": "authentication.username" },
+        { "key": "passwordSecretRef", "type": "secret_ref", "labelKey": "plugin.citrixAdc.field.passwordSecret", "standardField": "authentication.passwordSecretRef", "required": true }
+      ]
+    },
+    {
+      "id": "tls",
+      "titleKey": "plugin.citrixAdc.form.tls",
+      "fields": [
+        { "key": "tlsEnabled", "type": "switch", "labelKey": "plugin.citrixAdc.field.tlsEnabled", "standardField": "tls.enabled", "defaultValue": true },
+        { "key": "tlsVerify", "type": "switch", "labelKey": "plugin.citrixAdc.field.tlsVerify", "standardField": "tls.verifyPeer", "defaultValue": true },
+        { "key": "serverName", "type": "text", "labelKey": "plugin.citrixAdc.field.serverName", "standardField": "tls.serverName" },
+        { "key": "minimumTlsVersion", "type": "select", "labelKey": "plugin.citrixAdc.field.minimumTlsVersion", "standardField": "tls.minimumVersion", "defaultValue": "TLSv1.2", "options": [{ "value": "TLSv1.2", "labelKey": "plugin.citrixAdc.option.tls12" }, { "value": "TLSv1.3", "labelKey": "plugin.citrixAdc.option.tls13" }] }
+      ]
+    }
+  ]
+}

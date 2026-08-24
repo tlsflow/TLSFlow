@@ -1,0 +1,51 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "citrix.netscaler-adc",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.citrixAdc.name",
+  "descriptionKey": "plugin.citrixAdc.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "BOTH",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    { "key": "device.connection.test", "contractVersion": "v1", "actionContractId": "device.connection.test.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "device.identity.detect", "contractVersion": "v1", "actionContractId": "device.identity.detect.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "device.discover", "contractVersion": "v1", "actionContractId": "device.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "certificate.discover", "contractVersion": "v1", "actionContractId": "certificate.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
+  ],
+  "permissions": ["network.http", "secret.read", "artifact.read", "device.write"],
+  "compatibility": {
+    "products": ["Citrix ADC", "NetScaler ADC"],
+    "versions": ["13.1", "14.1"],
+    "platforms": ["appliance"]
+  },
+  "resources": {
+    "workflows": {
+      "device.connection.test": "workflows/connection-test.json",
+      "device.identity.detect": "workflows/connection-test.json",
+      "device.discover": "workflows/discover.json",
+      "certificate.discover": "workflows/discover.json",
+      "certificate.deploy": "workflows/certificate-deploy.json",
+      "certificate.rollback": "workflows/certificate-rollback.json"
+    },
+    "forms": { "device": "forms/device.json" },
+    "presentations": { "device": "presentations/device.json" },
+    "locales": {
+      "zh-CN": "locales/zh-CN.json",
+      "zh-TW": "locales/zh-TW.json",
+      "en-US": "locales/en-US.json",
+      "ja-JP": "locales/ja-JP.json",
+      "ko-KR": "locales/ko-KR.json",
+      "fr-FR": "locales/fr-FR.json",
+      "ru-RU": "locales/ru-RU.json",
+      "pt-BR": "locales/pt-BR.json"
+    }
+  }
+}

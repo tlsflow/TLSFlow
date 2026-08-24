@@ -54,6 +54,7 @@ import { PgAgentsRepository } from './modules/agents/repository/agents.repositor
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
+import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { AgentDeploymentPluginsApplicationService } from './modules/plugins/application/agent-deployment-plugins.application-service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
@@ -166,6 +167,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
+  app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('certificateServices', certificateServices);
   app.setResource('internalCaService', internalCaService);
 
@@ -351,6 +353,10 @@ export async function createAppAsync(
   const app = createApp(dependencies);
   if (options.registerFlushers) {
     await options.registerFlushers(app);
+  }
+  const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
+  if (unifiedPlugins) {
+    await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
   }
   return app;
 }

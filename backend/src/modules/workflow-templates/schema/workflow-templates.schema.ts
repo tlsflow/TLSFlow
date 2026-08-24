@@ -437,7 +437,9 @@ function validateHttpAuth(value: unknown, path: string): void {
 function validateHttpTls(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
   rejectUnknown(value, new Set(['verify', 'caSecretRef', 'clientCertSecretRef', 'clientKeySecretRef', 'sni', 'allowInsecure']), path);
-  if (value.verify !== undefined && typeof value.verify !== 'boolean') throw validationError(`${path}.verify 必须是布尔值`);
+  if (value.verify !== undefined && typeof value.verify !== 'boolean' && !isTemplateExpression(value.verify)) {
+    throw validationError(`${path}.verify 必须是布尔值或单一变量表达式`);
+  }
   if (value.allowInsecure !== undefined && typeof value.allowInsecure !== 'boolean') throw validationError(`${path}.allowInsecure 必须是布尔值`);
   if (value.caSecretRef !== undefined && !isSecretRef(value.caSecretRef)) throw validationError(`${path}.caSecretRef 必须是 SecretRef`);
   if (value.clientCertSecretRef !== undefined && !isSecretRef(value.clientCertSecretRef)) throw validationError(`${path}.clientCertSecretRef 必须是 SecretRef`);
@@ -449,6 +451,10 @@ function validateVariableReferences(content: WorkflowDslV1): void {
   const declared = new Set([...Object.keys(content.variables), ...reservedRoots]);
   const produced = new Set<string>();
   validateStepVariableReferences([...content.steps, ...(content.rollback ?? [])], declared, produced);
+}
+
+function isTemplateExpression(value: unknown): value is string {
+  return typeof value === 'string' && /^\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}$/.test(value);
 }
 
 function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<string>, produced: Set<string>): void {

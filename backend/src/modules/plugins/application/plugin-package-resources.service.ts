@@ -68,5 +68,5 @@ function collectLocaleKeys(
     for (const tab of presentation.tabs) keys.push(tab.titleKey, ...tab.columns.map((column) => column.labelKey));
     keys.push(...presentation.actions.map((action) => action.labelKey));
   }
-  return [...new Set(keys)];
+  return [...new Set(keys)].filter((key) => !key.startsWith('plugins.standardFields.'));
 }
