@@ -23,6 +23,9 @@ import (
 	"time"
 )
 
+// 写操作的授权材料不可用时，必须失败关闭并向控制面报告 UNKNOWN。
+var errAgentAuthorizationMaterialUnavailable = errors.New("agent authorization material unavailable")
+
 // Agent v2 是 Agent Core 的长期协议边界。除这四个动作外，控制面任务一律拒绝。
 const (
 	agentFactCollect      = "agent.fact.collect"
@@ -167,6 +170,11 @@ func executeAgentV2(ctx context.Context, request map[string]any, agentID string)
 		return false, "AGENT_V2_MESSAGE_INVALID", err.Error(), nil
 	}
 	if err := validateAgentV2Request(envelope, agentID); err != nil {
+		if envelope.Action == agentPlanExecute && errors.Is(err, errAgentAuthorizationMaterialUnavailable) {
+			return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), unknownAgentWriteDetail(envelope.Plan, "写操作授权材料不可用，状态不明", map[string]any{
+				"authorizationUnavailable": true,
+			})
+		}
 		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), nil
 	}
 	switch strings.TrimSpace(envelope.Action) {
@@ -197,7 +205,7 @@ func validateAgentV2Request(request agentV2Request, agentID string) error {
 	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.AgentID) == "" || strings.TrimSpace(request.TenantID) == "" || strings.TrimSpace(request.PluginID) == "" || strings.TrimSpace(request.PluginVersion) == "" || strings.TrimSpace(request.Capability) == "" {
 		return errors.New("requestId, agent, tenant, plugin and capability bindings are required")
 	}
-	if agentID != "" && request.AgentID != agentID {
+	if strings.TrimSpace(agentID) == "" || request.AgentID != agentID {
 		return errors.New("agent identity does not match request")
 	}
 	if err := validateCapabilityToken(request.Token, request.PolicyDecision, request); err != nil {
@@ -224,6 +232,9 @@ func validateAgentV2Request(request agentV2Request, agentID string) error {
 }
 
 func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthorityDecisionV1, request agentV2Request) error {
+	if token.TokenVersion == "" || decision.DecisionVersion == "" {
+		return unavailableAgentAuthorizationMaterial("security contract material is unavailable")
+	}
 	if token.TokenVersion != agentTokenVersion || decision.DecisionVersion != policyDecisionVersion {
 		return errors.New("security contract version is unsupported")
 	}
@@ -567,7 +578,9 @@ func executeAuthorizedAgentPlan(ctx context.Context, plan agentPlanV2, token Age
 	}
 	signer, err := loadAgentReceiptSigner()
 	if err != nil {
-		return false, "AGENT_RECEIPT_SIGNER_UNAVAILABLE", err.Error(), nil
+		return false, "AGENT_RECEIPT_SIGNER_UNAVAILABLE", err.Error(), unknownAgentWriteDetail(plan, "Agent 回执签名器不可用，无法确认写操作结果", map[string]any{
+			"receiptUnavailable": true,
+		})
 	}
 	resultDigest, err := computeAgentPlanResultDigest(plan)
 	if err != nil {
@@ -613,7 +626,11 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			results = append(results, result)
 			receipt, receiptErr := buildAndPersistAgentReceipt(plan, token, "UNKNOWN", startedAt, results, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明，禁止自动重试或回退", signer)
 			if receiptErr != nil {
-				return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明且回执无法持久化", nil
+				return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明且回执无法持久化", unknownAgentWriteDetail(plan, "写操作结果不明且回执不可用", map[string]any{
+					"operations":         results,
+					"operationResults":   results,
+					"receiptUnavailable": true,
+				})
 			}
 			return false, "AGENT_EXECUTION_UNKNOWN", "写操作结果不明，禁止自动重试或回退", map[string]any{"planId": plan.PlanID, "operations": results, "operationResults": results, "executionStatus": "UNKNOWN", "receipt": receipt}
 		}
@@ -623,9 +640,27 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 	}
 	receipt, err := buildAndPersistAgentReceipt(plan, token, "SUCCESS", startedAt, results, "", "", signer)
 	if err != nil {
-		return false, "AGENT_EXECUTION_UNKNOWN", "执行完成但回执无法持久化，状态不明", nil
+		return false, "AGENT_EXECUTION_UNKNOWN", "执行完成但回执无法持久化，状态不明", unknownAgentWriteDetail(plan, "执行完成但回执不可用，状态不明", map[string]any{
+			"operations":         results,
+			"operationResults":   results,
+			"receiptUnavailable": true,
+		})
 	}
 	return true, "", "", map[string]any{"planId": plan.PlanID, "status": "SUCCEEDED", "executionStatus": "SUCCESS", "operations": results, "operationResults": results, "receipt": receipt}
+}
+
+func unknownAgentWriteDetail(plan agentPlanV2, reason string, fields map[string]any) map[string]any {
+	detail := map[string]any{
+		"planId":          plan.PlanID,
+		"executionStatus": "UNKNOWN",
+		"unknownReason":   reason,
+		"fallback":        false,
+		"replayed":        false,
+	}
+	for key, value := range fields {
+		detail[key] = value
+	}
+	return detail
 }
 
 func buildAndPersistAgentReceipt(plan agentPlanV2, token AgentCapabilityTokenV1, status string, startedAt time.Time, results []map[string]any, errorCode, unknownReason string, signer agentReceiptSigner) (AgentExecutionReceiptV1, error) {
@@ -686,6 +721,9 @@ func agentContextError(ctx context.Context) error {
 }
 
 func signAgentExecutionReceipt(receipt *AgentExecutionReceiptV1, signer agentReceiptSigner) error {
+	if strings.TrimSpace(signer.KeyID) == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
+		return errors.New("Agent 回执签名器不可用，失败关闭")
+	}
 	digest, err := computeAgentExecutionReceiptDigest(*receipt)
 	if err != nil {
 		return err
@@ -980,23 +1018,23 @@ func validLinuxServiceName(value string) bool {
 
 func verifySignedValue(keyID, signature string, value any, envName string) error {
 	if strings.TrimSpace(keyID) == "" || strings.TrimSpace(signature) == "" {
-		return errors.New("signature and keyId are required")
+		return unavailableAgentAuthorizationMaterial("signature and keyId are required")
 	}
 	keySetRaw := strings.TrimSpace(os.Getenv(envName))
 	if keySetRaw == "" {
-		return errors.New("trusted policy key set is unavailable; fail closed")
+		return unavailableAgentAuthorizationMaterial("trusted policy key set is unavailable; fail closed")
 	}
 	var keySet map[string]string
 	if err := json.Unmarshal([]byte(keySetRaw), &keySet); err != nil {
-		return errors.New("trusted policy key set is invalid")
+		return unavailableAgentAuthorizationMaterial("trusted policy key set is invalid")
 	}
 	encodedKey, ok := keySet[keyID]
 	if !ok {
-		return errors.New("trusted policy key is not configured")
+		return unavailableAgentAuthorizationMaterial("trusted policy key is not configured")
 	}
 	publicKey, err := base64.StdEncoding.DecodeString(encodedKey)
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {
-		return errors.New("trusted policy key is invalid")
+		return unavailableAgentAuthorizationMaterial("trusted policy key is invalid")
 	}
 	signed, err := base64.StdEncoding.DecodeString(signature)
 	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalJSON(value), signed) {
@@ -1202,14 +1240,14 @@ func revokedNonce(nonce string) bool {
 func validateLocalPolicy(paths, services []string) error {
 	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON"))
 	if raw == "" {
-		return errors.New("local agent policy is unavailable; fail closed")
+		return unavailableAgentAuthorizationMaterial("local agent policy is unavailable; fail closed")
 	}
 	var policy struct {
 		AllowedPaths    []string `json:"allowedPaths"`
 		AllowedServices []string `json:"allowedServices"`
 	}
 	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
-		return errors.New("local agent policy is invalid")
+		return unavailableAgentAuthorizationMaterial("local agent policy is invalid")
 	}
 	for _, path := range paths {
 		if !pathScopeContains(policy.AllowedPaths, path) {
@@ -1239,14 +1277,46 @@ func scopeContains(scope []string, value string) bool {
 }
 
 func pathScopeContains(scope []string, value string) bool {
-	normalizedValue := strings.TrimRight(strings.ReplaceAll(value, "\\", "/"), "/")
+	normalizedValue, ok := normalizeAgentScopedPath(value)
+	if !ok {
+		return false
+	}
 	for _, item := range scope {
-		normalizedScope := strings.TrimRight(strings.ReplaceAll(item, "\\", "/"), "/")
-		if normalizedValue == normalizedScope || strings.HasPrefix(normalizedValue, normalizedScope+"/") {
+		normalizedScope, ok := normalizeAgentScopedPath(item)
+		if !ok {
+			continue
+		}
+		relative, err := filepath.Rel(normalizedScope, normalizedValue)
+		if err != nil {
+			continue
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == "." || (relative != ".." && !strings.HasPrefix(relative, "../")) {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeAgentScopedPath(value string) (string, bool) {
+	if value == "" || strings.IndexByte(value, 0) >= 0 {
+		return "", false
+	}
+	slashValue := strings.ReplaceAll(value, "\\", "/")
+	for _, component := range strings.Split(slashValue, "/") {
+		if component == ".." {
+			return "", false
+		}
+	}
+	normalized := filepath.Clean(filepath.FromSlash(slashValue))
+	if normalized == "" {
+		return "", false
+	}
+	return normalized, true
+}
+
+func unavailableAgentAuthorizationMaterial(message string) error {
+	return fmt.Errorf("%w: %s", errAgentAuthorizationMaterialUnavailable, message)
 }
 
 func decodeAgentV2Request(encoded []byte, envelope *agentV2Request) error {

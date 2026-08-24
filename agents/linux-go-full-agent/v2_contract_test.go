@@ -108,6 +108,40 @@ func TestV2FailsClosedWithoutIndependentTrustRoots(t *testing.T) {
 	}
 }
 
+func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	for _, runtimeAgentID := range []string{"", "agent-other"} {
+		if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, runtimeAgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+			t.Fatalf("运行期 Agent ID 为空或不匹配时必须失败关闭: runtimeAgentID=%q success=%v code=%s", runtimeAgentID, success, code)
+		}
+	}
+}
+
+func TestV2PlanExecuteReportsUnknownWhenAuthorizationMaterialUnavailable(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+	}{
+		{name: "capability keyset", env: "GCAC_AGENT_CAPABILITY_KEYSET_JSON"},
+		{name: "policy authority keyset", env: "GCAC_POLICY_AUTHORITY_KEYSET_JSON"},
+		{name: "local policy", env: "GCAC_AGENT_LOCAL_POLICY_JSON"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newLinuxV2TestFixture(t)
+			t.Setenv(testCase.env, "")
+			fixture.Request["action"] = agentPlanExecute
+			success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+			if success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+				t.Fatalf("授权材料不可用必须失败关闭: success=%v code=%s detail=%+v", success, code, detail)
+			}
+			if detail["executionStatus"] != "UNKNOWN" || detail["fallback"] != false || detail["replayed"] != false || detail["authorizationUnavailable"] != true {
+				t.Fatalf("授权材料不可用必须报告 UNKNOWN 且禁止 fallback/replay: %+v", detail)
+			}
+		})
+	}
+}
+
 func TestV2PlanExecuteFailsClosedWithoutReceiptSigner(t *testing.T) {
 	fixture := newLinuxV2TestFixture(t)
 	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
@@ -116,6 +150,44 @@ func TestV2PlanExecuteFailsClosedWithoutReceiptSigner(t *testing.T) {
 	fixture.Request["action"] = agentPlanExecute
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_RECEIPT_SIGNER_UNAVAILABLE" {
 		t.Fatalf("缺少 Agent 回执签名材料必须失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestV2PlanExecuteReportsUnknownWithoutReceiptSigner(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+	fixture.Request["action"] = agentPlanExecute
+	success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+	if success || code != "AGENT_RECEIPT_SIGNER_UNAVAILABLE" {
+		t.Fatalf("缺少 Receipt 签名器必须失败关闭: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	if detail["executionStatus"] != "UNKNOWN" || detail["fallback"] != false || detail["replayed"] != false || detail["receiptUnavailable"] != true {
+		t.Fatalf("签名器不可用必须报告 UNKNOWN 且禁止 fallback/replay: %+v", detail)
+	}
+}
+
+func TestV2PathScopeUsesNormalizedComponentBoundaries(t *testing.T) {
+	allowed := filepath.Join(t.TempDir(), "allowed")
+	separator := string(filepath.Separator)
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "自身路径", value: allowed, want: true},
+		{name: "真实子路径", value: allowed + separator + "nested" + separator + "file", want: true},
+		{name: "同前缀目录", value: allowed + "-other" + separator + "file", want: false},
+		{name: "父目录跳转", value: allowed + separator + ".." + separator + "outside", want: false},
+		{name: "子目录回退", value: allowed + separator + "nested" + separator + ".." + separator + "outside", want: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := pathScopeContains([]string{allowed}, testCase.value); got != testCase.want {
+				t.Fatalf("路径范围判断错误: value=%q got=%v want=%v", testCase.value, got, testCase.want)
+			}
+		})
 	}
 }
 
