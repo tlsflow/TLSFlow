@@ -75,7 +75,7 @@ async function execute(context, hostApi, descriptor) {
     const request = signRequest(service, secret, requestInput, body, security, operation);
     const response = await hostData(hostApi, 'http.request', request, grantRefs);
     if (operation === 'connection-test') return readResult('connection-test', response);
-    if (operation === 'discover') return discoverResult(response);
+    if (operation === 'discover') return discoverResult(response, descriptor);
     return await writeResult(operation, service, secret, requestInput, security, response, grantRefs, hostApi, descriptor);
   } catch (error) {
     return failureResult(context, operation, error);
@@ -144,19 +144,26 @@ function readResult(operation, response) {
   });
 }
 
-function discoverResult(response) {
+function discoverResult(response, descriptor) {
   const status = statusCode(response);
   if (status < 200 || status >= 300) throw contractError('CLOUD_DISCOVERY_FAILED', '云厂商发现请求失败');
   const body = responseBody(response);
   const resources = Array.isArray(body.resources) ? body.resources : [];
   const normalizedObjects = resources.map((item, index) => {
     const resource = record(item, `resources.${index}`);
+    const resourceId = requiredIdentifier(resource.id, `resources.${index}.id`);
+    const resourceType = requiredIdentifier(resource.type, `resources.${index}.type`);
+    const region = requiredIdentifier(resource.region, `resources.${index}.region`);
     return {
-      objectType: 'CloudResource',
+      apiVersion: 'gcac.cloud-service/v1',
+      kind: 'CloudServiceResource',
+      stableKey: `${descriptor.pluginId}:${resourceType}:${resourceId}`,
+      pluginId: descriptor.pluginId,
+      pluginVersionId: descriptor.pluginVersionId,
       provider: PROVIDER,
-      resourceId: requiredIdentifier(resource.id, `resources.${index}.id`),
-      resourceType: requiredIdentifier(resource.type, `resources.${index}.type`),
-      region: requiredIdentifier(resource.region, `resources.${index}.region`),
+      resourceId,
+      resourceType,
+      region,
     };
   });
   return {

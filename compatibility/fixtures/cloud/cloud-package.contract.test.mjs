@@ -50,7 +50,14 @@ test('四个 Cloud 包结构符合 P2 Manifest 合同并由真实 Runner 子进�
     assert.equal(result.connection.status, 'SUCCESS');
     assert.equal(result.connection.summary.signatureVerified, true);
     assert.equal(result.discovery.status, 'SUCCESS');
-    assert.equal(result.discovery.normalizedObjects[0]?.objectType, 'CloudResource');
+    const cloudResource = result.discovery.normalizedObjects[0];
+    assert.equal(cloudResource?.apiVersion, 'gcac.cloud-service/v1');
+    assert.equal(cloudResource?.kind, 'CloudServiceResource');
+    assert.equal(cloudResource?.stableKey, `${pluginId}:${cloudResource?.resourceType}:${cloudResource?.resourceId}`);
+    assert.equal(cloudResource?.pluginId, pluginId);
+    assert.equal(cloudResource?.pluginVersionId, `${pluginId}:2.0.0`);
+    assert.equal(cloudResource?.provider, provider);
+    assert.equal(Object.hasOwn(cloudResource ?? {}, 'objectType'), false);
     assert.equal(result.deploy.status, 'SUCCESS');
     assert.equal(result.deployUnknown.status, 'UNKNOWN');
     assert.equal(result.deployFailure.status, 'UNKNOWN');

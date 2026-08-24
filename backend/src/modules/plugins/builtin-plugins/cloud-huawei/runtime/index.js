@@ -43,7 +43,7 @@ async function execute(context, hostApi, descriptor) {
     const request = signRequest(service, secret, requestInput, body, security, operation);
     const response = await hostData(hostApi, 'http.request', request, refs);
     if (operation === 'connection-test') return readResult('connection-test', response);
-    if (operation === 'discover') return discoverResult(response);
+    if (operation === 'discover') return discoverResult(response, descriptor);
     return await writeResult(operation, service, secret, requestInput, security, response, refs, hostApi, descriptor);
   } catch (error) {
     return failureResult(context, operation, error);
@@ -82,14 +82,17 @@ function readResult(operation, response) {
   return successResult({ provider: PROVIDER, operation, signatureAlgorithm: SIGNATURE_ALGORITHM, signatureVerified: response.signatureVerified === true, status: 'SUCCEEDED' });
 }
 
-function discoverResult(response) {
+function discoverResult(response, descriptor) {
   const code = statusCode(response);
   if (code < 200 || code >= 300) throw contractError('CLOUD_DISCOVERY_FAILED', '云厂商发现请求失败');
   const body = responseBody(response);
   const resources = Array.isArray(body.resources) ? body.resources : [];
   const normalizedObjects = resources.map((item, index) => {
     const resource = record(item, `resources.${index}`);
-    return { objectType: 'CloudResource', provider: PROVIDER, resourceId: requiredIdentifier(resource.id, `resources.${index}.id`), resourceType: requiredIdentifier(resource.type, `resources.${index}.type`), region: requiredIdentifier(resource.region, `resources.${index}.region`) };
+    const resourceId = requiredIdentifier(resource.id, `resources.${index}.id`);
+    const resourceType = requiredIdentifier(resource.type, `resources.${index}.type`);
+    const region = requiredIdentifier(resource.region, `resources.${index}.region`);
+    return { apiVersion: 'gcac.cloud-service/v1', kind: 'CloudServiceResource', stableKey: `${descriptor.pluginId}:${resourceType}:${resourceId}`, pluginId: descriptor.pluginId, pluginVersionId: descriptor.pluginVersionId, provider: PROVIDER, resourceId, resourceType, region };
   });
   return { ...successResult({ provider: PROVIDER, operation: 'discover', signatureAlgorithm: SIGNATURE_ALGORITHM, signatureVerified: response.signatureVerified === true, status: 'SUCCEEDED' }), normalizedObjects };
 }
