@@ -97,6 +97,7 @@ func mustBuildWindowsActionHandlerRegistry() *actionHandlerRegistry {
 		selfTestActionHandler(),
 		capabilityRescanActionHandler(),
 		gatewayActionHandler(),
+		windowsAtomicPlanActionHandler(),
 	)
 	if err != nil {
 		panic(err)

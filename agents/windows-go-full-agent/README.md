@@ -68,3 +68,12 @@ go build -o gcac-agent.exe .
 ## 当前结论
 
 这一版已经不再是“Go 外壳包 PowerShell Runtime”的假迁移，而是 Go 正式承担宿主、控制面、账本和 Provider 调度，PowerShell 只保留为安装器、排障脚本和受控平台动作边界。
+
+## Agent 原子操作插件
+
+- 注册动作：`agent.atomic_plan.execute@1.0`。
+- 执行计划必须包含目标 Agent、租户、插件包哈希、过期时间、幂等键和 HMAC-SHA256 签名。
+- 签名密钥读取 `GCAC_AGENT_PLAN_SIGNING_KEY`；开发环境未配置时才使用仓库约定的开发密钥。
+- 支持文件备份、原子替换、恢复、权限设置、受控程序执行、Windows Service 控制和 TLS 校验。
+- `command.execute` 只接受 `program + args`，Shell 模式默认并强制禁用。
+- 每个计划写入恢复账本；重复计划返回缓存结果，失败时逆序执行回滚，回滚失败进入 `MANUAL_INTERVENTION`。

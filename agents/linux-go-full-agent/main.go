@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"gcac/linux-go-full-agent/internal/atomicplan"
 	"gcac/linux-go-full-agent/internal/buildinfo"
 	"gcac/linux-go-full-agent/internal/compatibility"
 	"gcac/linux-go-full-agent/internal/core/actioncontract"
@@ -670,6 +671,20 @@ type linuxActionRuntime struct {
 
 func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry {
 	registry := coreRegistry.New()
+	dataDir := ""
+	agentID := ""
+	if runtime != nil {
+		dataDir = runtime.config.Paths.Linux.DataDir
+		agentID = runtime.state.AgentID
+	}
+	mustRegisterAction(registry, coreRegistry.HandlerFunc{
+		ActionType:    "agent.atomic_plan.execute",
+		SchemaVersion: "1.0",
+		Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
+			result := atomicplan.Execute(ctx, request.Payload, agentID, dataDir)
+			return coreRegistry.Result{Success: result.Success, ErrorCode: result.ErrorCode, ErrorMessage: result.ErrorMessage, Detail: result.Detail}
+		},
+	})
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
 		ActionType: "agent.self_test",
 		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
