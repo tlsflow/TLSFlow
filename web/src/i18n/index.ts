@@ -36,16 +36,19 @@ const localeLoaders: Record<SupportedLocale, () => Promise<{ default: any }>> = 
  * Track which locale messages have already been loaded.
  */
 const loadedLocales = new Set<SupportedLocale>([defaultLocale])
+let requestedLocale: SupportedLocale = defaultLocale
 
 /**
  * Switch to the given locale, lazy-loading its messages on first use.
  * Falls back to defaultLocale if the target locale fails to load.
  */
 export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
+  requestedLocale = locale
+  document.documentElement.lang = locale
+
   // Already loaded — just switch
   if (loadedLocales.has(locale)) {
     i18n.global.locale.value = locale
-    document.documentElement.lang = locale
     return
   }
 
@@ -53,8 +56,10 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
     const loader = localeLoaders[locale]
     if (!loader) {
       console.warn(`[i18n] No loader for locale "${locale}", falling back to "${defaultLocale}"`)
-      i18n.global.locale.value = defaultLocale
-      document.documentElement.lang = defaultLocale
+      if (requestedLocale === locale) {
+        i18n.global.locale.value = defaultLocale
+        document.documentElement.lang = defaultLocale
+      }
       return
     }
 
@@ -62,12 +67,15 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
     i18n.global.setLocaleMessage(locale, mod.default)
     loadedLocales.add(locale)
 
+    if (requestedLocale !== locale) return
     i18n.global.locale.value = locale
     document.documentElement.lang = locale
   } catch (err) {
     console.error(`[i18n] Failed to load locale "${locale}":`, err)
-    i18n.global.locale.value = defaultLocale
-    document.documentElement.lang = defaultLocale
+    if (requestedLocale === locale) {
+      i18n.global.locale.value = defaultLocale
+      document.documentElement.lang = defaultLocale
+    }
   }
 }
 

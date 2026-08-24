@@ -10,7 +10,6 @@ import { DeploymentCapabilityResolver } from '../plugins/application/deployment-
 import type { PluginBindingsApplicationService } from '../plugins/application/plugin-bindings.application-service.js';
 import type { UnifiedPluginVersionRecord } from '../plugins/dto/unified-plugins.dto.js';
 import { AgentExecutorAdapter, createDefaultExecutorRegistry } from './application/executors.js';
-import { AppError } from '../../common/errors/app-error.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 const now = '2026-07-30T00:00:00.000Z';
@@ -57,7 +56,7 @@ test('T06 不支持的 Agent Action Schema 必须在入队前失败关闭', asyn
 
 test('T07 无统一输入的历史 Action 必须要求重建计划且不入队', async () => {
   const queue = createAgentQueueProbe();
-  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never, {} as never).executeStep(stepInput({
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never).executeStep(stepInput({
     type: 'windows.iis.deploy_certificate',
   }));
 
@@ -69,8 +68,7 @@ test('T07 无统一输入的历史 Action 必须要求重建计划且不入队',
 
 test('T07 无 Assignment 的历史 Action 必须拒绝且不入队', async () => {
   const queue = createAgentQueueProbe();
-  const resolver = { resolve: async () => { throw new AppError('HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED', 'fixture'); } };
-  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never, resolver as never).executeStep(stepInput({
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, {} as never).executeStep(stepInput({
     type: 'windows.iis.deploy_certificate',
     resolvedDeploymentInput: resolvedInput(),
   }));
@@ -81,30 +79,19 @@ test('T07 无 Assignment 的历史 Action 必须拒绝且不入队', async () =>
   assert.equal(queue.directCount(), 0);
 });
 
-test('T07 可转换历史 Action 只能作为带迁移审计的 Atomic Plan 入队', async () => {
-  let payload: Record<string, unknown> | undefined;
-  const queue = createAgentQueueProbe((value) => { payload = value; });
-  const resolver = { resolve: async () => ({
-    originalActionType: 'linux.nginx.deploy_certificate',
-    alias: { actionType: 'linux.nginx.deploy_certificate', capabilityKey: 'certificate.deploy', inputContract: 'certificate.deploy.v1' },
-    capability: { pluginVersionId: 'plugin-version-fixture', binding: { id: 'binding-fixture' } },
-  }) };
+test('T07 历史 Action 即使具备编译器也必须要求重新编译且不入队', async () => {
+  const queue = createAgentQueueProbe();
   const compiler = { compile: async () => ({ apiVersion: 'gcac.agent-plan/v1', planId: 'plan-fixture', authorization: { keyId: 'key-fixture', signature: 'signature-fixture' } }) };
-  const result = await new AgentExecutorAdapter(queue.agents, undefined, compiler as never, resolver as never).executeStep(stepInput({
+  const result = await new AgentExecutorAdapter(queue.agents, undefined, compiler as never).executeStep(stepInput({
     type: 'linux.nginx.deploy_certificate',
     resolvedDeploymentInput: resolvedInput(),
     privateKeyPem: 'must-not-forward',
   }));
 
-  assert.equal(result.success, true);
-  assert.equal(payload?.actionType, 'agent.atomic_plan.execute');
-  assert.equal(payload?.actionSchemaVersion, '1.0');
-  assert.equal('privateKeyPem' in (payload ?? {}), false);
-  const audit = payload?.historicalActionMigration as Record<string, unknown>;
-  assert.equal(audit.originalActionType, 'linux.nginx.deploy_certificate');
-  assert.match(String(audit.planSha256), /^sha256:[a-f0-9]{64}$/);
-  assert.equal(queue.enqueueCount(), 1);
-  assert.equal(queue.directCount(), 1);
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED');
+  assert.equal(queue.enqueueCount(), 0);
+  assert.equal(queue.directCount(), 0);
 });
 
 test('T08 默认生产执行器注册表不得注册 Legacy SCRIPT_PACKAGE', () => {

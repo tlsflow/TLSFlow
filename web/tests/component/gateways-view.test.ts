@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -8,7 +8,10 @@ import { usePermissionStore } from '@/stores/permission.store'
 const apiMocks = vi.hoisted(() => ({
   listGateways: vi.fn(),
   probeGateway: vi.fn(),
-  createAgentEnrollmentToken: vi.fn()
+  createLinuxGoInstallSession: vi.fn(),
+  createWindowsPowerShellInstallSession: vi.fn(),
+  createGatewayEnableSession: vi.fn(),
+  listAgents: vi.fn()
 }))
 
 vi.mock('@/api/modules/gateways.api', () => ({
@@ -17,7 +20,10 @@ vi.mock('@/api/modules/gateways.api', () => ({
 }))
 
 vi.mock('@/api/modules/assets.api', () => ({
-  createAgentEnrollmentToken: apiMocks.createAgentEnrollmentToken
+  createLinuxGoInstallSession: apiMocks.createLinuxGoInstallSession,
+  createWindowsPowerShellInstallSession: apiMocks.createWindowsPowerShellInstallSession,
+  createGatewayEnableSession: apiMocks.createGatewayEnableSession,
+  listAgents: apiMocks.listAgents
 }))
 
 function okPage(items: readonly Record<string, unknown>[]) {
@@ -39,6 +45,10 @@ function createRouterForGateway() {
 }
 
 describe('GatewaysView', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['gateway.read', 'gateway.write'])
@@ -49,7 +59,7 @@ describe('GatewaysView', () => {
         status: 'ONLINE',
         risk: 'MEDIUM',
         zoneName: 'DMZ',
-        adapters: ['ssh', 'http'],
+        adapters: ['probe.tcp', 'forward.agent_task', 'forward.direct_control'],
         reachableTargets: ['10.0.1.0/24', 'app-zone'],
         proxyProtocols: ['ssh', 'winrm', 'curl'],
         routeRules: [{ name: 'dmz-ssh', match: '10.0.1.0/24', target: 'ssh' }],
@@ -60,19 +70,25 @@ describe('GatewaysView', () => {
       }
     ]))
     apiMocks.probeGateway.mockResolvedValue({ data: {}, requestId: 'req_probe', timestamp: '2026-06-09T00:00:00.000Z' })
-    apiMocks.createAgentEnrollmentToken.mockResolvedValue({
+    apiMocks.createLinuxGoInstallSession.mockResolvedValue({
       data: {
-        token: 'enroll_gateway.secret_once',
-        tokenPreview: 'enroll_gatew...t_once',
+        installCommand: 'install gateway now',
+        bootstrapTokenPreview: 'gateway-code',
+        zone: 'default',
         expiresAt: '2026-06-09T01:00:00.000Z',
-        auditRef: 'req_token'
       },
-      requestId: 'req_token',
+      requestId: 'req_install',
+      timestamp: '2026-06-09T00:00:00.000Z'
+    })
+    apiMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', agentKey: 'linux-agent-1' }]))
+    apiMocks.createGatewayEnableSession.mockResolvedValue({
+      data: { enableCommand: 'enable gateway now', zone: 'default', serviceName: 'gcac-agent' },
+      requestId: 'req_enable',
       timestamp: '2026-06-09T00:00:00.000Z'
     })
   })
 
-  it('点击登记网关会创建 Gateway Agent 注册令牌并展示一次性明文', async () => {
+  it('新增 Gateway Agent 会生成标准安装命令', async () => {
     const router = createRouterForGateway()
     const wrapper = mount(GatewaysView, {
       global: {
@@ -81,22 +97,21 @@ describe('GatewaysView', () => {
     })
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text() === '登记网关')?.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 Gateway Agent')?.trigger('click')
+    await flushPromises()
+    ;(Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.trim() === '生成安装命令') as HTMLButtonElement).click()
     await flushPromises()
 
-    expect(apiMocks.createAgentEnrollmentToken).toHaveBeenCalledWith({
-      allowedRoles: ['gateway'],
-      allowedZones: ['default'],
-      maxUses: 1,
-      ttlSeconds: 3600
+    expect(apiMocks.createLinuxGoInstallSession).toHaveBeenCalledWith({
+      zone: 'default',
+      role: 'gateway',
+      startAfterInstall: true
     })
-    expect(wrapper.text()).toContain('Gateway Agent 注册令牌')
-    expect(wrapper.text()).toContain('enroll_gateway.secret_once')
-    expect(wrapper.text()).toContain('role=gateway')
-    expect(wrapper.text()).toContain('req_token')
+    expect((document.body.querySelector('textarea') as HTMLTextAreaElement).value).toContain('install gateway now')
+    expect(document.body.textContent).toContain('gateway-code')
   })
 
-  it('展示 Gateway 与无代理分组提示、Secret 引用边界和 Gateway 详情', async () => {
+  it('Gateway 详情展示标准转发能力', async () => {
     const router = createRouterForGateway()
     const wrapper = mount(GatewaysView, {
       global: {
@@ -105,20 +120,14 @@ describe('GatewaysView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Gateway Agent')
-    expect(wrapper.text()).toContain('SSH 无代理')
-    expect(wrapper.text()).toContain('WinRM 无代理')
-    expect(wrapper.text()).toContain('CURL 无代理')
-    expect(wrapper.text()).toContain('后端 Secret 引用')
-    expect(wrapper.text()).toContain('dmz-gateway')
-    expect(wrapper.text()).toContain('DMZ')
-    expect(wrapper.text()).toContain('10.0.1.0/24')
-    expect(wrapper.text()).toContain('app-zone')
-    expect(wrapper.text()).toContain('ssh')
-    expect(wrapper.text()).toContain('winrm')
-    expect(wrapper.text()).toContain('curl')
-    expect(wrapper.text()).toContain('dmz-ssh')
-    expect(wrapper.text()).toContain('7%')
+    await wrapper.findAll('button').find((button) => button.text() === '详情')?.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('连通性检查')
+    expect(document.body.textContent).toContain('任务转发')
+    expect(document.body.textContent).toContain('远程控制转发')
+    expect(document.body.textContent).toContain('dmz-gateway')
+    expect(document.body.textContent).toContain('DMZ')
   })
 
   it('探测网关可达性走后端 API，不伪造 dryRun 语义', async () => {
@@ -130,11 +139,14 @@ describe('GatewaysView', () => {
     })
     await flushPromises()
 
-    await wrapper.findAll('button').find((button) => button.text() === '探测网关可达性')?.trigger('click')
-    await wrapper.find('[role="dialog"] input').setValue('PROBE')
-    await wrapper.find('[role="dialog"] footer .gc-button--danger').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '探测')?.trigger('click')
+    const dialog = document.body.querySelector('.gc-confirm__mask[role="dialog"]')!
+    const input = dialog.querySelector('input') as HTMLInputElement
+    input.value = 'PROBE'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    ;(dialog.querySelector('.gc-button--danger') as HTMLButtonElement).click()
     await flushPromises()
 
-    expect(apiMocks.probeGateway).toHaveBeenCalledWith({ gatewayId: 'gw-1', targetId: '10.0.1.0/24', protocol: 'ssh', port: 22 })
+    expect(apiMocks.probeGateway).toHaveBeenCalledWith({ gatewayId: 'gw-1', targetId: '10.0.1.0/24', protocol: 'probe.tcp', port: 22 })
   })
 })

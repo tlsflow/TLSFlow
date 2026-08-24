@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { listSecrets } from '@/api/modules/security.api'
+import { getCredential, listCredentials } from '@/api/modules/credentials.api'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
 import WorkflowCanvasEditor from '@/views/workflows/WorkflowCanvasEditor.vue'
 import { createDefaultWorkflowCanvas } from '@/views/workflows/workflow-canvas.model'
 
-vi.mock('@/api/modules/security.api', () => ({
-  listSecrets: vi.fn(),
+vi.mock('@/api/modules/credentials.api', () => ({
+  listCredentials: vi.fn(),
+  getCredential: vi.fn(),
 }))
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
@@ -20,7 +21,8 @@ describe('WorkflowCanvasEditor', () => {
     vi.mocked(compileWorkflowCanvas).mockReset()
     vi.mocked(validateWorkflowCanvasOnBackend).mockReset()
     vi.mocked(testWorkflowTemplateStep).mockReset()
-    vi.mocked(listSecrets).mockReset()
+    vi.mocked(listCredentials).mockReset()
+    vi.mocked(getCredential).mockReset()
     mockWorkflowCredentialSecrets([])
     mockCompileWorkflowCanvas()
   })
@@ -130,9 +132,9 @@ describe('WorkflowCanvasEditor', () => {
     const updated = wrapper.emitted('update:modelValue')!.at(-1)![0] as ReturnType<typeof createDefaultWorkflowCanvas>
     expect(updated.nodes[0]?.config.authCredentialId).toBe('sec-bearer-1')
     expect(updated.nodes[0]?.config.authCredential).toEqual(expect.objectContaining({
-      id: 'sec-bearer-1',
-      kind: 'curl_bearer',
-      type: 'api_token',
+      credentialId: 'sec-bearer-1',
+      kind: 'BEARER_TOKEN',
+      secretRefs: { token: 'secret://credential/sec-bearer-1/token#current' },
     }))
   })
 
@@ -173,10 +175,10 @@ describe('WorkflowCanvasEditor', () => {
     expect(updated.nodes[0]?.config.authType).toBe('basic')
     expect(updated.nodes[0]?.config.authCredentialId).toBe('sec-basic-1')
     expect(updated.nodes[0]?.config.authCredential).toEqual(expect.objectContaining({
-      id: 'sec-basic-1',
-      kind: 'username_password',
-      type: 'password',
+      credentialId: 'sec-basic-1',
+      kind: 'USERNAME_PASSWORD',
       username: 'deploy',
+      secretRefs: { password: 'secret://credential/sec-basic-1/password#current' },
     }))
     expect(updated.nodes[0]?.config.authUsername).toBe('deploy')
 
@@ -192,9 +194,10 @@ describe('WorkflowCanvasEditor', () => {
     expect(updated.nodes[0]?.config.authType).toBe('api_key')
     expect(updated.nodes[0]?.config.authCredentialId).toBe('sec-api-key-1')
     expect(updated.nodes[0]?.config.authCredential).toEqual(expect.objectContaining({
-      id: 'sec-api-key-1',
-      kind: 'curl_api_key',
-      type: 'api_token',
+      credentialId: 'sec-api-key-1',
+      kind: 'API_KEY',
+      delivery: { location: 'query', name: 'X-Deploy-Key' },
+      secretRefs: { apiKey: 'secret://credential/sec-api-key-1/apiKey#current' },
     }))
     expect(updated.nodes[0]?.config.authApiKeyName).toBe('X-Deploy-Key')
     expect(updated.nodes[0]?.config.authApiKeyIn).toBe('query')
@@ -226,7 +229,8 @@ describe('WorkflowCanvasEditor', () => {
       content: expect.objectContaining({ apiVersion: 'gcac.workflow/v1' }),
       userVariables: expect.objectContaining({ deviceHost: 'mock-device.local' }),
     }))
-    expect(wrapper.text()).toContain('模拟完成：success')
+    expect(wrapper.text()).toContain('模拟运行完成。')
+    expect(wrapper.text()).toContain('http / success / attempts 1')
     expect(wrapper.text()).toContain('017.CURL_HTTP')
   })
 
@@ -305,7 +309,12 @@ describe('WorkflowCanvasEditor', () => {
         sshUsername: { ...canvas.variables.sshUsername!, default: 'deploy' },
         credential: {
           ...canvas.variables.credential!,
-          default: { id: 'sec_real', kind: 'username_password', type: 'password', username: 'deploy' },
+          default: {
+            credentialId: 'sec_real',
+            kind: 'USERNAME_PASSWORD',
+            username: 'deploy',
+            secretRefs: { password: 'secret://credential/sec_real/password#current' },
+          },
         },
       },
     }
@@ -326,16 +335,17 @@ describe('WorkflowCanvasEditor', () => {
       deviceHost: 'edge-01.example.com',
       sshUsername: 'deploy',
       credential: expect.objectContaining({
-        id: 'sec_real',
-        kind: 'username_password',
-        type: 'password',
+        credentialId: 'sec_real',
+        kind: 'USERNAME_PASSWORD',
         username: 'deploy',
+        secretRefs: { password: 'secret://credential/sec_real/password#current' },
       }),
     }))
     expect(payload.secretRefs).toBeUndefined()
     const sshStep = payload.content.steps.find((step: Record<string, any>) => step.type === 'ssh')
     expect(sshStep?.ssh?.connection?.credential).toBe('{{credential}}')
-    expect(wrapper.text()).toContain('真实试跑完成：success')
+    expect(wrapper.text()).toContain('真实试跑完成。')
+    expect(wrapper.text()).toContain('ssh / success / attempts 1')
     expect(wrapper.text()).toContain('退出码')
     expect(wrapper.text()).toContain('real ssh ok')
   })
@@ -396,7 +406,9 @@ describe('WorkflowCanvasEditor', () => {
     await wrapper.findAll('button').find((button) => button.text() === '真实 SSH 执行当前节点')!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('真实试跑失败：SSH 连接失败')
+    expect(wrapper.text()).toContain('真实试跑失败。')
+    expect(wrapper.text()).toContain('ssh / failed / attempts 1')
+    expect(wrapper.text()).toContain('SSH 连接失败')
     expect(wrapper.text()).toContain('失败详情')
     expect(wrapper.text()).toContain('SSH_CONNECT_FAILED')
     expect(wrapper.text()).toContain('10.255.0.127:22')
@@ -447,10 +459,10 @@ describe('WorkflowCanvasEditor', () => {
     expect(updated.variables.credential).toEqual(expect.objectContaining({
       type: 'credential',
       default: expect.objectContaining({
-        id: 'sec-variable-1',
-        kind: 'username_password',
-        type: 'password',
+        credentialId: 'sec-variable-1',
+        kind: 'USERNAME_PASSWORD',
         username: 'root',
+        secretRefs: { password: 'secret://credential/sec-variable-1/password#current' },
       }),
       sensitive: true,
     }))
@@ -529,24 +541,23 @@ function mockWorkflowCredentialSecrets(items: Array<{
   apiKeyIn?: 'header' | 'query'
   createdAt: string
 }>) {
-  vi.mocked(listSecrets).mockResolvedValue({
+  const kindMap = {
+    username_password: 'USERNAME_PASSWORD',
+    ssh_key: 'SSH_KEY',
+    curl_bearer: 'BEARER_TOKEN',
+    curl_api_key: 'API_KEY',
+  } as const
+  vi.mocked(listCredentials).mockResolvedValue({
     data: {
       items: items.map((item) => ({
         id: item.id,
         name: item.name,
-        type: item.type ?? 'password',
+        kind: kindMap[item.kind],
         scopeType: 'global',
         status: 'active',
-        secretRef: `secret://${item.type ?? 'password'}/${item.id}#current`,
-        createdAt: item.createdAt,
+        version: 1,
         updatedAt: item.createdAt,
-        metadata: {
-          workflowCredential: true,
-          workflowCredentialKind: item.kind,
-          username: item.username,
-          apiKeyName: item.apiKeyName,
-          apiKeyIn: item.apiKeyIn,
-        },
+        username: item.username,
       })),
       page: 1,
       pageSize: 200,
@@ -554,6 +565,36 @@ function mockWorkflowCredentialSecrets(items: Array<{
     },
     requestId: 'req_credentials',
     timestamp: '2026-07-04T00:00:00.000Z',
+  })
+  vi.mocked(getCredential).mockImplementation(async (id: string) => {
+    const item = items.find((candidate) => candidate.id === id)!
+    const secretSlot = item.kind === 'username_password'
+      ? 'password'
+      : item.kind === 'ssh_key'
+        ? 'privateKey'
+        : item.kind === 'curl_api_key'
+          ? 'apiKey'
+          : 'token'
+    return {
+      data: {
+        id: item.id,
+        name: item.name,
+        kind: kindMap[item.kind],
+        scopeType: 'global',
+        status: 'active',
+        version: 1,
+        updatedAt: item.createdAt,
+        createdAt: item.createdAt,
+        username: item.username,
+        delivery: item.apiKeyName
+          ? { location: item.apiKeyIn ?? 'header', name: item.apiKeyName }
+          : undefined,
+        secretSlots: { [secretSlot]: `secret://credential/${item.id}/${secretSlot}#current` },
+        metadata: {},
+      },
+      requestId: 'req_credential_detail',
+      timestamp: '2026-07-04T00:00:00.000Z',
+    }
   })
 }
 

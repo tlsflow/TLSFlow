@@ -24,8 +24,7 @@ import { CredentialsRepository } from '../../credentials/repository/credentials.
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { DeploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
-import { EffectiveBindingResolver } from '../../deployment-inputs/application/effective-binding.resolver.js';
-import { UnifiedDeploymentInputResolver } from '../../deployment-inputs/domain/unified-deployment-input.resolver.js';
+import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -40,6 +39,7 @@ export class DevicesApplicationService {
     private readonly workflows?: WorkflowTemplatesApplicationService,
     private readonly runtimeGuard: PluginRuntimeGuardService = pluginRuntimeGuard,
     private readonly discoveryProjector?: StandardDeviceDiscoveryProjector,
+    private readonly deploymentInputResolver = new ProductionDeploymentInputResolverService(),
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -149,15 +149,14 @@ export class DevicesApplicationService {
     ]);
     if (!deviceAsset) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId: device.extension.deviceAssetId });
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
-    const effectiveBinding = new EffectiveBindingResolver().resolve({
-      contract,
+    const bindingLayers = {
       deviceDefault: { pluginVersionId: assignment.pluginVersionId, inputBindings: binding.inputBindings },
-    });
-    const resolvedInput = new UnifiedDeploymentInputResolver().resolve({
+    };
+    const resolvedInput = this.deploymentInputResolver.resolve({
       phase: 'execute',
       contract,
       assetContext: new DeploymentAssetContextBuilder().buildForDevice(deviceAsset),
-      effectiveBinding,
+      bindingLayers,
       credentialSnapshots: credentials,
       artifactSnapshots: {},
     });

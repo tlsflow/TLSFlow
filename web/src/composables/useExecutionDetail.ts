@@ -835,11 +835,10 @@ function stringValue(value: unknown, fallback: string): string {
 }
 
 function inferProviderLabel(record: Record<string, unknown>, text: ExecutionDetailText): string {
-  const providerType = readString(record, ['inputSnapshot.providerType'], '').trim().toUpperCase()
-  if (providerType === 'NGINX') return 'NGINX'
-  if (providerType === 'IIS') return 'IIS'
-  const type = readString(record, ['inputSnapshot.type'], '').trim().toLowerCase()
-  if (type.startsWith('linux.nginx.')) return 'NGINX'
-  if (type.startsWith('windows.iis.')) return 'IIS'
-  return text('executionDetail.provider.target')
+  const presentationLabel = readString(record, [
+    'inputSnapshot.presentation.providerLabel',
+    'inputSnapshot.providerLabel',
+    'inputSnapshot.pluginRuntimeCapability.pluginId',
+  ], '').trim()
+  return presentationLabel || text('executionDetail.provider.target')
 }

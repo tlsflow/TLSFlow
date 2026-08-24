@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
@@ -13,8 +12,6 @@ import type { WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunRe
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { canonicalAgentPlanJson } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import type { HistoricalAgentActionResolver } from '../../plugins/application/historical-agent-action-resolver.js';
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import type { DeploymentAssetContextV1 } from '../../deployment-inputs/dto/deployment-asset-context.dto.js';
 import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
@@ -102,7 +99,6 @@ export interface DefaultExecutorDependencies {
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
   agentPlanCompiler?: UnifiedAgentPlanCompilerService;
-  historicalAgentActions?: HistoricalAgentActionResolver;
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
@@ -169,7 +165,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks, executionGrants: dependencies.executionGrants }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
-    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler, dependencies.historicalAgentActions),
+    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
   ];
@@ -208,7 +204,6 @@ export class AgentExecutorAdapter implements Executor {
     private readonly agents = new AgentsApplicationService(),
     private readonly actionDispatch = new AgentActionDispatchRegistry(),
     private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService,
-    private readonly historicalAgentActions?: HistoricalAgentActionResolver,
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -216,17 +211,11 @@ export class AgentExecutorAdapter implements Executor {
     if (!agentId) return { success: false, errorCode: 'AGENT_ID_REQUIRED', errorMessage: 'AGENT 执行器缺少 agentId/executionTargetId，拒绝伪装成功' };
     const requiredAction = this.actionDispatch.requireResolution(input.step.inputSnapshot);
     if (!requiredAction.ok) {
-      if (requiredAction.errorCode === 'AGENT_ACTION_UNREGISTERED' && requiredAction.requestedActionType && this.historicalAgentActions) {
-        const migrated = await this.resolveHistoricalAgentPayload(input, agentId, requiredAction.requestedActionType);
-        if (migrated.error) return migrated.error;
-        return this.executeResolvedPayload(input, agentId, migrated.payload, {
-          requestedActionType: requiredAction.requestedActionType,
-          actionType: 'agent.atomic_plan.execute',
-          mode: 'direct_required',
-          kind: 'HISTORICAL_PLUGIN_ALIAS',
-          contract: { schemaVersions: ['legacy'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
-          aliased: true,
-        });
+      if (requiredAction.errorCode === 'AGENT_ACTION_UNREGISTERED'
+        && requiredAction.requestedActionType
+        && (typeof input.step.inputSnapshot.type === 'string'
+          || readResolvedDeploymentInputV1(input.step.inputSnapshot.resolvedDeploymentInput))) {
+        return this.historicalMigrationError(requiredAction.requestedActionType);
       }
       return {
         success: false,
@@ -283,57 +272,6 @@ export class AgentExecutorAdapter implements Executor {
           taskId: task.id,
         },
       };
-    }
-  }
-
-  private async resolveHistoricalAgentPayload(input: StepExecutionInput, agentId: string, actionType: string): Promise<{
-    payload: Record<string, unknown>;
-    error?: undefined;
-  } | { payload?: undefined; error: StepExecutionResult }> {
-    if (!this.agentPlanCompiler || !this.historicalAgentActions) {
-      return { error: this.historicalMigrationError(actionType) };
-    }
-    const resolvedInput = readResolvedDeploymentInputV1(input.step.inputSnapshot.resolvedDeploymentInput);
-    if (!resolvedInput) return { error: this.historicalMigrationError(actionType) };
-    try {
-      const migration = await this.historicalAgentActions.resolve({
-        tenantId: input.step.tenantId ?? '',
-        actionType,
-        resolvedInput,
-        frameworkType: stringFromSnapshot(input.step.inputSnapshot.frameworkType),
-        productFamily: stringFromSnapshot(input.step.inputSnapshot.productFamily),
-      });
-      const plan = await this.agentPlanCompiler.compile({
-        tenantId: input.step.tenantId ?? '',
-        agentId,
-        executionRunId: input.step.executionRunId,
-        executionStepId: input.step.id,
-        pluginVersionId: migration.capability.pluginVersionId,
-        pluginBindingId: migration.capability.binding.id,
-        resolvedInput,
-        executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
-      });
-      const planSha256 = `sha256:${createHash('sha256').update(canonicalAgentPlanJson(plan)).digest('hex')}`;
-      return { payload: {
-        actionType: 'agent.atomic_plan.execute',
-        actionSchemaVersion: '1.0',
-        plan,
-        historicalActionMigration: {
-          originalActionType: migration.originalActionType,
-          capabilityKey: migration.alias.capabilityKey,
-          pluginVersionId: migration.capability.pluginVersionId,
-          pluginBindingId: migration.capability.binding.id,
-          planSha256,
-        },
-      } };
-    } catch (error) {
-      const appError = error instanceof AppError ? error : undefined;
-      const errorCode = appError?.errorCode === 'HISTORICAL_AGENT_ACTION_AMBIGUOUS'
-        ? appError.errorCode
-        : 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED';
-      return { error: { success: false, errorCode, errorMessage: errorCode === 'HISTORICAL_AGENT_ACTION_AMBIGUOUS'
-        ? '历史 Agent Action 在当前标准插件上下文中存在歧义'
-        : '历史 Agent Action 无法转换，请重新生成部署计划', detail: { requestedActionType: actionType } } };
     }
   }
 
