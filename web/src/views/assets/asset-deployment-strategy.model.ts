@@ -4,6 +4,7 @@ export function buildManagedTargetDeploymentStrategy(managedTargetId: string, ce
     managedTarget: {
       managedTargetId: managedTargetId.trim(),
       certificateFormatId: certificateFormatId.trim(),
+      executionMode: 'PLUGIN',
     },
   } as const
 }

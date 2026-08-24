@@ -2343,6 +2343,11 @@ export default {
     title: '응용자산',
     description: '도메인 네임 또는 IP를 주요 객체로 응용 프로그램의 포털을 관리하여 주소, 포트, 프로토콜, 웹 사이트에 초점을 맞추고 위치추적 작업을 수행합니다.',
     resourceName: '응용자산',
+    executionModes: {
+      label: '실행 모드',
+      plugin: { title: '플러그인 실행', description: '관리 대상에 활성화된 인증서 배포 기능을 사용합니다.' },
+      workflowOverride: { title: '워크플로 재정의', description: '플러그인을 우회하고 사용자 소유 워크플로를 실행합니다.', notice: '이 모드는 자산의 플러그인 할당을 비활성화하고 워크플로 실행 바인딩만 유지합니다.' }
+    },
     actions: {
       add: '자산을 추가하다',
       edit: '편집',
@@ -2408,7 +2413,7 @@ export default {
       artifactFormat: '제품 형식 설정',
       updatePlugin: '인증서 업데이트 플러그인'
     },
-    capability: { source: '기능 출처', plugin: '플러그인 버전', runtime: '런타임', executionLocation: '실행 위치' },
+    capability: { source: '기능 출처', plugin: '플러그인 버전', runtime: '런타임', executionLocation: '실행 위치', pendingAssignment: '저장하면 애플리케이션 자산 수준 배포 기능 할당이 생성됩니다.' },
     links: {
       certificateBindings: '인증서 바인딩 보기',
       executions: '실행 기록 보기'
@@ -2493,7 +2498,7 @@ export default {
       artifactFormat: '형식 설정을 선택하세요',
       output: '출력 항목을 선택하세요',
       optionalOutput: '선택하지 않기',
-      updatePluginOptional: '선택 사항이며 기존 워크플로 설정을 유지합니다'
+      updatePluginOptional: '선택 사항이며 현재 유효한 플러그인을 계속 사용합니다'
     },
     validation: {
       variableNameRequired: '변수의 이름은 비어 있을 수 없습니다',
@@ -2661,7 +2666,8 @@ export default {
       appliance: '장치'
     },
     runners: {
-      controlPlane: '플랫폼'
+      controlPlane: '플랫폼',
+      gateway: '게이트웨이'
     },
     status: {
       archived: '압축 파일',
@@ -3380,6 +3386,12 @@ export default {
       title: '워크플로',
       resourceName: '워크플로',
       description: '캔버스 초안대로 CURL/SSH/SFTP 워크플로 버전, 배포 상태 및 변경 사항을 관리합니다.',
+      pluginSources: {
+        createTitle: '플러그인에서 만들기', applyTitle: '플러그인에서 초안 만들기', description: '활성화된 플러그인의 인증서 배포 또는 롤백 워크플로만 표시합니다.',
+        createAction: '워크플로 만들기', applyAction: '초안 만들기', currentTarget: '현재 워크플로: {name}', namePlaceholder: '워크플로 이름 입력', loading: '플러그인 소스 로딩 중...', empty: '사용 가능한 플러그인 소스가 없습니다.', version: '플러그인 버전', provenance: '플러그인 출처',
+        capabilities: { deploy: '인증서 배포', rollback: '인증서 롤백' }, errors: { loadFailed: '플러그인 소스를 불러오지 못했습니다', nameRequired: '워크플로 이름을 입력하세요', missingApplyTarget: '대상 워크플로가 없습니다', actionFailed: '플러그인 워크플로 복사에 실패했습니다' }
+      },
+      origins: { legacy: '레거시 워크플로', user: '사용자 워크플로', plugin_internal: '플러그인 내부 워크플로', plugin_derived: '플러그인 파생 워크플로' },
       actions: {
         addVersion: '새 버전',
         applyTemplate: '모형을 적용하다.',
@@ -3412,6 +3424,7 @@ export default {
         currentVersionId: '현재 버전은 ID이다',
         id: '워크플로 ID',
         name: '워크스트림 이름',
+        origin: '출처',
         note: '비고',
         status: '상태',
         updatedAt: '업데이트 시간'
@@ -3450,6 +3463,8 @@ export default {
         titleWithName: '버전관리: {name}'
       },
       changeSummaries: {
+        createFromPlugin: '플러그인 기능에서 워크플로 만들기',
+        applyFromPlugin: '플러그인 기능에서 초안 만들기',
         applyFromFileTemplate: '파일 템플릿에서 워크스트림 초안을 덮어씁니다',
         createCanvasDraft: '프론트 엔드 캔버스 만들기 워크스트림 초안',
         createFromFileTemplate: '파일 템플릿에서 워크스트림 초안을 만듭니다',

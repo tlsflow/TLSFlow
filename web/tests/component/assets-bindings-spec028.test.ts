@@ -31,6 +31,7 @@ const assetMocks = vi.hoisted(() => ({
   getManagedTargetEffectiveCapability: vi.fn(),
   listManagedTargetCompatiblePlugins: vi.fn(),
   saveApplicationAssetManagedTarget: vi.fn(),
+  saveApplicationAssetStandaloneWorkflow: vi.fn(),
   createManagedTarget: vi.fn(),
   listManagedTargetSnapshots: vi.fn(),
   projectWorkflowBinding: vi.fn(),
@@ -44,6 +45,7 @@ const certificateMocks = vi.hoisted(() => ({
 }))
 
 const workflowMocks = vi.hoisted(() => ({
+  getWorkflowExecutionBinding: vi.fn(),
   listWorkflowTemplates: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
 }))
@@ -151,7 +153,13 @@ describe('资产与证书产物视图', () => {
     assetMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', displayName: 'agent-1' }]))
     assetMocks.listSiteAssets.mockResolvedValue(okPage([]))
     assetMocks.listManagedTargets.mockResolvedValue(okPage([]))
-    assetMocks.getManagedTargetEffectiveCapability.mockResolvedValue(okRecord({}))
+    assetMocks.getManagedTargetEffectiveCapability.mockResolvedValue(okRecord({
+      capabilityKey: 'certificate.deploy',
+      source: { ownerType: 'MANAGED_TARGET', ownerId: 'target-1', precedence: 'TARGET_OVERRIDE' },
+      plugin: { pluginVersionId: 'plugin-version-default', pluginId: 'builtin.windows.iis.pfx', runtime: 'AGENT_ATOMIC' },
+      binding: { pluginBindingId: 'binding-default', status: 'ACTIVE', version: 1 },
+      executionLocation: 'AGENT',
+    }))
     assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({ items: [] }))
     assetMocks.saveApplicationAssetManagedTarget.mockResolvedValue(okRecord({ target: { id: 'target-binding-1' } }))
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
@@ -177,7 +185,7 @@ describe('资产与证书产物视图', () => {
     }))
 
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
-      { id: 'workflow-1', name: 'Apache 证书替换' },
+      { id: 'workflow-1', name: 'Apache 证书替换', origin: 'legacy' },
     ]))
     workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
       data: {
@@ -392,12 +400,82 @@ describe('资产与证书产物视图', () => {
     await wrapper.findAll('button').find((button) => button.text() === '确认创建')!.trigger('click')
     await flushPromises()
 
-    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({ certificateFormatId: 'certfmt-1' }))
-    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-2', expect.objectContaining({ managedTargetId: 'target-1' }))
+    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
+      deploymentStrategy: expect.objectContaining({
+        managedTarget: expect.objectContaining({ certificateFormatId: 'certfmt-1' }),
+      }),
+    }))
+    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-2', expect.objectContaining({
+      managedTargetId: 'target-1',
+      certificateFormatId: 'certfmt-1',
+    }))
+    expect(assetMocks.saveApplicationAssetManagedTarget.mock.calls.at(-1)?.[1]).not.toHaveProperty('pluginOverride')
     const payload = assetMocks.createServiceAsset.mock.calls.at(-1)?.[0]
     expect(payload).not.toHaveProperty('agentId')
     expect(payload).not.toHaveProperty('targetBinding')
     expect(payload).not.toHaveProperty('managedTargetId')
+  })
+
+  it('插件模式缺少默认能力时必须选择兼容插件后才能继续', async () => {
+    assetMocks.getManagedTargetEffectiveCapability.mockRejectedValue(new Error('capability assignment missing'))
+    assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({
+      items: [{
+        pluginVersionId: 'plugin-version-iis',
+        pluginId: 'builtin.windows.iis.pfx',
+        version: '1.0.5',
+        runtime: 'AGENT_ATOMIC',
+        displayName: 'IIS PFX 证书部署',
+        compatible: true,
+        executionLocations: ['AGENT'],
+      }],
+    }))
+    assetMocks.listFrameworkInstances.mockResolvedValue(okPage([{
+      id: 'svc-iis-1', displayName: 'Microsoft IIS', frameworkType: 'web.iis', deviceId: 'host-1',
+    }]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([{
+      id: 'site-iis-1', frameworkInstanceId: 'svc-iis-1', deviceId: 'host-1', siteName: 'TEST', port: 4433, protocol: 'HTTPS',
+    }]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([{
+      id: 'target-iis-1', deviceId: 'host-1', frameworkInstanceId: 'svc-iis-1', siteId: 'site-iis-1', targetType: 'tls.binding', targetKey: '*:4433:',
+    }]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    await setInputElementValue(addressInput.element as HTMLInputElement, 'iis.example.com')
+    const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
+    await nextButton.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="host-1"]').exists())!.setValue('host-1')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="svc-iis-1"]').exists())!.setValue('svc-iis-1')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="site-iis-1"]').exists())!.setValue('site-iis-1')
+    await wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())!.setValue('certfmt-1')
+    await flushPromises()
+
+    const pluginSelect = wrapper.findAll('select').find((select) => select.find('option[value="plugin-version-iis"]').exists())!
+    const targetStepNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
+    expect(pluginSelect.attributes('required')).toBeDefined()
+    expect(targetStepNextButton.attributes('disabled')).toBeDefined()
+    await pluginSelect.setValue('plugin-version-iis')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('当前目标尚未配置生效的部署能力。')
+    expect(wrapper.text()).toContain('保存后将创建应用资产级部署能力指派。')
+    expect(wrapper.text()).toContain('AGENT_ATOMIC')
+    expect(wrapper.text()).toContain('AGENT')
+    const enabledTargetStepNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
+    expect(enabledTargetStepNextButton.attributes('disabled')).toBeUndefined()
+    await enabledTargetStepNextButton.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '确认创建')!.trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-2', expect.objectContaining({
+      managedTargetId: 'target-iis-1',
+      pluginOverride: expect.objectContaining({ pluginVersionId: 'plugin-version-iis' }),
+    }))
   })
 
   it('统一设备列表加载失败时显示错误而不是静默空列表', async () => {
@@ -709,9 +787,12 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).not.toContain('https://nas.example.com:5001/')
 
     const selects = wrapper.findAll('select')
+    expect(selects.some((select) => select.find('option[value="workflow-1"]').text() === 'Apache 证书替换')).toBe(true)
     expect(selects.some((select) => select.element.value === 'certfmt-1')).toBe(true)
     expect(selects.some((select) => select.element.value === 'fullchain')).toBe(true)
     expect(selects.some((select) => select.element.value === 'private')).toBe(true)
+    await selects.find((select) => select.find('option[value="LATEST_PUBLISHED"]').exists())!.setValue('LATEST_PUBLISHED')
+    await flushPromises()
 
     const secondNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
     expect(secondNextButton).toBeTruthy()
@@ -724,29 +805,30 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
 
     expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
-      deploymentStrategy: {
-        type: 'WORKFLOW',
-        workflow: expect.objectContaining({
-          workflowId: 'workflow-1',
-          workflowVersionId: 'workflow-version-1',
-          variableBindings: expect.objectContaining({
-            verifyUrl: 'https://app.example.com/custom-health',
-          }),
-          target: expect.objectContaining({
-            verifyUrl: 'https://app.example.com/custom-health',
-          }),
-          certificateArtifactBindings: {
-            serverCert: {
-              certificateFormatId: 'certfmt-1',
-              outputBindings: {
-                certFile: 'fullchain',
-                keyFile: 'private',
-              },
+      metadata: expect.objectContaining({
+        workflowTarget: expect.objectContaining({ verifyUrl: 'https://app.example.com/custom-health' }),
+      }),
+    }))
+    expect(assetMocks.saveApplicationAssetStandaloneWorkflow).toHaveBeenCalledWith('asset-1', {
+      workflowExecution: expect.objectContaining({
+        workflowTemplateId: 'workflow-1',
+        workflowVersionSelection: 'LATEST_PUBLISHED',
+        variableBindings: expect.objectContaining({
+          verifyUrl: 'https://app.example.com/custom-health',
+        }),
+        certificateArtifactBindings: {
+          serverCert: {
+            certificateFormatId: 'certfmt-1',
+            outputBindings: {
+              certFile: 'fullchain',
+              keyFile: 'private',
             },
           },
-        }),
-      },
-    }))
+        },
+      }),
+    })
+    const savedWorkflowExecution = assetMocks.saveApplicationAssetStandaloneWorkflow.mock.calls.at(-1)?.[1]?.workflowExecution
+    expect(savedWorkflowExecution).not.toHaveProperty('workflowVersionId')
   })
 
   it('证书产物页展示真实内容格式与包含内容', async () => {

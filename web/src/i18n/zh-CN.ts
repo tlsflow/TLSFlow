@@ -2470,6 +2470,11 @@ export default {
     title: '应用资产',
     description: '以域名或 IP 为主对象管理应用入口，聚焦地址、端口、协议、站点与执行定位。',
     resourceName: '应用资产',
+    executionModes: {
+      label: '执行方式',
+      plugin: { title: '插件执行', description: '使用受管目标已启用的证书部署能力。' },
+      workflowOverride: { title: '工作流覆盖执行', description: '绕过插件能力，改用用户工作流执行。', notice: '启用工作流覆盖后，本资产的插件分配将停用，只保留工作流执行绑定。' }
+    },
     actions: {
       add: '添加资产',
       edit: '编辑',
@@ -2536,7 +2541,7 @@ export default {
       artifactFormat: '产物格式配置',
       updatePlugin: '证书更新插件'
     },
-    capability: { source: '能力来源', plugin: '插件版本', runtime: '运行时', executionLocation: '执行位置' },
+    capability: { source: '能力来源', plugin: '插件版本', runtime: '运行时', executionLocation: '执行位置', pendingAssignment: '保存后将创建应用资产级部署能力指派。' },
     links: {
       certificateBindings: '查看证书绑定',
       executions: '查看执行记录'
@@ -2617,7 +2622,7 @@ export default {
       artifactFormat: '请选择格式配置',
       output: '请选择输出项',
       optionalOutput: '可不选择',
-      updatePluginOptional: '可不选择，继续使用原工作流配置'
+      updatePluginOptional: '可不选择，继续使用当前生效插件'
     },
     validation: {
       variableNameRequired: '变量名称不能为空',
@@ -2789,7 +2794,8 @@ export default {
       appliance: '设备'
     },
     runners: {
-      controlPlane: '平台'
+      controlPlane: '平台',
+      gateway: 'Gateway'
     },
     status: {
       archived: '已归档',
@@ -3508,6 +3514,22 @@ export default {
       title: '工作流',
       resourceName: '工作流',
       description: '按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。',
+      pluginSources: {
+        createTitle: '从插件新建工作流',
+        applyTitle: '从插件生成草稿',
+        description: '只列出已启用插件中的证书部署或回滚工作流。复制后工作流归当前用户所有，可继续编辑。',
+        createAction: '创建工作流',
+        applyAction: '生成草稿',
+        currentTarget: '当前工作流：{name}',
+        namePlaceholder: '输入新工作流名称',
+        loading: '正在加载插件工作流来源...',
+        empty: '没有可用的插件工作流来源。',
+        version: '插件版本',
+        provenance: '插件派生来源',
+        capabilities: { deploy: '证书部署', rollback: '证书回滚' },
+        errors: { loadFailed: '加载插件工作流来源失败', nameRequired: '请输入工作流名称', missingApplyTarget: '缺少要生成草稿的工作流', actionFailed: '插件工作流复制失败' }
+      },
+      origins: { legacy: '历史工作流', user: '用户工作流', plugin_internal: '插件内部工作流', plugin_derived: '插件派生工作流' },
       actions: {
         addVersion: '新增版本',
         applyTemplate: '套用模板',
@@ -3540,6 +3562,7 @@ export default {
         currentVersionId: '当前版本 ID',
         id: '工作流 ID',
         name: '工作流名称',
+        origin: '来源',
         note: '备注',
         status: '状态',
         updatedAt: '更新时间'
@@ -3578,6 +3601,8 @@ export default {
         titleWithName: '版本管理：{name}'
       },
       changeSummaries: {
+        createFromPlugin: '从插件能力创建工作流',
+        applyFromPlugin: '从插件能力生成新草稿',
         applyFromFileTemplate: '从文件模板覆盖工作流草稿',
         createCanvasDraft: '前端画布创建工作流草稿',
         createFromFileTemplate: '从文件模板创建工作流草稿',

@@ -1,16 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import WorkflowTemplatesView from '@/views/workflows/WorkflowTemplatesView.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 import {
-  applyWorkflowTemplateFromFile,
   compileWorkflowCanvas,
-  createWorkflowTemplate,
-  createWorkflowTemplateFromFile,
+  createWorkflowDraftFromPlugin,
+  createWorkflowFromPlugin,
   createWorkflowTemplateVersion,
   deleteWorkflowTemplate,
-  listWorkflowFileTemplates,
+  listPluginWorkflowSources,
   listWorkflowTemplates,
   listWorkflowTemplateVersions,
   publishWorkflowTemplateVersion,
@@ -18,15 +17,15 @@ import {
   updateCurrentWorkflowTemplateDraftVersion,
 } from '@/api/modules/workflow-templates.api'
 import { createSecret, listSecrets } from '@/api/modules/security.api'
+import { i18n } from '@/i18n'
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
   listWorkflowTemplates: vi.fn(),
-  listWorkflowFileTemplates: vi.fn(),
-  createWorkflowTemplate: vi.fn(),
-  createWorkflowTemplateFromFile: vi.fn(),
+  listPluginWorkflowSources: vi.fn(),
+  createWorkflowFromPlugin: vi.fn(),
+  createWorkflowDraftFromPlugin: vi.fn(),
   compileWorkflowCanvas: vi.fn(),
   deleteWorkflowTemplate: vi.fn(),
-  applyWorkflowTemplateFromFile: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
   createWorkflowTemplateVersion: vi.fn(),
   publishWorkflowTemplateVersion: vi.fn(),
@@ -70,6 +69,7 @@ describe('WorkflowTemplatesView', () => {
     vi.clearAllMocks()
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['workflow.template.read', 'workflow.template.write'])
+    config.global.plugins = [i18n]
 
     vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
       {
@@ -83,20 +83,17 @@ describe('WorkflowTemplatesView', () => {
         updatedAt: '2026-07-03T00:00:00.000Z',
       },
     ]))
-    vi.mocked(listWorkflowFileTemplates).mockResolvedValue({
+    vi.mocked(listPluginWorkflowSources).mockResolvedValue({
       data: {
         items: [
           {
-            id: 'builtin/apache-8444-cert-switch.json',
-            source: 'builtin',
-            fileName: 'apache-8444-cert-switch.json',
-            relativePath: 'apache-8444-cert-switch.json',
-            valid: true,
-            updatedAt: '2026-07-03T00:00:00.000Z',
-            metadata: {
-              name: 'apache_8444_cert_switch',
-              displayName: 'Apache 8444 证书切换',
-            },
+            pluginId: 'builtin.workflow.apache-8444-cert-switch',
+            pluginVersionId: 'plugin-version-apache',
+            pluginVersion: '1.0.0',
+            displayName: 'Apache 8444 证书切换',
+            capabilityKey: 'certificate.deploy',
+            workflowTemplateId: 'plugin-workflow-apache',
+            workflowVersionId: 'plugin-workflow-version-apache',
             stepCount: 8,
             rollbackCount: 2,
           },
@@ -105,8 +102,7 @@ describe('WorkflowTemplatesView', () => {
       requestId: 'req_ok',
       timestamp: '2026-07-03T00:00:00.000Z',
     })
-    vi.mocked(createWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-blank-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
-    vi.mocked(createWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'tpl-file-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
+    vi.mocked(createWorkflowFromPlugin).mockResolvedValue({ data: { id: 'tpl-plugin-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(renameWorkflowTemplate).mockResolvedValue({
       data: {
         id: 'tpl-1',
@@ -152,7 +148,7 @@ describe('WorkflowTemplatesView', () => {
         createdAt: '2026-07-03T00:00:00.000Z',
       })),
     ))
-    vi.mocked(applyWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'ver-file-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
+    vi.mocked(createWorkflowDraftFromPlugin).mockResolvedValue({ data: { id: 'ver-plugin-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
       data: {
         items: [
@@ -171,7 +167,7 @@ describe('WorkflowTemplatesView', () => {
     vi.mocked(publishWorkflowTemplateVersion).mockResolvedValue({ data: { ok: true }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
   })
 
-  it('支持从工具栏模板管理新建工作流，并移除旧页头与指标区', async () => {
+  it('支持从工具栏插件来源新建工作流，并移除文件模板入口', async () => {
     mount(WorkflowTemplatesView, {
       attachTo: document.body,
       global: { stubs: { teleport: true, Teleport: true } },
@@ -179,7 +175,7 @@ describe('WorkflowTemplatesView', () => {
     await flushPromises()
 
     const toolbarButtons = [...document.body.querySelectorAll('.business-page__toolbar-actions button')].map((item) => item.textContent?.trim())
-    expect(toolbarButtons).toEqual(['模板管理', '凭据管理', '空白新建', '刷新'])
+    expect(toolbarButtons).toEqual(['从插件新建工作流', '刷新'])
     expect(document.body.textContent).not.toContain('工作流总数')
     expect(document.body.textContent).not.toContain('待发布草稿')
     expect(document.body.textContent).not.toContain('按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。')
@@ -188,32 +184,40 @@ describe('WorkflowTemplatesView', () => {
     expect(document.body.textContent).not.toContain('wftplv_05ec5c37-18b6-4687-bc90-26e143ebcf62')
     expect(document.body.textContent).toContain('V1')
 
-    clickBodyButton('模板管理')
+    clickBodyButton('从插件新建工作流')
     await flushPromises()
-    clickBodyButton('按模板创建工作流')
+    const nameInput = document.body.querySelector('input.gc-input') as HTMLInputElement
+    nameInput.value = 'derived-workflow'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    clickBodyButton('创建工作流')
     await flushPromises()
 
-    expect(listWorkflowFileTemplates).toHaveBeenCalled()
-    expect(createWorkflowTemplateFromFile).toHaveBeenCalledWith(expect.objectContaining({
-      fileTemplateId: 'builtin/apache-8444-cert-switch.json',
+    expect(listPluginWorkflowSources).toHaveBeenCalled()
+    expect(createWorkflowFromPlugin).toHaveBeenCalledWith(expect.objectContaining({
+      pluginVersionId: 'plugin-version-apache',
+      capabilityKey: 'certificate.deploy',
+      name: 'derived-workflow',
     }))
   })
 
-  it('支持用文件模板覆盖现有工作流', async () => {
+  it('支持从插件来源为现有工作流生成新草稿', async () => {
     mount(WorkflowTemplatesView, {
       attachTo: document.body,
       global: { stubs: { teleport: true, Teleport: true } },
     })
     await flushPromises()
 
-    clickBodyButton('套用模板')
+    clickBodyButton('生成草稿')
     await flushPromises()
-    clickBodyButton('按模板覆盖当前工作流')
+    const submitButtons = [...document.body.querySelectorAll('button')].filter((item) => item.textContent?.trim() === '生成草稿') as HTMLButtonElement[]
+    expect(submitButtons.length).toBeGreaterThan(1)
+    submitButtons.at(-1)!.click()
     await flushPromises()
 
-    expect(applyWorkflowTemplateFromFile).toHaveBeenCalledWith(expect.objectContaining({
-      templateId: 'tpl-1',
-      fileTemplateId: 'builtin/apache-8444-cert-switch.json',
+    expect(createWorkflowDraftFromPlugin).toHaveBeenCalledWith('tpl-1', expect.objectContaining({
+      pluginVersionId: 'plugin-version-apache',
+      capabilityKey: 'certificate.deploy',
     }))
   })
 

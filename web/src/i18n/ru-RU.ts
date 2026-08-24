@@ -2343,6 +2343,11 @@ export default {
     title: 'Активы приложений',
     description: 'Управление входами приложений по домену или IP с фокусом на адрес, порт, протокол, сайт и позиционирование выполнения.',
     resourceName: 'Актив приложения',
+    executionModes: {
+      label: 'Режим выполнения',
+      plugin: { title: 'Выполнение плагином', description: 'Использовать включенную для управляемой цели возможность развертывания сертификата.' },
+      workflowOverride: { title: 'Переопределение процессом', description: 'Обойти плагин и использовать пользовательский рабочий процесс.', notice: 'Этот режим отключает назначение плагина актива и сохраняет только привязку рабочего процесса.' }
+    },
     actions: {
       add: 'Добавить актив',
       edit: 'Редактировать',
@@ -2408,7 +2413,7 @@ export default {
       artifactFormat: 'Конфигурация формата артефакта',
       updatePlugin: 'Плагин обновления сертификата'
     },
-    capability: { source: 'Источник возможности', plugin: 'Версия плагина', runtime: 'Среда выполнения', executionLocation: 'Место выполнения' },
+    capability: { source: 'Источник возможности', plugin: 'Версия плагина', runtime: 'Среда выполнения', executionLocation: 'Место выполнения', pendingAssignment: 'После сохранения будет создано назначение возможности развертывания на уровне ресурса приложения.' },
     links: {
       certificateBindings: 'Посмотреть привязки сертификатов',
       executions: 'Посмотреть записи выполнения'
@@ -2493,7 +2498,7 @@ export default {
       artifactFormat: 'Выберите конфигурацию формата',
       output: 'Выберите выход',
       optionalOutput: 'Можно не выбирать',
-      updatePluginOptional: 'Необязательно; сохранить текущую конфигурацию процесса'
+      updatePluginOptional: 'Необязательно; использовать текущий активный плагин'
     },
     validation: {
       variableNameRequired: 'Имя переменной не может быть пустым',
@@ -2661,7 +2666,8 @@ export default {
       appliance: 'Устройство'
     },
     runners: {
-      controlPlane: 'Платформа'
+      controlPlane: 'Платформа',
+      gateway: 'Шлюз'
     },
     status: {
       archived: 'Архивировано',
@@ -3380,6 +3386,12 @@ export default {
       title: 'Рабочие процессы',
       resourceName: 'Рабочий процесс',
       description: 'Управление версиями CURL/SSH/SFTP рабочих процессов, статусом публикации и историей изменений по черновикам canvas.',
+      pluginSources: {
+        createTitle: 'Создать из плагина', applyTitle: 'Создать черновик из плагина', description: 'Показаны только процессы развертывания или отката сертификатов из включенных плагинов.',
+        createAction: 'Создать процесс', applyAction: 'Создать черновик', currentTarget: 'Текущий процесс: {name}', namePlaceholder: 'Введите имя процесса', loading: 'Загрузка источников плагина...', empty: 'Нет доступных источников плагина.', version: 'Версия плагина', provenance: 'Источник плагина',
+        capabilities: { deploy: 'Развертывание сертификата', rollback: 'Откат сертификата' }, errors: { loadFailed: 'Не удалось загрузить источники плагина', nameRequired: 'Введите имя процесса', missingApplyTarget: 'Целевой процесс отсутствует', actionFailed: 'Не удалось скопировать процесс плагина' }
+      },
+      origins: { legacy: 'Устаревший процесс', user: 'Пользовательский процесс', plugin_internal: 'Внутренний процесс плагина', plugin_derived: 'Процесс, производный от плагина' },
       actions: {
         addVersion: 'Добавить версию',
         applyTemplate: 'Применить шаблон',
@@ -3412,6 +3424,7 @@ export default {
         currentVersionId: 'ID текущей версии',
         id: 'ID рабочего процесса',
         name: 'Имя рабочего процесса',
+        origin: 'Источник',
         note: 'Примечание',
         status: 'Статус',
         updatedAt: 'Время обновления'
@@ -3450,6 +3463,8 @@ export default {
         titleWithName: 'Управление версиями: {name}'
       },
       changeSummaries: {
+        createFromPlugin: 'Создать процесс из возможности плагина',
+        applyFromPlugin: 'Создать черновик из возможности плагина',
         applyFromFileTemplate: 'Черновик рабочего процесса перезаписан из файлового шаблона',
         createCanvasDraft: 'Черновик рабочего процесса создан из frontend canvas',
         createFromFileTemplate: 'Черновик рабочего процесса создан из файлового шаблона',

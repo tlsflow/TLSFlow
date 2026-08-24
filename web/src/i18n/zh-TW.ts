@@ -2368,6 +2368,11 @@ export default {
     title: "應用資產",
     description: "以域名或 IP 為主物件管理應用入口，聚焦位址、埠、協議、站點與執行定位。",
     resourceName: "應用資產",
+    executionModes: {
+      label: "執行方式",
+      plugin: { title: "外掛執行", description: "使用受管目標已啟用的憑證部署能力。" },
+      workflowOverride: { title: "工作流覆蓋執行", description: "略過外掛能力，改用使用者工作流執行。", notice: "啟用工作流覆蓋後，本資產的外掛指派將停用，只保留工作流執行綁定。" }
+    },
     actions: {
       add: "新增資產",
       edit: "編輯",
@@ -2433,7 +2438,7 @@ export default {
       artifactFormat: "產物格式設定",
       updatePlugin: "憑證更新外掛"
     },
-    capability: { source: "能力來源", plugin: "外掛版本", runtime: "執行階段", executionLocation: "執行位置" },
+    capability: { source: "能力來源", plugin: "外掛版本", runtime: "執行階段", executionLocation: "執行位置", pendingAssignment: "儲存後將建立應用資產層級的部署能力指派。" },
     links: {
       certificateBindings: "檢視憑證繫結",
       executions: "檢視執行記錄"
@@ -2518,7 +2523,7 @@ export default {
       artifactFormat: "請選擇格式設定",
       output: "請選擇輸出項",
       optionalOutput: "可不選擇",
-      updatePluginOptional: "可不選擇，繼續使用原工作流程設定"
+      updatePluginOptional: "可不選擇，繼續使用目前生效的外掛"
     },
     validation: {
       variableNameRequired: "變數名稱不能為空",
@@ -2686,7 +2691,8 @@ export default {
       appliance: "裝置"
     },
     runners: {
-      controlPlane: "平台"
+      controlPlane: "平台",
+      gateway: "Gateway"
     },
     status: {
       archived: "已歸檔",
@@ -3405,6 +3411,12 @@ export default {
       title: "工作流",
       resourceName: "工作流",
       description: "按畫布草稿管理 CURL/SSH/SFTP 工作流版本、釋出狀態與變更記錄。",
+      pluginSources: {
+        createTitle: "從外掛新建工作流", applyTitle: "從外掛產生草稿", description: "只列出已啟用外掛中的憑證部署或回滾工作流。複製後工作流歸目前使用者所有並可繼續編輯。",
+        createAction: "建立工作流", applyAction: "產生草稿", currentTarget: "目前工作流：{name}", namePlaceholder: "輸入新工作流名稱", loading: "正在載入外掛工作流來源...", empty: "沒有可用的外掛工作流來源。", version: "外掛版本", provenance: "外掛派生來源",
+        capabilities: { deploy: "憑證部署", rollback: "憑證回滾" }, errors: { loadFailed: "載入外掛工作流來源失敗", nameRequired: "請輸入工作流名稱", missingApplyTarget: "缺少要產生草稿的工作流", actionFailed: "外掛工作流複製失敗" }
+      },
+      origins: { legacy: "歷史工作流", user: "使用者工作流", plugin_internal: "外掛內部工作流", plugin_derived: "外掛派生工作流" },
       actions: {
         addVersion: "新增版本",
         applyTemplate: "套用模板",
@@ -3437,6 +3449,7 @@ export default {
         currentVersionId: "目前版本 ID",
         id: "工作流 ID",
         name: "工作流名稱",
+        origin: "來源",
         note: "備註",
         status: "狀態",
         updatedAt: "更新時間"
@@ -3475,6 +3488,8 @@ export default {
         titleWithName: "版本管理：{name}"
       },
       changeSummaries: {
+        createFromPlugin: "從外掛能力建立工作流",
+        applyFromPlugin: "從外掛能力產生新草稿",
         applyFromFileTemplate: "從檔案模板覆蓋工作流草稿",
         createCanvasDraft: "前端畫布建立工作流草稿",
         createFromFileTemplate: "從檔案模板建立工作流草稿",

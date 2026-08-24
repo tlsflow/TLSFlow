@@ -3,12 +3,11 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import {
-  applyWorkflowTemplateFromFile,
   compileWorkflowCanvas,
-  createWorkflowTemplate,
-  createWorkflowTemplateFromFile,
+  createWorkflowDraftFromPlugin,
+  createWorkflowFromPlugin,
   deleteWorkflowTemplate,
-  listWorkflowFileTemplates,
+  listPluginWorkflowSources,
   createWorkflowTemplateVersion,
   listWorkflowTemplateVersions,
   listWorkflowTemplates,
@@ -17,7 +16,7 @@ import {
   updateCurrentWorkflowTemplateDraftVersion,
   updateWorkflowTemplateVersionNote,
 } from '@/api/modules/workflow-templates.api'
-import { GcModal, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcPluginWorkflowSourceSelector, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -55,14 +54,15 @@ const canvasSaving = ref(false)
 const canvasMessage = ref('')
 const canvasDraft = ref<WorkflowCanvasDefinition>(createDefaultWorkflowCanvas())
 const activeTab = ref<'summary' | 'versions'>('summary')
-const fileTemplateModalOpen = ref(false)
-const fileTemplateMode = ref<'create' | 'apply'>('create')
-const fileTemplateItems = ref<ApiRecord[]>([])
-const fileTemplateLoading = ref(false)
-const fileTemplatePending = ref(false)
-const fileTemplateError = ref('')
-const selectedFileTemplateId = ref('')
-const fileTemplateTargetRow = ref<ViewRow | null>(null)
+const pluginSourceModalOpen = ref(false)
+const pluginSourceMode = ref<'create' | 'apply'>('create')
+const pluginSourceItems = ref<ApiRecord[]>([])
+const pluginSourceLoading = ref(false)
+const pluginSourcePending = ref(false)
+const pluginSourceError = ref('')
+const selectedPluginSourceId = ref('')
+const pluginSourceTargetRow = ref<ViewRow | null>(null)
+const pluginSourceWorkflowName = ref('')
 
 const config: BusinessPageConfig = {
   title: t('workflows.templates.title'),
@@ -72,16 +72,8 @@ const config: BusinessPageConfig = {
   showToolbarDangerHint: false,
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
-  primaryActionLabel: t('workflows.templates.actions.createBlank'),
-  primaryAction: async () => {
-    const canvas = createDefaultWorkflowCanvas('workflow-canvas-draft')
-    const compiled = await compileCanvasOnBackend(canvas)
-    await createWorkflowTemplate({
-      content: compiled.content,
-      changeSummary: t('workflows.templates.changeSummaries.createCanvasDraft'),
-    })
-    await pageRef.value?.reload()
-  },
+  primaryActionLabel: t('workflows.templates.pluginSources.createTitle'),
+  primaryAction: async () => openPluginSourceModal('create'),
   moduleName: 'workflows',
   resourceName: t('workflows.templates.resourceName'),
   defaultStatus: 'draft',
@@ -113,18 +105,17 @@ const config: BusinessPageConfig = {
       label: t('workflows.templates.actions.edit'),
       permission: 'workflow.template.write',
       reloadAfterRun: false,
-      hidden: (row) => readString(row.raw, ['status']) !== 'draft',
+      hidden: (row) => readString(row.raw, ['status']) !== 'draft' || isPluginInternal(row),
       run: async (row) => {
         await openEditor(row)
       },
     },
     {
-      label: t('workflows.templates.actions.applyTemplate'),
+      label: t('workflows.templates.pluginSources.applyAction'),
       permission: 'workflow.template.write',
       reloadAfterRun: false,
-      run: async (row) => {
-        await openFileTemplateModal('apply', row)
-      },
+      hidden: (row) => !isUserOwnedWorkflow(row),
+      run: async (row) => openPluginSourceModal('apply', row),
     },
     {
       label: t('workflows.templates.actions.detail'),
@@ -138,6 +129,7 @@ const config: BusinessPageConfig = {
       label: t('workflows.templates.actions.versionManagement'),
       permission: 'workflow.template.write',
       reloadAfterRun: false,
+      hidden: (row) => isPluginInternal(row),
       run: async (row) => {
         await openVersionManager(row)
       },
@@ -149,7 +141,7 @@ const config: BusinessPageConfig = {
       confirmText: 'DELETE',
       riskText: t('workflows.templates.delete.riskText'),
       reloadAfterRun: true,
-      hidden: (row) => readString(row.raw, ['status']) === 'disabled',
+      hidden: (row) => readString(row.raw, ['status']) === 'disabled' || isPluginInternal(row),
       run: async (row) => {
         await deleteWorkflowTemplate(readString(row.raw, ['id']))
       },
@@ -166,8 +158,22 @@ const publishedVersionLabel = computed(() => {
   return published ? `V${readString(published, ['version'])}` : '—'
 })
 
-const fileTemplateModalTitle = computed(() => fileTemplateMode.value === 'create' ? t('workflows.templates.fileTemplates.createTitle') : t('workflows.templates.fileTemplates.applyTitle'))
-const fileTemplateActionLabel = computed(() => fileTemplateMode.value === 'create' ? t('workflows.templates.fileTemplates.createAction') : t('workflows.templates.fileTemplates.applyAction'))
+const pluginSourceModalTitle = computed(() => pluginSourceMode.value === 'create' ? t('workflows.templates.pluginSources.createTitle') : t('workflows.templates.pluginSources.applyTitle'))
+const pluginSourceActionLabel = computed(() => pluginSourceMode.value === 'create' ? t('workflows.templates.pluginSources.createAction') : t('workflows.templates.pluginSources.applyAction'))
+const selectedPluginSource = computed(() => pluginSourceItems.value.find((item) => pluginSourceId(item) === selectedPluginSourceId.value) ?? null)
+
+function isPluginInternal(row: ViewRow): boolean {
+  return readString(row.raw, ['origin']) === 'plugin_internal'
+}
+
+function isUserOwnedWorkflow(row: ViewRow): boolean {
+  const origin = readString(row.raw, ['origin'], 'legacy')
+  return origin === 'user' || origin === 'plugin_derived' || origin === 'legacy'
+}
+
+function pluginSourceId(item: ApiRecord): string {
+  return `${readString(item, ['pluginVersionId'])}:${readString(item, ['capabilityKey'])}`
+}
 function isCurrentWorkflowVersion(item: ApiRecord, row: ViewRow | null = versionManagerRow.value): boolean {
   if (!row) return false
   const currentVersionId = readString(row.raw, ['currentVersionId'], '')
@@ -286,13 +292,14 @@ async function openEditor(row: ViewRow) {
   hydrateCanvasFromEditableDraft(row)
 }
 
-async function openFileTemplateModal(mode: 'create' | 'apply', row?: ViewRow) {
-  fileTemplateMode.value = mode
-  fileTemplateTargetRow.value = row ?? null
-  fileTemplateModalOpen.value = true
-  fileTemplateError.value = ''
-  selectedFileTemplateId.value = ''
-  await loadFileTemplates()
+async function openPluginSourceModal(mode: 'create' | 'apply', row?: ViewRow) {
+  pluginSourceMode.value = mode
+  pluginSourceTargetRow.value = row ?? null
+  pluginSourceWorkflowName.value = mode === 'apply' && row ? readString(row.raw, ['name']) : ''
+  pluginSourceModalOpen.value = true
+  pluginSourceError.value = ''
+  selectedPluginSourceId.value = ''
+  await loadPluginSources()
 }
 
 async function loadVersions(row: ViewRow) {
@@ -318,19 +325,18 @@ function syncVersionNoteDrafts() {
   ]).filter(([id]) => Boolean(id)))
 }
 
-async function loadFileTemplates() {
-  fileTemplateLoading.value = true
-  fileTemplateError.value = ''
+async function loadPluginSources() {
+  pluginSourceLoading.value = true
+  pluginSourceError.value = ''
   try {
-    const result = await listWorkflowFileTemplates(true)
-    fileTemplateItems.value = [...(result.data?.items ?? [])]
-    const firstValid = fileTemplateItems.value.find((item) => Boolean(item.valid))
-    selectedFileTemplateId.value = firstValid ? readString(firstValid, ['id'], '') : ''
+    const result = await listPluginWorkflowSources()
+    pluginSourceItems.value = [...(result.data?.items ?? [])]
+    selectedPluginSourceId.value = pluginSourceItems.value[0] ? pluginSourceId(pluginSourceItems.value[0]) : ''
   } catch (cause) {
-    fileTemplateItems.value = []
-    fileTemplateError.value = cause instanceof Error ? cause.message : t('workflows.templates.fileTemplates.errors.loadFailed')
+    pluginSourceItems.value = []
+    pluginSourceError.value = cause instanceof Error ? cause.message : t('workflows.templates.pluginSources.errors.loadFailed')
   } finally {
-    fileTemplateLoading.value = false
+    pluginSourceLoading.value = false
   }
 }
 
@@ -358,35 +364,41 @@ function hydrateCanvasFromEditableDraft(row: ViewRow) {
     : createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
 }
 
-async function submitFileTemplateAction() {
-  if (!selectedFileTemplateId.value || fileTemplatePending.value) return
-  fileTemplatePending.value = true
-  fileTemplateError.value = ''
+async function submitPluginSourceAction() {
+  const source = selectedPluginSource.value
+  if (!source || pluginSourcePending.value) return
+  pluginSourcePending.value = true
+  pluginSourceError.value = ''
   try {
-    if (fileTemplateMode.value === 'create') {
-      await createWorkflowTemplateFromFile({
-        fileTemplateId: selectedFileTemplateId.value,
-        changeSummary: t('workflows.templates.changeSummaries.createFromFileTemplate'),
+    const sourcePayload = {
+      pluginVersionId: readString(source, ['pluginVersionId']),
+      capabilityKey: readString(source, ['capabilityKey']),
+      name: pluginSourceWorkflowName.value.trim(),
+    }
+    if (pluginSourceMode.value === 'create') {
+      if (!sourcePayload.name) throw new Error(t('workflows.templates.pluginSources.errors.nameRequired'))
+      await createWorkflowFromPlugin({
+        ...sourcePayload,
+        changeSummary: t('workflows.templates.changeSummaries.createFromPlugin'),
       })
     } else {
-      const row = fileTemplateTargetRow.value
-      if (!row) throw new Error(t('workflows.templates.fileTemplates.errors.missingApplyTarget'))
-      await applyWorkflowTemplateFromFile({
-        templateId: readString(row.raw, ['id']),
-        fileTemplateId: selectedFileTemplateId.value,
-        changeSummary: t('workflows.templates.changeSummaries.applyFromFileTemplate'),
+      const row = pluginSourceTargetRow.value
+      if (!row) throw new Error(t('workflows.templates.pluginSources.errors.missingApplyTarget'))
+      await createWorkflowDraftFromPlugin(readString(row.raw, ['id']), {
+        ...sourcePayload,
+        changeSummary: t('workflows.templates.changeSummaries.applyFromPlugin'),
       })
       if (editorRow.value && readString(editorRow.value.raw, ['id']) === readString(row.raw, ['id'])) {
         await loadVersions(editorRow.value)
         hydrateCanvasFromLatestVersion()
       }
     }
-    fileTemplateModalOpen.value = false
+    pluginSourceModalOpen.value = false
     await pageRef.value?.reload()
   } catch (cause) {
-    fileTemplateError.value = cause instanceof Error ? cause.message : t('workflows.templates.fileTemplates.errors.actionFailed')
+    pluginSourceError.value = cause instanceof Error ? cause.message : t('workflows.templates.pluginSources.errors.actionFailed')
   } finally {
-    fileTemplatePending.value = false
+    pluginSourcePending.value = false
   }
 }
 
@@ -582,11 +594,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 <template>
   <section class="workflow-templates-page">
-    <BusinessResourcePage ref="pageRef" :config="config">
-      <template #toolbar-actions-before-refresh>
-        <button class="gc-button" type="button" @click="openFileTemplateModal('create')">{{ t('workflows.templates.actions.templateManagement') }}</button>
-      </template>
-    </BusinessResourcePage>
+    <BusinessResourcePage ref="pageRef" :config="config" />
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -601,7 +609,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <p class="workflow-template-detail__eyebrow">Workflow</p>
             <div class="workflow-template-detail__title-row">
               <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
-              <button v-if="!detailNameEditing" class="gc-button" type="button" @click="beginDetailNameEdit">
+              <button v-if="!detailNameEditing && !isPluginInternal(detailRow)" class="gc-button" type="button" @click="beginDetailNameEdit">
                 {{ t('workflows.templates.actions.rename') }}
               </button>
             </div>
@@ -643,6 +651,8 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <div><dt>{{ t('workflows.templates.fields.currentVersionId') }}</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.createdAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['createdAt'])) || readString(detailRow.raw, ['createdAt']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['updatedAt'])) || readString(detailRow.raw, ['updatedAt']) }}</dd></div>
+            <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ t(`workflows.templates.origins.${readString(detailRow.raw, ['origin'], 'legacy')}`) }}</dd></div>
+            <div v-if="readString(detailRow.raw, ['provenance.pluginVersionId'])"><dt>{{ t('workflows.templates.pluginSources.provenance') }}</dt><dd>{{ readString(detailRow.raw, ['provenance.pluginId']) }} / {{ readString(detailRow.raw, ['provenance.pluginVersionId']) }} / {{ readString(detailRow.raw, ['provenance.capabilityKey']) }}</dd></div>
           </dl>
         </section>
 
@@ -776,7 +786,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <WorkflowCanvasEditor
           v-model="canvasDraft"
           class="workflow-template-editor-shell__editor"
-          :readonly="readString(editorRow.raw, ['status']) === 'published'"
+          :readonly="readString(editorRow.raw, ['status']) === 'published' || isPluginInternal(editorRow)"
           :save-message="canvasMessage"
           :saving="canvasSaving"
           @save="saveCanvasDraft"
@@ -790,54 +800,38 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
     </GcModal>
 
     <GcModal
-      v-model:open="fileTemplateModalOpen"
-      :title="fileTemplateModalTitle"
-      :description="t('workflows.templates.fileTemplates.description')"
+      v-model:open="pluginSourceModalOpen"
+      :title="pluginSourceModalTitle"
+      :description="t('workflows.templates.pluginSources.description')"
       size="xl"
       width="min(1080px, calc(100vw - 32px))"
     >
       <section class="workflow-file-template-modal">
-        <p v-if="fileTemplateMode === 'apply' && fileTemplateTargetRow" class="workflow-file-template-modal__target">
-          {{ t('workflows.templates.fileTemplates.currentTarget', { name: readString(fileTemplateTargetRow.raw, ['name'], fileTemplateTargetRow.id) }) }}
+        <p v-if="pluginSourceMode === 'apply' && pluginSourceTargetRow" class="workflow-file-template-modal__target">
+          {{ t('workflows.templates.pluginSources.currentTarget', { name: readString(pluginSourceTargetRow.raw, ['name'], pluginSourceTargetRow.id) }) }}
         </p>
-        <p v-if="fileTemplateError" class="workflow-file-template-modal__error">{{ fileTemplateError }}</p>
-        <p v-if="fileTemplateLoading" class="workflow-file-template-modal__loading">{{ t('workflows.templates.fileTemplates.loading') }}</p>
-        <ul v-else-if="fileTemplateItems.length" class="workflow-file-template-modal__list">
-          <li
-            v-for="item in fileTemplateItems"
-            :key="readString(item, ['id'])"
-            class="workflow-file-template-modal__item"
-            :data-valid="item.valid ? 'true' : 'false'"
-          >
-            <label class="workflow-file-template-modal__choice">
-              <input
-                type="radio"
-                name="workflow-file-template"
-                :value="readString(item, ['id'])"
-                :checked="selectedFileTemplateId === readString(item, ['id'])"
-                :disabled="!item.valid"
-                @change="selectedFileTemplateId = readString(item, ['id'])"
-              />
-              <div class="workflow-file-template-modal__body">
-                <div class="workflow-file-template-modal__head">
-                  <strong>{{ readString(item, ['metadata.displayName'], readString(item, ['metadata.name'], readString(item, ['fileName']))) }}</strong>
-                  <span class="workflow-file-template-modal__pill" :data-valid="item.valid ? 'true' : 'false'">{{ item.valid ? t('workflows.templates.fileTemplates.valid') : t('workflows.templates.fileTemplates.invalid') }}</span>
-                </div>
-                <small>{{ readString(item, ['source']) === 'builtin' ? t('workflows.templates.fileTemplates.sources.builtin') : t('workflows.templates.fileTemplates.sources.userImported') }} / {{ readString(item, ['relativePath']) }}</small>
-                <p v-if="item.valid">
-                  {{ t('workflows.templates.fileTemplates.identifier', { name: readString(item, ['metadata.name']) }) }} / steps {{ readString(item, ['stepCount'], '0') }} / rollback {{ readString(item, ['rollbackCount'], '0') }}
-                </p>
-                <p v-else>{{ readString(item, ['error'], t('workflows.templates.fileTemplates.invalidFile')) }}</p>
-              </div>
-            </label>
-          </li>
-        </ul>
-        <p v-else class="workflow-file-template-modal__loading">{{ t('workflows.templates.fileTemplates.empty') }}</p>
+        <label v-if="pluginSourceMode === 'create'" class="workflow-file-template-modal__target">
+          <span>{{ t('workflows.templates.fields.name') }}</span>
+          <input v-model="pluginSourceWorkflowName" class="gc-input" type="text" :placeholder="t('workflows.templates.pluginSources.namePlaceholder')" />
+        </label>
+        <p v-if="pluginSourceError" class="workflow-file-template-modal__error">{{ pluginSourceError }}</p>
+        <GcPluginWorkflowSourceSelector
+          v-model="selectedPluginSourceId"
+          :items="pluginSourceItems"
+          :loading="pluginSourceLoading"
+          :labels="{
+            loading: t('workflows.templates.pluginSources.loading'),
+            empty: t('workflows.templates.pluginSources.empty'),
+            deploy: t('workflows.templates.pluginSources.capabilities.deploy'),
+            rollback: t('workflows.templates.pluginSources.capabilities.rollback'),
+            version: t('workflows.templates.pluginSources.version'),
+          }"
+        />
       </section>
       <template #actions>
-        <button class="gc-button" type="button" @click="fileTemplateModalOpen = false">{{ t('workflows.templates.actions.cancel') }}</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="fileTemplatePending || !selectedFileTemplateId" @click="submitFileTemplateAction">
-          {{ fileTemplatePending ? t('workflows.templates.states.processing') : fileTemplateActionLabel }}
+        <button class="gc-button" type="button" @click="pluginSourceModalOpen = false">{{ t('workflows.templates.actions.cancel') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="pluginSourcePending || !selectedPluginSourceId || (pluginSourceMode === 'create' && !pluginSourceWorkflowName.trim())" @click="submitPluginSourceAction">
+          {{ pluginSourcePending ? t('workflows.templates.states.processing') : pluginSourceActionLabel }}
         </button>
       </template>
     </GcModal>

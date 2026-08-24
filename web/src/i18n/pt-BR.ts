@@ -2343,6 +2343,11 @@ export default {
     title: 'Ativos de aplicação',
     description: 'Gerencie entradas de aplicação por domínio ou IP, com foco em endereço, porta, protocolo, site e localização de execução.',
     resourceName: 'Ativo de aplicação',
+    executionModes: {
+      label: 'Modo de execução',
+      plugin: { title: 'Execução por plugin', description: 'Use a capacidade de implantação de certificado habilitada para o destino gerenciado.' },
+      workflowOverride: { title: 'Substituição por fluxo', description: 'Ignore o plugin e use um fluxo pertencente ao usuário.', notice: 'Este modo desativa a atribuição de plugin do ativo e mantém apenas o vínculo de execução do fluxo.' }
+    },
     actions: {
       add: 'Adicionar ativo',
       edit: 'Editar',
@@ -2408,7 +2413,7 @@ export default {
       artifactFormat: 'Configuração de formato do artefato',
       updatePlugin: 'Plugin de atualização de certificado'
     },
-    capability: { source: 'Origem da capacidade', plugin: 'Versão do plugin', runtime: 'Runtime', executionLocation: 'Local de execução' },
+    capability: { source: 'Origem da capacidade', plugin: 'Versão do plugin', runtime: 'Runtime', executionLocation: 'Local de execução', pendingAssignment: 'Ao salvar, será criada uma atribuição de capacidade de implantação no nível do ativo de aplicativo.' },
     links: {
       certificateBindings: 'Ver bindings de certificado',
       executions: 'Ver registros de execução'
@@ -2493,7 +2498,7 @@ export default {
       artifactFormat: 'Selecione a configuração de formato',
       output: 'Selecione a saída',
       optionalOutput: 'Opcional',
-      updatePluginOptional: 'Opcional; manter a configuração atual do fluxo de trabalho'
+      updatePluginOptional: 'Opcional; manter o plugin atualmente efetivo'
     },
     validation: {
       variableNameRequired: 'O nome da variável não pode ficar vazio',
@@ -2661,7 +2666,8 @@ export default {
       appliance: 'Dispositivo'
     },
     runners: {
-      controlPlane: 'Plataforma'
+      controlPlane: 'Plataforma',
+      gateway: 'Gateway'
     },
     status: {
       archived: 'Arquivado',
@@ -3380,6 +3386,12 @@ export default {
       title: 'Fluxos de trabalho',
       resourceName: 'Fluxo de trabalho',
       description: 'Gerencie versões de fluxos CURL/SSH/SFTP, status de publicação e histórico de alterações a partir dos rascunhos do canvas.',
+      pluginSources: {
+        createTitle: 'Criar a partir do plugin', applyTitle: 'Criar rascunho do plugin', description: 'Lista apenas fluxos de implantação ou reversão de certificados de plugins habilitados.',
+        createAction: 'Criar fluxo', applyAction: 'Criar rascunho', currentTarget: 'Fluxo atual: {name}', namePlaceholder: 'Nome do fluxo', loading: 'Carregando fontes de plugin...', empty: 'Nenhuma fonte de plugin disponível.', version: 'Versão do plugin', provenance: 'Origem do plugin',
+        capabilities: { deploy: 'Implantação de certificado', rollback: 'Reversão de certificado' }, errors: { loadFailed: 'Falha ao carregar fontes de plugin', nameRequired: 'Informe um nome de fluxo', missingApplyTarget: 'O fluxo de destino está ausente', actionFailed: 'Falha ao copiar o fluxo do plugin' }
+      },
+      origins: { legacy: 'Fluxo legado', user: 'Fluxo do usuário', plugin_internal: 'Fluxo interno do plugin', plugin_derived: 'Fluxo derivado do plugin' },
       actions: {
         addVersion: 'Adicionar versão',
         applyTemplate: 'Aplicar modelo',
@@ -3412,6 +3424,7 @@ export default {
         currentVersionId: 'ID da versão atual',
         id: 'ID do fluxo de trabalho',
         name: 'Nome do fluxo de trabalho',
+        origin: 'Origem',
         note: 'Observação',
         status: 'Status',
         updatedAt: 'Atualizado em'
@@ -3450,6 +3463,8 @@ export default {
         titleWithName: 'Gerenciamento de versões: {name}'
       },
       changeSummaries: {
+        createFromPlugin: 'Criar fluxo a partir da capacidade do plugin',
+        applyFromPlugin: 'Criar rascunho a partir da capacidade do plugin',
         applyFromFileTemplate: 'Substituir rascunho do fluxo a partir de modelo de arquivo',
         createCanvasDraft: 'Criar rascunho de fluxo de trabalho pelo canvas do frontend',
         createFromFileTemplate: 'Criar rascunho de fluxo de trabalho a partir de modelo de arquivo',

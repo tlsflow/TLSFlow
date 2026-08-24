@@ -2418,6 +2418,11 @@ export default {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
     resourceName: 'Application asset',
+    executionModes: {
+      label: 'Mode d’exécution',
+      plugin: { title: 'Exécution par plugin', description: 'Utiliser la capacité de déploiement de certificat activée pour la cible gérée.' },
+      workflowOverride: { title: 'Remplacement par workflow', description: 'Contourner le plugin et utiliser un workflow appartenant à l’utilisateur.', notice: 'Ce mode désactive l’affectation du plugin pour cet actif et conserve uniquement la liaison du workflow.' }
+    },
     actions: {
       add: 'Add asset',
       edit: 'Edit',
@@ -2482,7 +2487,7 @@ export default {
       artifactFormat: 'Format de l’artéfact',
       updatePlugin: 'Plugin de mise à jour du certificat'
     },
-    capability: { source: 'Source de la capacité', plugin: 'Version du plugin', runtime: 'Runtime', executionLocation: "Emplacement d’exécution" },
+    capability: { source: 'Source de la capacité', plugin: 'Version du plugin', runtime: 'Runtime', executionLocation: "Emplacement d’exécution", pendingAssignment: "L’enregistrement créera une affectation de capacité de déploiement au niveau de l’actif applicatif." },
     links: {
       certificateBindings: 'View certificate bindings',
       executions: 'View execution records'
@@ -2563,7 +2568,7 @@ export default {
       artifactFormat: 'Select format config',
       output: 'Select output',
       optionalOutput: 'Facultatif',
-      updatePluginOptional: 'Facultatif ; conserver la configuration du workflow existante'
+      updatePluginOptional: 'Facultatif ; conserver le plugin actuellement actif'
     },
     validation: {
       variableNameRequired: 'Variable name is required',
@@ -2731,7 +2736,8 @@ export default {
       appliance: 'Appliance'
     },
     runners: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Control plane',
+      gateway: 'Gateway'
     },
     status: {
       archived: 'Archived',
@@ -3450,6 +3456,12 @@ export default {
       title: 'Workflows',
       resourceName: 'Workflow',
       description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
+      pluginSources: {
+        createTitle: 'Créer depuis un plugin', applyTitle: 'Créer un brouillon depuis un plugin', description: 'Seuls les workflows de déploiement ou de restauration de certificats des plugins activés sont proposés.',
+        createAction: 'Créer le workflow', applyAction: 'Créer le brouillon', currentTarget: 'Workflow actuel : {name}', namePlaceholder: 'Nom du workflow', loading: 'Chargement des sources plugin...', empty: 'Aucune source plugin disponible.', version: 'Version du plugin', provenance: 'Origine plugin',
+        capabilities: { deploy: 'Déploiement du certificat', rollback: 'Restauration du certificat' }, errors: { loadFailed: 'Échec du chargement des sources plugin', nameRequired: 'Saisissez un nom de workflow', missingApplyTarget: 'Le workflow cible est absent', actionFailed: 'Échec de la copie du workflow plugin' }
+      },
+      origins: { legacy: 'Workflow historique', user: 'Workflow utilisateur', plugin_internal: 'Workflow interne du plugin', plugin_derived: 'Workflow dérivé du plugin' },
       actions: {
         addVersion: 'Add version',
         applyTemplate: 'Apply template',
@@ -3482,6 +3494,7 @@ export default {
         currentVersionId: 'Current version ID',
         id: 'Workflow ID',
         name: 'Workflow name',
+        origin: 'Origine',
         note: 'Note',
         status: 'Status',
         updatedAt: 'Updated at'
@@ -3520,6 +3533,8 @@ export default {
         titleWithName: 'Version management: {name}'
       },
       changeSummaries: {
+        createFromPlugin: 'Créer un workflow depuis une capacité plugin',
+        applyFromPlugin: 'Créer un brouillon depuis une capacité plugin',
         applyFromFileTemplate: 'Apply file template to workflow draft',
         createCanvasDraft: 'Create workflow draft from frontend canvas',
         createFromFileTemplate: 'Create workflow draft from file template',

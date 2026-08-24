@@ -2451,6 +2451,11 @@ export default {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
     resourceName: 'Application asset',
+    executionModes: {
+      label: 'Execution mode',
+      plugin: { title: 'Plugin execution', description: 'Use the certificate deployment capability enabled for the managed target.' },
+      workflowOverride: { title: 'Workflow override', description: 'Bypass plugin execution and use a user-owned workflow.', notice: 'Workflow override disables this asset plugin assignment and keeps only the workflow execution binding.' }
+    },
     actions: {
       add: 'Add asset',
       edit: 'Edit',
@@ -2515,7 +2520,7 @@ export default {
       artifactFormat: 'Artifact format',
       updatePlugin: 'Certificate update plugin'
     },
-    capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location' },
+    capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location', pendingAssignment: 'Saving will create an application-asset deployment capability assignment.' },
     links: {
       certificateBindings: 'View certificate bindings',
       executions: 'View execution records'
@@ -2596,7 +2601,7 @@ export default {
       artifactFormat: 'Select format config',
       output: 'Select output',
       optionalOutput: 'Optional',
-      updatePluginOptional: 'Optional; keep the existing workflow configuration'
+      updatePluginOptional: 'Optional; keep the currently effective plugin'
     },
     validation: {
       variableNameRequired: 'Variable name is required',
@@ -2764,7 +2769,8 @@ export default {
       appliance: 'Appliance'
     },
     runners: {
-      controlPlane: 'Control plane'
+      controlPlane: 'Control plane',
+      gateway: 'Gateway'
     },
     status: {
       archived: 'Archived',
@@ -3483,6 +3489,12 @@ export default {
       title: 'Workflows',
       resourceName: 'Workflow',
       description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
+      pluginSources: {
+        createTitle: 'Create from plugin', applyTitle: 'Create draft from plugin', description: 'Only certificate deployment or rollback workflows from enabled plugins are listed. The copied workflow is user-owned and editable.',
+        createAction: 'Create workflow', applyAction: 'Create draft', currentTarget: 'Current workflow: {name}', namePlaceholder: 'Enter workflow name', loading: 'Loading plugin workflow sources...', empty: 'No plugin workflow source is available.', version: 'Plugin version', provenance: 'Plugin provenance',
+        capabilities: { deploy: 'Certificate deployment', rollback: 'Certificate rollback' }, errors: { loadFailed: 'Failed to load plugin workflow sources', nameRequired: 'Enter a workflow name', missingApplyTarget: 'The target workflow is missing', actionFailed: 'Failed to copy the plugin workflow' }
+      },
+      origins: { legacy: 'Legacy workflow', user: 'User workflow', plugin_internal: 'Plugin internal workflow', plugin_derived: 'Plugin-derived workflow' },
       actions: {
         addVersion: 'Add version',
         applyTemplate: 'Apply template',
@@ -3515,6 +3527,7 @@ export default {
         currentVersionId: 'Current version ID',
         id: 'Workflow ID',
         name: 'Workflow name',
+        origin: 'Origin',
         note: 'Note',
         status: 'Status',
         updatedAt: 'Updated at'
@@ -3553,6 +3566,8 @@ export default {
         titleWithName: 'Version management: {name}'
       },
       changeSummaries: {
+        createFromPlugin: 'Create workflow from plugin capability',
+        applyFromPlugin: 'Create draft from plugin capability',
         applyFromFileTemplate: 'Apply file template to workflow draft',
         createCanvasDraft: 'Create workflow draft from frontend canvas',
         createFromFileTemplate: 'Create workflow draft from file template',

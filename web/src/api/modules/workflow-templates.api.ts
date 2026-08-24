@@ -4,7 +4,6 @@ import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, ty
 const WORKFLOW_TEMPLATES_PATH = '/api/v1/workflow-templates'
 const WORKFLOW_CANVAS_COMPILE_PATH = '/api/v1/workflow-templates/canvas/compile'
 const WORKFLOW_CANVAS_VALIDATE_PATH = '/api/v1/workflow-templates/canvas/validate'
-const WORKFLOW_FILE_TEMPLATES_PATH = '/api/v1/workflow-file-templates'
 const WORKFLOW_TEMPLATE_VERSIONS_PATH = '/api/v1/workflow-template-versions'
 const WORKFLOW_TEMPLATE_DRAFT_PATH = '/api/v1/workflow-template-versions/draft'
 const WORKFLOW_TEMPLATE_NOTE_PATH = '/api/v1/workflow-template-versions/note'
@@ -15,10 +14,6 @@ const WORKFLOW_RUNS_PATH = '/api/v1/workflow-runs'
 
 export function listWorkflowTemplates(query?: BusinessListQuery) {
   return listRecords(WORKFLOWS_PATH, query)
-}
-
-export function createWorkflowTemplate(payload: ApiBody) {
-  return postAction(WORKFLOWS_PATH, payload, 'workflow_create')
 }
 
 export function renameWorkflowTemplate(templateId: string, name: string) {
@@ -37,17 +32,20 @@ export function deleteWorkflowTemplate(templateId: string, payload: ApiBody = {}
   return postAction(`${WORKFLOW_TEMPLATES_PATH}/delete`, { ...payload, id: templateId }, 'workflow_template_delete')
 }
 
-export function listWorkflowFileTemplates(enabledOnly = false) {
-  const query = enabledOnly ? '?enabledOnly=true' : ''
-  return apiClient.get<{ items?: readonly ApiRecord[] }>(`${toClientPath(WORKFLOW_FILE_TEMPLATES_PATH)}${query}`)
+export function listPluginWorkflowSources() {
+  return apiClient.get<{ items?: readonly ApiRecord[] }>(toClientPath('/api/v1/workflow-sources/plugins'))
 }
 
-export function createWorkflowTemplateFromFile(payload: ApiBody) {
-  return postAction(`${WORKFLOW_FILE_TEMPLATES_PATH}/create`, payload, 'workflow_template_file_create')
+export function getWorkflowExecutionBinding(bindingId: string) {
+  return apiClient.get<ApiRecord>(toClientPath(`/api/v1/workflow-execution-bindings/${encodeURIComponent(bindingId)}`))
 }
 
-export function applyWorkflowTemplateFromFile(payload: ApiBody) {
-  return postAction(`${WORKFLOW_FILE_TEMPLATES_PATH}/apply`, payload, 'workflow_template_file_apply')
+export function createWorkflowFromPlugin(payload: ApiBody) {
+  return postAction(`${WORKFLOWS_PATH}/from-plugin`, payload, 'workflow_create_from_plugin')
+}
+
+export function createWorkflowDraftFromPlugin(workflowId: string, payload: ApiBody) {
+  return postAction(`${WORKFLOWS_PATH}/${encodeURIComponent(workflowId)}/drafts/from-plugin`, payload, 'workflow_draft_from_plugin')
 }
 
 export function listWorkflowTemplateVersions(templateId: string) {

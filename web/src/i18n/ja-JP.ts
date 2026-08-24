@@ -2369,6 +2369,11 @@ export default {
     title: 'アプリケーションアセット',
     description: 'ドメイン名または IP を主な対象としてアプリケーションエントリを管理し、アドレス、ポート、プロトコル、サイト、実行先の特定に集中します。',
     resourceName: 'アプリケーションアセット',
+    executionModes: {
+      label: '実行モード',
+      plugin: { title: 'プラグイン実行', description: '管理対象で有効な証明書デプロイ機能を使用します。' },
+      workflowOverride: { title: 'ワークフロー上書き', description: 'プラグインを使わず、ユーザー所有のワークフローを実行します。', notice: 'このモードではアセットのプラグイン割り当てを無効化し、ワークフロー実行バインディングのみ保持します。' }
+    },
     actions: {
       add: 'アセットを追加',
       edit: '編集',
@@ -2434,7 +2439,7 @@ export default {
       artifactFormat: '成果物形式設定',
       updatePlugin: '証明書更新プラグイン'
     },
-    capability: { source: '機能の取得元', plugin: 'プラグインバージョン', runtime: 'ランタイム', executionLocation: '実行場所' },
+    capability: { source: '機能の取得元', plugin: 'プラグインバージョン', runtime: 'ランタイム', executionLocation: '実行場所', pendingAssignment: '保存すると、アプリケーション資産レベルのデプロイ機能割り当てが作成されます。' },
     links: {
       certificateBindings: '表示証明書バインド',
       executions: '表示実行記録'
@@ -2519,7 +2524,7 @@ export default {
       artifactFormat: '形式設定を選択してください',
       output: '出力項目を選択してください',
       optionalOutput: '選択しなくても構いません',
-      updatePluginOptional: '任意。既存のワークフロー設定を継続します'
+      updatePluginOptional: '任意。現在有効なプラグインを引き続き使用します'
     },
     validation: {
       variableNameRequired: '変数名前できませんとして空',
@@ -2687,7 +2692,8 @@ export default {
       appliance: 'デバイス'
     },
     runners: {
-      controlPlane: 'プラットフォーム'
+      controlPlane: 'プラットフォーム',
+      gateway: 'ゲートウェイ'
     },
     status: {
       archived: '归档済み',
@@ -3406,6 +3412,12 @@ export default {
       title: 'ワークフロー',
       resourceName: 'ワークフロー',
       description: 'によりキャンバスドラフト管理 CURL/SSH/SFTP ワークフローバージョン、公開ステータスと変更記録。',
+      pluginSources: {
+        createTitle: 'プラグインから作成', applyTitle: 'プラグインからドラフト作成', description: '有効なプラグインの証明書デプロイまたはロールバックワークフローのみ表示します。',
+        createAction: 'ワークフローを作成', applyAction: 'ドラフトを作成', currentTarget: '現在のワークフロー：{name}', namePlaceholder: 'ワークフロー名を入力', loading: 'プラグインソースを読み込み中...', empty: '利用可能なプラグインソースがありません。', version: 'プラグインバージョン', provenance: 'プラグイン由来',
+        capabilities: { deploy: '証明書デプロイ', rollback: '証明書ロールバック' }, errors: { loadFailed: 'プラグインソースの読み込みに失敗しました', nameRequired: 'ワークフロー名を入力してください', missingApplyTarget: '対象ワークフローがありません', actionFailed: 'プラグインワークフローのコピーに失敗しました' }
+      },
+      origins: { legacy: '旧ワークフロー', user: 'ユーザーワークフロー', plugin_internal: 'プラグイン内部ワークフロー', plugin_derived: 'プラグイン派生ワークフロー' },
       actions: {
         addVersion: '追加バージョン',
         applyTemplate: '適用テンプレート',
@@ -3438,6 +3450,7 @@ export default {
         currentVersionId: '現在バージョン ID',
         id: 'ワークフロー ID',
         name: 'ワークフロー名前',
+        origin: '由来',
         note: 'メモ',
         status: 'ステータス',
         updatedAt: '更新時刻'
@@ -3476,6 +3489,8 @@ export default {
         titleWithName: 'バージョン管理：{name}'
       },
       changeSummaries: {
+        createFromPlugin: 'プラグイン機能からワークフローを作成',
+        applyFromPlugin: 'プラグイン機能からドラフトを作成',
         applyFromFileTemplate: 'からファイルテンプレート上書きワークフロードラフト',
         createCanvasDraft: 'フロントエンドキャンバス作成ワークフロードラフト',
         createFromFileTemplate: 'からファイルテンプレート作成ワークフロードラフト',

@@ -3,16 +3,18 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAgents, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, projectWorkflowBinding, saveApplicationAssetManagedTarget, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAgents, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, projectWorkflowBinding, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
-import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
+import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
-import { assignPluginCapability, createPluginBinding, getPluginBinding, getUnifiedPluginUiResources, listPluginCatalog, updatePluginBinding } from '@/api/modules/plugins.api'
+import { getPluginBinding, getUnifiedPluginUiResources } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcManagedTargetSelector, GcModal, GcPluginForm, GcStatusTag, GcTabs, type PluginFormSchema } from '@/design-system/components'
+import { GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcPluginForm, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type PluginFormSchema } from '@/design-system/components'
+import { useAuthStore } from '@/stores/auth.store'
+import { useTenantStore } from '@/stores/tenant.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -29,6 +31,7 @@ type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
 type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM' | 'DEVICE_TEMPLATE'
 type AssetManagementMode = 'MANAGED_TARGET' | 'WORKFLOW'
+type ManagedExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
@@ -36,6 +39,7 @@ type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' 
 
 interface AssetDraft {
   managementMode: AssetManagementMode
+  managedExecutionMode: ManagedExecutionMode
   deviceId: string
   frameworkInstanceId: string
   address: string
@@ -51,7 +55,9 @@ interface AssetDraft {
   environment: string
   tagsText: string
   workflowId: string
-  workflowPluginVersionId: string
+  pluginOverrideVersionId: string
+  workflowExecutionBindingId: string
+  workflowExecutionBindingVersion: number
   workflowVersionSelection: WorkflowVersionSelection
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
@@ -123,6 +129,8 @@ interface WorkflowTargetInfo {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, locale } = useI18n()
+const authStore = useAuthStore()
+const tenantStore = useTenantStore()
 const selectedServiceAsset = ref<ViewRow | null>(null)
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
@@ -181,7 +189,6 @@ const gatewayListError = ref('')
 const credentialProfileError = ref('')
 const certificateFormatError = ref('')
 const workflowCertificateArtifactBindings = ref<Record<string, WorkflowCertificateArtifactBinding>>({})
-const unifiedDeploymentPlugins = ref<ApiRecord[]>([])
 const pluginFormSchema = ref<PluginFormSchema | null>(null)
 const pluginFormMessages = ref<Record<string, string>>({})
 const pluginFormValues = ref<Record<string, unknown>>({})
@@ -191,6 +198,7 @@ const pluginBindingSecrets = ref<Record<string, string>>({})
 const pluginFormLoading = ref(false)
 const pluginFormError = ref('')
 const effectiveCapability = ref<ApiRecord | null>(null)
+const inheritedEffectiveCapability = ref<ApiRecord | null>(null)
 const effectiveCapabilityLoading = ref(false)
 const compatibleManagedPlugins = ref<ApiRecord[]>([])
 const compatibleManagedPluginsLoading = ref(false)
@@ -222,6 +230,7 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
 
 const assetDraft = reactive<AssetDraft>({
   managementMode: 'MANAGED_TARGET',
+  managedExecutionMode: 'PLUGIN',
   deviceId: '',
   frameworkInstanceId: '',
   address: '',
@@ -237,7 +246,9 @@ const assetDraft = reactive<AssetDraft>({
   environment: '',
   tagsText: '',
   workflowId: '',
-  workflowPluginVersionId: '',
+  pluginOverrideVersionId: '',
+  workflowExecutionBindingId: '',
+  workflowExecutionBindingVersion: 0,
   workflowVersionSelection: 'PINNED',
   workflowVersionId: '',
   workflowRunner: 'CONTROL_PLANE',
@@ -446,20 +457,65 @@ const selectedGateway = computed(() =>
   gatewayItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowGatewayId) ?? null,
 )
 
+const workflowExecutionEnabled = computed(() =>
+  assetDraft.managementMode === 'WORKFLOW' || assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE',
+)
+
+const effectiveCapabilityOwnerType = computed(() =>
+  String(readNested(effectiveCapability.value, ['source', 'ownerType']) ?? ''),
+)
+
+const pluginFallbackCapability = computed(() => {
+  if (assetDraft.pluginOverrideVersionId.trim()) return null
+  if (effectiveCapabilityOwnerType.value === 'APPLICATION_ASSET') return inheritedEffectiveCapability.value
+  return effectiveCapability.value ?? inheritedEffectiveCapability.value
+})
+
+const pendingPluginCapability = computed<ApiRecord | null>(() => {
+  const pluginVersionId = assetDraft.pluginOverrideVersionId.trim()
+  if (!pluginVersionId) return null
+  const plugin = compatibleManagedPlugins.value.find(
+    (item) => String(item.pluginVersionId ?? '') === pluginVersionId,
+  )
+  if (!plugin) return null
+  const executionLocations = Array.isArray(plugin.executionLocations)
+    ? plugin.executionLocations.map((item) => String(item)).filter(Boolean)
+    : []
+  return {
+    capabilityKey: 'certificate.deploy',
+    source: {
+      ownerType: 'APPLICATION_ASSET',
+      precedence: 'ASSET_OVERRIDE',
+    },
+    plugin: {
+      pluginVersionId,
+      pluginId: String(plugin.pluginId ?? ''),
+      version: String(plugin.version ?? ''),
+      runtime: String(plugin.runtime ?? ''),
+    },
+    executionLocation: executionLocations[0] ?? '',
+  }
+})
+
+const managedExecutionModeOptions = computed(() => [
+  {
+    value: 'PLUGIN',
+    label: t('assets.executionModes.plugin.title'),
+    description: t('assets.executionModes.plugin.description'),
+    tone: 'info' as const,
+  },
+  {
+    value: 'WORKFLOW_OVERRIDE',
+    label: t('assets.executionModes.workflowOverride.title'),
+    description: t('assets.executionModes.workflowOverride.description'),
+    tone: 'warning' as const,
+  },
+])
+
 const agentCertificateFormatOptions = computed(() => {
-  const platform = assetDraft.platform.toLowerCase()
-  const framework = assetDraft.frameworkType.toLowerCase()
-  const matched = certificateFormatItems.value.filter((item) => {
-    const parameters = readRecord(item.parameters) ?? {}
-    const systemPlatform = String(parameters.systemPlatform ?? '').toLowerCase()
-    const runtimePlatform = String(parameters.runtimePlatform ?? '').toLowerCase()
-    return (!systemPlatform || systemPlatform === platform)
-      && (!runtimePlatform || runtimePlatform === framework || runtimePlatform === 'other')
-  })
-  const base = matched.length > 0 ? matched : certificateFormatItems.value
   const selectedId = assetDraft.agentCertificateFormatId.trim()
-  if (!selectedId || base.some((item) => String(item.id ?? '') === selectedId)) return base
-  return [{ id: selectedId, format: 'unknown', parameters: { configName: t('assets.certificateFormats.savedConfigMissingWithId', { id: selectedId }) } }, ...base]
+  if (!selectedId || certificateFormatItems.value.some((item) => String(item.id ?? '') === selectedId)) return certificateFormatItems.value
+  return [{ id: selectedId, format: 'unknown', parameters: { configName: t('assets.certificateFormats.savedConfigMissingWithId', { id: selectedId }) } }, ...certificateFormatItems.value]
 })
 
 const selectedWorkflowVariableDefinitions = computed(() =>
@@ -530,7 +586,7 @@ const effectiveVerifyUrl = computed(() => {
 })
 
 const workflowTargetPreview = computed(() =>
-  assetDraft.managementMode === 'WORKFLOW' ? buildWorkflowTargetInfo() : null,
+  workflowExecutionEnabled.value ? buildWorkflowTargetInfo() : null,
 )
 
 const commonStepReady = computed(() => {
@@ -545,15 +601,18 @@ const commonStepReady = computed(() => {
 
 const agentStepReady = computed(() => {
   if (assetDraft.managementMode !== 'MANAGED_TARGET') return true
+  const pluginExecutionReady = assetDraft.managedExecutionMode !== 'PLUGIN'
+    || Boolean(assetDraft.pluginOverrideVersionId.trim() || pluginFallbackCapability.value)
   return Boolean(
     assetDraft.siteAssetId.trim()
     && assetDraft.agentCertificateFormatId.trim()
-    && assetDraft.managedTargetId.trim(),
+    && assetDraft.managedTargetId.trim()
+    && pluginExecutionReady,
   )
 })
 
 const workflowStepReady = computed(() => {
-  if (assetDraft.managementMode !== 'WORKFLOW') return true
+  if (!workflowExecutionEnabled.value) return true
   const selectedVersionIsPublished = assetDraft.workflowVersionId
     && workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
   const versionSelectionReady = assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
@@ -570,7 +629,9 @@ const workflowStepReady = computed(() => {
 })
 
 const modeStepReady = computed(() =>
-  assetDraft.managementMode === 'WORKFLOW' ? workflowStepReady.value : agentStepReady.value,
+  assetDraft.managementMode === 'WORKFLOW'
+    ? workflowStepReady.value
+    : agentStepReady.value && workflowStepReady.value,
 )
 
 const currentAvailableStep = computed<AssetWizardStep>(() => {
@@ -618,7 +679,7 @@ async function openCreateDialog() {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -650,6 +711,12 @@ async function openEditDialog(row: ViewRow) {
   const deploymentStrategy = readDeploymentStrategy(source)
   const managedTargetStrategy = readRecord(readNested(deploymentStrategy, ['managedTarget']))
   assetDraft.managementMode = resolveDeploymentStrategyMode(deploymentStrategy)
+  assetDraft.managedExecutionMode = String(managedTargetStrategy?.executionMode ?? 'PLUGIN') as ManagedExecutionMode
+  const workflowExecutionBindingId = String(
+    readNested(deploymentStrategy, ['workflow', 'workflowExecutionBindingId'])
+      ?? readNested(managedTargetStrategy, ['workflowExecutionBindingId'])
+      ?? '',
+  )
   if (assetDraft.managementMode === 'WORKFLOW') {
     const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'parameterBindings']))
       ?? readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings']))
@@ -694,12 +761,11 @@ async function openEditDialog(row: ViewRow) {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   if (assetDraft.managementMode === 'MANAGED_TARGET' && assetDraft.managedTargetId) {
     await loadManagedTargetPluginResolution(assetDraft.managedTargetId)
-  } else if (pluginBindingId.value) {
-    await loadExistingPluginBinding(pluginBindingId.value)
   }
+  if (workflowExecutionBindingId) await loadExistingWorkflowExecutionBinding(workflowExecutionBindingId)
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   if (selectedWorkflowVersion.value) syncWorkflowVariableRowsFromVersion()
 }
@@ -762,21 +828,6 @@ async function loadWorkflowVersions(workflowId: string) {
   }
 }
 
-async function loadUnifiedDeploymentPlugins() {
-  try {
-    const result = await listPluginCatalog({ page: 1, pageSize: 500 })
-    unifiedDeploymentPlugins.value = (result.data?.items ?? []).filter((item) =>
-      item.catalogType === 'UNIFIED_PLUGIN'
-      && String(item.runtime ?? '') === 'WORKFLOW_DSL'
-      && String(item.status ?? '').toUpperCase() === 'ENABLED'
-      && Array.isArray(item.capabilities)
-      && item.capabilities.some((capability) => readNested(capability, ['key']) === 'certificate.deploy'),
-    )
-  } catch {
-    unifiedDeploymentPlugins.value = []
-  }
-}
-
 async function loadPluginForm(pluginVersionId: string) {
   pluginFormSchema.value = null
   pluginFormMessages.value = {}
@@ -799,11 +850,26 @@ async function loadPluginForm(pluginVersionId: string) {
 async function loadExistingPluginBinding(bindingId: string) {
   const result = await getPluginBinding(bindingId)
   const binding = readRecord(result.data) ?? {}
-  assetDraft.workflowPluginVersionId = String(binding.pluginVersionId ?? '')
+  assetDraft.pluginOverrideVersionId = String(binding.pluginVersionId ?? '')
   pluginBindingVersion.value = Number(binding.version ?? 0)
   pluginBindingSecrets.value = (readRecord(binding.secretBindings) ?? {}) as Record<string, string>
   pluginFormValues.value = { ...(readRecord(binding.variableBindings) ?? {}) }
-  await loadPluginForm(assetDraft.workflowPluginVersionId)
+  await loadPluginForm(assetDraft.pluginOverrideVersionId)
+}
+
+async function loadExistingWorkflowExecutionBinding(bindingId: string) {
+  const result = await getWorkflowExecutionBinding(bindingId)
+  const binding = readRecord(result.data) ?? {}
+  assetDraft.workflowExecutionBindingId = String(binding.id ?? bindingId)
+  assetDraft.workflowExecutionBindingVersion = Number(binding.version ?? 0)
+  assetDraft.workflowId = String(binding.workflowTemplateId ?? '')
+  assetDraft.workflowVersionSelection = String(binding.workflowVersionSelection ?? 'PINNED') as WorkflowVersionSelection
+  assetDraft.workflowVersionId = String(binding.workflowVersionId ?? '')
+  assetDraft.workflowRunner = String(binding.runner ?? 'CONTROL_PLANE') as WorkflowRunnerType
+  assetDraft.workflowGatewayId = String(binding.gatewayId ?? '')
+  workflowConnectionBindings.value = (readRecord(binding.connectionBindings) ?? {}) as Record<string, Record<string, unknown>>
+  workflowVariableRows.value = variableRowsFromBindings(readRecord(binding.variableBindings) ?? {})
+  workflowCertificateArtifactBindings.value = (readRecord(binding.certificateArtifactBindings) ?? {}) as Record<string, WorkflowCertificateArtifactBinding>
 }
 
 async function loadDevices() {
@@ -846,7 +912,7 @@ async function refreshWorkflowBindingProjection() {
   workflowBindingProjection.value = null
   workflowProjectionError.value = ''
   const version = selectedWorkflowVersion.value
-  if (assetDraft.managementMode !== 'WORKFLOW' || !assetDraft.workflowId || !version) {
+  if (!workflowExecutionEnabled.value || !assetDraft.workflowId || !version) {
     workflowProjectionLoading.value = false
     return
   }
@@ -924,8 +990,9 @@ async function loadCertificateFormatsForWorkflow() {
   certificateFormatLoading.value = true
   certificateFormatError.value = ''
   try {
-    const result = await listCertificateFormats({ page: 1, pageSize: 200, sort: 'createdAt:desc' })
-    certificateFormatItems.value = [...(result.data?.items ?? [])]
+    certificateFormatItems.value = await fetchAllRecords((page, pageSize) =>
+      listCertificateFormats({ page, pageSize, sort: 'createdAt:desc' }),
+    )
     ensureWorkflowCertificateArtifactBindings()
   } catch (cause) {
     certificateFormatItems.value = []
@@ -1061,24 +1128,35 @@ async function loadManagedTargets(siteAssetId: string) {
 async function loadManagedTargetPluginResolution(managedTargetId: string): Promise<void> {
   const sequence = ++managedCapabilityRequestSequence
   effectiveCapability.value = null
+  inheritedEffectiveCapability.value = null
   compatibleManagedPlugins.value = []
   if (!managedTargetId) return
   effectiveCapabilityLoading.value = true
   compatibleManagedPluginsLoading.value = true
   const applicationAssetId = editingServiceAssetId.value || undefined
-  const [effectiveResult, compatibleResult] = await Promise.allSettled([
+  const inheritedCapabilityRequest = applicationAssetId
+    ? getManagedTargetEffectiveCapability(managedTargetId, 'certificate.deploy')
+    : Promise.resolve(null)
+  const [effectiveResult, compatibleResult, inheritedResult] = await Promise.allSettled([
     getManagedTargetEffectiveCapability(managedTargetId, 'certificate.deploy', applicationAssetId),
     listManagedTargetCompatiblePlugins(managedTargetId, 'certificate.deploy', applicationAssetId, locale.value),
+    inheritedCapabilityRequest,
   ])
   if (sequence !== managedCapabilityRequestSequence) return
   if (effectiveResult.status === 'fulfilled') {
     effectiveCapability.value = readRecord(effectiveResult.value.data) ?? null
     const plugin = readRecord(effectiveCapability.value?.plugin)
     const binding = readRecord(effectiveCapability.value?.binding)
-    assetDraft.workflowPluginVersionId = String(plugin?.pluginVersionId ?? '')
-    pluginBindingId.value = String(binding?.pluginBindingId ?? '')
-    pluginBindingVersion.value = Number(binding?.version ?? 0)
-    if (pluginBindingId.value) await loadExistingPluginBinding(pluginBindingId.value)
+    const source = readRecord(effectiveCapability.value?.source)
+    if (assetDraft.managedExecutionMode === 'PLUGIN' && source?.ownerType === 'APPLICATION_ASSET') {
+      assetDraft.pluginOverrideVersionId = String(plugin?.pluginVersionId ?? '')
+      pluginBindingId.value = String(binding?.pluginBindingId ?? '')
+      pluginBindingVersion.value = Number(binding?.version ?? 0)
+      if (pluginBindingId.value) await loadExistingPluginBinding(pluginBindingId.value)
+    }
+  }
+  if (inheritedResult.status === 'fulfilled' && inheritedResult.value) {
+    inheritedEffectiveCapability.value = readRecord(inheritedResult.value.data) ?? null
   }
   if (compatibleResult.status === 'fulfilled') {
     const response = readRecord(compatibleResult.value.data) ?? {}
@@ -1103,45 +1181,28 @@ async function submitCreate() {
   createRequestId.value = ''
   try {
     syncWorkflowTargetVariableRowsFromDraft()
-    const workflowTarget = assetDraft.managementMode === 'WORKFLOW' ? buildWorkflowTargetInfo() : null
+    const workflowTarget = workflowExecutionEnabled.value ? buildWorkflowTargetInfo() : null
     const basePayload = {
       address: assetDraft.address.trim(),
       displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
       port: Number(assetDraft.port),
       protocol: assetDraft.protocol,
       platform: assetDraft.platform,
-      verifyUrl: (workflowTarget?.verifyUrl ?? assetDraft.verifyUrl.trim()) || undefined,
+      verifyUrl: workflowTarget?.verifyUrl ?? assetDraft.verifyUrl.trim(),
       sniName: workflowTarget?.sniName ?? undefined,
-      environment: assetDraft.environment.trim() || undefined,
+      environment: assetDraft.environment.trim(),
       tags: splitCsv(assetDraft.tagsText),
-      deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget ?? undefined),
     }
     if (isEditMode.value) {
       const result = await updateServiceAsset(editingServiceAssetId.value, {
         ...basePayload,
         ...(workflowTarget ? { metadata: { ...(readRecord(readNested(editAssetDetail.value, ['metadata'])) ?? {}), workflowTarget } } : {}),
       })
-      if (assetDraft.managementMode === 'WORKFLOW' && assetDraft.workflowPluginVersionId) {
-        await persistWorkflowPluginBinding(editingServiceAssetId.value, workflowTarget ?? undefined)
-      }
       if (assetDraft.managementMode === 'MANAGED_TARGET') await saveManagedTargetConfiguration(editingServiceAssetId.value)
+      else await saveStandaloneWorkflowConfiguration(editingServiceAssetId.value)
       createRequestId.value = result.requestId
       createDialogOpen.value = false
       editingServiceAssetId.value = ''
-      await pageRef.value?.reload()
-      return
-    }
-    if (assetDraft.managementMode === 'WORKFLOW') {
-      const result = await createServiceAsset({
-        ...basePayload,
-        discoverySource: 'MANUAL',
-        status: 'ACTIVE',
-        metadata: workflowTarget ? { workflowTarget } : {},
-      })
-      const createdAssetId = String(result.data?.id ?? '')
-      if (createdAssetId && assetDraft.workflowPluginVersionId) await persistWorkflowPluginBinding(createdAssetId, workflowTarget ?? undefined)
-      createRequestId.value = result.requestId
-      createDialogOpen.value = false
       await pageRef.value?.reload()
       return
     }
@@ -1149,10 +1210,14 @@ async function submitCreate() {
       ...basePayload,
       discoverySource: 'MANUAL',
       status: 'ACTIVE',
-      metadata: {},
+      metadata: workflowTarget ? { workflowTarget } : {},
+      deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget ?? undefined),
     })
     const createdAssetId = String(result.data?.id ?? '')
-    if (createdAssetId) await saveManagedTargetConfiguration(createdAssetId)
+    if (createdAssetId) {
+      if (assetDraft.managementMode === 'MANAGED_TARGET') await saveManagedTargetConfiguration(createdAssetId)
+      else await saveStandaloneWorkflowConfiguration(createdAssetId)
+    }
     createRequestId.value = result.requestId
     createDialogOpen.value = false
     await pageRef.value?.reload()
@@ -1167,35 +1232,6 @@ async function submitCreate() {
   }
 }
 
-async function persistWorkflowPluginBinding(applicationAssetId: string, workflowTarget?: WorkflowTargetInfo): Promise<void> {
-  const secretKeys = new Set((pluginFormSchema.value?.sections ?? []).flatMap((section) =>
-    section.fields.filter((field) => field.type === 'secret_ref').map((field) => field.key)))
-  const variableBindings = Object.fromEntries(Object.entries(pluginFormValues.value).filter(([key]) => !secretKeys.has(key)))
-  const enteredSecrets = Object.fromEntries(Object.entries(pluginFormValues.value)
-    .filter(([key, value]) => secretKeys.has(key) && typeof value === 'string' && value.trim())
-    .map(([key, value]) => [key, String(value)]))
-  const bindingPayload = {
-    variableBindings,
-    secretBindings: { ...pluginBindingSecrets.value, ...enteredSecrets },
-    certificateArtifactBindings: buildWorkflowCertificateArtifactBindings() ?? {},
-    connectionBindings: workflowConnectionBindings.value,
-  }
-  if (pluginBindingId.value) {
-    const updated = await updatePluginBinding({ bindingId: pluginBindingId.value, expectedVersion: pluginBindingVersion.value, ...bindingPayload })
-    pluginBindingVersion.value = Number(updated.data?.version ?? pluginBindingVersion.value + 1)
-  } else {
-    const created = await createPluginBinding({ pluginVersionId: assetDraft.workflowPluginVersionId, mode: 'STANDALONE', ...bindingPayload })
-    pluginBindingId.value = String(created.data?.id ?? '')
-    pluginBindingVersion.value = Number(created.data?.version ?? 1)
-  }
-  if (!pluginBindingId.value) throw new Error(t('assets.errors.pluginBindingCreateFailed'))
-  await updateServiceAsset(applicationAssetId, { deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget) })
-  await assignPluginCapability({
-    ownerType: 'APPLICATION_ASSET', ownerId: applicationAssetId, capabilityKey: 'certificate.deploy',
-    pluginVersionId: assetDraft.workflowPluginVersionId, pluginBindingId: pluginBindingId.value, precedence: 'ASSET_OVERRIDE',
-  })
-}
-
 async function saveManagedTargetConfiguration(applicationAssetId: string): Promise<void> {
   const secretKeys = new Set((pluginFormSchema.value?.sections ?? []).flatMap((section) =>
     section.fields.filter((field) => field.type === 'secret_ref').map((field) => field.key)))
@@ -1205,10 +1241,15 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
     .map(([key, value]) => [key, String(value)]))
   await saveApplicationAssetManagedTarget(applicationAssetId, {
     managedTargetId: assetDraft.managedTargetId,
+    certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
+    executionMode: assetDraft.managedExecutionMode,
     capabilityKey: 'certificate.deploy',
-    ...(assetDraft.workflowPluginVersionId ? {
+    ...(assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
+      ? { workflowExecution: buildWorkflowExecutionInput() }
+      : {}),
+    ...(assetDraft.managedExecutionMode === 'PLUGIN' && assetDraft.pluginOverrideVersionId ? {
       pluginOverride: {
-        pluginVersionId: assetDraft.workflowPluginVersionId,
+        pluginVersionId: assetDraft.pluginOverrideVersionId,
         pluginBindingId: pluginBindingId.value || undefined,
         expectedBindingVersion: pluginBindingId.value ? pluginBindingVersion.value : undefined,
         variableBindings,
@@ -1220,11 +1261,37 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
   })
 }
 
+async function saveStandaloneWorkflowConfiguration(applicationAssetId: string): Promise<void> {
+  await saveApplicationAssetStandaloneWorkflow(applicationAssetId, {
+    workflowExecution: buildWorkflowExecutionInput(),
+  })
+}
+
+function buildWorkflowExecutionInput(): Record<string, unknown> {
+  return {
+    tenantId: authStore.user?.tenantId ?? tenantStore.currentTenantId,
+    workflowTemplateId: assetDraft.workflowId.trim(),
+    workflowVersionSelection: assetDraft.workflowVersionSelection,
+    ...(assetDraft.workflowVersionSelection === 'PINNED' ? { workflowVersionId: assetDraft.workflowVersionId.trim() } : {}),
+    runner: assetDraft.workflowRunner,
+    ...(assetDraft.workflowRunner === 'GATEWAY' ? { gatewayId: assetDraft.workflowGatewayId.trim() } : {}),
+    connectionBindings: workflowConnectionBindings.value,
+    variableBindings: buildWorkflowVariableBindings() ?? {},
+    credentialBindings: {},
+    certificateArtifactBindings: buildWorkflowCertificateArtifactBindings() ?? {},
+    ...(assetDraft.workflowExecutionBindingId ? {
+      bindingId: assetDraft.workflowExecutionBindingId,
+      expectedVersion: assetDraft.workflowExecutionBindingVersion,
+    } : {}),
+  }
+}
+
 function resetDraft() {
   editingServiceAssetId.value = ''
   editAssetDetail.value = null
   assetWizardStep.value = 1
   assetDraft.managementMode = 'MANAGED_TARGET'
+  assetDraft.managedExecutionMode = 'PLUGIN'
   assetDraft.deviceId = ''
   assetDraft.frameworkInstanceId = ''
   assetDraft.address = ''
@@ -1240,7 +1307,9 @@ function resetDraft() {
   assetDraft.environment = ''
   assetDraft.tagsText = ''
   assetDraft.workflowId = ''
-  assetDraft.workflowPluginVersionId = ''
+  assetDraft.pluginOverrideVersionId = ''
+  assetDraft.workflowExecutionBindingId = ''
+  assetDraft.workflowExecutionBindingVersion = 0
   assetDraft.workflowVersionSelection = 'PINNED'
   assetDraft.workflowVersionId = ''
   assetDraft.workflowRunner = 'CONTROL_PLANE'
@@ -1259,6 +1328,9 @@ function resetDraft() {
   pluginBindingVersion.value = 0
   pluginBindingSecrets.value = {}
   pluginFormError.value = ''
+  effectiveCapability.value = null
+  inheritedEffectiveCapability.value = null
+  compatibleManagedPlugins.value = []
   workflowAdvancedExpanded.value = false
   workflowTargetAdvancedExpanded.value = false
   workflowVariablePresetName.value = ''
@@ -1290,9 +1362,37 @@ function goPreviousAssetStep() {
   else if (assetWizardStep.value === 2) assetWizardStep.value = 1
 }
 
-function goNextAssetStep() {
-  if (assetWizardStep.value === 1 && commonStepReady.value) assetWizardStep.value = 2
+async function goNextAssetStep() {
+  if (assetWizardStep.value === 1 && commonStepReady.value) {
+    await refreshManagedTargetSelection()
+    assetWizardStep.value = 2
+  }
   else if (assetWizardStep.value === 2 && modeStepReady.value) assetWizardStep.value = 3
+}
+
+async function refreshManagedTargetSelection() {
+  const previousFrameworkId = assetDraft.frameworkInstanceId
+  const previousSiteId = assetDraft.siteAssetId
+  const previousTargetId = assetDraft.managedTargetId
+  await loadServiceInstances(assetDraft.deviceId)
+  const matchingFramework = serviceInstanceItems.value.find((item) => String(item.id ?? '') === previousFrameworkId)
+    ?? serviceInstanceItems.value.find((item) => normalizeFrameworkType(String(item.frameworkType ?? '')) === normalizeFrameworkType(assetDraft.frameworkType))
+  assetDraft.frameworkInstanceId = String(matchingFramework?.id ?? '')
+  await refreshAssetTargets()
+  assetDraft.siteAssetId = siteItems.value.some((item) => String(item.id ?? '') === previousSiteId) ? previousSiteId : ''
+  await loadManagedTargets(assetDraft.siteAssetId)
+  assetDraft.managedTargetId = managedTargetItems.value.some((item) => String(item.id ?? '') === previousTargetId) ? previousTargetId : ''
+}
+
+function normalizeFrameworkType(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  const aliases: Record<string, string> = {
+    iis: 'web.iis',
+    nginx: 'web.nginx',
+    apache: 'web.apache',
+    tomcat: 'app.tomcat',
+  }
+  return aliases[normalized] ?? normalized
 }
 
 function assetWizardStepState(step: AssetWizardStep): 'done' | 'active' | 'pending' {
@@ -1371,7 +1471,7 @@ function buildWorkflowTargetInfo(): WorkflowTargetInfo {
 }
 
 function syncWorkflowTargetDraftFromRows(): void {
-  if (assetDraft.managementMode !== 'WORKFLOW') return
+  if (!workflowExecutionEnabled.value) return
   assetDraft.frameworkType = normalizeWorkflowTargetFramework(readWorkflowVariableText('frameworkType') || assetDraft.frameworkType)
   assetDraft.workflowTargetSiteName = readWorkflowVariableText('siteName') || assetDraft.workflowTargetSiteName || assetDraft.displayName.trim() || assetDraft.address.trim()
   assetDraft.workflowTargetBindingInformation = readWorkflowVariableText('bindingInformation') || assetDraft.workflowTargetBindingInformation
@@ -1385,7 +1485,7 @@ function syncWorkflowTargetDraftFromRows(): void {
 }
 
 function syncWorkflowTargetVariableRowsFromDraft(): void {
-  if (assetDraft.managementMode !== 'WORKFLOW') return
+  if (!workflowExecutionEnabled.value) return
   const target = buildWorkflowTargetInfo()
   const values: Record<string, string> = {
     frameworkType: target.frameworkType,
@@ -2061,12 +2161,12 @@ watch(
       await loadDevices()
       return
     }
-    await Promise.all([loadWorkflowTemplates(), loadUnifiedDeploymentPlugins(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   },
 )
 
 watch(
-  () => assetDraft.workflowPluginVersionId,
+  () => assetDraft.pluginOverrideVersionId,
   async (pluginVersionId, previousPluginVersionId) => {
     if (pluginVersionId !== previousPluginVersionId && !pluginBindingId.value) pluginFormValues.value = {}
     await loadPluginForm(pluginVersionId)
@@ -2079,7 +2179,7 @@ watch(
     if (previousWorkflowId && workflowId !== previousWorkflowId) {
       assetDraft.workflowVersionId = ''
     }
-    if (assetDraft.managementMode !== 'WORKFLOW') return
+    if (!workflowExecutionEnabled.value) return
     await loadWorkflowVersions(workflowId)
   },
 )
@@ -2087,7 +2187,7 @@ watch(
 watch(
   () => assetDraft.workflowVersionId,
   async () => {
-    if (assetDraft.managementMode !== 'WORKFLOW') return
+    if (!workflowExecutionEnabled.value) return
     syncWorkflowVariableRowsFromVersion()
     ensureWorkflowCertificateArtifactBindings()
     await refreshWorkflowBindingProjection()
@@ -2097,7 +2197,7 @@ watch(
 watch(
   () => assetDraft.workflowVersionSelection,
   async () => {
-    if (assetDraft.managementMode !== 'WORKFLOW') return
+    if (!workflowExecutionEnabled.value) return
     if (assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED') {
       assetDraft.workflowVersionId = ''
     } else if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
@@ -2112,7 +2212,7 @@ watch(
 watch(
   () => [assetDraft.address, assetDraft.port, assetDraft.protocol, assetDraft.verifyUrl, assetDraft.frameworkType] as const,
   async () => {
-    if (assetDraft.managementMode === 'WORKFLOW') await refreshWorkflowBindingProjection()
+    if (workflowExecutionEnabled.value) await refreshWorkflowBindingProjection()
   },
 )
 
@@ -2133,7 +2233,7 @@ watch(
     assetDraft.verifyUrl,
   ] as const,
   () => {
-    if (assetDraft.managementMode === 'WORKFLOW') syncWorkflowTargetVariableRowsFromDraft()
+    if (workflowExecutionEnabled.value) syncWorkflowTargetVariableRowsFromDraft()
   },
 )
 
@@ -2184,7 +2284,7 @@ watch(
   () => assetDraft.frameworkType,
   async () => {
     if (isEditMode.value) return
-    if (assetDraft.managementMode === 'WORKFLOW') {
+    if (workflowExecutionEnabled.value) {
       syncWorkflowTargetVariableRowsFromDraft()
       return
     }
@@ -2208,7 +2308,7 @@ watch(
   () => assetDraft.managedTargetId,
   async (managedTargetId) => {
     if (targetSelectionInitializing.value) return
-    assetDraft.workflowPluginVersionId = ''
+    assetDraft.pluginOverrideVersionId = ''
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
     pluginFormValues.value = {}
@@ -2216,10 +2316,48 @@ watch(
   },
 )
 
+watch(
+  () => assetDraft.managedExecutionMode,
+  async (mode) => {
+    if (assetDraft.managementMode !== 'MANAGED_TARGET') return
+    if (mode === 'PLUGIN') {
+      assetDraft.workflowExecutionBindingId = ''
+      assetDraft.workflowExecutionBindingVersion = 0
+      await loadManagedTargetPluginResolution(assetDraft.managedTargetId)
+      return
+    }
+    assetDraft.pluginOverrideVersionId = ''
+    pluginBindingId.value = ''
+    pluginBindingVersion.value = 0
+    pluginFormValues.value = {}
+    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  },
+)
+
 function deploymentStrategyCompatibilityLabel(value: unknown): string {
   if (value === 'UNIFIED') return t('assets.compatibilityModes.unified')
   if (value === 'LEGACY_ADAPTED') return t('assets.compatibilityModes.legacyAdapted')
   return t('assets.compatibilityModes.legacy')
+}
+
+async function fetchAllRecords(
+  loader: (page: number, pageSize: number) => Promise<ApiPageResult>,
+  pageSize = 200,
+): Promise<ApiRecord[]> {
+  const items: ApiRecord[] = []
+  let page = 1
+  let total = Number.POSITIVE_INFINITY
+
+  while (items.length < total) {
+    const result = await loader(page, pageSize)
+    const currentItems = result.data?.items ?? []
+    items.push(...currentItems)
+    total = Number(result.data?.total ?? items.length)
+    if (currentItems.length < pageSize) break
+    page += 1
+  }
+
+  return items
 }
 
 function deviceLabel(device: ApiRecord): string {
@@ -2591,26 +2729,36 @@ function managedTargetLabel(target: ApiRecord): string {
                 </select>
                 <small>{{ t('assets.form.agentCertificateFormatHint') }}</small>
               </label>
+            </div>
+            <GcExecutionModeSelector
+              v-model="assetDraft.managedExecutionMode"
+              :label="t('assets.executionModes.label')"
+              :options="managedExecutionModeOptions"
+            />
+            <template v-if="assetDraft.managedExecutionMode === 'PLUGIN'">
               <GcCompatiblePluginSelector
-                v-model="assetDraft.workflowPluginVersionId"
+                v-model="assetDraft.pluginOverrideVersionId"
                 :items="compatibleManagedPlugins"
                 :loading="compatibleManagedPluginsLoading"
+                :required="!pluginFallbackCapability"
                 :label="t('assets.fields.updatePlugin')"
-                :select-text="t('assets.select.updatePluginOptional')"
+                :select-text="pluginFallbackCapability ? t('assets.select.updatePluginOptional') : t('assets.select.generic')"
                 :loading-text="t('common.loading')"
                 :empty-text="t('assets.errors.noCompatibleManagedPlugin')"
               />
-            </div>
-            <GcEffectiveCapabilityCard
-              :capability="effectiveCapability"
-              :loading="effectiveCapabilityLoading"
-              :labels="{ loading: t('common.loading'), missing: t('assets.errors.capabilityAssignmentMissing'), source: t('assets.capability.source'), plugin: t('assets.capability.plugin'), runtime: t('assets.capability.runtime'), executionLocation: t('assets.capability.executionLocation') }"
-            />
-            <section v-if="assetDraft.workflowPluginVersionId" class="asset-form__field--wide">
-              <p v-if="pluginFormLoading" class="asset-form__hint">{{ t('plugins.forms.loading') }}</p>
-              <p v-else-if="pluginFormError" class="asset-form__error">{{ pluginFormError }}</p>
-              <GcPluginForm v-else-if="pluginFormSchema" v-model="pluginFormValues" :schema="pluginFormSchema" :plugin-messages="pluginFormMessages" />
-            </section>
+              <GcEffectiveCapabilityCard
+                :capability="effectiveCapability"
+                :pending-capability="pendingPluginCapability"
+                :loading="effectiveCapabilityLoading"
+                :labels="{ loading: t('common.loading'), missing: t('assets.errors.capabilityAssignmentMissing'), pending: t('assets.capability.pendingAssignment'), source: t('assets.capability.source'), plugin: t('assets.capability.plugin'), runtime: t('assets.capability.runtime'), executionLocation: t('assets.capability.executionLocation') }"
+              />
+              <section v-if="assetDraft.pluginOverrideVersionId" class="asset-form__field--wide">
+                <p v-if="pluginFormLoading" class="asset-form__hint">{{ t('plugins.forms.loading') }}</p>
+                <p v-else-if="pluginFormError" class="asset-form__error">{{ pluginFormError }}</p>
+                <GcPluginForm v-else-if="pluginFormSchema" v-model="pluginFormValues" :schema="pluginFormSchema" :plugin-messages="pluginFormMessages" />
+              </section>
+            </template>
+            <p v-else class="asset-form__hint">{{ t('assets.executionModes.workflowOverride.notice') }}</p>
             <div class="asset-form__binding-summary">
               <div>
                 <span>{{ t('assets.fields.bindingInformation') }}</span>
@@ -2627,73 +2775,27 @@ function managedTargetLabel(target: ApiRecord): string {
             </div>
           </template>
 
-          <template v-else>
+          <template v-if="workflowExecutionEnabled">
             <div class="asset-form__grid">
-              <label class="asset-form__field asset-form__field--wide">
-                <span>{{ t('assets.fields.updatePlugin') }}</span>
-                <select v-model="assetDraft.workflowPluginVersionId">
-                  <option value="">{{ t('assets.select.updatePluginOptional') }}</option>
-                  <option v-for="plugin in unifiedDeploymentPlugins" :key="String(plugin.id)" :value="String(plugin.id)">
-                    {{ String(plugin.name ?? plugin.pluginId ?? plugin.id ?? '') }} · {{ String(plugin.version ?? '') }}
-                  </option>
-                </select>
-              </label>
-              <section v-if="assetDraft.workflowPluginVersionId" class="asset-form__field--wide">
-                <p v-if="pluginFormLoading" class="asset-form__hint">{{ t('plugins.forms.loading') }}</p>
-                <p v-else-if="pluginFormError" class="asset-form__error">{{ pluginFormError }}</p>
-                <GcPluginForm
-                  v-else-if="pluginFormSchema"
-                  v-model="pluginFormValues"
-                  :schema="pluginFormSchema"
-                  :plugin-messages="pluginFormMessages"
-                />
-              </section>
-              <label class="asset-form__field">
-                <span>{{ t('assets.fields.selectWorkflow') }} <strong>*</strong></span>
-                <select v-model="assetDraft.workflowId" :disabled="workflowListLoading">
-                  <option value="">{{ workflowListLoading ? t('assets.loading.workflows') : t('assets.select.workflow') }}</option>
-                  <option v-for="workflow in workflowItems" :key="String(workflow.id)" :value="String(workflow.id)">
-                    {{ workflowTemplateLabel(workflow) }}
-                  </option>
-                </select>
-              </label>
-              <label class="asset-form__field">
-                <span>{{ t('assets.fields.workflowVersionSelection') }} <strong>*</strong></span>
-                <select v-model="assetDraft.workflowVersionSelection" :disabled="!assetDraft.workflowId">
-                  <option value="PINNED">{{ t('assets.workflowVersionSelection.pinned') }}</option>
-                  <option value="LATEST_PUBLISHED">{{ t('assets.workflowVersionSelection.latestPublished') }}</option>
-                </select>
-              </label>
-              <label class="asset-form__field">
-                <span>{{ t('assets.fields.publishedVersion') }} <strong>*</strong></span>
-                <select v-model="assetDraft.workflowVersionId" :disabled="workflowVersionListLoading || !assetDraft.workflowId || assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'">
-                  <option value="">{{ workflowVersionListLoading ? t('assets.loading.versions') : assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED' && selectedWorkflowVersion ? workflowVersionLabel(selectedWorkflowVersion) : t('assets.select.publishedVersion') }}</option>
-                  <option
-                    v-for="version in workflowVersionItems"
-                    :key="String(version.id)"
-                    :value="String(version.id)"
-                    :disabled="workflowVersionStatus(version) !== 'published'"
-                  >
-                    {{ workflowVersionLabel(version) }}
-                  </option>
-                </select>
-              </label>
-              <label class="asset-form__field">
-                <span>{{ t('assets.fields.runner') }} <strong>*</strong></span>
-                <select v-model="assetDraft.workflowRunner">
-                  <option value="CONTROL_PLANE">{{ t('assets.runners.controlPlane') }}</option>
-                  <option value="GATEWAY">Gateway</option>
-                </select>
-              </label>
-              <label v-if="assetDraft.workflowRunner === 'GATEWAY'" class="asset-form__field">
-                <span>Gateway <strong>*</strong></span>
-                <select v-model="assetDraft.workflowGatewayId" :disabled="gatewayListLoading">
-                  <option value="">{{ gatewayListLoading ? t('assets.loading.gateways') : t('assets.select.gateway') }}</option>
-                  <option v-for="gateway in gatewayItems" :key="String(gateway.id)" :value="String(gateway.id)">
-                    {{ gatewayLabel(gateway) }}
-                  </option>
-                </select>
-              </label>
+              <GcWorkflowExecutionForm
+                v-model:workflow-id="assetDraft.workflowId"
+                v-model:version-selection="assetDraft.workflowVersionSelection"
+                v-model:workflow-version-id="assetDraft.workflowVersionId"
+                v-model:runner="assetDraft.workflowRunner"
+                v-model:gateway-id="assetDraft.workflowGatewayId"
+                class="asset-form__field--wide"
+                :workflows="workflowItems"
+                :versions="publishedWorkflowVersionItems"
+                :gateways="gatewayItems"
+                :workflow-loading="workflowListLoading"
+                :version-loading="workflowVersionListLoading"
+                :gateway-loading="gatewayListLoading"
+                :labels="{
+                  workflow: t('assets.fields.selectWorkflow'), workflowPlaceholder: t('assets.select.workflow'),
+                  versionSelection: t('assets.fields.workflowVersionSelection'), pinned: t('assets.workflowVersionSelection.pinned'), latestPublished: t('assets.workflowVersionSelection.latestPublished'),
+                  version: t('assets.fields.publishedVersion'), versionPlaceholder: t('assets.select.publishedVersion'), runner: t('assets.fields.runner'), controlPlane: t('assets.runners.controlPlane'), gateway: t('assets.runners.gateway'), gatewayPlaceholder: t('assets.select.gateway'),
+                }"
+              />
               <section class="asset-form__field--wide workflow-target-form" :aria-label="t('assets.workflowTarget.title')">
                 <div class="workflow-target-form__head">
                   <div>
@@ -2981,7 +3083,13 @@ function managedTargetLabel(target: ApiRecord): string {
             </div>
             <div>
               <dt>{{ t('assets.review.deploymentMode') }}</dt>
-              <dd>{{ assetDraft.managementMode === 'WORKFLOW' ? t('devices.deployment.independentWorkflow') : t('devices.deployment.managedTarget') }}</dd>
+              <dd>
+                {{ assetDraft.managementMode === 'WORKFLOW'
+                  ? t('devices.deployment.independentWorkflow')
+                  : assetDraft.managedExecutionMode === 'WORKFLOW_OVERRIDE'
+                    ? t('assets.executionModes.workflowOverride.title')
+                    : t('assets.executionModes.plugin.title') }}
+              </dd>
             </div>
             <div>
               <dt>{{ t('assets.fields.platform') }}</dt>
@@ -2999,11 +3107,11 @@ function managedTargetLabel(target: ApiRecord): string {
               <dt>{{ t('assets.fields.certificateFormat') }}</dt>
               <dd>{{ workflowCertificateFormatLabel(certificateFormatItems.find((item) => String(item.id ?? '') === assetDraft.agentCertificateFormatId) ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
-            <div v-else>
+            <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.review.workflowVersion') }}</dt>
               <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED' ? t('assets.workflowVersionSelection.latestPublished') : workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
-            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+            <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.workflowTarget.title') }}</dt>
               <dd>
                 {{ workflowTargetPreview?.frameworkType || t('assets.empty.notSet') }}
@@ -3011,11 +3119,11 @@ function managedTargetLabel(target: ApiRecord): string {
                 / {{ workflowTargetPreview?.bindingInformation || t('assets.empty.notSet') }}
               </dd>
             </div>
-            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+            <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.fields.runner') }}</dt>
               <dd>{{ assetDraft.workflowRunner === 'GATEWAY' ? t('assets.review.gatewayRunner', { gateway: gatewayLabel(selectedGateway ?? {}) || assetDraft.workflowGatewayId }) : t('assets.runners.controlPlane') }}</dd>
             </div>
-            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+            <div v-if="workflowExecutionEnabled">
               <dt>{{ t('assets.workflowVariables.title') }}</dt>
               <dd>{{ workflowVariableConfiguredCount ? t('assets.review.variableCount', { count: workflowVariableConfiguredCount }) : t('assets.review.onlyBasicEntry') }}</dd>
             </div>

@@ -81,6 +81,14 @@ export function saveApplicationAssetManagedTarget(applicationAssetId: string, pa
   })
 }
 
+export function saveApplicationAssetStandaloneWorkflow(applicationAssetId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.request<ApiRecord>(toClientPath(`/api/v1/application-assets/${encodeURIComponent(applicationAssetId)}/standalone-workflow`), {
+    method: 'PUT',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('application_asset_standalone_workflow_save'),
+  })
+}
+
 export function createManagedTarget(payload: ApiBody) {
   return postAction(MANAGED_TARGETS_PATH, payload, 'managed_target_create')
 }
