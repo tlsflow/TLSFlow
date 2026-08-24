@@ -41,7 +41,7 @@ async function start(): Promise<void> {
   });
 
   if (securityBundle) {
-    app.setAuthTokenResolver((authorization) => securityBundle.services.auth.parseAuthorizationHeader(authorization));
+    app.setAuthTokenResolver((authorization, cookie) => securityBundle.services.auth.parseRequestIdentity(authorization, cookie));
     await auditSecretDecryptability(securityBundle.services.secrets);
   }
 

@@ -22,7 +22,10 @@ export interface InjectResponse {
   stream?: (response: ServerResponse) => Promise<void> | void;
 }
 
-export type AuthTokenResolver = (authorization: string | undefined) => { actorId: string; tenantId?: string } | undefined;
+export type AuthTokenResolver = (
+  authorization: string | undefined,
+  cookie: string | undefined,
+) => Promise<{ actorId: string; tenantId?: string } | undefined> | { actorId: string; tenantId?: string } | undefined;
 export type PersistenceFlusher = { flush: () => Promise<void> };
 
 export class App {
@@ -73,7 +76,7 @@ export class App {
 
   async inject(input: InjectRequest): Promise<InjectResponse> {
     const url = new URL(input.path, 'http://localhost');
-    const context = this.createContext(input.headers ?? {}, '127.0.0.1');
+    const context = await this.createContext(input.headers ?? {}, '127.0.0.1');
     return this.handle({
       method: input.method.toUpperCase(),
       path: url.pathname,
@@ -89,7 +92,7 @@ export class App {
       const body = await readJsonBody(req);
       const host = req.headers.host ?? 'localhost';
       const url = new URL(req.url ?? '/', `http://${host}`);
-      const context = this.createContext(req.headers, req.socket.remoteAddress);
+      const context = await this.createContext(req.headers, req.socket.remoteAddress);
       const response = await this.handle({
         method: req.method ?? 'GET',
         path: url.pathname,
@@ -108,10 +111,10 @@ export class App {
     });
   }
 
-  private createContext(headers: Record<string, string | string[] | undefined>, ip?: string): RequestContext {
+  private async createContext(headers: Record<string, string | string[] | undefined>, ip?: string): Promise<RequestContext> {
     const requestId = readHeader(headers, 'x-request-id') ?? generateRequestId();
     const traceId = readHeader(headers, 'x-trace-id') ?? generateTraceId();
-    const tokenIdentity = this.authTokenResolver?.(readHeader(headers, 'authorization'));
+    const tokenIdentity = await this.authTokenResolver?.(readHeader(headers, 'authorization'), readHeader(headers, 'cookie'));
     return {
       requestId,
       traceId,

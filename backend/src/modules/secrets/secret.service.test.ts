@@ -106,3 +106,31 @@ test('SecretService 在重建后仍可解析持久化 Secret', async () => {
   assert.equal(resolved.plainText, 'ldap-bind-password');
   assert.match(resolved.secretRef, /#v1$/);
 });
+
+test('SecretService 支持持久化工作流凭据元数据且列表不泄露明文', async () => {
+  const db = new PgliteDatabase();
+  const secrets = new PgDocumentRepository<SecretEntity>(db, 'security.secrets.metadata-test');
+  const versions = new PgDocumentRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(db, 'security.secret_versions.metadata-test');
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 2))), new ExecutionGrantService(), new AuditService(), secrets, versions);
+  await service.create({
+    name: 'edge-01 root',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'secret-password',
+    createdBy: 'user_admin',
+    metadata: {
+      workflowCredential: true,
+      workflowCredentialKind: 'username_password',
+      username: 'deploy',
+    },
+  });
+
+  const listed = await service.listMetadata();
+  assert.equal(listed.length, 1);
+  assert.deepEqual(listed[0]?.metadata, {
+    workflowCredential: true,
+    workflowCredentialKind: 'username_password',
+    username: 'deploy',
+  });
+  assert.equal(JSON.stringify(listed).includes('secret-password'), false);
+});

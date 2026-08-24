@@ -113,7 +113,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);
 
-  app.setAuthTokenResolver((authorization) => security.auth.parseAuthorizationHeader(authorization));
+  app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);
   new SecurityController(security).register(app.router);
 

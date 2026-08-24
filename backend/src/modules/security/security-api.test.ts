@@ -455,6 +455,48 @@ describe('安全 API 最小闭环', () => {
     assert.equal((audits.body as { items: unknown[] }).items.length, 1);
   });
 
+  it('Secret 创建只接受后端支持的存储类型，用户名密码统一使用 password', async () => {
+    const security = createSecurityServices();
+    await security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_secret_type',
+      effect: 'allow',
+      actions: ['secret.create'],
+      resourceTypes: ['secret'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    const app = createApp({ security });
+
+    const password = await app.inject({
+      method: 'POST',
+      path: '/api/v1/secrets',
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret_type' },
+      body: {
+        name: '设备登录密码',
+        type: 'password',
+        scopeType: 'global',
+        plainText: 'secret-password',
+      },
+    });
+    assert.equal(password.statusCode, 201);
+    assert.match((password.body as { secretRef: string }).secretRef, /^secret:\/\/password\/sec_/);
+
+    for (const type of ['ssh_password', 'curl_basic']) {
+      const invalid = await app.inject({
+        method: 'POST',
+        path: '/api/v1/secrets',
+        headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret_type' },
+        body: {
+          name: '无效凭据类型',
+          type,
+          scopeType: 'global',
+          plainText: 'secret-password',
+        },
+      });
+      assert.equal(invalid.statusCode, 400);
+    }
+  });
+
   it('审批 API 支持创建和他人审批，且无权限审计查询会被拒绝', async () => {
     const security = createSecurityServices();
     await security.rbac.createPolicy({

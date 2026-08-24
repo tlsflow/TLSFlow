@@ -1,6 +1,6 @@
 import type { DatabasePort } from '../../database/database-port.js';
 import type { ApprovalRequestEntity } from '../../persistence/entities/approval.entity.js';
-import type { AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
+import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
 import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
@@ -36,6 +36,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const userRoles = new PgDocumentRepository<StoredUserRole>(db, 'security.user_roles');
   const policies = new PgDocumentRepository<PermissionPolicyEntity>(db, 'security.permission_policies');
   const authCredentials = new PgDocumentRepository<AuthPasswordCredentialEntity>(db, 'security.auth_password_credentials');
+  const authBrowserSessions = new PgDocumentRepository<AuthBrowserSessionEntity>(db, 'security.auth_browser_sessions');
   const identitySources = new PgDocumentRepository<IdentitySource>(db, 'security.identity_sources');
   const externalGroupRoleMappings = new PgDocumentRepository<ExternalGroupRoleMapping>(db, 'security.external_group_role_mappings');
 
@@ -44,7 +45,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const grants = new ExecutionGrantService(executionGrants);
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
-  const auth = new AuthService(rbac, authCredentials, audit);
+  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {

@@ -1,4 +1,4 @@
-import { apiClient, createRequestId, readApiRequestContext, readApiToken } from '@/api/client'
+import { apiClient, createRequestId, readApiRequestContext } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 import { buildListPath } from './common'
 import type { ApiPage } from './common'
@@ -72,11 +72,6 @@ export async function streamExecutionDetail(
   headers.set('Accept', 'text/event-stream')
   headers.set('X-Request-Id', createRequestId())
 
-  const token = readApiToken()
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
   const requestContext = readApiRequestContext()
   if (requestContext?.actorId) {
     headers.set('X-Actor-Id', requestContext.actorId)
@@ -88,6 +83,7 @@ export async function streamExecutionDetail(
 
   const response = await fetch(`${(import.meta.env.VITE_API_BASE_URL ?? '/api')}${toClientPath(`${EXECUTION_RUNS_PATH}/stream`)}?runId=${encodeURIComponent(runId)}`, {
     method: 'GET',
+    credentials: 'include',
     headers,
     signal: controller.signal,
   })

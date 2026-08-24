@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../common/errors/app-error.js';
 import type { RequestContext } from '../../common/tracing/request-context.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
-import type { AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
+import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity } from '../../persistence/entities/rbac.entity.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
@@ -27,6 +27,11 @@ export interface AuthSessionResponse {
   permissions: string[];
 }
 
+export interface AuthCookieSession {
+  cookieValue: string;
+  expiresAt: string;
+}
+
 interface PasswordCredential {
   userId: string;
   passwordHash: string;
@@ -44,6 +49,8 @@ const DEFAULT_TENANT_ID = 'default';
 const DEFAULT_TENANT_NAME = '\u9ed8\u8ba4\u79df\u6237';
 const DEFAULT_ADMIN_PASSWORD = 'admin12345';
 const TOKEN_SECRET = 'gcac-dev-session-secret-change-before-production';
+const AUTH_SESSION_COOKIE_NAME = 'gcac_session';
+const DEFAULT_BROWSER_SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 export class AuthService {
   private static readonly defaultDb = new PgliteDatabase();
@@ -52,12 +59,17 @@ export class AuthService {
     return new PgDocumentRepository<AuthPasswordCredentialEntity>(AuthService.defaultDb, 'security.auth_password_credentials');
   }
 
+  private static createDefaultBrowserSessionsRepository(): AsyncRepositoryPort<AuthBrowserSessionEntity> {
+    return new PgDocumentRepository<AuthBrowserSessionEntity>(AuthService.defaultDb, 'security.auth_browser_sessions');
+  }
+
   private readonly seedReady: Promise<void>;
 
   constructor(
     private readonly rbac: RBACService,
     private readonly credentials: AsyncRepositoryPort<AuthPasswordCredentialEntity> = AuthService.createDefaultCredentialsRepository(),
     private readonly audit?: AuditService,
+    private readonly browserSessions: AsyncRepositoryPort<AuthBrowserSessionEntity> = AuthService.createDefaultBrowserSessionsRepository(),
   ) {
     this.seedReady = this.seedDefaultAdmin();
   }
@@ -115,6 +127,38 @@ export class AuthService {
     return { success: true };
   }
 
+  async createBrowserSession(userId: string, context: RequestContext): Promise<AuthCookieSession> {
+    await this.seedReady;
+    const user = await this.rbac.getUser(userId);
+    if (!user || user.status !== 'active') {
+      throw new AppError('AUTH_UNAUTHENTICATED', '\u5f53\u524d\u767b\u5f55\u72b6\u6001\u65e0\u6548');
+    }
+    const now = new Date();
+    const ttlSeconds = browserSessionTtlSeconds();
+    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+    const id = `sess_${randomBytes(16).toString('hex')}`;
+    const secret = randomBytes(32).toString('base64url');
+    await this.browserSessions.create({
+      id,
+      userId: user.id,
+      tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
+      secretHash: this.digestSessionSecret(secret),
+      createdAt: now.toISOString(),
+      expiresAt,
+      userAgent: context.userAgent,
+      ip: context.ip,
+    });
+    return { cookieValue: `${id}.${secret}`, expiresAt };
+  }
+
+  async revokeBrowserSession(cookieHeader: string | undefined): Promise<void> {
+    const parsed = parseSessionCookie(cookieHeader);
+    if (!parsed) return;
+    const session = await this.browserSessions.get(parsed.id);
+    if (!session || session.revokedAt) return;
+    await this.browserSessions.update(session.id, { revokedAt: new Date().toISOString() });
+  }
+
   async createUserWithPassword(input: Omit<UserEntity, 'createdAt' | 'updatedAt'> & { password: string }): Promise<UserEntity> {
     await this.seedReady;
     const user = await this.rbac.createUser(input);
@@ -140,6 +184,47 @@ export class AuthService {
     const token = authorization.slice('Bearer '.length).trim();
     const payload = this.verifyToken(token);
     return payload ? { actorId: payload.userId, tenantId: payload.tenantId } : undefined;
+  }
+
+  async parseRequestIdentity(
+    authorization: string | undefined,
+    cookieHeader: string | undefined,
+  ): Promise<{ actorId: string; tenantId: string } | undefined> {
+    const bearer = this.parseAuthorizationHeader(authorization);
+    if (bearer) return bearer;
+    const parsed = parseSessionCookie(cookieHeader);
+    if (!parsed) return undefined;
+    const session = await this.browserSessions.get(parsed.id);
+    if (!session || session.revokedAt) return undefined;
+    if (Date.parse(session.expiresAt) <= Date.now()) return undefined;
+    if (!safeEqualHex(session.secretHash, this.digestSessionSecret(parsed.secret))) return undefined;
+    return { actorId: session.userId, tenantId: session.tenantId };
+  }
+
+  buildSessionSetCookie(cookieValue: string, expiresAt: string): string {
+    const attributes = [
+      `${AUTH_SESSION_COOKIE_NAME}=${encodeURIComponent(cookieValue)}`,
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Lax',
+      `Expires=${new Date(expiresAt).toUTCString()}`,
+      `Max-Age=${browserSessionTtlSeconds()}`,
+    ];
+    if (isSecureCookieEnabled()) attributes.push('Secure');
+    return attributes.join('; ');
+  }
+
+  buildSessionClearCookie(): string {
+    const attributes = [
+      `${AUTH_SESSION_COOKIE_NAME}=`,
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Lax',
+      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      'Max-Age=0',
+    ];
+    if (isSecureCookieEnabled()) attributes.push('Secure');
+    return attributes.join('; ');
   }
 
   private async createSession(user: UserEntity): Promise<AuthSessionResponse> {
@@ -246,6 +331,10 @@ export class AuthService {
     return createHmac('sha256', salt).update(password).digest('hex');
   }
 
+  private digestSessionSecret(secret: string): string {
+    return createHmac('sha256', TOKEN_SECRET).update(secret).digest('hex');
+  }
+
   private signToken(payload: TokenPayload): string {
     const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
     const signature = createHmac('sha256', TOKEN_SECRET).update(body).digest('base64url');
@@ -265,4 +354,35 @@ export class AuthService {
       return undefined;
     }
   }
+}
+
+function parseSessionCookie(cookieHeader: string | undefined): { id: string; secret: string } | undefined {
+  if (!cookieHeader) return undefined;
+  const cookies = cookieHeader.split(';').map((item) => item.trim()).filter(Boolean);
+  const pair = cookies.find((item) => item.startsWith(`${AUTH_SESSION_COOKIE_NAME}=`));
+  if (!pair) return undefined;
+  const raw = decodeURIComponent(pair.slice(AUTH_SESSION_COOKIE_NAME.length + 1));
+  const separator = raw.indexOf('.');
+  if (separator <= 0) return undefined;
+  const id = raw.slice(0, separator);
+  const secret = raw.slice(separator + 1);
+  if (!id || !secret) return undefined;
+  return { id, secret };
+}
+
+function safeEqualHex(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, 'hex');
+  const rightBuffer = Buffer.from(right, 'hex');
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function browserSessionTtlSeconds(): number {
+  const value = Number(process.env.AUTH_BROWSER_SESSION_TTL_SECONDS ?? DEFAULT_BROWSER_SESSION_TTL_SECONDS);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_BROWSER_SESSION_TTL_SECONDS;
+}
+
+function isSecureCookieEnabled(): boolean {
+  if (process.env.AUTH_COOKIE_SECURE === 'true') return true;
+  if (process.env.AUTH_COOKIE_SECURE === 'false') return false;
+  return process.env.NODE_ENV === 'production';
 }

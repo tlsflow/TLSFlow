@@ -6,6 +6,7 @@ export interface SecretEntity {
   type: SecretType;
   scopeType: SecretScopeType;
   scopeId?: string;
+  metadata?: Record<string, unknown>;
   status: SecretStatus;
   currentVersionId: string;
   createdBy: string;

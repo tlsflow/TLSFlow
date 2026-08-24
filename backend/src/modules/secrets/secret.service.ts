@@ -16,6 +16,7 @@ export interface CreateSecretInput {
   type: SecretType;
   scopeType: SecretScopeType;
   scopeId?: string;
+  metadata?: Record<string, unknown>;
   plainText: string;
   createdBy: string;
 }
@@ -26,6 +27,7 @@ export interface SecretMetadataOutput {
   type: SecretType;
   scopeType: SecretScopeType;
   scopeId?: string;
+  metadata: Record<string, unknown>;
   status: string;
   currentVersionId: string;
   secretRef: string;
@@ -117,6 +119,7 @@ export class SecretService {
       type: input.type,
       scopeType: input.scopeType,
       scopeId: input.scopeId,
+      metadata: cloneMetadata(input.metadata),
       status: 'active',
       currentVersionId: versionId,
       createdBy: input.createdBy,
@@ -135,7 +138,14 @@ export class SecretService {
       riskLevel: 'high',
       context,
       failClosed: true,
-      detail: { name: input.name, type: input.type, scopeType: input.scopeType, scopeId: input.scopeId, fingerprint: encrypted.fingerprint },
+      detail: {
+        name: input.name,
+        type: input.type,
+        scopeType: input.scopeType,
+        scopeId: input.scopeId,
+        metadataKeys: Object.keys(input.metadata ?? {}),
+        fingerprint: encrypted.fingerprint,
+      },
     });
 
     await this.audit.write({
@@ -153,6 +163,16 @@ export class SecretService {
     });
 
     return this.toMetadata(secret);
+  }
+
+  async listMetadata(): Promise<SecretMetadataOutput[]> {
+    const rows = await this.secrets.list();
+    const output: SecretMetadataOutput[] = [];
+    for (const row of rows) {
+      if (row.status === 'deleted') continue;
+      output.push(await this.toMetadata(row));
+    }
+    return output;
   }
 
   async getMetadata(secretId: string): Promise<SecretMetadataOutput> {
@@ -305,6 +325,7 @@ export class SecretService {
       type: secret.type,
       scopeType: secret.scopeType,
       scopeId: secret.scopeId,
+      metadata: cloneMetadata(secret.metadata),
       status: secret.status,
       currentVersionId: secret.currentVersionId,
       secretRef: buildSecretRef(secret.type, secret.id, 'current'),
@@ -313,4 +334,9 @@ export class SecretService {
       updatedAt: secret.updatedAt,
     };
   }
+}
+
+function cloneMetadata(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!value || Array.isArray(value)) return {};
+  return structuredClone(value);
 }

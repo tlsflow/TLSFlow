@@ -3,7 +3,7 @@ import type { HttpRequest } from '../../common/http/http-types.js';
 import type { Router } from '../../common/http/router.js';
 import type { RouteContract } from '../../common/openapi/route-contract.js';
 import { validateObject } from '../../common/validation/schema-validation.js';
-import type { RiskLevel, SecretScopeType, SecretType, SecuritySubject } from '../../shared/security-types.js';
+import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject } from '../../shared/security-types.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
@@ -45,6 +45,7 @@ export class SecurityController {
     router.post('/api/v1/auth/logout', '閫€鍑虹櫥褰?', ['Auth'], (request) => this.logout(request));
     router.get('/api/v1/auth/me', '鑾峰彇褰撳墠鐢ㄦ埛', ['Auth'], (request) => this.getMe(request));
     router.get('/api/v1/auth/permissions', '鑾峰彇褰撳墠鏉冮檺', ['Auth'], (request) => this.getMyPermissions(request));
+    router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '鍒涘缓 Secret', ['Security'], (request) => this.createSecret(request));
     router.get('/api/v1/secrets/metadata', '鏌ヨ Secret 鍏冩暟鎹?', ['Security'], (request) => this.getSecretMetadata(request));
     router.post('/api/v1/approvals', '鍒涘缓瀹℃壒鍗?', ['Security'], (request) => this.createApproval(request));
@@ -80,13 +81,15 @@ export class SecurityController {
     const username = String(body.username);
     const localUser = await this.services.rbac.findUserByUsername(username);
     if (localUser?.externalSourceId) {
-      return this.services.externalIdentity.login({
+      const session = await this.services.externalIdentity.login({
         sourceId: localUser.externalSourceId,
         username,
         password: String(body.password),
       }, request.context);
+      return this.withBrowserSessionCookie(session, request);
     }
-    return this.services.auth.login({ username, password: String(body.password) }, request.context);
+    const session = await this.services.auth.login({ username, password: String(body.password) }, request.context);
+    return this.withBrowserSessionCookie(session, request);
   }
 
   private async externalLogin(request: HttpRequest) {
@@ -95,11 +98,12 @@ export class SecurityController {
       username: { type: 'string', required: true },
       password: { type: 'string', required: true },
     });
-    return this.services.externalIdentity.login({
+    const session = await this.services.externalIdentity.login({
       sourceId: String(body.sourceId),
       username: String(body.username),
       password: String(body.password),
     }, request.context);
+    return this.withBrowserSessionCookie(session, request);
   }
 
   private async listPublicIdentitySources() {
@@ -107,7 +111,12 @@ export class SecurityController {
   }
 
   private async logout(request: HttpRequest) {
-    return this.services.auth.logout(await this.optionalSubjectFromRequest(request), request.context);
+    await this.services.auth.revokeBrowserSession(readHeader(request, 'cookie'));
+    const result = await this.services.auth.logout(await this.optionalSubjectFromRequest(request), request.context);
+    return {
+      headers: { 'Set-Cookie': this.services.auth.buildSessionClearCookie() },
+      body: result,
+    };
   }
 
   private async getMe(request: HttpRequest) {
@@ -122,13 +131,22 @@ export class SecurityController {
     return { permissions: session.permissions };
   }
 
+  private async withBrowserSessionCookie(session: { user: { id: string } }, request: HttpRequest) {
+    const cookieSession = await this.services.auth.createBrowserSession(session.user.id, request.context);
+    return {
+      headers: { 'Set-Cookie': this.services.auth.buildSessionSetCookie(cookieSession.cookieValue, cookieSession.expiresAt) },
+      body: session,
+    };
+  }
+
   private async createSecret(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
-      type: { type: 'string', required: true },
-      scopeType: { type: 'string', required: true },
+      type: { type: 'string', required: true, enum: SECRET_TYPES },
+      scopeType: { type: 'string', required: true, enum: SECRET_SCOPE_TYPES },
       plainText: { type: 'string', required: true },
       scopeId: { type: 'string' },
+      metadata: { type: 'object' },
     });
     const subject = await this.subjectFromRequest(request);
     await this.services.rbac.assertCan(subject, 'secret.create', {
@@ -143,10 +161,29 @@ export class SecurityController {
         type: body.type as SecretType,
         scopeType: body.scopeType as SecretScopeType,
         scopeId: body.scopeId === undefined ? undefined : String(body.scopeId),
+        metadata: body.metadata === undefined ? undefined : body.metadata as Record<string, unknown>,
         plainText: String(body.plainText),
         createdBy: subject.id,
       }, this.securityContext(request, subject)),
     };
+  }
+
+  private async listSecrets(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.services.rbac.assertCan(subject, 'secret.read', {
+      type: 'secret',
+      scope: { tenantId: request.context.tenantId },
+    }, this.securityContext(request, subject));
+    const type = readOptionalQueryString(request, 'type');
+    const scopeType = readOptionalQueryString(request, 'scopeType');
+    const workflowCredential = readOptionalQueryString(request, 'workflowCredential');
+    const items = (await this.services.secrets.listMetadata()).filter((item) => {
+      if (type && item.type !== type) return false;
+      if (scopeType && item.scopeType !== scopeType) return false;
+      if (workflowCredential === 'true' && item.metadata.workflowCredential !== true) return false;
+      return true;
+    });
+    return page(items);
   }
 
   private async getSecretMetadata(request: HttpRequest) {
@@ -686,6 +723,11 @@ function readOptionalQueryString(request: HttpRequest, key: string): string | un
   return Array.isArray(value) ? value[0] : value;
 }
 
+function readHeader(request: HttpRequest, key: string): string | undefined {
+  const value = request.headers[key] ?? request.headers[key.toLowerCase()];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export function getSecurityRouteContracts(): RouteContract[] {
   return [
     { method: 'POST', path: '/api/v1/auth/login', operationId: 'login', summary: '鐧诲綍', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -694,6 +736,7 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/auth/logout', operationId: 'logout', summary: '閫€鍑虹櫥褰?', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/me', operationId: 'getCurrentUser', summary: '鑾峰彇褰撳墠鐢ㄦ埛', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/permissions', operationId: 'getCurrentPermissions', summary: '鑾峰彇褰撳墠鏉冮檺', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '鍒涘缓 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '鏌ヨ Secret 鍏冩暟鎹?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/approvals', operationId: 'createApproval', summary: '鍒涘缓瀹℃壒鍗?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
