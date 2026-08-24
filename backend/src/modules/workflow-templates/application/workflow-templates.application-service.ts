@@ -30,16 +30,21 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.createTemplate(input);
   }
 
-  async createWorkflow(input: CreateWorkflowTemplateInput) {
-    return this.domain.createTemplate(input, 'user');
+  async createWorkflow(input: CreateWorkflowTemplateInput, tenantId?: string) {
+    return this.domain.createTemplate(input, 'user', { ownerType: 'TENANT', tenantId, ownerId: tenantId });
   }
 
-  async createPluginTemplate(input: CreateWorkflowTemplateInput) {
-    return this.domain.createTemplate(input, 'plugin_internal');
+  async createPluginTemplate(input: CreateWorkflowTemplateInput, ownership: { ownerType?: 'SYSTEM' | 'TENANT'; ownerId?: string; tenantId?: string } = {}) {
+    return this.domain.createTemplate(input, 'plugin_internal', {
+      ownerType: ownership.ownerType ?? 'SYSTEM',
+      ownerId: ownership.ownerId ?? 'SYSTEM',
+      tenantId: ownership.tenantId,
+    });
   }
 
+  /** @deprecated 插件复制结果统一归类为 user，并在版本上记录 pluginSource。 */
   async createPluginDerivedWorkflow(input: CreateWorkflowTemplateInput) {
-    return this.domain.createTemplate(input, 'plugin_derived');
+    return this.createWorkflow(input);
   }
 
   async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
@@ -91,11 +96,7 @@ export class WorkflowTemplatesApplicationService {
   }
 
   async listWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
-    return (await this.domain.listTemplates()).filter((template) => (
-      template.origin === 'legacy'
-      || template.origin === 'user'
-      || template.origin === 'plugin_derived'
-    ));
+    return (await this.domain.listTemplates()).filter((template) => template.origin === 'user');
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {

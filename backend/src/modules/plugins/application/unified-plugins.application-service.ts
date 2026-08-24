@@ -67,6 +67,8 @@ export class UnifiedPluginsApplicationService {
     return this.repository.saveVersion({
       id: newId('uplgv'),
       tenantId,
+      ownerType: sourceChannel === 'BUILTIN' ? 'SYSTEM' : 'TENANT',
+      ...(sourceChannel === 'BUILTIN' ? {} : { ownerId: tenantId }),
       pluginId: manifest.pluginId,
       version: manifest.version,
       source: manifest.source,
@@ -90,6 +92,10 @@ export class UnifiedPluginsApplicationService {
 
   listVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
     return this.repository.listVersions(tenantId);
+  }
+
+  async listBuiltinVersions(): Promise<UnifiedPluginVersionRecord[]> {
+    return this.repository.listVersionsBySource?.('BUILTIN') ?? [];
   }
 
   async getVersion(id: string): Promise<UnifiedPluginVersionRecord> {

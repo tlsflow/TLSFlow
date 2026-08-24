@@ -19,7 +19,7 @@ test('插件工作流来源过滤、派生和内部只读形成闭环', async ()
   const imported=await plugins.importVersion(tenantId,{manifest:{apiVersion:'gcac.plugin-manifest/v1',kind:'GcacPlugin',pluginId:'fixture.source',version:'1.0.0',displayNameKey:'fixture.source',defaultLocale:'zh-CN',publisher:'test',runtime:'WORKFLOW_DSL',source:'USER',scope:'BOTH',trust:'UNSIGNED',support:'SELF_MANAGED',permissions:[],capabilities:[{key:'certificate.deploy',contractVersion:'v1',actionContractId:'certificate.deploy.v1',riskLevel:'HIGH',executionLocations:['CONTROL_PLANE']}],resources:{workflows:{'certificate.deploy':'workflows/deploy.json'},locales:{'zh-CN':'locales/zh-CN.json','en-US':'locales/en-US.json'}}},resources:{'workflows/deploy.json':JSON.stringify(content),'locales/zh-CN.json':JSON.stringify({'fixture.source':'示例来源'}),'locales/en-US.json':JSON.stringify({'fixture.source':'Fixture Source'})}}); await plugins.enableVersion(imported.id);
   const bindings=new PluginWorkflowBindingsRepository(db); await bindings.save({pluginVersionId:imported.id,capabilityKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
   const service=new PluginWorkflowSourceService(plugins,bindings,workflows); const candidates=await service.list(tenantId); assert.equal(candidates.length,1); assert.equal(candidates[0]?.stepCount,1); assert.equal(candidates[0]?.displayName, '示例来源'); assert.equal((await service.list(tenantId, 'en-US'))[0]?.displayName, 'Fixture Source');
-  const derived=await service.createWorkflow(tenantId,{pluginVersionId:imported.id,capabilityKey:'certificate.deploy',name:'my-deploy'}); assert.equal(derived.template.origin,'plugin_derived'); assert.equal(derived.template.provenance?.sourceWorkflowVersionId,internal.version.id);
+  const derived=await service.createWorkflow(tenantId,{pluginVersionId:imported.id,capabilityKey:'certificate.deploy',name:'my-deploy'}); assert.equal(derived.template.origin,'user'); assert.equal(derived.template.ownerType,'TENANT'); assert.equal(derived.version.pluginSource?.sourceWorkflowVersionId,internal.version.id);
   await assert.rejects(()=>workflows.renameTemplate({templateId:internal.template.id,name:'forbidden'}),(error:any)=>error.errorCode==='WORKFLOW_INTERNAL_READ_ONLY');
   const draft=await service.createDraft(tenantId,{pluginVersionId:imported.id,capabilityKey:'certificate.deploy',templateId:derived.template.id,name:'ignored'}); assert.equal(draft.templateId,derived.template.id); assert.equal(draft.content.metadata.name,'my-deploy');
   await assert.rejects(
@@ -116,7 +116,9 @@ test('非内置租户可以使用官方内置工作流来源，但不能看到�
     capabilityKey: 'certificate.deploy',
     name: 'business-deploy',
   });
-  assert.equal(derived.template.origin, 'plugin_derived');
+  assert.equal(derived.template.origin, 'user');
+  assert.equal(derived.template.ownerType, 'TENANT');
+  assert.equal(derived.version.pluginSource?.sourceWorkflowVersionId, published.id);
   await assert.rejects(
     () => service.createWorkflow(businessTenantId, {
       pluginVersionId: userPlugin.id,

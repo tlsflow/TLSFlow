@@ -388,6 +388,7 @@ export class WorkflowExecutorAdapter implements Executor {
       templateVersionId: workflowVersionId,
       mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
       resolvedInput,
+      ...(request.executionBranch === 'rollback' ? { executionBranch: 'rollback' as const } : {}),
     };
     let resourceLock: PluginResourceLockRecord | undefined;
     try {

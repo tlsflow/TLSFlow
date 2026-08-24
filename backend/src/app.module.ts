@@ -391,7 +391,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
       unifiedPluginsService,
       new PluginWorkflowBindingsRepository(appDb),
       workflowTemplatesService,
-      process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default',
     ),
     new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
   ).register(app.router);

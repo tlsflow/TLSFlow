@@ -6,7 +6,7 @@ import type { WorkflowRunResult } from '../workflow-templates/dto/workflow-templ
 describe('projectWorkflowBusinessSteps', () => {
   it('投影 stage、foreach 子步骤和逆序补偿依赖', () => {
     const run: WorkflowRunResult = {
-      id: 'workflow-run-1', mode: 'real_test', plannedOnly: false, status: 'rolled_back', renderedSteps: [], logs: [],
+      id: 'workflow-run-1', mode: 'real_test', executionBranch: 'deploy', plannedOnly: false, status: 'rolled_back', renderedSteps: [], logs: [],
       stepResults: [
         { name: 'backup', type: 'checkpoint', stage: 'backup', status: 'success', attempts: 1, plan: {}, extracted: {}, assertions: [], logs: [] },
         {

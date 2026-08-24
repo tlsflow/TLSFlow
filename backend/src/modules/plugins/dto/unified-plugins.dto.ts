@@ -66,6 +66,9 @@ export interface PluginActionAliasesV1 {
 export interface UnifiedPluginVersionRecord {
   id: string;
   tenantId: string;
+  /** 历史测试和旧缓存可能没有该字段，仓储读取时会按 source 归一化。 */
+  ownerType?: 'SYSTEM' | 'TENANT';
+  ownerId?: string;
   pluginId: string;
   version: string;
   source: UnifiedPluginSource;

@@ -12,6 +12,8 @@ export class PluginWorkflowSourceService {
     private readonly plugins: UnifiedPluginsApplicationService,
     private readonly bindings: PluginWorkflowBindingsRepository,
     private readonly workflows: WorkflowTemplatesApplicationService,
+    /** @deprecated 内置资源不再通过默认租户授权，此参数仅保留构造兼容。 */
+    _legacyBuiltinTenantId?: string,
   ) {}
 
   async list(tenantId: string, locale = 'zh-CN'): Promise<WorkflowSourceCandidate[]> {

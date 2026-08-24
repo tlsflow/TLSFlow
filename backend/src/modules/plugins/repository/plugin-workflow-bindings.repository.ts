@@ -16,11 +16,11 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
 
   async save(record: PluginWorkflowBindingRecord): Promise<PluginWorkflowBindingRecord> {
     await this.db.query(`insert into unified_plugin_workflow_bindings
-      (plugin_version_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
-      values ($1,$2,$3,$4,$5,$6,$7)
+      (plugin_version_id,owner_type,owner_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       on conflict (plugin_version_id,capability_key) do nothing`, [
-      record.pluginVersionId, record.capabilityKey, record.workflowResourcePath, record.workflowTemplateId,
-      record.workflowVersionId, record.workflowContentSha256, record.createdAt,
+      record.pluginVersionId, record.ownerType ?? 'SYSTEM', record.ownerId ?? null, record.capabilityKey,
+      record.workflowResourcePath, record.workflowTemplateId, record.workflowVersionId, record.workflowContentSha256, record.createdAt,
     ]);
     return (await this.find(record.pluginVersionId, record.capabilityKey)) ?? record;
   }
@@ -85,6 +85,8 @@ export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsR
 
 interface WorkflowBindingRow extends Record<string, unknown> {
   plugin_version_id: string;
+  owner_type?: 'SYSTEM' | 'TENANT';
+  owner_id?: string;
   capability_key: string;
   workflow_resource_path: string;
   workflow_template_id: string;
@@ -96,6 +98,8 @@ interface WorkflowBindingRow extends Record<string, unknown> {
 function toRecord(row: WorkflowBindingRow): PluginWorkflowBindingRecord {
   return {
     pluginVersionId: row.plugin_version_id,
+    ownerType: row.owner_type ?? 'SYSTEM',
+    ...(row.owner_id ? { ownerId: row.owner_id } : {}),
     capabilityKey: row.capability_key,
     workflowResourcePath: row.workflow_resource_path,
     workflowTemplateId: row.workflow_template_id,

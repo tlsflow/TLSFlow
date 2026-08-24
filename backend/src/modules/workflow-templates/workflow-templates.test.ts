@@ -1460,6 +1460,33 @@ describe('WorkflowTemplates', () => {
     assert.equal(realPlan.plannedOnly, false);
   });
 
+  it('显式执行 rollback 分支时复用同一 WorkflowVersion，不把回滚追加到 deploy 结果', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({ content: templateFixture() });
+
+    const rollbackRun = await service.testRun({
+      ...runtimeInput(version.id),
+      executionBranch: 'rollback',
+      mockResponses: {
+        restoreOldCert: { statusCode: 200, body: { restored: true } },
+      },
+    });
+
+    assert.equal(rollbackRun.executionBranch, 'rollback');
+    assert.equal(rollbackRun.status, 'success');
+    assert.equal(rollbackRun.stepResults.length, 0);
+    assert.equal(rollbackRun.rollbackResults.length, 1);
+    assert.equal(rollbackRun.rollbackResults[0]?.name, 'restoreOldCert');
+
+    const withoutRollback = structuredClone(templateFixture());
+    withoutRollback.rollback = undefined;
+    const noRollback = await service.createTemplate({ content: withoutRollback });
+    await assert.rejects(
+      () => service.testRun({ ...runtimeInput(noRollback.version.id), executionBranch: 'rollback' }),
+      (error: any) => error.errorCode === 'VALIDATION_FAILED' && /rollback 分支/.test(error.message),
+    );
+  });
+
   it('contains 断言会渲染变量并忽略大小写差异', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({

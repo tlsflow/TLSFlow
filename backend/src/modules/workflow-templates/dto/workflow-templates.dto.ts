@@ -297,21 +297,28 @@ export interface WorkflowDslV1 {
 export interface CreateWorkflowTemplateInput {
   content: WorkflowDslV1;
   changeSummary?: string;
+  pluginSource?: WorkflowPluginSource;
+  /** @deprecated 仅用于读取历史 payload，新代码必须使用 pluginSource。 */
   provenance?: WorkflowTemplateProvenance;
 }
 
-export type WorkflowTemplateOrigin = 'legacy' | 'user' | 'plugin_internal' | 'plugin_derived';
+export type WorkflowTemplateOrigin = 'plugin_internal' | 'user';
+export type WorkflowOwnerType = 'SYSTEM' | 'TENANT';
 
-export interface WorkflowTemplateProvenance {
+export interface WorkflowPluginSource {
   sourceType: 'PLUGIN_CAPABILITY';
   pluginId: string;
   pluginVersionId: string;
   capabilityKey: 'certificate.deploy' | 'certificate.rollback';
-  sourceWorkflowTemplateId: string;
   sourceWorkflowVersionId: string;
   sourceContentHash: string;
   createdAt: string;
+  /** @deprecated 历史来源证据保留读取兼容，不参与运行时。 */
+  sourceWorkflowTemplateId?: string;
 }
+
+/** @deprecated 使用 WorkflowPluginSource。 */
+export type WorkflowTemplateProvenance = WorkflowPluginSource;
 
 export interface WorkflowSourceCandidate {
   pluginId: string;
@@ -346,6 +353,7 @@ export interface UpdateWorkflowTemplateInput {
   templateId: string;
   content: WorkflowDslV1;
   changeSummary?: string;
+  pluginSource?: WorkflowPluginSource;
 }
 
 export interface UpdateWorkflowTemplateVersionNoteInput {
@@ -356,7 +364,11 @@ export interface UpdateWorkflowTemplateVersionNoteInput {
 export interface WorkflowTemplate {
   id: string;
   name: string;
-  origin?: WorkflowTemplateOrigin;
+  origin: WorkflowTemplateOrigin;
+  ownerType: WorkflowOwnerType;
+  ownerId?: string;
+  tenantId?: string;
+  /** @deprecated 历史 payload 兼容字段，新记录不再写入。 */
   provenance?: WorkflowTemplateProvenance;
   status: WorkflowTemplateStatus;
   currentVersionId?: string;
@@ -375,6 +387,7 @@ export interface WorkflowTemplateVersion {
   contentHash: string;
   status: WorkflowTemplateVersionStatus;
   changeSummary?: string;
+  pluginSource?: WorkflowPluginSource;
   createdAt: string;
 }
 
@@ -392,7 +405,14 @@ export interface WorkflowRuntimeInput {
   systemValues?: Record<string, unknown>;
   mockResponses?: Record<string, WorkflowMockStepOutput>;
   mode: WorkflowTestRunMode;
+  /**
+   * 执行同一 WorkflowVersion 的哪一条分支。
+   * 未提供时按 deploy 处理，并保留旧调用方的自动回滚兼容行为。
+   */
+  executionBranch?: WorkflowExecutionBranch;
 }
+
+export type WorkflowExecutionBranch = 'deploy' | 'rollback';
 
 export interface WorkflowStepRuntimeInput extends Omit<WorkflowRuntimeInput, 'templateVersionId'> {
   content: WorkflowDslV1;
@@ -437,6 +457,7 @@ export interface WorkflowStepRunResult {
 export interface WorkflowRunResult {
   id: string;
   mode: WorkflowTestRunMode;
+  executionBranch: WorkflowExecutionBranch;
   plannedOnly: boolean;
   status: WorkflowRunStatus;
   renderedSteps: WorkflowRenderedStep[];

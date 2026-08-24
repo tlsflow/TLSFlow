@@ -117,6 +117,7 @@ export class DeploymentStrategyResolver {
           target: workflow.target,
           inputBindings: workflow.inputBindings ?? emptyInputBindingsV1(),
           credentials: workflow.credentials ?? {},
+          executionBranch: workflow.executionBranch ?? 'deploy',
           rollbackWorkflowVersionId: workflow.rollbackWorkflowVersionId,
           applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBinding?.id,

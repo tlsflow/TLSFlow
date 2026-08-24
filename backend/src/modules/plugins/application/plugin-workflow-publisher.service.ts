@@ -15,6 +15,7 @@ export class PluginWorkflowPublisherService {
 
   async publishPlugin(record: UnifiedPluginVersionRecord): Promise<PluginWorkflowBindingRecord[]> {
     if (record.runtime !== 'WORKFLOW_DSL') return [];
+    this.assertSharedBranchResource(record);
     const output: PluginWorkflowBindingRecord[] = [];
     for (const [capabilityKey, resourcePath] of Object.entries(record.manifest.resources.workflows ?? {})) {
       const existing = await this.repository.find(record.id, capabilityKey);
@@ -25,7 +26,7 @@ export class PluginWorkflowPublisherService {
       }
       const shared = await this.repository.findByResource(record.id, resourcePath);
       if (shared) {
-        output.push(await this.repository.save({ ...shared, capabilityKey }));
+        output.push(await this.repository.save({ ...shared, capabilityKey, ownerType: ownerTypeOf(record), ownerId: ownerIdOf(record) }));
         continue;
       }
       const contentText = record.resources[resourcePath];
@@ -43,6 +44,8 @@ export class PluginWorkflowPublisherService {
         workflowTemplateId: published.templateId,
         workflowVersionId: published.versionId,
         workflowContentSha256: contentSha256,
+        ownerType: ownerTypeOf(record),
+        ...(ownerIdOf(record) ? { ownerId: ownerIdOf(record) } : {}),
         createdAt: new Date().toISOString(),
       }));
     }
@@ -66,6 +69,18 @@ export class PluginWorkflowPublisherService {
     }
   }
 
+  private assertSharedBranchResource(record: UnifiedPluginVersionRecord): void {
+    const deployPath = record.manifest.resources.workflows?.['certificate.deploy'];
+    const rollbackPath = record.manifest.resources.workflows?.['certificate.rollback'];
+    if (deployPath && rollbackPath && deployPath !== rollbackPath) {
+      throw new AppError('VALIDATION_FAILED', '插件的 certificate.deploy 与 certificate.rollback 必须指向同一 Workflow DSL 资源', {
+        pluginVersionId: record.id,
+        deployPath,
+        rollbackPath,
+      });
+    }
+  }
+
   private async publishWorkflowVersion(
     record: UnifiedPluginVersionRecord,
     content: WorkflowDslV1,
@@ -73,7 +88,11 @@ export class PluginWorkflowPublisherService {
   ): Promise<{ templateId: string; versionId: string; contentHash: string }> {
     const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布`;
     if (!previous) {
-      const created = await this.workflows.createPluginTemplate({ content, changeSummary });
+      const created = await this.workflows.createPluginTemplate({ content, changeSummary }, {
+        ownerType: ownerTypeOf(record),
+        ownerId: ownerIdOf(record),
+        tenantId: record.tenantId,
+      });
       const published = await this.workflows.publishPluginVersion(created.version.id);
       return { templateId: created.template.id, versionId: published.id, contentHash: published.contentHash };
     }
@@ -85,4 +104,12 @@ export class PluginWorkflowPublisherService {
     const published = await this.workflows.publishPluginVersion(draft.id);
     return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
   }
+}
+
+function ownerTypeOf(record: UnifiedPluginVersionRecord): 'SYSTEM' | 'TENANT' {
+  return record.ownerType ?? (record.source === 'BUILTIN' ? 'SYSTEM' : 'TENANT');
+}
+
+function ownerIdOf(record: UnifiedPluginVersionRecord): string | undefined {
+  return record.ownerId ?? (ownerTypeOf(record) === 'TENANT' ? record.tenantId : undefined);
 }

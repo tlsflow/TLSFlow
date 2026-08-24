@@ -600,6 +600,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
       return {
         id: `run_${templateVersionId}`,
         mode: 'real_test',
+        executionBranch: 'deploy',
         plannedOnly: false,
         status: 'success',
         renderedSteps: [],

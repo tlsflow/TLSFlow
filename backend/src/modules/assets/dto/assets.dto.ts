@@ -64,6 +64,8 @@ export interface WorkflowDeploymentStrategyDto {
   };
   credentials?: Record<string, RuntimeCredentialV1 & { credentialVersionId: string; snapshotSha256: string }>;
   inputBindings?: InputBindingsV1;
+  executionBranch?: 'deploy' | 'rollback';
+  /** @deprecated 回滚应复用同一 WorkflowVersion 的 rollback 分支。 */
   rollbackWorkflowVersionId?: string;
 }
 

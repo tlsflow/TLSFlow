@@ -25,6 +25,7 @@ const workflowStrategyKeys = new Set([
   'target',
   'credentials',
   'inputBindings',
+  'executionBranch',
   'rollbackWorkflowVersionId',
 ]);
 const workflowTargetKeys = new Set(['frameworkType', 'siteName', 'bindingInformation', 'hostHeader', 'port', 'protocol', 'verifyUrl', 'sniName']);
@@ -78,6 +79,8 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     const runner = workflow.runner;
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
+    const executionBranch = workflow.executionBranch ?? 'deploy';
+    if (executionBranch !== 'deploy' && executionBranch !== 'rollback') throw strategyError('workflow.executionBranch 只支持 deploy/rollback');
     const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId);
     return {
       type: 'WORKFLOW',
@@ -92,6 +95,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),
         inputBindings: pluginBindingId ? undefined : normalizeInputBindingsV1(workflow.inputBindings),
+        executionBranch,
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
       compatibilityMode: 'UNIFIED',
