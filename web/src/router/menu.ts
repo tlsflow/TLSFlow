@@ -22,14 +22,14 @@ export const mainMenuItems: MenuItem[] = [
     ]
   },
   {
-    title: '资产',
+    title: '应用资产',
     path: '/assets',
     module: 'asset',
-    permission: 'host.read',
+    permission: 'service_asset.read',
     icon: 'server',
-    description: '主机、Agent 和网关统一入口',
+    description: '域名/IP 维度的应用入口与证书部署目标',
     children: [
-      { title: '主机资产', path: '/assets', module: 'asset', permission: 'host.read', description: '主机、服务实例和发现结果' },
+      { title: '应用资产', path: '/assets', module: 'asset', permission: 'service_asset.read', description: '域名、端口、协议和关联服务实例' },
       { title: 'Agent', path: '/agents', module: 'agent', permission: 'agent.read', description: '在线状态、心跳和能力集合' },
       { title: '网关', path: '/gateways', module: 'gateway', permission: 'gateway.read', description: '隔离区网关、协议和可达目标' }
     ]

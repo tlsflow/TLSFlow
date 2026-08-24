@@ -77,13 +77,13 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
-      title: '资产',
+      title: '应用资产',
       module: 'asset',
       requiresAuth: true,
-      permission: 'host.read',
-      resourceType: 'host',
+      permission: 'service_asset.read',
+      resourceType: 'service_asset',
       riskLevel: 'low',
-      breadcrumb: ['资产'],
+      breadcrumb: ['应用资产'],
       keepAlive: true
     }
   },

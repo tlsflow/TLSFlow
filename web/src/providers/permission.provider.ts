@@ -9,6 +9,8 @@ export const skeletonPermissions = [
   'certificate.asset.read',
   'certificate.import',
   'host.read',
+  'service_asset.read',
+  'service_asset.manage',
   'binding.read',
   'deployment.plan.read',
   'execution.read',

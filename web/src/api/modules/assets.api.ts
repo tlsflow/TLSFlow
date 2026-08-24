@@ -2,6 +2,7 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQuery, type ApiRecord, type ApiRecordResult } from './common'
 
 const HOSTS_PATH = '/api/v1/hosts'
+const SERVICE_ASSETS_PATH = '/api/v1/service-assets'
 const SERVICE_INSTANCES_PATH = '/api/v1/service-instances'
 const DISCOVERY_RUNS_PATH = '/api/v1/discovery-runs'
 const CAPABILITIES_PATH = '/api/v1/capabilities/definitions'
@@ -10,7 +11,15 @@ const CAPABILITY_REQUIREMENTS_PATH = '/api/v1/capabilities/requirements'
 const AGENTS_PATH = '/api/v1/agents'
 
 export function listAssets(query?: BusinessListQuery) {
-  return listRecords(HOSTS_PATH, query)
+  return listRecords(SERVICE_ASSETS_PATH, query)
+}
+
+export function createServiceAsset(payload: ApiBody) {
+  return postAction(SERVICE_ASSETS_PATH, payload, 'service_asset_create')
+}
+
+export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
+  return patchAction(SERVICE_ASSETS_PATH, { ...payload, id: serviceAssetId }, 'service_asset_update')
 }
 
 export function createHost(payload: ApiBody) {

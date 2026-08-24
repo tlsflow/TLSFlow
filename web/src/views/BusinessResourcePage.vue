@@ -37,6 +37,10 @@ const detailFields = computed(
   () => props.config.detailFields ?? props.config.columns.map((column) => ({ label: column.title, candidates: column.candidates })),
 )
 const filterValues = computed(() => props.config.filterValues ?? {})
+const showHeader = computed(() => props.config.showHeader !== false)
+const showMetrics = computed(() => props.config.showMetrics !== false)
+const showEmptyState = computed(() => props.config.showEmptyState !== false)
+const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
 
 watch(
   () => state.rows.value,
@@ -133,7 +137,7 @@ defineExpose({
 
 <template>
   <section class="gc-page business-page" :data-module="config.moduleName">
-    <GcPageHeader :title="config.title" :description="config.description">
+    <GcPageHeader v-if="showHeader" :title="config.title" :description="config.description">
       <template #actions>
         <GcPermissionButton :permission="config.primaryPermission" :disabled="primaryActionPending" @click="runPrimaryAction">
           {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
@@ -144,7 +148,7 @@ defineExpose({
     <p v-if="primaryActionError" class="business-page__primary-error">{{ primaryActionError }}</p>
     <slot name="after-header" />
 
-    <section class="business-page__metrics" aria-label="业务指标">
+    <section v-if="showMetrics" class="business-page__metrics" aria-label="业务指标">
       <article v-for="metric in config.metrics" :key="metric.title" class="gc-card business-page__metric">
         <strong>{{ metric.title }}</strong>
         <span class="business-page__metric-count">{{ metricCount(metric.title) }}</span>
@@ -175,6 +179,14 @@ defineExpose({
             <span>总数 {{ state.total.value }}</span>
           </div>
           <div class="business-page__toolbar-actions">
+            <GcPermissionButton
+              v-if="!showHeader && showPrimaryAction"
+              :permission="config.primaryPermission"
+              :disabled="primaryActionPending"
+              @click="runPrimaryAction"
+            >
+              {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
+            </GcPermissionButton>
             <span class="business-page__pill">{{ selectedRow?.name ? `已选 ${selectedRow.name}` : '未选择资源' }}</span>
             <span v-if="hasDangerAction" class="business-page__pill business-page__pill--danger">高危操作需确认</span>
             <button class="gc-button" type="button" @click="state.reload">刷新</button>
@@ -231,7 +243,7 @@ defineExpose({
     </GcDataTable>
 
     <GcEmptyState
-      v-if="!state.loading.value && !state.error.value && state.rows.value.length === 0"
+      v-if="showEmptyState && !state.loading.value && !state.error.value && state.rows.value.length === 0"
       :title="config.emptyTitle"
       :description="config.emptyDescription"
     />
