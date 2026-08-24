@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { GcLocaleSelect, GcThemeToggle } from '@/design-system/components'
+import { normalizeInternalRedirectPath } from '@/router/redirect'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
@@ -22,8 +23,7 @@ const loading = ref(false)
 const error = ref('')
 
 const redirectPath = computed(() => {
-  const value = route.query.redirect
-  return typeof value === 'string' && value.startsWith('/') ? value : '/dashboard'
+  return normalizeInternalRedirectPath(route.query.redirect, '/dashboard')
 })
 
 async function submit() {

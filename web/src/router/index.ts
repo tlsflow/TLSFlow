@@ -5,11 +5,15 @@ import AuthLayout from '@/layouts/AuthLayout.vue'
 import { businessRoutes } from './modules/business'
 import { coreRoutes } from './modules/core'
 import { registerRouterGuards } from './guards'
+import { normalizeInternalRedirectPath } from './redirect'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: '/', redirect: '/dashboard' },
+    {
+      path: '/',
+      redirect: (to) => normalizeInternalRedirectPath(to.query.from, '/dashboard')
+    },
     {
       path: '/',
       component: AuthLayout,
