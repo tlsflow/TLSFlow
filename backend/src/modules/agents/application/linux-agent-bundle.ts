@@ -32,6 +32,9 @@ export interface LinuxBundleManifestItem {
   sha256: string;
 }
 
+/** 当前一键 Linux 安装入口的 bundle 固定面向主流 x86_64 主机。 */
+export const LINUX_AGENT_BUNDLE_ARCH = 'amd64' as const;
+
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 const sourceDir = resolve(rootDir, 'agents/linux-go-full-agent');
 
@@ -68,8 +71,10 @@ export function getLinuxAgentInstallMaterials(arch = releaseArchitecture()): Lin
 }
 
 export function getLinuxAgentBundleFiles(): LinuxBundleFile[] {
+  const binary = loadFile('gcac-linux-agent', 0o755);
+  assertLinuxAmd64Elf(binary.content);
   return [
-    loadFile('gcac-linux-agent', 0o755),
+    binary,
     loadFile('linux/upgrade.sh', 0o755),
     loadFile('linux/rollback.sh', 0o755),
     loadFile('release/verify-signature.sh', 0o755),
@@ -109,7 +114,28 @@ export function buildLinuxAgentBundleTarGz(): Buffer {
 }
 
 export function getLinuxAgentBinarySha256(): string {
-  return sha256(loadFile('gcac-linux-agent', 0o755).content);
+  const binary = loadFile('gcac-linux-agent', 0o755);
+  assertLinuxAmd64Elf(binary.content);
+  return sha256(binary.content);
+}
+
+/**
+ * bundle 在控制面生成时就拒绝错误平台产物，避免把 macOS/Windows 文件复制到 Linux 主机。
+ * ELF e_machine=62 表示 x86_64；安装入口当前没有按架构分发，因此不能接受 arm64。
+ */
+export function assertLinuxAmd64Elf(content: Buffer): void {
+  if (content.length < 20 || content.subarray(0, 4).toString('hex') !== '7f454c46' || content[4] !== 2 || content[5] !== 1) {
+    throw new AppError('RESOURCE_VERSION_CONFLICT', 'Linux Agent bundle 必须是 little-endian ELF64 可执行文件', {
+      expected: 'linux/amd64 ELF64',
+    });
+  }
+  const machine = content.readUInt16LE(18);
+  if (machine !== 0x3e) {
+    throw new AppError('RESOURCE_VERSION_CONFLICT', 'Linux Agent bundle 架构不匹配', {
+      expected: 'linux/amd64',
+      machine,
+    });
+  }
 }
 
 function releaseArchitecture(): 'amd64' | 'arm64' {

@@ -16,6 +16,9 @@
   "authorizationTrustKeySet": {},
   "upgradeTrustKeySet": {},
   "releaseTrustKeySet": {},
+  "receiptKeyId": "",
+  "receiptSigningKeyPath": "/var/lib/gcac/linux-agent/policy/agent-receipt-signing-key.bin",
+  "receiptKeySetPath": "/var/lib/gcac/linux-agent/policy/agent-receipt-keyset.json",
   "paths": {
     "linux": {
       "configPath": "/etc/gcac/linux-agent/agent.config.json",

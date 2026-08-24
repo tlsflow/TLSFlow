@@ -51,6 +51,9 @@ type AgentConfig struct {
 	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
 	UpgradeTrustKeySet         map[string]string `json:"upgradeTrustKeySet"`
 	ReleaseTrustKeySet         map[string]string `json:"releaseTrustKeySet"`
+	ReceiptKeyID               string            `json:"receiptKeyId"`
+	ReceiptSigningKeyPath      string            `json:"receiptSigningKeyPath"`
+	ReceiptKeySetPath          string            `json:"receiptKeySetPath"`
 	Paths                      struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`
@@ -386,8 +389,10 @@ type linuxActionRuntime struct {
 func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry {
 	registry := coreRegistry.New()
 	agentID := ""
+	var runtimeConfig *AgentConfig
 	if runtime != nil {
 		agentID = runtime.state.AgentID
+		runtimeConfig = runtime.config
 	}
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
 		ActionType:    agentPlanExecute,
@@ -396,7 +401,7 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 			payload := cloneMap(request.Payload)
 			payload["action"] = agentPlanExecute
 			payload["agentId"] = agentID
-			success, code, message, detail := executeAgentV2(ctx, payload, agentID)
+			success, code, message, detail := executeAgentV2(ctx, payload, agentID, runtimeConfig)
 			return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
 		},
 	})
@@ -408,7 +413,7 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
 				payload := cloneMap(request.Payload)
 				payload["action"] = action
-				success, code, message, detail := executeAgentV2(ctx, payload, agentID)
+				success, code, message, detail := executeAgentV2(ctx, payload, agentID, runtimeConfig)
 				return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
 			},
 		})

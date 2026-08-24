@@ -1239,10 +1239,12 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
   it('证书写入结果未知但已有目标指纹时主动核验并继续，不重放 INSTALL', async () => {
     const expectedFingerprint = 'b'.repeat(64);
     let recoveryCalls = 0;
+    const timeline: string[] = [];
     const service = createService({
       unknownResultVerifier: {
         async executeStep(input) {
           recoveryCalls += 1;
+          timeline.push('VERIFY');
           assert.equal(
             (input.step.inputSnapshot.certificateVerification as Record<string, unknown>)?.expectedFingerprintSha256,
             expectedFingerprint,
@@ -1293,18 +1295,19 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     }, 'tenant_1');
     const installCalls: string[] = [];
     const executor = new TrackingExecutor(async (input) => {
+      timeline.push(input.step.stepType);
       if (input.step.stepType === 'INSTALL') {
         installCalls.push(input.step.id);
-          return {
-            success: false,
-            errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
-            errorMessage: 'Plugin Runner 返回结果不明',
-            detail: {
-              executionStatus: 'UNKNOWN',
-              mayBeUnknown: true,
-              operations: [{ operationType: 'filesystem.atomic_replace', status: 'SUCCEEDED' }],
-            },
-          };
+        return {
+          success: false,
+          errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+          errorMessage: 'Plugin Runner 返回结果不明',
+          detail: {
+            executionStatus: 'UNKNOWN',
+            mayBeUnknown: true,
+            operations: [{ operationType: 'filesystem.atomic_replace', status: 'SUCCEEDED' }],
+          },
+        };
       }
       return { success: true };
     });
@@ -1317,8 +1320,78 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(result.success, true);
     assert.equal(installCalls.length, 1);
     assert.equal(recoveryCalls, 1);
-    assert.equal(steps.find((step) => step.stepType === 'INSTALL')?.status, 'SUCCESS');
+    assert.ok(timeline.indexOf('RELOAD') >= 0);
+    assert.ok(timeline.indexOf('RELOAD') < timeline.indexOf('VERIFY'));
+    const recoveredInstall = steps.find((step) => step.stepType === 'INSTALL');
+    assert.equal(recoveredInstall?.status, 'SUCCESS');
+    assert.equal((recoveredInstall?.inputSnapshot.resultDetail as Record<string, unknown> | undefined)?.executionStatus, 'SUCCESS');
+    assert.equal((recoveredInstall?.inputSnapshot.resultDetail as Record<string, unknown> | undefined)?.unknownReason, undefined);
     assert.equal(steps.every((step) => step.status === 'SUCCESS'), true);
+  });
+
+  it('Agent 完整计划未确认 service.reload 时不得提前执行 TLS 核验', async () => {
+    let recoveryCalls = 0;
+    const service = createService({
+      unknownResultVerifier: {
+        async executeStep() {
+          recoveryCalls += 1;
+          return { success: true };
+        },
+      },
+    });
+    const targetId = 'target_unknown_before_reload';
+    const payload = withTestAgentV2ExecutionAuthorization('plan_1', targetId, {
+      certificateVerification: {
+        capabilityKey: 'certificate.verify',
+        schemaVersion: '1.0',
+        connectHost: '127.0.0.1',
+        serverName: 'example.test',
+        port: 443,
+        expectedFingerprintSha256: 'd'.repeat(64),
+      },
+    });
+    const basePlan = payload.plan as Record<string, unknown>;
+    const operations = [
+      ...((basePlan.operations as Array<Record<string, unknown>>) ?? []),
+      {
+        operationId: `reload-${targetId}`,
+        operationType: 'service.reload',
+        stage: 'execute',
+        input: { serviceName: 'apache2' },
+        dependsOn: [],
+        idempotencyKey: `reload-idempotency-${targetId}`,
+        timeoutSeconds: 30,
+      },
+    ];
+    const unsignedPlan = { ...basePlan, operations, planDigest: '' };
+    payload.plan = { ...unsignedPlan, planDigest: computeAgentPlanDigest(unsignedPlan as any) };
+
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_unknown_before_reload',
+      targetIds: [targetId],
+      executorType: 'AGENT',
+      agentPayloads: new Map([[targetId, payload]]),
+    });
+    const executor = new TrackingExecutor(async (input) => input.step.stepType === 'INSTALL'
+      ? {
+          success: false,
+          errorCode: 'AGENT_EXECUTION_UNKNOWN',
+          errorMessage: 'Agent 写入结果不明，未确认重载',
+          detail: {
+            executionStatus: 'UNKNOWN',
+            operationResults: [{ operationType: 'filesystem.atomic_replace', status: 'SUCCEEDED' }],
+          },
+        }
+      : { success: true });
+
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+
+    assert.equal(result.pending, true);
+    assert.equal(result.pendingState, 'AWAITING_CONFIRMATION');
+    assert.equal(recoveryCalls, 0);
+    assert.equal(steps.find((step) => step.stepType === 'INSTALL')?.status, 'RUNNING');
+    assert.equal(steps.find((step) => step.stepType === 'RELOAD')?.status, 'PENDING');
   });
 
   it('Agent 尚无成功写操作证据时不提前执行部署后 TLS 核验', async () => {

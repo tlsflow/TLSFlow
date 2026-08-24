@@ -393,6 +393,50 @@ export class ExecutionsApplicationService {
       const attemptedAt = new Date().toISOString();
       const certificateVerification = readRecord(step.inputSnapshot.certificateVerification) ?? {};
       const expectedFingerprintSha256 = readExpectedCertificateFingerprint(step.inputSnapshot);
+      const reloadGate = await this.ensureReloadBeforeUnknownVerification({
+        step,
+        steps,
+        run,
+        actorId: input.actorId,
+        tenantId: input.tenantId,
+        registry: input.registry ?? this.executorRegistry,
+      });
+      if (!reloadGate.ready) {
+        const recovery = {
+          mode: 'CONTROL_PLANE_TLS',
+          attemptedAt,
+          actorId: input.actorId,
+          status: 'UNAVAILABLE',
+          errorCode: reloadGate.errorCode,
+          errorMessage: reloadGate.errorMessage,
+          detail: {
+            mode: 'control_plane_tls_deferred_until_reload',
+            reloadStepId: reloadGate.reloadStepId,
+            reloadStatus: reloadGate.reloadStatus,
+          },
+        } satisfies Record<string, unknown>;
+        recoveries.push({ stepId: step.id, ...recovery });
+        const previousDetail = readRecord(step.inputSnapshot.resultDetail) ?? {};
+        const history = Array.isArray(previousDetail.recoveryHistory)
+          ? previousDetail.recoveryHistory.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+          : [];
+        const nextDetail = {
+          ...previousDetail,
+          recoveryHistory: [...history, recovery],
+          recovery,
+          executionStatus: 'UNKNOWN',
+        };
+        await this.repository.updateStep(step.id, {
+          inputSnapshot: { ...step.inputSnapshot, resultDetail: nextDetail },
+          lastErrorCode: reloadGate.errorCode,
+          lastErrorMessage: reloadGate.errorMessage,
+          lastErrorDetails: recovery.detail,
+          updatedAt: new Date().toISOString(),
+          updatedBy: input.actorId,
+        });
+        this.detailStream?.publishStep(await this.repository.getStepOrThrow(step.id, input.tenantId));
+        continue;
+      }
       const verificationStep: ExecutionStepEntity = {
         ...step,
         stepType: 'VERIFY',
@@ -453,8 +497,14 @@ export class ExecutionsApplicationService {
       };
 
       if (result.success) {
+        const confirmedDetail: Record<string, unknown> = { ...nextDetail, executionStatus: 'SUCCESS' };
+        // TLS 只读核验已经确认目标证书后，清除此前 UNKNOWN 的暂存诊断，
+        // 避免界面同时显示 SUCCESS 和“结果不明”的矛盾状态。
+        delete confirmedDetail.unknownReason;
+        delete confirmedDetail.errorCode;
+        delete confirmedDetail.cancellationRace;
         await this.transitionStepEntity(step, 'SUCCESS', input.actorId, 'step.recovery.confirmed', {
-          inputSnapshot: { ...step.inputSnapshot, resultDetail: { ...nextDetail, executionStatus: 'SUCCESS' } },
+          inputSnapshot: { ...step.inputSnapshot, resultDetail: confirmedDetail },
           lastErrorCode: undefined,
           lastErrorMessage: undefined,
           lastErrorDetails: undefined,
@@ -538,6 +588,81 @@ export class ExecutionsApplicationService {
       run: this.toRunDto(refreshedRun),
       steps: refreshedSteps.map((step) => this.toStepDto(step)),
       recoveries,
+    };
+  }
+
+  /**
+   * UNKNOWN INSTALL 只能在服务重载完成后进行 TLS 核验。
+   *
+   * Full Agent 的完整 Agent Plan 在 INSTALL 内部执行 service.reload，外层
+   * RELOAD 只是生命周期展示边界；只有 Agent 回执明确报告该操作成功，才
+   * 允许进入 TLS 核验。普通 Workflow/Plugin Runner 则先执行外层 RELOAD，
+   * 绝不重放原 INSTALL。
+   */
+  private async ensureReloadBeforeUnknownVerification(input: {
+    step: ExecutionStepEntity;
+    steps: ExecutionStepEntity[];
+    run: ExecutionRunEntity;
+    actorId: string;
+    tenantId: string;
+    registry: ExecutorRegistry;
+  }): Promise<{
+    ready: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    reloadStepId?: string;
+    reloadStatus?: ExecutionStepEntity['status'];
+  }> {
+    if (input.step.stepType !== 'INSTALL') return { ready: true };
+
+    if (isMonolithicAgentPlanPayload(input.step.inputSnapshot)
+      && !hasSuccessfulAgentReloadResult(input.step)) {
+      return {
+        ready: false,
+        errorCode: 'SERVICE_RELOAD_RESULT_UNCONFIRMED',
+        errorMessage: 'Agent 内置 service.reload 尚未确认，已延后 TLS 验证',
+      };
+    }
+
+    const reloadStep = input.steps.find((candidate) => candidate.deploymentPlanTargetId === input.step.deploymentPlanTargetId
+      && candidate.stepType === 'RELOAD');
+    if (!reloadStep || reloadStep.status === 'SUCCESS' || reloadStep.status === 'SKIPPED') {
+      return { ready: true, reloadStepId: reloadStep?.id, reloadStatus: reloadStep?.status };
+    }
+    if (reloadStep.status === 'RUNNING') {
+      return {
+        ready: false,
+        errorCode: 'SERVICE_RELOAD_RESULT_UNCONFIRMED',
+        errorMessage: '服务重载仍在执行，已延后 TLS 验证',
+        reloadStepId: reloadStep.id,
+        reloadStatus: reloadStep.status,
+      };
+    }
+    if (reloadStep.status !== 'PENDING') {
+      return {
+        ready: false,
+        errorCode: reloadStep.lastErrorCode ?? 'SERVICE_RELOAD_FAILED',
+        errorMessage: reloadStep.lastErrorMessage ?? '服务重载未成功，已跳过 TLS 验证',
+        reloadStepId: reloadStep.id,
+        reloadStatus: reloadStep.status,
+      };
+    }
+
+    await this.executeSingleStep(reloadStep.id, input.run, input.actorId, input.tenantId, input.registry);
+    const refreshedReload = await this.repository.getStepOrThrow(reloadStep.id, input.tenantId);
+    if (refreshedReload.status === 'SUCCESS' || refreshedReload.status === 'SKIPPED') {
+      return { ready: true, reloadStepId: refreshedReload.id, reloadStatus: refreshedReload.status };
+    }
+    return {
+      ready: false,
+      errorCode: refreshedReload.status === 'RUNNING'
+        ? 'SERVICE_RELOAD_RESULT_UNCONFIRMED'
+        : refreshedReload.lastErrorCode ?? 'SERVICE_RELOAD_FAILED',
+      errorMessage: refreshedReload.status === 'RUNNING'
+        ? '服务重载仍在执行，已延后 TLS 验证'
+        : refreshedReload.lastErrorMessage ?? '服务重载未成功，已跳过 TLS 验证',
+      reloadStepId: refreshedReload.id,
+      reloadStatus: refreshedReload.status,
     };
   }
 
@@ -1954,16 +2079,16 @@ function hasUnknownExecutionResult(step: ExecutionStepEntity): boolean {
     || step.lastErrorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE';
 }
 
-/** 中文说明：只有固定目标证书指纹的部署步骤才允许自动做只读核验。 */
+/** 中文说明：只有固定目标证书指纹且已完成服务重载的部署步骤才允许自动做只读核验。 */
 function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
   if (step.inputSnapshot.dryRun === true) return false;
   const verification = readRecord(step.inputSnapshot.certificateVerification);
   if (verification?.capabilityKey !== 'certificate.verify' || verification?.schemaVersion !== '1.0') return false;
   if (!readExpectedCertificateFingerprint(step.inputSnapshot)) return false;
 
-  // Agent v2 在签发回执前失败时可能尚未执行任何写操作。此时直接拿目标证书
-  // 指纹做控制面核验，会把部署前的旧证书错误报告成“目标不一致”。只有 Agent
-  // 回执中至少出现一个成功的写操作，才有事实基础进行部署后只读核验。
+  // 完整 Agent Plan 在 INSTALL 内部包含 service.reload。只有同时有成功写入和
+  // 成功重载证据时，才允许在未知结果恢复中核验 TLS；否则可能在 Apache 重载
+  // 前拿旧证书与目标证书比较，产生错误的指纹不匹配。
   if (String(step.inputSnapshot.executorType ?? '').toUpperCase() === 'AGENT') {
     const detail = readRecord(step.inputSnapshot.resultDetail);
     const operationResults = Array.isArray(detail?.operationResults)
@@ -1979,13 +2104,34 @@ function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
       'service.reload',
       'command.execute_allowlisted',
     ]);
-    return operationResults.some((operation) => {
+    const hasSuccessfulWrite = operationResults.some((operation) => {
       const record = readRecord(operation);
       return writeOperationTypes.has(readString(record?.operationType) ?? '')
         && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
     });
+    if (isMonolithicAgentPlanPayload(step.inputSnapshot)) {
+      const hasSuccessfulReload = operationResults.some((operation) => {
+        const record = readRecord(operation);
+        return readString(record?.operationType) === 'service.reload'
+          && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
+      });
+      return hasSuccessfulWrite && hasSuccessfulReload;
+    }
+    return hasSuccessfulWrite;
   }
   return true;
+}
+
+function hasSuccessfulAgentReloadResult(step: ExecutionStepEntity): boolean {
+  const detail = readRecord(step.inputSnapshot.resultDetail);
+  const operationResults = Array.isArray(detail?.operationResults)
+    ? detail.operationResults
+    : Array.isArray(detail?.operations) ? detail.operations : [];
+  return operationResults.some((operation) => {
+    const record = readRecord(operation);
+    return readString(record?.operationType) === 'service.reload'
+      && String(record?.status ?? '').toUpperCase() === 'SUCCEEDED';
+  });
 }
 
 /**

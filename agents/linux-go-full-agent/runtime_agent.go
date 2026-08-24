@@ -54,14 +54,15 @@ type registerResponse struct {
 
 // 控制面只下发公钥和绑定策略，私钥从不离开本机 Authority。
 type agentTrustMaterialWire struct {
-	MaterialVersion           string               `json:"materialVersion"`
-	IssuedAt                  string               `json:"issuedAt"`
-	ValidUntil                string               `json:"validUntil"`
-	CapabilityKeySet          map[string]string    `json:"capabilityKeySet"`
-	PolicyAuthorityKeySet     map[string]string    `json:"policyAuthorityKeySet"`
-	LocalPolicy               agentLocalPolicyWire `json:"localPolicy"`
-	LocalPolicyAuthorityKeyID string               `json:"localPolicyAuthorityKeyId"`
-	LocalPolicySignature      string               `json:"localPolicySignature"`
+	MaterialVersion           string                              `json:"materialVersion"`
+	IssuedAt                  string                              `json:"issuedAt"`
+	ValidUntil                string                              `json:"validUntil"`
+	CapabilityKeySet          map[string]string                   `json:"capabilityKeySet"`
+	PolicyAuthorityKeySet     map[string]string                   `json:"policyAuthorityKeySet"`
+	LocalPolicy               agentLocalPolicyWire                `json:"localPolicy"`
+	LocalPolicyAuthorityKeyID string                              `json:"localPolicyAuthorityKeyId"`
+	LocalPolicySignature      string                              `json:"localPolicySignature"`
+	ProvisionedLocalPolicy    *signedAgentLocalPolicyMaterialWire `json:"provisionedLocalPolicy,omitempty"`
 }
 
 var agentTrustMaterialState = struct {
@@ -70,18 +71,30 @@ var agentTrustMaterialState = struct {
 }{}
 
 type agentLocalPolicyWire struct {
-	PolicyVersion   string   `json:"policyVersion"`
-	AgentID         string   `json:"agentId"`
-	AuthorityKeyIDs []string `json:"authorityKeyIds"`
-	AllowedActions  []string `json:"allowedActions"`
-	PathRules       []struct {
-		Prefix     string   `json:"prefix"`
-		Operations []string `json:"operations"`
-	} `json:"pathRules"`
-	ServiceRules []string `json:"serviceRules"`
-	CommandRules []any    `json:"commandRules"`
-	Disabled     bool     `json:"disabled"`
-	UpdatedAt    string   `json:"updatedAt"`
+	PolicyVersion   string                   `json:"policyVersion"`
+	AgentID         string                   `json:"agentId"`
+	AuthorityKeyIDs []string                 `json:"authorityKeyIds"`
+	AllowedActions  []string                 `json:"allowedActions"`
+	PathRules       []agentLocalPathRuleWire `json:"pathRules"`
+	ServiceRules    []string                 `json:"serviceRules"`
+	CommandRules    []any                    `json:"commandRules"`
+	Disabled        bool                     `json:"disabled"`
+	UpdatedAt       string                   `json:"updatedAt"`
+}
+
+type agentLocalPathRuleWire struct {
+	Prefix     string   `json:"prefix"`
+	Operations []string `json:"operations"`
+}
+
+// provisioning 材料由 Policy Authority 签名，只包含当前 Agent 的稳定能力上限。
+type signedAgentLocalPolicyMaterialWire struct {
+	MaterialVersion string               `json:"materialVersion"`
+	TenantID        string               `json:"tenantId"`
+	AgentID         string               `json:"agentId"`
+	LocalPolicy     agentLocalPolicyWire `json:"localPolicy"`
+	AuthorityKeyID  string               `json:"authorityKeyId"`
+	Signature       string               `json:"signature"`
 }
 
 type heartbeatRequest struct {
@@ -669,8 +682,7 @@ func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *a
 		strings.TrimSpace(agentID) == "" ||
 		material.LocalPolicy.AgentID != agentID ||
 		material.LocalPolicy.PolicyVersion != agentSecurityContract ||
-		material.LocalPolicyAuthorityKeyID == "" ||
-		material.LocalPolicySignature == "" ||
+		material.LocalPolicy.Disabled ||
 		len(material.CapabilityKeySet) == 0 ||
 		len(material.PolicyAuthorityKeySet) == 0 {
 		return errors.New("Agent 授权材料缺失必要字段")
@@ -680,20 +692,83 @@ func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *a
 	if issuedErr != nil || validErr != nil || !validUntil.After(issuedAt) || !time.Now().Before(validUntil) {
 		return errors.New("Agent 授权材料已过期或时间窗无效")
 	}
-	if !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
-		return errors.New("Agent 本地策略未信任签发 Key")
-	}
-	trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
-	if !ok || strings.TrimSpace(trustedKey) == "" {
-		return errors.New("Agent 安装配置未固定本地策略签发 Key")
-	}
-	if err := verifySignatureWithKeySet(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
-		return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+	if material.ProvisionedLocalPolicy != nil {
+		if err := validateProvisionedLocalPolicy(config, material.ProvisionedLocalPolicy, material.LocalPolicy); err != nil {
+			return err
+		}
+	} else {
+		if material.LocalPolicyAuthorityKeyID == "" || material.LocalPolicySignature == "" || !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
+			return errors.New("Agent 本地策略未信任签发 Key")
+		}
+		trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
+		if !ok || strings.TrimSpace(trustedKey) == "" {
+			return errors.New("Agent 安装配置未固定本地策略签发 Key")
+		}
+		if err := verifySignatureWithKeySet(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
+			return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+		}
 	}
 	if !sameStringMap(material.CapabilityKeySet, config.AuthorizationTrustKeySet) ||
 		!sameStringMap(material.PolicyAuthorityKeySet, config.AuthorizationTrustKeySet) {
 		return errors.New("Agent 授权材料 KeySet 与安装信任根不匹配")
 	}
+	return nil
+}
+
+func validateProvisionedLocalPolicy(config *AgentConfig, incoming *signedAgentLocalPolicyMaterialWire, policy agentLocalPolicyWire) error {
+	if config == nil || incoming.MaterialVersion != "gcac.policy-authority-provisioning/v1" || incoming.TenantID != config.TenantID || incoming.AgentID != policy.AgentID || incoming.LocalPolicy.AgentID != policy.AgentID || incoming.LocalPolicy.PolicyVersion != agentSecurityContract || incoming.AuthorityKeyID == "" || incoming.Signature == "" || incoming.LocalPolicy.Disabled || !containsString(incoming.LocalPolicy.AuthorityKeyIDs, incoming.AuthorityKeyID) {
+		return unavailableAgentAuthorizationMaterial("provisioned local policy binding is invalid")
+	}
+	if string(canonicalJSON(incoming.LocalPolicy)) != string(canonicalJSON(policy)) {
+		return unavailableAgentAuthorizationMaterial("provisioned local policy projection was modified")
+	}
+	unsigned := map[string]any{"materialVersion": incoming.MaterialVersion, "tenantId": incoming.TenantID, "agentId": incoming.AgentID, "localPolicy": localPolicyWithoutSignature(incoming.LocalPolicy), "authorityKeyId": incoming.AuthorityKeyID}
+	if err := verifySignatureWithKeySet(incoming.AuthorityKeyID, incoming.Signature, unsigned, config.AuthorizationTrustKeySet); err != nil {
+		return unavailableAgentAuthorizationMaterial(fmt.Sprintf("provisioned local policy signature invalid: %v", err))
+	}
+	return nil
+}
+
+func persistProvisionedLocalPolicy(config *AgentConfig, agentID string, incoming *signedAgentLocalPolicyMaterialWire) error {
+	if err := validateProvisionedLocalPolicy(config, incoming, incoming.LocalPolicy); err != nil {
+		return err
+	}
+	current := currentAgentTrustMaterial()
+	if current == nil {
+		return unavailableAgentAuthorizationMaterial("existing Agent trust material is unavailable")
+	}
+	if current.ProvisionedLocalPolicy != nil && current.ProvisionedLocalPolicy.Signature == incoming.Signature {
+		return nil
+	}
+	updated := *current
+	updated.LocalPolicy = incoming.LocalPolicy
+	updated.ProvisionedLocalPolicy = incoming
+	updated.LocalPolicyAuthorityKeyID = incoming.AuthorityKeyID
+	updated.LocalPolicySignature = ""
+	if err := validateAgentTrustMaterial(config, agentID, &updated); err != nil {
+		return err
+	}
+	return writeAgentTrustMaterialAtomically(config, &updated)
+}
+
+func writeAgentTrustMaterialAtomically(config *AgentConfig, material *agentTrustMaterialWire) error {
+	path := resolveAgentTrustMaterialPath(config)
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	setAgentTrustMaterial(material)
 	return nil
 }
 
@@ -1187,7 +1262,11 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 
 func recoverPendingResults(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, ledger *resultLedger) error {
 	for _, item := range ledger.pending() {
-		request := submitResultRequest{AgentID: state.AgentID, TaskID: item.TaskID, LeaseID: item.LeaseID, Success: item.Success, ErrorCode: item.ErrorCode, ErrorMessage: item.ErrorMessage, Detail: item.Detail}
+		detail, err := repairPendingReceipt(item.Detail, config)
+		if err != nil {
+			return fmt.Errorf("修复暂存任务回执失败 taskId=%s: %w", item.TaskID, err)
+		}
+		request := submitResultRequest{AgentID: state.AgentID, TaskID: item.TaskID, LeaseID: item.LeaseID, Success: item.Success, ErrorCode: item.ErrorCode, ErrorMessage: item.ErrorMessage, Detail: detail}
 		if _, err := submitTaskResult(ctx, client, config, request); err != nil {
 			return fmt.Errorf("恢复上报任务结果失败 taskId=%s: %w", item.TaskID, err)
 		}
@@ -1203,6 +1282,43 @@ func recoverPendingResults(ctx context.Context, client *http.Client, config *Age
 		}
 	}
 	return nil
+}
+
+// repairPendingReceipt 兼容摘要规则修复前已经落盘的结果。
+// 这里只重新签名和上报已有结果，不重新执行任何证书写操作。
+func repairPendingReceipt(detail map[string]any, config *AgentConfig) (map[string]any, error) {
+	if detail == nil {
+		return detail, nil
+	}
+	rawReceipt, ok := detail["receipt"]
+	if !ok || rawReceipt == nil {
+		return detail, nil
+	}
+	encoded, err := json.Marshal(rawReceipt)
+	if err != nil {
+		return nil, fmt.Errorf("编码暂存 Receipt 失败: %w", err)
+	}
+	var receipt AgentExecutionReceiptV1
+	if err := json.Unmarshal(encoded, &receipt); err != nil {
+		return nil, fmt.Errorf("解析暂存 Receipt 失败: %w", err)
+	}
+	expected, err := computeAgentExecutionReceiptDigest(receipt)
+	if err != nil {
+		return nil, fmt.Errorf("计算暂存 Receipt 摘要失败: %w", err)
+	}
+	if receipt.Digest == expected && strings.TrimSpace(receipt.Signature) != "" {
+		return detail, nil
+	}
+	signer, err := loadPersistentAgentReceiptSigner(config)
+	if err != nil {
+		return nil, err
+	}
+	if err := signAgentExecutionReceipt(&receipt, signer); err != nil {
+		return nil, fmt.Errorf("重新签名暂存 Receipt 失败: %w", err)
+	}
+	updated := cloneMap(detail)
+	updated["receipt"] = receipt
+	return updated, nil
 }
 
 func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, task agentTaskEnvelope) (bool, string, string, map[string]any) {

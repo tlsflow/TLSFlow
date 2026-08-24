@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getLinuxAgentInstallMaterials } from './application/linux-agent-bundle.js';
+import { assertLinuxAmd64Elf, getLinuxAgentInstallMaterials } from './application/linux-agent-bundle.js';
 
 describe('Linux Agent 安装材料', () => {
+  it('拒绝 macOS 和 arm64 二进制，避免错误平台 bundle 到远端', () => {
+    assert.throws(() => assertLinuxAmd64Elf(Buffer.from('cffaedfe', 'hex')), /必须是 little-endian ELF64/);
+    const arm64Elf = Buffer.alloc(20);
+    arm64Elf.writeUInt32BE(0x7f454c46, 0);
+    arm64Elf[4] = 2;
+    arm64Elf[5] = 1;
+    arm64Elf.writeUInt16LE(0xb7, 18);
+    assert.throws(() => assertLinuxAmd64Elf(arm64Elf), /架构不匹配/);
+  });
+
   it('只返回固定版本、摘要、签名和受控 Artifact 引用', () => {
     const materials = getLinuxAgentInstallMaterials('amd64');
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -180,6 +181,56 @@ func TestV2PlanExecuteReportsUnknownWithoutReceiptSigner(t *testing.T) {
 	}
 	if detail["executionStatus"] != "UNKNOWN" || detail["fallback"] != false || detail["replayed"] != false || detail["receiptUnavailable"] != true {
 		t.Fatalf("签名器不可用必须报告 UNKNOWN 且禁止 fallback/replay: %+v", detail)
+	}
+}
+
+func TestLinuxPersistentReceiptSignerIsGeneratedAndReused(t *testing.T) {
+	root := t.TempDir()
+	config := &AgentConfig{}
+	config.Paths.Linux.DataDir = root
+	config.ReceiptSigningKeyPath = filepath.Join(root, "policy", "agent-receipt-signing-key.bin")
+	config.ReceiptKeySetPath = filepath.Join(root, "policy", "agent-receipt-keyset.json")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+
+	first, err := loadAgentReceiptSigner(config)
+	if err != nil {
+		t.Fatalf("Linux Agent 应自动生成持久化 Receipt 签名材料: %v", err)
+	}
+	if first.KeyID == "" || isDevelopmentKeyID(first.KeyID) {
+		t.Fatalf("自动生成的 Receipt KeyId 不合法: %q", first.KeyID)
+	}
+	if _, err := os.Stat(config.ReceiptSigningKeyPath); err != nil {
+		t.Fatalf("Receipt 私钥未持久化: %v", err)
+	}
+	if _, err := os.Stat(config.ReceiptKeySetPath); err != nil {
+		t.Fatalf("Receipt KeySet 未持久化: %v", err)
+	}
+
+	second, err := loadAgentReceiptSigner(config)
+	if err != nil {
+		t.Fatalf("Linux Agent 应复用已持久化 Receipt 签名材料: %v", err)
+	}
+	if second.KeyID != first.KeyID || !bytes.Equal(second.PrivateKey, first.PrivateKey) {
+		t.Fatalf("重复加载不得生成新的 Receipt 身份: first=%q second=%q", first.KeyID, second.KeyID)
+	}
+}
+
+func TestLinuxPersistentReceiptSignerFailsClosedOnPartialMaterial(t *testing.T) {
+	root := t.TempDir()
+	config := &AgentConfig{}
+	config.Paths.Linux.DataDir = root
+	config.ReceiptSigningKeyPath = filepath.Join(root, "policy", "agent-receipt-signing-key.bin")
+	config.ReceiptKeySetPath = filepath.Join(root, "policy", "agent-receipt-keyset.json")
+	if err := os.MkdirAll(filepath.Dir(config.ReceiptSigningKeyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ReceiptSigningKeyPath, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadAgentReceiptSigner(config); err == nil {
+		t.Fatal("Receipt 材料只存在一半时必须失败关闭")
 	}
 }
 
@@ -494,6 +545,85 @@ func TestLinuxFilesystemBackupAndRestoreRequireSignedCheckpoint(t *testing.T) {
 	withoutCheckpoint := agentPlanAction{OperationID: "restore-2", OperationType: "filesystem.restore", Input: map[string]any{"path": target, "ledgerRef": "execution-recovery-ledger"}}
 	if _, err := executeFilesystemRestore(context.Background(), withoutCheckpoint); err == nil {
 		t.Fatal("仅传递 ledgerRef 的恢复请求必须被拒绝")
+	}
+}
+
+func TestLinuxFilesystemBackupReturnsSignedIdempotentNoOpWhenTargetMatches(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(fixture.Root, "apache.crt")
+	content := []byte("same-certificate")
+	if err := os.WriteFile(target, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := executeFilesystemBackup(context.Background(), agentPlanAction{
+		OperationID:   "backup-noop",
+		OperationType: "filesystem.backup",
+		Input: map[string]any{
+			"path": target, "ledgerRef": "execution-recovery-ledger",
+			"contentBase64": base64.StdEncoding.EncodeToString(content),
+		},
+	}, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail["alreadyCurrent"] != true || detail["idempotentNoOp"] != true {
+		t.Fatalf("相同目标必须返回显式幂等 no-op: %+v", detail)
+	}
+	if _, err := os.Stat(target + ".gcac-backup"); !os.IsNotExist(err) {
+		t.Fatalf("幂等 no-op 不得创建备份文件: err=%v", err)
+	}
+}
+
+func TestLinuxAgentPlanSkipsAtomicReplaceAndConfigCheckButReloadsForIdempotentNoOp(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(fixture.Root, "managed.conf")
+	content := []byte("v2")
+	if err := os.WriteFile(target, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	plan := fixture.Plan
+	encoded := base64.StdEncoding.EncodeToString(content)
+	plan.Operations = []agentPlanAction{
+		{OperationID: "backup-1", OperationType: "filesystem.backup", Stage: "execute", Input: map[string]any{
+			"path": target, "ledgerRef": "execution-recovery-ledger", "contentBase64": encoded,
+		}, DependsOn: []string{}, IdempotencyKey: "backup-1", TimeoutSeconds: 30},
+		{OperationID: "replace-1", OperationType: "filesystem.atomic_replace", Stage: "execute", Input: map[string]any{
+			"path": target, "contentBase64": encoded,
+		}, DependsOn: []string{"backup-1"}, IdempotencyKey: "replace-1", TimeoutSeconds: 30},
+		{OperationID: "config-check", OperationType: "command.execute_allowlisted", Stage: "execute", Input: map[string]any{
+			"executablePath": "/bin/false", "workingDirectory": "/", "args": []string{"config-check"},
+		}, DependsOn: []string{"replace-1"}, IdempotencyKey: "config-check", TimeoutSeconds: 30},
+		{OperationID: "reload-1", OperationType: "service.reload", Stage: "execute", Input: map[string]any{
+			"serviceName": "apache-noop-test",
+		}, DependsOn: []string{"config-check"}, IdempotencyKey: "reload-1", TimeoutSeconds: 30},
+	}
+	detailSuccess, code, message, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer)
+	if detailSuccess || code != "AGENT_EXECUTION_UNKNOWN" {
+		t.Fatalf("服务重载失败时必须失败关闭并报告 UNKNOWN: success=%v code=%s message=%s detail=%+v", detailSuccess, code, message, detail)
+	}
+	operationResults, ok := detail["operationResults"].([]map[string]any)
+	if !ok || len(operationResults) != 4 {
+		t.Fatalf("失败回执必须保留四个操作结果: %+v", detail["operationResults"])
+	}
+	if operationResults[1]["status"] != "SKIPPED" || operationResults[1]["idempotentNoOp"] != true {
+		t.Fatalf("幂等计划必须跳过原子替换: %+v", operationResults[1])
+	}
+	if operationResults[2]["status"] != "SKIPPED" || operationResults[2]["idempotentNoOp"] != true {
+		t.Fatalf("文件幂等时必须跳过配置检查: %+v", operationResults[2])
+	}
+	if operationResults[3]["status"] == "SKIPPED" || operationResults[3]["idempotentNoOp"] == true {
+		t.Fatalf("文件幂等时仍必须执行服务重载: %+v", operationResults[3])
+	}
+	if _, err := os.Stat(target + ".gcac-backup"); !os.IsNotExist(err) {
+		t.Fatalf("幂等计划不得创建备份文件: err=%v", err)
 	}
 }
 

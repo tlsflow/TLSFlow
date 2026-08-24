@@ -54,6 +54,16 @@ if [ ! -x "${BINARY_SOURCE_PATH}" ]; then
   exit 1
 fi
 
+# 控制面 bundle 固定为 Linux x86_64；在远端启动前再次拒绝错误平台文件。
+elf_magic=$(od -An -tx1 -N4 "${BINARY_SOURCE_PATH}" | tr -d '[:space:]')
+elf_class=$(od -An -tu1 -j4 -N1 "${BINARY_SOURCE_PATH}" | tr -d '[:space:]')
+elf_data=$(od -An -tu1 -j5 -N1 "${BINARY_SOURCE_PATH}" | tr -d '[:space:]')
+elf_machine=$(od -An -tu2 -j18 -N2 "${BINARY_SOURCE_PATH}" | tr -d '[:space:]')
+if [ "${elf_magic}" != "7f454c46" ] || [ "${elf_class}" != "2" ] || [ "${elf_data}" != "1" ] || [ "${elf_machine}" != "62" ]; then
+  echo "错误：Linux Agent bundle 不是可执行的 Linux x86_64 ELF 文件，已拒绝安装。" >&2
+  exit 1
+fi
+
 verify_signature
 
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
