@@ -1228,9 +1228,15 @@ onMounted(() => void reloadAll())
 .roles-view__table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
 .roles-view__table-toolbar strong { font-size: var(--gc-font-size-sm); }
 .roles-view__table-toolbar span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 750; }
-.roles-view__toolbar-actions,
-.roles-view__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.roles-view__row-actions { display: flex; flex-wrap: nowrap; gap: var(--gc-space-1); white-space: nowrap; }
+.roles-view__row-actions button { white-space: nowrap; }
 .roles-view__cell-wrap { display: inline-block; max-width: calc(var(--gc-space-10) * 13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+/* 紧凑表格布局：与 settings/users 表格样式对齐 */
+.roles-view :deep(.gc-data-table .gc-data-table__toolbar) { padding: var(--gc-space-3) var(--gc-space-4); }
+.roles-view :deep(.gc-data-table th),
+.roles-view :deep(.gc-data-table td) { padding: var(--gc-space-2) var(--gc-space-3); line-height: 1.25; }
+.roles-view :deep(.gc-data-table th) { font-size: var(--gc-font-size-xs); font-weight: 700; letter-spacing: 0; text-transform: uppercase; white-space: nowrap; }
+.roles-view :deep(.gc-data-table td) { font-size: var(--gc-font-size-xs); font-weight: 650; white-space: nowrap; }
 .roles-view__detail { display: grid; gap: var(--gc-space-4); }
 .roles-view__facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); margin: 0; }
 .roles-view__facts div { min-width: 0; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-3); background: var(--gc-color-surface-muted); }
