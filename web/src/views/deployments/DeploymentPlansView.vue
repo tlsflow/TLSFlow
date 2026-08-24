@@ -899,6 +899,34 @@ function workflowCertificateFormatId(binding: ApiRecord | undefined): string {
   return ''
 }
 
+function workflowExecutionIdentities(record: ApiRecord | null | undefined): ApiRecord[] {
+  const values = readPath(record, 'workflowExecutionIdentities')
+  if (Array.isArray(values)) {
+    return values.filter((item): item is ApiRecord => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+  }
+  const legacy = readRecord(record, ['workflowExecutionIdentity'])
+  return legacy ? [legacy] : []
+}
+
+function workflowIdentityModeLabel(identity: ApiRecord): string {
+  return readString(identity, ['mode']) === 'PLUGIN_INTERNAL_WORKFLOW'
+    ? t('deploymentPlans.detail.workflowModePluginInternal')
+    : t('deploymentPlans.detail.workflowMode')
+}
+
+function workflowIdentityVersionLabel(identity: ApiRecord): string {
+  const version = readString(identity, ['workflowDslVersion'])
+  return version
+    ? t('deploymentPlans.detail.workflowDslVersion', { version })
+    : t('deploymentPlans.detail.workflowIdentityUnavailable')
+}
+
+function workflowIdentitySelectionLabel(identity: ApiRecord): string {
+  return readString(identity, ['workflowVersionSelection']) === 'LATEST_PUBLISHED'
+    ? t('deploymentPlans.detail.workflowVersionSelectionLatest')
+    : t('deploymentPlans.detail.workflowVersionSelectionPinned')
+}
+
 function buildManagedTargetLabel(targetType: string, targetKey: string, managedTargetId: string): string {
   return [targetType, targetKey].filter(Boolean).join(' / ') || managedTargetId
 }
@@ -1179,6 +1207,23 @@ async function fetchAllPages(
             <div><dt>{{ t('deploymentPlans.fields.latestRun') }}</dt><dd>{{ readString(detailPlanRow.raw, ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.failureReason') }}</dt><dd>{{ readString(detailPlanRow.raw, ['failureReason', 'error.message', 'latestRun.failureReason']) }}</dd></div>
           </dl>
+          <section v-if="workflowExecutionIdentities(detailPlanRow.raw).length" class="deployment-plan-detail__workflow">
+            <h3>{{ t('deploymentPlans.detail.workflowIdentityTitle') }}</h3>
+            <ul class="deployment-plan-detail__list">
+              <li v-for="identity in workflowExecutionIdentities(detailPlanRow.raw)" :key="`${readString(identity, ['workflowVersionId'])}:${readString(identity, ['mode'])}`" class="deployment-plan-detail__list-item">
+                <div class="deployment-plan-detail__list-head">
+                  <strong>{{ readString(identity, ['workflowName', 'workflowId'], t('deploymentPlans.detail.workflowIdentityUnavailable')) }}</strong>
+                  <span>{{ workflowIdentityModeLabel(identity) }}</span>
+                </div>
+                <p>{{ workflowIdentityVersionLabel(identity) }}</p>
+                <small>
+                  {{ workflowIdentitySelectionLabel(identity) }}
+                  ·
+                  {{ t('deploymentPlans.detail.workflowVersionId', { versionId: readString(identity, ['workflowVersionId']) }) }}
+                </small>
+              </li>
+            </ul>
+          </section>
           <section class="deployment-plan-detail__input-sources">
             <h3>{{ t('deploymentPlans.detail.inputSourcesTitle') }}</h3>
             <p v-if="deploymentInputSnapshotsLoading" class="deployment-plan-detail__loading">{{ t('common.loading') }}</p>
@@ -1416,6 +1461,8 @@ async function fetchAllPages(
   border-radius: 16px;
   background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-raised));
 }
+.deployment-plan-detail__workflow { display: grid; gap: var(--gc-space-3); }
+.deployment-plan-detail__workflow h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
 .deployment-plan-detail__input-sources { display: grid; gap: var(--gc-space-3); }
 .deployment-plan-detail__input-sources h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
 
