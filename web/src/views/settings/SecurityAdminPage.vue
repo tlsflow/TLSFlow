@@ -4,6 +4,8 @@ import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import { GcModal } from '@/design-system/components'
 
+let securityAdminFormSeed = 0
+
 export interface SecurityFormField {
   readonly key: string
   readonly label: string
@@ -24,7 +26,7 @@ export interface SecurityAdminConfig {
   readonly submitLabel?: string
 }
 
-const props = defineProps<{ config: SecurityAdminConfig }>()
+const props = defineProps<{ config: SecurityAdminConfig; embedded?: boolean }>()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -32,6 +34,7 @@ const error = ref('')
 const rows = ref<ApiRecord[]>([])
 const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
+const formId = `security-admin-create-form-${++securityAdminFormSeed}`
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -78,14 +81,14 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="gc-page security-admin">
+  <section class="security-admin" :class="{ 'gc-page': !props.embedded, 'security-admin--embedded': props.embedded }">
     <header
       class="security-admin__header"
       :class="{ 'security-admin__header--actions-only': !(config.eyebrow || config.title || config.description) }"
     >
       <div v-if="config.eyebrow || config.title || config.description" class="security-admin__header-copy">
         <p v-if="config.eyebrow">{{ config.eyebrow }}</p>
-        <h1 v-if="config.title">{{ config.title }}</h1>
+        <component :is="props.embedded ? 'h2' : 'h1'" v-if="config.title">{{ config.title }}</component>
         <span v-if="config.description">{{ config.description }}</span>
       </div>
       <div class="security-admin__actions">
@@ -110,7 +113,7 @@ onMounted(load)
       :description="`填写以下字段后创建${config.resourceName}`"
       size="lg"
     >
-      <form id="security-admin-create-form" class="security-admin__form" @submit.prevent="submit">
+      <form :id="formId" class="security-admin__form" @submit.prevent="submit">
         <label v-for="field in config.fields" :key="field.key">
           <span>{{ field.label }}</span>
           <select v-if="field.type === 'select'" v-model="form[field.key]" required>
@@ -124,7 +127,7 @@ onMounted(load)
 
       <template #actions>
         <button class="gc-button" type="button" :disabled="saving" @click="createModalOpen = false">取消</button>
-        <button class="gc-button gc-button--primary" type="submit" form="security-admin-create-form" :disabled="saving">
+        <button class="gc-button gc-button--primary" type="submit" :form="formId" :disabled="saving">
           {{ saving ? '提交中…' : config.submitLabel ?? `新增${config.resourceName}` }}
         </button>
       </template>
@@ -153,11 +156,13 @@ onMounted(load)
 
 <style scoped>
 .security-admin { display: grid; gap: var(--gc-space-5); }
+.security-admin--embedded { gap: var(--gc-space-4); }
 .security-admin__header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
 .security-admin__header--actions-only { justify-content: flex-end; }
 .security-admin__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); }
 .security-admin__header-copy p { margin: 0 0 8px; color: var(--gc-color-primary); font-size: 12px; font-weight: 950; letter-spacing: .18em; }
-.security-admin__header-copy h1 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
+.security-admin__header-copy h1, .security-admin__header-copy h2 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
+.security-admin--embedded .security-admin__header-copy h2 { font-size: 22px; letter-spacing: -0.035em; }
 .security-admin__header-copy span { display: block; max-width: 760px; margin-top: 10px; color: var(--gc-color-text-muted); line-height: 1.65; font-weight: 650; }
 .security-admin__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 .security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; }

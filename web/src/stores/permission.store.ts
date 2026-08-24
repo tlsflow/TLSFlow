@@ -2,9 +2,14 @@ import { defineStore } from 'pinia'
 import { mainMenuItems } from '@/router/menu'
 import type { MenuItem } from '@/types/router'
 import { getPermissionProvider } from '@/providers/permission.provider'
+import type { ApiRecord } from '@/api/modules/common'
 
 interface PermissionState {
   permissions: readonly string[]
+  objectSets: readonly ApiRecord[]
+  roleBindings: readonly ApiRecord[]
+  objectPermissionVersion: string | null
+  expiresAt: string | null
   loadedAt: string | null
 }
 
@@ -27,6 +32,10 @@ function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | 
 export const usePermissionStore = defineStore('permission', {
   state: (): PermissionState => ({
     permissions: [],
+    objectSets: [],
+    roleBindings: [],
+    objectPermissionVersion: null,
+    expiresAt: null,
     loadedAt: null
   }),
   getters: {
@@ -40,10 +49,25 @@ export const usePermissionStore = defineStore('permission', {
   },
   actions: {
     async loadPermissions(): Promise<void> {
-      this.setPermissions(await getPermissionProvider().loadPermissions())
+      const provider = getPermissionProvider()
+      const context = await provider.loadPermissionContext?.()
+      if (context) {
+        this.permissions = [...context.permissions]
+        this.objectSets = [...context.objectSets]
+        this.roleBindings = [...context.roleBindings]
+        this.objectPermissionVersion = context.objectPermissionVersion
+        this.expiresAt = context.expiresAt
+        this.loadedAt = new Date().toISOString()
+        return
+      }
+      this.setPermissions(await provider.loadPermissions())
     },
     setPermissions(permissions: readonly string[]): void {
       this.permissions = [...permissions]
+      this.objectSets = []
+      this.roleBindings = []
+      this.objectPermissionVersion = null
+      this.expiresAt = null
       this.loadedAt = new Date().toISOString()
     },
     hasPermission(permission: string): boolean {

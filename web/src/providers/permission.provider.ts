@@ -1,7 +1,8 @@
-import { getCurrentPermissions } from '@/api/modules/security.api'
+import { getCurrentPermissions, getPermissionContext, type ObjectPermissionContextResponse } from '@/api/modules/security.api'
 
 export interface PermissionProvider {
   loadPermissions(): Promise<readonly string[]>
+  loadPermissionContext?(): Promise<ObjectPermissionContextResponse | null>
 }
 
 export const skeletonPermissions = [
@@ -41,12 +42,37 @@ export class ApiPermissionProvider implements PermissionProvider {
     const result = await getCurrentPermissions()
     return result.data?.permissions ?? []
   }
+
+  async loadPermissionContext(): Promise<ObjectPermissionContextResponse | null> {
+    const result = await getPermissionContext()
+    return result.data ?? null
+  }
 }
 
 export class MockPermissionProvider implements PermissionProvider {
   async loadPermissions(): Promise<readonly string[]> {
     // 中文说明：前端权限只负责入口体验，不是安全边界；真实权限以后端返回为准。
     return skeletonPermissions
+  }
+
+  async loadPermissionContext(): Promise<ObjectPermissionContextResponse> {
+    return {
+      user: {
+        id: 'user_mock',
+        username: 'mock',
+        displayName: 'Mock User',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        status: 'active',
+        roles: []
+      },
+      roles: [],
+      permissions: skeletonPermissions,
+      objectSets: [],
+      roleBindings: [],
+      objectPermissionVersion: 'mock',
+      expiresAt: new Date(Date.now() + 300_000).toISOString()
+    }
   }
 }
 
