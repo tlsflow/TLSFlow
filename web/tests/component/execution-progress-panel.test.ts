@@ -33,4 +33,23 @@ describe('GcExecutionProgressPanel', () => {
     expect(text).not.toContain('CUSTOM plugin-version-1')
     expect(text).not.toContain('RUNNING')
   })
+
+  it('步骤间隔期间保持已完成进度，不回退到等待状态', () => {
+    const wrapper = mount(GcExecutionProgressPanel, {
+      global: { plugins: [i18n] },
+      props: {
+        mode: 'execution',
+        steps: [
+          { id: '1', name: 'DISCOVER target-1', stepType: 'DISCOVER', status: 'SUCCESS' },
+          { id: '2', name: 'BACKUP target-1', stepType: 'BACKUP', status: 'SUCCESS' },
+          { id: '3', name: 'INSTALL target-1', stepType: 'INSTALL', status: 'PENDING' },
+          { id: '4', name: 'RELOAD target-1', stepType: 'RELOAD', status: 'PENDING' },
+          { id: '5', name: 'VERIFY target-1', stepType: 'VERIFY', status: 'PENDING' },
+        ],
+        lines: [],
+      },
+    })
+
+    expect(wrapper.find('.gc-dry-run-modern__hero-progress strong').text()).toBe('40%')
+  })
 })

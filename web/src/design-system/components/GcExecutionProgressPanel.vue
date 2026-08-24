@@ -296,8 +296,8 @@ function normalizeCheckStatus(level: ExecutionLogLine['level']): CheckStatus {
 function inferStateFromTasks(tasks: readonly VisibleTask[]): SummaryState {
   if (tasks.length === 0) return 'queued'
   if (tasks.some((task) => task.status === 'failed')) return 'failed'
-  if (tasks.some((task) => task.status === 'running')) return 'running'
-  if (tasks.some((task) => task.status === 'queued')) return 'queued'
+  if (tasks.every((task) => task.status === 'queued')) return 'queued'
+  if (tasks.some((task) => task.status === 'running' || task.status === 'queued')) return 'running'
   return 'passed'
 }
 
