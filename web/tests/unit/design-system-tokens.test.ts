@@ -81,6 +81,7 @@ const commonLayoutTokens = [
   '--gc-control-height-lg',
   '--gc-control-height-comfortable',
   '--gc-size-shell-sidebar',
+  '--gc-size-shell-sidebar-collapsed',
   '--gc-size-modal-default',
   '--gc-size-icon-button',
   '--gc-size-icon-sm',
@@ -106,7 +107,13 @@ const commonLayoutTokens = [
   '--gc-radius-pill',
   '--gc-shadow-card',
   '--gc-shadow-modal',
-  '--gc-shadow-button-primary'
+  '--gc-shadow-button-primary',
+  '--gc-z-scrim',
+  '--gc-z-sidebar',
+  '--gc-z-drawer',
+  '--gc-z-modal',
+  '--gc-z-toast',
+  '--gc-z-tooltip'
 ]
 
 describe('设计系统主题令牌合同', () => {
@@ -136,6 +143,7 @@ describe('设计系统主题令牌合同', () => {
     for (const token of commonLayoutTokens) expectToken(light, token)
 
     expect(light).toMatch(/--gc-size-shell-sidebar\s*:\s*260px/)
+    expect(light).toMatch(/--gc-size-shell-sidebar-collapsed\s*:\s*76px/)
     expect(light).toMatch(/--gc-size-modal-default\s*:\s*672px/)
     expect(light).toMatch(/--gc-size-modal-lg\s*:\s*720px/)
     expect(light).toMatch(/--gc-size-modal-xl\s*:\s*860px/)
