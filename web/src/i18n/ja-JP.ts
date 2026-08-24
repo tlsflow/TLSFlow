@@ -4348,7 +4348,8 @@ export default {
       applicationAsset: 'アプリケーション資産',
       currentTarget: '現在の対象',
       probeInterval: '検査間隔',
-      secondsUnit: '秒'
+      secondsUnit: '秒',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: '可用性',

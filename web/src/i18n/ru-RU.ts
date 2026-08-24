@@ -4334,7 +4334,8 @@ export default {
       applicationAsset: 'Актив приложения',
       currentTarget: 'Текущая цель',
       probeInterval: 'Частота проверки',
-      secondsUnit: 'секунд'
+      secondsUnit: 'секунд',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: 'Доступность',

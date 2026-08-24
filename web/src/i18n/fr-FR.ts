@@ -4397,7 +4397,8 @@ export default {
       applicationAsset: 'Actif applicatif',
       currentTarget: 'Cible actuelle',
       probeInterval: 'Fréquence d’inspection',
-      secondsUnit: 'secondes'
+      secondsUnit: 'secondes',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: 'Disponibilité',

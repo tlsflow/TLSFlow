@@ -4322,7 +4322,8 @@ export default {
       applicationAsset: '애플리케이션 자산',
       currentTarget: '현재 대상',
       probeInterval: '검사 주기',
-      secondsUnit: '초'
+      secondsUnit: '초',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: '가용성',

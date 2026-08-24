@@ -1186,6 +1186,8 @@ function trimProbeStateToTargets() {
                 :tone="selectedProbeTrendTone"
                 :ariaLabel="t('monitoring.probe.recentAria')"
                 :empty-label="t('monitoring.empty.probeHistory')"
+                :value-unit="t('monitoring.labels.millisecondsUnit')"
+                show-y-axis
               />
             </div>
             <table v-if="selectedProbeHistory.length" class="monitor-page__table">
@@ -1202,7 +1204,13 @@ function trimProbeStateToTargets() {
                 <tr v-for="item in selectedProbeHistory" :key="`${item.checkedAt}-${item.message}`">
                   <td>{{ formatLocalTime(item.checkedAt) }}</td>
                   <td>{{ sourceLabel(item.source) }}</td>
-                  <td><GcStatusTag :status="item.status" /></td>
+                  <td>
+                    <GcStatusTag
+                      :status="item.status"
+                      :label="probeStatusLabel(item.status)"
+                      :tone="monitorStatusTone(item.status)"
+                    />
+                  </td>
                   <td>{{ item.latencyMs === undefined ? t('monitoring.fallback.notCollected') : `${item.latencyMs} ms` }}</td>
                   <td>{{ item.message }}</td>
                 </tr>
@@ -1703,11 +1711,17 @@ function trimProbeStateToTargets() {
 .monitor-page__probe-trend {
   display: grid;
   min-width: 0;
+  /* 中文说明：固定图表区域，避免 SVG 内容溢出到探测记录表格。 */
+  height: calc(var(--gc-space-12) * 5.76);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .monitor-page__probe-trend :deep(.gc-trend-chart) {
-  width: min(100%, calc(var(--gc-space-12) * 12));
-  aspect-ratio: 3 / 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: auto;
 }
 
 .monitor-page__panels {

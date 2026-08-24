@@ -4465,7 +4465,8 @@ export default {
       applicationAsset: 'Application asset',
       currentTarget: 'Current target',
       probeInterval: 'Probe interval',
-      secondsUnit: 'seconds'
+      secondsUnit: 'seconds',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: 'Availability',

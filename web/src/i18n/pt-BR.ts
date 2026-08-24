@@ -4334,7 +4334,8 @@ export default {
       applicationAsset: 'Ativo de aplicação',
       currentTarget: 'Alvo atual',
       probeInterval: 'Frequência de verificação',
-      secondsUnit: 'segundos'
+      secondsUnit: 'segundos',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: 'Disponibilidade',

@@ -4517,7 +4517,8 @@ export default {
       applicationAsset: '应用资产',
       currentTarget: '当前目标',
       probeInterval: '探测频率',
-      secondsUnit: '秒'
+      secondsUnit: '秒',
+      millisecondsUnit: 'ms'
     },
     metrics: {
       availability: '可访问性',

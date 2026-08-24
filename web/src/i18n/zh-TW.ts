@@ -4347,7 +4347,8 @@ export default {
       applicationAsset: "應用資產",
       currentTarget: "目前目標",
       probeInterval: "探測頻率",
-      secondsUnit: "秒"
+      secondsUnit: "秒",
+      millisecondsUnit: "ms"
     },
     metrics: {
       availability: "可存取性",

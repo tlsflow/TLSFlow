@@ -89,6 +89,12 @@ describe('MonitorsView', () => {
     expect(wrapper.find('.monitor-page__detail').exists()).toBe(true)
     expect(wrapper.findAll('.gc-tag').length).toBeGreaterThan(0)
     expect(wrapper.findAll('.monitor-page__probe-trend .gc-trend-chart__point')).toHaveLength(2)
+    await wrapper.find('.monitor-page__probe-trend .gc-trend-chart__point').trigger('pointerenter')
+    expect(wrapper.find('.monitor-page__probe-trend .gc-trend-chart__tooltip').text()).toBe('18 ms')
+    expect(wrapper.find('.monitor-page__probe-trend + .monitor-page__table .gc-tag').text()).toBe(
+      i18n.global.t('monitoring.status.ready'),
+    )
+    expect(wrapper.find('.monitor-page__probe-trend + .monitor-page__table .gc-tag').classes()).toContain('gc-tag--success')
     const certificateDetail = wrapper.find('.monitor-page__certificate-detail')
     expect(certificateDetail.text()).toContain(i18n.global.t('monitoring.fallback.notCollected'))
     expect(certificateDetail.text()).not.toContain('invalid-date')
