@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 
@@ -172,6 +174,19 @@ describe('Agent 安装会话安全约束', () => {
     assert.doesNotMatch(body, /Write-Host \('Windows Compatibility Agent installed successfully/);
     assert.doesNotMatch(body, /ConvertFrom-Json/);
     assert.doesNotMatch(body, /register-once/);
+  });
+
+  it('Windows Compatibility Agent 防火墙配置兼容带空格路径并提供端口规则回退', async () => {
+    const installScript = await readFile(resolve('../agents/windows-compat-full-agent/install-service.ps1'), 'utf8');
+    const upgradeScript = await readFile(resolve('../agents/windows-compat-full-agent/upgrade-service.ps1'), 'utf8');
+    for (const script of [installScript, upgradeScript]) {
+      assert.match(script, /"name=\$firewallRuleName"/);
+      assert.match(script, /"program=\$ProgramPath"/);
+      assert.match(script, /trying port-only fallback/);
+      assert.match(script, /localport=18933 enable=yes profile=any/);
+      assert.match(script, /Windows Firewall service is not running; firewall rule synchronization skipped/);
+      assert.doesNotMatch(script, /throw \("Direct Control firewall rule configuration failed/);
+    }
   });
 
   it('Linux bootstrap 短码只能使用一次且脚本不再二次拉 manifest', async () => {
