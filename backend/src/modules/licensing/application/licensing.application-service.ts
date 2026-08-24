@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
+import { GCAC_VERSION, compareSemVer } from '../../../common/version.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
@@ -8,18 +10,24 @@ import {
   decryptPrivateKey,
   encryptPrivateKey,
   generateInstallationKeyPair,
+  normalizeLicenseQuotas,
+  readGrantExpiresAt,
+  readGrantUpgradeGraceDays,
+  readGrantVersionRange,
   verifyLicenseGrant,
   verifyRevocationList,
   type TrustKeyDirectory,
 } from '../domain/license-crypto.js';
-import { findPlan } from '../domain/product-catalog.js';
+import { findPlan, normalizePlanCode, type ProductPlanCode } from '../domain/product-catalog.js';
 import type {
   ActivationRequest,
   ActivationResponse,
   InstallationEntity,
   LicenseGrant,
+  LicenseIntegrityStatus,
   LicenseQuotas,
   LicenseStatus,
+  LicenseVersionRange,
   RevocationList,
   StoredActivationRequest,
   StoredLicenseGrant,
@@ -31,7 +39,10 @@ const CURRENT_LICENSE_ID = 'current';
 const CURRENT_REVOCATION_LIST_ID = 'current';
 const CLOCK_ROLLBACK_TOLERANCE_MS = 5 * 60_000;
 const ACTIVATION_REQUEST_TTL_MS = 7 * 86_400_000;
-const EMPTY_QUOTAS: LicenseQuotas = { managedTargets: 0, concurrentExecutions: 0, plugins: 0 };
+const DEFAULT_UPGRADE_GRACE_DAYS = 30;
+const NONE_PLAN = findPlan('none');
+const NONE_QUOTAS: LicenseQuotas = normalizeLicenseQuotas(NONE_PLAN?.quotas);
+const NONE_FEATURES = [...(NONE_PLAN?.features ?? [])];
 
 export interface LicensingRepositories {
   installations: PgDocumentRepository<InstallationEntity>;
@@ -44,6 +55,12 @@ export interface LicensingServiceOptions {
   now?: () => Date;
   trustKeys?: TrustKeyDirectory;
   storageKey?: Buffer;
+}
+
+interface VersionCompatibilityResult {
+  compatible: boolean;
+  reason?: string;
+  versionRange?: LicenseVersionRange;
 }
 
 export class LicensingApplicationService {
@@ -74,59 +91,86 @@ export class LicensingApplicationService {
     const storedGrant = await this.repositories.grants.get(CURRENT_LICENSE_ID);
     const storedRevocationList = await this.repositories.revocations.get(CURRENT_REVOCATION_LIST_ID);
     const revokedGrantIds = new Set(storedRevocationList?.list.revokedGrantIds ?? []);
-    const base = {
-      installationId: installation.installationId,
-      installationPublicKey: installation.publicKey,
-      productCode: 'gcac' as const,
-      features: [] as string[],
-      quotas: EMPTY_QUOTAS,
-      lastClockAt: installation.lastClockAt,
-      clockRollbackDetected,
-    };
+    const base = createBaseStatus(installation, clockRollbackDetected);
 
     if (clockRollbackDetected) {
       return { ...base, state: 'clock_rollback_detected', reason: 'system clock moved backwards' };
     }
     if (!storedGrant) {
-      return { ...base, state: 'unlicensed', reason: 'license not configured' };
+      await this.clearVersionMismatch(installation);
+      return {
+        ...base,
+        state: 'none',
+        planCode: 'none',
+        features: NONE_FEATURES,
+        quotas: NONE_QUOTAS,
+        reason: 'license not configured',
+      };
     }
 
+    const grant = storedGrant.grant;
     const result = verifyLicenseGrant(
-      storedGrant.grant,
+      grant,
       installation.installationId,
       installation.publicKey,
+      installation.deviceId,
       this.trustKeys,
       revokedGrantIds,
       this.now(),
     );
     if (!result.valid) {
-      const state = result.state === 'revoked' ? 'revoked' : result.state === 'expired' ? 'expired' : 'unlicensed';
+      await this.clearVersionMismatch(installation);
+      if (result.state !== 'revoked') {
+        const integrityStatus: LicenseIntegrityStatus = result.reason === 'signature invalid' ? 'tampered' : 'invalid';
+        if (integrityStatus === 'tampered') {
+          await this.recordIntegrityAlert(installation, grant, result.reason ?? 'signature invalid');
+        }
+        return {
+          ...base,
+          integrityStatus,
+          reason: result.reason,
+        };
+      }
+      return {
+        ...createVerifiedStatus(base, grant, {
+          compatible: true,
+          versionRange: readGrantVersionRange(grant),
+        }),
+        state: 'revoked',
+        reason: result.reason,
+      } as LicenseStatus;
+    }
+
+    const versionCompatibility = evaluateVersionCompatibility(grant);
+    const commonStatus = createVerifiedStatus(base, grant, versionCompatibility);
+    if (!versionCompatibility.compatible && result.state === 'active') {
+      const versionMismatchDetectedAt = await this.getOrCreateVersionMismatchDetectedAt(installation);
+      const upgradeGraceDays = readGrantUpgradeGraceDays(grant) || DEFAULT_UPGRADE_GRACE_DAYS;
+      const upgradeGraceEndsAt = new Date(Date.parse(versionMismatchDetectedAt) + upgradeGraceDays * 86_400_000).toISOString();
+      if (this.now().getTime() <= Date.parse(upgradeGraceEndsAt)) {
+        return {
+          ...commonStatus,
+          state: 'upgrade_grace',
+          versionMismatchDetectedAt,
+          upgradeGraceEndsAt,
+          reason: versionCompatibility.reason,
+        } as LicenseStatus;
+      }
       return {
         ...base,
-        state,
-        planCode: storedGrant.grant.planCode,
-        grantId: storedGrant.grant.grantId,
-        features: storedGrant.grant.features,
-        quotas: storedGrant.grant.quotas,
-        issuedAt: storedGrant.grant.issuedAt,
-        startsAt: storedGrant.grant.startsAt,
-        expiresAt: storedGrant.grant.expiresAt,
-        graceEndsAt: graceEndsAt(storedGrant.grant),
-        reason: result.reason,
-      };
+        versionRange: versionCompatibility.versionRange,
+        versionCompatible: false,
+        versionMismatchDetectedAt,
+        upgradeGraceEndsAt,
+        reason: 'upgrade grace expired',
+      } as LicenseStatus;
     }
+
+    await this.clearVersionMismatch(installation);
     return {
-      ...base,
+      ...commonStatus,
       state: result.state!,
-      planCode: storedGrant.grant.planCode,
-      grantId: storedGrant.grant.grantId,
-      features: storedGrant.grant.features,
-      quotas: storedGrant.grant.quotas,
-      issuedAt: storedGrant.grant.issuedAt,
-      startsAt: storedGrant.grant.startsAt,
-      expiresAt: storedGrant.grant.expiresAt,
-      graceEndsAt: graceEndsAt(storedGrant.grant),
-    };
+    } as LicenseStatus;
   }
 
   async importLicense(grant: LicenseGrant, revocationList?: RevocationList): Promise<LicenseStatus> {
@@ -140,16 +184,51 @@ export class LicensingApplicationService {
       grant,
       installation.installationId,
       installation.publicKey,
+      installation.deviceId,
       this.trustKeys,
       revokedGrantIds,
       this.now(),
     );
-    if (grant.installationId !== installation.installationId || grant.installationPublicKey !== installation.publicKey) {
-      throw new AppError('LICENSE_INSTANCE_MISMATCH', undefined, { installationId: installation.installationId });
-    }
-    validateGrantAgainstPlan(grant);
     if (!result.valid) {
+      if (result.reason === 'signature invalid') {
+        await this.audit?.write({
+          eventType: 'licensing.license.tampered',
+          actorType: 'system',
+          actorId: installation.installationId,
+          action: 'licensing.license.integrity.import',
+          resourceType: 'licenseGrant',
+          resourceId: grant.grantId,
+          result: 'failure',
+          riskLevel: 'high',
+          detail: {
+            grantId: grant.grantId,
+            keyId: grant.keyId,
+            reason: result.reason,
+            deviceId: installation.deviceId,
+          },
+        });
+        throw new AppError('LICENSE_TAMPERED', undefined, { grantId: grant.grantId, reason: result.reason });
+      }
+      if (result.reason === 'installation mismatch' || result.reason === 'installation public key mismatch') {
+        throw new AppError('LICENSE_INSTANCE_MISMATCH', undefined, { installationId: installation.installationId });
+      }
+      if (result.reason === 'device mismatch') {
+        throw new AppError('LICENSE_DEVICE_MISMATCH', undefined, { deviceId: installation.deviceId });
+      }
       throw new AppError(result.state === 'revoked' ? 'LICENSE_REVOKED' : 'LICENSE_INVALID', undefined, { reason: result.reason });
+    }
+    try {
+      validateGrantAgainstPlan(grant);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError('LICENSE_INVALID', '许可证字段无效');
+    }
+    const versionCompatibility = evaluateVersionCompatibility(grant);
+    if (!versionCompatibility.compatible) {
+      throw new AppError('LICENSE_INVALID', '许可证版本范围与当前产品版本不兼容', {
+        currentVersion: GCAC_VERSION,
+        requiredVersionRange: versionCompatibility.versionRange,
+      });
     }
     if (current && Date.parse(current.grant.issuedAt) >= Date.parse(grant.issuedAt)) {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '新许可证的签发时间不能早于当前许可证');
@@ -166,6 +245,8 @@ export class LicensingApplicationService {
         importedAt: this.now().toISOString(),
       });
     }
+    await this.clearVersionMismatch(installation);
+    await this.clearIntegrityAlert(installation);
     await this.audit?.write({
       eventType: 'licensing.license.imported',
       actorType: 'system',
@@ -175,7 +256,7 @@ export class LicensingApplicationService {
       resourceId: grant.grantId,
       result: 'success',
       riskLevel: 'medium',
-      detail: { planCode: grant.planCode },
+      detail: { planCode: toCanonicalPlanCode(grant.planCode), deviceId: installation.deviceId },
     });
     return this.getStatus();
   }
@@ -192,7 +273,11 @@ export class LicensingApplicationService {
       await this.repositories.activationRequests.update(request.id, { status: 'expired' });
       throw new AppError('LICENSE_INVALID', '激活请求已过期');
     }
-    if (request.request.nonce !== response.nonce || request.request.installationId !== response.licenseGrant.installationId) {
+    if (
+      request.request.nonce !== response.nonce
+      || request.request.installationId !== response.licenseGrant.installationId
+      || (request.request.deviceId && response.licenseGrant.schemaVersion === 2 && request.request.deviceId !== response.licenseGrant.deviceId)
+    ) {
       throw new AppError('LICENSE_INVALID', '激活响应与本地请求不匹配');
     }
     const imported = await this.importLicense(response.licenseGrant, response.revocationList);
@@ -211,7 +296,12 @@ export class LicensingApplicationService {
     });
   }
 
-  async exportLicense(): Promise<{ installation: Pick<InstallationEntity, 'installationId' | 'publicKey' | 'productCode'>; licenseGrant?: LicenseGrant; revocationList?: RevocationList }> {
+  async exportLicense(): Promise<{
+    installation: Pick<InstallationEntity, 'installationId' | 'publicKey' | 'productCode' | 'deviceId'>;
+    currentVersion: string;
+    licenseGrant?: LicenseGrant;
+    revocationList?: RevocationList;
+  }> {
     const installation = await this.ensureInstallation();
     const grant = await this.repositories.grants.get(CURRENT_LICENSE_ID);
     const revocationList = await this.repositories.revocations.get(CURRENT_REVOCATION_LIST_ID);
@@ -220,7 +310,9 @@ export class LicensingApplicationService {
         installationId: installation.installationId,
         publicKey: installation.publicKey,
         productCode: installation.productCode,
+        deviceId: installation.deviceId,
       },
+      currentVersion: GCAC_VERSION,
       licenseGrant: grant?.grant,
       revocationList: revocationList?.list,
     };
@@ -229,14 +321,15 @@ export class LicensingApplicationService {
   async createActivationRequest(kind: 'online' | 'offline'): Promise<ActivationRequest> {
     const installation = await this.ensureInstallation();
     const request: ActivationRequest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       requestId: `lreq_${randomBytes(12).toString('hex')}`,
       nonce: randomBytes(24).toString('base64url'),
       kind,
       productCode: 'gcac',
       installationId: installation.installationId,
       installationPublicKey: installation.publicKey,
-      productVersion: process.env.GCAC_VERSION?.trim() || 'unknown',
+      deviceId: installation.deviceId,
+      productVersion: GCAC_VERSION,
       requestedAt: this.now().toISOString(),
     };
     const createdAt = this.now().toISOString();
@@ -256,30 +349,30 @@ export class LicensingApplicationService {
       resourceId: request.requestId,
       result: 'success',
       riskLevel: 'low',
-      detail: { kind },
+      detail: { kind, deviceId: installation.deviceId },
     });
     return request;
   }
 
   async requireFeature(featureCode: string): Promise<void> {
     const status = await this.getStatus();
-    if (status.state === 'clock_rollback_detected') throw new AppError('LICENSE_CLOCK_ROLLBACK');
-    if (status.state === 'unlicensed') throw new AppError('LICENSE_NOT_CONFIGURED');
-    if (status.state === 'revoked') throw new AppError('LICENSE_REVOKED');
-    if (status.state === 'expired') throw new AppError('LICENSE_INVALID', '许可证已过期');
-    if (!status.features.includes(featureCode)) throw new AppError('LICENSE_FEATURE_DENIED', undefined, { featureCode });
+    assertStatusUsable(status);
+    if (!status.features.includes(featureCode)) {
+      throw new AppError('LICENSE_FEATURE_DENIED', undefined, { featureCode, planCode: status.planCode });
+    }
   }
 
   async requireQuota(quotaCode: keyof LicenseQuotas, requested: number): Promise<void> {
     const status = await this.getStatus();
-    if (status.state === 'clock_rollback_detected') throw new AppError('LICENSE_CLOCK_ROLLBACK');
-    if (status.state === 'unlicensed') throw new AppError('LICENSE_NOT_CONFIGURED');
-    if (status.state === 'revoked') throw new AppError('LICENSE_REVOKED');
-    if (status.state === 'expired') throw new AppError('LICENSE_INVALID', '许可证已过期');
+    assertStatusUsable(status);
     const quota = status.quotas[quotaCode];
     if (quota !== null && requested > quota) {
       throw new AppError('LICENSE_QUOTA_EXCEEDED', undefined, { quotaCode, requested, limit: quota });
     }
+  }
+
+  async requireApplicationAssetQuota(nextCount: number): Promise<void> {
+    await this.requireQuota('applicationAssets', nextCount);
   }
 
   getCanonicalActivationRequest(request: ActivationRequest): string {
@@ -293,7 +386,16 @@ export class LicensingApplicationService {
 
   private async ensureInstallation(): Promise<InstallationEntity> {
     const current = await this.repositories.installations.get(INSTALLATION_ID);
-    if (current) return current;
+    if (current?.deviceId) return current;
+    if (current) {
+      const deviceId = current.deviceId || createDeviceId();
+      await this.repositories.installations.update(INSTALLATION_ID, {
+        deviceId,
+        updatedAt: this.now().toISOString(),
+      });
+      return { ...current, deviceId };
+    }
+
     const keyPair = generateInstallationKeyPair();
     const now = this.now().toISOString();
     const entity: InstallationEntity = {
@@ -302,6 +404,7 @@ export class LicensingApplicationService {
       productCode: 'gcac',
       publicKey: keyPair.publicKey,
       encryptedPrivateKey: encryptPrivateKey(keyPair.privateKey, this.storageKey),
+      deviceId: createDeviceId(),
       createdAt: now,
       updatedAt: now,
       lastClockAt: now,
@@ -337,21 +440,167 @@ export class LicensingApplicationService {
     }
     return recovered ? false : installation.clockRollbackDetected;
   }
+
+  private async clearVersionMismatch(installation: InstallationEntity): Promise<void> {
+    if (!installation.versionMismatchDetectedAt) return;
+    await this.repositories.installations.update(INSTALLATION_ID, {
+      versionMismatchDetectedAt: undefined,
+      updatedAt: this.now().toISOString(),
+    });
+    installation.versionMismatchDetectedAt = undefined;
+  }
+
+  private async getOrCreateVersionMismatchDetectedAt(installation: InstallationEntity): Promise<string> {
+    if (installation.versionMismatchDetectedAt) return installation.versionMismatchDetectedAt;
+    const detectedAt = this.now().toISOString();
+    await this.repositories.installations.update(INSTALLATION_ID, {
+      versionMismatchDetectedAt: detectedAt,
+      updatedAt: detectedAt,
+    });
+    installation.versionMismatchDetectedAt = detectedAt;
+    return detectedAt;
+  }
+
+  private async recordIntegrityAlert(installation: InstallationEntity, grant: LicenseGrant, reason: string): Promise<void> {
+    if (
+      installation.licenseIntegrityAlertGrantId === grant.grantId
+      && installation.licenseIntegrityAlertReason === reason
+    ) {
+      return;
+    }
+    const alertedAt = this.now().toISOString();
+    await this.repositories.installations.update(INSTALLATION_ID, {
+      licenseIntegrityAlertGrantId: grant.grantId,
+      licenseIntegrityAlertReason: reason,
+      licenseIntegrityAlertedAt: alertedAt,
+      updatedAt: alertedAt,
+    });
+    installation.licenseIntegrityAlertGrantId = grant.grantId;
+    installation.licenseIntegrityAlertReason = reason;
+    installation.licenseIntegrityAlertedAt = alertedAt;
+    await this.audit?.write({
+      eventType: 'licensing.license.tampered',
+      actorType: 'system',
+      actorId: installation.installationId,
+      action: 'licensing.license.integrity.check',
+      resourceType: 'licenseGrant',
+      resourceId: grant.grantId,
+      result: 'failure',
+      riskLevel: 'high',
+      detail: {
+        grantId: grant.grantId,
+        keyId: grant.keyId,
+        reason,
+        deviceId: installation.deviceId,
+      },
+    });
+  }
+
+  private async clearIntegrityAlert(installation: InstallationEntity): Promise<void> {
+    if (!installation.licenseIntegrityAlertGrantId) return;
+    await this.repositories.installations.update(INSTALLATION_ID, {
+      licenseIntegrityAlertGrantId: undefined,
+      licenseIntegrityAlertReason: undefined,
+      licenseIntegrityAlertedAt: undefined,
+      updatedAt: this.now().toISOString(),
+    });
+    installation.licenseIntegrityAlertGrantId = undefined;
+    installation.licenseIntegrityAlertReason = undefined;
+    installation.licenseIntegrityAlertedAt = undefined;
+  }
 }
 
-function graceEndsAt(grant: LicenseGrant): string {
-  return new Date(Date.parse(grant.expiresAt) + grant.gracePeriodDays * 86_400_000).toISOString();
+function createBaseStatus(installation: InstallationEntity, clockRollbackDetected: boolean): LicenseStatus {
+  return {
+    state: 'none',
+    integrityStatus: 'not_configured',
+    installationId: installation.installationId,
+    installationPublicKey: installation.publicKey,
+    deviceId: installation.deviceId,
+    productCode: 'gcac',
+    currentVersion: GCAC_VERSION,
+    planCode: 'none',
+    features: [...NONE_FEATURES],
+    quotas: NONE_QUOTAS,
+    versionCompatible: true,
+    lastClockAt: installation.lastClockAt,
+    clockRollbackDetected,
+  };
+}
+
+function createVerifiedStatus(
+  base: LicenseStatus,
+  grant: LicenseGrant,
+  versionCompatibility: VersionCompatibilityResult = evaluateVersionCompatibility(grant),
+): Partial<LicenseStatus> {
+  return {
+    ...base,
+    planCode: normalizePlanCode(grant.planCode) ?? 'none',
+    licenseSchemaVersion: grant.schemaVersion,
+    grantId: grant.grantId,
+    features: [...grant.features],
+    quotas: normalizeLicenseQuotas(grant.quotas),
+    issuedAt: grant.issuedAt,
+    startsAt: grant.startsAt,
+    expiresAt: readGrantExpiresAt(grant),
+    graceEndsAt: graceEndsAt(grant),
+    versionRange: versionCompatibility.versionRange,
+    versionCompatible: versionCompatibility.compatible,
+    integrityStatus: 'verified',
+  };
+}
+
+function graceEndsAt(grant: LicenseGrant): string | undefined {
+  const expiresAt = readGrantExpiresAt(grant);
+  if (!expiresAt) return undefined;
+  const timestamp = Date.parse(expiresAt);
+  return Number.isFinite(timestamp)
+    ? new Date(timestamp + grant.gracePeriodDays * 86_400_000).toISOString()
+    : undefined;
+}
+
+function evaluateVersionCompatibility(grant: LicenseGrant): VersionCompatibilityResult {
+  const versionRange = readGrantVersionRange(grant);
+  if (!versionRange) return { compatible: true };
+  if (versionRange.min && compareSemVer(GCAC_VERSION, versionRange.min) < 0) {
+    return { compatible: false, reason: 'current version is lower than minimum supported version', versionRange };
+  }
+  if (versionRange.max && compareSemVer(GCAC_VERSION, versionRange.max) > 0) {
+    return { compatible: false, reason: 'current version is higher than maximum supported version', versionRange };
+  }
+  return { compatible: true, versionRange };
+}
+
+function assertStatusUsable(status: LicenseStatus): void {
+  if (status.state === 'clock_rollback_detected') throw new AppError('LICENSE_CLOCK_ROLLBACK');
+  if (status.state === 'revoked') throw new AppError('LICENSE_REVOKED');
 }
 
 function loadTrustKeys(): TrustKeyDirectory {
-  const raw = process.env.GCAC_LICENSE_TRUST_KEYS_JSON?.trim();
-  if (!raw) return new Map();
+  const bundled = loadBundledTrustKeys();
+  const configured = process.env.GCAC_LICENSE_TRUST_KEYS_JSON?.trim();
+  if (!configured) return bundled;
   try {
-    const parsed = JSON.parse(raw) as Record<string, string>;
-    return new Map(Object.entries(parsed).map(([keyId, encoded]) => [keyId, Buffer.from(encoded, 'base64url')]));
+    const parsed = JSON.parse(configured) as Record<string, string>;
+    const merged = new Map(bundled);
+    for (const [keyId, encoded] of Object.entries(parsed)) {
+      merged.set(keyId, Buffer.from(encoded, 'base64url'));
+    }
+    return merged;
   } catch {
     throw new Error('GCAC_LICENSE_TRUST_KEYS_JSON 格式无效');
   }
+}
+
+function loadBundledTrustKeys(): TrustKeyDirectory {
+  const raw = readFileSync(new URL('../resources/trust-key-bundle.json', import.meta.url), 'utf8');
+  const parsed = JSON.parse(raw) as { keys?: Array<{ keyId: string; publicKey: string }> };
+  const entries = Array.isArray(parsed.keys)
+    ? parsed.keys
+      .filter((item) => typeof item?.keyId === 'string' && typeof item?.publicKey === 'string')
+      .map((item) => [item.keyId, Buffer.from(item.publicKey, 'base64url')] as const)
+    : [];
+  return new Map(entries);
 }
 
 function loadStorageKey(): Buffer {
@@ -368,28 +617,68 @@ export function createDefaultLicensingService(db: DatabasePort, audit?: AuditSer
 }
 
 export function planExists(planCode: string): boolean {
-  return !!findPlan(planCode);
+  const normalizedPlanCode = normalizePlanCode(planCode);
+  return normalizedPlanCode !== undefined && normalizedPlanCode !== 'none';
 }
 
 function validateGrantAgainstPlan(grant: LicenseGrant): void {
-  const plan = findPlan(grant.planCode);
+  const planCode = toCanonicalPlanCode(grant.planCode);
+  if (planCode === 'none') {
+    throw new AppError('LICENSE_INVALID', 'none 状态不能通过许可证签发', { planCode: grant.planCode });
+  }
+  const plan = findPlan(planCode);
   if (!plan) throw new AppError('LICENSE_INVALID', '套餐代码不存在', { planCode: grant.planCode });
   if (!grant.features.every((feature) => plan.features.includes(feature))) {
-    throw new AppError('LICENSE_INVALID', '许可证功能超出套餐定义', { planCode: grant.planCode });
+    throw new AppError('LICENSE_INVALID', '许可证功能超出套餐定义', { planCode });
   }
-  for (const quotaCode of Object.keys(grant.quotas) as Array<keyof LicenseQuotas>) {
-    const granted = grant.quotas[quotaCode];
+
+  const quotas = normalizeLicenseQuotas(grant.quotas);
+  for (const quotaCode of Object.keys(quotas) as Array<keyof LicenseQuotas>) {
+    const granted = quotas[quotaCode];
     const allowed = plan.quotas[quotaCode];
     if (granted !== null && allowed !== null && granted > allowed) {
       throw new AppError('LICENSE_INVALID', '许可证额度超出套餐定义', { quotaCode, granted, allowed });
     }
   }
+
+  validateVersionRange(readGrantVersionRange(grant));
+  const expiresAt = readGrantExpiresAt(grant);
+  if (planCode === 'trial') {
+    if (!expiresAt) {
+      throw new AppError('LICENSE_INVALID', '试用许可证必须有到期时间', { planCode });
+    }
+    if (grant.schemaVersion === 2) {
+      const trialDays = grant.trialDays;
+      if (typeof trialDays !== 'number' || !Number.isInteger(trialDays) || trialDays <= 0) {
+        throw new AppError('LICENSE_INVALID', '试用许可证必须声明限定天数', { planCode });
+      }
+    }
+  }
+}
+
+function validateVersionRange(versionRange: LicenseVersionRange | undefined): void {
+  if (!versionRange) return;
+  if (versionRange.min) compareSemVer(versionRange.min, versionRange.min);
+  if (versionRange.max) compareSemVer(versionRange.max, versionRange.max);
+  if (versionRange.min && versionRange.max && compareSemVer(versionRange.min, versionRange.max) > 0) {
+    throw new AppError('LICENSE_INVALID', '许可证版本范围无效', { versionRange });
+  }
+}
+
+function toCanonicalPlanCode(planCode: string): ProductPlanCode {
+  const normalizedPlanCode = normalizePlanCode(planCode);
+  if (!normalizedPlanCode) throw new AppError('LICENSE_INVALID', '套餐代码不存在', { planCode });
+  return normalizedPlanCode;
+}
+
+function createDeviceId(): string {
+  return `dev_${randomBytes(16).toString('hex')}`;
 }
 
 function isActivationResponse(value: unknown): value is ActivationResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const response = value as Partial<ActivationResponse>;
-  return response.schemaVersion === 1
+  return (response.schemaVersion === 1 || response.schemaVersion === 2)
     && typeof response.responseId === 'string'
     && typeof response.requestId === 'string'
     && typeof response.nonce === 'string'

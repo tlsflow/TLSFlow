@@ -1,7 +1,7 @@
 import type { LicenseQuotas } from './licensing.types.js';
 
-export type ProductPlanCode = 'free' | 'commercial' | 'enterprise';
-export type LegacyProductPlanCode = 'trial' | 'standard' | 'professional';
+export type ProductPlanCode = 'none' | 'community' | 'commercial' | 'enterprise' | 'trial';
+export type LegacyProductPlanCode = 'free' | 'standard' | 'professional';
 
 export interface ProductPlan {
   code: ProductPlanCode;
@@ -32,11 +32,21 @@ export const PRODUCT_FEATURES = {
 
 export const PRODUCT_PLANS: readonly ProductPlan[] = [
   {
-    code: 'free',
-    aliases: ['trial'],
-    name: '免费版',
+    code: 'none',
+    name: '无授权',
     features: Object.values(PRODUCT_FEATURES),
-    quotas: { managedTargets: 5, concurrentExecutions: null, plugins: null },
+    quotas: { applicationAssets: 1, managedTargets: 1, concurrentExecutions: null, plugins: null },
+    validityDays: null,
+    gracePeriodDays: 0,
+    supportLevel: 'community_email',
+    supportTermDays: null,
+  },
+  {
+    code: 'community',
+    aliases: ['free'],
+    name: '社区版',
+    features: Object.values(PRODUCT_FEATURES),
+    quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
     validityDays: null,
     gracePeriodDays: 0,
     supportLevel: 'community_email',
@@ -47,18 +57,28 @@ export const PRODUCT_PLANS: readonly ProductPlan[] = [
     aliases: ['standard', 'professional'],
     name: '商业版',
     features: Object.values(PRODUCT_FEATURES),
-    quotas: { managedTargets: null, concurrentExecutions: null, plugins: null },
-    validityDays: 365,
-    gracePeriodDays: 30,
+    quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
+    validityDays: null,
+    gracePeriodDays: 0,
     supportLevel: 'business_5d',
-    supportTermDays: 365,
+    supportTermDays: null,
   },
   {
     code: 'enterprise',
     name: '企业版',
     features: Object.values(PRODUCT_FEATURES),
-    quotas: { managedTargets: null, concurrentExecutions: null, plugins: null },
+    quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
     validityDays: null,
+    gracePeriodDays: 0,
+    supportLevel: 'commercial_sla',
+    supportTermDays: null,
+  },
+  {
+    code: 'trial',
+    name: '试用版',
+    features: Object.values(PRODUCT_FEATURES),
+    quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
+    validityDays: 30,
     gracePeriodDays: 0,
     supportLevel: 'commercial_sla',
     supportTermDays: null,
@@ -67,4 +87,13 @@ export const PRODUCT_PLANS: readonly ProductPlan[] = [
 
 export function findPlan(code: string): ProductPlan | undefined {
   return PRODUCT_PLANS.find((plan) => plan.code === code || plan.aliases?.includes(code as LegacyProductPlanCode));
+}
+
+export function normalizePlanCode(code: string | undefined): ProductPlanCode | undefined {
+  if (!code) return undefined;
+  return findPlan(code)?.code;
+}
+
+export function isCanonicalPlanCode(code: string): code is ProductPlanCode {
+  return PRODUCT_PLANS.some((plan) => plan.code === code);
 }

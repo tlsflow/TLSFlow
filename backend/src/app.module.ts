@@ -89,6 +89,7 @@ import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/st
 import { AgentCapabilityDiscoveryProjector } from './modules/agents/discovery/agent-capability-discovery.projector.js';
 import { ManagedTargetContextResolver } from './modules/assets/application/managed-target-context.resolver.js';
 import { LivenessApplicationService } from './modules/liveness/index.js';
+import type { LicensingApplicationService } from './modules/licensing/application/licensing.application-service.js';
 import { PluginCertificateResultService } from './modules/plugins/results/plugin-certificate-result.service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { PluginWorkflowSourceService, WorkflowExecutionBindingsRepository, WorkflowExecutionBindingsService, WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
@@ -244,6 +245,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  const licensingService = app.getResource<LicensingApplicationService>('licensingService');
+  if (licensingService && 'setLicensingService' in assetsService && typeof assetsService.setLicensingService === 'function') {
+    assetsService.setLicensingService(licensingService);
+  }
   const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
   const deviceAssetsService = new DeviceAssetsApplicationService(deviceAssetsRepository);
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(

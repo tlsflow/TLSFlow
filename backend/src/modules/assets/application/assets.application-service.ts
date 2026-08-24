@@ -49,6 +49,7 @@ import {
   validateDeploymentStrategyPluginBinding,
 } from './deployment-strategy.service.js';
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
+import type { LicensingApplicationService } from '../../licensing/application/licensing.application-service.js';
 
 export class AssetsApplicationService {
   constructor(
@@ -59,6 +60,7 @@ export class AssetsApplicationService {
     private workflowTemplates?: WorkflowTemplatesApplicationService,
     private pluginBindings?: PluginBindingsApplicationService,
     private managedTargetContextResolver?: ManagedTargetContextResolver,
+    private licensingService?: LicensingApplicationService,
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -79,6 +81,10 @@ export class AssetsApplicationService {
 
   setManagedTargetContextResolver(resolver: ManagedTargetContextResolver): void {
     this.managedTargetContextResolver = resolver;
+  }
+
+  setLicensingService(licensingService: LicensingApplicationService): void {
+    this.licensingService = licensingService;
   }
 
   async createHost(tenantId: string, input: CreateHostDto) {
@@ -114,6 +120,7 @@ export class AssetsApplicationService {
   }
 
   async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
+    await this.ensureServiceAssetQuotaAvailable(tenantId);
     const resolvedInput = await this.resolveSiteAssetCreationInput(tenantId, input);
     const normalized = this.domain.normalizeServiceAsset(resolvedInput);
     if (normalized.deploymentStrategy) {
@@ -611,6 +618,17 @@ export class AssetsApplicationService {
 
   getRepository(): AssetsRepository {
     return this.repository;
+  }
+
+  private async ensureServiceAssetQuotaAvailable(tenantId: string): Promise<void> {
+    if (!this.licensingService) return;
+    const current = await this.repository.listServiceAssets(tenantId, {
+      page: 1,
+      pageSize: 1,
+      filter: {},
+      sort: undefined,
+    });
+    await this.licensingService.requireApplicationAssetQuota(current.total + 1);
   }
 
   private async persistConflicts(tenantId: string, apply: boolean, conflicts: Array<Omit<AssetConflictDto, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt' | 'version'>>): Promise<AssetConflictDto[]> {
