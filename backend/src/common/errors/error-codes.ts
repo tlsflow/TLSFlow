@@ -1,3 +1,5 @@
+import { editionLicensingErrorCodes } from '../../edition/licensing-error-codes.js';
+
 export const errorCodes = {
   VALIDATION_FAILED: { httpStatus: 400, message: '请求参数不合法' },
   RESOURCE_NOT_FOUND: { httpStatus: 404, message: '资源不存在' },
@@ -153,13 +155,7 @@ export const errorCodes = {
   NOTIFICATION_DELIVERY_TIMEOUT: { httpStatus: 504, message: '通知投递超时' },
   NOTIFICATION_SECURITY_BLOCKED: { httpStatus: 403, message: '通知安全策略已阻止请求' },
   NOTIFICATION_RETRY_EXHAUSTED: { httpStatus: 409, message: '通知重试次数已耗尽' },
-  LICENSE_NOT_CONFIGURED: { httpStatus: 409, message: '尚未配置有效许可证' },
-  LICENSE_INVALID: { httpStatus: 422, message: '许可证无效' },
-  LICENSE_INSTANCE_MISMATCH: { httpStatus: 422, message: '许可证与当前安装实例不匹配' },
-  LICENSE_REVOKED: { httpStatus: 403, message: '许可证已撤销' },
-  LICENSE_FEATURE_DENIED: { httpStatus: 403, message: '当前套餐未包含该功能' },
-  LICENSE_QUOTA_EXCEEDED: { httpStatus: 403, message: '已超过许可证额度' },
-  LICENSE_CLOCK_ROLLBACK: { httpStatus: 409, message: '检测到系统时间回退' },
+  ...editionLicensingErrorCodes,
 } as const;
 
 export type ErrorCode = keyof typeof errorCodes;
