@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
@@ -1020,6 +1020,7 @@ export class InternalCaApplicationService {
     platform: 'windows' | 'linux';
     role?: 'active' | 'standby' | 'member';
     identityFingerprint: string;
+    authenticationPublicKeyPem?: string;
     keyBackend: KeyBackendType;
     exportability: KeyExportability;
     capabilities: CaProviderEntity['capabilities'];
@@ -1035,6 +1036,11 @@ export class InternalCaApplicationService {
     if (provider.type === 'microsoft_adcs' ? input.platform !== 'windows' : provider.runtimePlatform !== input.platform) {
       throw new AppError('CA_TOPOLOGY_INVALID', '节点平台与 Provider 配置不一致');
     }
+    const authenticationPublicKeyPem = optionalText(input.authenticationPublicKeyPem);
+    if (provider.type === 'microsoft_adcs' && !authenticationPublicKeyPem) {
+      throw new AppError('VALIDATION_FAILED', 'Microsoft AD CS Agent 必须注册请求签名公钥');
+    }
+    if (authenticationPublicKeyPem) validateNodeAuthenticationKey(authenticationPublicKeyPem, input.identityFingerprint);
     const node: CaNodeEntity = {
       id: newId('canode'),
       tenantId: consumed.tenantId,
@@ -1043,6 +1049,7 @@ export class InternalCaApplicationService {
       platform: input.platform,
       role: input.role ?? (provider.availabilityMode === 'active_standby' ? 'standby' : 'member'),
       identityFingerprint: normalizeHexFingerprint(input.identityFingerprint),
+      authenticationPublicKeyPem,
       keyBackend: input.keyBackend,
       exportability: normalizeExportability(input.keyBackend, input.exportability),
       capabilities: input.capabilities,
@@ -1055,6 +1062,40 @@ export class InternalCaApplicationService {
     };
     await this.assertNoActiveNodeConflict(node);
     return this.repository.saveNode(node);
+  }
+
+  async verifyNodeRequest(input: {
+    tenantId: string;
+    nodeId: string;
+    method: string;
+    path: string;
+    timestamp: string;
+    nonce: string;
+    signature: string;
+    body: unknown;
+  }): Promise<CaNodeEntity> {
+    const node = await this.repository.getNode(requiredText(input.tenantId, 'tenantId'), requiredText(input.nodeId, 'nodeId'));
+    if (!node || node.healthStatus === 'revoked' || !node.authenticationPublicKeyPem) {
+      throw new AppError('AUTH_FORBIDDEN', 'CA Node 身份无效或未启用请求签名');
+    }
+    const requestedAt = new Date(requiredText(input.timestamp, 'timestamp'));
+    const now = new Date();
+    if (!Number.isFinite(requestedAt.getTime()) || Math.abs(now.getTime() - requestedAt.getTime()) > 5 * 60_000) {
+      throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求时间戳无效或已过期');
+    }
+    const nonce = requiredText(input.nonce, 'nonce');
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求 nonce 无效');
+    const canonical = nodeRequestCanonical(input);
+    let valid = false;
+    try {
+      valid = verify(null, Buffer.from(canonical), createPublicKey(node.authenticationPublicKeyPem), Buffer.from(input.signature, 'base64'));
+    } catch {
+      valid = false;
+    }
+    if (!valid) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求签名无效');
+    const consumed = await this.repository.consumeNodeRequestNonce(node.id, nonce, now.toISOString(), new Date(now.getTime() + 10 * 60_000).toISOString());
+    if (!consumed) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求已重放');
+    return node;
   }
 
   listNodes(tenantId: string, providerId?: string): Promise<CaNodeEntity[]> {
@@ -1677,4 +1718,20 @@ function normalizeHexFingerprint(value: string): string {
   const normalized = value.replaceAll(':', '').trim().toLowerCase();
   if (!/^[0-9a-f]{32,128}$/.test(normalized)) throw new AppError('VALIDATION_FAILED', 'identityFingerprint 格式无效');
   return normalized;
+}
+
+function validateNodeAuthenticationKey(publicKeyPem: string, identityFingerprint: string): void {
+  try {
+    const key = createPublicKey(publicKeyPem);
+    if (key.asymmetricKeyType !== 'ed25519') throw new Error('unsupported key type');
+    const fingerprint = createHash('sha256').update(key.export({ type: 'spki', format: 'der' })).digest('hex');
+    if (fingerprint !== normalizeHexFingerprint(identityFingerprint)) throw new Error('fingerprint mismatch');
+  } catch {
+    throw new AppError('VALIDATION_FAILED', 'CA Node 请求签名公钥无效或与身份指纹不一致');
+  }
+}
+
+function nodeRequestCanonical(input: { tenantId: string; nodeId: string; method: string; path: string; timestamp: string; nonce: string; body: unknown }): string {
+  const bodyHash = createHash('sha256').update(JSON.stringify(input.body ?? null)).digest('hex');
+  return [input.method.toUpperCase(), input.path, input.tenantId, input.nodeId, input.timestamp, input.nonce, bodyHash].join('\n');
 }

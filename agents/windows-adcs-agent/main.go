@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -40,10 +44,12 @@ type config struct {
 }
 
 type agent struct {
-	configPath string
-	config     config
-	client     *http.Client
-	mu         sync.Mutex
+	configPath   string
+	config       config
+	client       *http.Client
+	mu           sync.Mutex
+	privateKey   ed25519.PrivateKey
+	publicKeyPEM string
 }
 
 type serviceHandler struct{ agent *agent }
@@ -143,7 +149,11 @@ func newAgent(configPath string) (*agent, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
-	return &agent{configPath: configPath, config: cfg, client: &http.Client{Timeout: 45 * time.Second}}, nil
+	privateKey, publicKeyPEM, err := loadOrCreateIdentityKey(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return &agent{configPath: configPath, config: cfg, client: &http.Client{Timeout: 45 * time.Second}, privateKey: privateKey, publicKeyPEM: publicKeyPEM}, nil
 }
 
 func (a *agent) run(ctx context.Context) error {
@@ -206,11 +216,15 @@ func (a *agent) register(discovery map[string]any) error {
 	if a.config.EnrollmentToken == "" {
 		return errors.New("缺少一次性注册令牌")
 	}
-	identity := sha256.Sum256([]byte(a.config.NodeName + "|" + fmt.Sprint(discovery["caConfig"])))
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(a.privateKey.Public())
+	if err != nil {
+		return err
+	}
+	identity := sha256.Sum256(publicKeyDER)
 	payload := map[string]any{
 		"token": a.config.EnrollmentToken, "name": a.config.NodeName, "platform": "windows", "role": "member",
-		"identityFingerprint": hex.EncodeToString(identity[:]), "keyBackend": "cng", "exportability": "non_exportable",
-		"capabilities": capabilities(), "version": version,
+		"identityFingerprint": hex.EncodeToString(identity[:]), "keyBackend": "file", "exportability": "exportable",
+		"authenticationPublicKeyPem": a.publicKeyPEM, "capabilities": capabilities(), "version": version,
 	}
 	var response struct {
 		ID string `json:"id"`
@@ -360,6 +374,21 @@ func (a *agent) post(ctx context.Context, path string, payload any, output any) 
 	}
 	request.Header.Set("content-type", "application/json")
 	request.Header.Set("x-tenant-id", a.config.TenantID)
+	if a.config.NodeID != "" {
+		timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+		nonceBytes := make([]byte, 24)
+		if _, err := rand.Read(nonceBytes); err != nil {
+			return err
+		}
+		nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
+		bodyHash := sha256.Sum256(encoded)
+		canonical := strings.Join([]string{http.MethodPost, path, a.config.TenantID, a.config.NodeID, timestamp, nonce, hex.EncodeToString(bodyHash[:])}, "\n")
+		signature := ed25519.Sign(a.privateKey, []byte(canonical))
+		request.Header.Set("x-gcac-node-id", a.config.NodeID)
+		request.Header.Set("x-gcac-timestamp", timestamp)
+		request.Header.Set("x-gcac-nonce", nonce)
+		request.Header.Set("x-gcac-signature", base64.StdEncoding.EncodeToString(signature))
+	}
 	response, err := a.client.Do(request)
 	if err != nil {
 		return err
@@ -514,6 +543,45 @@ func ctxBackground() context.Context { return context.Background() }
 func writeStdout(value any) {
 	encoded, _ := json.MarshalIndent(value, "", "  ")
 	fmt.Println(string(encoded))
+}
+
+func loadOrCreateIdentityKey(dataDir string) (ed25519.PrivateKey, string, error) {
+	path := filepath.Join(dataDir, "node-identity.pem")
+	if content, err := os.ReadFile(path); err == nil {
+		block, _ := pem.Decode(content)
+		if block == nil {
+			return nil, "", errors.New("节点身份私钥格式无效")
+		}
+		parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, "", err
+		}
+		privateKey, ok := parsed.(ed25519.PrivateKey)
+		if !ok {
+			return nil, "", errors.New("节点身份私钥类型无效")
+		}
+		return identityKeyResult(privateKey)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, "", err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
+		return nil, "", err
+	}
+	return identityKeyResult(privateKey)
+}
+
+func identityKeyResult(privateKey ed25519.PrivateKey) (ed25519.PrivateKey, string, error) {
+	der, err := x509.MarshalPKIXPublicKey(privateKey.Public())
+	if err != nil {
+		return nil, "", err
+	}
+	return privateKey, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
 }
 
 func fatal(err error) {

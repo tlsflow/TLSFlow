@@ -152,6 +152,7 @@ export interface CaNodeEntity {
   platform: 'windows' | 'linux';
   role: 'active' | 'standby' | 'member';
   identityFingerprint: string;
+  authenticationPublicKeyPem?: string;
   keyBackend: KeyBackendType;
   exportability: KeyExportability;
   capabilities: CaProviderCapabilities;

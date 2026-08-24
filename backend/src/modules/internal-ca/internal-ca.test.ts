@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
@@ -356,19 +357,36 @@ test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能�
   assert.equal(context.tenantId, tenantId);
   const provider = (await service.listProviders(tenantId)).find((item) => item.id === context.providerId);
   assert.equal(provider?.type, 'microsoft_adcs');
+  const identity = generateKeyPairSync('ed25519');
+  const publicKeyPem = identity.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const identityFingerprint = createHash('sha256').update(identity.publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
   const node = await service.registerNode({
     token,
     name: 'CA01',
     platform: 'windows',
     role: 'member',
-    identityFingerprint: 'a'.repeat(64),
-    keyBackend: 'cng',
-    exportability: 'non_exportable',
+    identityFingerprint,
+    authenticationPublicKeyPem: publicKeyPem,
+    keyBackend: 'file',
+    exportability: 'exportable',
     capabilities: provider!.capabilities,
     version: '0.1.0',
   });
   assert.equal(node.providerId, provider?.id);
   assert.equal(node.platform, 'windows');
+  const body = { nodeId: node.id, healthStatus: 'online' };
+  const timestamp = new Date().toISOString();
+  const nonce = 'nonce_0123456789abcdef';
+  const path = '/api/v1/ca-nodes/heartbeat';
+  const bodyHash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+  const canonical = ['POST', path, tenantId, node.id, timestamp, nonce, bodyHash].join('\n');
+  const signature = sign(null, Buffer.from(canonical), identity.privateKey).toString('base64');
+  const verified = await service.verifyNodeRequest({ tenantId, nodeId: node.id, method: 'POST', path, timestamp, nonce, signature, body });
+  assert.equal(verified.id, node.id);
+  await assert.rejects(
+    service.verifyNodeRequest({ tenantId, nodeId: node.id, method: 'POST', path, timestamp, nonce, signature, body }),
+    /已重放/,
+  );
   await assert.rejects(service.registerNode({
     token,
     name: 'CA01-duplicate',

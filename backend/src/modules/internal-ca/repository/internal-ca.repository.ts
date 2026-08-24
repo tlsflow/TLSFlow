@@ -210,6 +210,20 @@ export class InternalCaRepository {
     return this.list('pg_ca_nodes', tenantId, providerId ? { provider_id: providerId } : undefined);
   }
 
+  async consumeNodeRequestNonce(nodeId: string, nonce: string, now: string, expiresAt: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      await tx.query('delete from pg_ca_node_request_nonces where expires_at <= $1::timestamptz', [now]);
+      const result = await tx.query(
+        `insert into pg_ca_node_request_nonces (node_id, nonce, created_at, expires_at)
+         values ($1, $2, $3::timestamptz, $4::timestamptz)
+         on conflict (node_id, nonce) do nothing
+         returning nonce`,
+        [nodeId, nonce, now, expiresAt],
+      );
+      return result.rows.length === 1;
+    });
+  }
+
   async createNodeEnrollmentToken(entity: CaNodeEnrollmentTokenEntity): Promise<CaNodeEnrollmentTokenEntity> {
     await this.db.query(
       `insert into pg_ca_node_enrollment_tokens (

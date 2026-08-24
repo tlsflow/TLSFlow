@@ -294,17 +294,33 @@ export class InternalCaController {
 
   private async heartbeatNode(request: HttpRequest) {
     const body = objectBody(request);
-    return this.service.heartbeatNode(tenantId(request), requiredString(body, 'nodeId'), body as never);
+    const node = await this.authenticateNode(request, body);
+    return this.service.heartbeatNode(node.tenantId, node.id, body as never);
   }
 
   private async leaseNodeTask(request: HttpRequest) {
     const body = objectBody(request);
-    return this.service.leaseNodeTask(tenantId(request), requiredString(body, 'nodeId'));
+    const node = await this.authenticateNode(request, body);
+    return this.service.leaseNodeTask(node.tenantId, node.id);
   }
 
   private async completeNodeTask(request: HttpRequest) {
     const body = objectBody(request);
-    return this.service.completeNodeTask(tenantId(request), requiredString(body, 'nodeId'), pathId(request), body as never);
+    const node = await this.authenticateNode(request, body);
+    return this.service.completeNodeTask(node.tenantId, node.id, pathId(request), body as never);
+  }
+
+  private authenticateNode(request: HttpRequest, body: Record<string, unknown>) {
+    return this.service.verifyNodeRequest({
+      tenantId: String(request.headers['x-tenant-id'] ?? ''),
+      nodeId: String(request.headers['x-gcac-node-id'] ?? requiredString(body, 'nodeId')),
+      method: request.method,
+      path: request.path,
+      timestamp: String(request.headers['x-gcac-timestamp'] ?? ''),
+      nonce: String(request.headers['x-gcac-nonce'] ?? ''),
+      signature: String(request.headers['x-gcac-signature'] ?? ''),
+      body,
+    });
   }
 
   private async createAdcsAgentInstallSession(request: HttpRequest) {
