@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { GCAC_VERSION } from '../../common/version.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import { compareSemanticVersions, UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { hostLocales } from './locales/plugin-locale.service.js';
@@ -8,6 +9,49 @@ import type { UnifiedPluginsRepository } from './repository/unified-plugins.repo
 test('用户插件版本比较遵循 SemVer 预发布优先级', () => {
   assert.ok(compareSemanticVersions('1.0.0', '1.0.0-beta.2') > 0);
   assert.ok(compareSemanticVersions('1.0.0-beta.2', '1.0.0-beta.11') < 0);
+});
+
+test('外部市场导入的插件必须满足当前 GCAC 宿主版本', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      manifest: { ...workflowPluginInput().manifest, minGcacVersion: '999.0.0' },
+    }),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED'
+      && error.details?.pluginId === 'test.device.workflow'
+      && error.details?.currentGcacVersion === GCAC_VERSION
+      && error.details?.minGcacVersion === '999.0.0',
+  );
+});
+
+test('统一 Manifest 拒绝无效的最低宿主版本', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      manifest: { ...workflowPluginInput().manifest, minGcacVersion: '1.0' },
+    }),
+    /版本号不是有效的 SemVer/,
+  );
+});
+
+test('用户插件启用前再次执行宿主版本兼容性门禁', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const imported = await service.importVersion('tenant-1', workflowPluginInput());
+  records.set(imported.id, {
+    ...imported,
+    manifest: { ...imported.manifest, minGcacVersion: '999.0.0' },
+  });
+
+  await assert.rejects(
+    () => service.enableVersion(imported.id),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED'
+      && error.details?.currentGcacVersion === GCAC_VERSION
+      && error.details?.minGcacVersion === '999.0.0',
+  );
+  assert.equal(records.get(imported.id)?.status, 'DISABLED');
 });
 
 test('用户插件导入后保持禁用并可直接手动启用', async () => {

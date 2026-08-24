@@ -249,6 +249,7 @@ function builtinRegistry() {
       manifestSha256: hash,
       resourceHash: hash,
       runtimeEntrypointPath: '/runner/test-echo.js',
+      executionMode: 'DSL_STEP_ACTION',
       manifest: { permissions: [] },
       capabilities: [{ key: 'test.echo' }],
     }),
