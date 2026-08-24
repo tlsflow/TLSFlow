@@ -2701,21 +2701,34 @@ func collectRuntimeFacts(context.Context) (any, error) {
 }
 
 func collectServiceFacts(context.Context) (any, error) {
+	systemd := lookPath("systemctl") && fileExists("/run/systemd/system")
+	openrc := !systemd && lookPath("rc-service") && (fileExists("/run/openrc") || fileExists("/run/softlevel"))
+	sysv := !systemd && !openrc && (lookPath("service") || fileExists("/etc/init.d"))
 	return map[string]any{
-		"systemd": map[string]any{"available": lookPath("systemctl"), "runtimeDirectory": fileExists("/run/systemd/system")},
-		"sysv":    map[string]any{"available": lookPath("service") || fileExists("/etc/init.d")},
-		"openrc":  map[string]any{"available": lookPath("rc-service")},
+		"systemd": map[string]any{"available": systemd, "runtimeDirectory": fileExists("/run/systemd/system")},
+		"sysv":    map[string]any{"available": sysv},
+		"openrc":  map[string]any{"available": openrc},
 	}, nil
 }
 
 func collectPrivilegeFacts(context.Context) (any, error) {
+	isRoot := os.Geteuid() == 0
+	sudoAvailable, _ := probeSudoNoPassword()
 	return map[string]any{
 		"effectiveUid": os.Geteuid(),
-		"root":         os.Geteuid() == 0,
-		"sudo":         lookPath("sudo"),
+		"root":         isRoot,
+		"sudo":         !isRoot && sudoAvailable,
 		"su":           lookPath("su"),
-		"doas":         lookPath("doas"),
+		"doas":         !isRoot && commandSucceeds("doas", "-n", "true"),
 	}, nil
+}
+
+func commandSucceeds(name string, args ...string) bool {
+	if !lookPath(name) {
+		return false
+	}
+	_, err := captureCommand(name, args...)
+	return err == nil
 }
 
 func collectFilesystemFacts(context.Context) (any, error) {

@@ -31,6 +31,12 @@ type Verifier interface {
 	Verify(context.Context) error
 }
 
+type RecoveryRecorder interface {
+	CompleteStep(string) error
+	Fail(string, string, string) error
+	RecordRecovery([]string, string, string) error
+}
+
 type Input struct {
 	CertificatePath string
 	PrivateKeyPath  string
@@ -58,10 +64,16 @@ type Handler struct {
 	service    Service
 	security   Security
 	verifier   Verifier
+	recovery   RecoveryRecorder
 }
 
 func New(filesystem Filesystem, service Service, security Security, verifier Verifier) *Handler {
 	return &Handler{filesystem: filesystem, service: service, security: security, verifier: verifier}
+}
+
+func (handler *Handler) WithRecovery(recorder RecoveryRecorder) *Handler {
+	handler.recovery = recorder
+	return handler
 }
 
 func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
@@ -79,6 +91,7 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		backups = append(backups, backup)
 	}
 	completed = append(completed, "backup")
+	handler.recordStep("backup")
 	for _, target := range targets {
 		if err := handler.filesystem.AtomicReplace(target.path, target.content, target.mode); err != nil {
 			return handler.recover(ctx, "APACHE_INSTALL_FAILED", err, completed, backups)
@@ -88,10 +101,12 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 	}
 	completed = append(completed, "install")
+	handler.recordStep("install")
 	if err := handler.service.Validate(ctx); err != nil {
 		return handler.recover(ctx, "APACHE_CONFIG_INVALID", err, completed, backups)
 	}
 	completed = append(completed, "validate")
+	handler.recordStep("validate")
 	if err := handler.service.Reload(ctx); err != nil {
 		if !input.AllowRestart {
 			return handler.recover(ctx, "APACHE_RELOAD_FAILED", err, completed, backups)
@@ -101,10 +116,12 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 	}
 	completed = append(completed, "reload")
+	handler.recordStep("reload")
 	if err := handler.verifier.Verify(ctx); err != nil {
 		return handler.recover(ctx, "APACHE_VERIFY_FAILED", err, completed, backups)
 	}
 	completed = append(completed, "verify")
+	handler.recordStep("verify")
 	return Result{Success: true, CompletedSteps: completed}
 }
 
@@ -124,9 +141,31 @@ func (handler *Handler) recover(ctx context.Context, code string, cause error, c
 		recoverySteps = append(recoverySteps, "restart-service")
 	}
 	if len(recoveryErrors) > 0 {
+		handler.recordFailure(code, cause)
+		handler.recordRecovery(recoverySteps, "failed", strings.Join(recoveryErrors, "; "))
 		return failed("APACHE_RECOVERY_FAILED", fmt.Errorf("%v; recovery: %s", cause, strings.Join(recoveryErrors, "; ")), completed, recoverySteps)
 	}
+	handler.recordFailure(code, cause)
+	handler.recordRecovery(recoverySteps, "completed", cause.Error())
 	return failed(code, cause, completed, recoverySteps)
+}
+
+func (handler *Handler) recordStep(step string) {
+	if handler.recovery != nil {
+		_ = handler.recovery.CompleteStep(step)
+	}
+}
+
+func (handler *Handler) recordFailure(code string, cause error) {
+	if handler.recovery != nil {
+		_ = handler.recovery.Fail("deploy", code, cause.Error())
+	}
+}
+
+func (handler *Handler) recordRecovery(steps []string, result, message string) {
+	if handler.recovery != nil {
+		_ = handler.recovery.RecordRecovery(steps, result, message)
+	}
 }
 
 type target struct {
