@@ -113,8 +113,20 @@ test('非法发现关系不会污染上次成功投影', async () => {
 test('Agent 发现使用相同标准快照和投影幂等链', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
-  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
-    values ('host-agent','tenant-agent','agent.example','LINUX','AGENT','L1','AGENT','ACTIVE')`);
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status, agent_id)
+    values ('host-agent','tenant-agent','agent.example','LINUX','AGENT','L1','AGENT','ACTIVE','agent-1')`);
+  await db.query(`insert into pg_certificate_assets (
+      id, name, primary_domain, source_type, status, created_by
+    ) values ('certificate-asset-agent','agent.example','agent.example','imported','active','test')`);
+  await db.query(`insert into pg_certificate_versions (
+      id, certificate_asset_id, version_no, common_name, issuer, subject, serial_number,
+      not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+      leaf_storage_ref, chain_status, source_type, status, created_by
+    ) values (
+      'certificate-version-agent','certificate-asset-agent',1,'agent.example','{}'::jsonb,'{}'::jsonb,'02',
+      '2026-01-01T00:00:00Z','2027-01-01T00:00:00Z',$1,'RSA','SHA256-RSA',
+      'secret://certificate/agent','complete','imported','active','test'
+    )`, ['b'.repeat(64)]);
   const projector = new StandardDeviceDiscoveryProjector(db);
   const context = {
     tenantId: 'tenant-agent',
@@ -129,8 +141,15 @@ test('Agent 发现使用相同标准快照和投影幂等链', async () => {
     frameworks: [{ stableKey: 'nginx', frameworkType: 'web.nginx', displayName: 'NGINX' }],
     sites: [{ stableKey: 'site:default', frameworkStableKey: 'nginx', siteType: 'web.virtual-host', displayName: 'Default', addresses: ['*'], port: 443, protocol: 'HTTPS' }],
     managedTargets: [{ stableKey: 'target:default', frameworkStableKey: 'nginx', siteStableKey: 'site:default', targetType: 'tls.file', targetKey: 'nginx:default', supportedCapabilities: ['nginx.cert.install'], executionLocations: ['AGENT'] }],
-    certificates: [],
-    certificateBindings: [],
+    certificates: [{
+      stableKey: 'certificate:default', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=agent.example',
+      issuer: 'CN=Agent Test CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z',
+      metadata: { name: 'agent.example' },
+    }],
+    certificateBindings: [{
+      stableKey: 'binding:default', managedTargetStableKey: 'target:default',
+      certificateStableKey: 'certificate:default', bindingName: 'Default',
+    }],
     warnings: [],
   };
 
@@ -148,6 +167,31 @@ test('Agent 发现使用相同标准快照和投影幂等链', async () => {
   assert.equal(snapshots.rows[0]?.discovery_source, 'AGENT');
   assert.equal((await db.query<{ count: string }>('select count(*)::text as count from pg_framework_instances where device_id=$1', ['host-agent'])).rows[0]?.count, '1');
   assert.equal((await db.query<{ count: string }>('select count(*)::text as count from pg_managed_targets where device_id=$1', ['host-agent'])).rows[0]?.count, '1');
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovered_certificates')).rows[0]?.count, '0');
+  const formalBinding = (await db.query<{
+    certificate_version_id: string | null;
+    observed_fingerprint_sha256: string | null;
+    metadata: Record<string, unknown>;
+  }>('select certificate_version_id, observed_fingerprint_sha256, metadata from pg_certificate_bindings')).rows[0];
+  assert.equal(formalBinding?.certificate_version_id, 'certificate-version-agent');
+  assert.equal(formalBinding?.observed_fingerprint_sha256, 'B'.repeat(64));
+  assert.equal(formalBinding?.metadata.discoveryProviderKey, 'agent:agent-1');
+  const detail = await new PgDevicesRepository(db).get('tenant-agent', 'host-agent');
+  assert.equal(detail?.sites[0]?.bindings[0]?.certificate?.certificateVersionId, 'certificate-version-agent');
+  assert.equal(detail?.sites[0]?.bindings[0]?.certificate?.fingerprintSha256, 'b'.repeat(64));
+
+  const unmanagedDiscovery = structuredClone(discovery);
+  unmanagedDiscovery.certificates[0]!.sha256Fingerprint = 'c'.repeat(64);
+  unmanagedDiscovery.certificates[0]!.subject = 'CN=unmanaged.agent.example';
+  await projector.project(context, unmanagedDiscovery);
+  const unmanagedDetail = await new PgDevicesRepository(db).get('tenant-agent', 'host-agent');
+  assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.certificateVersionId, undefined);
+  assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.fingerprintSha256, 'C'.repeat(64));
+  assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.subject, 'CN=unmanaged.agent.example');
+
+  await projector.project(context, { ...unmanagedDiscovery, certificates: [], certificateBindings: [] });
+  const withoutBindingDetail = await new PgDevicesRepository(db).get('tenant-agent', 'host-agent');
+  assert.equal(withoutBindingDetail?.sites[0]?.bindings.length, 0);
 });
 
 test('并发重复发现只提交一次标准快照和业务投影', async () => {

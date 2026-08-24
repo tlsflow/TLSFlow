@@ -166,7 +166,7 @@ function createWebProductProjector(descriptor: ProductDescriptor): AgentProductD
         for (const [listenerIndex, listener] of listeners.entries()) {
           if (!isTlsListener(listener)) continue;
           const listenerKey = listenerStableKey(listener, listenerIndex);
-          discovery.managedTargets.push(createManagedTarget({
+          const managedTarget = createManagedTarget({
             frameworkStableKey,
             siteStableKey: projectedSite.stableKey,
             targetType: descriptor.targetType,
@@ -177,7 +177,9 @@ function createWebProductProjector(descriptor: ProductDescriptor): AgentProductD
               listenerKey,
               bindingInformation: listenerBindingInformation(siteName, site, listener),
             },
-          }));
+          });
+          discovery.managedTargets.push(managedTarget);
+          projectObservedCertificate(discovery, managedTarget, listener, siteName);
         }
       }
     },
@@ -207,11 +209,11 @@ function createConnectorProductProjector(descriptor: ProductDescriptor): AgentPr
       for (const [connectorIndex, connector] of readRecords(detail, 'connectors').entries()) {
         if (!hasValidPort(connector)) continue;
         const port = readNumber(connector, 'port', 'Port');
-        const siteName = readString(connector, 'certificateName') ?? `Tomcat ${port ?? connectorIndex + 1}`;
+        const siteName = readString(connector, 'certificateName') ?? `${descriptor.displayName} ${port ?? connectorIndex + 1}`;
         const projectedSite = createSite(frameworkStableKey, frameworkType, siteName, connectorIndex, connector, connector, [connector]);
         discovery.sites.push(projectedSite);
         if (!isTlsListener(connector)) continue;
-        discovery.managedTargets.push(createManagedTarget({
+        const managedTarget = createManagedTarget({
           frameworkStableKey,
           siteStableKey: projectedSite.stableKey,
           targetType: descriptor.targetTypeWhenFieldPresent && readString(connector, descriptor.targetTypeWhenFieldPresent.field)
@@ -223,7 +225,9 @@ function createConnectorProductProjector(descriptor: ProductDescriptor): AgentPr
             ...targetMetadata(siteName, {}, connector),
             bindingInformation: readString(projectedSite.metadata, 'bindingInformation'),
           },
-        }));
+        });
+        discovery.managedTargets.push(managedTarget);
+        projectObservedCertificate(discovery, managedTarget, connector, siteName);
       }
     },
   };
@@ -294,6 +298,59 @@ function createManagedTarget(input: {
     executionLocations: ['AGENT'],
     metadata: input.metadata,
   };
+}
+
+function projectObservedCertificate(
+  discovery: StandardDeviceDiscoveryV2,
+  managedTarget: StandardDeviceDiscoveryV2['managedTargets'][number],
+  listener: Record<string, unknown>,
+  bindingName: string,
+): void {
+  const certificate = asRecord(listener.certificate) ?? asRecord(listener.Certificate);
+  const fingerprint = normalizeFingerprint(readString(certificate, 'fingerprintSha256', 'FingerprintSha256', 'sha256Fingerprint'));
+  const thumbprint = readString(certificate, 'thumbprint', 'Thumbprint')
+    ?? readString(listener, 'certificateThumbprint', 'CertificateThumbprint');
+  const certificatePath = readString(listener, 'certificatePath', 'CertificatePath');
+  const certificateName = readString(listener, 'certificateName', 'CertificateName')
+    ?? readString(certificate, 'subject', 'Subject');
+  const identity = fingerprint ?? thumbprint ?? certificatePath ?? certificateName;
+  if (!identity) return;
+
+  // 证书身份只来自通用观测字段，与产品、框架和运行平台无关。
+  const certificateStableKey = `certificate:${stableToken(identity)}`;
+  if (!discovery.certificates.some((item) => item.stableKey === certificateStableKey)) {
+    discovery.certificates.push({
+      stableKey: certificateStableKey,
+      sha256Fingerprint: fingerprint,
+      subject: readString(certificate, 'subject', 'Subject'),
+      issuer: readString(certificate, 'issuer', 'Issuer'),
+      notBefore: readString(certificate, 'notBefore', 'NotBefore'),
+      notAfter: readString(certificate, 'notAfter', 'NotAfter'),
+      metadata: compactRecord({
+        name: certificateName,
+        certificatePath,
+        storeName: readString(certificate, 'storeName', 'StoreName')
+          ?? readString(listener, 'certificateStoreName', 'CertificateStoreName'),
+        thumbprint,
+      }),
+    });
+  }
+
+  const bindingStableKey = `binding:${stableToken(managedTarget.stableKey, certificateStableKey)}`;
+  if (discovery.certificateBindings.some((item) => item.stableKey === bindingStableKey)) return;
+  discovery.certificateBindings.push({
+    stableKey: bindingStableKey,
+    managedTargetStableKey: managedTarget.stableKey,
+    certificateStableKey,
+    bindingName,
+    metadata: compactRecord({
+      certificatePath,
+      keystorePath: readString(listener, 'keystorePath', 'KeystorePath'),
+      storeName: readString(certificate, 'storeName', 'StoreName')
+        ?? readString(listener, 'certificateStoreName', 'CertificateStoreName'),
+      storeThumbprint: thumbprint,
+    }),
+  });
 }
 
 function normalizeListener(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>, listenerIndex: number, fallbackHostHeaderToSiteName = true): Record<string, unknown> {
@@ -422,6 +479,11 @@ function readBoolean(value: Record<string, unknown> | undefined, ...keys: string
     if (typeof current === 'boolean') return current;
   }
   return undefined;
+}
+
+function normalizeFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^a-fA-F0-9]/g, '').toLowerCase();
+  return normalized && /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
 }
 
 function compactRecord(value: Record<string, unknown>): Record<string, unknown> {

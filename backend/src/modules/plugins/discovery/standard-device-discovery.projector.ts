@@ -158,10 +158,11 @@ export class StandardDeviceDiscoveryProjector {
 
         const certificateIds = new Map<string, string>();
         const certificateFingerprints = new Map<string, string | null>();
-        for (const certificate of context.deviceAssetId ? discovery.certificates : []) {
+        for (const certificate of discovery.certificates) {
           const certificateId = stableId('pdc', projectionRootId, certificate.stableKey);
           certificateIds.set(certificate.stableKey, certificateId);
           certificateFingerprints.set(certificate.stableKey, normalizeFingerprint(certificate.sha256Fingerprint));
+          if (!context.deviceAssetId) continue;
            await tx.query(
              `insert into plugin_discovered_certificates (
                id, tenant_id, device_asset_id, stable_key, fingerprint_sha256, certificate_version_id,
@@ -181,8 +182,9 @@ export class StandardDeviceDiscoveryProjector {
               JSON.stringify(certificate.metadata ?? {}), discoveredAt],
           );
         }
-        for (const binding of context.deviceAssetId ? discovery.certificateBindings : []) {
+        for (const binding of discovery.certificateBindings) {
           const target = discovery.managedTargets.find((item) => item.stableKey === binding.managedTargetStableKey)!;
+          const certificate = discovery.certificates.find((item) => item.stableKey === binding.certificateStableKey)!;
           const site = target.siteStableKey ? discovery.sites.find((item) => item.stableKey === target.siteStableKey) : undefined;
           const siteId = target.siteStableKey ? siteIds.get(target.siteStableKey) : undefined;
           const serviceInstanceId = target.frameworkStableKey
@@ -194,7 +196,7 @@ export class StandardDeviceDiscoveryProjector {
           const bindingId = stableId('pcb', projectionRootId, binding.stableKey);
           const formalBindingId = stableId('bnd', projectionRootId, binding.stableKey);
           const fingerprint = certificateFingerprints.get(binding.certificateStableKey) ?? null;
-           await tx.query(
+          if (context.deviceAssetId) await tx.query(
              `insert into plugin_discovered_certificate_bindings (
                 id, tenant_id, device_asset_id, stable_key, site_asset_id, managed_target_id, discovered_certificate_id,
                binding_name, metadata, current_certificate_version_id, observed_fingerprint_sha256,
@@ -215,6 +217,7 @@ export class StandardDeviceDiscoveryProjector {
             [bindingId, context.tenantId, context.deviceAssetId, binding.stableKey, siteId ?? null, managedTargetId, certificateId,
                binding.bindingName ?? null, JSON.stringify({ ...(binding.metadata ?? {}), formalBindingId }), fingerprint, discoveredAt],
           );
+          const domain = bindingDomain(site, target);
           await tx.query(
             `insert into pg_certificate_bindings (
                id, tenant_id, service_instance_id, site_asset_id, managed_target_id, host_id,
@@ -223,9 +226,9 @@ export class StandardDeviceDiscoveryProjector {
                discovery_source, verify_method, remote_status, checked_at, drift_status, status, metadata,
                created_at, updated_at, version
              ) values (
-               $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,'DEVICE_API',
+               $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$12,
                (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($11::text) limit 1),$11::text,$11::text,
-               'PLUGIN','TLS_CONNECT','reachable',$12,'UNKNOWN','DISCOVERED',$13::jsonb,$12,$12,1
+               $13,'TLS_CONNECT','reachable',$14,'UNKNOWN','DISCOVERED',$15::jsonb,$14,$14,1
              )
              on conflict (id) do update set service_instance_id=excluded.service_instance_id,
                site_asset_id=excluded.site_asset_id, managed_target_id=excluded.managed_target_id,
@@ -242,15 +245,26 @@ export class StandardDeviceDiscoveryProjector {
                metadata=pg_certificate_bindings.metadata || excluded.metadata,
                deleted_at=null, updated_at=excluded.updated_at, version=pg_certificate_bindings.version+1`,
             [formalBindingId, context.tenantId, serviceInstanceId, siteId ?? null, managedTargetId, context.hostId,
-              site?.addresses[0] ?? site?.displayName ?? target.targetKey, site?.port ?? null, normalizeProtocol(site?.protocol), binding.stableKey,
-              fingerprint, discoveredAt, JSON.stringify({
+              domain, site?.port ?? null, normalizeProtocol(site?.protocol), binding.stableKey,
+              fingerprint, context.deviceAssetId ? 'DEVICE_API' : 'CUSTOM', context.deviceAssetId ? 'PLUGIN' : 'AGENT', discoveredAt, JSON.stringify({
                 ...(binding.metadata ?? {}),
                 pluginDiscoveryStableKey: binding.stableKey,
                 pluginCertificateStableKey: binding.certificateStableKey,
                 pluginDeviceAssetId: context.deviceAssetId,
                 pluginVersionId: context.pluginVersionId,
                 pluginBindingId: context.pluginBindingId,
+                projectionDeviceId: context.hostId,
+                discoveryProviderKey,
+                discoverySource: context.discoverySource ?? 'PROVIDER',
                 discoveryStatus: 'ACTIVE',
+                observedCertificate: {
+                  name: certificate.metadata?.name,
+                  subject: certificate.subject,
+                  issuer: certificate.issuer,
+                  notBefore: certificate.notBefore,
+                  notAfter: certificate.notAfter,
+                  fingerprintSha256: fingerprint,
+                },
               })],
           );
         }
@@ -303,6 +317,12 @@ async function markStale(db: DatabasePort, context: StandardDiscoveryProjectionC
   await db.query("update pg_framework_instances set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_id=$3 and discovery_provider_key=$4 and deleted_at is null", [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey]);
   await db.query("update pg_site_assets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_id=$3 and discovery_provider_key=$4 and deleted_at is null", [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey]);
   await db.query("update pg_managed_targets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_id=$3 and discovery_provider_key=$4 and deleted_at is null", [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey]);
+  await db.query(
+    `update pg_certificate_bindings
+     set metadata=jsonb_set(metadata, '{discoveryStatus}', '"STALE"'::jsonb, true), updated_at=$1, version=version+1
+     where tenant_id=$2 and host_id=$3 and metadata->>'discoveryProviderKey'=$4 and deleted_at is null`,
+    [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey],
+  );
   if (context.deviceAssetId) {
     await db.query("update plugin_discovered_certificates set status='STALE', updated_at=$1 where tenant_id=$2 and device_asset_id=$3", [discoveredAt, context.tenantId, context.deviceAssetId]);
     await db.query("update plugin_discovered_certificate_bindings set status='STALE', updated_at=$1 where tenant_id=$2 and device_asset_id=$3", [discoveredAt, context.tenantId, context.deviceAssetId]);
@@ -419,6 +439,14 @@ function siteListenIp(site: StandardDeviceDiscoveryV2['sites'][number]): string 
 function normalizeProtocol(value: string | undefined): 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | null {
   const normalized = value?.toUpperCase();
   return normalized === 'HTTPS' || normalized === 'TLS' || normalized === 'STARTTLS' || normalized === 'HTTP' ? normalized : null;
+}
+
+function bindingDomain(
+  site: StandardDeviceDiscoveryV2['sites'][number] | undefined,
+  target: StandardDeviceDiscoveryV2['managedTargets'][number],
+): string {
+  const hostHeader = site ? siteHostHeader(site) : null;
+  return (hostHeader ?? site?.displayName ?? target.targetKey).trim().toLowerCase();
 }
 
 function normalizeFingerprint(value: string | undefined) {

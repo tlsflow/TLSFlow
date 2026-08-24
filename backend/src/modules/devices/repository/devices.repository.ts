@@ -256,6 +256,11 @@ export class PgDevicesRepository implements DevicesRepository {
             port: item.port ?? undefined,
             protocol: item.protocol ?? undefined,
           },
+          presentation: {
+            groupKey: 'network.virtual-server.' + item.virtual_server_type.toLowerCase(),
+            groupLabel: item.virtual_server_type,
+            typeLabel: item.virtual_server_type,
+          },
           bindings: certificateBindings.rows
             .filter((binding) => binding.virtual_server_type === item.virtual_server_type && binding.virtual_server_name === item.virtual_server_name)
             .map((binding) => ({
@@ -298,17 +303,22 @@ export class PgDevicesRepository implements DevicesRepository {
     const rows = (await this.db.query<ManagedSiteRow>(
       `select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
+              framework.framework_type, framework.display_name as framework_display_name,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
-              binding.status as binding_status, binding.certificate_version_id,
+              binding.status as binding_status, binding.certificate_version_id, binding.observed_fingerprint_sha256,
+              binding.metadata as binding_metadata,
                version.common_name, version.subject as certificate_subject, version.issuer as certificate_issuer,
                version.not_before, version.not_after, version.fingerprint_sha256, version.status as certificate_status,
                version.certificate_asset_id, asset.name as certificate_name
        from pg_site_assets site
+       join pg_framework_instances framework
+         on framework.tenant_id=site.tenant_id and framework.id=site.framework_instance_id and framework.deleted_at is null
        left join pg_managed_targets target
          on target.tenant_id=site.tenant_id and target.site_id=site.id and target.deleted_at is null
        left join pg_certificate_bindings binding
          on binding.tenant_id=site.tenant_id and binding.deleted_at is null
+        and coalesce(binding.metadata->>'discoveryStatus', 'ACTIVE') <> 'STALE'
         and (binding.site_asset_id=site.id or (target.id is not null and binding.managed_target_id=target.id))
        left join pg_certificate_versions version on version.id=binding.certificate_version_id
        left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
@@ -332,26 +342,34 @@ export class PgDevicesRepository implements DevicesRepository {
           protocol: row.protocol ?? undefined,
         },
         configPath: row.config_path ?? undefined,
+        presentation: {
+          groupKey: row.framework_type,
+          groupLabel: row.framework_display_name,
+          typeLabel: row.framework_display_name,
+        },
         bindings: [],
         metadata: asRecord(row.metadata),
       } satisfies ManagedDeviceSiteDto;
       if (row.binding_id && !existing.bindings.some((binding) => binding.id === row.binding_id)) {
+        const observedCertificate = asRecord(asRecord(row.binding_metadata).observedCertificate);
+        const observedFingerprint = row.observed_fingerprint_sha256 ?? optionalString(observedCertificate.fingerprintSha256);
+        const hasCertificate = Boolean(row.certificate_version_id || observedFingerprint || Object.keys(observedCertificate).length);
         existing.bindings.push({
           id: row.binding_id,
           bindingKey: row.binding_key ?? row.target_binding_key ?? row.binding_id,
           bindingType: row.binding_type ?? 'UNKNOWN',
           hostName: row.domain_name ?? undefined,
           status: row.binding_status ?? 'UNKNOWN',
-          certificate: row.certificate_version_id ? {
+          certificate: hasCertificate ? {
             certificateAssetId: row.certificate_asset_id ?? undefined,
-            certificateVersionId: row.certificate_version_id,
-            name: row.certificate_name ?? row.common_name ?? undefined,
-            subject: distinguishedName(row.certificate_subject),
-            issuer: distinguishedName(row.certificate_issuer),
-            notBefore: optionalTimestamp(row.not_before),
-            notAfter: optionalTimestamp(row.not_after),
-            fingerprintSha256: row.fingerprint_sha256 ?? undefined,
-            status: row.certificate_status ?? undefined,
+            certificateVersionId: row.certificate_version_id ?? undefined,
+            name: row.certificate_name ?? row.common_name ?? optionalString(observedCertificate.name) ?? undefined,
+            subject: distinguishedName(row.certificate_subject) ?? optionalString(observedCertificate.subject),
+            issuer: distinguishedName(row.certificate_issuer) ?? optionalString(observedCertificate.issuer),
+            notBefore: optionalTimestamp(row.not_before ?? observedCertificate.notBefore),
+            notAfter: optionalTimestamp(row.not_after ?? observedCertificate.notAfter),
+            fingerprintSha256: row.fingerprint_sha256 ?? observedFingerprint ?? undefined,
+            status: row.certificate_status ?? row.binding_status ?? undefined,
           } : undefined,
           replacement: row.managed_target_id && row.target_status === 'ACTIVE'
             ? { allowed: true, managedTargetId: row.managed_target_id }
@@ -595,6 +613,8 @@ interface ManagedSiteRow extends Record<string, unknown> {
   runtime_status: string | null;
   status: string;
   metadata: Record<string, unknown> | null;
+  framework_type: string;
+  framework_display_name: string;
   managed_target_id: string | null;
   target_binding_key: string | null;
   target_status: string | null;
@@ -604,6 +624,8 @@ interface ManagedSiteRow extends Record<string, unknown> {
   domain_name: string | null;
   binding_status: string | null;
   certificate_version_id: string | null;
+  observed_fingerprint_sha256: string | null;
+  binding_metadata: Record<string, unknown> | null;
   certificate_asset_id: string | null;
   common_name: string | null;
   certificate_subject: unknown;
@@ -720,6 +742,7 @@ function mergeNetworkSites(managedSites: ManagedDeviceSiteDto[], discoveredSites
     ));
     return discovered ? {
       ...site,
+      presentation: discovered.presentation ?? site.presentation,
       status: discovered.status ?? site.status,
       endpoint: discovered.endpoint ?? site.endpoint,
       bindings: discovered.bindings.map((binding) => ({

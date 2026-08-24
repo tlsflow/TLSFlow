@@ -63,7 +63,14 @@ test('Go Agent 小写 IIS bindings 会生成带端口的站点和 HTTPS 受管�
           name: 'TEST',
           bindings: [
             { protocol: 'http', ipAddress: '*', port: 80, hostHeader: '', bindingInformation: '*:80:' },
-            { protocol: 'https', ipAddress: '*', port: 4433, hostHeader: '', bindingInformation: '*:4433:', certificateStoreName: 'My' },
+            {
+              protocol: 'https', ipAddress: '*', port: 4433, hostHeader: '', bindingInformation: '*:4433:', certificateStoreName: 'My',
+              certificate: {
+                subject: 'CN=fixture.example', issuer: 'CN=Fixture CA',
+                notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z',
+                fingerprintSha256: 'ab'.repeat(32), thumbprint: '12'.repeat(20), storeName: 'My',
+              },
+            },
           ],
         }],
       },
@@ -80,6 +87,22 @@ test('Go Agent 小写 IIS bindings 会生成带端口的站点和 HTTPS 受管�
   assert.equal(projected.managedTargets.length, 1);
   assert.equal(projected.managedTargets[0]?.bindingKey, '*:4433:');
   assert.equal(projected.managedTargets[0]?.targetType, 'tls.binding');
+  assert.deepEqual(projected.certificates, [{
+    stableKey: projected.certificates[0]?.stableKey,
+    sha256Fingerprint: 'ab'.repeat(32),
+    subject: 'CN=fixture.example',
+    issuer: 'CN=Fixture CA',
+    notBefore: '2026-01-01T00:00:00Z',
+    notAfter: '2027-01-01T00:00:00Z',
+    metadata: { name: 'CN=fixture.example', storeName: 'My', thumbprint: '12'.repeat(20) },
+  }]);
+  assert.deepEqual(projected.certificateBindings, [{
+    stableKey: projected.certificateBindings[0]?.stableKey,
+    managedTargetStableKey: projected.managedTargets[0]?.stableKey,
+    certificateStableKey: projected.certificates[0]?.stableKey,
+    bindingName: 'TEST',
+    metadata: { storeName: 'My', storeThumbprint: '12'.repeat(20) },
+  }]);
 });
 
 test('多个启用插件声明同一 Agent Capability Key 时失败关闭', async () => {
