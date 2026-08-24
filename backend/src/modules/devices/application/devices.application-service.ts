@@ -37,10 +37,13 @@ export class DevicesApplicationService {
       if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 安装服务未注册');
       const baseUrl = input.baseUrl?.trim();
       if (!baseUrl) throw new AppError('VALIDATION_FAILED', 'Agent 安装需要 baseUrl', { field: 'baseUrl' });
-      const options = { displayName: input.displayName };
-      if (platform.handlerKey === 'WINDOWS_GO') return this.agents.createWindowsPowerShellInstallSession(tenantId, options, requestId, baseUrl);
-      if (platform.handlerKey === 'WINDOWS_COMPATIBILITY') return this.agents.createWindowsCompatibilityInstallSession(tenantId, options, requestId, baseUrl);
-      return this.agents.createLinuxGoInstallSession(tenantId, options, requestId, baseUrl);
+      const options = {};
+      const installSession = platform.handlerKey === 'WINDOWS_GO'
+        ? await this.agents.createWindowsPowerShellInstallSession(tenantId, options, requestId, baseUrl)
+        : platform.handlerKey === 'WINDOWS_COMPATIBILITY'
+          ? await this.agents.createWindowsCompatibilityInstallSession(tenantId, options, requestId, baseUrl)
+          : await this.agents.createLinuxGoInstallSession(tenantId, options, requestId, baseUrl);
+      return { ...installSession, onboardingKind: 'AGENT_INSTALL' as const, installSession };
     }
     if (!this.deviceAssets || !this.secrets) throw new AppError('CAPABILITY_MISSING', '设备添加服务未注册');
     if (input.tlsVerify === false && input.insecureTlsAcknowledged !== true) {
@@ -56,8 +59,23 @@ export class DevicesApplicationService {
       authMode: input.authMode,
       tlsVerify: input.tlsVerify,
     });
-    const connection = await this.deviceAssets.testConnection(tenantId, device.id, actorId);
-    return { device, connection };
+    try {
+      const connection = await this.deviceAssets.testConnection(tenantId, device.id, actorId);
+      return { onboardingKind: 'API_CONNECTION' as const, device, connection };
+    } catch (cause) {
+      return {
+        onboardingKind: 'API_CONNECTION' as const,
+        device,
+        connection: {
+          reachable: false,
+          authenticated: false,
+          productMatched: false,
+          capabilities: {},
+          warnings: [],
+          errorCode: cause instanceof AppError ? cause.errorCode : 'CONNECTION_TEST_FAILED',
+        },
+      };
+    }
   }
 
   private async createCredential(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string): Promise<string> {

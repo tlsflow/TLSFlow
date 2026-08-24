@@ -1,0 +1,165 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { ManagedDeviceSummaryDto } from '../dto/devices.dto.js';
+import {
+  AgentManagedDeviceProjectionAdapter,
+  CitrixAdcManagedDeviceProjectionAdapter,
+  ManagedDeviceProjectionRegistry,
+  type ManagedDeviceProjectionAdapter,
+  type ManagedDeviceProjectionSource,
+} from './managed-device-projection.js';
+
+const commonSource: ManagedDeviceProjectionSource = {
+  id: 'host_projection',
+  displayName: '投影测试设备',
+  osType: 'UNKNOWN',
+  managementMode: 'AGENT',
+  hostStatus: 'ACTIVE',
+  applicationAssetCount: 2,
+};
+
+test('统一设备投影为 Windows Agent 输出系统版本而非 Agent 版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'WINDOWS',
+    osVersion: 'Windows Server 2022 21H2',
+    agent: {
+      payload: {
+        status: 'ONLINE',
+        descriptor: {
+          osType: 'WINDOWS',
+          version: '1.2.3',
+          osVersion: 'Windows Server 2022 21H2',
+        },
+      },
+      capabilitySnapshot: {},
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Windows Server 2022 21H2');
+  assert.notEqual(result.softwareVersion, '1.2.3');
+  assert.equal(result.health, 'HEALTHY');
+  assert.equal(result.applicationAssetCount, 2);
+});
+
+test('统一设备投影不把历史 Windows_NT 占位值当作系统版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'WINDOWS',
+    osName: 'Windows Server',
+    osVersion: 'Windows_NT',
+    agent: {
+      payload: {
+        descriptor: {
+          osType: 'WINDOWS',
+          version: '1.2.3',
+        },
+      },
+      capabilitySnapshot: {},
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Windows Server');
+});
+
+test('统一设备投影为 Linux Agent 合并发行版和系统版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'LINUX',
+    agent: {
+      payload: {
+        descriptor: {
+          osType: 'LINUX',
+          version: '2.0.0',
+          linuxDistribution: 'Ubuntu',
+          osVersion: '24.04',
+        },
+      },
+      capabilitySnapshot: {},
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Ubuntu 24.04');
+});
+
+test('统一设备投影从 Windows 能力快照兼容读取存量系统版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'WINDOWS',
+    agent: {
+      payload: {
+        descriptor: {
+          osType: 'WINDOWS',
+          version: '1.2.3',
+        },
+      },
+      capabilitySnapshot: {
+        capabilities: [{
+          capabilityKey: 'windows.os.detail',
+          value: {
+            ProductName: 'Windows Server 2022 Datacenter',
+            DisplayVersion: '21H2',
+            BuildRevision: '20348.2402',
+          },
+        }],
+      },
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Windows Server 2022 Datacenter 21H2');
+});
+
+test('统一设备投影为 Citrix ADC 输出固件版本和 Build', () => {
+  const result = new CitrixAdcManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    managementMode: 'API',
+    networkAppliance: {
+      deviceFamily: 'NETSCALER_ADC',
+      softwareVersion: '13.1',
+      softwareBuild: '55.29.nc',
+      capabilityProfile: { certificateDeploy: true },
+      lastDiscoveredAt: '2026-07-23T08:00:00.000Z',
+    },
+  });
+
+  assert.equal(result.softwareVersion, '13.1 55.29.nc');
+  assert.equal(result.health, 'HEALTHY');
+  assert.deepEqual(result.capabilities, ['certificateDeploy']);
+});
+
+test('统一设备投影 Registry 支持注册新的设备类型适配器', () => {
+  const f5Adapter: ManagedDeviceProjectionAdapter = {
+    key: 'F5_BIG_IP',
+    supports: (source) => source.networkAppliance?.deviceFamily === 'F5_BIG_IP',
+    project: (source): ManagedDeviceSummaryDto => ({
+      id: source.id,
+      displayName: source.displayName ?? source.id,
+      category: 'NETWORK_APPLIANCE',
+      productFamily: 'F5 BIG-IP',
+      managementMethod: 'REST_API',
+      health: 'HEALTHY',
+      sourceStatus: source.hostStatus,
+      softwareVersion: source.networkAppliance?.softwareVersion,
+      applicationAssetCount: source.applicationAssetCount,
+      capabilities: [],
+      extensionType: 'NETWORK_APPLIANCE',
+    }),
+  };
+  const registry = new ManagedDeviceProjectionRegistry([
+    f5Adapter,
+    new AgentManagedDeviceProjectionAdapter(),
+    new CitrixAdcManagedDeviceProjectionAdapter(),
+  ]);
+
+  const result = registry.project({
+    ...commonSource,
+    networkAppliance: {
+      deviceFamily: 'F5_BIG_IP',
+      softwareVersion: '17.1.1',
+      capabilityProfile: {},
+    },
+  });
+
+  assert.equal(result.productFamily, 'F5 BIG-IP');
+  assert.equal(result.softwareVersion, '17.1.1');
+});

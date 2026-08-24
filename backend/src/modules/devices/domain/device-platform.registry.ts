@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 
-const agentFields = [{ key: 'displayName', type: 'TEXT', required: true }] as const;
+const agentFields = [] as const;
 const apiFields = [
   { key: 'displayName', type: 'TEXT', required: true },
   { key: 'managementAddress', type: 'TEXT', required: true },

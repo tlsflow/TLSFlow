@@ -1,25 +1,19 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type {
-  ManagedDeviceHealth,
   ManagedDeviceDetailDto,
   ManagedDeviceListQuery,
   ManagedDevicePageDto,
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
+import {
+  ManagedDeviceProjectionRegistry,
+  mapAgentHealth,
+  mapNetworkDeviceHealth,
+  type ManagedDeviceProjectionSource,
+} from '../domain/managed-device-projection.js';
 
-const SERVER_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = {
-  WINDOWS: 'Windows Server',
-  LINUX: 'Linux Server',
-};
-
-const DEVICE_PRODUCT_FAMILY_BY_TYPE: Readonly<Record<string, string>> = {
-  NETSCALER_ADC: 'Citrix ADC',
-};
-
-const DEVICE_MANAGEMENT_METHOD_BY_TYPE: Readonly<Record<string, string>> = {
-  NETSCALER_ADC: 'NITRO_API',
-};
+export { mapAgentHealth, mapNetworkDeviceHealth } from '../domain/managed-device-projection.js';
 
 export interface DevicesRepository {
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto>;
@@ -27,11 +21,14 @@ export interface DevicesRepository {
 }
 
 export class PgDevicesRepository implements DevicesRepository {
-  constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
+  constructor(
+    private readonly db: DatabasePort = new PgliteDatabase(),
+    private readonly projectionRegistry = new ManagedDeviceProjectionRegistry(),
+  ) {}
 
   async list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
     const rows = (await this.db.query<ManagedDeviceRow>(DEVICE_LIST_SQL, [tenantId])).rows;
-    const items = rows.map(toSummary).filter((item) => matches(item, query));
+    const items = rows.map((row) => this.projectionRegistry.project(toProjectionSource(row))).filter((item) => matches(item, query));
     const authorized = query.authorizedHostIds
       ? items.filter((item) => query.authorizedHostIds!.includes(item.id))
       : items;
@@ -48,7 +45,7 @@ export class PgDevicesRepository implements DevicesRepository {
   async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined> {
     const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and host.id = $2`, [tenantId, deviceId])).rows[0];
     if (!row) return undefined;
-    const summary = toSummary(row);
+    const summary = this.projectionRegistry.project(toProjectionSource(row));
     return {
       ...summary,
       statusReason: row.last_error_code ?? undefined,
@@ -64,7 +61,11 @@ export class PgDevicesRepository implements DevicesRepository {
       extensionSummary: summary.extensionType === 'AGENT'
         ? { agentId: row.agent_id, descriptor: asRecord(asRecord(row.agent_payload).descriptor) }
         : {
+            deviceAssetId: row.device_asset_id,
             deviceFamily: row.device_family,
+            managementPort: row.management_port,
+            authMode: row.auth_mode,
+            tlsVerify: row.tls_verify,
             supportTier: row.support_tier,
             softwareBuild: row.software_build,
             capabilityProfile: asRecord(row.capability_profile),
@@ -78,6 +79,11 @@ const DEVICE_LIST_SQL = `
     select document_id as agent_id, payload
     from pg_documents
     where namespace = 'agents:registrations'
+  ), agent_snapshots as (
+    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload
+    from pg_documents
+    where namespace = 'agents:snapshots'
+    order by payload->>'agentId', payload->>'reportedAt' desc
   ), application_counts as (
     select host_id, count(distinct asset_id)::int as asset_count
     from (
@@ -107,7 +113,12 @@ const DEVICE_LIST_SQL = `
     host.updated_at,
     host.agent_id,
     agent.payload as agent_payload,
+    snapshot.payload as agent_capability_payload,
+    device.service_asset_id as device_asset_id,
     device.device_family,
+    device.management_port,
+    device.auth_mode,
+    device.tls_verify,
     device.product_name,
     device.software_version,
     device.software_build,
@@ -119,10 +130,13 @@ const DEVICE_LIST_SQL = `
     coalesce(counts.asset_count, 0)::int as application_asset_count
   from pg_hosts host
   left join agent_extensions agent on agent.agent_id = host.agent_id
+  left join agent_snapshots snapshot on snapshot.agent_id = host.agent_id
   left join pg_device_assets device on device.tenant_id = host.tenant_id and device.host_id = host.id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
-  where host.tenant_id = $1 and host.deleted_at is null
+  where host.tenant_id = $1
+    and host.deleted_at is null
+    and (host.agent_id is not null or service.id is not null)
 `;
 
 interface ManagedDeviceRow extends Record<string, unknown> {
@@ -139,7 +153,12 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   updated_at: string;
   agent_id: string | null;
   agent_payload: Record<string, unknown> | null;
+  agent_capability_payload: Record<string, unknown> | null;
+  device_asset_id: string | null;
   device_family: string | null;
+  management_port: number | null;
+  auth_mode: string | null;
+  tls_verify: boolean | null;
   product_name: string | null;
   software_version: string | null;
   software_build: string | null;
@@ -151,68 +170,39 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   application_asset_count: number;
 }
 
-function toSummary(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
-  return row.device_family ? toNetworkDevice(row) : toAgentDevice(row);
-}
-
-function toNetworkDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
-  const capabilities = Object.entries(asRecord(row.capability_profile))
-    .filter(([, enabled]) => enabled === true)
-    .map(([name]) => name);
-  const sourceStatus = row.last_error_code ? 'ERROR' : row.device_last_discovered_at ? 'DISCOVERED' : row.host_status;
-  return {
+function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSource {
+  const source: ManagedDeviceProjectionSource = {
     id: row.id,
-    displayName: row.display_name ?? row.device_address ?? row.id,
-    category: 'NETWORK_APPLIANCE',
-    productFamily: row.product_name ?? DEVICE_PRODUCT_FAMILY_BY_TYPE[row.device_family!] ?? row.device_family!,
-    managementMethod: DEVICE_MANAGEMENT_METHOD_BY_TYPE[row.device_family!] ?? 'API',
-    managementAddress: row.device_address ?? row.primary_ip ?? row.hostname ?? undefined,
-    health: mapNetworkDeviceHealth(row.host_status, row.last_error_code, row.support_tier, row.device_last_discovered_at),
-    sourceStatus,
-    softwareVersion: [row.software_version, row.software_build].filter(Boolean).join(' ') || undefined,
-    lastContactAt: row.device_last_discovered_at ?? row.last_discovered_at ?? undefined,
+    displayName: row.display_name ?? undefined,
+    hostname: row.hostname ?? undefined,
+    primaryIp: row.primary_ip ?? undefined,
+    osType: row.os_type,
+    osName: row.os_name ?? undefined,
+    osVersion: row.os_version ?? undefined,
+    managementMode: row.management_mode,
+    hostStatus: row.host_status,
+    lastDiscoveredAt: row.last_discovered_at ?? undefined,
     applicationAssetCount: Number(row.application_asset_count),
-    capabilities,
-    extensionType: 'NETWORK_APPLIANCE',
   };
-}
-
-function toAgentDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
-  const payload = asRecord(row.agent_payload);
-  const descriptor = asRecord(payload.descriptor);
-  const sourceStatus = stringValue(payload.status) ?? row.host_status;
-  const osType = stringValue(descriptor.osType) ?? row.os_type;
-  return {
-    id: row.id,
-    displayName: row.display_name ?? row.hostname ?? row.primary_ip ?? row.id,
-    category: 'SERVER',
-    productFamily: SERVER_PRODUCT_FAMILY_BY_OS[osType] ?? row.os_name ?? osType,
-    managementMethod: row.management_mode,
-    managementAddress: row.primary_ip ?? row.hostname ?? undefined,
-    health: mapAgentHealth(sourceStatus),
-    sourceStatus,
-    softwareVersion: stringValue(descriptor.agentVersion) ?? row.os_version ?? undefined,
-    lastContactAt: stringValue(payload.updatedAt) ?? row.last_discovered_at ?? undefined,
-    applicationAssetCount: Number(row.application_asset_count),
-    capabilities: stringArray(descriptor.capabilities),
-    extensionType: 'AGENT',
-  };
-}
-
-export function mapNetworkDeviceHealth(hostStatus: string, lastErrorCode?: string | null, supportTier?: string | null, lastDiscoveredAt?: string | null): ManagedDeviceHealth {
-  if (hostStatus === 'DISABLED') return 'DISABLED';
-  if (lastErrorCode) return 'UNREACHABLE';
-  if (supportTier === 'UNSUPPORTED') return 'DEGRADED';
-  if (lastDiscoveredAt) return 'HEALTHY';
-  return 'UNKNOWN';
-}
-
-export function mapAgentHealth(status: string): ManagedDeviceHealth {
-  if (status === 'online' || status === 'active' || status === 'ACTIVE') return 'HEALTHY';
-  if (status === 'disabled' || status === 'revoked' || status === 'DISABLED') return 'DISABLED';
-  if (status === 'offline' || status === 'UNREACHABLE') return 'UNREACHABLE';
-  if (status === 'upgrading' || status === 'degraded') return 'DEGRADED';
-  return 'UNKNOWN';
+  if (row.device_family) {
+    source.networkAppliance = {
+      deviceFamily: row.device_family,
+      productName: row.product_name ?? undefined,
+      softwareVersion: row.software_version ?? undefined,
+      softwareBuild: row.software_build ?? undefined,
+      supportTier: row.support_tier ?? undefined,
+      capabilityProfile: asRecord(row.capability_profile),
+      lastDiscoveredAt: row.device_last_discovered_at ?? undefined,
+      lastErrorCode: row.last_error_code ?? undefined,
+      managementAddress: row.device_address ?? undefined,
+    };
+  } else {
+    source.agent = {
+      payload: asRecord(row.agent_payload),
+      capabilitySnapshot: asRecord(row.agent_capability_payload),
+    };
+  }
+  return source;
 }
 
 function matches(item: ManagedDeviceSummaryDto, query: ManagedDeviceListQuery): boolean {
@@ -227,12 +217,4 @@ function sortItems(items: ManagedDeviceSummaryDto[], query: ManagedDeviceListQue
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }

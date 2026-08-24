@@ -36,9 +36,11 @@ test('Session 认证登录后只使用 Cookie，并在关闭时注销', async ()
 
   assert.equal(httpClient.requests.length, 3);
   assert.match(httpClient.requests[0].body?.toString('utf8') ?? '', /nitro-password/);
+  assert.equal(httpClient.requests[0].headers['Content-Type'], 'application/vnd.com.citrix.netscaler.login+json');
   assert.equal(httpClient.requests[1].headers.Cookie, 'NITRO_AUTH_TOKEN=session-token');
   assert.equal(httpClient.requests[1].headers['X-NITRO-PASS'], undefined);
   assert.equal(httpClient.requests[2].url, 'https://10.0.0.10/nitro/v1/config/logout');
+  assert.equal(httpClient.requests[2].headers['Content-Type'], 'application/vnd.com.citrix.netscaler.logout+json');
 });
 
 test('逐请求认证只注入 X-NITRO Header，不创建 Session', async () => {
@@ -51,6 +53,19 @@ test('逐请求认证只注入 X-NITRO Header，不创建 Session', async () => 
   assert.equal(httpClient.requests[0].headers['X-NITRO-USER'], 'nitro-user');
   assert.equal(httpClient.requests[0].headers['X-NITRO-PASS'], 'nitro-password');
   assert.equal(httpClient.requests[0].headers.Cookie, undefined);
+});
+
+test('带请求体的 NITRO 配置请求使用资源专用媒体类型', async () => {
+  const httpClient = new RecordingHttpClient([nitroResponse({ errorcode: 0 })]);
+  const client = createClient('PER_REQUEST', httpClient);
+
+  await client.request({
+    method: 'PUT',
+    path: '/nitro/v1/config/sslcertkey/example-cert',
+    body: { sslcertkey: { certkey: 'example-cert' } },
+  });
+
+  assert.equal(httpClient.requests[0].headers['Content-Type'], 'application/vnd.com.citrix.netscaler.sslcertkey+json');
 });
 
 test('HTTP 成功但 NITRO 业务失败会归一化并脱敏', async () => {

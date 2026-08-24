@@ -38,6 +38,9 @@ export class NetscalerDeviceConnectionTester implements DeviceConnectionTester {
         capabilities: { ...discovery.capabilityProfile },
         warnings: discovery.warnings,
       };
+    } catch (cause) {
+      await this.projector.projectFailure(device.tenantId, device.id, connectionErrorCode(cause));
+      throw cause;
     } finally {
       await client.close();
     }
@@ -49,4 +52,9 @@ export class NetscalerDeviceConnectionTester implements DeviceConnectionTester {
     if (!parsed.username || !parsed.password) throw new Error('NITRO 凭据格式无效');
     return { username: parsed.username, password: parsed.password };
   }
+}
+
+function connectionErrorCode(cause: unknown): string {
+  if (cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string') return cause.code;
+  return 'NETSCALER_UNREACHABLE';
 }

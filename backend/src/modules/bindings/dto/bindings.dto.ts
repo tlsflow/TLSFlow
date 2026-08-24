@@ -174,7 +174,8 @@ export interface CertificateBindingUsageDto {
   };
   managedTarget?: {
     id: string;
-    agentId: string;
+    agentId?: string;
+    deviceAssetId?: string;
     targetKey: string;
     bindingKey?: string;
     status: string;

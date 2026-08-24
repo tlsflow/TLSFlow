@@ -58,6 +58,21 @@ test('Spec033 将 LB/VPN Virtual Server 幂等投影为统一应用资产和受�
   assert.ok(!assets.items.some((item) => item.id === device.id));
 });
 
+test('发现失败写回设备错误码供统一健康状态投影', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  const device = await new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(db)).create('tenant-failure', {
+    displayName: 'ADC Failure', managementAddress: '10.0.0.50', deviceFamily: 'NETSCALER_ADC', credentialId: 'secret',
+  });
+
+  await new DeviceAssetsDiscoveryProjector(db).projectFailure('tenant-failure', device.id, 'NETSCALER_UNREACHABLE');
+  const row = await db.query<{ last_error_code: string }>(
+    `select last_error_code from pg_device_assets where tenant_id=$1 and service_asset_id=$2`,
+    ['tenant-failure', device.id],
+  );
+  assert.equal(row.rows[0]?.last_error_code, 'NETSCALER_UNREACHABLE');
+});
+
 function discovery(names: string[]): NetscalerDiscoveryResult {
   return {
     version: { major: 14, minor: 1, normalized: '14.1', raw: 'NS14.1', build: '21.57.nc' },

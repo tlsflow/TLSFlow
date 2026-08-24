@@ -83,6 +83,16 @@ export class DeviceAssetsDiscoveryProjector {
     });
     return { virtualServers: discovery.virtualServers.length, certificates: discovery.certificates.length, bindings: discovery.bindings.length, discoveredAt };
   }
+
+  async projectFailure(tenantId: string, deviceAssetId: string, errorCode: string): Promise<void> {
+    const failedAt = new Date().toISOString();
+    await this.db.query(
+      `update pg_device_assets
+       set last_error_code=$1, updated_at=$2, version=version+1
+       where tenant_id=$3 and service_asset_id=$4`,
+      [errorCode, failedAt, tenantId, deviceAssetId],
+    );
+  }
 }
 
 async function projectUnifiedAssets(

@@ -93,7 +93,7 @@ export class NetscalerNitroClient {
         method: input.method ?? 'GET',
         headers: {
           Accept: 'application/json',
-          ...(body ? { 'Content-Type': 'application/json', 'Content-Length': String(body.byteLength) } : {}),
+          ...(body ? { 'Content-Type': nitroContentType(input.path), 'Content-Length': String(body.byteLength) } : {}),
           ...authHeaders,
         },
         body,
@@ -139,4 +139,11 @@ export class NetscalerNitroClient {
     }
     return url.toString();
   }
+}
+
+function nitroContentType(path: string): string {
+  const resourceName = path.match(/^\/nitro\/v1\/config\/([^/?]+)/)?.[1];
+  return resourceName
+    ? `application/vnd.com.citrix.netscaler.${resourceName}+json`
+    : 'application/json';
 }

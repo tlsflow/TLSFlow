@@ -207,6 +207,7 @@ export class PgBindingsRepository implements BindingsRepository {
           : {
             id: managedTarget.id,
             agentId: managedTarget.agentId,
+            deviceAssetId: managedTarget.deviceAssetId,
             targetKey: managedTarget.targetKey,
             bindingKey: managedTarget.bindingKey,
             status: managedTarget.status,

@@ -136,9 +136,27 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
     ['agents:registrations', agentId, JSON.stringify({
       id: agentId,
       tenantId,
-      status: 'online',
+      status: 'ONLINE',
       updatedAt: '2026-07-22T08:00:00.000Z',
-      descriptor: { osType: 'WINDOWS', agentVersion: '1.2.3', capabilities: ['certificate.deploy'] },
+      descriptor: {
+        osType: 'WINDOWS',
+        version: '1.2.3',
+        capabilities: ['certificate.deploy'],
+      },
+    })],
+  );
+  await database.query(
+    `insert into pg_documents (namespace, document_id, payload, updated_at) values ($1, $2, $3::jsonb, now())`,
+    ['agents:snapshots', 'snapshot_spec033_devices', JSON.stringify({
+      id: 'snapshot_spec033_devices',
+      tenantId,
+      agentId,
+      reportedAt: '2026-07-22T08:00:00.000Z',
+      capabilities: [{
+        capabilityKey: 'windows.os.detail',
+        value: { ProductName: 'Windows Server 2022', DisplayVersion: '21H2' },
+        confidence: 1,
+      }],
     })],
   );
   await assets.createServiceAsset(tenantId, {
@@ -172,6 +190,8 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.deepEqual(result.items.map((item) => item.extensionType), ['NETWORK_APPLIANCE', 'AGENT']);
   assert.equal(result.items.find((item) => item.id === host.id)?.applicationAssetCount, 1);
   assert.equal(result.items.find((item) => item.id === host.id)?.health, 'HEALTHY');
+  assert.equal(result.items.find((item) => item.id === host.id)?.softwareVersion, 'Windows Server 2022 21H2');
+  assert.equal(result.items.find((item) => item.id === host.id)?.lastContactAt, '2026-07-22T08:00:00.000Z');
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.managementMethod, 'NITRO_API');
 });
 
@@ -198,8 +218,36 @@ test('Spec033 统一设备列表支持筛选、分页和 Host 权限范围', asy
   assert.equal(result.items[0]?.id, first.hostId);
 });
 
+test('Spec033 统一设备列表不展示服务资产已删除的 ADC 残留 Host', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_deleted_adc_projection';
+  const device = await new PgDeviceAssetsRepository(database).create(tenantId, {
+    displayName: 'ADC 残留投影',
+    managementAddress: '10.33.3.49',
+    managementPort: 443,
+    deviceFamily: 'NETSCALER_ADC',
+    credentialId: 'secret_deleted_adc',
+    authMode: 'AUTO',
+    tlsVerify: true,
+  });
+  await database.query(
+    `update pg_service_assets set status='DELETED', deleted_at=now() where tenant_id=$1 and id=$2`,
+    [tenantId, device.id],
+  );
+
+  const result = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+
+  assert.equal(result.total, 0);
+});
+
 test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边界', async () => {
   assert.equal(mapAgentHealth('online'), 'HEALTHY');
+  assert.equal(mapAgentHealth('ONLINE'), 'HEALTHY');
   assert.equal(mapAgentHealth('upgrading'), 'DEGRADED');
   assert.equal(mapAgentHealth('offline'), 'UNREACHABLE');
   assert.equal(mapAgentHealth('disabled'), 'DISABLED');
@@ -243,6 +291,7 @@ test('Spec033 统一添加复用 Agent 会话并强制确认不安全 TLS', asyn
   const windows = await service.onboard('tenant-onboarding', {
     platformKey: 'windows', displayName: 'Windows', baseUrl: 'https://gcac.example',
   }, 'user-onboarding', 'request-onboarding');
+  assert.equal((windows as { installSession: { installCommand: string } }).installSession.installCommand, 'install-windows');
   assert.equal((windows as { installCommand: string }).installCommand, 'install-windows');
   await assert.rejects(() => service.onboard('tenant-onboarding', {
     platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.49', username: 'nsroot', password: 'secret', tlsVerify: false,
@@ -271,6 +320,41 @@ test('Spec033 Citrix ADC 添加创建 SecretRef 且不回显密码', async () =>
   assert.ok(!JSON.stringify(result).includes('nsroot'));
   assert.ok(!JSON.stringify(result).includes('"password"'));
   assert.equal(createdInputs.length, 1);
+});
+
+test('Spec033 Citrix 连接测试失败仍返回已创建设备', async () => {
+  const secrets = {
+    create: async () => ({ secretRef: 'secret://password/sec_adc_failure#v1' }),
+  } as unknown as SecretService;
+  const deviceAssets = {
+    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc_failure', hostId: 'host_adc_failure', tenantId: 'tenant_adc_failure', ...input }),
+    testConnection: async () => { throw new Error('NITRO_TIMEOUT'); },
+  } as unknown as DeviceAssetsApplicationService;
+  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
+
+  const result = await service.onboard('tenant_adc_failure', {
+    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.50', username: 'nsroot', password: 'secret', tlsVerify: true,
+  }, 'user_adc', 'request_adc_failure');
+
+  assert.equal((result as { onboardingKind: string }).onboardingKind, 'API_CONNECTION');
+  assert.equal((result as { device: { id: string } }).device.id, 'device_adc_failure');
+  assert.equal((result as { connection: { errorCode: string } }).connection.errorCode, 'CONNECTION_TEST_FAILED');
+});
+
+test('Spec033 设备资产软删除后不再出现在统一设备列表', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const assets = new PgDeviceAssetsRepository(database);
+  const device = await assets.create('tenant_delete_device', {
+    displayName: 'ADC Delete', managementAddress: '10.33.5.51', managementPort: 443,
+    deviceFamily: 'NETSCALER_ADC', credentialId: 'secret_delete', authMode: 'AUTO', tlsVerify: true,
+  });
+
+  await assets.softDelete('tenant_delete_device', device.id);
+  const listed = await new PgDevicesRepository(database).list('tenant_delete_device', {
+    page: 1, pageSize: 20, filter: {}, sort: { field: 'displayName', direction: 'asc' },
+  });
+  assert.equal(listed.total, 0);
 });
 
 class CountingDatabase implements DatabasePort {
