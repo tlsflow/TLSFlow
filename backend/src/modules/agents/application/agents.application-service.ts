@@ -22,6 +22,7 @@ import type { ExecutionResultSyncService } from '../../executions/application/ex
 import type { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
 import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
+import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
@@ -370,6 +371,48 @@ export class AgentsApplicationService {
     if (!canExecuteDirectly) return task;
     const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
     return direct.task;
+  }
+
+  async refreshStandardDiscovery(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{
+    mode: 'standard-capability' | 'queued';
+    task: AgentTaskEnvelope;
+    capabilitySnapshotId?: string;
+    projection?: StandardDiscoveryProjectionSummary;
+  }> {
+    if (!this.capabilityDiscoveryProjector) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent 标准发现投影器未配置');
+    }
+    const previousSnapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    const task = await this.enqueueCapabilityRescanTask(tenantId, { agentId, requestedBy }, requestId);
+
+    if (task.status === 'failed' || task.status === 'rejected') {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 能力重扫失败', {
+        agentId,
+        taskId: task.id,
+        status: task.status,
+        result: task.result,
+      });
+    }
+    if (task.status !== 'succeeded') {
+      return { mode: 'queued', task };
+    }
+
+    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    if (!snapshot || snapshot.id === previousSnapshot?.id) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent 能力重扫完成但未产生新快照', {
+        agentId,
+        taskId: task.id,
+        previousSnapshotId: previousSnapshot?.id,
+      });
+    }
+    const agent = await this.requireAgent(tenantId, agentId);
+    const projection = await this.capabilityDiscoveryProjector.project(agent, snapshot);
+    return {
+      mode: 'standard-capability',
+      task,
+      capabilitySnapshotId: snapshot.id,
+      projection,
+    };
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {

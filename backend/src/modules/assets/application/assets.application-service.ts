@@ -41,7 +41,6 @@ import type {
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
-import { AgentDirectClient } from '../../agents/application/agent-direct-client.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { buildWorkflowAssetContext, buildWorkflowBindingProjection } from '../../workflow-templates/domain/workflow-variable-resolver.js';
@@ -59,7 +58,6 @@ export class AssetsApplicationService {
     private readonly domain = new AssetsDomainService(),
     private bindingsRepository?: BindingsRepository,
     private agentsService?: AgentsApplicationService,
-    private readonly directClient = new AgentDirectClient(),
     private workflowTemplates?: WorkflowTemplatesApplicationService,
     private pluginBindings?: PluginBindingsApplicationService,
     private managedTargetContextResolver?: ManagedTargetContextResolver,
@@ -546,28 +544,23 @@ export class AssetsApplicationService {
     return result;
   }
 
-  async refreshAssetsFromAgent(tenantId: string, input: RefreshAssetsFromAgentDto): Promise<RefreshAssetsFromAgentResultDto> {
+  async refreshAssetsFromAgent(tenantId: string, input: RefreshAssetsFromAgentDto, requestedBy = 'assets.refresh-from-agent'): Promise<RefreshAssetsFromAgentResultDto> {
     if (!this.agentsService) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', 'AssetsApplicationService 未注入 AgentsApplicationService');
     }
-    const detail = await this.agentsService.getAgentDetail(tenantId, input.agentId);
-    const direct = await this.directClient.runDiscovery(detail.agent, {
-      providerTypes: input.providerTypes,
-      includeBindings: input.includeBindings,
-      requestId: input.requestId,
-    });
-    const result = await this.ingestDiscovery(tenantId, {
-      normalizedHash: buildDiscoveryHash(`agent-direct:${input.agentId}:${new Date().toISOString()}`, 'direct'),
-      source: 'AGENT',
-      apply: true,
-      normalizedPayload: direct.payload as unknown as Record<string, unknown>,
-      rawPayload: {
-        mode: 'direct',
-        directControl: direct.directControl,
-        request: input,
-      },
-    });
-    return { ...result, mode: 'direct' };
+    const result = await this.agentsService.refreshStandardDiscovery(
+      tenantId,
+      input.agentId,
+      requestedBy,
+      input.requestId ?? `assets-refresh:${input.agentId}:${Date.now()}`,
+    );
+    return {
+      mode: result.mode,
+      taskId: result.task.id,
+      taskStatus: result.task.status,
+      capabilitySnapshotId: result.capabilitySnapshotId,
+      projection: result.projection,
+    };
   }
 
   async listAssetConflicts(tenantId: string, query: PageQuery) {
@@ -826,10 +819,6 @@ function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: N
 
 function arrayOfObjects(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
-}
-
-function buildDiscoveryHash(prefix: string, mode: string): string {
-  return `${prefix}:${mode}`.toLowerCase();
 }
 
 function hostIdentityKey(host: NormalizedDiscoveredHostDto): string | undefined {

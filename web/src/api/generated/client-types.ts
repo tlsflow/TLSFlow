@@ -178,7 +178,6 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/devices/onboarding",
     "/api/v1/devices/onboarding-platforms",
     "/api/v1/discovery-snapshots",
-    "/api/v1/discovery-snapshots/ingest",
     "/api/v1/discovery-snapshots/merge-preview",
     "/api/v1/execution-runs",
     "/api/v1/execution-runs/retry",

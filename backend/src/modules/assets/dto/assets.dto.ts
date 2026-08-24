@@ -699,8 +699,20 @@ export interface RefreshAssetsFromAgentDto {
   requestId?: string;
 }
 
-export interface RefreshAssetsFromAgentResultDto extends DiscoveryIngestResultDto {
-  mode: 'direct';
+export interface RefreshAssetsFromAgentResultDto {
+  mode: 'standard-capability' | 'queued';
+  taskId: string;
+  taskStatus: 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
+  capabilitySnapshotId?: string;
+  projection?: {
+    serviceInstances: number;
+    sites: number;
+    managedTargets: number;
+    certificates: number;
+    certificateBindings: number;
+    stale: number;
+    conflicts: number;
+  };
 }
 
 export interface DiscoveryIngestResultDto {

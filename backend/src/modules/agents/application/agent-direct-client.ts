@@ -1,29 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { AgentDirectControlState, AgentRegistration } from '../schema/agents.schema.js';
 
-export interface AgentDirectDiscoveryRequest {
-  providerTypes?: string[];
-  scope?: string;
-  includeBindings?: boolean;
-  requestId?: string;
-}
-
-export interface AgentDirectDiscoveryPayload {
-  collectedAt: string;
-  source: string;
-  platform: string;
-  hosts?: Array<Record<string, unknown>>;
-  services?: Array<Record<string, unknown>>;
-  serviceAssets?: Array<Record<string, unknown>>;
-  siteAssets?: Array<Record<string, unknown>>;
-  bindings?: Array<Record<string, unknown>>;
-}
-
-export interface AgentDirectDiscoveryResult {
-  directControl: AgentDirectControlState;
-  payload: AgentDirectDiscoveryPayload;
-}
-
 export interface AgentDirectActionExecuteRequest {
   actionType: string;
   inputs: Record<string, unknown>;
@@ -43,48 +20,6 @@ export interface AgentDirectActionExecuteResult {
 }
 
 export class AgentDirectClient {
-  async runDiscovery(agent: AgentRegistration, request: AgentDirectDiscoveryRequest): Promise<AgentDirectDiscoveryResult> {
-    const directControl = requireReachableDirectControl(agent, 'discovery.run');
-    const baseUrl = buildDirectControlBaseUrl(directControl.listenAddress!);
-    let response: Response;
-    try {
-      response = await fetch(`${baseUrl}/api/v1/control/discovery/run`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-request-id': request.requestId ?? 'agent-direct-discovery',
-        },
-        body: JSON.stringify({
-          providerTypes: request.providerTypes ?? [],
-          scope: request.scope ?? 'full',
-          includeBindings: request.includeBindings !== false,
-          requestId: request.requestId,
-        }),
-      });
-    } catch (error) {
-      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连发现连接失败', {
-        agentId: agent.id,
-        cause: error instanceof Error ? error.message : String(error),
-      });
-    }
-    if (!response.ok) {
-      const body = await safeReadJson(response);
-      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连发现请求失败', {
-        agentId: agent.id,
-        statusCode: response.status,
-        response: body,
-      });
-    }
-    const body = await safeReadJson(response) as AgentDirectDiscoveryPayload;
-    if (!body || typeof body !== 'object') {
-      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent 直连发现返回无效响应', { agentId: agent.id });
-    }
-    return {
-      directControl,
-      payload: body,
-    };
-  }
-
   async executeAction(agent: AgentRegistration, request: AgentDirectActionExecuteRequest): Promise<AgentDirectActionExecuteResult> {
     const actionType = request.actionType.trim();
     const directControl = requireReachableDirectControl(agent, actionType);

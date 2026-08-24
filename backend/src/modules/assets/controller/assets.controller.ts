@@ -20,7 +20,6 @@ import type {
   CreateManagedTargetDto,
   CreateServiceAssetDto,
   CreateSiteAssetDto,
-  IngestDiscoveryDto,
   PreviewDiscoveryMergeDto,
   RefreshAssetsFromAgentDto,
   ResolveAssetConflictDto,
@@ -79,7 +78,9 @@ export class AssetsController {
     router.post('/api/v1/managed-targets/delete', '软删除 ManagedTarget', tags, (request) => this.deleteManagedTarget(request));
     router.get('/api/v1/discovery-snapshots', '查询发现快照', tags, (request) => this.listDiscoverySnapshots(request));
     router.post('/api/v1/discovery-snapshots', '写入发现快照', tags, (request) => this.upsertDiscoverySnapshot(request));
-    router.post('/api/v1/discovery-snapshots/ingest', '入库发现结果', tags, (request) => this.ingestDiscovery(request));
+    router.post('/api/v1/discovery-snapshots/ingest', '旧发现写入入口已退役', tags, () => {
+      throw new AppError('LEGACY_API_REMOVED', '旧发现写入入口已退役，请使用标准设备发现 V2');
+    });
     router.post('/api/v1/discovery-snapshots/merge-preview', '预览发现结果合并', tags, (request) => this.previewDiscoveryMerge(request));
     router.post('/api/v1/assets/refresh-from-agent', '通过 Agent 主动刷新资产', tags, (request) => this.refreshFromAgent(request));
     router.get('/api/v1/asset-conflicts', '查询资产冲突', tags, (request) => this.listAssetConflicts(request));
@@ -696,22 +697,6 @@ export class AssetsController {
     return this.service.previewDiscoveryMerge(tenantId(request), body as unknown as PreviewDiscoveryMergeDto).then((result) => ({ statusCode: 201, body: result }));
   }
 
-  private async ingestDiscovery(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      normalizedHash: { type: 'string', required: true },
-      source: { type: 'string', enum: assetsEnumValues.discoverySources },
-      normalizedPayload: { type: 'object' },
-      rawPayload: { type: 'object' },
-      apply: { type: 'boolean' },
-    });
-    const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
-    return this.service.ingestDiscovery(tenantId(request), body as unknown as IngestDiscoveryDto).then((result) => {
-      this.audit(request, subject, 'discovery_snapshot.ingested', 'discovery.manage', 'discovery_snapshot', result.snapshot.id, undefined, result);
-      return { statusCode: 201, body: result };
-    });
-  }
-
   private async refreshFromAgent(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentId: { type: 'string', required: true },
@@ -721,8 +706,8 @@ export class AssetsController {
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
-    return this.service.refreshAssetsFromAgent(tenantId(request), body as unknown as RefreshAssetsFromAgentDto).then((result) => {
-      this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.snapshot.id, undefined, result);
+    return this.service.refreshAssetsFromAgent(tenantId(request), body as unknown as RefreshAssetsFromAgentDto, subject.id).then((result) => {
+      this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.capabilitySnapshotId ?? result.taskId, undefined, result);
       return { statusCode: 201, body: result };
     });
   }
@@ -855,7 +840,6 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/managed-targets/delete', operationId: 'deleteManagedTarget', summary: '软删除 ManagedTarget', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/discovery-snapshots', operationId: 'listDiscoverySnapshots', summary: '查询发现快照', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots', operationId: 'upsertDiscoverySnapshot', summary: '写入发现快照', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/discovery-snapshots/ingest', operationId: 'ingestDiscovery', summary: '入库发现结果', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots/merge-preview', operationId: 'previewDiscoveryMerge', summary: '预览发现结果合并', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/assets/refresh-from-agent', operationId: 'refreshAssetsFromAgent', summary: '通过 Agent 主动刷新资产', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/asset-conflicts', operationId: 'listAssetConflicts', summary: '查询资产冲突', tags, responseSchema: pageSchema() },
