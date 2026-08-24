@@ -78,8 +78,8 @@ export class DeploymentStrategyResolver {
 
   private resolveWorkflow(input: DeploymentStrategyResolutionInput, strategy: DeploymentStrategyDto): ResolvedDeploymentStrategySnapshot {
     const workflow = strategy.workflow;
-    if (!workflow?.workflowId || !workflow.workflowVersionId) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId/workflowVersionId', {
+    if (!workflow?.workflowId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: input.applicationAsset.id,
       });
@@ -109,6 +109,7 @@ export class DeploymentStrategyResolver {
         deploymentStrategy: strategy,
         workflowRequest: {
           workflowId: workflow.workflowId,
+          workflowVersionSelection: workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED'),
           workflowVersionId: workflow.workflowVersionId,
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,

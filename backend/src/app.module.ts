@@ -150,6 +150,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService.getRepository(),
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
+    workflows: workflowTemplatesService,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new SecurityController(security, new AuditPresentationService({

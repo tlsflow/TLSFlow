@@ -220,6 +220,103 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets[0].strategyPayload.workflowRequest.certificateArtifactBindings.serverCert.certificateFormatId, fixture.certificateFormatId);
   });
 
+  it('WORKFLOW 应用资产选择始终最新版本时，已有部署计划 dry-run 会实时解析最新发布版本', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const security = createSecurityServices();
+    grantWildcardPolicy(security, 'user_1', 'tenant_1');
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+    const fixture = await seedWorkflowStrategyFixture(app);
+    const createdWorkflow = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      headers: userHeaders,
+      body: { content: workflowTemplateFixture('应用资产工作流实时版本') },
+    });
+    assert.equal(createdWorkflow.statusCode, 201, JSON.stringify(createdWorkflow.body));
+    const workflow = createdWorkflow.body as { template: { id: string }; version: { id: string } };
+    const publishedV1 = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions/publish',
+      headers: userHeaders,
+      body: { versionId: workflow.version.id },
+    });
+    assert.equal(publishedV1.statusCode, 200, JSON.stringify(publishedV1.body));
+
+    const strategy = await app.inject({
+      method: 'PATCH',
+      path: `/api/v1/service-assets/${fixture.applicationAssetId}/deployment-strategy`,
+      headers: userHeaders,
+      body: {
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: workflow.template.id,
+            workflowVersionSelection: 'LATEST_PUBLISHED',
+            runner: 'CONTROL_PLANE',
+            credentialRefs: { ssh: 'secret://ssh/workflow-target' },
+            variableBindings: { host: fixture.domain },
+            certificateArtifactBindings: {
+              serverCert: {
+                certificateFormatId: fixture.certificateFormatId,
+                outputBindings: { bundle: 'bundle' },
+              },
+            },
+          },
+        },
+      },
+    });
+    assert.equal(strategy.statusCode, 200, JSON.stringify(strategy.body));
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId: fixture.applicationAssetId,
+        selectionMode: 'EXPLICIT',
+        targetCertificateVersionId: fixture.certificateVersionId,
+        idempotencyKey: 'idem_workflow_latest_plan',
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const plan = created.body as { id: string; targets: Array<{ strategyPayload?: any }> };
+    assert.equal(plan.targets[0].strategyPayload.workflowRequest.workflowVersionId, undefined);
+
+    const v2Content = workflowTemplateFixture('应用资产工作流实时版本');
+    v2Content.steps[0]!.ssh!.command = 'echo deploy v2';
+    const createdV2 = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions',
+      headers: userHeaders,
+      body: {
+        templateId: workflow.template.id,
+        content: v2Content,
+        changeSummary: '发布第二版',
+      },
+    });
+    assert.equal(createdV2.statusCode, 201, JSON.stringify(createdV2.body));
+    const version2 = createdV2.body as { id: string };
+    const publishedV2 = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions/publish',
+      headers: userHeaders,
+      body: { versionId: version2.id },
+    });
+    assert.equal(publishedV2.statusCode, 200, JSON.stringify(publishedV2.body));
+
+    const dryRun = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: plan.id, idempotencyKey: 'idem_workflow_latest_plan_dry' },
+    });
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
+    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: any }> };
+    assert.equal(dryRunBody.steps[0].inputSnapshot.workflowRequest.workflowVersionId, version2.id);
+    assert.equal(dryRunBody.steps[0].inputSnapshot.workflowRequest.workflowVersionSelection, 'LATEST_PUBLISHED');
+  });
+
   it('无 Agent 目标绑定的 WORKFLOW 应用资产也可以创建部署计划', async () => {
     const db = new PgliteDatabase();
     await runMigrations(db);

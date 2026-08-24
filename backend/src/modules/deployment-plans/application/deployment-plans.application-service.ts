@@ -28,6 +28,8 @@ import { PgAgentsRepository } from '../../agents/repository/agents.repository.js
 import { DeployableArtifactResolver } from './deployable-artifact-resolver.js';
 import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
+import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
+import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -73,6 +75,7 @@ export interface DeploymentPlansApplicationDependencies {
   certificates?: CertificatesRepository;
   certificatesApp?: CertificatesApplicationService;
   deploymentStrategyResolver?: DeploymentStrategyResolver;
+  workflows?: WorkflowTemplatesApplicationService;
 }
 
 export class DeploymentPlansApplicationService {
@@ -89,6 +92,7 @@ export class DeploymentPlansApplicationService {
   private readonly certificatesApp: CertificatesApplicationService;
   private readonly artifacts: DeployableArtifactResolver;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
+  private readonly workflows?: WorkflowTemplatesApplicationService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -107,6 +111,7 @@ export class DeploymentPlansApplicationService {
     });
     this.artifacts = new DeployableArtifactResolver(this.certificates);
     this.deploymentStrategyResolver = dependencies.deploymentStrategyResolver ?? new DeploymentStrategyResolver();
+    this.workflows = dependencies.workflows;
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -544,8 +549,8 @@ export class DeploymentPlansApplicationService {
     if (strategy?.type !== 'WORKFLOW' || !workflow) {
       throw new AppError('VALIDATION_FAILED', '应用资产不是 WORKFLOW 部署策略', { applicationAssetId: applicationAsset.id });
     }
-    if (!workflow.workflowId || !workflow.workflowVersionId) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId/workflowVersionId', {
+    if (!workflow.workflowId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: applicationAsset.id,
       });
@@ -1548,6 +1553,69 @@ export class DeploymentPlansApplicationService {
     return output;
   }
 
+  private async resolveLiveWorkflowStrategyPayloadForTarget(target: DeploymentPlanTargetEntity): Promise<Record<string, unknown>> {
+    const snapshotPayload = target.strategyPayload ?? {};
+    if (target.executorType !== 'WORKFLOW') return snapshotPayload;
+    const workflowSnapshot = readRecord(snapshotPayload.workflowRequest);
+    const applicationAssetId = target.applicationAssetId
+      ?? readOptionalString(workflowSnapshot?.applicationAssetId)
+      ?? readOptionalString(snapshotPayload.applicationAssetId);
+    if (!target.tenantId || !applicationAssetId) return snapshotPayload;
+    const applicationAsset = await this.assets.getServiceAsset(target.tenantId, applicationAssetId);
+    if (!applicationAsset) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'WORKFLOW 部署目标引用的应用资产不存在', {
+        deploymentPlanTargetId: target.id,
+        applicationAssetId,
+      });
+    }
+    const workflow = applicationAsset.deploymentStrategy?.workflow;
+    if (applicationAsset.deploymentStrategy?.type !== 'WORKFLOW' || !workflow) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署目标引用的应用资产已不再使用 WORKFLOW 策略', {
+        deploymentPlanTargetId: target.id,
+        applicationAssetId,
+      });
+    }
+    const resolvedVersionId = await this.resolveRuntimeWorkflowVersionId(workflow);
+    const resolvedStrategy = this.deploymentStrategyResolver.resolve({ applicationAsset });
+    const resolvedRequest = readRecord(resolvedStrategy.payload.workflowRequest) ?? {};
+    return {
+      ...resolvedStrategy.payload,
+      workflowRequest: {
+        ...resolvedRequest,
+        workflowVersionSelection: workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED'),
+        workflowVersionId: resolvedVersionId,
+        applicationAssetId: applicationAsset.id,
+      },
+    };
+  }
+
+  private async resolveRuntimeWorkflowVersionId(workflow: WorkflowDeploymentStrategyDto): Promise<string> {
+    const selection = workflow.workflowVersionSelection ?? (workflow.workflowVersionId ? 'PINNED' : 'LATEST_PUBLISHED');
+    if (selection === 'PINNED') {
+      if (!workflow.workflowVersionId) {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 固定版本策略缺少 workflowVersionId', {
+          code: 'WORKFLOW_VERSION_REQUIRED',
+          workflowId: workflow.workflowId,
+        });
+      }
+      return workflow.workflowVersionId;
+    }
+    if (!this.workflows) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入，不能解析最新工作流版本', {
+        code: 'WORKFLOW_VERSION_RESOLVER_MISSING',
+        workflowId: workflow.workflowId,
+      });
+    }
+    const latest = await this.workflows.getRuntimePublishedVersion(workflow.workflowId);
+    if (!latest) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 最新版本策略找不到已发布版本', {
+        code: 'WORKFLOW_VERSION_NOT_PUBLISHED',
+        workflowId: workflow.workflowId,
+      });
+    }
+    return latest.id;
+  }
+
   private async buildAgentPayloadByTargetIds(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
@@ -1560,7 +1628,7 @@ export class DeploymentPlansApplicationService {
         ?? await this.resolveDeploymentArtifactForTarget(target, effectiveCertificateVersionId, plan.certificateFormatId, plan.tenantId);
       if (!artifact) continue;
 	      const payload = await this.buildAgentPayloadForTarget(target, artifact, plan.tenantId);
-	      const strategyPayload = target.strategyPayload ?? {};
+	      const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
 	      if (payload || Object.keys(strategyPayload).length > 0) output.set(target.id, { ...strategyPayload, ...(payload ?? {}) });
     }
     return output;
@@ -1647,7 +1715,8 @@ export class DeploymentPlansApplicationService {
         deploymentPlanId: target.deploymentPlanId,
       });
     }
-    const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(target.strategyPayload?.workflowRequest)?.certificateArtifactBindings);
+    const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
+    const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(strategyPayload.workflowRequest)?.certificateArtifactBindings);
     if (Object.keys(workflowBindings).length > 0) {
       return this.resolveWorkflowDeploymentArtifact(certificateVersionId, workflowBindings);
     }
