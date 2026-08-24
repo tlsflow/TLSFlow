@@ -2249,11 +2249,11 @@ export default {
     deploymentTasks: {
       eyebrow: 'Deployment tasks',
       title: 'Deployment task parameters',
-      description: 'Control whether certificate deployments run a Dry-run first and whether high-risk deployments require approval for this tenant.',
+      description: 'Control the tenant-wide Dry-run setting and whether applications without an explicit approval requirement must be approved before certificate deployment.',
       readonly: 'This account has read-only access.',
       fields: {
         dryRun: { title: 'Enable Dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment Dry-run' },
-        approval: { title: 'Enable approval flow', description: 'Send high-risk certificate deployments for approval before execution.', aria: 'Enable certificate deployment approval flow' }
+        approval: { title: 'Enable approval flow', description: 'For applications without an explicit approval requirement, this tenant-wide setting controls whether certificate deployments require approval.', aria: 'Enable certificate deployment approval flow' }
       },
       actions: { save: 'Save settings', saving: 'Saving...' },
       messages: { saved: 'Deployment task parameters saved.' },
@@ -3111,7 +3111,8 @@ export default {
       publishedVersion: 'Published version',
       runner: 'Runner',
       artifactFormat: 'Artifact format',
-      updatePlugin: 'Certificate update plugin'
+      updatePlugin: 'Certificate update plugin',
+      approvalRequired: 'Require approval for certificate deployment'
     },
     capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location', pendingAssignment: 'Saving will create an application-asset deployment capability assignment.' },
     links: {
@@ -3271,6 +3272,7 @@ export default {
       createRequestCompleted: 'Create request completed.',
       editRequestCompleted: 'Save request completed.',
       agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      approvalRequiredHint: 'When checked, deployments for this application always require approval; otherwise the tenant-wide deployment setting is used.',
       placeholders: {
         displayName: 'For example: production site entry',
         verifyUrl: 'For example: https://example.com/health',

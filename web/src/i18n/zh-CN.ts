@@ -1382,7 +1382,8 @@ export default {
       missingPlanIdForAction: '{action}失败：计划编号缺失，请重新选择。',
       missingRunIdRequest: '执行编号缺失，请重新选择。',
       saveFailed: '保存部署计划失败',
-      startDryRunFailed: '发起 dry-run 失败'
+      startDryRunFailed: '发起 dry-run 失败',
+      inputIssuesHint: '请按上述槽位和绑定层修复应用资产部署输入后重试。'
     }
   },
   agents: {
@@ -3141,7 +3142,8 @@ export default {
       publishedVersion: '已发布版本',
       runner: '运行位置',
       artifactFormat: '产物格式配置',
-      updatePlugin: '证书更新插件'
+      updatePlugin: '证书更新插件',
+      approvalRequired: '证书部署需要审批'
     },
     capability: { source: '能力来源', plugin: '插件版本', runtime: '运行时', executionLocation: '执行位置', pendingAssignment: '保存后将创建应用资产级部署能力指派。' },
     links: {
@@ -3320,6 +3322,7 @@ export default {
       createRequestCompleted: '创建请求已完成。',
       editRequestCompleted: '保存请求已完成。',
       agentCertificateFormatHint: 'Agent 模式下会使用该证书产物配置生成部署材料。',
+      approvalRequiredHint: '勾选后，该应用发起的证书部署始终进入审批；未勾选时使用租户全局部署参数。',
       placeholders: {
         displayName: '例如：生产站点入口',
         verifyUrl: '例如：https://example.com/health',

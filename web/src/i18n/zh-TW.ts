@@ -1307,7 +1307,8 @@ export default {
       missingPlanIdForAction: "{action}失敗：計畫編號缺少，請重新選擇。",
       missingRunIdRequest: "執行編號缺少，請重新選擇。",
       saveFailed: "儲存部署計畫失敗",
-      startDryRunFailed: "啟動 dry-run 失敗"
+      startDryRunFailed: "啟動 dry-run 失敗",
+      inputIssuesHint: '請依上述槽位與繫結層修正應用程式資產部署輸入後重試。'
     }
   },
   agents: {
@@ -2128,11 +2129,11 @@ export default {
     deploymentTasks: {
       eyebrow: "部署任務",
       title: "部署任務參數",
-      description: "按目前租戶控制憑證部署是否先執行 Dry-run，以及高風險部署是否需要核准。",
+      description: "按目前租戶控制憑證部署是否先執行 Dry-run，以及未個別指定審批的應用程式是否需要審批。",
       readonly: "目前帳號只有檢視權限。",
       fields: {
         dryRun: { title: "啟用 Dry-run", description: "部署憑證前執行唯讀預檢；檢查結果僅供參考，不會阻止正式部署。", aria: "啟用憑證部署 Dry-run" },
-        approval: { title: "啟用核准流程", description: "高風險憑證部署提交後進入核准，核准後才允許執行。", aria: "啟用憑證部署核准流程" }
+        approval: { title: "啟用審批流程", description: "應用程式未個別勾選「需要審批」時，使用此全域參數決定憑證部署是否先審批。", aria: "啟用憑證部署審批流程" }
       },
       actions: { save: "儲存設定", saving: "儲存中..." },
       messages: { saved: "部署任務參數已儲存。" },
@@ -3133,6 +3134,7 @@ export default {
       createRequestCompleted: "建立請求已完成。",
       editRequestCompleted: "儲存請求已完成。",
       agentCertificateFormatHint: "Agent 模式下會使用該憑證產物設定產生部署材料。",
+      approvalRequiredHint: "勾選後，該應用程式發起的憑證部署一律需要審批；未勾選時使用租戶全域部署參數。",
       placeholders: {
         displayName: "例如：生產站點入口",
         verifyUrl: "例如：https://example.com/health",

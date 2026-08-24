@@ -1282,7 +1282,8 @@ export default {
       missingPlanIdForAction: '{action} falhou: identificador do plano ausente. Selecione novamente.',
       missingRunIdRequest: 'Identificador da execução ausente. Selecione novamente.',
       saveFailed: 'Falha ao salvar o plano de implantação',
-      startDryRunFailed: 'Falha ao iniciar dry-run'
+      startDryRunFailed: 'Falha ao iniciar dry-run',
+      inputIssuesHint: 'Corrija as entradas no slot e na camada de binding indicados e tente novamente.'
     }
   },
   agents: {
@@ -2103,11 +2104,11 @@ export default {
     deploymentTasks: {
       eyebrow: 'Tarefas de implantação',
       title: 'Parâmetros das tarefas de implantação',
-      description: 'Controle por tenant se as implantações de certificados executam Dry-run e se implantações de alto risco exigem aprovação.',
+      description: 'Controle por tenant o Dry-run e se aplicações sem uma exigência própria precisam de aprovação antes da implantação do certificado.',
       readonly: 'Esta conta tem acesso somente leitura.',
       fields: {
         dryRun: { title: 'Ativar Dry-run', description: 'Execute uma pré-verificação somente leitura antes da implantação; os resultados são informativos e não bloqueiam a execução.', aria: 'Ativar Dry-run de implantação de certificado' },
-        approval: { title: 'Ativar fluxo de aprovação', description: 'Envie implantações de certificados de alto risco para aprovação antes da execução.', aria: 'Ativar fluxo de aprovação de implantação de certificado' }
+        approval: { title: 'Ativar fluxo de aprovação', description: 'Para aplicações sem uma exigência explícita, esta configuração do tenant define se a implantação do certificado precisa de aprovação.', aria: 'Ativar fluxo de aprovação de implantação de certificado' }
       },
       actions: { save: 'Salvar configurações', saving: 'Salvando...' },
       messages: { saved: 'Parâmetros das tarefas de implantação salvos.' },
@@ -2957,7 +2958,8 @@ export default {
       publishedVersion: 'Versão publicada',
       runner: 'Local de execução',
       artifactFormat: 'Configuração de formato do artefato',
-      updatePlugin: 'Plugin de atualização de certificado'
+      updatePlugin: 'Plugin de atualização de certificado',
+      approvalRequired: 'Exigir aprovação para implantação do certificado'
     },
     capability: { source: 'Origem da capacidade', plugin: 'Versão do plugin', runtime: 'Runtime', executionLocation: 'Local de execução', pendingAssignment: 'Ao salvar, será criada uma atribuição de capacidade de implantação no nível do ativo de aplicativo.' },
     links: {
@@ -3121,6 +3123,7 @@ export default {
       createRequestCompleted: 'Solicitação de criação concluída.',
       editRequestCompleted: 'Solicitação de salvamento concluída.',
       agentCertificateFormatHint: 'No modo Agent, esta configuração de artefato de certificado será usada para gerar materiais de implantação.',
+      approvalRequiredHint: 'Quando marcado, os deployments desta aplicação sempre exigem aprovação; caso contrário, é usada a configuração de implantação do tenant.',
       placeholders: {
         displayName: 'Exemplo: entrada do site de produção',
         verifyUrl: 'Exemplo: https://example.com/health',

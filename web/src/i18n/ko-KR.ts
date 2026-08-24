@@ -1282,7 +1282,8 @@ export default {
       missingPlanIdForAction: '{action} 실패:플랜 번호가 없습니다. 다시 선택하세요.',
       missingRunIdRequest: '실행 번호가 없습니다. 다시 선택하세요.',
       saveFailed: '배포 계획을 저장하는 데 실패했습니다',
-      startDryRunFailed: 'dry-run를 시작하는데 실패했습니다'
+      startDryRunFailed: 'dry-run를 시작하는데 실패했습니다',
+      inputIssuesHint: '표시된 슬롯과 바인딩 계층의 배포 입력을 수정한 후 다시 시도하세요.'
     }
   },
   agents: {
@@ -2103,11 +2104,11 @@ export default {
     deploymentTasks: {
       eyebrow: '배포 작업',
       title: '배포 작업 매개변수',
-      description: '테넌트별로 인증서 배포 전 Dry-run과 고위험 배포 승인 여부를 제어합니다.',
+      description: '테넌트 전체 Dry-run과 앱에서 별도로 승인을 지정하지 않은 경우의 인증서 배포 승인 여부를 제어합니다.',
       readonly: '이 계정은 읽기 전용 권한입니다.',
       fields: {
         dryRun: { title: 'Dry-run 활성화', description: '배포 전에 읽기 전용 사전 검사를 실행합니다. 결과는 참고용이며 실제 배포를 차단하지 않습니다.', aria: '인증서 배포 Dry-run 활성화' },
-        approval: { title: '승인 흐름 활성화', description: '고위험 인증서 배포는 실행 전에 승인을 요구합니다.', aria: '인증서 배포 승인 흐름 활성화' }
+        approval: { title: '승인 흐름 활성화', description: '앱에서 별도로 승인을 지정하지 않은 경우 이 테넌트 설정으로 인증서 배포 승인 여부를 결정합니다.', aria: '인증서 배포 승인 흐름 활성화' }
       },
       actions: { save: '설정 저장', saving: '저장 중...' },
       messages: { saved: '배포 작업 매개변수를 저장했습니다.' },
@@ -2957,7 +2958,8 @@ export default {
       publishedVersion: '배포된 버전',
       runner: '실행 위치',
       artifactFormat: '제품 형식 설정',
-      updatePlugin: '인증서 업데이트 플러그인'
+      updatePlugin: '인증서 업데이트 플러그인',
+      approvalRequired: '인증서 배포 승인 필요'
     },
     capability: { source: '기능 출처', plugin: '플러그인 버전', runtime: '런타임', executionLocation: '실행 위치', pendingAssignment: '저장하면 애플리케이션 자산 수준 배포 기능 할당이 생성됩니다.' },
     links: {

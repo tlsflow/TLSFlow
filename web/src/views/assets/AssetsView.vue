@@ -75,6 +75,7 @@ interface AssetOverviewCard {
 interface AssetDraft {
   managementMode: AssetManagementMode
   managedExecutionMode: ManagedExecutionMode
+  approvalRequired: boolean
   deviceId: string
   frameworkInstanceId: string
   address: string
@@ -262,6 +263,7 @@ const assetPlatformOptions: ReadonlyArray<{ value: AssetPlatform; labelKey: stri
 const assetDraft = reactive<AssetDraft>({
   managementMode: 'MANAGED_TARGET',
   managedExecutionMode: 'PLUGIN',
+  approvalRequired: false,
   deviceId: '',
   frameworkInstanceId: '',
   address: '',
@@ -1059,6 +1061,7 @@ async function openEditDialog(row: ViewRow) {
   const managedTargetStrategy = readRecord(readNested(deploymentStrategy, ['managedTarget']))
   assetDraft.managementMode = resolveDeploymentStrategyMode(deploymentStrategy)
   assetDraft.managedExecutionMode = String(managedTargetStrategy?.executionMode ?? 'PLUGIN') as ManagedExecutionMode
+  assetDraft.approvalRequired = readNested(deploymentStrategy, ['approvalRequired']) === true
   const workflowExecutionBindingId = String(
     readNested(deploymentStrategy, ['workflow', 'workflowExecutionBindingId'])
       ?? readNested(managedTargetStrategy, ['workflowExecutionBindingId'])
@@ -1667,6 +1670,7 @@ async function submitCreate() {
     if (isEditMode.value) {
       const result = await updateServiceAsset(editingServiceAssetId.value, {
         ...basePayload,
+        deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget ?? undefined),
         ...(workflowTarget ? { metadata: { ...(readRecord(readNested(editAssetDetail.value, ['metadata'])) ?? {}), workflowTarget } } : {}),
       })
       if (assetDraft.managementMode === 'MANAGED_TARGET') await saveManagedTargetConfiguration(editingServiceAssetId.value)
@@ -1780,6 +1784,7 @@ function resetDraft() {
   assetWizardStep.value = 1
   assetDraft.managementMode = 'MANAGED_TARGET'
   assetDraft.managedExecutionMode = 'PLUGIN'
+  assetDraft.approvalRequired = false
   assetDraft.deviceId = ''
   assetDraft.frameworkInstanceId = ''
   assetDraft.address = ''
@@ -2172,6 +2177,7 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     const workflowVersionId = String(selectedWorkflowVersion.value?.id ?? assetDraft.workflowVersionId).trim()
     return {
       type: 'WORKFLOW',
+      approvalRequired: assetDraft.approvalRequired,
       workflow: {
         pluginBindingId: pluginBindingId.value || undefined,
         pluginVersionId: identity.pluginVersionId || undefined,
@@ -2189,6 +2195,7 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
 
   return {
     ...buildManagedTargetDeploymentStrategy(assetDraft.managedTargetId, assetDraft.agentCertificateFormatId),
+    approvalRequired: assetDraft.approvalRequired,
   }
 }
 
@@ -3513,6 +3520,17 @@ function managedTargetLabel(target: ApiRecord): string {
             </select>
           </label>
         </div>
+        <label class="asset-form__approval-option">
+          <input
+            v-model="assetDraft.approvalRequired"
+            type="checkbox"
+            :aria-label="t('assets.fields.approvalRequired')"
+          />
+          <span>
+            <strong>{{ t('assets.fields.approvalRequired') }}</strong>
+            <small>{{ t('assets.form.approvalRequiredHint') }}</small>
+          </span>
+        </label>
 
         <section class="asset-user-form__location">
           <header>
@@ -3685,6 +3703,17 @@ function managedTargetLabel(target: ApiRecord): string {
               <input v-model="assetDraft.tagsText" placeholder="core, public, ssl" autocomplete="off" />
             </label>
           </div>
+          <label class="asset-form__approval-option">
+            <input
+              v-model="assetDraft.approvalRequired"
+              type="checkbox"
+              :aria-label="t('assets.fields.approvalRequired')"
+            />
+            <span>
+              <strong>{{ t('assets.fields.approvalRequired') }}</strong>
+              <small>{{ t('assets.form.approvalRequiredHint') }}</small>
+            </span>
+          </label>
         </section>
 
         <section v-else-if="assetWizardStep === 2" class="asset-wizard__panel gc-native-select-surface">
@@ -4843,6 +4872,39 @@ function managedTargetLabel(target: ApiRecord): string {
   min-height: calc(var(--gc-space-12) * 3);
   resize: vertical;
   font-family: var(--gc-font-family-mono);
+  line-height: 1.45;
+}
+.asset-form__approval-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gc-space-3);
+  grid-column: 1 / -1;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-color-surface-muted);
+  color: var(--gc-color-text);
+  cursor: pointer;
+}
+.asset-form__approval-option input {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: var(--gc-space-1);
+  padding: 0;
+  accent-color: var(--gc-color-primary);
+}
+.asset-form__approval-option span {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+.asset-form__approval-option strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+}
+.asset-form__approval-option small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
   line-height: 1.45;
 }
 .asset-form__readonly {

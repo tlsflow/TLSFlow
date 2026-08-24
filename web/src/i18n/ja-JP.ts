@@ -1308,7 +1308,8 @@ export default {
       missingPlanIdForAction: '{action}に失敗しました：プラン番号が不足しています。再選択してください。',
       missingRunIdRequest: '実行番号が不足しています。再選択してください。',
       saveFailed: 'デプロイプランの保存に失敗しました',
-      startDryRunFailed: 'dry-run の開始に失敗しました'
+      startDryRunFailed: 'dry-run の開始に失敗しました',
+      inputIssuesHint: '表示されたスロットとバインディング層の入力を修正して再試行してください。'
     }
   },
   agents: {
@@ -2129,11 +2130,11 @@ export default {
     deploymentTasks: {
       eyebrow: 'デプロイタスク',
       title: 'デプロイタスク設定',
-      description: 'テナントごとに証明書デプロイ前の Dry-run と高リスクデプロイの承認を設定します。',
+      description: 'テナント全体の Dry-run と、個別に承認を指定していないアプリケーションの承認要否を設定します。',
       readonly: 'このアカウントは読み取り専用です。',
       fields: {
         dryRun: { title: 'Dry-run を有効化', description: 'デプロイ前に読み取り専用の事前確認を行います。結果は参考情報であり、正式デプロイをブロックしません。', aria: '証明書デプロイ Dry-run を有効化' },
-        approval: { title: '承認フローを有効化', description: '高リスクの証明書デプロイは実行前に承認を要求します。', aria: '証明書デプロイ承認フローを有効化' }
+        approval: { title: '承認フローを有効化', description: '個別に承認を指定していないアプリケーションでは、このテナント設定で証明書デプロイの承認要否を決定します。', aria: '証明書デプロイ承認フローを有効化' }
       },
       actions: { save: '設定を保存', saving: '保存中...' },
       messages: { saved: 'デプロイタスク設定を保存しました。' },
@@ -3134,6 +3135,7 @@ export default {
       createRequestCompleted: '作成リクエスト完了済み。',
       editRequestCompleted: '保存リクエスト完了済み。',
       agentCertificateFormatHint: 'Agent モードではは使用この証明書成果物設定生成デプロイマテリアル。',
+      approvalRequiredHint: 'オンにすると、このアプリケーションのデプロイは常に承認が必要です。オフの場合はテナント全体のデプロイ設定を使用します。',
       placeholders: {
         displayName: '例：本番サイトエントリ',
         verifyUrl: '例：https://example.com/health',

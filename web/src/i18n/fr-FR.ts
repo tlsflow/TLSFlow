@@ -1304,7 +1304,8 @@ export default {
       missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
       missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
       saveFailed: 'Failed to save deployment plan',
-      startDryRunFailed: 'Failed to start dry-run'
+      startDryRunFailed: 'Failed to start dry-run',
+      inputIssuesHint: 'Corrigez les entrées du slot et de la couche de liaison indiqués, puis réessayez.'
     }
   },
   agents: {
@@ -3020,7 +3021,8 @@ export default {
       publishedVersion: 'Published version',
       runner: 'Runner',
       artifactFormat: 'Format de l’artéfact',
-      updatePlugin: 'Plugin de mise à jour du certificat'
+      updatePlugin: 'Plugin de mise à jour du certificat',
+      approvalRequired: 'Approbation requise pour le déploiement du certificat'
     },
     capability: { source: 'Source de la capacité', plugin: 'Version du plugin', runtime: 'Runtime', executionLocation: "Emplacement d’exécution", pendingAssignment: "L’enregistrement créera une affectation de capacité de déploiement au niveau de l’actif applicatif." },
     links: {
@@ -3180,6 +3182,7 @@ export default {
       createRequestCompleted: 'Create request completed.',
       editRequestCompleted: 'Save request completed.',
       agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      approvalRequiredHint: 'Lorsque cette option est cochée, les déploiements de cette application nécessitent toujours une approbation ; sinon le paramètre de déploiement du tenant est utilisé.',
       placeholders: {
         displayName: 'For example: production site entry',
         verifyUrl: 'For example: https://example.com/health',
