@@ -54,6 +54,24 @@ test('AD CS Agent 安装配置使用任务推送通道且不再写入轮询间�
   assert.equal(getInternalCaRouteContracts().some((route) => route.operationId === 'streamCaNodeTasks'), true);
 });
 
+test('创建 CA 信任域未提供 code 时由后端自动生成唯一代码', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-auto-trust-domain-code';
+  const actorId = 'user-admin';
+  const first = await service.createTrustDomain(tenantId, {
+    name: '自动代码信任域一',
+    purpose: 'production_tls',
+  }, actorId);
+  const second = await service.createTrustDomain(tenantId, {
+    name: '自动代码信任域二',
+    purpose: 'development_tls',
+  }, actorId);
+
+  assert.match(first.code, /^auto_domain_[a-z0-9]{24}$/);
+  assert.match(second.code, /^auto_domain_[a-z0-9]{24}$/);
+  assert.notEqual(first.code, second.code);
+});
+
 test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和信任分发', async () => {
   const { db, service, certificates, security } = await createFixture();
   const tenantId = 'tenant-internal-ca';

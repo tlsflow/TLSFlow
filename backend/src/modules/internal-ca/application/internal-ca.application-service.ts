@@ -63,7 +63,7 @@ export interface AdcsDiscoveryInput {
 
 export interface CreateCaTrustDomainInput {
   name: string;
-  code: string;
+  code?: string;
   purpose: string;
   isolationLevel?: CaTrustDomainIsolationLevel;
   isDefault?: boolean;
@@ -214,7 +214,7 @@ export class InternalCaApplicationService {
       id: newId('catd'),
       tenantId,
       name: requiredText(input.name, 'name'),
-      code: normalizeTrustDomainCode(input.code),
+      code: normalizeTrustDomainCode(input.code ?? generateTrustDomainCode()),
       purpose: requiredText(input.purpose, 'purpose'),
       status: 'active',
       isDefault: input.isDefault ?? existing.length === 0,
@@ -437,7 +437,7 @@ export class InternalCaApplicationService {
       ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
       : await this.createTrustDomain(tenantId, {
           name: `${requiredText(input.name, 'name')} 信任域`,
-          code: `auto_${newId('domain').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()}`,
+          code: generateTrustDomainCode(),
           purpose: input.securityDomain,
         }, input.actorId, context);
     if (provider.deploymentMode !== input.deploymentMode || provider.runtimePlatform !== input.runtimePlatform) {
@@ -1641,6 +1641,10 @@ function requiredText(value: string, field: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
   return normalized;
+}
+
+function generateTrustDomainCode(): string {
+  return `auto_${newId('domain').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()}`;
 }
 
 function normalizeTrustDomainCode(value: string): string {
