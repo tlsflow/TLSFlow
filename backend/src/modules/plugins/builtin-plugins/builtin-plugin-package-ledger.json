@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "pluginId": "builtin.java.pkcs12",
+      "version": "1.0.4",
+      "packageSha256": "sha256:96fae1293f25659dfe295860b129d2c0e0c4efd1fb5ec0cecdec19659fb9aeba"
+    },
+    {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.4",
+      "packageSha256": "sha256:f0db83dc04a19fe6aa24f37a5f9e4961791fbc8932a8dfbceaa17ee46a1f3091"
+    },
+    {
+      "pluginId": "builtin.rabbitmq.pem",
+      "version": "1.0.4",
+      "packageSha256": "sha256:e67b20417fd09793128bacb94c294a74a620315883dfb7978800c919cc81c006"
+    },
+    {
+      "pluginId": "builtin.windows-service.certificate-file",
+      "version": "1.0.4",
+      "packageSha256": "sha256:985eeafa5db46e952f109e50e754764d2a2e86d63f6b64fcbb3f50d112014997"
+    },
+    {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.4",
+      "packageSha256": "sha256:650719bc76944c58139df8850caa6813375626bd0a106e82b0f2c874c0e544e7"
+    },
+    {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.1.6",
+      "packageSha256": "sha256:75fd9041977e011ae410dab651ad472725371d59199e89836f55a7455c359d47"
+    },
+    {
+      "pluginId": "builtin.workflow.synology-dsm-cert-import",
+      "version": "1.1.5",
+      "packageSha256": "sha256:6603b0ffc14ca0052fd618d2445450808899d5a926f15c04b8b75bd204ce5b0c"
+    }
+  ]
+}
