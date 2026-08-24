@@ -258,28 +258,73 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.roles',
     component: () => import('@/views/settings/RolesView.vue'),
     meta: {
-      title: '角色管理',
+      title: '权限管理',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.role.read',
       resourceType: 'role',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '角色管理'],
+      breadcrumb: ['系统设置', '权限管理'],
       keepAlive: true
     }
   },
   {
-    path: '/settings/permissions',
-    name: 'settings.permissions',
-    component: () => import('@/views/settings/PermissionPoliciesView.vue'),
+    path: '/settings/object-sets',
+    name: 'settings.objectSets',
+    component: () => import('@/views/settings/ObjectSetsView.vue'),
     meta: {
-      title: '权限策略',
+      title: '对象集合',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.permission.read',
-      resourceType: 'permissionPolicy',
+      resourceType: 'permissionObjectSet',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '权限策略'],
+      breadcrumb: ['系统设置', '对象集合'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/object-set-members',
+    name: 'settings.objectSetMembers',
+    component: () => import('@/views/settings/ObjectSetMembersView.vue'),
+    meta: {
+      title: '对象集合成员',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.permission.read',
+      resourceType: 'permissionObjectSet',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '对象集合成员'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/role-bindings',
+    name: 'settings.roleBindings',
+    component: () => import('@/views/settings/RoleBindingsView.vue'),
+    meta: {
+      title: '角色绑定',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.permission.read',
+      resourceType: 'permissionRoleBinding',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '角色绑定'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/access-grants',
+    name: 'settings.accessGrants',
+    component: () => import('@/views/settings/AccessGrantsView.vue'),
+    meta: {
+      title: '访问授权',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.permission.read',
+      resourceType: 'permissionAccessGrant',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '访问授权'],
       keepAlive: true
     }
   },

@@ -70,10 +70,8 @@ export const mainMenuItems: MenuItem[] = [
     children: [
       { title: '系统设置', path: '/settings', module: 'settings', permission: 'settings.read', description: '系统配置和安全元数据' },
       { title: '用户管理', path: '/settings/users', module: 'settings', permission: 'security.user.read', description: '控制台用户、状态和角色' },
-      { title: '角色管理', path: '/settings/roles', module: 'settings', permission: 'security.role.read', description: '角色定义和权限数量' },
-      { title: '权限策略', path: '/settings/permissions', module: 'settings', permission: 'security.permission.read', description: 'RBAC allow/deny 策略' },
-      { title: '身份源', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', description: 'AD/LDAP 服务配置' },
-      { title: '组角色映射', path: '/settings/group-role-mappings', module: 'settings', permission: 'security.identity_source.read', description: '外部目录组映射本地角色' }
+      { title: '权限管理', path: '/settings/roles', module: 'settings', permission: 'security.role.read', description: '角色、授权对象范围和成员分配' },
+      { title: '身份源', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', description: 'AD/LDAP 服务配置' }
     ]
   }
 ]

@@ -2,11 +2,9 @@
 import { RouterLink } from 'vue-router'
 
 const cards = [
-  { title: '用户管理', path: '/settings/users', description: '创建控制台用户、查看状态和角色。' },
-  { title: '角色管理', path: '/settings/roles', description: '维护角色编码、名称和权限数量。' },
-  { title: '权限策略', path: '/settings/permissions', description: '维护 RBAC allow/deny 策略。' },
-  { title: '身份源', path: '/settings/identity-sources', description: '配置 Microsoft AD 和标准 LDAP 服务器。' },
-  { title: '组角色映射', path: '/settings/group-role-mappings', description: '把外部目录组映射成本地角色。' }
+  { title: '用户管理', path: '/settings/users', description: '维护控制台用户、状态和基础角色。' },
+  { title: '权限管理', path: '/settings/roles', description: '维护角色、授权对象范围，并把用户或组分配到角色。' },
+  { title: '身份源', path: '/settings/identity-sources', description: '配置 Microsoft AD 和标准 LDAP 服务器。' }
 ]
 </script>
 

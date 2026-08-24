@@ -36,6 +36,13 @@ export interface CurrentUserResponse {
   readonly permissions: readonly string[]
 }
 
+export interface ObjectPermissionContextResponse extends CurrentUserResponse {
+  readonly objectSets: readonly ApiRecord[]
+  readonly roleBindings: readonly ApiRecord[]
+  readonly objectPermissionVersion: string
+  readonly expiresAt: string
+}
+
 export function login(body: LoginRequest): Promise<ApiResult<AuthSessionResponse>> {
   return apiClient.post<AuthSessionResponse>('/v1/auth/login', body)
 }
@@ -60,8 +67,20 @@ export function getCurrentPermissions(): Promise<ApiResult<{ permissions: readon
   return apiClient.get<{ permissions: readonly string[] }>('/v1/auth/permissions')
 }
 
+export function getPermissionContext(): Promise<ApiResult<ObjectPermissionContextResponse>> {
+  return apiClient.get<ObjectPermissionContextResponse>('/v1/auth/permission-context')
+}
+
 export function listUsers(query?: BusinessListQuery): Promise<ApiPageResult> {
   return listRecords('/api/v1/security/users', query)
+}
+
+export function listGroups(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/groups', query)
+}
+
+export function createGroup(body: { name: string; code?: string; enabled?: boolean }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/groups', body)
 }
 
 export function createUser(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
@@ -84,8 +103,26 @@ export function lookupExternalUser(body: { sourceId: string; username: string })
   return apiClient.post<ExternalUserLookupResponse>('/v1/security/users/lookup-external', body)
 }
 
+export interface ExternalGroupLookupResponse extends ApiRecord {
+  readonly sourceId: string
+  readonly sourceName: string
+  readonly identityProvider: string
+  readonly externalId: string
+  readonly name: string
+  readonly code: string
+  readonly groupDn: string
+}
+
+export function lookupExternalGroup(body: { sourceId: string; groupName: string }): Promise<ApiResult<ExternalGroupLookupResponse>> {
+  return apiClient.post<ExternalGroupLookupResponse>('/v1/security/groups/lookup-external', body)
+}
+
 export function createExternalUser(body: { sourceId: string; username: string; roleId?: string }): Promise<ApiResult<ApiRecord>> {
   return apiClient.post<ApiRecord>('/v1/security/users/external', body)
+}
+
+export function createExternalGroup(body: { sourceId: string; groupName: string }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/groups/external', body)
 }
 
 export function updateUser(body: {
@@ -121,12 +158,58 @@ export function createRole(body: Record<string, unknown>): Promise<ApiResult<Api
   return apiClient.post<ApiRecord>('/v1/security/roles', body)
 }
 
+export function deleteRole(roleId: string): Promise<ApiResult<{ roleId: string; deleted: true }>> {
+  return apiClient.request<{ roleId: string; deleted: true }>('/v1/security/roles/delete', {
+    method: 'DELETE',
+    body: { roleId }
+  })
+}
+
 export function listPermissionPolicies(query?: BusinessListQuery): Promise<ApiPageResult> {
   return apiClient.get(buildListPath('/api/v1/security/permission-policies', query))
 }
 
 export function createPermissionPolicy(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
   return apiClient.post<ApiRecord>(toClientPath('/api/v1/security/permission-policies'), body)
+}
+
+export function listObjectTypes(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/object-types', query)
+}
+
+export function listObjectSets(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/object-sets', query)
+}
+
+export function createObjectSet(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/object-sets', body)
+}
+
+export function addObjectSetMember(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/object-set-members', body)
+}
+
+export function listRoleBindings(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/role-bindings', query)
+}
+
+export function createRoleBinding(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/role-bindings', body)
+}
+
+export function listAccessGrants(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/access-grants', query)
+}
+
+export function createAccessGrant(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/access-grants', body)
+}
+
+export function getObjectCapabilities(body: {
+  objects: readonly Record<string, unknown>[]
+  accessLevels?: readonly ('read' | 'edit' | 'control')[]
+}): Promise<ApiResult<{ items: readonly ApiRecord[] }>> {
+  return apiClient.post<{ items: readonly ApiRecord[] }>('/v1/security/object-capabilities', body)
 }
 
 export function listIdentitySources(query?: BusinessListQuery): Promise<ApiPageResult> {
