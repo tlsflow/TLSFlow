@@ -14,7 +14,7 @@
   "limitations": [
     "仅支持 Windows Server 2008 R2 SP1 至 Windows Server 2012 R2 的独立兼容产品线",
     "Windows Server 2008 R2 SP1 + IIS 7.5 真实认证完成前不得提升为 certified",
-    "必须通过前置检查声明的 .NET Framework 4.8、TLS 1.2、补丁、权限、证书存储和控制面连通性检查"
+    "必须通过前置检查声明的 .NET Framework 3.5.1、补丁、权限、证书存储和控制面连通性检查；HTTPS 控制面还必须满足 TLS 1.2，HTTP 仅限受控内网或受信 Gateway"
   ],
   "publishedAt": "2026-07-21T00:00:00.000Z"
 }

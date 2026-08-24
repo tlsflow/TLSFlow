@@ -7,9 +7,10 @@
     "kernelVersion": "6.1.7601",
     "architecture": "amd64",
     "webServer": "IIS 7.5",
-    "runtime": ".NET Framework 4.8"
+    "runtime": ".NET Framework 3.5.1"
   },
   "requiredFacts": {
+    "runtime.framework_35_installed": true,
     "security.tls12_enabled": true,
     "windows.required_hotfixes_present": true,
     "windows.cert_store_writable": true,
