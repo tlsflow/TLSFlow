@@ -1,3 +1,4 @@
+import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type {
   AcmeAccountEntity,
@@ -154,6 +155,14 @@ export class AcmeRepository {
     return result.rows.map(authorizationFromRow);
   }
 
+  async getAuthorizationByUrl(tenantId: string, externalAuthorizationUrl: string): Promise<AcmeAuthorizationEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      'select * from pg_acme_authorizations where tenant_id = $1 and external_authorization_url = $2',
+      [tenantId, externalAuthorizationUrl],
+    );
+    return result.rows[0] ? authorizationFromRow(result.rows[0]) : undefined;
+  }
+
   async saveChallenge(entity: AcmeChallengeEntity): Promise<AcmeChallengeEntity> {
     await this.db.query(
       `insert into pg_acme_challenges (
@@ -187,13 +196,29 @@ export class AcmeRepository {
     return result.rows.map(challengeFromRow);
   }
 
+  async getChallengeByUrl(tenantId: string, externalChallengeUrl: string): Promise<AcmeChallengeEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      'select * from pg_acme_challenges where tenant_id = $1 and external_challenge_url = $2',
+      [tenantId, externalChallengeUrl],
+    );
+    return result.rows[0] ? challengeFromRow(result.rows[0]) : undefined;
+  }
+
+  async getChallenge(tenantId: string, id: string): Promise<AcmeChallengeEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      'select * from pg_acme_challenges where tenant_id = $1 and id = $2',
+      [tenantId, id],
+    );
+    return result.rows[0] ? challengeFromRow(result.rows[0]) : undefined;
+  }
+
   async claimChallenge(tenantId: string, challengeId: string, leaseOwner: string, leaseExpiresAt: string, now: string): Promise<AcmeChallengeEntity | undefined> {
     const result = await this.db.query<Record<string, unknown>>(
       `update pg_acme_challenges
        set lease_owner = $3, lease_expires_at = $4::timestamptz, updated_at = $5::timestamptz
        where tenant_id = $1 and id = $2
          and (lease_expires_at is null or lease_expires_at <= $5::timestamptz or lease_owner = $3)
-         and status in ('pending','presented','processing','cleanup_pending','failed')
+         and status in ('pending','presented','processing','valid','cleanup_pending','failed')
        returning *`,
       [tenantId, challengeId, leaseOwner, leaseExpiresAt, now],
     );
@@ -242,6 +267,17 @@ export class AcmeRepository {
     return result.rows.map(policyFromRow);
   }
 
+  async listActivePolicies(limit = 100): Promise<AcmeRenewalPolicyEntity[]> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `select * from pg_acme_renewal_policies
+       where enabled = true and status = 'active'
+       order by updated_at asc
+       limit $1`,
+      [Math.max(1, Math.floor(limit))],
+    );
+    return result.rows.map(policyFromRow);
+  }
+
   async saveRenewalJob(entity: AcmeRenewalJobEntity): Promise<AcmeRenewalJobEntity> {
     await this.db.query(
       `insert into pg_certificate_renewal_jobs (
@@ -281,12 +317,42 @@ export class AcmeRepository {
     return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
   }
 
+  async getRenewalJobByWindow(tenantId: string, sourceCertificateVersionId: string, renewalWindowKey: string): Promise<AcmeRenewalJobEntity | undefined> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `select * from pg_certificate_renewal_jobs
+       where tenant_id = $1 and source_certificate_version_id = $2 and renewal_window_key = $3
+       order by created_at desc limit 1`,
+      [tenantId, sourceCertificateVersionId, renewalWindowKey],
+    );
+    return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
+  }
+
   async listRenewalJobs(tenantId: string): Promise<AcmeRenewalJobEntity[]> {
     const result = await this.db.query<Record<string, unknown>>(
       'select * from pg_certificate_renewal_jobs where tenant_id = $1 order by scheduled_at desc',
       [tenantId],
     );
     return result.rows.map(renewalJobFromRow);
+  }
+
+  async retryRenewalJob(tenantId: string, id: string, now: string): Promise<AcmeRenewalJobEntity> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `update pg_certificate_renewal_jobs
+       set status = 'scheduled',
+           attempt_count = 0,
+           next_attempt_at = $3::timestamptz,
+           lease_owner = null,
+           lease_expires_at = null,
+           failure_code = null,
+           failure_message = null,
+           updated_at = $3::timestamptz
+       where tenant_id = $1 and id = $2
+         and status in ('failed', 'retry_waiting', 'rollback_required')
+       returning *`,
+      [tenantId, id, now],
+    );
+    if (!result.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在或当前状态不可重试', { renewalJobId: id });
+    return renewalJobFromRow(result.rows[0]);
   }
 
   async claimRenewalJob(tenantId: string, id: string, leaseOwner: string, leaseExpiresAt: string, now: string): Promise<AcmeRenewalJobEntity | undefined> {

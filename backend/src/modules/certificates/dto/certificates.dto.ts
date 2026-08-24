@@ -42,6 +42,7 @@ export interface CertificateVersionDto {
   chainDiagnostics: string[];
   chainStatus: string;
   deployable: boolean;
+  activationState: CertificateVersionEntity['activationState'];
   sourceType: CertificateSourceType;
   status: string;
   createdBy: string;
@@ -147,6 +148,7 @@ export interface ImportCertificateVersionInput {
   privateKeyPem?: string;
   existingPrivateKeySecretRef?: string;
   allowCertificateOnly?: boolean;
+  activationState?: CertificateVersionEntity['activationState'];
   issuingCaId?: string;
   certificateRequestId?: string;
   certificateProfileVersionId?: string;
@@ -229,6 +231,7 @@ export interface ValidateCertificateImportResult {
     issuer: CertificateVersionEntity['issuer'];
     subject: CertificateVersionEntity['subject'];
     serialNumber: string;
+    publicKeyFingerprintSha256?: string;
     notBefore: string;
     notAfter: string;
     fingerprintSha256: string;
@@ -264,7 +267,7 @@ export function toCertificateVersionDto(entity: CertificateVersionEntity): Certi
   // API 不返回私钥材料，也不暴露私钥 SecretRef。
   const { privateKeySecretRef, ...safeEntity } = entity;
   void privateKeySecretRef;
-  return { ...safeEntity, hasPrivateKey: Boolean(entity.privateKeySecretRef) };
+  return { ...safeEntity, activationState: entity.activationState ?? 'promoted', hasPrivateKey: Boolean(entity.privateKeySecretRef) };
 }
 
 export function toCertificateVersionFormatDto(entity: CertificateVersionFormatEntity): CertificateVersionFormatDto {

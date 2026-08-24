@@ -181,6 +181,42 @@ export class CertificatesApplicationService {
     return this.repository;
   }
 
+  async promoteVersion(input: {
+    certificateVersionId: string;
+    actorId: string;
+  }): Promise<CertificateVersionEntity> {
+    const version = await this.getExistingVersion(input.certificateVersionId);
+    const activationState = version.activationState ?? 'promoted';
+    if (activationState === 'promoted') return version;
+    if (!['staged', 'deploying', 'verified'].includes(activationState)) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '证书版本当前不允许 Promotion', {
+        certificateVersionId: version.id,
+        activationState,
+      });
+    }
+    const asset = await this.getExistingAsset(version.certificateAssetId);
+    const currentVersion = asset.currentVersionId && asset.currentVersionId !== version.id
+      ? await this.repository.getVersion(asset.currentVersionId)
+      : undefined;
+    const promoted = await this.repository.promoteVersionAtomic(version.id);
+    void this.dependencies.audit?.write({
+      eventType: 'certificate.version.promoted',
+      actorType: 'user',
+      actorId: input.actorId,
+      action: 'certificate.version.promote',
+      resourceType: 'certificate_version',
+      resourceId: promoted.id,
+      result: 'success',
+      riskLevel: 'high',
+      detail: {
+        certificateAssetId: asset.id,
+        previousVersionId: currentVersion?.id,
+        certificateFingerprintSha256: promoted.fingerprintSha256,
+      },
+    }).catch(() => undefined);
+    return promoted;
+  }
+
   validateImportVersion(input: ImportCertificateVersionInput): ValidateCertificateImportResult {
     const bundle = this.domain.validateCertificateMaterial(input, input.privateKeyPem);
     return {
@@ -194,6 +230,7 @@ export class CertificatesApplicationService {
         issuer: bundle.leaf.issuer,
         subject: bundle.leaf.subject,
         serialNumber: bundle.leaf.serialNumber,
+        publicKeyFingerprintSha256: bundle.leaf.publicKeyFingerprintSha256,
         notBefore: bundle.leaf.notBefore,
         notAfter: bundle.leaf.notAfter,
         fingerprintSha256: bundle.leaf.fingerprintSha256,
@@ -311,6 +348,7 @@ export class CertificatesApplicationService {
         (privateKeySecretRef && (privateKeyMatched || Boolean(input.existingPrivateKeySecretRef)))
         || (input.allowCertificateOnly && input.keyReferenceId)
       )),
+      activationState: input.activationState ?? (input.sourceType === 'acme' ? 'staged' : 'promoted'),
       sourceType,
       status: 'active',
       createdBy: input.createdBy,
@@ -318,7 +356,7 @@ export class CertificatesApplicationService {
     });
 
     const updatedAsset = await this.repository.updateAsset(asset.id, {
-      currentVersionId: version.id,
+      ...(version.activationState === 'promoted' ? { currentVersionId: version.id } : {}),
       sans: uniqueStrings([...asset.sans, ...parsed.sans.map(normalizeCertificateDomain)]),
       updatedAt: now,
     });

@@ -19,12 +19,33 @@ import type {
   PreviewCaInput,
   UpdateCaTrustDomainInput,
 } from '../application/internal-ca.application-service.js';
+import type { AcmeAccountService } from '../application/acme-account.service.js';
+import type { AcmeOrderService } from '../application/acme-order.service.js';
+import type { AcmeRenewalPolicyService } from '../application/acme-renewal-policy.service.js';
+import type { AcmeRenewalScheduler } from '../application/acme-renewal-scheduler.js';
+import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
+import type { AcmeRepository } from '../repository/acme.repository.js';
+import type { CertificatePromotionService } from '../application/certificate-promotion.service.js';
 
 const tags = ['Internal CA'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
+export interface InternalCaAcmeServices {
+  accounts: AcmeAccountService;
+  orders: AcmeOrderService;
+  policies: AcmeRenewalPolicyService;
+  repository: AcmeRepository;
+  scheduler: AcmeRenewalScheduler;
+  worker: AcmeRenewalWorker;
+  promotion: CertificatePromotionService;
+}
+
 export class InternalCaController {
-  constructor(private readonly service: InternalCaApplicationService, private readonly security: SecurityServices) {}
+  constructor(
+    private readonly service: InternalCaApplicationService,
+    private readonly security: SecurityServices,
+    private readonly acme?: InternalCaAcmeServices,
+  ) {}
 
   register(router: Router): void {
     router.get('/api/v1/ca-providers', '查询 CA Provider', tags, (request) => this.listProviders(request));
@@ -53,6 +74,22 @@ export class InternalCaController {
     router.post('/api/v1/certificate-requests/:id/activate', '确认应用证书已安装', tags, (request) => this.activateRequest(request));
     router.get('/api/v1/certificate-renewals', '查询证书续期任务', tags, (request) => this.listRenewals(request));
     router.post('/api/v1/certificate-renewals/scan', '扫描并创建到期续期任务', tags, (request) => this.scanRenewals(request));
+    router.get('/api/v1/acme/accounts', '查询 ACME Account', tags, (request) => this.listAcmeAccounts(request));
+    router.post('/api/v1/acme/accounts', '创建 ACME Account', tags, (request) => this.createAcmeAccount(request));
+    router.get('/api/v1/acme/accounts/:id', '查询 ACME Account 详情', tags, (request) => this.getAcmeAccount(request));
+    router.get('/api/v1/acme/orders', '查询 ACME Order', tags, (request) => this.listAcmeOrders(request));
+    router.post('/api/v1/acme/orders', '创建 ACME Order', tags, (request) => this.createAcmeOrder(request));
+    router.get('/api/v1/acme/orders/:id', '查询 ACME Order 详情', tags, (request) => this.getAcmeOrder(request));
+    router.post('/api/v1/acme/orders/:id/reconcile', '恢复 ACME Order 状态', tags, (request) => this.reconcileAcmeOrder(request));
+    router.post('/api/v1/acme/orders/:id/finalize', 'Finalize ACME Order', tags, (request) => this.finalizeAcmeOrder(request));
+    router.get('/api/v1/acme/renewal-policies', '查询 ACME 续签策略', tags, (request) => this.listAcmePolicies(request));
+    router.post('/api/v1/acme/renewal-policies', '创建 ACME 续签策略', tags, (request) => this.createAcmePolicy(request));
+    router.patch('/api/v1/acme/renewal-policies/:id', '更新 ACME 续签策略', tags, (request) => this.updateAcmePolicy(request));
+    router.get('/api/v1/acme/renewal-jobs', '查询 ACME 续签任务', tags, (request) => this.listAcmeRenewalJobs(request));
+    router.post('/api/v1/acme/renewal-jobs/scan', '扫描 ACME 到期证书', tags, (request) => this.scanAcmeRenewalJobs(request));
+    router.post('/api/v1/acme/renewal-jobs/run', '执行 ACME 续签任务', tags, (request) => this.runAcmeRenewalJobs(request));
+    router.post('/api/v1/acme/renewal-jobs/:id/retry', '重试 ACME 续签任务', tags, (request) => this.retryAcmeRenewalJob(request));
+    router.post('/api/v1/acme/certificate-versions/:id/promote', 'Promotion ACME 证书版本', tags, (request) => this.promoteAcmeVersion(request));
     router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
     router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
     router.post('/api/v1/certificate-revocations/:id/approve', '审批并执行证书吊销', tags, (request) => this.approveRevocation(request));
@@ -279,6 +316,155 @@ export class InternalCaController {
   private async scanRenewals(request: HttpRequest) {
     await this.assertManage(request, 'certificate_renewal');
     return this.service.scheduleDueRenewals(tenantId(request), actorId(request), new Date(), request.context);
+  }
+
+  private requireAcme(): InternalCaAcmeServices {
+    if (!this.acme) throw new AppError('CA_CAPABILITY_UNSUPPORTED', 'ACME 生命周期服务未接入');
+    return this.acme;
+  }
+
+  private async listAcmeAccounts(request: HttpRequest) {
+    await this.assertRead(request, 'ca_provider');
+    return this.requireAcme().accounts.list(tenantId(request), optionalQuery(request, 'providerId'));
+  }
+
+  private async createAcmeAccount(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.requireAcme().accounts.create({
+        tenantId: tenantId(request),
+        providerId: requiredString(body, 'providerId'),
+        accountKeySecretRef: requiredString(body, 'accountKeySecretRef'),
+        contact: Array.isArray(body.contact) ? body.contact.map(String) : undefined,
+        termsOfServiceAgreed: body.termsOfServiceAgreed === undefined ? undefined : body.termsOfServiceAgreed === true,
+        eabKeyIdSecretRef: optionalString(body.eabKeyIdSecretRef),
+        eabHmacSecretRef: optionalString(body.eabHmacSecretRef),
+        actorId: actorId(request),
+      }),
+    };
+  }
+
+  private async getAcmeAccount(request: HttpRequest) {
+    await this.assertRead(request, 'ca_provider');
+    return this.requireAcme().accounts.get(tenantId(request), pathId(request));
+  }
+
+  private async listAcmeOrders(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_request');
+    return this.requireAcme().orders.list(tenantId(request), optionalQuery(request, 'status') as never);
+  }
+
+  private async createAcmeOrder(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.requireAcme().orders.create({
+        tenantId: tenantId(request),
+        providerId: requiredString(body, 'providerId'),
+        accountId: requiredString(body, 'accountId'),
+        certificateRequestId: requiredString(body, 'certificateRequestId'),
+        challengeType: requiredString(body, 'challengeType') as never,
+        idempotencyKey: requiredString(body, 'idempotencyKey'),
+        actorId: actorId(request),
+      }),
+    };
+  }
+
+  private async getAcmeOrder(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_request');
+    return this.requireAcme().orders.get(tenantId(request), pathId(request));
+  }
+
+  private async reconcileAcmeOrder(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    return this.requireAcme().orders.reconcile(tenantId(request), pathId(request), actorId(request));
+  }
+
+  private async finalizeAcmeOrder(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    return this.requireAcme().orders.finalize(tenantId(request), pathId(request), actorId(request));
+  }
+
+  private async listAcmePolicies(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_renewal');
+    return this.requireAcme().policies.list(tenantId(request));
+  }
+
+  private async createAcmePolicy(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.requireAcme().policies.create({
+        tenantId: tenantId(request),
+        certificateAssetId: optionalString(body.certificateAssetId),
+        bindingId: optionalString(body.bindingId),
+        providerId: requiredString(body, 'providerId'),
+        accountId: requiredString(body, 'accountId'),
+        enabled: body.enabled !== false,
+        renewalWindowDays: optionalNumber(body, 'renewalWindowDays'),
+        challengeType: requiredString(body, 'challengeType') as never,
+        rotateKeyOnRenewal: body.rotateKeyOnRenewal !== false,
+        deploymentMode: (optionalString(body.deploymentMode) ?? 'automatic') as never,
+        maxAttempts: optionalNumber(body, 'maxAttempts'),
+        backoffSeconds: optionalNumber(body, 'backoffSeconds'),
+        maintenanceWindow: body.maintenanceWindow && typeof body.maintenanceWindow === 'object' && !Array.isArray(body.maintenanceWindow)
+          ? body.maintenanceWindow as Record<string, unknown>
+          : undefined,
+        actorId: actorId(request),
+      }),
+    };
+  }
+
+  private async updateAcmePolicy(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    return this.requireAcme().policies.update(tenantId(request), pathId(request), {
+      ...objectBody(request),
+      actorId: actorId(request),
+    });
+  }
+
+  private async listAcmeRenewalJobs(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_renewal');
+    return this.requireAcme().repository.listRenewalJobs(tenantId(request));
+  }
+
+  private async scanAcmeRenewalJobs(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    return this.requireAcme().scheduler.runOnce(optionalNumber(objectBody(request), 'limit') ?? 50, new Date());
+  }
+
+  private async runAcmeRenewalJobs(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    return this.requireAcme().worker.runOnce(optionalNumber(objectBody(request), 'limit') ?? 10, actorId(request), request.context);
+  }
+
+  private async retryAcmeRenewalJob(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    return this.requireAcme().repository.retryRenewalJob(tenantId(request), pathId(request), new Date().toISOString());
+  }
+
+  private async promoteAcmeVersion(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_asset');
+    const body = objectBody(request);
+    return this.requireAcme().promotion.promote({
+      tenantId: tenantId(request),
+      certificateVersionId: pathId(request),
+      deploymentPlanId: requiredString(body, 'deploymentPlanId'),
+      executionRunId: requiredString(body, 'executionRunId'),
+      tlsVerify: {
+        success: body.tlsVerify && typeof body.tlsVerify === 'object' && !Array.isArray(body.tlsVerify)
+          ? (body.tlsVerify as Record<string, unknown>).success === true
+          : false,
+        certificateFingerprintSha256: body.tlsVerify && typeof body.tlsVerify === 'object' && !Array.isArray(body.tlsVerify)
+          ? requiredString(body.tlsVerify as Record<string, unknown>, 'certificateFingerprintSha256')
+          : '',
+      },
+      actorId: actorId(request),
+    });
   }
 
   private async listRevocations(request: HttpRequest) {
@@ -663,6 +849,22 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/certificate-requests/:id/activate', operationId: 'activateCertificateRequest', summary: '确认应用证书已安装', tags, responseSchema },
     { method: 'GET', path: '/api/v1/certificate-renewals', operationId: 'listCertificateRenewals', summary: '查询证书续期任务', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/certificate-renewals/scan', operationId: 'scanCertificateRenewals', summary: '扫描并创建到期续期任务', tags, responseSchema: arraySchema },
+    { method: 'GET', path: '/api/v1/acme/accounts', operationId: 'listAcmeAccounts', summary: '查询 ACME Account', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/accounts', operationId: 'createAcmeAccount', summary: '创建 ACME Account', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/accounts/:id', operationId: 'getAcmeAccount', summary: '查询 ACME Account 详情', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/orders', operationId: 'listAcmeOrders', summary: '查询 ACME Order', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/orders', operationId: 'createAcmeOrder', summary: '创建 ACME Order', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/orders/:id', operationId: 'getAcmeOrder', summary: '查询 ACME Order 详情', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/acme/orders/:id/reconcile', operationId: 'reconcileAcmeOrder', summary: '恢复 ACME Order 状态', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/acme/orders/:id/finalize', operationId: 'finalizeAcmeOrder', summary: 'Finalize ACME Order', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/renewal-policies', operationId: 'listAcmeRenewalPolicies', summary: '查询 ACME 续签策略', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/renewal-policies', operationId: 'createAcmeRenewalPolicy', summary: '创建 ACME 续签策略', tags, responseSchema },
+    { method: 'PATCH', path: '/api/v1/acme/renewal-policies/:id', operationId: 'updateAcmeRenewalPolicy', summary: '更新 ACME 续签策略', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/renewal-jobs', operationId: 'listAcmeRenewalJobs', summary: '查询 ACME 续签任务', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/renewal-jobs/scan', operationId: 'scanAcmeRenewalJobs', summary: '扫描 ACME 到期证书', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/renewal-jobs/run', operationId: 'runAcmeRenewalJobs', summary: '执行 ACME 续签任务', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/renewal-jobs/:id/retry', operationId: 'retryAcmeRenewalJob', summary: '重试 ACME 续签任务', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/acme/certificate-versions/:id/promote', operationId: 'promoteAcmeCertificateVersion', summary: 'Promotion ACME 证书版本', tags, responseSchema },
     { method: 'GET', path: '/api/v1/certificate-revocations', operationId: 'listCertificateRevocations', summary: '查询证书吊销任务', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/certificate-revocations', operationId: 'createCertificateRevocation', summary: '创建证书吊销任务', tags, responseSchema },
     { method: 'POST', path: '/api/v1/certificate-revocations/:id/approve', operationId: 'approveCertificateRevocation', summary: '审批并执行证书吊销', tags, responseSchema },
@@ -740,7 +942,7 @@ export function pathId(request: HttpRequest): string {
   const value = request.query.id;
   const queryId = Array.isArray(value) ? value[0] : value;
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'update-sessions'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'update-sessions', 'reconcile', 'finalize', 'promote'].includes(segment));
   const id = queryId ?? (actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1));
   if (!id) throw new AppError('VALIDATION_FAILED', 'id 不能为空');
   return id;
@@ -769,6 +971,10 @@ function requiredString(body: Record<string, unknown>, field: string): string {
   const value = body[field];
   if (typeof value !== 'string' || !value.trim()) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
   return value.trim();
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function optionalNumber(body: Record<string, unknown>, field: string): number | undefined {

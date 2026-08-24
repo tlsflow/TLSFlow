@@ -4,10 +4,12 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesRuRU } from './devices.locale'
 import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
+import { acmeRuRU } from './acme.locale'
 export default {
   credentials: credentialsRuRU,
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
+  acme: acmeRuRU,
   app: {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',

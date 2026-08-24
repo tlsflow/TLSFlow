@@ -20,6 +20,7 @@ export const mainMenuItems: MenuItem[] = [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
       { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'caOperations.description' },
       { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'internalCa.description' },
+      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'acme.description' },
       { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
     ]
   },

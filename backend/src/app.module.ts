@@ -29,7 +29,23 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
-import { CaAutoSyncScheduler, CaOperationsRepository, CaSyncWorker, getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
+import {
+  AcmeAccountService,
+  AcmeChallengeService,
+  AcmeOrderService,
+  AcmeProviderAdapter,
+  AcmeRenewalPolicyService,
+  AcmeRenewalScheduler,
+  AcmeRenewalWorker,
+  AcmeRepository,
+  CaAutoSyncScheduler,
+  CaOperationsRepository,
+  CaSyncWorker,
+  CertificatePromotionService,
+  getInternalCaRouteContracts,
+  InternalCaApplicationService,
+  InternalCaController,
+} from './modules/internal-ca/index.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts } from './modules/compatibility-catalog/index.js';
@@ -123,6 +139,28 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     approvals: security.approvals,
   });
+  const acmeRepository = new AcmeRepository(appDb);
+  const acmeProvider = new AcmeProviderAdapter(security.secrets);
+  const acmeAccountService = new AcmeAccountService(
+    acmeRepository,
+    internalCaService.getRepository(),
+    acmeProvider,
+    security.secrets,
+  );
+  const acmeOrderService = new AcmeOrderService(
+    acmeRepository,
+    internalCaService.getRepository(),
+    acmeProvider,
+  );
+  const acmeChallengeService = new AcmeChallengeService({
+    repository: acmeRepository,
+    caRepository: internalCaService.getRepository(),
+    provider: acmeProvider,
+  });
+  const acmeRenewalPolicyService = new AcmeRenewalPolicyService(
+    acmeRepository,
+    internalCaService.getRepository(),
+  );
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
@@ -135,6 +173,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     new PgBindingsRepository(assetsService.getRepository(), appDb),
     undefined,
     assetsService,
+  );
+  const acmeRenewalScheduler = new AcmeRenewalScheduler(
+    acmeRepository,
+    certificateServices.certificates.getRepository(),
+    bindingsService.getRepository(),
   );
   const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
@@ -322,6 +365,35 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('executionDetailStream', executionDetailStream);
   new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
 
+  const acmePromotionService = new CertificatePromotionService(
+    certificateServices.certificates,
+    deploymentPlans.getRepository(),
+    executionsService.getRepository(),
+  );
+  const acmeRenewalWorker = new AcmeRenewalWorker({
+    repository: acmeRepository,
+    certificates: certificateServices.certificates.getRepository(),
+    internalCa: internalCaService,
+    orders: acmeOrderService,
+    challenges: acmeChallengeService,
+    deployments: deploymentPlans.getApplicationService(),
+    executions: executionsService,
+    promotion: acmePromotionService,
+    leaseOwner: `acme-renewal-worker-${process.pid}`,
+  });
+  const acmeServices = {
+    accounts: acmeAccountService,
+    orders: acmeOrderService,
+    policies: acmeRenewalPolicyService,
+    repository: acmeRepository,
+    scheduler: acmeRenewalScheduler,
+    worker: acmeRenewalWorker,
+    promotion: acmePromotionService,
+  };
+  app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
+  app.setResource('acmeRenewalWorker', acmeRenewalWorker);
+  app.setResource('acmeRepository', acmeRepository);
+
   const automationsRepository = new AutomationsRepository(appDb);
   const automationTargetSelector = new AutomationTargetSelector(
     certificateServices.certificates.getRepository(),
@@ -381,7 +453,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);
-  new InternalCaController(internalCaService, security).register(app.router);
+  new InternalCaController(internalCaService, security, acmeServices).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);

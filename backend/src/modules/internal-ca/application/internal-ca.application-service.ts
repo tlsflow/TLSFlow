@@ -146,6 +146,7 @@ export interface CreateCertificateRequestInput {
   exportability?: KeyExportability;
   protectionEvidence?: Record<string, unknown>;
   idempotencyKey?: string;
+  deferIssuance?: boolean;
   actorId: string;
 }
 
@@ -693,6 +694,7 @@ export class InternalCaApplicationService {
       status: profileVersion.rules.requireApproval ? 'pending_approval' : 'approved',
       requestedBy: input.actorId,
       approvalId: approval?.id,
+      deferIssuance: input.deferIssuance === true,
       subjectCommonName: input.commonName,
       sans: uniqueStrings(input.sans),
       requestedValidityDays: Math.min(input.requestedValidityDays ?? profileVersion.rules.maximumValidityDays, profileVersion.rules.maximumValidityDays),
@@ -706,7 +708,8 @@ export class InternalCaApplicationService {
       keyCustodyMode: input.custodyMode,
       publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
     });
-    return profileVersion.rules.requireApproval ? request : this.issueRequest(tenantId, request.id, input.actorId, context);
+    if (profileVersion.rules.requireApproval || input.deferIssuance === true) return request;
+    return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
   async approveRequest(tenantId: string, requestId: string, actorId: string, approvalId?: string, context?: RequestContext): Promise<CertificateRequestEntity> {
@@ -727,7 +730,9 @@ export class InternalCaApplicationService {
       applicationAssetId: request.applicationAssetId,
       caId: request.caId,
     });
-    return this.issueRequest(tenantId, requestId, actorId, context);
+    return request.deferIssuance === true
+      ? this.requireRequest(tenantId, requestId)
+      : this.issueRequest(tenantId, requestId, actorId, context);
   }
 
   async issueRequest(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
@@ -738,6 +743,9 @@ export class InternalCaApplicationService {
     }
     const authority = await this.requireAuthority(tenantId, request.caId);
     const provider = await this.requireProvider(tenantId, authority.providerId);
+    if (request.deferIssuance === true && provider.type === 'acme') {
+      throw new AppError('ACME_ORDER_REQUIRED', 'ACME 证书申请必须通过 Order 生命周期完成签发');
+    }
     const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!profileVersion || !keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请依赖对象不存在');
@@ -801,6 +809,42 @@ export class InternalCaApplicationService {
     const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId });
     if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
     return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
+  }
+
+  async importAcmeCertificate(
+    tenantId: string,
+    requestId: string,
+    material: {
+      certificatePem: string;
+      certificateChainPem: string;
+    },
+    providerRequestId: string,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    const authority = await this.requireAuthority(tenantId, request.caId);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    if (provider.type !== 'acme') throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前证书申请不是 ACME Provider');
+    const validation = this.dependencies.certificates.validateImportVersion({
+      certificatePem: material.certificateChainPem,
+      allowCertificateOnly: true,
+      keyReferenceId: request.keyReferenceId,
+      createdBy: actorId,
+    });
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
+    return this.completeIssuedRequest(request, {
+      status: 'issued',
+      providerRequestId,
+      certificatePem: material.certificatePem,
+      certificateChainPem: material.certificateChainPem,
+      serialNumber: validation.certificate.serialNumber,
+      fingerprintSha256: validation.certificate.fingerprintSha256,
+      publicKeyFingerprintSha256: validation.certificate.publicKeyFingerprintSha256 ?? '',
+      notBefore: validation.certificate.notBefore,
+      notAfter: validation.certificate.notAfter,
+    }, provider, authority, keyReference, actorId, context);
   }
 
   listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
@@ -1582,6 +1626,9 @@ export class InternalCaApplicationService {
     if (issued.publicKeyFingerprintSha256 !== request.publicKeyFingerprintSha256) {
       throw new AppError('PUBLIC_KEY_MISMATCH', '签发证书公钥与 CSR 不匹配');
     }
+    if (provider.type === 'acme') {
+      this.assertAcmeIssuedCertificate(request, issued);
+    }
     const ledgerRecord = await this.repository.getIssuanceByRequest(request.tenantId, request.id);
     if (ledgerRecord && ledgerRecord.serialNumber.toUpperCase() !== issued.serialNumber.toUpperCase()) {
       throw new AppError('CA_LEDGER_INCONSISTENT', '签发证书序列号与账本预留值不一致', {
@@ -1598,6 +1645,7 @@ export class InternalCaApplicationService {
       certificateProfileVersionId: request.profileVersionId,
       keyReferenceId: keyReference.id,
       keyCustodyMode: keyReference.custodyMode,
+      activationState: provider.type === 'acme' ? 'staged' : 'promoted',
       sourceType: provider.type === 'microsoft_adcs' ? 'adcs' : provider.type === 'acme' ? 'acme' : 'internal_ca',
       name: request.subjectCommonName,
       tags: ['internal-ca', authority.securityDomain],
@@ -1647,6 +1695,39 @@ export class InternalCaApplicationService {
       publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
     });
     return completed;
+  }
+
+  private assertAcmeIssuedCertificate(
+    request: CertificateRequestEntity,
+    issued: Extract<CaIssuanceResult, { status: 'issued' }>,
+  ): void {
+    const validation = this.dependencies.certificates.validateImportVersion({
+      certificatePem: issued.certificateChainPem,
+      allowCertificateOnly: true,
+      keyReferenceId: request.keyReferenceId,
+      createdBy: request.requestedBy,
+    });
+    if (validation.certificate.fingerprintSha256.toLowerCase() !== issued.fingerprintSha256.toLowerCase()) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书 fingerprint 与签发结果不一致');
+    }
+    if (validation.certificate.publicKeyFingerprintSha256?.toLowerCase() !== request.publicKeyFingerprintSha256.toLowerCase()) {
+      throw new AppError('PUBLIC_KEY_MISMATCH', 'ACME 证书公钥与 CSR 不匹配');
+    }
+    const requestedSans = new Set(normalizeCertificateNames([request.subjectCommonName, ...request.sans]));
+    const issuedSans = new Set(normalizeCertificateNames([
+      validation.certificate.commonName ?? '',
+      ...validation.certificate.sans,
+    ]));
+    if (requestedSans.size !== issuedSans.size || [...requestedSans].some((name) => !issuedSans.has(name))) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书 SAN 与申请不一致');
+    }
+    if (!['valid', 'incomplete'].includes(validation.chain.status) || validation.chain.certificateCount < 2) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书链不完整或无效');
+    }
+    if (Date.parse(validation.certificate.notAfter) <= Date.now()
+      || Date.parse(validation.certificate.notAfter) <= Date.parse(validation.certificate.notBefore)) {
+      throw new AppError('ACME_CERTIFICATE_INVALID', 'ACME 证书有效期无效或已过期');
+    }
   }
 
   private async audit(eventType: string, actorId: string, action: string, resourceType: string, resourceId: string, riskLevel: 'high' | 'critical', context: RequestContext | undefined, detail: Record<string, unknown>): Promise<void> {
@@ -1811,6 +1892,10 @@ function capabilityRecordId(ownerType: CaCapabilityRecordEntity['ownerType'], ow
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
+
+function normalizeCertificateNames(values: string[]): string[] {
+  return uniqueStrings(values.map((value) => value.replace(/\.$/, '')));
 }
 
 function normalizeExtendedKeyUsages(values: string[]): string[] {

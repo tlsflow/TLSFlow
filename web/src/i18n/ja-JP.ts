@@ -4,10 +4,12 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesJaJP } from './devices.locale'
 import { caOperationsJaJP } from './ca-operations.locale'
 import { credentialsJaJP } from './credentials.locale'
+import { acmeJaJP } from './acme.locale'
 export default {
   credentials: credentialsJaJP,
   devices: devicesJaJP,
   caOperations: caOperationsJaJP,
+  acme: acmeJaJP,
   app: {
     brand: 'GCAC コンソール',
     platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',

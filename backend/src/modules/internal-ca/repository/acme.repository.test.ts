@@ -3,6 +3,7 @@ import test from 'node:test';
 import { runMigrations } from '../../../database/migration-runner.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { AcmeRepository } from './acme.repository.js';
+import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { AcmeAccountEntity, AcmeOrderEntity, AcmeRenewalJobEntity, AcmeRenewalPolicyEntity } from '../schema/acme.schema.js';
 
 const tenantId = 'tenant-acme-repository';
@@ -139,6 +140,66 @@ test('ACME RenewalJob 原子 claim 遵守 nextAttemptAt、lease 和状态边界'
 
   await repository.saveRenewalJob({ ...job, status: 'completed', leaseOwner: undefined, leaseExpiresAt: undefined, updatedAt: '2026-08-05T00:07:00.000Z' });
   assert.equal(await repository.claimRenewalJob(tenantId, job.id, 'worker-c', '2026-08-05T00:15:00.000Z', '2026-08-05T00:08:00.000Z'), undefined);
+});
+
+test('ACME RenewalJob 失败重试会清除旧租约并恢复为 scheduled', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  await insertFixtureRows(db);
+  const repository = new AcmeRepository(db);
+  await repository.saveAccount(accountEntity());
+  await repository.savePolicy(policyEntity());
+  const job = await repository.saveRenewalJob({
+    ...renewalJobEntity(),
+    status: 'failed',
+    attemptCount: 5,
+    nextAttemptAt: '2026-08-05T01:00:00.000Z',
+    leaseOwner: 'worker-old',
+    leaseExpiresAt: '2026-08-05T01:05:00.000Z',
+    failureCode: 'ACME_RENEWAL_FAILED',
+    failureMessage: 'temporary failure',
+  });
+
+  const retried = await repository.retryRenewalJob(tenantId, job.id, now);
+
+  assert.equal(retried.status, 'scheduled');
+  assert.equal(retried.attemptCount, 0);
+  assert.equal(retried.nextAttemptAt, now);
+  assert.equal(retried.leaseOwner, undefined);
+  assert.equal(retried.failureCode, undefined);
+  assert.equal(retried.failureMessage, undefined);
+});
+
+test('Certificate Promotion 原子切换当前版本并将旧版本标记为 superseded', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  await insertFixtureRows(db);
+  const repository = new PgCertificatesRepository(db);
+
+  await db.query(
+    `insert into pg_certificate_versions (
+       id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
+       not_before, not_after, fingerprint_sha256, public_key_algorithm, signature_algorithm,
+       leaf_storage_ref, private_key_secret_ref, chain_certificate_refs, chain_order, chain_diagnostics,
+       chain_status, deployable, source_type, status, created_by, created_at, updated_at, activation_state
+     ) values (
+       $1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17::jsonb,$18::jsonb,$19,$20,$21,$22,$23,$24,$25,$26
+     )`,
+    [
+      'certver-acme-new', 'certasset-acme', 2, 'app.example.com', '["app.example.com"]',
+      '{"raw":"CN=Issuer"}', '{"raw":"CN=app.example.com"}', '02', '2026-08-05T00:00:00.000Z', '2026-11-20T00:00:00.000Z',
+      '2'.repeat(64), 'rsa', 'sha256WithRSAEncryption', 'artifact://leaf/new', 'secret://certificate_private_key/new#current',
+      '[]', '[]', '[]', 'valid', true, 'acme', 'active', 'user-admin', now, now, 'staged',
+    ],
+  );
+
+  const promoted = await repository.promoteVersionAtomic('certver-acme-new');
+  const asset = await repository.getAsset('certasset-acme');
+  const oldVersion = await repository.getVersion('certver-acme-old');
+
+  assert.equal(promoted.activationState, 'promoted');
+  assert.equal(asset?.currentVersionId, 'certver-acme-new');
+  assert.equal(oldVersion?.activationState, 'superseded');
 });
 
 async function insertFixtureRows(db: PgliteDatabase): Promise<void> {

@@ -19,6 +19,7 @@ export interface CertificatesRepository {
   deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): Promise<CertificateAssetEntity>;
   listVersionsByAsset(certificateAssetId: string): Promise<CertificateVersionEntity[]>;
   updateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity>;
+  promoteVersionAtomic(certificateVersionId: string): Promise<CertificateVersionEntity>;
   deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity>;
   listFormatsByVersion(certificateVersionId: string): Promise<CertificateVersionFormatEntity[]>;
   listAssets(query: PageQuery): Promise<PageResponse<CertificateAssetEntity>>;
@@ -154,15 +155,16 @@ export class PgCertificatesRepository implements CertificatesRepository {
               chain_diagnostics = $19::jsonb,
               chain_status = $20,
               deployable = $21,
-              source_type = $22,
-              status = $23,
-              created_by = $24,
-              created_at = $25::timestamptz,
-              issuing_ca_id = $26,
-              certificate_request_id = $27,
-              certificate_profile_version_id = $28,
-              key_reference_id = $29,
-              key_custody_mode = $30
+              activation_state = $22,
+              source_type = $23,
+              status = $24,
+              created_by = $25,
+              created_at = $26::timestamptz,
+              issuing_ca_id = $27,
+              certificate_request_id = $28,
+              certificate_profile_version_id = $29,
+              key_reference_id = $30,
+              key_custody_mode = $31
         where id = $1`,
       [
         id,
@@ -186,6 +188,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         JSON.stringify(next.chainDiagnostics ?? []),
         next.chainStatus,
         next.deployable,
+        next.activationState ?? 'promoted',
         next.sourceType,
         next.status,
         next.createdBy,
@@ -198,6 +201,35 @@ export class PgCertificatesRepository implements CertificatesRepository {
       ],
     );
     return next;
+  }
+
+  async promoteVersionAtomic(certificateVersionId: string): Promise<CertificateVersionEntity> {
+    return this.db.transaction(async (tx) => {
+      const repository = new PgCertificatesRepository(tx);
+      const version = await repository.getVersion(certificateVersionId);
+      if (!version) throw new Error(`certificate version not found: ${certificateVersionId}`);
+      const asset = await repository.getAsset(version.certificateAssetId);
+      if (!asset) throw new Error(`certificate asset not found: ${version.certificateAssetId}`);
+      const currentVersion = asset.currentVersionId && asset.currentVersionId !== version.id
+        ? await repository.getVersion(asset.currentVersionId)
+        : undefined;
+      const now = new Date().toISOString();
+      if (currentVersion) {
+        await repository.updateVersion(currentVersion.id, {
+          activationState: 'superseded',
+          updatedAt: now,
+        } as Partial<CertificateVersionEntity>);
+      }
+      const promoted = await repository.updateVersion(version.id, {
+        activationState: 'promoted',
+        updatedAt: now,
+      } as Partial<CertificateVersionEntity>);
+      await repository.updateAsset(asset.id, {
+        currentVersionId: promoted.id,
+        updatedAt: now,
+      });
+      return promoted;
+    });
   }
 
   async deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): Promise<CertificateVersionEntity> {
@@ -227,12 +259,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
          id, certificate_asset_id, version_no, common_name, sans, issuer, subject, serial_number,
          not_before, not_after, fingerprint_sha256, public_key_fingerprint_sha256, public_key_algorithm, signature_algorithm,
          leaf_storage_ref, private_key_secret_ref, chain_certificate_refs, chain_order, chain_diagnostics,
-         chain_status, deployable, source_type, status, created_by, created_at,
+         chain_status, deployable, activation_state, source_type, status, created_by, created_at,
          issuing_ca_id, certificate_request_id, certificate_profile_version_id, key_reference_id, key_custody_mode
        ) values (
          $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::timestamptz, $10::timestamptz,
-         $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24, $25::timestamptz,
-         $26, $27, $28, $29, $30
+         $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19::jsonb, $20, $21, $22, $23, $24, $25, $26::timestamptz,
+         $27, $28, $29, $30, $31
        )`,
       [
         entity.id,
@@ -256,6 +288,7 @@ export class PgCertificatesRepository implements CertificatesRepository {
         JSON.stringify(entity.chainDiagnostics ?? []),
         entity.chainStatus,
         entity.deployable,
+        entity.activationState ?? 'promoted',
         entity.sourceType,
         entity.status,
         entity.createdBy,
@@ -460,6 +493,7 @@ type CertificateVersionRow = {
   chain_diagnostics: unknown;
   chain_status: CertificateVersionEntity['chainStatus'];
   deployable: boolean;
+  activation_state?: CertificateVersionEntity['activationState'] | null;
   source_type: CertificateVersionEntity['sourceType'];
   status: CertificateVersionEntity['status'];
   created_by: string;
@@ -526,6 +560,7 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
     chainDiagnostics: asStringArray(row.chain_diagnostics),
     chainStatus: row.chain_status,
     deployable: row.deployable,
+    activationState: row.activation_state ?? 'promoted',
     sourceType: row.source_type,
     status: row.status,
     createdBy: row.created_by,

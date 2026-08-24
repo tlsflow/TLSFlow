@@ -3,10 +3,12 @@
 import { devicesEnUS } from './devices.locale'
 import { caOperationsEnUS } from './ca-operations.locale'
 import { credentialsEnUS } from './credentials.locale'
+import { acmeEnUS } from './acme.locale'
 export default {
   credentials: credentialsEnUS,
   devices: devicesEnUS,
   caOperations: caOperationsEnUS,
+  acme: acmeEnUS,
   app: {
     brand: 'GCAC Console',
     platform: 'Enterprise SSL Certificate Lifecycle Platform',

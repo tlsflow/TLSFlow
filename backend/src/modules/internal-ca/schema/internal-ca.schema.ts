@@ -342,6 +342,7 @@ export interface CertificateRequestEntity {
   requestedBy: string;
   approvedBy?: string;
   approvalId?: string;
+  deferIssuance?: boolean;
   providerRequestId?: string;
   certificateVersionId?: string;
   failureCode?: string;

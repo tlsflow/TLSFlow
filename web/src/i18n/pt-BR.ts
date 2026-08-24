@@ -4,10 +4,12 @@ import { internalCaEnglish } from './internal-ca.locale'
 import { devicesPtBR } from './devices.locale'
 import { caOperationsPtBR } from './ca-operations.locale'
 import { credentialsPtBR } from './credentials.locale'
+import { acmePtBR } from './acme.locale'
 export default {
   credentials: credentialsPtBR,
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
+  acme: acmePtBR,
   app: {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',

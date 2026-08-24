@@ -13,6 +13,8 @@ import type { ReportExportService } from './modules/reports/application/report-e
 import type { AutomationScheduler } from './modules/automations/application/automation-scheduler.js';
 import type { CaSyncWorker } from './modules/internal-ca/application/ca-sync-worker.js';
 import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
+import type { AcmeRenewalScheduler } from './modules/internal-ca/application/acme-renewal-scheduler.js';
+import type { AcmeRenewalWorker } from './modules/internal-ca/application/acme-renewal-worker.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -245,6 +247,50 @@ async function start(): Promise<void> {
     };
     tick();
     setInterval(tick, schedulerIntervalMs);
+  }
+
+  const acmeRenewalScheduler = app.getResource<AcmeRenewalScheduler>('acmeRenewalScheduler');
+  if (acmeRenewalScheduler) {
+    const schedulerIntervalMs = positiveNumber(process.env.ACME_RENEWAL_SCHEDULER_INTERVAL_MS, 60_000);
+    const maxJobsPerTick = positiveNumber(process.env.ACME_RENEWAL_SCHEDULER_MAX_JOBS_PER_TICK, 50);
+    let schedulingAcmeRenewals = false;
+    const tick = () => {
+      if (schedulingAcmeRenewals) return;
+      schedulingAcmeRenewals = true;
+      void acmeRenewalScheduler.runOnce(maxJobsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('ACME renewal scheduler failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'acme-renewal-scheduler' });
+        })
+        .finally(() => {
+          schedulingAcmeRenewals = false;
+        });
+    };
+    tick();
+    setInterval(tick, schedulerIntervalMs);
+  }
+
+  const acmeRenewalWorker = app.getResource<AcmeRenewalWorker>('acmeRenewalWorker');
+  if (acmeRenewalWorker) {
+    const workerIntervalMs = positiveNumber(process.env.ACME_RENEWAL_WORKER_INTERVAL_MS, 5_000);
+    const maxJobsPerTick = positiveNumber(process.env.ACME_RENEWAL_WORKER_MAX_JOBS_PER_TICK, 10);
+    let runningAcmeRenewals = false;
+    const tick = () => {
+      if (runningAcmeRenewals) return;
+      runningAcmeRenewals = true;
+      void acmeRenewalWorker.runOnce(maxJobsPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('ACME renewal worker failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'acme-renewal-worker' });
+        })
+        .finally(() => {
+          runningAcmeRenewals = false;
+        });
+    };
+    tick();
+    setInterval(tick, workerIntervalMs);
   }
 
   const server = app.createNodeServer();

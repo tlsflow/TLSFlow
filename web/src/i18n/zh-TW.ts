@@ -3,10 +3,12 @@
 import { devicesZhTW } from './devices.locale'
 import { caOperationsZhTW } from './ca-operations.locale'
 import { credentialsZhTW } from './credentials.locale'
+import { acmeZhTW } from './acme.locale'
 export default {
   credentials: credentialsZhTW,
   devices: devicesZhTW,
   caOperations: caOperationsZhTW,
+  acme: acmeZhTW,
   app: {
     brand: "GCAC 控制台",
     platform: "企業 SSL 憑證生命週期管理平台",

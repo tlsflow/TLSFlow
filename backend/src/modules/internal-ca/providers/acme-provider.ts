@@ -1,5 +1,6 @@
 import {
   createHmac,
+  createHash,
   createPrivateKey,
   createPublicKey,
   createSign,
@@ -56,6 +57,13 @@ export interface GetAcmeAuthorizationCommand {
   actorId: string;
 }
 
+export interface GetAcmeOrderCommand {
+  provider: CaProviderEntity;
+  account: AcmeAccountEntity;
+  orderUrl: string;
+  actorId: string;
+}
+
 export interface RespondToAcmeChallengeCommand {
   provider: CaProviderEntity;
   account: AcmeAccountEntity;
@@ -104,6 +112,11 @@ export interface AcmeCertificateMaterial {
   certificatePem: string;
   certificateChainPem: string;
   certificateUrl: string;
+}
+
+export interface AcmeKeyAuthorization {
+  keyAuthorization: string;
+  thumbprint: string;
 }
 
 export class AcmeProviderAdapter implements CaProviderAdapter {
@@ -240,6 +253,18 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     return this.orderSnapshot(result.response, result.body);
   }
 
+  async getOrder(command: GetAcmeOrderCommand): Promise<AcmeOrderSnapshot> {
+    const result = await this.signedRequest({
+      provider: command.provider,
+      secretRef: command.account.accountKeySecretRef,
+      kid: command.account.accountUrl,
+      url: command.orderUrl,
+      payload: null,
+      actorId: command.actorId,
+    });
+    return this.orderSnapshot(result.response, result.body);
+  }
+
   async getAuthorization(command: GetAcmeAuthorizationCommand): Promise<AcmeAuthorizationSnapshot> {
     const result = await this.signedRequest({
       provider: command.provider,
@@ -325,6 +350,21 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
       certificateChainPem: certificatePem,
       certificateUrl: command.certificateUrl,
     };
+  }
+
+  async buildKeyAuthorization(input: {
+    account: AcmeAccountEntity;
+    token: string;
+    actorId: string;
+  }): Promise<AcmeKeyAuthorization> {
+    const key = await this.resolvePrivateKey(input.account.accountKeySecretRef, input.actorId);
+    const jwk = publicJwk(key);
+    const thumbprint = encodeBase64Url(createHash('sha256').update(JSON.stringify({
+      e: jwk.e,
+      kty: jwk.kty,
+      n: jwk.n,
+    })).digest());
+    return { thumbprint, keyAuthorization: `${input.token}.${thumbprint}` };
   }
 
   async signCsr(_command: SignCsrCommand): Promise<CaIssuanceResult> {
