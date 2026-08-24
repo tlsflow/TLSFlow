@@ -1,0 +1,53 @@
+{
+  "apiVersion": "gcac.execution-recipe/v1",
+  "recipeId": "certificate.deploy.windows-compatibility-iis",
+  "version": "1.0",
+  "actionType": "certificate.deploy",
+  "operationSchemaVersion": "1.0",
+  "requires": {
+    "id": "windows-compatibility-iis.match",
+    "ownerType": "provider_action",
+    "ownerId": "windows-compatibility-iis",
+    "requiredAll": [
+      {
+        "capabilityKey": "agent.full.online",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要 Full Agent 在线",
+        "riskIfMissing": "无法执行自动部署"
+      },
+      {
+        "capabilityKey": "runtime.windows.compatibility_agent",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要兼容版 Windows Runtime 能力",
+        "riskIfMissing": "不能使用旧版 Windows 受控执行能力"
+      },
+      {
+        "capabilityKey": "iis.binding.update",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要更新 IIS HTTPS Binding",
+        "riskIfMissing": "无法完成 IIS 证书替换"
+      }
+    ],
+    "optional": [],
+    "anyOfGroups": [],
+    "forbidden": [],
+    "minConfidence": 80,
+    "allowManual": false,
+    "riskLevel": "critical"
+  },
+  "composition": {
+    "product": "product.iis-apphost",
+    "certificate_store": "certificate-store.windows",
+    "artifact_codec": "artifact-codec.pkcs12",
+    "service_controller": "service-controller.windows-scm",
+    "transport": "transport.agent-local",
+    "verifier": "verifier.tls-remote",
+    "rollback": "rollback.windows-iis"
+  },
+  "rollbackRequired": true,
+  "verificationRequired": true,
+  "conflictsWith": []
+}

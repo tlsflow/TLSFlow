@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.compatibility/v2",
+  "profileId": "linux-openrc-nginx",
+  "version": "1.0",
+  "baselineRef": "linux-go-full-agent@1.0",
+  "recipeRefs": [
+    "certificate.deploy.linux-openrc-nginx@1.0"
+  ],
+  "certificationRefs": [
+    "migration.linux-openrc-nginx.1.0"
+  ],
+  "declaredStatus": "experimental",
+  "automation": "full",
+  "limitations": [
+    "仅有 OpenRC fixture 和合同测试，缺少真实 OpenRC 服务认证",
+    "不得从代表环境推导为所有 Alpine 或其他发行版版本均支持"
+  ],
+  "publishedAt": "2026-07-21T00:00:00.000Z"
+}

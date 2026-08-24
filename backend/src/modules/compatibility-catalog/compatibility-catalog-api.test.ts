@@ -23,6 +23,9 @@ test('兼容性 API 与 Profile 矩阵使用同一来源', () => {
   assert.equal(linuxNginx?.evidenceStatus, 'current');
   assert.equal(windowsCompatibility?.effectiveStatus, 'experimental');
   assert.equal(windowsCompatibility?.evidenceStatus, 'current');
+  assert.equal(linuxNginx?.baselineRef, 'linux-go-full-agent@1.0');
+  assert.deepEqual(linuxNginx?.recipeRefs, ['certificate.deploy.linux-systemd-nginx@1.0']);
+  assert.deepEqual(linuxNginx?.certificationRefs, ['migration.linux-systemd-nginx.1.0']);
 });
 
 test('证据过期后自动降级并返回稳定原因码', () => {

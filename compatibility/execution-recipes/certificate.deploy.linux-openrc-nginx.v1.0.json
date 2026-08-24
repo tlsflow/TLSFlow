@@ -1,0 +1,60 @@
+{
+  "apiVersion": "gcac.execution-recipe/v1",
+  "recipeId": "certificate.deploy.linux-openrc-nginx",
+  "version": "1.0",
+  "actionType": "certificate.deploy",
+  "operationSchemaVersion": "1.0",
+  "requires": {
+    "id": "linux-openrc-nginx.match",
+    "ownerType": "provider_action",
+    "ownerId": "linux-openrc-nginx",
+    "requiredAll": [
+      {
+        "capabilityKey": "agent.full.online",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要 Linux Full Agent 在线",
+        "riskIfMissing": "无法执行本机部署"
+      },
+      {
+        "capabilityKey": "linux.openrc.v1",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要唯一有效的 OpenRC 服务控制能力",
+        "riskIfMissing": "无法安全重载服务"
+      },
+      {
+        "capabilityKey": "linux.filesystem.posix-atomic.v1",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要 POSIX 原子文件替换",
+        "riskIfMissing": "证书替换可能留下不完整文件"
+      },
+      {
+        "capabilityKey": "nginx.cert.install",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要 Nginx 证书安装能力",
+        "riskIfMissing": "无法完成证书部署"
+      }
+    ],
+    "optional": [],
+    "anyOfGroups": [],
+    "forbidden": [],
+    "minConfidence": 80,
+    "allowManual": false,
+    "riskLevel": "critical"
+  },
+  "composition": {
+    "product": "product.nginx",
+    "certificate_store": "certificate-store.posix-filesystem",
+    "artifact_codec": "artifact-codec.pem",
+    "service_controller": "service-controller.openrc",
+    "transport": "transport.agent-local",
+    "verifier": "verifier.tls-remote",
+    "rollback": "rollback.posix-certificate-files"
+  },
+  "rollbackRequired": true,
+  "verificationRequired": true,
+  "conflictsWith": []
+}

@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.compatibility/v2",
+  "profileId": "linux-systemd-tomcat-pem",
+  "version": "1.0",
+  "baselineRef": "linux-go-full-agent@1.0",
+  "recipeRefs": [
+    "certificate.deploy.linux-systemd-tomcat-pem@1.0"
+  ],
+  "certificationRefs": [
+    "migration.linux-systemd-tomcat-pem.1.0"
+  ],
+  "declaredStatus": "experimental",
+  "automation": "full",
+  "limitations": [
+    "仅覆盖明确的 PEM Connector 输入，不宣称支持所有 Tomcat/JDK 历史组合",
+    "真实 Tomcat/JDK 环境认证完成前不得提升为 certified"
+  ],
+  "publishedAt": "2026-07-21T00:00:00.000Z"
+}

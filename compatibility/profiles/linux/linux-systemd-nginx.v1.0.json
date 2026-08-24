@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.compatibility/v2",
+  "profileId": "linux-systemd-nginx",
+  "version": "1.0",
+  "baselineRef": "linux-go-full-agent@1.0",
+  "recipeRefs": [
+    "certificate.deploy.linux-systemd-nginx@1.0"
+  ],
+  "certificationRefs": [
+    "migration.linux-systemd-nginx.1.0"
+  ],
+  "declaredStatus": "experimental",
+  "automation": "full",
+  "limitations": [
+    "仅由合同测试、fixture 和本地失败注入验证，真实 Linux VM 认证完成前不得提升为 certified",
+    "发行版名称只描述认证环境，不参与运行时分派"
+  ],
+  "publishedAt": "2026-07-21T00:00:00.000Z"
+}

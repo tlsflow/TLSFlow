@@ -1,0 +1,59 @@
+{
+  "apiVersion": "gcac.certification-record/v1",
+  "recordId": "migration.linux-systemd-tomcat-pkcs12.1.0",
+  "baselineRef": "linux-go-full-agent@1.0",
+  "recipeRef": "certificate.deploy.linux-systemd-tomcat-pkcs12@1.0",
+  "environment": {
+    "osName": "Linux",
+    "osVersion": "profile-fact-not-recorded",
+    "kernelOrBuild": "profile-fact-not-recorded",
+    "architecture": "amd64",
+    "serviceModel": "systemd",
+    "privilegeMode": "profile-fact-not-recorded",
+    "securityModule": "profile-fact-not-recorded",
+    "securityMode": "profile-fact-not-recorded",
+    "productName": "product.tomcat",
+    "productVersion": "profile-fact-not-recorded",
+    "certificateFormat": "artifact-codec.pkcs12",
+    "transport": "transport.agent-local"
+  },
+  "agentArtifact": {
+    "productLine": "linux-go-full-agent",
+    "version": "0.0.0",
+    "revision": "migration-v1-profile",
+    "sha256": "f946a790faba3261883ecffbdeff400cf5c56671d0a5e098381928a9b0937d51",
+    "signatureVerified": false,
+    "vcsModified": true
+  },
+  "resolvedComposition": {
+    "product": "product.tomcat",
+    "certificate_store": "certificate-store.posix-filesystem",
+    "artifact_codec": "artifact-codec.pkcs12",
+    "service_controller": "service-controller.systemd",
+    "transport": "transport.agent-local",
+    "verifier": "verifier.tls-remote",
+    "rollback": "rollback.java-keystore"
+  },
+  "testSuite": "compatibility-profile-v1-migration",
+  "results": [
+    {
+      "testId": "linux.tomcat.pkcs12.local-contract",
+      "category": "contract",
+      "status": "passed",
+      "reference": "agents/linux-go-full-agent/internal/handlers/productruntime/runtime_test.go"
+    },
+    {
+      "testId": "linux.systemd.selinux.arm64.fixture",
+      "category": "contract",
+      "status": "passed",
+      "reference": "compatibility/fixtures/linux/systemd-selinux-arm64.json"
+    }
+  ],
+  "status": "passed",
+  "observedAt": "2026-07-21T00:00:00.000Z",
+  "expiresAt": "2026-10-21T00:00:00.000Z",
+  "evidenceReferences": [
+    "agents/linux-go-full-agent/internal/handlers/productruntime/runtime_test.go",
+    "compatibility/fixtures/linux/systemd-selinux-arm64.json"
+  ]
+}

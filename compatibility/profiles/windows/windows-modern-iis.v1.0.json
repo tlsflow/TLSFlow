@@ -1,0 +1,18 @@
+{
+  "apiVersion": "gcac.compatibility/v2",
+  "profileId": "windows-modern-iis",
+  "version": "1.0",
+  "baselineRef": "windows-modern-agent@1.0",
+  "recipeRefs": [
+    "certificate.deploy.windows-modern-iis@1.0"
+  ],
+  "certificationRefs": [
+    "migration.windows-modern-iis.1.0"
+  ],
+  "declaredStatus": "experimental",
+  "automation": "full",
+  "limitations": [
+    "当前仅作为目录解析和合同测试样例，真实环境认证完成前不得提升支持等级"
+  ],
+  "publishedAt": "2026-07-21T00:00:00.000Z"
+}

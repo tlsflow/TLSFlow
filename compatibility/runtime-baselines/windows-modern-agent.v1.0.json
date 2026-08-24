@@ -1,0 +1,31 @@
+{
+  "apiVersion": "gcac.runtime-baseline/v1",
+  "baselineId": "windows-modern-agent",
+  "version": "1.0",
+  "agentProductLine": "windows-modern-agent",
+  "osFamily": "windows",
+  "architectures": [
+    "amd64"
+  ],
+  "runtimeRequirements": [
+    {
+      "name": "windows-server",
+      "operator": "at_least",
+      "value": "2016"
+    }
+  ],
+  "securityRequirements": [
+    "tls-1.2-or-newer",
+    "signed-agent-artifact"
+  ],
+  "installationCapabilities": [
+    "windows-service-install",
+    "windows-service-upgrade",
+    "windows-service-rollback"
+  ],
+  "unsupportedBoundaries": [
+    "windows-server-2003",
+    "windows-server-2003-r2",
+    "windows-server-2008-non-r2"
+  ]
+}
