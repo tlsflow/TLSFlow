@@ -1,45 +1,30 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { CloudAccountAsset, ProviderCapabilityPlugin, ProviderDefinition, ProviderOperationResult, ProviderTargetRef } from '../dto/providers.dto.js';
-import { TrustedJsPluginExecutionService } from '../../plugins/runtime/trusted-js-plugin-execution.service.js';
 
+/**
+ * Provider 目录旁路已清退。
+ * 云账号资产仍保留不透明 providerKey，但宿主不再据此选择厂商实现或产品能力。
+ */
 export class ProviderCatalogApplicationService {
-  constructor(private readonly trustedJs: TrustedJsPluginExecutionService) {}
+  // app.module.ts 仍会传入旧装配参数；保留参数位只为避免扩大本次清退范围。
+  constructor(_legacyCatalog?: unknown) {}
 
-  async listProviders(tenantId = 'SYSTEM'): Promise<ProviderDefinition[]> {
-    return this.trustedJs.listProviders(tenantId);
+  async listProviders(_tenantId = 'SYSTEM'): Promise<never[]> {
+    throw providerCatalogDisabled();
   }
 
-  async listCapabilities(
-    tenantId = 'SYSTEM',
-    filter: { providerKey?: string; frameworkType?: string; operationKey?: string } = {},
-  ): Promise<ProviderCapabilityPlugin[]> {
-    return this.trustedJs.listCapabilities(tenantId, filter);
+  async requireProvider(_tenantId: string, _providerKey: string): Promise<never> {
+    throw providerCatalogDisabled();
   }
 
-  async requireDefinition(providerKey: string): Promise<ProviderDefinition> {
-    return this.trustedJs.requireProvider('SYSTEM', providerKey);
+  async listCapabilities(_tenantId = 'SYSTEM', _filter?: unknown): Promise<never[]> {
+    throw providerCatalogDisabled();
   }
 
-  async testConnection(asset: CloudAccountAsset, requestId?: string) {
-    return this.trustedJs.testConnection(asset, requestId);
+  async requireDefinition(_providerKey: string): Promise<never> {
+    throw providerCatalogDisabled();
   }
+}
 
-  async discover(asset: CloudAccountAsset, frameworkTypes?: string[], requestId?: string) {
-    return this.trustedJs.discover(asset, frameworkTypes, requestId);
-  }
-
-  async execute(input: {
-    tenantId: string;
-    asset: CloudAccountAsset;
-    frameworkType: string;
-    operationKey: string;
-    target: ProviderTargetRef;
-    requestId?: string;
-    input?: Record<string, unknown>;
-  }): Promise<ProviderOperationResult> {
-    if (input.asset.tenantId !== input.tenantId) {
-      throw new AppError('TENANT_SCOPE_DENIED', 'Provider Asset 不属于当前租户', { assetId: input.asset.id });
-    }
-    return this.trustedJs.execute(input);
-  }
+function providerCatalogDisabled(): AppError {
+  return new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '宿主 Provider 目录已清退，必须提交固定 PluginVersion 并经 Runner 执行');
 }

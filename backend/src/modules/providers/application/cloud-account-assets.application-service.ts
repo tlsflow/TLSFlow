@@ -4,7 +4,6 @@ import type {
   CloudAccountAsset,
   CreateCloudAccountAssetInput,
   UpdateCloudAccountAssetInput,
-  ProviderDefinition,
 } from '../dto/providers.dto.js';
 import { stableScopeHash } from '../domain/provider-shared.js';
 import type { DatabasePort } from '../../../database/database-port.js';
@@ -12,14 +11,16 @@ import type { DatabasePort } from '../../../database/database-port.js';
 export class CloudAccountAssetsApplicationService {
   constructor(
     private readonly db: DatabasePort,
-    private readonly providers: { requireDefinition(providerKey: string): ProviderDefinition | Promise<ProviderDefinition> },
+    // ProviderKey 只是 Cloud Service 的不透明引用，厂商目录由插件/Runner 负责。
+    // 保留第二参数是为了兼容现有应用装配，宿主资产 CRUD 不再调用它做产品路由。
+    private readonly _providerCatalog?: unknown,
   ) {}
 
   async create(tenantId: string, input: CreateCloudAccountAssetInput): Promise<CloudAccountAsset> {
-    await this.providers.requireDefinition(input.providerKey);
+    const providerKey = normalizeRequiredString(input.providerKey, 'providerKey');
     validateCredentialRef(input.credentialRef);
     const scope = input.scope ?? {};
-    const identity = `${input.providerKey}:${input.accountId ?? ''}:${stableScopeHash(scope)}`;
+    const identity = `${providerKey}:${input.accountId ?? ''}:${stableScopeHash(scope)}`;
     const duplicate = await this.db.query<{ id: string }>(
       `select id from pg_cloud_account_assets
        where tenant_id=$1 and identity_key=$2 and deleted_at is null limit 1`,
@@ -31,7 +32,7 @@ export class CloudAccountAssetsApplicationService {
       id: newId('caa'),
       tenantId,
       assetKind: 'cloud.account',
-      providerKey: input.providerKey,
+      providerKey,
       displayName: input.displayName.trim(),
       accountId: input.accountId?.trim() || undefined,
       credentialRef: input.credentialRef.trim(),
@@ -164,4 +165,10 @@ function validateCredentialRef(value: string): void {
   if (!value.trim().startsWith('credential://')) {
     throw new AppError('VALIDATION_FAILED', '云账号凭据必须使用 CredentialRef', { field: 'credentialRef' });
   }
+}
+
+function normalizeRequiredString(value: unknown, field: string): string {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
+  return normalized;
 }
