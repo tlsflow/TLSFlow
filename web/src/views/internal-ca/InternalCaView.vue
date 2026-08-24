@@ -54,7 +54,9 @@ const tabs = computed(() => [
 ])
 
 const selectedProvider = computed(() => providers.value.find((item) => text(item.id) === authorityDraft.providerId))
-const adcsProviders = computed(() => providers.value.filter((item) => text(item.type) === 'microsoft_adcs'))
+const adcsProviders = computed(() => providers.value.filter((item) => text(item.type) === 'microsoft_adcs' && nodes.value.some((node) => text(node.providerId) === text(item.id))))
+const selectedAdcsNode = computed(() => nodes.value.find((node) => text(node.providerId) === text(selectedProvider.value?.id)))
+const selectedAdcsDiscovery = computed(() => asRecord(asRecord(selectedProvider.value?.configuration).discovered))
 const rootAuthorities = computed(() => authorities.value.filter((item) => text(item.role) === 'root' || !text(item.parentCaId)))
 const selectedRoot = computed(() => rootAuthorities.value.find((item) => text(item.id) === selectedRootId.value) ?? rootAuthorities.value[0])
 const selectedIntermediates = computed(() => authorities.value.filter((item) => text(item.parentCaId) === text(selectedRoot.value?.id)))
@@ -328,6 +330,16 @@ async function prepareProvider() {
       providerPrepared.value = Boolean(authorityDraft.providerId)
       return
     }
+    if (authorityCreationMode.value === 'external' && providerDraft.type === 'microsoft_adcs') {
+      const node = selectedAdcsNode.value
+      if (!authorityDraft.providerId || !selectedProvider.value || text(selectedProvider.value.type) !== 'microsoft_adcs' || text(node?.healthStatus) !== 'online') {
+        error.value = t('internalCa.messages.actionFailed')
+        return
+      }
+      providerDraft.id = authorityDraft.providerId
+      providerPrepared.value = true
+      return
+    }
     if (!providerDraft.id) {
       if (!providerDraft.name.trim()) providerDraft.name = authorityCreationMode.value === 'managed_node' ? t('internalCa.wizard.managedProviderName') : t('internalCa.wizard.externalProviderName')
       const provider = await internalCaApi.createProvider({
@@ -425,6 +437,7 @@ function text(value: unknown, fallback = ''): string { return typeof value === '
 function number(value: unknown): number { return Number(value ?? 0) }
 function splitList(value: string): string[] { return value.split(',').map((item) => item.trim()).filter(Boolean) }
 function asRecords(value: unknown): InternalCaRecord[] { return Array.isArray(value) ? value as InternalCaRecord[] : [] }
+function asRecord(value: unknown): InternalCaRecord { return value && typeof value === 'object' && !Array.isArray(value) ? value as InternalCaRecord : {} }
 function localTime(value: unknown): string { return formatBrowserLocalTime(value) || t('internalCa.common.unknown') }
 function trustDomainName(value: unknown): string { return text(trustDomains.value.find((item) => text(item.id) === text(value))?.name, t('internalCa.common.unknown')) }
 </script>
@@ -539,19 +552,32 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.backendEyebrow') }}</span><h3>{{ t(`internalCa.wizard.${authorityCreationMode}BackendTitle`) }}</h3><p>{{ t(`internalCa.wizard.${authorityCreationMode}BackendDescription`) }}</p></header>
           <article v-if="authorityCreationMode === 'builtin'" class="ca-wizard__notice ca-wizard__full"><strong>{{ t('internalCa.wizard.builtinAutomaticTitle') }}</strong><p>{{ t('internalCa.wizard.builtinAutomaticDescription') }}</p></article>
           <template v-else>
-            <label>{{ t('internalCa.fields.backendName') }}<input v-model="providerDraft.name" required /></label>
             <template v-if="authorityCreationMode === 'managed_node'">
+              <label>{{ t('internalCa.fields.backendName') }}<input v-model="providerDraft.name" required /></label>
               <label>{{ t('internalCa.fields.platform') }}<select v-model="providerDraft.runtimePlatform" required><option value="windows">Windows</option><option value="linux">Linux</option></select></label>
               <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="providerDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
             </template>
             <template v-else>
-              <label>{{ t('internalCa.fields.providerType') }}<select v-model="providerDraft.type" required><option value="microsoft_adcs">{{ t('internalCa.providerTypes.microsoft_adcs') }}</option><option value="acme">{{ t('internalCa.providerTypes.acme') }}</option><option value="est">{{ t('internalCa.providerTypes.est') }}</option><option value="scep">{{ t('internalCa.providerTypes.scep') }}</option><option value="product_adapter">{{ t('internalCa.providerTypes.product_adapter') }}</option></select></label>
-              <label class="ca-wizard__full">{{ t('internalCa.fields.endpoint') }}<input v-model="providerDraft.endpoint" type="url" required /></label>
-              <label>{{ t('internalCa.fields.authMode') }}<select v-model="providerDraft.authMode"><option value="managed_secret">{{ t('internalCa.authModes.managedSecret') }}</option><option value="client_certificate">{{ t('internalCa.authModes.clientCertificate') }}</option><option value="none">{{ t('internalCa.authModes.none') }}</option></select></label>
-              <label>{{ t('internalCa.fields.profile') }}<input v-model="providerDraft.profile" /></label>
-              <label>{{ t('internalCa.fields.template') }}<input v-model="providerDraft.template" /></label>
-              <label>{{ t('internalCa.fields.crlUrl') }}<input v-model="providerDraft.crlUrl" type="url" /></label>
-              <label>{{ t('internalCa.fields.ocspUrl') }}<input v-model="providerDraft.ocspUrl" type="url" /></label>
+              <label class="ca-wizard__full">{{ t('internalCa.fields.providerType') }}<select v-model="providerDraft.type" required><option value="microsoft_adcs">{{ t('internalCa.providerTypes.microsoft_adcs') }}</option><option value="acme">{{ t('internalCa.providerTypes.acme') }}</option><option value="est">{{ t('internalCa.providerTypes.est') }}</option><option value="scep">{{ t('internalCa.providerTypes.scep') }}</option><option value="product_adapter">{{ t('internalCa.providerTypes.product_adapter') }}</option></select></label>
+              <template v-if="providerDraft.type === 'microsoft_adcs'">
+                <label class="ca-wizard__full">{{ t('internalCa.fields.provider') }}<select v-model="authorityDraft.providerId" required @change="providerDraft.id = authorityDraft.providerId"><option value="" disabled>{{ t('internalCa.adcsAgent.description') }}</option><option v-for="provider in adcsProviders" :key="text(provider.id)" :value="text(provider.id)">{{ text(provider.name) }}</option></select></label>
+                <article class="ca-wizard__notice ca-wizard__full" v-if="selectedProvider">
+                  <strong>{{ text(selectedProvider.name) }}</strong>
+                  <p>{{ text(selectedAdcsDiscovery.caConfig, t('internalCa.common.unknown')) }} · {{ text(selectedAdcsDiscovery.caName, t('internalCa.common.unknown')) }}</p>
+                  <small>{{ text(selectedAdcsNode?.name, t('internalCa.common.unknown')) }} · {{ text(selectedAdcsNode?.version, t('internalCa.common.unknown')) }}</small>
+                  <small>{{ asRecords(selectedAdcsDiscovery.templates).join(', ') || t('internalCa.common.unknown') }}</small>
+                </article>
+                <p v-else class="ca-wizard__notice ca-wizard__full">{{ t('internalCa.adcsAgent.description') }}</p>
+              </template>
+              <template v-else>
+                <label>{{ t('internalCa.fields.backendName') }}<input v-model="providerDraft.name" required /></label>
+                <label class="ca-wizard__full">{{ t('internalCa.fields.endpoint') }}<input v-model="providerDraft.endpoint" type="url" required /></label>
+                <label>{{ t('internalCa.fields.authMode') }}<select v-model="providerDraft.authMode"><option value="managed_secret">{{ t('internalCa.authModes.managedSecret') }}</option><option value="client_certificate">{{ t('internalCa.authModes.clientCertificate') }}</option><option value="none">{{ t('internalCa.authModes.none') }}</option></select></label>
+                <label>{{ t('internalCa.fields.profile') }}<input v-model="providerDraft.profile" /></label>
+                <label>{{ t('internalCa.fields.template') }}<input v-model="providerDraft.template" /></label>
+                <label>{{ t('internalCa.fields.crlUrl') }}<input v-model="providerDraft.crlUrl" type="url" /></label>
+                <label>{{ t('internalCa.fields.ocspUrl') }}<input v-model="providerDraft.ocspUrl" type="url" /></label>
+              </template>
             </template>
           </template>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
