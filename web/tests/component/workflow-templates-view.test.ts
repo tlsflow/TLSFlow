@@ -7,6 +7,7 @@ import {
   applyWorkflowTemplateFromFile,
   createWorkflowTemplate,
   createWorkflowTemplateFromFile,
+  deleteWorkflowTemplate,
   listWorkflowFileTemplates,
   listWorkflowTemplates,
   listWorkflowTemplateVersions,
@@ -19,6 +20,7 @@ vi.mock('@/api/modules/workflow-templates.api', () => ({
   listWorkflowFileTemplates: vi.fn(),
   createWorkflowTemplate: vi.fn(),
   createWorkflowTemplateFromFile: vi.fn(),
+  deleteWorkflowTemplate: vi.fn(),
   applyWorkflowTemplateFromFile: vi.fn(),
   listWorkflowTemplateVersions: vi.fn(),
   createWorkflowTemplateVersion: vi.fn(),
@@ -90,6 +92,7 @@ describe('WorkflowTemplatesView', () => {
     })
     vi.mocked(createWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-blank-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(createWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'tpl-file-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
+    vi.mocked(deleteWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-1', status: 'disabled' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(createSecret).mockResolvedValue({
       data: { id: 'sec-ssh-1', secretRef: 'secret://password/sec-ssh-1#current' },
       requestId: 'req_ok',
@@ -155,6 +158,29 @@ describe('WorkflowTemplatesView', () => {
       templateId: 'tpl-1',
       fileTemplateId: 'apache/apache-8444-cert-switch.json',
     }))
+  })
+
+  it('支持二次确认后删除工作流记录并刷新列表', async () => {
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('删除')
+    await flushPromises()
+    const confirmInput = document.body.querySelector('.gc-confirm input') as HTMLInputElement | null
+    expect(confirmInput).toBeTruthy()
+    confirmInput!.value = 'DELETE'
+    confirmInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    const confirmButton = document.body.querySelector('.gc-confirm footer .gc-button--danger') as HTMLButtonElement | null
+    expect(confirmButton).toBeTruthy()
+    confirmButton!.click()
+    await flushPromises()
+
+    expect(deleteWorkflowTemplate).toHaveBeenCalledWith('tpl-1')
+    expect(listWorkflowTemplates).toHaveBeenCalledTimes(2)
   })
 
   it('支持创建通用用户名密码凭据并以紧凑布局展示', async () => {

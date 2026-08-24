@@ -285,6 +285,35 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
+  it('HTTP 删除接口会禁用模板和版本，并让列表不再返回该记录', async () => {
+    const app = new App();
+    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      body: { content: templateFixture(), changeSummary: '初始版本' },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdBody = created.body as { template: { id: string }; version: { id: string } };
+
+    const deleted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates/delete',
+      body: { id: createdBody.template.id },
+    });
+    assert.equal(deleted.statusCode, 200);
+    assert.equal((deleted.body as { status: string }).status, 'disabled');
+
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    assert.equal(templates.statusCode, 200);
+    assert.equal((templates.body as { items: Array<{ id: string }> }).items.some((item) => item.id === createdBody.template.id), false);
+
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    assert.equal(versions.statusCode, 200);
+    assert.equal((versions.body as { items: Array<{ status: string }> }).items.every((item) => item.status === 'disabled'), true);
+  });
+
   it('变量解析、凭据、证书材料占位和预览脱敏生效', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content: templateFixture() });
