@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -9,34 +9,185 @@ const repositoryRoot = resolve(scriptDirectory, '..', '..');
 const backendRequire = createRequire(join(repositoryRoot, 'backend/package.json'));
 const ts = backendRequire('typescript');
 const debtPath = join(scriptDirectory, 'plugin-architecture-debt.json');
-const scanRoots = ['backend/src', 'web/src', 'agents/windows-go-full-agent', 'agents/linux-go-full-agent', 'agents/windows-compat-full-agent'];
-const sourceExtensions = new Set(['.cs', '.go', '.js', '.mjs', '.ts', '.tsx', '.vue']);
+export const architectureScanRoots = Object.freeze([
+  'backend/src',
+  'web/src',
+  'backend/src/modules/plugins/builtin-plugins',
+  'backend/src/modules/workflow-templates/builtin-workflows',
+  'backend/src/modules/plugins/runner',
+  'backend/src/modules/licensing/resources',
+  'backend/src/modules/legacy-agents',
+  'compatibility',
+  'data/workflows',
+  'agents/linux-go-full-agent',
+  'agents/windows-go-full-agent',
+  'agents/windows-compat-full-agent',
+  'agents/go-ca-node',
+]);
+const scanRoots = architectureScanRoots;
+const mandatoryArchitectureScanRoots = Object.freeze(architectureScanRoots.filter((root) => root !== 'data/workflows'));
+const sourceExtensions = new Set(['.bat', '.bash', '.cmd', '.cs', '.fish', '.go', '.json', '.js', '.key', '.mjs', '.pem', '.ps1', '.psd1', '.psm1', '.sh', '.ts', '.tsx', '.vue', '.yaml', '.yml', '.zsh']);
+const typedSourceExtensions = new Set(['.js', '.mjs', '.ts', '.tsx', '.vue']);
 const ignoredPatterns = [
   /(?:^|\/)dist(?:\/|$)/,
   /(?:^|\/)node_modules(?:\/|$)/,
   /(?:^|\/)database\/migrations(?:\/|$)/,
   /(?:^|\/)generated(?:\/|$)/,
-  /(?:^|\/)i18n(?:\/|$)/,
-  /(?:^|\/)builtin-plugins(?:\/|$)/,
-  /(?:^|\/)builtin-workflows(?:\/|$)/,
-  /(?:^|\/)fixtures(?:\/|$)/,
   /(?:^|\/)tests(?:\/|$)/,
   /\.test\.[^.]+$/,
   /\.spec\.[^.]+$/,
   /_test\.go$/,
 ];
-const productTokens = new Set(['iis', 'nginx', 'apache', 'httpd', 'tomcat', 'citrix', 'netscaler', 'sangfor', 'synology', 'fortinet', 'paloalto']);
-const productImplementationPattern = /(?:IIS|Nginx|Apache|Httpd|Tomcat|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto).*(?:Driver|Executor|Tester|Projector|Provider|Adapter)$/i;
-const goProductActionPattern = /["'`](?:windows|linux)\.(?:iis|nginx|apache|httpd|tomcat|citrix|netscaler|sangfor|synology|fortinet|paloalto)\.deploy_certificate["'`]/i;
-const goProductActionHandlerPattern = /\b(?:windows|linux)?(?:IIS|Nginx|Apache|Httpd|Tomcat|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto)\w*ActionHandler\s*\(/i;
-const goProductRegistryPattern = /(?:AdapterID\s*:\s*(?:\w+\.)?Product(?:IIS|Nginx|Apache|Httpd|Tomcat|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto)|ResolveProduct\s*\()/i;
-const goProductCapabilityCatalogPattern = /\bCapability(?:IIS|Nginx|Apache|Httpd|Tomcat|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto)\w*\b/;
-const csharpProductHandlerPattern = /\b(?:Iis|Nginx|Apache|Httpd|Tomcat|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto)\w*(?:DeploymentHandler|Provider|Executor)\s*(?:\(|\{)/i;
+const productTokens = new Set([
+  'iis',
+  'nginx',
+  'apache',
+  'httpd',
+  'tomcat',
+  'rabbitmq',
+  'citrix',
+  'netscaler',
+  'sangfor',
+  'synology',
+  'fortinet',
+  'paloalto',
+  'aliyun',
+  'tencent',
+  'huawei',
+  'volcengine',
+  'openssl',
+  'acme',
+  'adcs',
+  'dns',
+  'keystore',
+]);
+const productImplementationPattern = /(?:IIS|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Acme|Adcs|JavaKeystore).*(?:Driver|Executor|Tester|Projector|Provider|Adapter|Handler)$/i;
+const goProductActionPattern = /["'`](?:windows|linux)\.(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|java-keystore)\.deploy_certificate["'`]/i;
+const goProductActionHandlerPattern = /\b(?:windows|linux)?(?:IIS|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Acme|Adcs|JavaKeystore)\w*ActionHandler\s*\(/i;
+const goProductRegistryPattern = /(?:AdapterID\s*:\s*(?:\w+\.)?Product(?:IIS|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Acme|Adcs|JavaKeystore)|ResolveProduct\s*\()/i;
+const goProductCapabilityCatalogPattern = /\bCapability(?:IIS|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Acme|Adcs|JavaKeystore)\w*\b/;
+const csharpProductHandlerPattern = /\b(?:Iis|Nginx|Apache|Httpd|Tomcat|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSsl|Acme|Adcs|JavaKeystore)\w*(?:DeploymentHandler|Provider|Executor|Handler)\s*(?:\(|\{|=)/i;
 const ownerDriverKinds = new Set(['AGENT_NATIVE', 'AGENT_PLUGIN', 'DEVICE_PLUGIN']);
 const legacyApiPattern = /^\/api\/v1\/(?:providers(?:\/discovery-runs)?|provider-discovery-results|provider-discovery-result|plugins\/(?:packages|permissions\/approve|enable|disable|execute|executions|step-draft|permission-summary|capabilities))$/;
+const canonicalPluginIds = new Set([
+  'web.nginx',
+  'web.apache',
+  'web.iis',
+  'app.tomcat',
+  'app.java-keystore',
+  'app.rabbitmq',
+  'app.service-certificate-file',
+  'device.citrix.netscaler-adc',
+  'device.synology-dsm',
+  'cloud.aliyun',
+  'cloud.tencent',
+  'cloud.huawei',
+  'cloud.volcengine',
+  'ca.openssl',
+  'ca.acme',
+  'ca.microsoft-adcs',
+  'ca.acme-dns',
+]);
+const fixturePluginIdPattern = /^(?:fixture|test)\.[a-z0-9-]+(?:\.[a-z0-9-]+)*$/;
+const productIdentifierPattern = /(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|synology|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)/i;
+const builtinPluginsPathPattern = /(?:^|\/)builtin-plugins(?:\/|$)/;
+const pluginPackagePathPattern = /(?:^|\/)builtin-plugins\/[^/]+\//;
+const pluginModuleSpecifierPattern = /(?:^|\/)builtin-plugins\/(?!builtin-unified-plugin-loader(?:[./]|$))[^/]+(?:\/|$)/i;
+const builtinWorkflowPathPattern = /(?:^|\/)builtin-workflows(?:\/|$)/;
+const pluginWorkflowPathPattern = /(?:^|\/)builtin-plugins\/[^/]+\/workflows(?:\/|$)/;
+const userWorkflowPathPattern = /(?:^|\/)data\/workflows(?:\/|$)/;
+const workflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${pluginWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
+const hostWorkflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
+const agentPathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|windows-compat-full-agent|go-ca-node)(?:\/|$)/;
+const caNodePathPattern = /^agents\/go-ca-node(?:\/|$)/;
+const compatibilityContractPathPattern = /(?:^|\/)(?:compatibility|legacy-agents)(?:\/|$)/;
+const testPathPattern = /(?:^|\/)(?:tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$|_test\.go$/;
+const architectureFixturePathPattern = /(?:^|\/)scripts\/architecture\/fixtures(?:\/|$)/;
+// 安全合同 JSON 是测试输入，不是运行时信任根；只匹配已登记的两份合同 Fixture，避免放行任意生产文件。
+const securityContractFixturePathPattern = /(?:^|\/)backend\/src\/modules\/agents\/security\/fixtures\/agent-security\.(?:valid|invalid)\.json$/;
+const migrationPathPattern = /(?:^|\/)database\/migrations(?:\/|$)/;
+const translationResourcePathPattern = /(?:^|\/)i18n(?:\/|$)/;
+const defaultDevelopmentLicenseKeyPattern = /\b(?:builtin[-_]dev|gcac[-_]development)(?:[-_][A-Za-z0-9_-]+)?|\b(?:default|development|test|example|sample|placeholder)(?:[-_ ]?(?:dev|development|default|license|certificate|signing|issuer|policy|trust|private|public|secret|token|password|agent|authority|auth|api|encryption|storage|root))?[-_ ]+(?:key|secret)\b|\bdev[-_ ](?:key|license|certificate|signing|issuer|policy|trust|private|public|secret|token|password|agent|authority|auth|api|encryption|storage|root)[-_ ]*key\b|\b(?:key|secret|token|password|signing|issuer|policy|trust|private|public)[-_ ](?:default|development|test|example|sample|placeholder)[-_ ]+(?:key|secret)\b/gi;
+const defaultDevelopmentKeyFieldPattern = String.raw`(?:license(?:[-_ ]?(?:trust|authority))?[-_ ]?key|agent[-_ ]?key|policy[-_ ]?(?:authority[-_ ]?)?key|authority[-_ ]?key|trust[-_ ]?(?:root|anchor|key)|issuer[-_ ]?key|signing[-_ ]?key|api[-_ ]?key|storage[-_ ]?key|encryption[-_ ]?key|secret[-_ ]?key|private[-_ ]?key|public[-_ ]?key|key(?:Id|ID|Name|Set)|defaultKey|developmentKey|secretKey)`;
+const defaultDevelopmentLicenseKeyValuePattern = new RegExp(
+  String.raw`(?:\b${defaultDevelopmentKeyFieldPattern}\b\s*[:=]\s*|["']${defaultDevelopmentKeyFieldPattern}["']\s*:\s*)["'](?:(?:default|development|dev|test|example|sample|placeholder)(?:[-_ ]?(?:dev|development|default|license|certificate|signing|issuer|policy|trust|private|public|secret|token|password|agent|authority|auth|api|encryption|storage|root))?[-_ ]*(?:key|secret)|change[-_ ]?me|(?:default|development|dev|test|example|sample|placeholder))["']`,
+  'gi',
+);
+const issuerPrivateKeyMaterialPattern = /-----BEGIN (?:ENCRYPTED )?PRIVATE KEY-----|["'](?:issuer[-_]?private[-_]?key|private[-_]?key)["']\s*:/gi;
+const issuerPrivateKeyPathPattern = /(?:^|\/)(?:issuer|signing)(?:[-_](?:private|signing))?[-_]key(?:\.[^/]+)?$/i;
+const licensingSourcePathPattern = /(?:^|\/)backend\/src\/modules\/licensing(?:\/|$)/;
+const removedPluginSchemaReferencePattern = /['"][^'"]*(?:agent-deployment-plugins|plugin-action-aliases)\.schema(?:\.[a-z]+)?['"]/gi;
+const removedPluginRuntimeReferencePattern = /\bAGENT_ATOMIC\b/g;
+const agentPowerShellExecutionPattern = /\b(?:powershell|pwsh)(?:\.exe)?\b[^;\r\n]{0,200}-(?:c|command|encodedcommand|encoded|file)\b|\b(?:Invoke-Expression|iex|Invoke-Command|Invoke-Item|Start-Process|Start-Job|Start-ThreadJob)\b/gi;
+const agentPowerShellCallOperatorPattern = /(?:^|[;&|]\s*)&\s*(?:\$(?:(?:command|cmd|shell|script|payload|exec|download)[A-Za-z0-9_$]*|[A-Za-z_][A-Za-z0-9_$]*(?:command|cmd|shell|script|payload|exec|download)[A-Za-z0-9_$]*)|[.][\\/][^\s;&|]+\.(?:ps1|psm1|cmd|bat)\b)|(?:^|[;&|]\s*)\.\s+(?:[.][\\/]|[A-Za-z]:|\/)[^\s;&|]+\.(?:ps1|psm1|cmd|bat)\b/gi;
+const agentShellExecutionPattern = /["']--shell["']|\b(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|command\.com)\s+(?:-c|\/c)\b|\b(?:exec\.Command(?:Context)?|ProcessStartInfo)\s*\([\s\S]{0,280}?\b(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|command\.com|powershell|powershell\.exe|pwsh|pwsh\.exe)\b[\s\S]{0,160}?(?:-c|\/c|-command|-encodedcommand|-file)\b/gi;
+// go-ca-node 已废弃，生产路径不得再保留 OpenSSL 或任何子进程执行旁路。
+const caNodeOpenSslPattern = /\bopenssl(?:\.exe)?\b/gi;
+const caNodeProcessExecutionPattern = /(?:["'](?:os\/exec|node:child_process|child_process)["']|\b(?:exec\.Command(?:Context)?|os\.StartProcess|syscall\.Exec(?:ve)?|ProcessStartInfo|Process\.Start|child_process\.(?:exec|execFile|fork|spawn)|(?:exec|execFile|spawn)(?:Sync)?)\s*\()/gi;
+const strictAgentDownloadExecutionSinkPattern = /\b(?:Invoke-Expression|iex|Start-Process)\b|\b(?:Process\.Start|ProcessStartInfo|execFile(?:Sync)?|spawn(?:Sync)?|exec(?:Sync)?|exec\.Command(?:Context)?|os\.StartProcess|syscall\.Exec|eval|new\s+Function|vm\.runIn(?:NewContext|ThisContext))\s*\(|\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n;|]*(?:-(?:c|command|encodedcommand|encoded|file)\b|(?:\$[A-Za-z_]|[.][\\/]|[A-Za-z]:|\/))|\b(?:cmd|cmd\.exe|command\.com)\s+(?:\/c|\/k)\b|\b(?:sh|bash|dash|zsh|fish|python(?:3)?|perl|ruby|node)(?:\.exe)?\s+(?:-c\b|[.][\\/]|[A-Za-z]:|\/|\$[A-Za-z_]|[A-Za-z0-9_.-]+\.(?:sh|py|js))|(?:^|[;&|]\s*)&\s*(?:\$[A-Za-z_][\w$]*|[.][\\/][^\s;&|]+|[A-Za-z]:[^\s;&|]+|\/[^\s;&|]+)|(?:^|[;&|]\s*)\.\s+\$[A-Za-z_][\w$]*|(?:^|[;&|]\s*)\.[\\/][^\s;&|]+|(?:\|\s*)(?:iex|Invoke-Expression|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?|command\.com|sh|bash|dash|zsh|fish|python(?:3)?|perl|ruby|node)\b/i;
+const agentProductIdentityPattern = /(?:\b(?:product(?:Name|Id|Family)?|product[_-](?:name|id|family)|framework(?:Type|Key)?|framework[_-](?:type|key)|detected(?:Product|Framework)|detected[_-](?:product|framework)|vendor(?:Name|Id)?|vendor[_-](?:name|id)|software(?:Name|Product)?|software[_-](?:name|product))\b\s*(?::=|=|:)\s*["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[^"'`]*["'`]|["'`](?:productName|productId|productFamily|product_name|product_id|product_family|frameworkType|frameworkKey|framework_type|framework_key|detectedProduct|detectedFramework|vendorName|vendorId|softwareName|softwareProduct)["'`]\s*:\s*["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[^"'`]*["'`])/gi;
+const agentProductFactPattern = /["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[._:/-](?:version|config|path|site|product|framework)[^"'`]*["'`]/gi;
+const moduleAssetExtensions = new Set(['.css', '.gif', '.ico', '.jpeg', '.jpg', '.less', '.png', '.sass', '.scss', '.svg', '.webp', '.woff', '.woff2']);
+const architectureClassifications = {
+  PRODUCTION: 'PRODUCTION',
+  BUILTIN_PLUGIN: 'BUILTIN_PLUGIN',
+  BUILTIN_WORKFLOW: 'BUILTIN_WORKFLOW',
+  TEST_FIXTURE: 'TEST_FIXTURE',
+  MIGRATION: 'MIGRATION',
+};
 
 function normalizePath(path) { return path.replaceAll('\\', '/'); }
 function shouldIgnore(path) { return ignoredPatterns.some((pattern) => pattern.test(path)); }
+function classifyPath(path) {
+  const normalizedPath = normalizePath(path);
+  if (testPathPattern.test(normalizedPath) || architectureFixturePathPattern.test(normalizedPath) || securityContractFixturePathPattern.test(normalizedPath)) return architectureClassifications.TEST_FIXTURE;
+  if (migrationPathPattern.test(normalizedPath)) return architectureClassifications.MIGRATION;
+  if (builtinWorkflowPathPattern.test(normalizedPath)) return architectureClassifications.BUILTIN_WORKFLOW;
+  if (pluginPackagePathPattern.test(normalizedPath)) return architectureClassifications.BUILTIN_PLUGIN;
+  if (agentPathPattern.test(normalizedPath)) return architectureClassifications.PRODUCTION;
+  return architectureClassifications.PRODUCTION;
+}
+function isAgentPath(path) { return agentPathPattern.test(normalizePath(path)); }
+function isCaNodePath(path) { return caNodePathPattern.test(normalizePath(path)); }
+function isBuiltinPluginPath(path) { return pluginPackagePathPattern.test(normalizePath(path)); }
+function isBuiltinWorkflowPath(path) { return builtinWorkflowPathPattern.test(normalizePath(path)); }
+function isWorkflowPath(path) { return workflowPathPattern.test(normalizePath(path)); }
+function isHostWorkflowPath(path) { return hostWorkflowPathPattern.test(normalizePath(path)); }
+function isTranslationResourcePath(path) { return translationResourcePathPattern.test(normalizePath(path)); }
+function isAgentContractPath(path) {
+  const normalizedPath = normalizePath(path);
+  return agentPathPattern.test(normalizedPath)
+    || isWorkflowPath(normalizedPath)
+    || compatibilityContractPathPattern.test(normalizedPath);
+}
+function isProductionContractPath(path) {
+  const normalizedPath = normalizePath(path);
+  return !testPathPattern.test(normalizedPath)
+    && !architectureFixturePathPattern.test(normalizedPath)
+    && !securityContractFixturePathPattern.test(normalizedPath)
+    && !migrationPathPattern.test(normalizedPath);
+}
+function isCanonicalPluginId(value) { return canonicalPluginIds.has(value); }
+function isFixturePluginId(value) { return fixturePluginIdPattern.test(value); }
+function shouldReportNonCanonicalPluginBinding(value) { return !isCanonicalPluginId(value) && !isFixturePluginId(value); }
+function isProductionHostPath(path) {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath.startsWith('backend/src/') || normalizedPath.startsWith('web/src/');
+}
+function isHostCodePath(path) {
+  const normalizedPath = normalizePath(path);
+  return isProductionHostPath(normalizedPath) && !isBuiltinPluginPath(normalizedPath) && !isWorkflowPath(normalizedPath);
+}
+function isHostSemanticCodePath(path) {
+  return isHostCodePath(path) && !isTranslationResourcePath(path);
+}
+function isRunnerExecutorLoaderPath(path) {
+  return normalizePath(path) === 'backend/src/modules/plugins/runner/plugin-runner-executor.ts';
+}
+function isLegacyApiConsumerPath(path) {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath.startsWith('web/') || normalizedPath.startsWith('scripts/');
+}
 function textOf(node, sourceFile) { return node.getText(sourceFile); }
 function stringValue(node) { return ts.isStringLiteralLike(node) ? node.text : undefined; }
 function propertyName(node) { return node.name && (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) ? node.name.text : undefined; }
@@ -79,8 +230,50 @@ function makeFinding(rule, path, sourceFile, node, message) {
     anchor,
     excerpt,
     message,
+    classification: classifyPath(path),
     fingerprint: fingerprint(rule, path, anchor, excerpt),
   };
+}
+function makeTextFinding(rule, path, source, offset, message, anchor = '<text>') {
+  const normalizedPath = normalizePath(path);
+  const safeOffset = Math.max(0, Math.min(offset, source.length));
+  const before = source.slice(0, safeOffset);
+  const line = before.split(/\r?\n/).length;
+  const lineStart = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r')) + 1;
+  const lineEnd = source.indexOf('\n', safeOffset) < 0 ? source.length : source.indexOf('\n', safeOffset);
+  const excerpt = source.slice(lineStart, lineEnd).trim().slice(0, 240);
+  return {
+    rule,
+    path: normalizedPath,
+    line,
+    column: safeOffset - lineStart + 1,
+    nodeKind: 'SourceText',
+    anchor,
+    excerpt,
+    message,
+    classification: classifyPath(normalizedPath),
+    fingerprint: fingerprint(rule, normalizedPath, anchor, excerpt),
+  };
+}
+function addTextMatches(findings, rule, path, source, pattern, message, anchor = '<text>', shouldReport = () => true) {
+  const globalPattern = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`);
+  for (const match of source.matchAll(globalPattern)) {
+    const offset = match.index ?? 0;
+    if (shouldReport(source, offset)) findings.push(makeTextFinding(rule, path, source, offset, message, anchor));
+  }
+}
+function isRetiredContractMarker(source, offset) {
+  const lineStart = Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1;
+  const lineEnd = source.indexOf('\n', offset) < 0 ? source.length : source.indexOf('\n', offset);
+  const line = source.slice(lineStart, lineEnd);
+  return /\b(?:const|let|var)\s+(?:removed|deprecated|forbidden|unsupported|retired)[A-Za-z0-9_$]*\s*=\s*['"](?:command\.execute|agent\.execute|agent\.atomic_plan\.execute)['"]/.test(line);
+}
+function isDefaultKeyRejectionContext(source, offset) {
+  const lineStart = Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1;
+  const lineEnd = source.indexOf('\n', offset) < 0 ? source.length : source.indexOf('\n', offset);
+  const context = source.slice(Math.max(0, lineStart - 240), Math.min(source.length, lineEnd + 240));
+  return /(?:reject|revoke|forbid|deny|fail.?closed|invalid|unsafe|return\s+false|throw)/i.test(context)
+    && /(?:\.(?:test|includes|some|filter|match)\s*\(|\b(?:strings\.)?(?:contains|hasprefix|hassuffix)\s*\(|\b(?:regexp|regex|matches?)\b|===|!==)/i.test(context);
 }
 function extractVueScript(source) {
   const output = source.split(/\r?\n/).map(() => '');
@@ -133,8 +326,17 @@ function frameworkCollectionOwner(node) {
   while (current && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current))) current = current.parent;
   return current;
 }
+function isFixedCommandTemplateTable(node) {
+  if (!ts.isObjectLiteralExpression(node) || node.properties.length < 2) return false;
+  return node.properties.every((property) => {
+    if (!ts.isPropertyAssignment(property) || !ts.isObjectLiteralExpression(property.initializer)) return false;
+    const fields = new Set(property.initializer.properties.map((field) => propertyName(field)).filter(Boolean));
+    return fields.has('program') && fields.has('fixedArgs') && fields.has('valueCount');
+  });
+}
 function isVendorDispatchTable(node, sourceFile) {
   if (!ts.isObjectLiteralExpression(node)) return false;
+  if (isFixedCommandTemplateTable(node)) return false;
   const ownerText = declarationContextText(node, sourceFile);
   if (!/(?:provider|framework|product|adapter|driver|executor|projector|implementation|runtime|template|preset)/i.test(ownerText)) return false;
   const keys = node.properties.map((property) => propertyName(property)).filter(Boolean);
@@ -221,13 +423,282 @@ function findGuardedSelection(node, sourceFile, pattern) {
   return undefined;
 }
 
+function collectModuleLoadAliases(sourceFile) {
+  const aliases = new Set(['require']);
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (ts.isIdentifier(node.initializer) && node.initializer.text === 'require') aliases.add(node.name.text);
+      if (ts.isCallExpression(node.initializer) && isCreateRequireCall(node.initializer, sourceFile)) aliases.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return aliases;
+}
+
+function memberCallParts(expression, sourceFile) {
+  if (ts.isPropertyAccessExpression(expression)) {
+    return { receiver: textOf(expression.expression, sourceFile), method: expression.name.text };
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    const method = expression.argumentExpression ? stringValue(expression.argumentExpression) : undefined;
+    if (method !== undefined) return { receiver: textOf(expression.expression, sourceFile), method };
+  }
+  return undefined;
+}
+
+function isCreateRequireExpression(expression, sourceFile) {
+  if (ts.isIdentifier(expression)) return expression.text === 'createRequire';
+  const member = memberCallParts(expression, sourceFile);
+  return member?.method === 'createRequire' && /^(?:module|Module)$/.test(member.receiver);
+}
+
+function isCreateRequireCall(node, sourceFile) {
+  return ts.isCallExpression(node) && isCreateRequireExpression(node.expression, sourceFile);
+}
+
+function isDynamicModuleLoad(node, sourceFile, moduleLoadAliases) {
+  if (!ts.isCallExpression(node) || node.arguments.length === 0) return false;
+  const argument = node.arguments[0];
+  if (ts.isIdentifier(node.expression) && moduleLoadAliases.has(node.expression.text)) return !ts.isStringLiteralLike(argument);
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return !ts.isStringLiteralLike(argument);
+  const member = memberCallParts(node.expression, sourceFile);
+  if (member) {
+    const { receiver, method } = member;
+    if (method === 'require' && /^(?:module|Module)$/.test(receiver)) return !ts.isStringLiteralLike(argument);
+    if (method === 'resolve' && moduleLoadAliases.has(receiver)) return !ts.isStringLiteralLike(argument);
+    if (method === '_load' && /(?:module|Module|loader|require)/i.test(receiver)) return !ts.isStringLiteralLike(argument);
+  }
+  if (isCreateRequireCall(node.expression, sourceFile)) {
+    return !ts.isStringLiteralLike(argument);
+  }
+  return false;
+}
+
+function isPluginModuleSpecifier(value) {
+  return typeof value === 'string' && pluginModuleSpecifierPattern.test(normalizePath(value));
+}
+
+function isPluginModuleLoad(node, sourceFile, moduleLoadAliases) {
+  if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+    return Boolean(node.moduleSpecifier && isPluginModuleSpecifier(stringValue(node.moduleSpecifier)));
+  }
+  if (!ts.isCallExpression(node) || node.arguments.length === 0) return false;
+  const argument = node.arguments[0];
+  const value = stringValue(argument);
+  if (!value || !isPluginModuleSpecifier(value)) return false;
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return true;
+  if (ts.isIdentifier(node.expression) && moduleLoadAliases.has(node.expression.text)) return true;
+  const member = memberCallParts(node.expression, sourceFile);
+  if (member) {
+    const { receiver, method } = member;
+    if (method === 'resolve' && moduleLoadAliases.has(receiver)) return true;
+    if ((method === 'require' || method === '_load') && /^(?:module|Module)$/.test(receiver)) return true;
+  }
+  if (isCreateRequireCall(node.expression, sourceFile)) return true;
+  return false;
+}
+
+function scanAgentDownloadExecution(path, source) {
+  const findings = [];
+  const seen = new Set();
+  const downloadedTargets = new Set();
+  const add = (offset) => {
+    const finding = makeTextFinding('AGENT_DOWNLOAD_EXECUTION', path, source, offset, 'Agent 不得把网络下载内容或下载文件交给解释器、进程或命令执行器');
+    const key = `${finding.line}:${finding.column}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      findings.push(finding);
+    }
+  };
+
+  const targetPattern = /(?:^|[\s;&|])(?:-OutFile|-OutputFile|--output|--out-file|-Destination|-O|-o)(?=\s|=)\s*(?:=\s*)?(?:"([^"]+)"|'([^']+)'|([$A-Za-z_][\w$.-]*|[A-Za-z]:[^\s;&|]+|\/[^\s;&|]+))/gi;
+  const downloadCallTargetPattern = /(?:\.\s*)?Download(?:File|ToFile)\s*\(\s*[^,\r\n;]+,\s*(?:"([^"]+)"|'([^']+)'|([$A-Za-z_][\w$.-]*|[A-Za-z]:[^\s;&|,)]+|\/[^\s;&|,)]+))/gi;
+  const assignmentPattern = /(?:\b(?:const|let|var)\s+)?([$A-Za-z_][\w$]*)\s*(?:,\s*[$A-Za-z_][\w$]*\s*)?(?::=|=)\s*(?:\(\s*)?(?:await\s+)?(?:Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|iwr|irm|curl(?:\.exe)?|wget(?:\.exe)?|fetch|http\.(?:Get|Post)|(?:client|httpClient)\.Do)\b/i;
+  const lines = source.split(/\r?\n/);
+  let offset = 0;
+  for (const line of lines) {
+    const sinkMatch = line.match(strictAgentDownloadExecutionSinkPattern);
+    const targets = [];
+    for (const match of line.matchAll(targetPattern)) {
+      const target = match[1] ?? match[2] ?? match[3];
+      if (target) targets.push(target);
+    }
+    for (const match of line.matchAll(downloadCallTargetPattern)) {
+      const target = match[1] ?? match[2] ?? match[3];
+      if (target) targets.push(target);
+    }
+    const assignment = line.match(assignmentPattern)?.[1];
+    // 先登记当前行产生的下载目标，再判断执行器参数，避免把同一行的无关编译器调用当成下载后执行。
+    for (const target of targets) downloadedTargets.add(target);
+    if (assignment) downloadedTargets.add(assignment);
+    const sinkText = sinkMatch ? line.slice(sinkMatch.index ?? 0) : '';
+    if (sinkMatch && [...downloadedTargets].some((target) => sinkText.includes(target))) {
+      add(offset + (sinkMatch.index ?? 0));
+    }
+    offset += line.length;
+    if (source[offset] === '\r' && source[offset + 1] === '\n') offset += 2;
+    else if (source[offset] === '\n') offset += 1;
+  }
+
+  const pipePattern = new RegExp(
+    String.raw`\b(?:Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|iwr|irm|curl(?:\.exe)?|wget(?:\.exe)?|fetch|(?:\.\s*)?Download(?:File|String|Data|ToFile)|http\.(?:Get|Post)|(?:client|httpClient)\.Do)\b[^\r\n;]{0,240}\|\s*(?:iex|Invoke-Expression|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?|command\.com|sh|bash|dash|zsh|fish|python(?:3)?|perl|ruby|node)\b`,
+    'gi',
+  );
+  for (const match of source.matchAll(pipePattern)) add(match.index ?? 0);
+  return findings;
+}
+
+function scanTextArchitectureRules(path, source) {
+  const normalizedPath = normalizePath(path);
+  const findings = [];
+  const hostPath = isHostSemanticCodePath(normalizedPath);
+  const agentPath = isAgentPath(normalizedPath);
+  const pluginPath = isBuiltinPluginPath(normalizedPath);
+  const productionContractPath = isProductionContractPath(normalizedPath);
+  const agentContractPath = isAgentContractPath(normalizedPath);
+
+  if (agentPath) {
+    addTextMatches(findings, 'AGENT_SHELL_EXECUTION', normalizedPath, source, agentShellExecutionPattern, 'Agent 不得提供 Shell、CMD 或解释器自由执行入口');
+    addTextMatches(findings, 'AGENT_SHELL_EXECUTION', normalizedPath, source, agentPowerShellExecutionPattern, 'Agent 不得提供 PowerShell、编码命令或远程脚本执行入口');
+    addTextMatches(findings, 'AGENT_SHELL_EXECUTION', normalizedPath, source, agentPowerShellCallOperatorPattern, 'Agent 不得通过 PowerShell 调用运算符或点源执行脚本变量');
+    findings.push(...scanAgentDownloadExecution(normalizedPath, source));
+    addTextMatches(findings, 'AGENT_PRODUCT_IDENTIFICATION', normalizedPath, source, agentProductIdentityPattern, 'Agent Core 不得识别第三方产品或把产品身份写入运行时事实');
+    addTextMatches(findings, 'AGENT_PRODUCT_IDENTIFICATION', normalizedPath, source, agentProductFactPattern, 'Agent Core 不得维护第三方产品专用事实键');
+  }
+
+  if (isCaNodePath(normalizedPath)) {
+    addTextMatches(findings, 'AGENT_OPENSSL_USAGE', normalizedPath, source, caNodeOpenSslPattern, '已废弃的 go-ca-node 不得使用 OpenSSL 或保留 OpenSSL 执行旁路');
+    addTextMatches(findings, 'AGENT_PROCESS_EXECUTION', normalizedPath, source, caNodeProcessExecutionPattern, '已废弃的 go-ca-node 不得执行任意外部进程，必须通过统一 Plugin Runner/Host API 合同完成');
+  }
+
+  if (hostPath) {
+    addTextMatches(
+      findings,
+      'HOST_PLUGIN_OBJECT_CALL',
+      normalizedPath,
+      source,
+      /\b(?:plugin|pluginObject|pluginInstance)\.(?:instance|invoke)\b[^;\n]*\(/g,
+      '宿主不得在 IPC 之外直接调用插件对象',
+    );
+    if (normalizedPath.endsWith('/trusted-js-plugin-execution.service.ts')) {
+      addTextMatches(findings, 'HOST_PROVIDER_SIGNER', normalizedPath, source, /\b(?:sign(?:Aliyun|Tencent|Huawei|Volcengine)(?:Rpc|Request)?|ProviderSigner)\b/g, '宿主不得拥有云厂商签名算法或 Provider signer');
+      addTextMatches(findings, 'HOST_PROVIDER_BASELINE', normalizedPath, source, /\b(?:providerBaselines|baselineDefinition)\b/g, '宿主不得拥有 Provider baseline，厂商基线必须由插件版本声明');
+    }
+  }
+
+  if (pluginPath) {
+    addTextMatches(findings, 'PLUGIN_DIRECT_HOST_ACCESS', normalizedPath, source, /\b(?:process\.env|process\.cwd|node:(?:fs|child_process)|require\s*\(\s*['"](?:fs|child_process)['"]|\b(?:Database|Repository)\b|\.(?:query|execute)\s*\()/g, '插件不得直接访问宿主环境变量、文件、进程、数据库或 Repository');
+    addTextMatches(findings, 'PLUGIN_DIRECT_HOST_SERVICE', normalizedPath, source, /\b[A-Z][A-Za-z0-9_$]*Service\b|\bhost\.service\.invoke\b/g, '插件不得直接持有或调用宿主内部 Service');
+    addTextMatches(findings, 'PLUGIN_OBJECT_OUTSIDE_IPC', normalizedPath, source, /\bplugin\.(?:invoke|instance)\b[^;\n]*\(/g, '插件对象调用必须通过 IPC v1，不得形成进程外旁路');
+  }
+
+  // 当前项目未发布，Compatibility 和 legacy 目录中的旧合同与生产代码同样必须失败关闭。
+  if (productionContractPath) {
+    addTextMatches(findings, 'REMOVED_PLUGIN_SCHEMA_REFERENCE', normalizedPath, source, removedPluginSchemaReferencePattern, '生产代码不得引用已删除的插件 Schema');
+    addTextMatches(findings, 'REMOVED_PLUGIN_RUNTIME_REFERENCE', normalizedPath, source, removedPluginRuntimeReferencePattern, '生产代码不得继续引用已删除的 AGENT_ATOMIC 运行时');
+  }
+
+  if (agentContractPath) {
+    addTextMatches(findings, 'AGENT_LEGACY_CONTRACT', normalizedPath, source, /['"]agent\.atomic_plan\.execute['"]/g, 'Agent Core 不得新增 agent.atomic_plan.execute 长期控制面合同', '<text>', (value, offset) => !isRetiredContractMarker(value, offset));
+  }
+  if (agentPath) {
+    addTextMatches(findings, 'AGENT_LEGACY_COMMAND_CONTRACT', normalizedPath, source, /['"]command\.execute['"]/g, 'Agent 只允许 command.execute_allowlisted，不得新增自由 command.execute', '<text>', (value, offset) => !isRetiredContractMarker(value, offset));
+    addTextMatches(findings, 'AGENT_PRODUCT_IMPLEMENTATION', normalizedPath, source, /\b(?:IIS|Iis|Nginx|Apache|Httpd|Tomcat|RabbitMQ|RabbitMq|Citrix|Netscaler|Sangfor|Synology|Fortinet|PaloAlto|Aliyun|Tencent|Huawei|Volcengine|OpenSSL|Openssl|Acme|ADCS|Adcs|JavaKeystore)(?:[A-Z][A-Za-z0-9_]*)+\b/g, 'Agent Core 不得定义厂商产品类名或产品专用执行实现');
+  }
+
+  if (productionContractPath) {
+    addTextMatches(findings, 'DEFAULT_DEVELOPMENT_KEY', normalizedPath, source, defaultDevelopmentLicenseKeyPattern, '生产代码不得包含默认开发许可证密钥，缺少真实信任根必须失败关闭', '<text>', (value, offset) => !isDefaultKeyRejectionContext(value, offset));
+    addTextMatches(findings, 'DEFAULT_DEVELOPMENT_KEY', normalizedPath, source, defaultDevelopmentLicenseKeyValuePattern, '生产代码不得把默认或示例值配置为信任密钥', '<text>', (value, offset) => !isDefaultKeyRejectionContext(value, offset));
+    if (licensingSourcePathPattern.test(normalizedPath) || issuerPrivateKeyPathPattern.test(normalizedPath)) {
+      addTextMatches(findings, 'ISSUER_PRIVATE_KEY_IN_SOURCE', normalizedPath, source, issuerPrivateKeyMaterialPattern, '生产源码不得包含 issuer 私钥材料，签发私钥只能留在受控的外部密钥环境');
+    }
+    if (issuerPrivateKeyPathPattern.test(normalizedPath)) {
+      findings.push(makeTextFinding('ISSUER_PRIVATE_KEY_IN_SOURCE', normalizedPath, source, 0, '生产源码路径不得交付 issuer 私钥文件', '<path>'));
+    }
+    addTextMatches(findings, 'POLICY_AUTHORITY_FAIL_OPEN', normalizedPath, source, /(?:policyAuthority|authorityDecision|policyDecision|policyResult)[\s\S]{0,120}(?:\?\?|\|\|)\s*(?:true|allow|ALLOW)/g, 'Policy Authority 缺失或不可用时不得放行高风险动作');
+  }
+
+  const securityContractPath = normalizedPath.endsWith('/modules/agents/security/agent-security.contract.ts');
+  const hostApiContractPath = normalizedPath.endsWith('/modules/plugins/runner/protocol/host-api.registry.ts');
+  if (productionContractPath && !securityContractPath && !hostApiContractPath) {
+    addTextMatches(findings, 'FORBIDDEN_COMMAND_CONTRACT', normalizedPath, source, /['"]command\.execute['"]/g, '长期执行合同不得使用自由 command.execute', '<text>', (value, offset) => !isRetiredContractMarker(value, offset));
+  }
+  return findings;
+}
+
+function scanJsonPluginArchitectureSource(path, source) {
+  const normalizedPath = normalizePath(path);
+  const findings = scanTextArchitectureRules(normalizedPath, source);
+  const allowBindingLiteral = isProductionContractPath(normalizedPath) && !isTranslationResourcePath(normalizedPath);
+  let document;
+  try {
+    document = JSON.parse(source);
+  } catch {
+    findings.push(makeTextFinding('JSON_CONTRACT_INVALID', normalizedPath, source, 0, '受扫描的插件或工作流 JSON 不是有效 JSON'));
+    return findings.sort((left, right) => left.line - right.line || left.column - right.column || left.rule.localeCompare(right.rule));
+  }
+  let searchOffset = 0;
+  const add = (rule, key, message) => {
+    const keyOffset = source.indexOf(`"${key}"`, searchOffset);
+    if (keyOffset >= 0) searchOffset = keyOffset + key.length + 2;
+    findings.push(makeTextFinding(rule, normalizedPath, source, keyOffset >= 0 ? keyOffset : 0, message, `json.${key}`));
+  };
+  const walk = (value, keys) => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, [...keys, String(index)]));
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      // 先把游标推进到当前属性，避免同名属性的前一次出现被误报为当前行。
+      const currentKeyOffset = source.indexOf(`"${key}"`, searchOffset);
+      if (currentKeyOffset >= 0) searchOffset = currentKeyOffset;
+      const pathKeys = [...keys, key];
+      if (isHostWorkflowPath(normalizedPath)) {
+        if (key === 'script' && typeof child === 'string' && child.trim() !== '') add('WORKFLOW_RAW_SCRIPT', key, 'Workflow DSL 不得包含裸脚本字符串，必须使用受控通用步骤');
+        if (key === 'mode' && child === 'script') add('WORKFLOW_RAW_SCRIPT', key, 'Workflow DSL 不得使用 script 执行模式');
+        const directStepProperty = keys.length >= 2 && ['steps', 'rollback'].includes(keys.at(-2));
+        if (directStepProperty && ['name', 'type', 'stepType', 'action', 'operation'].includes(key) && typeof child === 'string' && productIdentifierPattern.test(child)) {
+          add('WORKFLOW_PRODUCT_STEP', key, 'Workflow 不得在宿主或通用步骤层固化产品专用 Step');
+        }
+        const productTemplateField = ['frameworkType', 'product', 'productId', 'productFamily', 'targetType'].includes(key)
+          || (keys.includes('frameworkType') && ['default', 'enum'].includes(key));
+        const productTemplateValue = typeof child === 'string'
+          ? child
+          : Array.isArray(child)
+            ? child.filter((item) => typeof item === 'string').join(' ')
+            : '';
+        if (productTemplateField && productIdentifierPattern.test(productTemplateValue)) {
+          add('WORKFLOW_PRODUCT_TEMPLATE', key, '产品 Workflow 必须由目标 PluginVersion 提供，宿主 builtin-workflows 不得固化产品模板');
+        }
+      }
+      if (allowBindingLiteral && ['pluginId', 'targetPluginId', 'canonicalPluginId'].includes(key) && typeof child === 'string' && shouldReportNonCanonicalPluginBinding(child)) {
+        add('NON_CANONICAL_PLUGIN_BINDING', key, `${key} 新绑定必须使用 Canonical Plugin ID，不能使用历史别名或显示名`);
+      }
+      walk(child, pathKeys);
+    }
+  };
+  walk(document, []);
+  return findings.sort((left, right) => left.line - right.line || left.column - right.column || left.rule.localeCompare(right.rule));
+}
+
 export function scanPluginArchitectureSource(path, source) {
   const normalizedPath = normalizePath(path);
-  if (normalizedPath.endsWith('.go') || normalizedPath.endsWith('.cs')) return scanGoPluginArchitectureSource(normalizedPath, source);
-  const script = normalizedPath.endsWith('.vue') ? extractVueScript(source) : source;
-  const kind = normalizedPath.endsWith('.tsx') ? ts.ScriptKind.TSX : normalizedPath.endsWith('.js') || normalizedPath.endsWith('.mjs') ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  // 测试代码里的拒绝断言是守卫输入，不代表生产代码建立了旧合同或执行旁路。
+  // 非测试 Fixture 使用独立目录，不匹配 testPathPattern，仍按生产规则扫描。
+  if (testPathPattern.test(normalizedPath) || securityContractFixturePathPattern.test(normalizedPath)) return [];
+  const extension = extname(normalizedPath).toLowerCase();
+  if (extension === '.json') return scanJsonPluginArchitectureSource(normalizedPath, source);
+  if (extension === '.go' || extension === '.cs') return scanGoPluginArchitectureSource(normalizedPath, source);
+  if (!typedSourceExtensions.has(extension)) return scanTextArchitectureRules(normalizedPath, source);
+  const script = extension === '.vue' ? extractVueScript(source) : source;
+  const kind = extension === '.tsx' ? ts.ScriptKind.TSX : extension === '.js' || extension === '.mjs' ? ts.ScriptKind.JS : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(normalizedPath, script, ts.ScriptTarget.Latest, true, kind);
-  const findings = [];
+  const findings = scanTextArchitectureRules(normalizedPath, source);
+  const hostCodePath = isHostSemanticCodePath(normalizedPath);
+  const bindingScopePath = isProductionContractPath(normalizedPath) && !isTranslationResourcePath(normalizedPath);
+  const moduleLoadAliases = collectModuleLoadAliases(sourceFile);
   const membershipCollections = new Set();
   const collectMembership = (node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
@@ -243,12 +714,12 @@ export function scanPluginArchitectureSource(path, source) {
   collectMembership(sourceFile);
   const add = (rule, node, message) => findings.push(makeFinding(rule, normalizedPath, sourceFile, node, message));
   const visit = (node) => {
-    if (isImplementationConstructor(node)) add('HOST_VENDOR_DISPATCH', node, '宿主不得构造厂商专用实现');
-    if (isVendorDispatchTable(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得用厂商映射表选择实现');
-    if (isProductCatalogArray(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得维护封闭的产品或运行时目录');
-    if (isProductOperationContract(node, sourceFile)) add('HOST_PRODUCT_OPERATION_CONTRACT', node, '插件 Operation 与权限范围必须使用开放标识并由 Agent 能力校验');
-    if (isProductCapabilityCatalogCall(node, sourceFile)) add('HOST_PRODUCT_CAPABILITY_CATALOG', node, '产品能力定义必须由插件贡献，宿主只保留通用能力');
-    if (isSelectionNode(node)) {
+    if (hostCodePath && isImplementationConstructor(node)) add('HOST_VENDOR_DISPATCH', node, '宿主不得构造厂商专用实现');
+    if (hostCodePath && isVendorDispatchTable(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得用厂商映射表选择实现');
+    if (hostCodePath && isProductCatalogArray(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得维护封闭的产品或运行时目录');
+    if (hostCodePath && isProductOperationContract(node, sourceFile)) add('HOST_PRODUCT_OPERATION_CONTRACT', node, '插件 Operation 与权限范围必须使用开放标识并由 Agent 能力校验');
+    if (hostCodePath && isProductCapabilityCatalogCall(node, sourceFile)) add('HOST_PRODUCT_CAPABILITY_CATALOG', node, '产品能力定义必须由插件贡献，宿主只保留通用能力');
+    if (hostCodePath && isSelectionNode(node)) {
       const values = collectStringLiterals(node);
       const text = textOf(node, sourceFile);
       if (values.some(containsProduct) && /(?:providerType|deviceFamily|frameworkType|pluginId|productId|actionType|\.kind|\.type)/.test(text)) {
@@ -260,26 +731,38 @@ export function scanPluginArchitectureSource(path, source) {
         add('OWNER_DRIVER_SELECTION', node, '目标所有者和执行位置不得决定 DriverKind');
       }
     }
-    if (ts.isPropertyAssignment(node) && ['aliases', 'legacyActionType'].includes(propertyName(node) ?? '')) {
+    if (hostCodePath && ts.isPropertyAssignment(node) && ['aliases', 'legacyActionType'].includes(propertyName(node) ?? '')) {
       const values = collectStringLiterals(node.initializer);
       if (values.some((value) => containsProduct(value) && /deploy|certificate|install|update/i.test(value))) {
         add('HOST_PRODUCT_ACTION_ALIAS', node, '厂商历史 Action 别名必须由插件包声明');
       }
     }
-    if (isProductActionAliasTable(node, sourceFile)) add('HOST_PRODUCT_ACTION_ALIAS', node, '厂商历史 Action 别名必须由插件包声明');
-    if (isFrameworkAllowlist(node, sourceFile, membershipCollections)) add('FRAMEWORK_DEPLOYMENT_ALLOWLIST', node, 'Framework 部署准入不得使用固定列表');
-    if (ts.isSpreadAssignment(node) && /(?:inputSnapshot|snapshot)/.test(textOf(node.expression, sourceFile))) {
+    if (hostCodePath && isProductActionAliasTable(node, sourceFile)) add('HOST_PRODUCT_ACTION_ALIAS', node, '厂商历史 Action 别名必须由插件包声明');
+    if (hostCodePath && isFrameworkAllowlist(node, sourceFile, membershipCollections)) add('FRAMEWORK_DEPLOYMENT_ALLOWLIST', node, 'Framework 部署准入不得使用固定列表');
+    if (bindingScopePath && ts.isPropertyAssignment(node) && ['pluginId', 'targetPluginId', 'canonicalPluginId'].includes(propertyName(node) ?? '') && ts.isStringLiteralLike(node.initializer)) {
+      const name = propertyName(node) ?? '';
+      if (shouldReportNonCanonicalPluginBinding(node.initializer.text)) add('NON_CANONICAL_PLUGIN_BINDING', node, `${name} 新绑定必须使用 Canonical Plugin ID，不能使用历史别名或显示名`);
+    }
+    // Runner 子进程必须在固定启动参数指定的模块中装载 PluginVersion 执行器；这不是宿主执行插件。
+    // 例外只允许这个精确文件，宿主和 Runner 其他文件仍然禁止动态加载。
+    if (hostCodePath && !isRunnerExecutorLoaderPath(normalizedPath) && (
+      isDynamicModuleLoad(node, sourceFile, moduleLoadAliases)
+      || isPluginModuleLoad(node, sourceFile, moduleLoadAliases)
+    )) {
+      add('HOST_PLUGIN_DYNAMIC_LOAD', node, '宿主不得通过动态 import()/require() 加载插件入口，插件只能由独立 Runner 进程装载');
+    }
+    if (hostCodePath && ts.isSpreadAssignment(node) && /(?:inputSnapshot|snapshot)/.test(textOf(node.expression, sourceFile))) {
       const guard = findGuardedSelection(node, sourceFile, /actionType\s*!==\s*['"]agent\.atomic_plan\.execute['"]/);
       if (guard) {
         add('RAW_AGENT_ACTION_FORWARD', node, '未知 Agent Action 不得原样转发 Snapshot');
       }
     }
-    if (ts.isNewExpression(node) && /Legacy.*Executor(?:Adapter)?$/.test(textOf(node.expression, sourceFile))) {
+    if (hostCodePath && ts.isNewExpression(node) && /Legacy.*Executor(?:Adapter)?$/.test(textOf(node.expression, sourceFile))) {
       const parentText = node.parent ? textOf(node.parent, sourceFile) : '';
       if (/\.register\s*\(|\[/.test(parentText)) add('LEGACY_EXECUTOR_REGISTRATION', node, 'Legacy Executor 不得加入默认生产注册表');
     }
     const literal = stringValue(node);
-    if (literal && legacyApiPattern.test(literal) && /^(?:web|scripts)\//.test(normalizedPath)) {
+    if (isLegacyApiConsumerPath(normalizedPath) && literal && legacyApiPattern.test(literal)) {
       add('LEGACY_API_NEW_DEPENDENCY', node, '旧 Provider 或 Plugin API 不得新增消费者');
     }
     ts.forEachChild(node, visit);
@@ -314,28 +797,104 @@ function scanGoPluginArchitectureSource(path, source) {
         anchor: '<go>',
         excerpt,
         message,
+        classification: classifyPath(path),
         fingerprint: fingerprint(rule, path, '<go>', excerpt),
       });
     }
   }
-  return findings;
+  findings.push(...scanTextArchitectureRules(path, source));
+  return findings.sort((left, right) => left.line - right.line || left.column - right.column || left.rule.localeCompare(right.rule));
 }
 
-function collectFiles(directory) {
+function collectFiles(root, directory) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = join(directory, entry.name);
-    const repositoryPath = normalizePath(relative(repositoryRoot, absolutePath));
-    if (shouldIgnore(repositoryPath)) return [];
-    if (entry.isDirectory()) return collectFiles(absolutePath);
-    return sourceExtensions.has(extname(entry.name)) ? [absolutePath] : [];
+    const scanPath = normalizePath(relative(root, absolutePath));
+    if (shouldIgnore(scanPath)) return [];
+    if (entry.isDirectory()) return collectFiles(root, absolutePath);
+    const extension = extname(entry.name).toLowerCase();
+    return sourceExtensions.has(extension) ? [absolutePath] : [];
   });
 }
-export function scanPluginArchitecture(root = repositoryRoot, roots = scanRoots) {
-  return roots.flatMap((configuredRoot) => collectFiles(resolve(root, configuredRoot)).flatMap((absolutePath) => {
-    const path = normalizePath(relative(root, absolutePath));
-    return scanPluginArchitectureSource(path, readFileSync(absolutePath, 'utf8'));
-  })).sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.rule.localeCompare(right.rule));
+function isFile(path) {
+  try { return statSync(path).isFile(); } catch { return false; }
+}
+function sourceModuleCandidates(absolutePath, specifier) {
+  const basePath = resolve(dirname(absolutePath), specifier);
+  const candidates = [basePath];
+  const extension = extname(basePath).toLowerCase();
+  if (extension === '.js' || extension === '.mjs') {
+    const sourcePath = basePath.slice(0, -extension.length);
+    candidates.push(`${sourcePath}.ts`, `${sourcePath}.tsx`, `${sourcePath}.js`, `${sourcePath}.mjs`, `${sourcePath}.vue`, `${sourcePath}.d.ts`);
+  } else if (!sourceExtensions.has(extension) && !moduleAssetExtensions.has(extension)) {
+    candidates.push(`${basePath}.ts`, `${basePath}.tsx`, `${basePath}.js`, `${basePath}.mjs`, `${basePath}.vue`, `${basePath}.json`, `${basePath}.d.ts`);
+  }
+  for (const candidate of [...candidates]) {
+    candidates.push(join(candidate, 'index.ts'), join(candidate, 'index.js'), join(candidate, 'index.mjs'));
+  }
+  return [...new Set(candidates)];
+}
+function collectRelativeModuleSpecifiers(path, source) {
+  const extension = extname(path).toLowerCase();
+  if (!typedSourceExtensions.has(extension)) return [];
+  const script = extension === '.vue' ? extractVueScript(source) : source;
+  const kind = extension === '.tsx' ? ts.ScriptKind.TSX : extension === '.js' || extension === '.mjs' ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(path, script, ts.ScriptTarget.Latest, true, kind);
+  const specifiers = [];
+  const add = (node) => {
+    if (!ts.isStringLiteralLike(node) || !node.text.startsWith('.')) return;
+    specifiers.push({ specifier: node.text, offset: node.getStart(sourceFile) });
+  };
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node)) add(node.moduleSpecifier);
+    if (ts.isExportDeclaration(node) && node.moduleSpecifier) add(node.moduleSpecifier);
+    if (ts.isCallExpression(node) && node.arguments.length === 1 && (ts.isIdentifier(node.expression) && node.expression.text === 'require' || node.expression.kind === ts.SyntaxKind.ImportKeyword)) {
+      add(node.arguments[0]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return specifiers;
+}
+function scanMissingModuleReferences(path, source, absolutePath) {
+  if (testPathPattern.test(path) || migrationPathPattern.test(path)) return [];
+  return collectRelativeModuleSpecifiers(path, source)
+    .filter(({ specifier }) => !sourceModuleCandidates(absolutePath, specifier).some(isFile))
+    .map(({ specifier, offset }) => makeTextFinding(
+      'MISSING_PRODUCTION_MODULE_REFERENCE',
+      path,
+      source,
+      offset,
+      `生产源码引用的相对模块不存在：${specifier}`,
+    ));
+}
+function validateScanConfiguration(root, roots, enforceComplete) {
+  const resolvedRoot = resolve(root);
+  if (!Array.isArray(roots) || roots.length === 0) throw new Error('架构扫描至少需要一个扫描根');
+  const resolvedRoots = roots.map((configuredRoot) => resolve(resolvedRoot, configuredRoot));
+  const escapedRoots = roots.filter((configuredRoot, index) => {
+    const relativeRoot = relative(resolvedRoot, resolvedRoots[index]);
+    return relativeRoot.startsWith('..') || relativeRoot.includes(':') || relativeRoot.startsWith('/');
+  });
+  if (escapedRoots.length > 0) throw new Error(`架构扫描根必须位于仓库根内：${escapedRoots.join(', ')}`);
+  const requiredRoots = enforceComplete ? (resolvedRoot === repositoryRoot ? mandatoryArchitectureScanRoots : roots) : [];
+  const unavailableRoots = requiredRoots.filter((configuredRoot) => !existsSync(resolve(resolvedRoot, configuredRoot)));
+  if (unavailableRoots.length > 0) throw new Error(`架构扫描根不存在，不能以缺失目录宣称通过：${unavailableRoots.join(', ')}`);
+  if (!enforceComplete || resolvedRoot !== repositoryRoot) return;
+  const configuredRoots = new Set(resolvedRoots);
+  const missingRoots = mandatoryArchitectureScanRoots.filter((configuredRoot) => !configuredRoots.has(resolve(resolvedRoot, configuredRoot)));
+  if (missingRoots.length > 0) throw new Error(`默认架构扫描不得缩小范围，缺少扫描根：${missingRoots.join(', ')}`);
+}
+export function scanPluginArchitecture(root = repositoryRoot, roots = scanRoots, { enforceComplete = roots === scanRoots } = {}) {
+  const resolvedRoot = resolve(root);
+  validateScanConfiguration(resolvedRoot, roots, enforceComplete);
+  const files = [...new Set(roots.flatMap((configuredRoot) => collectFiles(resolvedRoot, resolve(resolvedRoot, configuredRoot))))];
+  return files.flatMap((absolutePath) => {
+    const path = normalizePath(relative(resolvedRoot, absolutePath));
+    const source = readFileSync(absolutePath, 'utf8');
+    return [...scanPluginArchitectureSource(path, source), ...scanMissingModuleReferences(path, source, absolutePath)];
+  }).sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column || left.rule.localeCompare(right.rule));
 }
 function debtKey(item) { return `${item.rule}:${normalizePath(item.path)}:${item.anchor}:${item.fingerprint}`; }
 export function compareWithDebt(findings, debt, requireZero = false) {
@@ -383,9 +942,13 @@ export function filterFindings(findings, {
 function main() {
   const configuredRoot = optionValue('--root');
   const configuredScanRoots = process.argv.flatMap((argument, index) => process.argv[index - 1] === '--scan-root' ? [argument] : []);
-  const rawFindings = scanPluginArchitecture(configuredRoot ? resolve(configuredRoot) : repositoryRoot, configuredScanRoots.length > 0 ? configuredScanRoots : scanRoots);
   let findings;
   try {
+    const rawFindings = scanPluginArchitecture(
+      configuredRoot ? resolve(configuredRoot) : repositoryRoot,
+      configuredScanRoots.length > 0 ? configuredScanRoots : scanRoots,
+      { enforceComplete: true },
+    );
     findings = filterFindings(rawFindings, {
       preset: optionValue('--preset'),
       rules: optionValues('--rule'),
@@ -407,10 +970,12 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  const configuredDebtPath = optionValue('--debt');
-  const debt = JSON.parse(readFileSync(configuredDebtPath ? resolve(configuredDebtPath) : debtPath, 'utf8'));
   let violations;
-  try { violations = compareWithDebt(findings, debt, process.argv.includes('--require-zero')); }
+  try {
+    const configuredDebtPath = optionValue('--debt');
+    const debt = JSON.parse(readFileSync(configuredDebtPath ? resolve(configuredDebtPath) : debtPath, 'utf8'));
+    violations = compareWithDebt(findings, debt, process.argv.includes('--require-zero'));
+  }
   catch (error) { process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; return; }
   if (violations.length === 0) {
     process.stdout.write(`统一插件架构门禁通过：检测到 ${findings.length} 个受治理历史债务点，未发现新增旁路。\n`);
