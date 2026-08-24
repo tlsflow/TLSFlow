@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   getCertificateAssetDetail,
   getCertificateVersionDetail,
@@ -16,6 +17,8 @@ const props = defineProps<{
   versionId: string
   contextUsages?: ApiRecord[]
 }>()
+
+const { t } = useI18n()
 
 type DetailTabKey = 'detail' | 'usage'
 
@@ -50,12 +53,12 @@ const error = ref<CertificatePageError | null>(null)
 const activeTab = ref<DetailTabKey>('detail')
 const asset = ref<ApiRecord | null>(null)
 const version = ref<ApiRecord | null>(null)
-const usages = ref<CertificateUsageRow[]>([])
+const usages = ref<ApiRecord[]>([])
 
 const mergedUsages = computed<CertificateUsageRow[]>(() => {
   const items = [
-    ...(props.contextUsages ?? []).map((item) => normalizeUsageRow(item, 'Agent上下文')),
-    ...usages.value.map((item) => normalizeUsageRow(item, '平台绑定记录')),
+    ...(props.contextUsages ?? []).map((item) => normalizeUsageRow(item, detailPanelT('sources.agentContext'))),
+    ...usages.value.map((item) => normalizeUsageRow(item, detailPanelT('sources.platformBinding'))),
   ]
   const deduped = new Map<string, CertificateUsageRow>()
   for (const item of items) {
@@ -65,21 +68,19 @@ const mergedUsages = computed<CertificateUsageRow[]>(() => {
   return [...deduped.values()]
 })
 
-const usageColumns: DataTableColumn<ApiRecord>[] = [
-  { key: 'domainName', title: '域名/目标' },
-  { key: 'agentName', title: 'Agent名称', width: '160px' },
-  { key: 'siteName', title: '站点名称', width: '180px' },
-  { key: 'bindingType', title: '绑定类型', width: '140px' },
-  { key: 'usageSource', title: '来源', width: '140px' },
-  { key: 'status', title: '状态', width: '120px' },
-]
+const usageColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'domainName', title: detailPanelT('usage.columns.domainName') },
+  { key: 'agentName', title: detailPanelT('usage.columns.agentName'), width: '160px' },
+  { key: 'siteName', title: detailPanelT('usage.columns.siteName'), width: '180px' },
+  { key: 'bindingType', title: detailPanelT('usage.columns.bindingType'), width: '140px' },
+  { key: 'usageSource', title: detailPanelT('usage.columns.usageSource'), width: '140px' },
+  { key: 'status', title: detailPanelT('usage.columns.status'), width: '120px' },
+])
 
 const validityRange = computed(() => ({
   start: formatToMinute(readString(version.value, ['notBefore'], '')),
   end: formatToMinute(readString(version.value, ['notAfter'], '')),
 }))
-
-const validityText = computed(() => `${validityRange.value.start} 至 ${validityRange.value.end}`)
 
 const chainCertificates = computed<CertificateChainItem[]>(() => {
   const items = readPath(version.value, 'chainCertificates')
@@ -88,9 +89,9 @@ const chainCertificates = computed<CertificateChainItem[]>(() => {
   for (const item of items) {
     if (!item || typeof item !== 'object') continue
     const record = item as ApiRecord
-    const displayName = readString(record, ['displayName', 'commonName', 'subject.commonName'], '未知证书')
+    const displayName = readString(record, ['displayName', 'commonName', 'subject.commonName'], detailPanelT('fallbacks.unknownCertificate'))
     const subjectText = readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], displayName)
-    const issuerText = readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], '未知签发者')
+    const issuerText = readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], detailPanelT('fallbacks.unknownIssuer'))
     normalized.push({
       fingerprintSha256: readString(record, ['fingerprintSha256'], displayName),
       displayName,
@@ -108,54 +109,54 @@ const chainDiagnostics = computed<string[]>(() => {
 })
 
 const summaryFields = computed<DetailField[]>(() => [
-  { label: '证书名称', value: readString(version.value, ['commonName', 'subject.commonName', 'id'], '未命名证书') },
-  { label: '逻辑域名', value: readString(asset.value, ['primaryDomain', 'name'], '未知域名') },
-  { label: '颁发者', value: readString(version.value, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], '未知颁发者') },
-  { label: '使用者', value: readString(version.value, ['subject.commonName', 'subject.organization', 'subject.raw'], '未知使用者') },
-  { label: '序列号', value: readString(version.value, ['serialNumber'], '未知') },
-  { label: '链状态', value: readString(version.value, ['chainStatus'], '未知') },
+  { label: detailPanelT('summary.certificateName'), value: readString(version.value, ['commonName', 'subject.commonName', 'id'], detailPanelT('fallbacks.unnamedCertificate')) },
+  { label: detailPanelT('summary.logicalDomain'), value: readString(asset.value, ['primaryDomain', 'name'], detailPanelT('fallbacks.unknownDomain')) },
+  { label: detailPanelT('summary.issuer'), value: readString(version.value, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], detailPanelT('fallbacks.unknownIssuer')) },
+  { label: detailPanelT('summary.subject'), value: readString(version.value, ['subject.commonName', 'subject.organization', 'subject.raw'], detailPanelT('fallbacks.unknownSubject')) },
+  { label: detailPanelT('summary.serialNumber'), value: readString(version.value, ['serialNumber'], detailPanelT('fallbacks.unknown')) },
+  { label: detailPanelT('summary.chainStatus'), value: readString(version.value, ['chainStatus'], detailPanelT('fallbacks.unknown')) },
 ])
 
 const detailSections = computed<Array<{ title: string; fields: DetailField[] }>>(() => [
   {
-    title: '主体信息',
+    title: detailPanelT('sections.subjectInfo'),
     fields: [
-      { label: '公用名(CN)', value: readString(version.value, ['subject.commonName'], '不是证书的一部分') },
-      { label: '组织(O)', value: readString(version.value, ['subject.organization'], '不是证书的一部分') },
-      { label: '组织单位(OU)', value: readString(version.value, ['subject.organizationalUnit'], '不是证书的一部分') },
-      { label: '国家/地区(C)', value: readString(version.value, ['subject.country'], '不是证书的一部分') },
-      { label: '省/州(ST)', value: readString(version.value, ['subject.state'], '不是证书的一部分') },
-      { label: '城市(L)', value: readString(version.value, ['subject.locality'], '不是证书的一部分') },
+      { label: detailPanelT('fields.commonName'), value: readString(version.value, ['subject.commonName'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.organization'), value: readString(version.value, ['subject.organization'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.organizationalUnit'), value: readString(version.value, ['subject.organizationalUnit'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.countryRegion'), value: readString(version.value, ['subject.country'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.stateProvince'), value: readString(version.value, ['subject.state'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.locality'), value: readString(version.value, ['subject.locality'], detailPanelT('fallbacks.notPartOfCertificate')) },
     ],
   },
   {
-    title: '颁发者信息',
+    title: detailPanelT('sections.issuerInfo'),
     fields: [
-      { label: '公用名(CN)', value: readString(version.value, ['issuer.commonName'], '不是证书的一部分') },
-      { label: '组织(O)', value: readString(version.value, ['issuer.organization'], '不是证书的一部分') },
-      { label: '组织单位(OU)', value: readString(version.value, ['issuer.organizationalUnit'], '不是证书的一部分') },
-      { label: '国家/地区(C)', value: readString(version.value, ['issuer.country'], '不是证书的一部分') },
-      { label: '省/州(ST)', value: readString(version.value, ['issuer.state'], '不是证书的一部分') },
-      { label: '城市(L)', value: readString(version.value, ['issuer.locality'], '不是证书的一部分') },
+      { label: detailPanelT('fields.commonName'), value: readString(version.value, ['issuer.commonName'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.organization'), value: readString(version.value, ['issuer.organization'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.organizationalUnit'), value: readString(version.value, ['issuer.organizationalUnit'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.countryRegion'), value: readString(version.value, ['issuer.country'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.stateProvince'), value: readString(version.value, ['issuer.state'], detailPanelT('fallbacks.notPartOfCertificate')) },
+      { label: detailPanelT('fields.locality'), value: readString(version.value, ['issuer.locality'], detailPanelT('fallbacks.notPartOfCertificate')) },
     ],
   },
   {
-    title: '证书字段',
+    title: detailPanelT('sections.certificateFields'),
     fields: [
-      { label: '版本', value: readString(version.value, ['versionNo'], '未知') },
-      { label: '签名算法', value: readString(version.value, ['signatureAlgorithm'], '未知') },
-      { label: '公钥算法', value: readString(version.value, ['publicKeyAlgorithm'], '未知') },
-      { label: 'SHA-256 指纹', value: readString(version.value, ['fingerprintSha256'], '未知') },
-      { label: 'SAN', value: readSanValue() },
-      { label: '可部署', value: readString(version.value, ['deployable'], 'false') === 'true' ? '是' : '否' },
+      { label: detailPanelT('fields.version'), value: readString(version.value, ['versionNo'], detailPanelT('fallbacks.unknown')) },
+      { label: detailPanelT('fields.signatureAlgorithm'), value: readString(version.value, ['signatureAlgorithm'], detailPanelT('fallbacks.unknown')) },
+      { label: detailPanelT('fields.publicKeyAlgorithm'), value: readString(version.value, ['publicKeyAlgorithm'], detailPanelT('fallbacks.unknown')) },
+      { label: detailPanelT('fields.fingerprintSha256'), value: readString(version.value, ['fingerprintSha256'], detailPanelT('fallbacks.unknown')) },
+      { label: detailPanelT('fields.san'), value: readSanValue() },
+      { label: detailPanelT('fields.deployable'), value: readString(version.value, ['deployable'], 'false') === 'true' ? detailPanelT('values.yes') : detailPanelT('values.no') },
     ],
   },
   {
-    title: '扩展字段',
+    title: detailPanelT('sections.extensionFields'),
     fields: [
-      { label: '叶子证书引用', value: readString(version.value, ['leafStorageRef'], '未知') },
-      { label: '链证书数量', value: String(chainCertificates.value.length > 0 ? Math.max(chainCertificates.value.length - 1, 0) : 0) },
-      { label: '链诊断', value: chainDiagnostics.value.length > 0 ? chainDiagnostics.value.join('；') : '暂无' },
+      { label: detailPanelT('fields.leafStorageRef'), value: readString(version.value, ['leafStorageRef'], detailPanelT('fallbacks.unknown')) },
+      { label: detailPanelT('fields.chainCertificateCount'), value: String(chainCertificates.value.length > 0 ? Math.max(chainCertificates.value.length - 1, 0) : 0) },
+      { label: detailPanelT('fields.chainDiagnostics'), value: chainDiagnostics.value.length > 0 ? chainDiagnostics.value.join(detailPanelT('separators.diagnostic')) : detailPanelT('fallbacks.none') },
     ],
   },
 ])
@@ -169,14 +170,19 @@ watch(
   { immediate: true },
 )
 
+function detailPanelT(key: string, named?: Record<string, unknown>) {
+  const fullKey = `certificates.detailPanel.${key}`
+  return named ? t(fullKey, named) : t(fullKey)
+}
+
 function formatToMinute(value: string) {
-  if (!value) return '未知'
+  if (!value) return detailPanelT('fallbacks.unknown')
   return formatBrowserLocalTime(value, { includeSeconds: false }) || value
 }
 
 function readSanValue() {
   const sans = readPath(version.value, 'sans')
-  return Array.isArray(sans) && sans.length > 0 ? sans.map((item) => String(item)).join('，') : '暂无'
+  return Array.isArray(sans) && sans.length > 0 ? sans.map((item) => String(item)).join(detailPanelT('separators.list')) : detailPanelT('fallbacks.none')
 }
 
 function readUsageField(record: ApiRecord, candidates: string[], fallback: string) {
@@ -232,24 +238,24 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     || readString(managedTargetRecord, ['agentId'], '')
     || readString(siteAssetRecord, ['agentId'], '')
     || readString(metadataRecord, ['agentName', 'agentId'], '')
-    || '—'
+    || detailPanelT('fallbacks.emptyValue')
 
   const siteName = readString(record, ['siteName'], '')
     || readString(siteAssetRecord, ['siteName'], '')
     || readString(metadataRecord, ['siteName'], '')
     || readString(bindingRecord, ['metadata.siteName'], '')
-    || '—'
+    || detailPanelT('fallbacks.emptyValue')
 
   const bindingType = readString(record, ['bindingType', 'resourceType', 'type'], '')
     || readString(bindingRecord, ['bindingType'], '')
-    || '未知类型'
+    || detailPanelT('fallbacks.unknownType')
 
   const status = readString(record, ['status', 'state'], '')
     || readString(bindingRecord, ['status'], '')
     || readString(serviceAssetRecord, ['status'], '')
     || readString(serviceRecord, ['status'], '')
     || readString(hostRecord, ['status'], '')
-    || '未知'
+    || detailPanelT('fallbacks.unknown')
 
   const usageSource = readString(record, ['usageSource'], '') || fallbackSource
 
@@ -257,9 +263,9 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     ...record,
     id: resourceId || `${bindingType}:${domainName}:${usageSource}`,
     resourceId: resourceId || `${bindingType}:${domainName}`,
-    resourceName: resourceName || domainName || '未知资源',
-    targetName: targetName || domainName || '未知目标',
-    domainName: domainName || '未知目标',
+    resourceName: resourceName || domainName || detailPanelT('fallbacks.unknownResource'),
+    targetName: targetName || domainName || detailPanelT('fallbacks.unknownTarget'),
+    domainName: domainName || detailPanelT('fallbacks.unknownTarget'),
     agentName,
     siteName,
     bindingType,
@@ -269,9 +275,9 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
 }
 
 function roleLabel(role: CertificateChainItem['role']) {
-  if (role === 'leaf') return '叶子证书'
-  if (role === 'root') return '根证书'
-  return '中间证书'
+  if (role === 'leaf') return detailPanelT('chain.roles.leaf')
+  if (role === 'root') return detailPanelT('chain.roles.root')
+  return detailPanelT('chain.roles.intermediate')
 }
 
 function shouldShowSubject(item: CertificateChainItem) {
@@ -290,9 +296,7 @@ async function loadDetail() {
     ])
     asset.value = assetResult.data ?? null
     version.value = versionResult.data ?? null
-    usages.value = Array.isArray(usageResult.data?.usages)
-      ? (usageResult.data.usages as ApiRecord[]).map((item) => normalizeUsageRow(item, '平台绑定记录'))
-      : []
+    usages.value = Array.isArray(usageResult.data?.usages) ? usageResult.data.usages as ApiRecord[] : []
   } catch (cause) {
     error.value = toErrorState(cause)
     asset.value = null
@@ -306,22 +310,22 @@ async function loadDetail() {
 
 <template>
   <section class="certificate-detail-panel">
-    <GcEmptyState v-if="error" title="证书详情加载失败" :description="error.message">
-      <p>错误码：{{ error.errorCode }}</p>
-      <button class="gc-button" type="button" @click="loadDetail">重试</button>
+    <GcEmptyState v-if="error" :title="detailPanelT('errors.loadFailedTitle')" :description="error.message">
+      <p>{{ detailPanelT('errors.code', { code: error.errorCode }) }}</p>
+      <button class="gc-button" type="button" @click="loadDetail">{{ detailPanelT('actions.retry') }}</button>
     </GcEmptyState>
 
-    <div v-else-if="loading" class="certificate-detail-panel__state">加载中...</div>
+    <div v-else-if="loading" class="certificate-detail-panel__state">{{ detailPanelT('states.loading') }}</div>
 
     <template v-else>
-      <nav class="certificate-detail-panel__tabs" aria-label="证书详情标签">
+      <nav class="certificate-detail-panel__tabs" :aria-label="detailPanelT('tabs.ariaLabel')">
         <button
           class="certificate-detail-panel__tab"
           :class="{ 'is-active': activeTab === 'detail' }"
           type="button"
           @click="activeTab = 'detail'"
         >
-          详情
+          {{ detailPanelT('tabs.detail') }}
         </button>
         <button
           class="certificate-detail-panel__tab"
@@ -329,7 +333,7 @@ async function loadDetail() {
           type="button"
           @click="activeTab = 'usage'"
         >
-          关联资产
+          {{ detailPanelT('tabs.usage') }}
         </button>
       </nav>
 
@@ -342,25 +346,25 @@ async function loadDetail() {
         </section>
 
         <section class="certificate-detail-panel__validity gc-card">
-          <span class="certificate-detail-panel__validity-label">证书有效期</span>
+          <span class="certificate-detail-panel__validity-label">{{ detailPanelT('validity.title') }}</span>
           <div class="certificate-detail-panel__validity-meta">
-            <span>生效：{{ validityRange.start }}</span>
-            <span>到期：{{ validityRange.end }}</span>
+            <span>{{ detailPanelT('validity.notBefore', { value: validityRange.start }) }}</span>
+            <span>{{ detailPanelT('validity.notAfter', { value: validityRange.end }) }}</span>
           </div>
         </section>
 
         <section class="gc-card certificate-detail-panel__chain-card">
           <header class="certificate-detail-panel__section-header">
-            <strong>证书链</strong>
+            <strong>{{ detailPanelT('chain.title') }}</strong>
           </header>
-          <div v-if="chainCertificates.length === 0" class="certificate-detail-panel__empty">暂无证书链信息</div>
+          <div v-if="chainCertificates.length === 0" class="certificate-detail-panel__empty">{{ detailPanelT('chain.empty') }}</div>
           <ol v-else class="certificate-detail-panel__chain-list">
             <li v-for="item in chainCertificates" :key="item.fingerprintSha256" class="certificate-detail-panel__chain-item">
               <span class="certificate-detail-panel__chain-role">{{ roleLabel(item.role) }}</span>
               <div class="certificate-detail-panel__chain-body">
                 <strong>{{ item.displayName }}</strong>
-                <p v-if="shouldShowSubject(item)">主体：{{ item.subjectText }}</p>
-                <small v-if="item.issuerText !== item.displayName">签发者：{{ item.issuerText }}</small>
+                <p v-if="shouldShowSubject(item)">{{ detailPanelT('chain.subject', { value: item.subjectText }) }}</p>
+                <small v-if="item.issuerText !== item.displayName">{{ detailPanelT('chain.issuer', { value: item.issuerText }) }}</small>
               </div>
             </li>
           </ol>
@@ -380,25 +384,25 @@ async function loadDetail() {
       </section>
 
       <section v-else class="certificate-detail-panel__tab-panel">
-        <GcDataTable :columns="usageColumns" :rows="mergedUsages" empty-text="暂无关联资产">
-          <template #toolbar><strong>关联资产</strong></template>
+        <GcDataTable :columns="usageColumns" :rows="mergedUsages" :empty-text="detailPanelT('usage.empty')">
+          <template #toolbar><strong>{{ detailPanelT('usage.toolbar') }}</strong></template>
           <template #cell-domainName="{ row }">
-            {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], '未知目标') }}
+            {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], detailPanelT('fallbacks.unknownTarget')) }}
           </template>
           <template #cell-agentName="{ row }">
-            {{ readUsageField(row, ['agentName'], '—') }}
+            {{ readUsageField(row, ['agentName'], detailPanelT('fallbacks.emptyValue')) }}
           </template>
           <template #cell-siteName="{ row }">
-            {{ readUsageField(row, ['siteName'], '—') }}
+            {{ readUsageField(row, ['siteName'], detailPanelT('fallbacks.emptyValue')) }}
           </template>
           <template #cell-bindingType="{ row }">
-            {{ readUsageField(row, ['bindingType', 'resourceType', 'type'], '未知类型') }}
+            {{ readUsageField(row, ['bindingType', 'resourceType', 'type'], detailPanelT('fallbacks.unknownType')) }}
           </template>
           <template #cell-usageSource="{ row }">
-            {{ readUsageField(row, ['usageSource'], '平台绑定记录') }}
+            {{ readUsageField(row, ['usageSource'], detailPanelT('sources.platformBinding')) }}
           </template>
           <template #cell-status="{ row }">
-            {{ readUsageField(row, ['status', 'state'], '未知') }}
+            {{ readUsageField(row, ['status', 'state'], detailPanelT('fallbacks.unknown')) }}
           </template>
         </GcDataTable>
       </section>

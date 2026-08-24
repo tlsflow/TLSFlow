@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
@@ -12,6 +13,7 @@ import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue
 import { toErrorState, type CertificatePageError } from './certificate-view-utils'
 
 const route = useRoute()
+const { t } = useI18n()
 const certificateId = computed(() => String(route.params.id ?? ''))
 const rows = ref<ApiRecord[]>([])
 const loading = ref(false)
@@ -26,13 +28,13 @@ const formatOptions = [
   { value: 'P7B', label: 'P7B / PKCS#7', supported: true },
 ]
 const selectedFormat = computed(() => formatOptions.find((item) => item.value === draft.format) ?? formatOptions[0])
-const columns: DataTableColumn<ApiRecord>[] = [
-  { key: 'format', title: '格式' },
-  { key: 'status', title: '状态' },
-  { key: 'certificateVersionId', title: '版本 ID' },
-  { key: 'secretRef', title: 'Secret 引用' },
-  { key: 'createdAt', title: '创建时间' },
-]
+const columns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'format', title: t('certificates.formats.columns.format') },
+  { key: 'status', title: t('certificates.formats.columns.status') },
+  { key: 'certificateVersionId', title: t('certificates.formats.columns.certificateVersionId') },
+  { key: 'secretRef', title: t('certificates.formats.columns.secretRef') },
+  { key: 'createdAt', title: t('certificates.formats.columns.createdAt') },
+])
 
 async function loadFormats() {
   loading.value = true
@@ -62,7 +64,7 @@ function payload() {
 async function createFormat() {
   actionError.value = ''
   if (!selectedFormat.value.supported) {
-    actionError.value = `${selectedFormat.value.label} 当前能力声明不可创建。`
+    actionError.value = t('certificates.formats.unsupported', { format: selectedFormat.value.label })
     return
   }
   try {
@@ -72,7 +74,7 @@ async function createFormat() {
     if (cause instanceof ApiClientError) {
       actionError.value = `${cause.message}（${cause.errorCode}）`
     } else {
-      actionError.value = cause instanceof Error ? cause.message : '创建格式失败'
+      actionError.value = cause instanceof Error ? cause.message : t('certificates.formats.createFailed')
     }
   }
 }
@@ -82,26 +84,26 @@ onMounted(() => void loadFormats())
 
 <template>
   <section class="gc-page certificate-formats">
-    <GcPageHeader title="证书格式配置" :description="`证书 ${certificateId} 的 PEM/DER/PFX/JKS/P7B 格式配置入口。`">
-      <template #actions><RouterLink class="gc-button" :to="`/certificates/${certificateId}`">返回详情</RouterLink></template>
+    <GcPageHeader :title="t('certificates.formats.title')" :description="t('certificates.formats.description', { id: certificateId })">
+      <template #actions><RouterLink class="gc-button" :to="`/certificates/${certificateId}`">{{ t('certificates.usages.backDetail') }}</RouterLink></template>
     </GcPageHeader>
 
     <section class="gc-card certificate-formats__actions">
-      <label><span>目标格式</span><select v-model="draft.format"><option v-for="item in formatOptions" :key="item.value" :value="item.value">{{ item.label }} - 可用</option></select></label>
-      <label><span>版本 ID</span><input v-model="draft.certificateVersionId" placeholder="certver-..." /></label>
-      <label><span>passwordSecretRef（PFX/JKS）</span><input v-model="draft.passwordSecretRef" placeholder="secret://pfx_password/sec_...#current" /></label>
-      <label><span>Alias（可选）</span><input v-model="draft.alias" placeholder="例如 gcac-cert" /></label>
-      <label><span>包含私钥（PEM）</span><select v-model="draft.containsPrivateKey"><option :value="false">否</option><option :value="true">是</option></select></label>
-      <button class="gc-button" type="button" :disabled="!selectedFormat.supported" @click="createFormat">创建格式配置</button>
-      <p>PFX/JKS 必须使用后端已有的 passwordSecretRef；实际部署时会基于证书版本和格式配置即时生成材料。</p>
+      <label><span>{{ t('certificates.formats.fields.targetFormat') }}</span><select v-model="draft.format"><option v-for="item in formatOptions" :key="item.value" :value="item.value">{{ t('certificates.formats.optionAvailable', { label: item.label }) }}</option></select></label>
+      <label><span>{{ t('certificates.formats.fields.versionId') }}</span><input v-model="draft.certificateVersionId" placeholder="certver-..." /></label>
+      <label><span>{{ t('certificates.formats.fields.passwordSecretRef') }}</span><input v-model="draft.passwordSecretRef" placeholder="secret://pfx_password/sec_...#current" /></label>
+      <label><span>{{ t('certificates.formats.fields.alias') }}</span><input v-model="draft.alias" :placeholder="t('certificates.formats.placeholders.alias')" /></label>
+      <label><span>{{ t('certificates.formats.fields.containsPrivateKey') }}</span><select v-model="draft.containsPrivateKey"><option :value="false">{{ t('agents.common.no') }}</option><option :value="true">{{ t('agents.common.yes') }}</option></select></label>
+      <button class="gc-button" type="button" :disabled="!selectedFormat.supported" @click="createFormat">{{ t('certificates.formats.create') }}</button>
+      <p>{{ t('certificates.formats.hint') }}</p>
       <p v-if="actionError" class="certificate-formats__error">{{ actionError }}</p>
     </section>
 
-    <GcEmptyState v-if="error" title="格式配置加载失败" :description="error.message">
-      <p>错误码：{{ error.errorCode }}</p>
+    <GcEmptyState v-if="error" :title="t('certificates.formats.loadFailed')" :description="error.message">
+      <p>{{ t('businessPage.errorCode', { code: error.errorCode }) }}</p>
     </GcEmptyState>
-    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" empty-text="暂无格式配置">
-      <template #toolbar><strong>格式配置列表</strong></template>
+    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.formats.empty')">
+      <template #toolbar><strong>{{ t('certificates.formats.toolbar') }}</strong></template>
       <template #cell-status="{ row }"><GcStatusTag :status="String(row.status ?? 'UNKNOWN')" /></template>
     </GcDataTable>
   </section>

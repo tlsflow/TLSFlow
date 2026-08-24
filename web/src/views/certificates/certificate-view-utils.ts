@@ -1,5 +1,6 @@
 import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
+import { i18n } from '@/i18n'
 
 export interface CertificatePageError {
   readonly message: string
@@ -38,7 +39,7 @@ export function toErrorState(cause: unknown): CertificatePageError {
     }
   }
   return {
-    message: cause instanceof Error ? cause.message : '请求失败',
+    message: cause instanceof Error ? cause.message : i18n.global.t('certificates.errors.requestFailed'),
     errorCode: 'NETWORK_OR_RUNTIME_ERROR',
     requestId: ''
   }
@@ -49,5 +50,5 @@ export function formatList(items: readonly unknown[] | undefined): string {
   return items.map((item) => {
     if (typeof item === 'object' && item) return JSON.stringify(item)
     return String(item)
-  }).join('、')
+  }).join(', ')
 }

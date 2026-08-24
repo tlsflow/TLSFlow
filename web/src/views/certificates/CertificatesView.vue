@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
@@ -42,14 +43,17 @@ interface CertificateVersionRow extends Record<string, string> {
   readonly subject: string
   readonly status: string
   readonly lifecycle: string
+  readonly lifecycleKey: LifecycleStatusKey
 }
 
 type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
 type VersionSortOrder = 'asc' | 'desc'
+type LifecycleStatusKey = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
 const EXPIRING_SOON_DAYS = 10
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const permissionStore = usePermissionStore()
 const initialQuery = route.query ?? {}
 const filters = reactive<Record<string, string>>({
@@ -64,7 +68,7 @@ const assetsError = ref<CertificatePageError | null>(null)
 const versionsError = ref<CertificatePageError | null>(null)
 const assets = ref<ApiRecord[]>([])
 const versions = ref<ApiRecord[]>([])
-const assetLifecycleMap = ref<Record<string, string>>({})
+const assetLifecycleMap = ref<Record<string, LifecycleStatusKey>>({})
 const assetVersionCountMap = ref<Record<string, number>>({})
 const selectedAssetId = ref('')
 const versionFilterKeyword = ref('')
@@ -107,7 +111,7 @@ const displayedAssets = computed(() =>
     .filter((record): record is ApiRecord => Boolean(record)),
 )
 const selectedAsset = computed(() => displayedAssets.value.find((item) => readId(item) === selectedAssetId.value) ?? null)
-const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : '未选择域名'))
+const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : t('certificates.list.fallbacks.unselectedDomain')))
 const selectedAssetMemberIds = computed(() => {
   if (!selectedAsset.value) return []
   return (assetDomainGroups.value.get(readAssetName(selectedAsset.value)) ?? [])
@@ -118,9 +122,10 @@ const assetCount = computed(() => displayedAssets.value.length)
 const rawVersionRows = computed<CertificateVersionRow[]>(() =>
   versions.value.map((record, index) => {
     const id = readString(record, ['id', 'certificateVersionId'], `certver-${index + 1}`)
-    const notBefore = formatDateOnly(readString(record, ['notBefore'], '未知'))
-    const notAfter = formatDateOnly(readString(record, ['notAfter'], '未知'))
+    const notBefore = formatDateOnly(readString(record, ['notBefore'], t('certificates.detailPanel.fallbacks.unknown')))
+    const notAfter = formatDateOnly(readString(record, ['notAfter'], t('certificates.detailPanel.fallbacks.unknown')))
     const status = readString(record, ['status', 'state'], 'MANAGED')
+    const lifecycleKey = resolveLifecycleStatusKey(notAfter, status)
     return {
       id,
       assetId: readString(record, ['certificateAssetId'], selectedAssetId.value || 'unknown-asset'),
@@ -128,29 +133,30 @@ const rawVersionRows = computed<CertificateVersionRow[]>(() =>
       associatedAsset: selectedDomainName.value,
       notBefore,
       notAfter,
-      issuer: readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], '未知颁发者'),
-      subject: readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], '未知使用者'),
+      issuer: readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], t('certificates.detailPanel.fallbacks.unknownIssuer')),
+      subject: readString(record, ['subject.commonName', 'subject.organization', 'subject.raw'], t('certificates.detailPanel.fallbacks.unknownSubject')),
       status,
-      lifecycle: resolveLifecycleStatus(notAfter, status),
+      lifecycle: formatLifecycleStatus(lifecycleKey),
+      lifecycleKey,
     }
   }),
 )
-const versionColumns: DataTableColumn<CertificateVersionRow>[] = [
-  { key: 'certificateName', title: '证书名称', width: '12%' },
-  { key: 'notBefore', title: '开始日期', width: '10%' },
-  { key: 'notAfter', title: '结束日期', width: '10%' },
-  { key: 'issuer', title: '颁发者', width: '16%' },
-  { key: 'subject', title: '使用者', width: '12%' },
-  { key: 'associatedAsset', title: '关联资产', width: '12%' },
-  { key: 'status', title: '状态', width: '8%' },
-  { key: 'id', title: '证书版本 ID', width: '12%' },
-  { key: 'actions', title: '操作', width: '168px' },
-]
+const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => [
+  { key: 'certificateName', title: t('certificates.detailPanel.summary.certificateName'), width: '12%' },
+  { key: 'notBefore', title: t('certificates.list.columns.notBefore'), width: '10%' },
+  { key: 'notAfter', title: t('certificates.list.columns.notAfter'), width: '10%' },
+  { key: 'issuer', title: t('certificates.detailPanel.summary.issuer'), width: '16%' },
+  { key: 'subject', title: t('certificates.detailPanel.summary.subject'), width: '12%' },
+  { key: 'associatedAsset', title: t('certificates.list.columns.associatedAsset'), width: '12%' },
+  { key: 'status', title: t('certificates.list.columns.status'), width: '8%' },
+  { key: 'id', title: t('certificates.list.columns.certificateVersionId'), width: '12%' },
+  { key: 'actions', title: t('agents.columns.actions'), width: '168px' },
+])
 const versionRows = computed<CertificateVersionRow[]>(() => {
   const keyword = versionFilterKeyword.value.trim().toLowerCase()
   const status = versionFilterStatus.value.trim()
   const rows = rawVersionRows.value.filter((row) => {
-    if (status && row.status !== status && row.lifecycle !== status) return false
+    if (status && row.status !== status && row.lifecycleKey !== status) return false
     if (!keyword) return true
     const haystack = [
       row.certificateName,
@@ -206,11 +212,11 @@ function readId(record: ApiRecord) {
 }
 
 function readAssetName(record: ApiRecord) {
-  return readString(record, ['primaryDomain', 'name', 'commonName'], '未命名域名')
+  return readString(record, ['primaryDomain', 'name', 'commonName'], t('certificates.list.fallbacks.unnamedDomain'))
 }
 
 function readAssetSubtitle(record: ApiRecord) {
-  return readString(record, ['sourceType', 'currentVersion.notAfter', 'updatedAt'], '暂无补充信息')
+  return readString(record, ['sourceType', 'currentVersion.notAfter', 'updatedAt'], t('certificates.list.fallbacks.noSupplement'))
 }
 
 function formatDateOnly(value: string) {
@@ -251,7 +257,7 @@ async function loadAssets() {
 async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
   const entries = await Promise.all(records.map(async (record) => {
     const assetId = readId(record)
-    if (!assetId) return ['', { lifecycle: '未知', total: 0 }] as const
+    if (!assetId) return ['', { lifecycle: 'unknown' as const, total: 0 }] as const
     try {
       const result = await listCertificateVersions({
         page: 1,
@@ -264,11 +270,11 @@ async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
       const latest = (result.data?.items?.[0] ?? null) as ApiRecord | null
       const notAfter = readString(latest, ['notAfter'], '')
       return [assetId, {
-        lifecycle: resolveLifecycleStatus(formatDateOnly(notAfter), readString(latest, ['status', 'state'], 'MANAGED')),
+        lifecycle: resolveLifecycleStatusKey(formatDateOnly(notAfter), readString(latest, ['status', 'state'], 'MANAGED')),
         total: Number(result.data?.total ?? 0),
       }] as const
     } catch {
-      return [assetId, { lifecycle: readAssetLifecycleStatus(record), total: 0 }] as const
+      return [assetId, { lifecycle: readAssetLifecycleStatusKey(record), total: 0 }] as const
     }
   }))
   assetLifecycleMap.value = Object.fromEntries(entries.filter(([assetId]) => assetId).map(([assetId, state]) => [assetId, state.lifecycle]))
@@ -342,11 +348,11 @@ function closeImportDialog() {
 
 async function submitImport() {
   if (!hasCertificateMaterial.value) {
-    importError.value = '必须提供当前格式对应的证书材料。'
+    importError.value = t('certificates.list.errors.materialRequiredForFormat')
     return
   }
   if (!importValidationResult.value?.importable) {
-    importError.value = '请先完成第 3 步校验，并确保校验通过后再导入。'
+    importError.value = t('certificates.import.errors.needPassedValidation')
     return
   }
   importLoading.value = true
@@ -364,7 +370,7 @@ async function submitImport() {
       importError.value = `${cause.message}（${cause.errorCode}）`
       return
     }
-    importError.value = cause instanceof Error ? cause.message : '导入失败，请检查输入材料。'
+    importError.value = cause instanceof Error ? cause.message : t('certificates.list.errors.importFailedWithCheck')
   } finally {
     importLoading.value = false
   }
@@ -372,7 +378,7 @@ async function submitImport() {
 
 async function validateImportDraft() {
   if (!hasCertificateMaterial.value) {
-    importError.value = '必须先完成导入材料填写，才能开始校验。'
+    importError.value = t('certificates.import.errors.materialRequiredBeforeValidate')
     importValidationResult.value = null
     return
   }
@@ -387,30 +393,38 @@ async function validateImportDraft() {
       importError.value = `${cause.message}（${cause.errorCode}）`
       return
     }
-    importError.value = cause instanceof Error ? cause.message : '校验失败，请检查输入材料。'
+    importError.value = cause instanceof Error ? cause.message : t('certificates.list.errors.validateFailedWithCheck')
   } finally {
     importValidating.value = false
   }
 }
 
 function readAssetLifecycleStatus(record: ApiRecord | null) {
-  if (!record) return '未知'
+  return formatLifecycleStatus(readAssetLifecycleStatusKey(record))
+}
+
+function readAssetLifecycleStatusKey(record: ApiRecord | null): LifecycleStatusKey {
+  if (!record) return 'unknown'
   const assetId = readId(record)
   if (assetId && assetLifecycleMap.value[assetId]) return assetLifecycleMap.value[assetId]
   const expiry = readString(record, ['currentVersion.notAfter', 'expiresAt', 'notAfter'], '')
-  if (!expiry) return '未知'
-  return resolveLifecycleStatus(formatDateOnly(expiry))
+  if (!expiry) return 'unknown'
+  return resolveLifecycleStatusKey(formatDateOnly(expiry))
 }
 
-function resolveLifecycleStatus(notAfter: string, status = '') {
+function resolveLifecycleStatusKey(notAfter: string, status = ''): LifecycleStatusKey {
   const normalizedStatus = status.toUpperCase()
-  if (normalizedStatus === 'EXPIRED') return '过期'
+  if (normalizedStatus === 'EXPIRED') return 'expired'
   const expiresAt = Date.parse(notAfter)
-  if (Number.isNaN(expiresAt)) return '未知'
+  if (Number.isNaN(expiresAt)) return 'unknown'
   const diffMs = expiresAt - Date.now()
-  if (diffMs < 0) return '过期'
-  if (diffMs <= EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000) return '即将过期'
-  return '有效'
+  if (diffMs < 0) return 'expired'
+  if (diffMs <= EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000) return 'expiringSoon'
+  return 'valid'
+}
+
+function formatLifecycleStatus(status: LifecycleStatusKey) {
+  return t(`certificates.list.lifecycle.${status}`)
 }
 
 function selectRepresentativeAsset(records: ApiRecord[]) {
@@ -437,7 +451,7 @@ function normalizeSortValue(row: CertificateVersionRow, field: VersionSortField)
     case 'notAfter':
       return normalizeDateValue(row.notAfter)
     case 'status':
-      return `${row.lifecycle}|${row.status}`.toLowerCase()
+      return `${row.lifecycleKey}|${row.status}`.toLowerCase()
     default:
       return String(row[field] ?? '').toLowerCase()
   }
@@ -510,30 +524,30 @@ async function removeVersion(row: CertificateVersionRow) {
     <section class="certificate-page__toolbar">
       <section class="gc-card certificate-page__filters">
         <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">关键字</span>
-          <input v-model="filters.keyword" placeholder="域名 / SAN / 指纹" @change="updateFilters" />
+          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
+          <input v-model="filters.keyword" :placeholder="t('certificates.list.placeholders.assetKeyword')" @change="updateFilters" />
         </label>
         <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">域名</span>
+          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.domain') }}</span>
           <input v-model="filters.primaryDomain" placeholder="example.com" @change="updateFilters" />
         </label>
         <label class="certificate-page__filter">
-          <span class="certificate-page__filter-label">状态</span>
+          <span class="certificate-page__filter-label">{{ t('certificates.list.filters.status') }}</span>
           <select v-model="filters.status" @change="updateFilters">
-            <option value="">全部</option>
+            <option value="">{{ t('businessPage.all') }}</option>
             <option value="MANAGED">MANAGED</option>
             <option value="EXPIRED">EXPIRED</option>
             <option value="REVOKED">REVOKED</option>
           </select>
         </label>
         <div class="certificate-page__filter-actions">
-          <button class="gc-button" type="button" @click="clearFilters">清空筛选</button>
+          <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
         </div>
       </section>
 
       <div class="certificate-page__toolbar-actions">
         <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
-          导入证书
+          {{ t('certificates.import.title') }}
         </GcPermissionButton>
       </div>
     </section>
@@ -542,19 +556,19 @@ async function removeVersion(row: CertificateVersionRow) {
       <aside class="certificate-page__assets">
         <header class="certificate-page__panel-header">
           <div>
-            <h2>域名列表</h2>
+            <h2>{{ t('certificates.list.assets.title') }}</h2>
           </div>
-          <span>总数 {{ assetCount }}</span>
+          <span>{{ t('businessPage.total', { count: assetCount }) }}</span>
         </header>
 
-        <GcEmptyState v-if="assetsError" class="certificate-page__empty-state" title="域名列表加载失败" :description="assetsError.message">
-          <p>错误码：{{ assetsError.errorCode }}</p>
-          <button class="gc-button" type="button" @click="loadAssets">重试</button>
+        <GcEmptyState v-if="assetsError" class="certificate-page__empty-state" :title="t('certificates.list.assets.loadFailed')" :description="assetsError.message">
+          <p>{{ t('businessPage.errorCode', { code: assetsError.errorCode }) }}</p>
+          <button class="gc-button" type="button" @click="loadAssets">{{ t('businessPage.retry') }}</button>
         </GcEmptyState>
 
-        <div v-else-if="assetsLoading" class="certificate-page__state">加载中...</div>
+        <div v-else-if="assetsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
 
-        <GcEmptyState v-else-if="displayedAssets.length === 0" class="certificate-page__empty-state" title="暂无域名列表" />
+        <GcEmptyState v-else-if="displayedAssets.length === 0" class="certificate-page__empty-state" :title="t('certificates.list.assets.empty')" />
 
         <div v-else class="certificate-page__asset-list">
           <button
@@ -579,94 +593,94 @@ async function removeVersion(row: CertificateVersionRow) {
       <section class="certificate-page__versions">
         <header class="certificate-page__panel-header">
           <div>
-            <h2>{{ selectedAsset ? `${selectedDomainName} 的 SSL 证书列表` : 'SSL 证书列表' }}</h2>
-            <p>右侧显示当前域名下的 SSL 证书列表，包含证书名称、开始日期、结束日期、颁发者和使用者信息。</p>
+            <h2>{{ selectedAsset ? t('certificates.list.versions.titleWithDomain', { domain: selectedDomainName }) : t('certificates.list.versions.title') }}</h2>
+            <p>{{ t('certificates.list.versions.description') }}</p>
           </div>
         </header>
 
         <div class="certificate-page__versions-body">
           <div v-if="versionActionError" class="certificate-page__inline-error" role="alert">
-            <strong>删除失败</strong>
+            <strong>{{ t('certificates.list.errors.deleteFailed') }}</strong>
             <span>{{ versionActionError.message }}</span>
-            <span v-if="versionActionError.errorCode">错误码：{{ versionActionError.errorCode }}</span>
+            <span v-if="versionActionError.errorCode">{{ t('businessPage.errorCode', { code: versionActionError.errorCode }) }}</span>
           </div>
-          <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" title="SSL 证书列表加载失败" :description="versionsError.message">
-            <p>错误码：{{ versionsError.errorCode }}</p>
-            <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">重试</button>
+          <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" :title="t('certificates.list.versions.loadFailed')" :description="versionsError.message">
+            <p>{{ t('businessPage.errorCode', { code: versionsError.errorCode }) }}</p>
+            <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">{{ t('businessPage.retry') }}</button>
           </GcEmptyState>
 
-          <div v-else-if="versionsLoading" class="certificate-page__state">加载中...</div>
+          <div v-else-if="versionsLoading" class="certificate-page__state">{{ t('certificates.detailPanel.states.loading') }}</div>
 
           <GcEmptyState
             v-else-if="!selectedAsset"
             class="certificate-page__empty-state"
-            title="未选择域名"
-            description="请先在左侧选择一个逻辑证书域名。"
+            :title="t('certificates.list.assets.unselectedTitle')"
+            :description="t('certificates.list.assets.unselectedDescription')"
           />
 
           <GcEmptyState
             v-else-if="versionRows.length === 0"
             class="certificate-page__empty-state"
-            title="该域名下暂无 SSL 证书"
-            description="可以通过筛选栏右侧的导入证书按钮补充该域名的证书版本。"
+            :title="t('certificates.list.versions.emptyForDomain')"
+            :description="t('certificates.list.versions.emptyForDomainDescription')"
           />
 
-          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" empty-text="暂无 SSL 证书">
+          <GcDataTable v-else class="certificate-page__version-table" :columns="versionColumns" :rows="versionRows" :empty-text="t('certificates.list.versions.empty')">
             <template #toolbar>
               <div class="certificate-page__table-toolbar">
                 <div class="certificate-page__table-heading">
-                  <strong>证书版本列表</strong>
-                  <span>当前 {{ versionCount }} 条</span>
+                  <strong>{{ t('certificates.list.versions.toolbar') }}</strong>
+                  <span>{{ t('certificates.list.versions.currentCount', { count: versionCount }) }}</span>
                 </div>
                 <div class="certificate-page__table-controls">
                   <label class="certificate-page__table-filter">
-                    <span>关键字</span>
-                    <input v-model="versionFilterKeyword" placeholder="名称 / 颁发者 / 使用者 / 版本 ID" />
+                    <span>{{ t('certificates.list.filters.keyword') }}</span>
+                    <input v-model="versionFilterKeyword" :placeholder="t('certificates.list.placeholders.versionKeyword')" />
                   </label>
                   <label class="certificate-page__table-filter">
-                    <span>状态</span>
+                    <span>{{ t('certificates.list.filters.status') }}</span>
                     <select v-model="versionFilterStatus">
-                      <option value="">全部</option>
-                      <option value="有效">有效</option>
-                      <option value="即将过期">即将过期</option>
-                      <option value="过期">过期</option>
+                      <option value="">{{ t('businessPage.all') }}</option>
+                      <option value="valid">{{ t('certificates.list.lifecycle.valid') }}</option>
+                      <option value="expiringSoon">{{ t('certificates.list.lifecycle.expiringSoon') }}</option>
+                      <option value="expired">{{ t('certificates.list.lifecycle.expired') }}</option>
                       <option value="MANAGED">MANAGED</option>
                       <option value="EXPIRED">EXPIRED</option>
                       <option value="REVOKED">REVOKED</option>
                     </select>
                   </label>
-                  <button class="gc-button" type="button" @click="clearVersionFilters">清空</button>
+                  <button class="gc-button" type="button" @click="clearVersionFilters">{{ t('certificates.list.actions.clear') }}</button>
                 </div>
               </div>
             </template>
             <template #header-certificateName>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('certificateName')">
-                证书名称 {{ sortIndicator('certificateName') }}
+                {{ t('certificates.detailPanel.summary.certificateName') }} {{ sortIndicator('certificateName') }}
               </button>
             </template>
             <template #header-notBefore>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notBefore')">
-                开始日期 {{ sortIndicator('notBefore') }}
+                {{ t('certificates.list.columns.notBefore') }} {{ sortIndicator('notBefore') }}
               </button>
             </template>
             <template #header-notAfter>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('notAfter')">
-                结束日期 {{ sortIndicator('notAfter') }}
+                {{ t('certificates.list.columns.notAfter') }} {{ sortIndicator('notAfter') }}
               </button>
             </template>
             <template #header-issuer>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('issuer')">
-                颁发者 {{ sortIndicator('issuer') }}
+                {{ t('certificates.detailPanel.summary.issuer') }} {{ sortIndicator('issuer') }}
               </button>
             </template>
             <template #header-subject>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('subject')">
-                使用者 {{ sortIndicator('subject') }}
+                {{ t('certificates.detailPanel.summary.subject') }} {{ sortIndicator('subject') }}
               </button>
             </template>
             <template #header-status>
               <button class="certificate-page__header-sort" type="button" @click="toggleVersionSort('status')">
-                状态 {{ sortIndicator('status') }}
+                {{ t('certificates.list.columns.status') }} {{ sortIndicator('status') }}
               </button>
             </template>
             <template #cell-certificateName="{ row }">
@@ -682,12 +696,12 @@ async function removeVersion(row: CertificateVersionRow) {
             </template>
             <template #cell-actions="{ row }">
               <div class="certificate-page__row-actions">
-                <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">详情</button>
+                <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">{{ t('agents.actions.detail') }}</button>
                 <GcConfirmAction
                   v-if="canDeleteVersion"
-                  action-name="删除"
+                  :action-name="t('agents.actions.delete')"
                   :impact-count="1"
-                  risk-text="删除会直接移除当前证书版本；如果该版本仍被绑定或部署引用，后端会拒绝这个操作。"
+                  :risk-text="t('certificates.list.actions.deleteRisk')"
                   confirm-text="DELETE"
                   @confirm="removeVersion(row as CertificateVersionRow)"
                 />
@@ -700,8 +714,8 @@ async function removeVersion(row: CertificateVersionRow) {
 
     <GcModal
       v-model:open="detailDialogOpen"
-      title="证书详情"
-      description="详情标签展示证书字段与格式产物，关联资产标签展示证书使用位置。"
+      :title="t('certificates.detail.title')"
+      :description="t('certificates.detail.description')"
       size="xxl"
     >
       <CertificateDetailPanel :asset-id="detailAssetId" :version-id="detailVersionId" />
@@ -709,8 +723,8 @@ async function removeVersion(row: CertificateVersionRow) {
 
     <GcModal
       v-model:open="importDialogOpen"
-      title="导入证书"
-      description="当前仅支持 PEM + KEY 和 PFX；每次导入都必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会显示警告。私钥只保存到后端 Secret，不会在响应中回显。"
+      :title="t('certificates.import.title')"
+      :description="t('certificates.list.import.description')"
       size="xxl"
     >
       <CertificateImportForm

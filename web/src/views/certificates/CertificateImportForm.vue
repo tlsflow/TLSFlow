@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type {
   CertificateImportDraft,
@@ -8,8 +9,8 @@ import type {
   ImportMethod,
 } from './certificate-import.shared'
 import {
-  certificateFormatOptions,
-  importMethodOptions,
+  createCertificateFormatOptions,
+  createImportMethodOptions,
   isMaterialReady,
 } from './certificate-import.shared'
 
@@ -34,19 +35,22 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+const { t } = useI18n()
 const currentStep = ref(1)
 const fileInputKey = ref(0)
 const certificateFileName = ref('')
 const privateKeyFileName = ref('')
 
+const certificateFormatOptions = computed(() => createCertificateFormatOptions(t))
+const importMethodOptions = computed(() => createImportMethodOptions(t))
 const selectedFormat = computed(() =>
-  certificateFormatOptions.find((item) => item.key === props.draft.format) ?? certificateFormatOptions[0],
+  certificateFormatOptions.value.find((item) => item.key === props.draft.format) ?? certificateFormatOptions.value[0],
 )
 const effectiveMethod = computed<ImportMethod>(() => (
   props.draft.format === 'PFX' ? 'file' : props.draft.importMethod
 ))
 const selectedMethod = computed(() =>
-  importMethodOptions.find((item) => item.key === effectiveMethod.value) ?? importMethodOptions[0],
+  importMethodOptions.value.find((item) => item.key === effectiveMethod.value) ?? importMethodOptions.value[0],
 )
 const materialReady = computed(() => isMaterialReady(props.draft))
 const canGoToStepTwo = computed(() => Boolean(selectedFormat.value.supported))
@@ -55,9 +59,9 @@ const canSubmit = computed(() => Boolean(props.validationResult?.importable) && 
 
 const chainCheckHint = computed(() => {
   if (props.draft.format === 'PEM') {
-    return 'PEM + KEY 必须同时包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时只显示警告。'
+    return t('certificates.importForm.hints.pemChainCheck')
   }
-  return 'PFX 仅支持文件导入，且必须解出服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时只显示警告。'
+  return t('certificates.importForm.hints.pfxChainCheck')
 })
 
 const methodSpecificTitle = computed(() => `${selectedFormat.value.label} · ${selectedMethod.value.label}`)
@@ -65,7 +69,7 @@ const needsCertificateText = computed(() => props.draft.format === 'PEM' && effe
 const needsCertificateFile = computed(() => effectiveMethod.value === 'file')
 const issuerText = computed(() => stringifyDn(props.validationResult?.certificate.issuer))
 const subjectText = computed(() => stringifyDn(props.validationResult?.certificate.subject))
-const sanText = computed(() => props.validationResult?.certificate.sans.join(', ') || '无')
+const sanText = computed(() => props.validationResult?.certificate.sans.join(', ') || t('agents.common.none'))
 const chainCertificates = computed(() => props.validationResult?.chain.certificates ?? [])
 
 watch(
@@ -159,24 +163,24 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 }
 
 function stringifyDn(value: Record<string, unknown> | undefined | null) {
-  if (!value) return '无'
+  if (!value) return t('agents.common.none')
   const raw = typeof value.raw === 'string' ? value.raw : ''
   if (raw) return raw
 
   return Object.entries(value)
     .filter(([key]) => key !== 'raw')
     .map(([key, item]) => `${key}=${String(item)}`)
-    .join(', ') || '无'
+    .join(', ') || t('agents.common.none')
 }
 
 function roleLabel(role: 'leaf' | 'intermediate' | 'root') {
-  if (role === 'leaf') return '服务器证书'
-  if (role === 'root') return '根证书'
-  return '中间证书'
+  if (role === 'leaf') return t('certificates.importForm.roles.leaf')
+  if (role === 'root') return t('certificates.importForm.roles.root')
+  return t('certificates.importForm.roles.intermediate')
 }
 
 function formatDateTime(value: string | undefined) {
-  if (!value) return '无'
+  if (!value) return t('agents.common.none')
   return formatBrowserLocalTime(value) || value
 }
 
@@ -195,23 +199,23 @@ function cancelImport() {
 
 <template>
   <section class="certificate-import-wizard">
-    <ol class="certificate-import-wizard__steps" aria-label="导入步骤">
-      <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }">1. 选择类型与方式</li>
-      <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }">2. 填写必要材料</li>
-      <li :class="{ 'is-active': currentStep === 3 }">3. 校验并导入</li>
+    <ol class="certificate-import-wizard__steps" :aria-label="t('certificates.importForm.steps.ariaLabel')">
+      <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }">1. {{ t('certificates.importForm.steps.formatAndMethod') }}</li>
+      <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }">2. {{ t('certificates.importForm.steps.materials') }}</li>
+      <li :class="{ 'is-active': currentStep === 3 }">3. {{ t('certificates.importForm.steps.validateAndImport') }}</li>
     </ol>
 
     <section v-if="currentStep === 1" class="gc-card gc-form-panel certificate-import-wizard__panel">
       <header class="gc-form-header certificate-import-wizard__header">
         <div>
-          <h3>仅保留两种导入格式</h3>
-          <p>当前入口只支持 PEM + KEY 和 PFX。PFX 仅支持文件导入，PEM 支持文件或粘贴。</p>
+          <h3>{{ t('certificates.importForm.formatIntro.title') }}</h3>
+          <p>{{ t('certificates.importForm.formatIntro.description') }}</p>
         </div>
       </header>
 
       <div class="certificate-import-wizard__choice-grid">
         <section class="certificate-import-wizard__choice-group">
-          <span class="certificate-import-wizard__choice-label">导入类型</span>
+          <span class="certificate-import-wizard__choice-label">{{ t('certificates.importForm.labels.importType') }}</span>
           <div class="certificate-import-wizard__cards">
             <button
               v-for="format in certificateFormatOptions"
@@ -222,14 +226,14 @@ function cancelImport() {
               @click="updateFormat(format.key)"
             >
               <strong>{{ format.label }}</strong>
-              <span>{{ format.supported ? '支持导入' : '暂不支持' }}</span>
+              <span>{{ format.supported ? t('certificates.importForm.status.supported') : t('certificates.importForm.status.unsupported') }}</span>
               <p>{{ format.hint }}</p>
             </button>
           </div>
         </section>
 
         <section class="certificate-import-wizard__choice-group">
-          <span class="certificate-import-wizard__choice-label">导入方式</span>
+          <span class="certificate-import-wizard__choice-label">{{ t('certificates.importForm.labels.importMethod') }}</span>
           <div class="certificate-import-wizard__cards certificate-import-wizard__cards--compact">
             <button
               v-for="method in importMethodOptions"
@@ -241,7 +245,7 @@ function cancelImport() {
               @click="updateMethod(method.key)"
             >
               <strong>{{ method.label }}</strong>
-              <p>{{ draft.format === 'PFX' && method.key !== 'file' ? 'PFX 仅支持文件导入。' : method.hint }}</p>
+              <p>{{ draft.format === 'PFX' && method.key !== 'file' ? t('certificates.importForm.hints.pfxFileOnly') : method.hint }}</p>
             </button>
           </div>
         </section>
@@ -258,7 +262,7 @@ function cancelImport() {
 
       <form class="certificate-import-wizard__form" @submit.prevent="nextStep">
         <label v-if="draft.format === 'PEM' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>证书链文件</span>
+          <span>{{ t('certificates.importForm.fields.certificateChainFile') }}</span>
           <input
             :key="`certificate-${fileInputKey}`"
             class="certificate-import-wizard__file"
@@ -267,21 +271,21 @@ function cancelImport() {
             accept=".pem,.crt,.cer,.txt"
             @change="handleCertificateFileChange"
           />
-          <small v-if="certificateFileName">已选择：{{ certificateFileName }}</small>
+          <small v-if="certificateFileName">{{ t('certificates.importForm.selectedFile', { name: certificateFileName }) }}</small>
         </label>
 
         <label v-if="needsCertificateText" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>证书 PEM / 证书链文本</span>
+          <span>{{ t('certificates.importForm.fields.certificatePemText') }}</span>
           <textarea
             v-model="draft.certificatePem"
             rows="12"
             spellcheck="false"
-            placeholder="按 leaf -> intermediate -> root 顺序粘贴证书链；root 可选"
+            :placeholder="t('certificates.importForm.placeholders.certificatePem')"
           />
         </label>
 
         <label v-if="draft.format === 'PEM'" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>私钥 {{ effectiveMethod === 'file' ? '文件' : 'PEM 文本' }}</span>
+          <span>{{ t('certificates.importForm.fields.privateKey', { kind: effectiveMethod === 'file' ? t('certificates.importForm.fields.file') : t('certificates.importForm.fields.pemText') }) }}</span>
           <input
             v-if="effectiveMethod === 'file'"
             :key="`private-key-${fileInputKey}`"
@@ -297,11 +301,11 @@ function cancelImport() {
             spellcheck="false"
             placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
           />
-          <small v-if="effectiveMethod === 'file' && privateKeyFileName">已选择：{{ privateKeyFileName }}</small>
+          <small v-if="effectiveMethod === 'file' && privateKeyFileName">{{ t('certificates.importForm.selectedFile', { name: privateKeyFileName }) }}</small>
         </label>
 
         <label v-if="draft.format === 'PFX' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>PFX 文件</span>
+          <span>{{ t('certificates.importForm.fields.pfxFile') }}</span>
           <input
             :key="`certificate-${fileInputKey}`"
             class="certificate-import-wizard__file"
@@ -309,17 +313,17 @@ function cancelImport() {
             accept=".pfx,.p12"
             @change="handleCertificateFileChange"
           />
-          <small v-if="certificateFileName">已选择：{{ certificateFileName }}</small>
+          <small v-if="certificateFileName">{{ t('certificates.importForm.selectedFile', { name: certificateFileName }) }}</small>
         </label>
 
         <div class="certificate-import-wizard__meta">
           <label class="gc-form-field certificate-import-wizard__field">
-            <span>证书名称（可选）</span>
-            <input v-model="draft.name" placeholder="默认使用 CN 或 SAN" />
+            <span>{{ t('certificates.importForm.fields.certificateName') }}</span>
+            <input v-model="draft.name" :placeholder="t('certificates.importForm.placeholders.certificateName')" />
           </label>
           <label v-if="draft.format === 'PFX'" class="gc-form-field certificate-import-wizard__field">
-            <span>PFX 密码</span>
-            <input v-model="draft.pfxPassword" type="password" autocomplete="off" placeholder="必填" />
+            <span>{{ t('certificates.importForm.fields.pfxPassword') }}</span>
+            <input v-model="draft.pfxPassword" type="password" autocomplete="off" :placeholder="t('certificates.importForm.placeholders.required')" />
           </label>
         </div>
       </form>
@@ -328,46 +332,46 @@ function cancelImport() {
     <section v-else class="gc-card gc-form-panel certificate-import-wizard__panel">
       <header class="gc-form-header certificate-import-wizard__header">
         <div>
-          <h3>有效性与完整性校验</h3>
-          <p>校验规则：必须有服务器证书、完整中间证书链和私钥，且私钥必须与叶子证书匹配。根证书不强制导入，缺少时仅警告。</p>
+          <h3>{{ t('certificates.importForm.validation.title') }}</h3>
+          <p>{{ t('certificates.importForm.validation.description') }}</p>
         </div>
       </header>
 
       <div class="certificate-import-wizard__summary">
-        <div><span>导入类型</span><strong>{{ selectedFormat.label }}</strong></div>
-        <div><span>导入方式</span><strong>{{ selectedMethod.label }}</strong></div>
-        <div><span>材料状态</span><strong>{{ materialReady ? '已填写' : '未完成' }}</strong></div>
+        <div><span>{{ t('certificates.importForm.labels.importType') }}</span><strong>{{ selectedFormat.label }}</strong></div>
+        <div><span>{{ t('certificates.importForm.labels.importMethod') }}</span><strong>{{ selectedMethod.label }}</strong></div>
+        <div><span>{{ t('certificates.importForm.labels.materialStatus') }}</span><strong>{{ materialReady ? t('certificates.importForm.status.completed') : t('certificates.importForm.status.incomplete') }}</strong></div>
       </div>
 
       <div class="certificate-import-wizard__validate-actions">
         <button class="gc-button" type="button" :disabled="!materialReady || validating || loading" @click="submitValidation">
-          {{ validating ? '校验中...' : '开始校验' }}
+          {{ validating ? t('certificates.importForm.actions.validating') : t('certificates.importForm.actions.validate') }}
         </button>
       </div>
 
       <div v-if="validationResult" class="certificate-import-wizard__report">
         <div class="certificate-import-wizard__status" :class="{ 'is-success': validationResult.importable, 'is-fail': !validationResult.importable }">
-          {{ validationResult.importable ? '校验通过，可以导入。' : '校验未通过，存在阻断项。' }}
+          {{ validationResult.importable ? t('certificates.importForm.validation.passed') : t('certificates.importForm.validation.failed') }}
         </div>
 
         <div class="certificate-import-wizard__report-grid">
           <article class="certificate-import-wizard__report-card">
-            <h4>证书摘要</h4>
+            <h4>{{ t('certificates.importForm.report.certificateSummary') }}</h4>
             <dl>
-              <div><dt>CN</dt><dd>{{ validationResult.certificate.commonName || '无' }}</dd></div>
+              <div><dt>CN</dt><dd>{{ validationResult.certificate.commonName || t('agents.common.none') }}</dd></div>
               <div><dt>SAN</dt><dd>{{ sanText }}</dd></div>
-              <div><dt>序列号</dt><dd>{{ validationResult.certificate.serialNumber }}</dd></div>
-              <div><dt>有效期</dt><dd>{{ formatDateTime(validationResult.certificate.notBefore) }} 至 {{ formatDateTime(validationResult.certificate.notAfter) }}</dd></div>
-              <div><dt>颁发者</dt><dd>{{ issuerText }}</dd></div>
-              <div><dt>使用者</dt><dd>{{ subjectText }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.serialNumber') }}</dt><dd>{{ validationResult.certificate.serialNumber }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.validity') }}</dt><dd>{{ t('certificates.importForm.report.validityRange', { start: formatDateTime(validationResult.certificate.notBefore), end: formatDateTime(validationResult.certificate.notAfter) }) }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.issuer') }}</dt><dd>{{ issuerText }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.subject') }}</dt><dd>{{ subjectText }}</dd></div>
             </dl>
           </article>
 
           <article class="certificate-import-wizard__report-card">
-            <h4>链校验</h4>
+            <h4>{{ t('certificates.importForm.report.chainValidation') }}</h4>
             <dl>
-              <div><dt>链状态</dt><dd>{{ validationResult.chain.status }}</dd></div>
-              <div><dt>证书数量</dt><dd>{{ validationResult.chain.certificateCount }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.chainStatus') }}</dt><dd>{{ validationResult.chain.status }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.certificateCount') }}</dt><dd>{{ validationResult.chain.certificateCount }}</dd></div>
             </dl>
             <div v-if="chainCertificates.length" class="certificate-import-wizard__chain-list">
               <article v-for="item in chainCertificates" :key="item.fingerprintSha256" class="certificate-import-wizard__chain-item">
@@ -376,7 +380,7 @@ function cancelImport() {
                   <span>{{ roleLabel(item.role) }}</span>
                 </div>
                 <p>{{ stringifyDn(item.subject) }}</p>
-                <small>签发者：{{ stringifyDn(item.issuer) }}</small>
+                <small>{{ t('certificates.importForm.report.issuerWithValue', { value: stringifyDn(item.issuer) }) }}</small>
               </article>
             </div>
             <ul v-if="validationResult.chain.diagnostics.length" class="certificate-import-wizard__list">
@@ -385,24 +389,24 @@ function cancelImport() {
           </article>
 
           <article class="certificate-import-wizard__report-card">
-            <h4>私钥匹配</h4>
+            <h4>{{ t('certificates.importForm.report.privateKeyMatch') }}</h4>
             <dl>
-              <div><dt>是否提供</dt><dd>{{ validationResult.privateKey.provided ? '是' : '否' }}</dd></div>
-              <div><dt>匹配结果</dt><dd>{{ validationResult.privateKey.matched ? '匹配' : '未匹配' }}</dd></div>
-              <div><dt>私钥来源</dt><dd>{{ validationResult.privateKey.source }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.provided') }}</dt><dd>{{ validationResult.privateKey.provided ? t('agents.common.yes') : t('agents.common.no') }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.matchResult') }}</dt><dd>{{ validationResult.privateKey.matched ? t('certificates.importForm.status.matched') : t('certificates.importForm.status.unmatched') }}</dd></div>
+              <div><dt>{{ t('certificates.importForm.report.privateKeySource') }}</dt><dd>{{ validationResult.privateKey.source }}</dd></div>
             </dl>
           </article>
         </div>
 
         <article v-if="validationResult.blockers.length" class="certificate-import-wizard__messages certificate-import-wizard__messages--error">
-          <h4>阻断项</h4>
+          <h4>{{ t('certificates.importForm.report.blockers') }}</h4>
           <ul class="certificate-import-wizard__list">
             <li v-for="item in validationResult.blockers" :key="item">{{ item }}</li>
           </ul>
         </article>
 
         <article v-if="validationResult.warnings.length" class="certificate-import-wizard__messages certificate-import-wizard__messages--warning">
-          <h4>提示</h4>
+          <h4>{{ t('certificates.importForm.report.warnings') }}</h4>
           <ul class="certificate-import-wizard__list">
             <li v-for="item in validationResult.warnings" :key="item">{{ item }}</li>
           </ul>
@@ -410,15 +414,15 @@ function cancelImport() {
       </div>
 
       <p v-if="error" class="gc-form-error certificate-import-wizard__error">{{ error }}</p>
-      <p v-if="resultId" class="gc-form-success certificate-import-wizard__success">导入成功：{{ resultId }}</p>
+      <p v-if="resultId" class="gc-form-success certificate-import-wizard__success">{{ t('certificates.importForm.importSuccess', { id: resultId }) }}</p>
     </section>
 
     <footer class="gc-form-actions certificate-import-wizard__footer">
       <div class="certificate-import-wizard__footer-left">
-        <button class="gc-button" type="button" :disabled="loading || validating" @click="cancelImport">取消</button>
+        <button class="gc-button" type="button" :disabled="loading || validating" @click="cancelImport">{{ t('certificates.importForm.actions.cancel') }}</button>
       </div>
       <div class="certificate-import-wizard__footer-right">
-        <button class="gc-button" type="button" :disabled="currentStep === 1 || loading || validating" @click="prevStep">上一步</button>
+        <button class="gc-button" type="button" :disabled="currentStep === 1 || loading || validating" @click="prevStep">{{ t('certificates.importForm.actions.previous') }}</button>
         <button
           v-if="currentStep < 3"
           class="gc-button"
@@ -426,7 +430,7 @@ function cancelImport() {
           :disabled="currentStep === 1 ? !canGoToStepTwo : !canGoToStepThree"
           @click="nextStep"
         >
-          下一步
+          {{ t('certificates.importForm.actions.next') }}
         </button>
         <button
           v-else
@@ -435,7 +439,7 @@ function cancelImport() {
           :disabled="!canSubmit"
           @click="submitImport"
         >
-          {{ loading ? '导入中...' : '导入证书' }}
+          {{ loading ? t('certificates.importForm.actions.importing') : t('certificates.importForm.actions.import') }}
         </button>
       </div>
     </footer>

@@ -1,5 +1,6 @@
 ﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { listCertificateUsages } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -8,17 +9,18 @@ import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue
 import { toErrorState, type CertificatePageError } from './certificate-view-utils'
 
 const route = useRoute()
+const { t } = useI18n()
 const certificateId = computed(() => String(route.params.id ?? ''))
 const rows = ref<ApiRecord[]>([])
 const loading = ref(false)
 const error = ref<CertificatePageError | null>(null)
-const columns: DataTableColumn<ApiRecord>[] = [
-  { key: 'domainName', title: '域名/目标' },
-  { key: 'status', title: '状态' },
-  { key: 'resourceType', title: '资源类型' },
-  { key: 'resourceId', title: '资源 ID' },
-  { key: 'updatedAt', title: '更新时间' },
-]
+const columns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'domainName', title: t('certificates.usages.columns.domainName') },
+  { key: 'status', title: t('certificates.usages.columns.status') },
+  { key: 'resourceType', title: t('certificates.usages.columns.resourceType') },
+  { key: 'resourceId', title: t('certificates.usages.columns.resourceId') },
+  { key: 'updatedAt', title: t('certificates.usages.columns.updatedAt') },
+])
 
 async function loadUsages() {
   loading.value = true
@@ -38,16 +40,16 @@ onMounted(() => void loadUsages())
 
 <template>
   <section class="gc-page certificate-subpage">
-    <GcPageHeader title="证书使用关系" :description="`证书 ${certificateId} 的绑定、部署目标和资源引用。`">
+    <GcPageHeader :title="t('certificates.usages.title')" :description="t('certificates.usages.description', { id: certificateId })">
       <template #actions>
-        <RouterLink class="gc-button" :to="`/certificates/${certificateId}`">返回详情</RouterLink>
+        <RouterLink class="gc-button" :to="`/certificates/${certificateId}`">{{ t('certificates.usages.backDetail') }}</RouterLink>
       </template>
     </GcPageHeader>
-    <GcEmptyState v-if="error" title="使用关系加载失败" :description="error.message">
-      <p>错误码：{{ error.errorCode }}</p>
+    <GcEmptyState v-if="error" :title="t('certificates.usages.loadFailed')" :description="error.message">
+      <p>{{ t('businessPage.errorCode', { code: error.errorCode }) }}</p>
     </GcEmptyState>
-    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" empty-text="暂无使用关系">
-      <template #toolbar><strong>使用关系</strong></template>
+    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" :empty-text="t('certificates.usages.empty')">
+      <template #toolbar><strong>{{ t('certificates.usages.toolbar') }}</strong></template>
       <template #cell-status="{ row }"><GcStatusTag :status="String(row.status ?? 'UNKNOWN')" /></template>
     </GcDataTable>
   </section>

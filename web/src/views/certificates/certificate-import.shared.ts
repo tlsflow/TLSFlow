@@ -56,25 +56,36 @@ export interface CertificateImportValidationResult {
   }
 }
 
-export const importMethodOptions: ReadonlyArray<{ key: ImportMethod; label: string; hint: string }> = [
-  { key: 'file', label: '选择文件', hint: '适合已经拿到 cert / key 或 .pfx 文件的场景。' },
-  { key: 'text', label: '粘贴文本', hint: '适合直接粘贴 PEM 文本，避免上传临时文件。' },
-]
+function defaultT(key: string, params?: Record<string, string | number>): string {
+  return i18n.global.t(key, params ?? {})
+}
 
-export const certificateFormatOptions: ImportFormatOption[] = [
-  {
-    key: 'PEM',
-    label: 'PEM + KEY',
-    supported: true,
-    hint: '必须同时提供服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。',
-  },
-  {
-    key: 'PFX',
-    label: 'PFX / PKCS#12',
-    supported: true,
-    hint: '仅支持文件导入，且容器内必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。',
-  },
-]
+export function createImportMethodOptions(t: I18nTranslate = defaultT): ReadonlyArray<{ key: ImportMethod; label: string; hint: string }> {
+  return [
+    { key: 'file', label: t('certificates.import.methods.file.label'), hint: t('certificates.import.methods.file.hint') },
+    { key: 'text', label: t('certificates.import.methods.text.label'), hint: t('certificates.import.methods.text.hint') },
+  ]
+}
+
+export function createCertificateFormatOptions(t: I18nTranslate = defaultT): ImportFormatOption[] {
+  return [
+    {
+      key: 'PEM',
+      label: 'PEM + KEY',
+      supported: true,
+      hint: t('certificates.import.formats.pem.hint'),
+    },
+    {
+      key: 'PFX',
+      label: 'PFX / PKCS#12',
+      supported: true,
+      hint: t('certificates.import.formats.pfx.hint'),
+    },
+  ]
+}
+
+export const importMethodOptions = createImportMethodOptions()
+export const certificateFormatOptions = createCertificateFormatOptions()
 
 export function createCertificateImportDraft(
   format: ImportFormat = 'PEM',
@@ -113,3 +124,5 @@ export function isMaterialReady(draft: CertificateImportDraft) {
   if (draft.format === 'PEM') return Boolean(draft.certificatePem.trim() && draft.privateKeyPem.trim())
   return Boolean(draft.pfxBase64.trim() && draft.pfxPassword)
 }
+import { i18n } from '@/i18n'
+import type { I18nTranslate } from '@/composables/useBusinessPage'

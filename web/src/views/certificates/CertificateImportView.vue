@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { importCertificate, validateCertificateImport } from '@/api/modules/certificates.api'
@@ -13,6 +14,7 @@ import {
 } from './certificate-import.shared'
 
 const router = useRouter()
+const { t } = useI18n()
 const draft = reactive(createCertificateImportDraft())
 const loading = ref(false)
 const validating = ref(false)
@@ -22,7 +24,7 @@ const validationResult = ref<CertificateImportValidationResult | null>(null)
 
 async function validateImport() {
   if (!isMaterialReady(draft)) {
-    error.value = '必须先完成导入材料填写，才能开始校验。'
+    error.value = t('certificates.import.errors.materialRequiredBeforeValidate')
     validationResult.value = null
     return
   }
@@ -37,7 +39,7 @@ async function validateImport() {
       error.value = `${cause.message}（${cause.errorCode}）`
       return
     }
-    error.value = cause instanceof Error ? cause.message : '校验失败'
+    error.value = cause instanceof Error ? cause.message : t('certificates.import.errors.validateFailed')
   } finally {
     validating.value = false
   }
@@ -45,7 +47,7 @@ async function validateImport() {
 
 async function submitImport() {
   if (!validationResult.value?.importable) {
-    error.value = '请先完成第 3 步校验，并确保校验通过后再导入。'
+    error.value = t('certificates.import.errors.needPassedValidation')
     return
   }
   loading.value = true
@@ -59,7 +61,7 @@ async function submitImport() {
       error.value = `${cause.message}（${cause.errorCode}）`
       return
     }
-    error.value = cause instanceof Error ? cause.message : '导入失败'
+    error.value = cause instanceof Error ? cause.message : t('certificates.import.errors.importFailed')
   } finally {
     loading.value = false
   }
@@ -73,11 +75,11 @@ function cancelImport() {
 <template>
   <section class="gc-page certificate-import-page">
     <GcPageHeader
-      title="导入证书"
-      description="当前仅支持 PEM + KEY 和 PFX；PFX 仅支持文件导入。导入材料必须包含服务器证书、完整中间证书链和私钥，根证书不是强制项。"
+      :title="t('certificates.import.title')"
+      :description="t('certificates.import.description')"
     >
       <template #actions>
-        <RouterLink class="gc-button" to="/certificates">返回证书列表</RouterLink>
+        <RouterLink class="gc-button" to="/certificates">{{ t('certificates.import.backList') }}</RouterLink>
       </template>
     </GcPageHeader>
 

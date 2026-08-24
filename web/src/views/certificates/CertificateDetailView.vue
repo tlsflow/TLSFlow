@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import { GcPageHeader } from '@/design-system/components'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
 
 const route = useRoute()
+const { t } = useI18n()
 const assetId = computed(() => String(route.params.id ?? ''))
 const versionId = computed(() => String(route.query.versionId ?? ''))
 </script>
@@ -12,11 +14,11 @@ const versionId = computed(() => String(route.query.versionId ?? ''))
 <template>
   <section class="gc-page certificate-detail-view">
     <GcPageHeader
-      title="证书详情"
-      description="展示证书版本详情、格式产物和关联资产。"
+      :title="t('certificates.detail.title')"
+      :description="t('certificates.detail.description')"
     >
       <template #actions>
-        <RouterLink class="gc-button" to="/certificates">返回列表</RouterLink>
+        <RouterLink class="gc-button" to="/certificates">{{ t('certificates.detail.backList') }}</RouterLink>
       </template>
     </GcPageHeader>
 
