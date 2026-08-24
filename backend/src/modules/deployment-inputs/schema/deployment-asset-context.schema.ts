@@ -17,7 +17,7 @@ const deploymentKeys = new Set(['targets', 'certificateResourceName']);
 const deploymentTargetKeys = new Set(['id', 'name', 'serverName', 'port', 'sni', 'certificateLocation', 'metadata']);
 const certificateLocationKeys = new Set([
   'apiVersion', 'storageKind', 'certificatePath', 'privateKeyPath', 'chainPath', 'keystorePath', 'keystoreType', 'keyAlias',
-  'storeName', 'storeLocation', 'storeThumbprint', 'sourceConfigPath', 'serviceName', 'programPath', 'testCommand',
+  'storeName', 'storeLocation', 'storeThumbprint', 'sourceConfigPath', 'serviceName', 'programPath', 'programSha256', 'testCommand',
   'reloadCommand', 'configFingerprint', 'confidence', 'observedAt', 'warnings',
 ]);
 
@@ -159,6 +159,7 @@ function validateCertificateLocation(input: unknown, path: string): CertificateL
     sourceConfigPath: optionalString(location.sourceConfigPath, `${path}.sourceConfigPath`),
     serviceName: optionalString(location.serviceName, `${path}.serviceName`),
     programPath: optionalString(location.programPath, `${path}.programPath`),
+    programSha256: optionalString(location.programSha256, `${path}.programSha256`),
     testCommand: optionalString(location.testCommand, `${path}.testCommand`),
     reloadCommand: optionalString(location.reloadCommand, `${path}.reloadCommand`),
     configFingerprint: optionalString(location.configFingerprint, `${path}.configFingerprint`),

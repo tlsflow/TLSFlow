@@ -71,12 +71,15 @@ export function resolveCertificateUpdateSnapshot(
   );
   if (frameworkType !== contract.frameworkType) fail('FRAMEWORK', '目标框架与插件不匹配或缺失');
   if (!site?.id || !target?.id || !target.key) fail('TARGET', '站点、目标或 TLS 绑定事实缺失');
-  const bindingKey = exactFact(
+  const targetBindingKey = exactFact(
     'tls.binding',
     target.bindingKey,
     target.metadata.bindingKey,
     target.metadata['tls.binding'],
   );
+  // 历史 ManagedTarget 可能没有持久化 bindingKey，但关联 SiteAsset 仍保存了真实绑定信息。
+  // Target 绑定事实优先；只有 Target 侧完全缺失时才回退到 SiteAsset，避免不同标识格式被误判为冲突。
+  const bindingKey = targetBindingKey ?? exactFact('tls.binding', site?.bindingInformation);
   if (!bindingKey) fail('BINDING', 'tls.binding 事实缺失');
   if (!location || location.confidence !== 'EXACT') fail('LOCATION', '证书位置缺失、不可信或 confidence=UNKNOWN');
   if (!location.observedAt || !Number.isFinite(Date.parse(location.observedAt))) fail('FINGERPRINT', '观察时间缺失或格式无效');
@@ -95,7 +98,7 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalPath(resolved.variables.configPath, location.sourceConfigPath, 'sourceConfigPath', contract.platform);
   assertOptionalFact(resolved.variables.serviceName, serviceName, 'serviceName');
   assertOptionalPath(resolved.variables.programPath, programPath, 'programPath', contract.platform);
-  const programSha256 = rawDigest(readString(metadata.programSha256, location.programPath && readString(metadata.programDigest)), 'programSha256');
+  const programSha256 = rawDigest(readString(metadata.programSha256, location.programSha256, location.programPath && readString(metadata.programDigest)), 'programSha256');
   const workingDirectory = requiredPath(readString(metadata.workingDirectory, metadata.programWorkingDirectory), 'workingDirectory');
   const configCheckArgs = stringArray(metadata.configCheckArgs ?? metadata.testArgs, 'configCheckArgs');
   const configCheckArgsTemplate = stringArray(metadata.configCheckArgsTemplate ?? configCheckArgs, 'configCheckArgsTemplate');

@@ -50,6 +50,63 @@ test('PEM 文件集合和 Tomcat KeyStore 的路径边界不同且不丢失', ()
   assert.deepEqual(keystore.secretRefs, ['secret://certificate/tomcat-password']);
 });
 
+test('Target 缺少 bindingKey 时使用 SiteAsset.bindingInformation 作为 tls.binding 事实', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+  const target = resolved.assetContext.target!;
+  delete target.bindingKey;
+  delete target.metadata.bindingKey;
+  delete target.metadata['tls.binding'];
+  resolved.assetContext.site = {
+    ...(resolved.assetContext.site ?? { id: 'site-1', metadata: {} }),
+    bindingInformation: '*:8444:apache.test.local',
+  };
+
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('web.apache.windows'),
+  );
+
+  assert.equal(snapshot.bindingKey, '*:8444:apache.test.local');
+});
+
+test('Target 侧存在冲突 bindingKey 时仍在输入门禁失败关闭', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+  resolved.assetContext.target!.bindingKey = 'target-binding';
+  resolved.assetContext.target!.metadata.bindingKey = 'metadata-binding';
+
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(
+      resolved,
+      loadCertificateUpdateContract('web.apache.windows'),
+    ),
+    /tls\.binding 的快照来源不一致/,
+  );
+});
+
+test('Target 证书位置缺少程序摘要时可读取同一 Framework rawFacts 补齐的 programSha256', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+  delete resolved.assetContext.target!.metadata.programSha256;
+  resolved.assetContext.target!.certificateLocation!.programSha256 = 'd'.repeat(64);
+
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('web.apache.windows'),
+  );
+
+  assert.equal(snapshot.programSha256, 'd'.repeat(64));
+});
+
+test('programSha256 不是 64 位十六进制摘要时拒绝输入', () => {
+  const resolved = createResolvedCertificateUpdateInput('web.apache.windows', {
+    targetMetadata: { programSha256: 'C:/GCAC-Lab/Apache24/bin/httpd.exe' },
+  });
+
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(resolved, loadCertificateUpdateContract('web.apache.windows')),
+    /programSha256 必须是 SHA-256 摘要/,
+  );
+});
+
 test('Tomcat JKS 只接受 JKS 整体 Artifact，并固定 password SecretRef', () => {
   const resolved = createResolvedCertificateUpdateInput('app.tomcat.linux', {
     location: { keystoreType: 'JKS' },

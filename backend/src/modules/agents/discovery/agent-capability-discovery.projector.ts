@@ -510,10 +510,12 @@ function buildDeploymentTarget(
   const thumbprint = normalizeInventoryThumbprint(stringValue(listener.certificateThumbprint) ?? stringValue(certificate.metadata?.thumbprint));
   const serviceName = stringValue(listener.serviceName);
   const programPath = stringValue(listener.programPath);
+  const programSha256 = stringValue(listener.programSha256);
   const configFingerprint = stringValue(listener.configFingerprint);
   const runtimeFacts = {
     ...(serviceName ? { serviceName } : {}),
     ...(programPath ? { programPath } : {}),
+    ...(programSha256 ? { programSha256 } : {}),
     ...(configFingerprint ? { configFingerprint } : {}),
   };
   if (thumbprint && !rawCertificatePath && !rawKeystorePath) {

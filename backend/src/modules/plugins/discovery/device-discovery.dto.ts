@@ -66,6 +66,7 @@ export interface StandardDeviceDiscoveryV2 {
       sourceConfigPath?: string;
       serviceName?: string;
       programPath?: string;
+      programSha256?: string;
       configFingerprint?: string;
     };
     bindingName?: string;

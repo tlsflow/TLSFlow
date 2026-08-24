@@ -3,6 +3,11 @@ import { describe, it } from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
 import type { ResolvedManagedTargetTopology } from '../assets/application/managed-target-context.resolver.js';
 import { deploymentAssetContextBuilder } from './application/deployment-asset-context.builder.js';
+import { resolveCertificateUpdateSnapshot } from './certificate-update/certificate-update-input.service.js';
+import {
+  createResolvedCertificateUpdateInput,
+  loadCertificateUpdateContract,
+} from './certificate-update/certificate-update.test-fixtures.js';
 import { validateDeploymentAssetContextV1 } from './schema/deployment-asset-context.schema.js';
 
 describe('DeploymentAssetContextBuilder', () => {
@@ -28,8 +33,62 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.deployment.targets[0]?.certificateLocation?.storageKind, 'PEM_FILES');
     assert.equal(context.deployment.targets[0]?.name, 'APP');
     assert.match(context.deployment.certificateResourceName, /^certificate-app-example-com-[a-f0-9]{10}$/);
-    assert.equal('frameworkType' in (context.target ?? {}), false);
+    assert.equal(context.target?.metadata.frameworkType, 'web.example');
+    assert.equal(context.deployment.targets[0]?.metadata.frameworkType, 'web.example');
     assert.equal('configPath' in (context.site ?? {}), false);
+  });
+
+  it('保留历史 Target 框架事实，冲突交由证书输入门禁拒绝', () => {
+    const topology = managedTargetContext();
+    topology.managedTarget.metadata = {
+      ...topology.managedTarget.metadata,
+      frameworkType: 'web.apache',
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.metadata.frameworkType, 'web.apache');
+    assert.equal(context.deployment.targets[0]?.metadata.frameworkType, 'web.apache');
+  });
+
+  it('将 FrameworkInstance 的 Apache Windows 框架事实传入证书输入门禁', () => {
+    const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
+    const sourceTarget = resolved.assetContext.target!;
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.apache';
+    topology.serviceInstance = {
+      ...topology.serviceInstance!,
+      frameworkType: 'web.apache',
+    };
+    topology.managedTarget.bindingKey = sourceTarget.bindingKey;
+    topology.managedTarget.metadata = { ...sourceTarget.metadata };
+    delete topology.managedTarget.metadata.frameworkType;
+    topology.managedTarget.metadata.certificateLocation = sourceTarget.certificateLocation;
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: {
+        id: resolved.assetContext.application.id,
+        address: resolved.assetContext.application.address,
+        sniName: resolved.assetContext.application.serverName,
+        port: resolved.assetContext.application.port,
+        protocol: resolved.assetContext.application.protocol,
+      },
+      managedTargetContext: topology,
+    });
+    resolved.assetContext = context;
+
+    const artifact = resolved.artifacts.certificateArtifact;
+    delete resolved.artifacts.certificateArtifact;
+    resolved.artifacts[context.deployment.certificateResourceName] = artifact!;
+
+    assert.doesNotThrow(() => resolveCertificateUpdateSnapshot(
+      resolved,
+      loadCertificateUpdateContract('web.apache.windows'),
+    ));
   });
 
   it('无 SiteAsset 和 DeviceAsset 时仍使用标准 Target 与证书身份域名', () => {
@@ -123,6 +182,7 @@ describe('DeploymentAssetContextBuilder', () => {
       source: 'runtime-effective-config',
       configPath: 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf',
       programPath: 'C:/GCAC-Lab/Apache24/bin/httpd.exe',
+      programSha256: 'b'.repeat(64),
       serviceName: 'GCAC-Lab-Apache',
       configFingerprint: 'a'.repeat(64),
     };
@@ -134,6 +194,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
     assert.equal(context.target?.certificateLocation?.serviceName, 'GCAC-Lab-Apache');
     assert.equal(context.target?.certificateLocation?.programPath, 'C:/GCAC-Lab/Apache24/bin/httpd.exe');
+    assert.equal(context.target?.certificateLocation?.programSha256, 'b'.repeat(64));
     assert.equal(context.target?.certificateLocation?.configFingerprint, 'a'.repeat(64));
     assert.equal(context.target?.certificateLocation?.certificatePath, 'C:/GCAC-Lab/certs/apache.crt.pem');
   });

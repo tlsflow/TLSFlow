@@ -79,6 +79,10 @@ function assertDeploymentTarget(value: unknown, path: string): void {
     const child = value[key];
     if (child !== undefined && (typeof child !== 'string' || !child.trim() || /[\r\n]/.test(child))) invalidField(`${path}.${key}`);
   }
+  if (value.programSha256 !== undefined
+    && (typeof value.programSha256 !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value.programSha256.trim()))) {
+    invalidField(`${path}.programSha256`);
+  }
   if (value.configFingerprint !== undefined
     && (typeof value.configFingerprint !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value.configFingerprint.trim()))) {
     invalidField(`${path}.configFingerprint`);

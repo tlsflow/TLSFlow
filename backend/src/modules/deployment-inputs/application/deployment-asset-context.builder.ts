@@ -45,10 +45,13 @@ export class DeploymentAssetContextBuilder {
     const site = topology?.siteAsset;
     const managedTarget = topology?.managedTarget;
     const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
+    const targetMetadata = managedTargetMetadata
+      ? mergeFrameworkTypeFact(managedTargetMetadata, topology?.frameworkType)
+      : undefined;
     const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
-    const certificateLocation = managedTargetMetadata
+    const certificateLocation = targetMetadata
       ? readCertificateLocation(
-        mergeFrameworkRuntimeFacts(managedTargetMetadata, topology?.serviceInstance?.rawFacts),
+        mergeFrameworkRuntimeFacts(targetMetadata, topology?.serviceInstance?.rawFacts),
         managedTarget?.updatedAt || new Date(0).toISOString(),
       )
       : undefined;
@@ -86,7 +89,7 @@ export class DeploymentAssetContextBuilder {
         key: managedTarget.targetKey,
         bindingKey: managedTarget.bindingKey,
         certificateLocation,
-        metadata: { ...managedTargetMetadata },
+        metadata: { ...targetMetadata },
       } : undefined,
       deployment: {
         targets: [{
@@ -96,7 +99,7 @@ export class DeploymentAssetContextBuilder {
           port: site?.port ?? application.port,
           sni: deploymentServerName.length > 0,
           certificateLocation,
-          metadata: managedTargetMetadata ? { ...managedTargetMetadata } : {},
+          metadata: targetMetadata ? { ...targetMetadata } : {},
         }],
         certificateResourceName: buildCertificateResourceName(application.serverName),
       },
@@ -173,6 +176,13 @@ function readWorkflowTargetSiteName(metadata: Record<string, unknown> | undefine
   return normalized || undefined;
 }
 
+// FrameworkInstance 是当前框架事实的可信来源，但不能覆盖历史 Target 已保存的事实。
+// 保留已有值可以让输入门禁继续发现并拒绝框架冲突，而不是把错误数据静默修正掉。
+function mergeFrameworkTypeFact(metadata: Record<string, unknown>, frameworkType: string | undefined): Record<string, unknown> {
+  if (readNonEmptyString(metadata.frameworkType) || !frameworkType?.trim()) return { ...metadata };
+  return { ...metadata, frameworkType: frameworkType.trim() };
+}
+
 /**
  * 旧版发现结果可能只把证书路径写入 Target，运行参数仍保留在同一
  * Framework 的 rawFacts 中。这里仅补齐缺失事实，绝不覆盖 Target 已确认值。
@@ -201,4 +211,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }

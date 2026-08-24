@@ -2,6 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 )
 
@@ -109,6 +114,13 @@ func appendWindowsMatureRuntimeDetailWithService(
 	if strings.TrimSpace(configFingerprint) != "" {
 		frameworkMetadata["configFingerprint"] = strings.TrimSpace(configFingerprint)
 	}
+	programSha256, programWarning := sha256WindowsRuntimeProgram(programPath)
+	if programWarning != nil {
+		appendWindowsMatureWarning(inventory, *programWarning)
+	}
+	if programSha256 != "" {
+		frameworkMetadata["programSha256"] = programSha256
+	}
 	frameworks = append(frameworks, map[string]any{
 		"frameworkType": frameworkType,
 		"displayName":   displayName,
@@ -119,8 +131,50 @@ func appendWindowsMatureRuntimeDetailWithService(
 	appendWindowsMatureConfigFile(inventory, configPath)
 
 	for _, site := range sites {
-		appendWindowsMatureSite(inventory, frameworkType, site, programPath, serviceName, configPath, configFingerprint)
+		appendWindowsMatureSite(inventory, frameworkType, site, programPath, programSha256, serviceName, configPath, configFingerprint)
 	}
+}
+
+func sha256WindowsRuntimeProgram(path string) (string, *windowsDiscoveryWarning) {
+	path = strings.TrimSpace(strings.Trim(path, "\"'"))
+	if path == "" {
+		return "", nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", &windowsDiscoveryWarning{
+			Code:    "PROGRAM_SHA256_UNAVAILABLE",
+			Message: fmt.Sprintf("无法读取已确认的运行程序并计算 SHA-256: %v", err),
+			Path:    path,
+		}
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return "", &windowsDiscoveryWarning{
+			Code:    "PROGRAM_SHA256_UNAVAILABLE",
+			Message: fmt.Sprintf("无法读取已确认的运行程序文件属性并计算 SHA-256: %v", err),
+			Path:    path,
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return "", &windowsDiscoveryWarning{
+			Code:    "PROGRAM_SHA256_UNAVAILABLE",
+			Message: "已确认的运行程序路径不是常规文件，无法计算 SHA-256",
+			Path:    path,
+		}
+	}
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", &windowsDiscoveryWarning{
+			Code:    "PROGRAM_SHA256_UNAVAILABLE",
+			Message: fmt.Sprintf("读取已确认的运行程序内容并计算 SHA-256 失败: %v", err),
+			Path:    path,
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func appendWindowsMatureSite(
@@ -128,6 +182,7 @@ func appendWindowsMatureSite(
 	frameworkType string,
 	site windowsRuntimeSite,
 	programPath string,
+	programSha256 string,
 	serviceName string,
 	fallbackConfigPath string,
 	fallbackConfigFingerprint string,
@@ -152,6 +207,9 @@ func appendWindowsMatureSite(
 		}
 		if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
 			listenerRecord["programPath"] = path
+		}
+		if strings.TrimSpace(programSha256) != "" {
+			listenerRecord["programSha256"] = strings.TrimSpace(programSha256)
 		}
 		if strings.TrimSpace(serviceName) != "" {
 			listenerRecord["serviceName"] = strings.TrimSpace(serviceName)
@@ -192,6 +250,9 @@ func appendWindowsMatureSite(
 	}
 	if path := normalizeWindowsRuntimeInventoryPath(programPath); path != "" {
 		siteMetadata["programPath"] = path
+	}
+	if strings.TrimSpace(programSha256) != "" {
+		siteMetadata["programSha256"] = strings.TrimSpace(programSha256)
 	}
 	if strings.TrimSpace(serviceName) != "" {
 		siteMetadata["serviceName"] = strings.TrimSpace(serviceName)

@@ -156,6 +156,7 @@ test('成熟 Agent Web 快照直接投影框架、站点和配置绑定证书', 
 test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影到 ManagedTarget', async () => {
   const fixture = createFixture();
   const fingerprint = 'a'.repeat(64);
+  const programSha256 = 'd'.repeat(64);
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory',
     confidence: 0.99,
@@ -187,6 +188,7 @@ test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影
             certificateKeyPath: 'D:/runtime/nginx/conf/certs/portal.key',
             serviceName: 'nginx-production',
             programPath: 'D:/runtime/nginx/nginx.exe',
+            programSha256,
             configFingerprint: fingerprint,
           }],
         },
@@ -213,6 +215,7 @@ test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影
     sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
     serviceName: 'nginx-production',
     programPath: 'D:/runtime/nginx/nginx.exe',
+    programSha256,
     configFingerprint: fingerprint,
   });
   assert.deepEqual(projected.certificateBindings[0]?.deploymentTarget, projected.managedTargets[0]?.metadata?.certificateLocation);
