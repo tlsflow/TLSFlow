@@ -41,8 +41,20 @@ export class CertificateFormatExporter {
   }
 
   private generatePem(input: CertificateExportMaterial): GeneratedCertificateFormatArtifact {
-    const blocks = [toPem(input.leafDer), ...input.chainDer.map(toPem)];
-    if (input.privateKeyPem) blocks.unshift(input.privateKeyPem.trimEnd());
+    const includeLeafCertificate = input.parameters?.includeLeafCertificate !== false;
+    const includeCertificateChain = Boolean(input.parameters?.includeCertificateChain);
+    const includePrivateKey = Boolean(input.parameters?.includePrivateKey);
+    const blocks: string[] = [];
+
+    if (includeLeafCertificate) {
+      blocks.push(toPem(input.leafDer));
+    }
+    if (includeCertificateChain) {
+      blocks.push(...input.chainDer.map(toPem));
+    }
+    if (includePrivateKey && input.privateKeyPem) {
+      blocks.push(input.privateKeyPem.trimEnd());
+    }
     return { content: Buffer.from(`${blocks.join('\n')}\n`, 'utf8'), contentType: 'application/x-pem-file', warnings: [] };
   }
 
@@ -104,7 +116,8 @@ export class CertificateFormatExporter {
 }
 
 function toPem(der: Buffer): string {
-  return new X509Certificate(der).toString().trimEnd();
+  const body = der.toString('base64').match(/.{1,64}/g)?.join('\n') ?? '';
+  return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----`;
 }
 
 function readAlias(parameters: Record<string, unknown> | undefined): string | undefined {

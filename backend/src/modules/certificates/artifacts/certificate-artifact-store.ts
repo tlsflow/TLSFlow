@@ -31,8 +31,6 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
 
   async put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord> {
     const content = Buffer.isBuffer(input.content) ? Buffer.from(input.content) : Buffer.from(input.content, 'utf8');
-    const existing = await this.get(input.artifactRef);
-    if (existing) return existing;
     const record: CertificateArtifactRecord = {
       artifactRef: input.artifactRef,
       content,
@@ -45,8 +43,14 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
     await this.db.query(
       `insert into pg_certificate_artifacts (
          artifact_ref, content, content_type, sha256, created_by, created_at, expires_at
-       ) values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
-       on conflict (artifact_ref) do nothing`,
+      ) values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz)
+       on conflict (artifact_ref) do update set
+         content = excluded.content,
+         content_type = excluded.content_type,
+         sha256 = excluded.sha256,
+         created_by = excluded.created_by,
+         created_at = excluded.created_at,
+         expires_at = excluded.expires_at`,
       [
         record.artifactRef,
         record.content,
