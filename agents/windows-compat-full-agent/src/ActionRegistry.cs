@@ -19,7 +19,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public void Register(ActionRegistration registration)
         {
-            if (registration == null || string.IsNullOrWhiteSpace(registration.CanonicalAction) || registration.Handler == null)
+            if (registration == null || TextUtility.IsBlank(registration.CanonicalAction) || registration.Handler == null)
                 throw new InvalidOperationException("动作注册信息不完整");
             Add(registration.CanonicalAction, registration);
             foreach (string alias in registration.Aliases ?? new string[0]) Add(alias, registration);
@@ -27,11 +27,11 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public ActionResult Execute(AgentTask task)
         {
-            string action = task == null ? null : (!string.IsNullOrWhiteSpace(task.action) ? task.action : task.type);
+            string action = task == null ? null : (!TextUtility.IsBlank(task.action) ? task.action : task.type);
             ActionRegistration registration;
-            if (string.IsNullOrWhiteSpace(action) || !registrations.TryGetValue(action, out registration))
+            if (TextUtility.IsBlank(action) || !registrations.TryGetValue(action, out registration))
                 return ActionResult.Failed("ACTION_NOT_REGISTERED", "动作未注册", Detail("action", action));
-            string schemaVersion = string.IsNullOrWhiteSpace(task.schemaVersion) ? ProductIdentity.ActionSchemaVersion : task.schemaVersion;
+            string schemaVersion = TextUtility.IsBlank(task.schemaVersion) ? ProductIdentity.ActionSchemaVersion : task.schemaVersion;
             if (!string.Equals(schemaVersion, registration.SchemaVersion, StringComparison.Ordinal))
                 return ActionResult.Failed("ACTION_SCHEMA_UNSUPPORTED", "动作 Schema Version 不受支持", Detail("schemaVersion", schemaVersion));
             return registration.Handler(task);
@@ -48,7 +48,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private void Add(string key, ActionRegistration registration)
         {
-            if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("动作标识不能为空");
+            if (TextUtility.IsBlank(key)) throw new InvalidOperationException("动作标识不能为空");
             if (registrations.ContainsKey(key)) throw new InvalidOperationException("动作或 Alias 重复注册：" + key);
             registrations.Add(key, registration);
         }

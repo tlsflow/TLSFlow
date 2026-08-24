@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.ServiceProcess;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace GCAC.WindowsCompatibilityAgent
@@ -26,8 +27,10 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 if (Environment.UserInteractive || Has(args, "--console"))
                 {
-                    Console.CancelKeyPress += delegate(object sender, ConsoleCancelEventArgs eventArgs) { eventArgs.Cancel = true; Environment.Exit(0); };
-                    runtime.Run(new System.Threading.CancellationTokenSource().Token);
+                    ManualResetEvent stopSignal = new ManualResetEvent(false);
+                    Console.CancelKeyPress += delegate(object sender, ConsoleCancelEventArgs eventArgs) { eventArgs.Cancel = true; stopSignal.Set(); };
+                    runtime.Run(stopSignal);
+                    stopSignal.Close();
                     return 0;
                 }
                 ServiceBase.Run(new WindowsAgentService(runtime));

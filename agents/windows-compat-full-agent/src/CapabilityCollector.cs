@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Management;
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Principal;
 
 namespace GCAC.WindowsCompatibilityAgent
@@ -26,11 +27,20 @@ namespace GCAC.WindowsCompatibilityAgent
             facts["runtime.product_line"] = ProductIdentity.ProductLine;
             facts["runtime.kind"] = ProductIdentity.Runtime;
             facts["runtime.framework_release"] = ReadDotNetRelease();
+            facts["runtime.framework_35_installed"] = HasFramework35();
             facts["windows.version"] = Environment.OSVersion.Version.ToString();
             facts["windows.service_pack"] = ReadServicePack();
-            facts["security.tls12_enabled"] = SupportsTls12();
+            facts["windows.product_name"] = ReadRegistryString(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "ProductName");
+            facts["windows.build_number"] = ReadRegistryString(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber");
+            facts["windows.machine_id"] = ReadRegistryString(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography", "MachineGuid");
+            facts["security.tls12_enabled"] = SupportsTls12(config == null ? null : config.controlPlaneUrl);
             facts["identity.is_administrator"] = IsAdministrator();
             facts["network.hostname"] = Dns.GetHostName();
+            facts["network.primary_ip"] = ReadPrimaryIpAddress();
+            IisInspectionResult iis = new IisInspector().Inspect();
+            facts["windows.iis.detail"] = iis.Detail;
+            facts["windows.iis.sites"] = iis.Sites;
+            facts["windows.iis.inspection_error"] = iis.Error ?? string.Empty;
             facts["windows.required_hotfixes_present"] = RequiredHotfixesPresent(config == null ? new string[0] : config.requiredHotfixes);
             facts["windows.cert_store_writable"] = CanWriteCertificateStore();
             facts["network.control_plane_reachable"] = CanReachControlPlane(config == null ? null : config.controlPlaneUrl);
@@ -47,6 +57,7 @@ namespace GCAC.WindowsCompatibilityAgent
             capabilities.Add("windows.cert_store.local_machine");
             capabilities.Add("windows.certstore.import_pfx");
             capabilities.Add("iis.binding.update");
+            capabilities.Add("iis.discover");
             capabilities.Add("service.restart");
             capabilities.Add("rollback.restore");
             capabilities.Add("tls.local_verify");
@@ -68,6 +79,12 @@ namespace GCAC.WindowsCompatibilityAgent
             return value is int ? (int)value : 0;
         }
 
+        private static bool HasFramework35()
+        {
+            object framework35 = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5", "Install", 0);
+            return framework35 is int && (int)framework35 == 1;
+        }
+
         private static string ReadServicePack()
         {
             try
@@ -79,9 +96,40 @@ namespace GCAC.WindowsCompatibilityAgent
             return string.Empty;
         }
 
-        private static bool SupportsTls12()
+        private static string ReadRegistryString(string keyName, string valueName)
         {
-            return Enum.IsDefined(typeof(SecurityProtocolType), 3072);
+            object value = Registry.GetValue(keyName, valueName, string.Empty);
+            return value == null ? string.Empty : Convert.ToString(value);
+        }
+
+        private static string ReadPrimaryIpAddress()
+        {
+            try
+            {
+                IPAddress[] addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
+                foreach (IPAddress address in addresses)
+                {
+                    if (address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(address)) continue;
+                    byte[] bytes = address.GetAddressBytes();
+                    if (bytes.Length == 4 && bytes[0] == 169 && bytes[1] == 254) continue;
+                    return address.ToString();
+                }
+            }
+            catch { }
+            return string.Empty;
+        }
+
+        private static bool SupportsTls12(string controlPlaneUrl)
+        {
+            if (!TransportProtocol.IsHttps(controlPlaneUrl)) return true;
+            SecurityProtocolType previous = ServicePointManager.SecurityProtocol;
+            try
+            {
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+                return (int)ServicePointManager.SecurityProtocol == 3072;
+            }
+            catch { return false; }
+            finally { ServicePointManager.SecurityProtocol = previous; }
         }
 
         private static bool IsAdministrator()
@@ -112,7 +160,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static bool CanReachControlPlane(string url)
         {
-            if (string.IsNullOrWhiteSpace(url)) return false;
+            if (string.IsNullOrEmpty(url) || url.Trim().Length == 0) return false;
             try { return new TlsVerifierAdapter().CanReach(url, 5000); }
             catch { return false; }
         }

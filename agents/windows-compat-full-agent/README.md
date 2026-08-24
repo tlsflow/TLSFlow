@@ -10,7 +10,7 @@ Windows Compatibility Agent（Windows 兼容版 Agent）是面向 Windows Server
 - 服务名：`GCACWindowsCompatibilityAgent`
 - 显示名：`GCAC Windows Compatibility Agent`
 - Action Contract：`gcac.action/v1`
-- 运行时基线：.NET Framework 4.8
+- 运行时基线：.NET Framework 3.5.1
 
 Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。PowerShell 仅用于安装、升级和卸载编排，不是正式 Agent Runtime。
 
@@ -20,7 +20,7 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 .\build.ps1
 ```
 
-构建脚本使用系统 .NET Framework 编译器，生成 `bin\Release\GCAC.WindowsCompatibilityAgent.exe` 和独立测试程序。正式产物不依赖 .NET Core 或 PowerShell 运行任务循环。
+构建脚本使用系统 C# 编译器和 .NET Framework 3.5 Reference Assemblies（引用程序集），生成 `bin\Release\GCAC.WindowsCompatibilityAgent.exe` 和独立测试程序。正式产物不依赖 .NET Core、.NET Framework 4.8 或 PowerShell 运行任务循环。
 
 ## 前置检查
 
@@ -28,7 +28,7 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 .\bin\Release\GCAC.WindowsCompatibilityAgent.exe --config .\agent.config.json --preflight
 ```
 
-前置检查把系统信息采集为 Fact（环境事实），再用通用约束运算符判断最低内核版本、.NET Framework 4.8、TLS 1.2 和服务权限。检查器不按 Windows 产品名称或 IIS 版本分派。
+前置检查把系统信息采集为 Fact（环境事实），再用通用约束运算符判断最低内核版本、.NET Framework 3.5.1、控制面连通性和服务权限；使用 HTTPS 控制面时额外检查 TLS 1.2。HTTP 控制面可以连接，但必须部署在受控内网或通过受信 Gateway 隔离，不建议用于生产公网。
 
 ## 安装、升级与恢复
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Collections;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 
@@ -25,7 +26,8 @@ namespace GCAC.WindowsCompatibilityAgent
                 return ActionResult.Failed("ACTION_PAYLOAD_INVALID", "IIS 部署缺少 siteName、bindingInformation 或 pfxBase64", null);
             TryString(task.payload, "password", out password);
             Directory.CreateDirectory(backupDirectory);
-            string appHostPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "inetsrv", "config", "applicationHost.config");
+            string windowsDirectory = Environment.GetEnvironmentVariable("WINDIR");
+            string appHostPath = Path.Combine(Path.Combine(Path.Combine(Path.Combine(windowsDirectory, "System32"), "inetsrv"), "config"), "applicationHost.config");
             if (!File.Exists(appHostPath)) return ActionResult.Failed("IIS_CONFIGURATION_NOT_FOUND", "未找到 IIS applicationHost.config", Detail("path", appHostPath));
             string backupPath = Path.Combine(backupDirectory, "applicationHost." + DateTime.UtcNow.Ticks + ".config");
             File.Copy(appHostPath, backupPath, true);
@@ -70,32 +72,35 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static void ImportCertificate(X509Certificate2 certificate)
         {
-            using (X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine))
+            X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+            try
             {
                 store.Open(OpenFlags.ReadWrite);
                 store.Add(certificate);
             }
+            finally { store.Close(); }
         }
 
         private static void RemoveCertificate(string thumbprint)
         {
-            using (X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine))
+            X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+            try
             {
                 store.Open(OpenFlags.ReadWrite);
                 X509Certificate2Collection matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false);
                 foreach (X509Certificate2 match in matches) store.Remove(match);
             }
+            finally { store.Close(); }
         }
 
         private static void UpdateBinding(string siteName, string bindingInformation, byte[] hash)
         {
             using (IDisposable manager = CreateServerManager())
             {
-                dynamic serverManager = manager;
-                dynamic binding = FindBinding(serverManager, siteName, bindingInformation);
-                binding.CertificateHash = hash;
-                binding.CertificateStoreName = "My";
-                serverManager.CommitChanges();
+                object binding = FindBinding(manager, siteName, bindingInformation);
+                SetProperty(binding, "CertificateHash", hash);
+                SetProperty(binding, "CertificateStoreName", "My");
+                InvokeMethod(manager, "CommitChanges");
             }
         }
 
@@ -103,8 +108,8 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             using (IDisposable manager = CreateServerManager())
             {
-                dynamic binding = FindBinding((dynamic)manager, siteName, bindingInformation);
-                byte[] actualHash = (byte[])binding.CertificateHash;
+                object binding = FindBinding(manager, siteName, bindingInformation);
+                byte[] actualHash = (byte[])GetProperty(binding, "CertificateHash");
                 if (!ByteArraysEqual(actualHash, expectedHash)) throw new InvalidOperationException("IIS Binding 证书指纹验证失败");
             }
         }
@@ -116,16 +121,42 @@ namespace GCAC.WindowsCompatibilityAgent
             return (IDisposable)Activator.CreateInstance(type);
         }
 
-        private static dynamic FindBinding(dynamic serverManager, string siteName, string bindingInformation)
+        private static object FindBinding(object serverManager, string siteName, string bindingInformation)
         {
-            dynamic site = serverManager.Sites[siteName];
+            object sites = GetProperty(serverManager, "Sites");
+            PropertyInfo indexer = sites.GetType().GetProperty("Item", new Type[] { typeof(string) });
+            if (indexer == null) throw new InvalidOperationException("IIS Sites 集合不支持按名称查找");
+            object site = indexer.GetValue(sites, new object[] { siteName });
             if (site == null) throw new InvalidOperationException("IIS 站点不存在：" + siteName);
-            foreach (dynamic binding in site.Bindings)
+            IEnumerable bindings = GetProperty(site, "Bindings") as IEnumerable;
+            if (bindings == null) throw new InvalidOperationException("IIS Binding 集合不可用");
+            foreach (object binding in bindings)
             {
-                if (string.Equals(Convert.ToString(binding.Protocol), "https", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(Convert.ToString(binding.BindingInformation), bindingInformation, StringComparison.OrdinalIgnoreCase)) return binding;
+                if (string.Equals(Convert.ToString(GetProperty(binding, "Protocol")), "https", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(Convert.ToString(GetProperty(binding, "BindingInformation")), bindingInformation, StringComparison.OrdinalIgnoreCase)) return binding;
             }
             throw new InvalidOperationException("IIS HTTPS Binding 不存在：" + bindingInformation);
+        }
+
+        private static object GetProperty(object target, string propertyName)
+        {
+            PropertyInfo property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+            if (property == null) throw new MissingMemberException(target.GetType().FullName, propertyName);
+            return property.GetValue(target, null);
+        }
+
+        private static void SetProperty(object target, string propertyName, object value)
+        {
+            PropertyInfo property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+            if (property == null) throw new MissingMemberException(target.GetType().FullName, propertyName);
+            property.SetValue(target, value, null);
+        }
+
+        private static object InvokeMethod(object target, string methodName)
+        {
+            MethodInfo method = target.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public, null, Type.EmptyTypes, null);
+            if (method == null) throw new MissingMethodException(target.GetType().FullName, methodName);
+            return method.Invoke(target, null);
         }
 
         private static bool ByteArraysEqual(byte[] left, byte[] right)
@@ -141,7 +172,7 @@ namespace GCAC.WindowsCompatibilityAgent
             object raw;
             if (payload == null || !payload.TryGetValue(key, out raw) || raw == null) return false;
             value = Convert.ToString(raw);
-            return !string.IsNullOrWhiteSpace(value);
+            return !string.IsNullOrEmpty(value) && value.Trim().Length > 0;
         }
 
         private static Dictionary<string, object> Detail(string key, object value)

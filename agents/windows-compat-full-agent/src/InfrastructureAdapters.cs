@@ -33,11 +33,13 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public bool CanOpenLocalMachineStore()
         {
-            using (X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine))
+            X509Store store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+            try
             {
                 store.Open(OpenFlags.ReadWrite);
                 return true;
             }
+            finally { store.Close(); }
         }
     }
 

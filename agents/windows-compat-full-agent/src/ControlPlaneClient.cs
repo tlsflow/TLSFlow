@@ -15,10 +15,55 @@ namespace GCAC.WindowsCompatibilityAgent
         public ControlPlaneClient(AgentConfig config)
         {
             this.config = config;
-            ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+            if (TransportProtocol.IsHttps(config.controlPlaneUrl))
+            {
+                try { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; }
+                catch { }
+            }
         }
 
         public string Register(CapabilitySnapshot snapshot)
+        {
+            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot));
+            return response.id;
+        }
+
+        private static bool Is64BitOperatingSystem()
+        {
+            string architectureOverride = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432");
+            if (!string.IsNullOrEmpty(architectureOverride)) return string.Equals(architectureOverride, "AMD64", StringComparison.OrdinalIgnoreCase) || string.Equals(architectureOverride, "IA64", StringComparison.OrdinalIgnoreCase) || string.Equals(architectureOverride, "ARM64", StringComparison.OrdinalIgnoreCase);
+            string architecture = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE");
+            return string.Equals(architecture, "AMD64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "IA64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "ARM64", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
+        {
+            Send<object>("/api/v1/agents/heartbeat", BuildHeartbeatRequest(agentId, snapshot, runtimeHealth));
+        }
+
+        internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
+        {
+            Dictionary<string, object> body = BaseIdentity(snapshot);
+            body["agentId"] = agentId;
+            body["version"] = ProductIdentity.Version;
+            body["runtimeHealth"] = runtimeHealth;
+            body["taskSummary"] = new Dictionary<string, object> { { "running", 0 }, { "queued", 0 } };
+            return body;
+        }
+
+        public void ReportCapabilities(string agentId, CapabilitySnapshot snapshot)
+        {
+            Send<object>("/api/v1/agents/capabilities", BuildCapabilityRequest(agentId, snapshot));
+        }
+
+        public AgentTask Poll(string agentId)
+        {
+            List<AgentTask> tasks = Get<List<AgentTask>>("/api/v1/agents/tasks/pull?agentId=" + Uri.EscapeDataString(agentId) + "&limit=1");
+            if (tasks == null || tasks.Count == 0) return null;
+            return NormalizeTask(tasks[0]);
+        }
+
+        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentKey"] = config.agentKey;
@@ -26,38 +71,32 @@ namespace GCAC.WindowsCompatibilityAgent
             body["hostname"] = Environment.MachineName;
             body["version"] = ProductIdentity.Version;
             body["osType"] = "WINDOWS";
-            body["arch"] = Environment.Is64BitOperatingSystem ? "amd64" : "386";
+            body["arch"] = Is64BitOperatingSystem() ? "amd64" : "386";
+            body["machineId"] = ReadFact(snapshot, "windows.machine_id");
+            body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
+            body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
-            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", body);
-            return response.id;
+            return body;
         }
 
-        public void Heartbeat(string agentId, CapabilitySnapshot snapshot)
+        internal static Dictionary<string, object> BuildCapabilityRequest(string agentId, CapabilitySnapshot snapshot)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentId"] = agentId;
-            body["version"] = ProductIdentity.Version;
-            body["taskSummary"] = new Dictionary<string, object> { { "running", 0 }, { "queued", 0 } };
-            Send<object>("/api/v1/agents/heartbeat", body);
+            body["compatibilityLevel"] = "L2";
+            body["capabilities"] = BuildCapabilityReports(snapshot);
+            return body;
         }
 
-        public void ReportCapabilities(string agentId, CapabilitySnapshot snapshot)
+        internal static AgentTask NormalizeTask(AgentTask task)
         {
-            Dictionary<string, object> body = BaseIdentity(snapshot);
-            body["agentId"] = agentId;
-            body["snapshotId"] = snapshot.SnapshotId;
-            body["schemaVersion"] = snapshot.SchemaVersion;
-            body["collectedAt"] = snapshot.CollectedAtUtc.ToString("o");
-            body["facts"] = snapshot.Facts;
-            Send<object>("/api/v1/agents/capabilities", body);
-        }
-
-        public AgentTask Poll(string agentId)
-        {
-            Dictionary<string, object> body = new Dictionary<string, object>();
-            body["agentId"] = agentId;
-            AgentTaskEnvelope response = Send<AgentTaskEnvelope>("/api/v1/agents/tasks/poll", body);
-            return response == null ? null : response.task;
+            if (task == null) return null;
+            task.leaseId = "compat:" + Guid.NewGuid().ToString("N");
+            object value;
+            if (task.payload != null && task.payload.TryGetValue("type", out value)) task.type = Convert.ToString(value);
+            if (task.payload != null && task.payload.TryGetValue("action", out value)) task.action = Convert.ToString(value);
+            if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
+            return task;
         }
 
         public void Acknowledge(string agentId, AgentTask task)
@@ -78,7 +117,7 @@ namespace GCAC.WindowsCompatibilityAgent
             Send<object>("/api/v1/agents/tasks/result", body);
         }
 
-        private Dictionary<string, object> BaseIdentity(CapabilitySnapshot snapshot)
+        private static Dictionary<string, object> BaseIdentity(CapabilitySnapshot snapshot)
         {
             return new Dictionary<string, object>
             {
@@ -87,6 +126,73 @@ namespace GCAC.WindowsCompatibilityAgent
                 { "adapters", new string[] { "windows.compat.files", "windows.compat.scm", "windows.compat.cert-store", "windows.compat.tls" } },
                 { "capabilities", snapshot.Capabilities.ToArray() }
             };
+        }
+
+        internal static List<Dictionary<string, object>> BuildCapabilityReports(CapabilitySnapshot snapshot)
+        {
+            List<Dictionary<string, object>> reports = new List<Dictionary<string, object>>();
+            foreach (string capability in snapshot.Capabilities)
+                reports.Add(Capability(capability, true, 0.95, "compatibility-runtime"));
+
+            Dictionary<string, object> osDetail = new Dictionary<string, object>();
+            osDetail["goos"] = "windows";
+            osDetail["goarch"] = Is64BitOperatingSystem() ? "amd64" : "386";
+            osDetail["osVersion"] = ReadFact(snapshot, "windows.version");
+            osDetail["machineId"] = ReadFact(snapshot, "windows.machine_id");
+            osDetail["primaryIp"] = ReadFact(snapshot, "network.primary_ip");
+            osDetail["runtime"] = ProductIdentity.Runtime;
+            osDetail["hostType"] = "windows-service";
+            osDetail["agentModel"] = "compatibility-agent";
+            osDetail["ProductName"] = ReadFact(snapshot, "windows.product_name");
+            osDetail["CurrentBuild"] = ReadFact(snapshot, "windows.build_number");
+            osDetail["BuildRevision"] = ReadFact(snapshot, "windows.service_pack");
+            osDetail["Version"] = ReadFact(snapshot, "windows.version");
+            reports.Add(Capability("windows.os.detail", osDetail, 0.98, "runtime-inspection"));
+
+            string primaryIp = ReadFact(snapshot, "network.primary_ip");
+            List<Dictionary<string, object>> adapters = new List<Dictionary<string, object>>();
+            if (!TextUtility.IsBlank(primaryIp))
+                adapters.Add(new Dictionary<string, object> { { "Name", "primary" }, { "IPv4", new string[] { primaryIp } } });
+            reports.Add(Capability("windows.network.adapters", adapters, 0.9, "runtime-inspection"));
+            object iisDetail;
+            if (snapshot.Facts.TryGetValue("windows.iis.detail", out iisDetail) && iisDetail != null)
+                reports.Add(Capability("windows.iis.detail", iisDetail, 0.95, "microsoft-web-administration"));
+            object iisSites;
+            if (snapshot.Facts.TryGetValue("windows.iis.sites", out iisSites) && iisSites != null)
+                reports.Add(Capability("windows.iis.sites", iisSites, 0.95, "microsoft-web-administration"));
+            return reports;
+        }
+
+        private static Dictionary<string, object> Capability(string capabilityKey, object value, double confidence, string source)
+        {
+            return new Dictionary<string, object>
+            {
+                { "capabilityKey", capabilityKey },
+                { "value", value },
+                { "confidence", confidence },
+                { "evidence", new Dictionary<string, object> { { "source", source } } }
+            };
+        }
+
+        private static string ReadFact(CapabilitySnapshot snapshot, string key)
+        {
+            object value;
+            return snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue(key, out value) && value != null
+                ? Convert.ToString(value)
+                : string.Empty;
+        }
+
+        private T Get<T>(string path)
+        {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(config.controlPlaneUrl.TrimEnd('/') + path);
+            request.Method = "GET";
+            request.Headers["x-tenant-id"] = config.tenantId;
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+            {
+                string json = reader.ReadToEnd();
+                return TextUtility.IsBlank(json) ? default(T) : serializer.Deserialize<T>(json);
+            }
         }
 
         private T Send<T>(string path, object body)
@@ -102,7 +208,7 @@ namespace GCAC.WindowsCompatibilityAgent
             using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
             {
                 string json = reader.ReadToEnd();
-                if (typeof(T) == typeof(object) || string.IsNullOrWhiteSpace(json)) return default(T);
+                if (typeof(T) == typeof(object) || TextUtility.IsBlank(json)) return default(T);
                 return serializer.Deserialize<T>(json);
             }
         }

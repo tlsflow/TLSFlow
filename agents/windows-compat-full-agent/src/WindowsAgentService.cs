@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using System.ServiceProcess;
 using System.Threading;
 
@@ -6,7 +8,7 @@ namespace GCAC.WindowsCompatibilityAgent
     internal sealed class WindowsAgentService : ServiceBase
     {
         private readonly AgentRuntime runtime;
-        private CancellationTokenSource cancellation;
+        private ManualResetEvent stopSignal;
         private Thread worker;
 
         public WindowsAgentService(AgentRuntime runtime)
@@ -19,16 +21,28 @@ namespace GCAC.WindowsCompatibilityAgent
 
         protected override void OnStart(string[] args)
         {
-            cancellation = new CancellationTokenSource();
-            worker = new Thread(delegate() { runtime.Run(cancellation.Token); });
+            stopSignal = new ManualResetEvent(false);
+            worker = new Thread(delegate()
+            {
+                try
+                {
+                    runtime.Run(stopSignal);
+                }
+                catch (Exception error)
+                {
+                    try { EventLog.WriteEntry(ProductIdentity.DisplayName, error.ToString(), EventLogEntryType.Error); }
+                    catch { }
+                }
+            });
             worker.IsBackground = true;
             worker.Start();
         }
 
         protected override void OnStop()
         {
-            if (cancellation != null) cancellation.Cancel();
+            if (stopSignal != null) stopSignal.Set();
             if (worker != null) worker.Join(15000);
+            if (stopSignal != null) stopSignal.Close();
         }
     }
 }
