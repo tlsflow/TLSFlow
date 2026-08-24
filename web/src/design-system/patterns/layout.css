@@ -670,6 +670,18 @@
   opacity: var(--gc-opacity-disabled);
 }
 
+/* 危险操作提交中仍须保留明确的风险语义，不能退化成难以辨认的禁用按钮。 */
+.gc-button.gc-button--danger.gc-button--loading {
+  border-color: var(--gc-color-danger);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-danger);
+  cursor: progress;
+}
+
+.gc-button.gc-button--danger.gc-button--loading .gc-button__content {
+  opacity: 1;
+}
+
 .gc-button__content {
   display: inline-flex;
   align-items: center;
@@ -686,7 +698,10 @@
 .gc-icon-button:disabled,
 .gc-button:disabled {
   cursor: not-allowed;
-  opacity: var(--gc-opacity-disabled);
+  border-color: var(--gc-color-border);
+  color: var(--gc-color-disabled);
+  background: var(--gc-color-disabled-bg);
+  opacity: 1;
   box-shadow: none;
   transform: none;
 }

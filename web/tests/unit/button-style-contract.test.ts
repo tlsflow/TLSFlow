@@ -10,7 +10,7 @@ const dashboardView = readFileSync(resolve(process.cwd(), 'src/views/dashboard/D
 const tokens = readFileSync(resolve(process.cwd(), 'src/design-system/tokens/index.css'), 'utf8')
 
 function cssBlocks(selector: string): string[] {
-  return [...layout.matchAll(new RegExp(`${selector}\\s*\\{([^}]*)\\}`, 'g'))].map((match) => match[1])
+  return [...layout.matchAll(new RegExp(`(?:^|\\n)${selector}\\s*\\{([^}]*)\\}`, 'g'))].map((match) => match[1])
 }
 
 describe('按钮和卡片样式收口合同', () => {
@@ -32,6 +32,28 @@ describe('按钮和卡片样式收口合同', () => {
     ]) {
       expect(cssBlocks(selector)).toHaveLength(1)
     }
+  })
+
+  it('禁用按钮明确覆盖变体前景和表面，避免危险按钮出现浅底白字', () => {
+    const disabledBlocks = cssBlocks('\\.gc-icon-button:disabled,\\n\\.gc-button:disabled')
+
+    expect(disabledBlocks).toHaveLength(1)
+    expect(disabledBlocks[0]).toContain('border-color: var(--gc-color-border);')
+    expect(disabledBlocks[0]).toContain('color: var(--gc-color-disabled);')
+    expect(disabledBlocks[0]).toContain('background: var(--gc-color-disabled-bg);')
+    expect(disabledBlocks[0]).toContain('opacity: 1;')
+  })
+
+  it('危险按钮提交中保留可读的危险语义', () => {
+    const dangerLoadingBlocks = cssBlocks('\\.gc-button\\.gc-button--danger\\.gc-button--loading')
+    const dangerLoadingContentBlocks = cssBlocks('\\.gc-button\\.gc-button--danger\\.gc-button--loading \\.gc-button__content')
+
+    expect(dangerLoadingBlocks).toHaveLength(1)
+    expect(dangerLoadingBlocks[0]).toContain('color: var(--gc-color-text-inverse);')
+    expect(dangerLoadingBlocks[0]).toContain('background: var(--gc-color-danger);')
+    expect(dangerLoadingBlocks[0]).toContain('cursor: progress;')
+    expect(dangerLoadingContentBlocks).toHaveLength(1)
+    expect(dangerLoadingContentBlocks[0]).toContain('opacity: 1;')
   })
 
   it('全局卡片基线只使用卡片圆角令牌', () => {
