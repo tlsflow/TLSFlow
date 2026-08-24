@@ -148,6 +148,10 @@ export class UnifiedPluginsApplicationService {
     return record;
   }
 
+  async getVersionForTenant(tenantId: string, pluginVersionId: string): Promise<UnifiedPluginVersionRecord> {
+    return this.getAccessibleVersion(tenantId, pluginVersionId);
+  }
+
   async getUiResources(id: string, locale: string): Promise<{
     pluginVersionId: string;
     forms: ReturnType<PluginPackageResourcesService['validate']>['forms'];

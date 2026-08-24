@@ -653,6 +653,12 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery && result.discovery.projection.certificateBindings === 1);
   assert.ok(!JSON.stringify(result).includes('"password":"'));
+  await database.query(
+    `update unified_plugin_versions
+     set tenant_id='SYSTEM', owner_type='SYSTEM', owner_id=null
+     where id=$1`,
+    [imported.id],
+  );
   const detail = await service.get(tenantId, result.device.hostId, 'zh-CN');
   assert.equal(detail.extension.type, 'PLUGIN');
   assert.equal(detail.pluginUi?.pluginId, 'citrix.netscaler-adc');

@@ -56,7 +56,7 @@ export class DevicesApplicationService {
     }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginVersionId || !device.extension.pluginBindingId || !this.unifiedPlugins) return device;
     const [plugin, ui, assignmentRows] = await Promise.all([
-      this.unifiedPlugins.getVersion(device.extension.pluginVersionId),
+      this.unifiedPlugins.getVersionForTenant(tenantId, device.extension.pluginVersionId),
       this.unifiedPlugins.getUiResources(device.extension.pluginVersionId, locale),
       this.db.query<{ capability_key: string }>(
         `select capability_key from plugin_capability_assignments
@@ -65,7 +65,6 @@ export class DevicesApplicationService {
         [tenantId, device.id, device.extension.pluginBindingId],
       ),
     ]);
-    if (plugin.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', '设备插件不存在', { deviceId });
     const capabilities = assignmentRows.rows.map((row) => row.capability_key);
     const presentation = ui.presentations.device;
     const localizedResources = applyResourceLabels(device, presentation, ui.locale?.messages ?? {});
