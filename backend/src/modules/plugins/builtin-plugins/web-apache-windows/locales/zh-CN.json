@@ -1,6 +1,6 @@
 {
-  "plugin.webApacheWindows.name": "Windows Apache 证书更新",
-  "plugin.webApacheWindows.description": "固定windows平台与web.apache框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webApacheWindows.name": "Windows Apache站点",
+  "plugin.webApacheWindows.description": "面向 Windows Apache 站点，基于 Agent 已确认事实执行 PEM 证书部署、验证和回滚。",
   "plugin.webApacheWindows.section.identity": "目标事实",
   "plugin.webApacheWindows.section.certificate": "证书更新",
   "plugin.webApacheWindows.field.platform": "平台",
@@ -10,5 +10,8 @@
   "plugin.webApacheWindows.field.configFingerprint": "配置指纹",
   "plugin.webApacheWindows.action.deploy": "部署证书",
   "plugin.webApacheWindows.action.verify": "验证证书",
-  "plugin.webApacheWindows.action.rollback": "回滚证书"
+  "plugin.webApacheWindows.action.rollback": "回滚证书",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server（版本由 Agent 发现）",
+  "plugin.webApacheWindows.onboarding.requiredHost": "已安装兼容 Agent 的 Windows 主机",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "已发现的 Windows Apache HTTPS 站点"
 }

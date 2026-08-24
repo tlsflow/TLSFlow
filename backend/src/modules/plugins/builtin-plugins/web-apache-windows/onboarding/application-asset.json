@@ -1,0 +1,37 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "web.apache.windows",
+  "displayNameKey": "plugin.webApacheWindows.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.webApacheWindows.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.webApacheWindows.onboarding.requiredHost", "plugin.webApacheWindows.onboarding.requiredTarget"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.windows-server",
+  "deviceSelection": "EXISTING_OR_NEW",
+  "newDeviceOnboarding": { "kind": "AGENT_INSTALL", "platformKey": "windows-server-2016-plus" },
+  "forms": {},
+  "capabilities": {
+    "connectionTest": "certificate.verify",
+    "discovery": "certificate.verify"
+  },
+  "targetProjection": {
+    "targetType": "tls.binding",
+    "frameworkTypes": ["web.apache"],
+    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "deploymentDefaults": {
+    "capabilityKey": "certificate.deploy",
+    "certificateFormat": { "format": "PEM", "configName": "宿主默认 PEM Bundle" }
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
+}

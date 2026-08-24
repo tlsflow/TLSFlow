@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache.windows",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "displayNameKey": "plugin.webApacheWindows.name",
   "descriptionKey": "plugin.webApacheWindows.description",
   "defaultLocale": "zh-CN",
@@ -92,6 +92,7 @@
     "presentations": {
       "application": "presentations/application.json",
       "certificate-binding": "presentations/certificate-binding.json"
-    }
+    },
+    "onboarding": { "applicationAsset": "onboarding/application-asset.json" }
   }
 }
