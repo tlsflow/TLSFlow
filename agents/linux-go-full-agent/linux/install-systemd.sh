@@ -19,6 +19,41 @@ BINARY_SOURCE_PATH="${BUNDLE_DIR}/gcac-linux-agent"
 BINARY_TARGET_PATH="${INSTALL_ROOT}/gcac-linux-agent"
 UNIT_TEMPLATE_PATH="${BUNDLE_DIR}/linux/gcac-linux-agent.service"
 UNIT_RENDER_PATH="${BUNDLE_DIR}/linux/${SERVICE_NAME}.service.rendered"
+SUPPLEMENTARY_GROUPS=""
+
+append_group() {
+  GROUP_NAME="$1"
+  if [ -z "${GROUP_NAME}" ]; then
+    return 0
+  fi
+  case ",${SUPPLEMENTARY_GROUPS}," in
+    *,"${GROUP_NAME}",*)
+      return 0
+      ;;
+  esac
+  if [ -n "${SUPPLEMENTARY_GROUPS}" ]; then
+    SUPPLEMENTARY_GROUPS="${SUPPLEMENTARY_GROUPS},${GROUP_NAME}"
+  else
+    SUPPLEMENTARY_GROUPS="${GROUP_NAME}"
+  fi
+}
+
+detect_tomcat_groups() {
+  for candidate in /etc/tomcat/server.xml /etc/tomcat9/server.xml /etc/tomcat10/server.xml; do
+    if [ ! -f "${candidate}" ]; then
+      continue
+    fi
+    GROUP_NAME=$(stat -c "%G" "${candidate}" 2>/dev/null || true)
+    case "${GROUP_NAME}" in
+      ""|UNKNOWN|root)
+        continue
+        ;;
+    esac
+    if getent group "${GROUP_NAME}" >/dev/null 2>&1; then
+      append_group "${GROUP_NAME}"
+    fi
+  done
+}
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "错误：安装 systemd 服务需要 root 权限，请使用 sudo 执行。" >&2
@@ -41,6 +76,12 @@ fi
 
 if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
   useradd --system --gid "${SERVICE_GROUP}" --home-dir "${DATA_DIR}" --shell /usr/sbin/nologin "${SERVICE_USER}"
+fi
+
+detect_tomcat_groups
+if [ -n "${SUPPLEMENTARY_GROUPS}" ]; then
+  usermod -a -G "${SUPPLEMENTARY_GROUPS}" "${SERVICE_USER}"
+  echo "已为服务账号追加附加组：${SUPPLEMENTARY_GROUPS}"
 fi
 
 install -d -m 0755 -o root -g root "${INSTALL_ROOT}"
@@ -78,9 +119,13 @@ sed \
   -e "s|__DISPLAY_NAME__|${DISPLAY_NAME}|g" \
   -e "s|__SERVICE_USER__|${SERVICE_USER}|g" \
   -e "s|__SERVICE_GROUP__|${SERVICE_GROUP}|g" \
+  -e "s|__SUPPLEMENTARY_GROUPS__|${SUPPLEMENTARY_GROUPS}|g" \
   -e "s|__INSTALL_ROOT__|${INSTALL_ROOT}|g" \
   -e "s|__CONFIG_DIR__|${CONFIG_DIR}|g" \
   "${UNIT_TEMPLATE_PATH}" > "${UNIT_RENDER_PATH}"
+if [ -z "${SUPPLEMENTARY_GROUPS}" ]; then
+  sed -i '/^SupplementaryGroups=$/d' "${UNIT_RENDER_PATH}"
+fi
 install -m 0644 -o root -g root "${UNIT_RENDER_PATH}" "${UNIT_PATH}"
 rm -f "${UNIT_RENDER_PATH}"
 

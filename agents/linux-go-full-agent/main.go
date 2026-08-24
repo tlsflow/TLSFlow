@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -45,6 +47,10 @@ type AgentConfig struct {
 	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
 	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
 	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
+	DirectControlEnabled       bool   `json:"directControlEnabled"`
+	DirectControlListenHost    string `json:"directControlListenHost"`
+	DirectControlListenPort    int    `json:"directControlListenPort"`
+	DirectControlAdvertiseHost string `json:"directControlAdvertiseHost"`
 	CapabilityRescanInterval   int    `json:"capabilityRescanIntervalSeconds"`
 	CapabilityRescanEnabled    *bool  `json:"capabilityRescanEnabled"`
 	Paths                      struct {
@@ -145,6 +151,7 @@ type heartbeatRequest struct {
 	AgentID       string                  `json:"agentId"`
 	Version       string                  `json:"version"`
 	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	DirectControl *directControlState     `json:"directControl,omitempty"`
 	TaskSummary   struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
@@ -165,12 +172,23 @@ type heartbeatRuntimeHealth struct {
 	LastError            string               `json:"lastError,omitempty"`
 	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
 	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
+	DirectControl        *directControlState  `json:"directControl,omitempty"`
 }
 
 type runtimeFailureCounts struct {
 	Heartbeat int `json:"heartbeat,omitempty"`
 	TaskPoll  int `json:"taskPoll,omitempty"`
 	Recovery  int `json:"recovery,omitempty"`
+}
+
+type directControlState struct {
+	Enabled          bool     `json:"enabled"`
+	Reachable        bool     `json:"reachable"`
+	ListenAddress    string   `json:"listenAddress,omitempty"`
+	ProtocolVersion  string   `json:"protocolVersion,omitempty"`
+	SupportedActions []string `json:"supportedActions"`
+	LastReadyAt      string   `json:"lastReadyAt,omitempty"`
+	LastDirectError  string   `json:"lastDirectError,omitempty"`
 }
 
 type apiErrorResponse struct {
@@ -237,25 +255,39 @@ type persistedRuntimeState struct {
 }
 
 type runtimeStatusSnapshot struct {
-	SchemaVersion                string          `json:"schemaVersion"`
-	UpdatedAt                    string          `json:"updatedAt"`
-	State                        string          `json:"state"`
-	StartedAt                    string          `json:"startedAt,omitempty"`
-	StoppedAt                    string          `json:"stoppedAt,omitempty"`
-	AgentID                      string          `json:"agentId,omitempty"`
-	ServiceName                  string          `json:"serviceName,omitempty"`
-	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
-	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
-	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
-	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
-	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
-	LastError                    string          `json:"lastError,omitempty"`
-	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
-	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
-	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
-	PendingResultCount           int             `json:"pendingResultCount"`
-	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
-	TaskCounters                 runtimeCounters `json:"taskCounters"`
+	SchemaVersion                string              `json:"schemaVersion"`
+	UpdatedAt                    string              `json:"updatedAt"`
+	State                        string              `json:"state"`
+	StartedAt                    string              `json:"startedAt,omitempty"`
+	StoppedAt                    string              `json:"stoppedAt,omitempty"`
+	AgentID                      string              `json:"agentId,omitempty"`
+	ServiceName                  string              `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string              `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string              `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string              `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string              `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string              `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string              `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int                 `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int                 `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int                 `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int                 `json:"pendingResultCount"`
+	RecoverableTaskCount         int                 `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters     `json:"taskCounters"`
+	DirectControl                *directControlState `json:"directControl,omitempty"`
+}
+
+type directControlServer struct {
+	state   *directControlState
+	server  *http.Server
+	started bool
+}
+
+type directDiscoveryRequest struct {
+	ProviderTypes   []string `json:"providerTypes"`
+	Scope           string   `json:"scope,omitempty"`
+	IncludeBindings bool     `json:"includeBindings"`
+	RequestID       string   `json:"requestId,omitempty"`
 }
 
 type pendingTaskResult struct {
@@ -320,6 +352,7 @@ type nginxBindingDetail struct {
 	CertificateName    string `json:"certificateName,omitempty"`
 	CertificatePath    string `json:"certificatePath,omitempty"`
 	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
+	Certificate        *linuxCertificateDetail `json:"certificate,omitempty"`
 }
 
 type nginxContextFrame struct {
@@ -349,6 +382,7 @@ type apacheSiteDetail struct {
 
 	serverCertificatePath    string
 	serverCertificateKeyPath string
+	tlsExplicitlyEnabled     bool
 }
 
 type apacheBindingDetail struct {
@@ -358,6 +392,7 @@ type apacheBindingDetail struct {
 	CertificateName    string `json:"certificateName,omitempty"`
 	CertificatePath    string `json:"certificatePath,omitempty"`
 	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
+	Certificate        *linuxCertificateDetail `json:"certificate,omitempty"`
 }
 
 type apacheContextFrame struct {
@@ -386,6 +421,16 @@ type tomcatConnectorDetail struct {
 	CertificatePath    string `json:"certificatePath,omitempty"`
 	CertificateKeyPath string `json:"certificateKeyPath,omitempty"`
 	KeystorePath       string `json:"keystorePath,omitempty"`
+	Certificate        *linuxCertificateDetail `json:"certificate,omitempty"`
+}
+
+type linuxCertificateDetail struct {
+	Subject    string `json:"subject,omitempty"`
+	Issuer     string `json:"issuer,omitempty"`
+	NotBefore  string `json:"notBefore,omitempty"`
+	NotAfter   string `json:"notAfter,omitempty"`
+	Thumbprint string `json:"thumbprint,omitempty"`
+	StoreName  string `json:"storeName,omitempty"`
 }
 
 type tomcatAppDetail struct {
@@ -510,6 +555,7 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+		checkItem("direct.control.listen", !config.DirectControlEnabled || effectiveDirectControlListenPort(config) > 0, map[string]any{"enabled": config.DirectControlEnabled, "host": effectiveDirectControlListenHost(config), "port": effectiveDirectControlListenPort(config)}),
 	}
 
 	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
@@ -524,6 +570,7 @@ func handleSelfCheck(args []string) error {
 		}
 		checks = append(checks, checkItem("path.writable:"+target, dirWritable(target), map[string]any{"path": target}))
 	}
+	checks = append(checks, buildTomcatPermissionChecks()...)
 
 	return writeJSON(map[string]any{
 		"success":   allChecksPassed(checks),
@@ -560,7 +607,7 @@ func handleRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	identity := collectRuntimeIdentity(config.AgentKey)
+	identity := collectRuntimeIdentity(config.AgentKey, config.ControlPlane)
 	runtimeStatePath := resolveRuntimeStatePath(config)
 	persisted := loadPersistedRuntimeState(runtimeStatePath)
 	if identity.StableAgentKey != "" {
@@ -610,6 +657,17 @@ func handleRun(args []string) error {
 	status.StoppedAt = ""
 	status.ServiceName = config.Service.Name
 	status.AgentID = state.AgentID
+	status.DirectControl = newDirectControlState(config)
+
+	directServer, directErr := startDirectControlServer(config, &status)
+	if directErr != nil {
+		status.DirectControl = newDirectControlState(config)
+		status.DirectControl.LastDirectError = directErr.Error()
+		fmt.Fprintf(os.Stderr, "[direct-control] listener failed: %v\n", directErr)
+	} else if directServer != nil {
+		defer directServer.shutdown(context.Background())
+		status.DirectControl = directServer.snapshot()
+	}
 	refreshRuntimeStatus(&status, counters, ledger)
 	saveRuntimeStatusSnapshot(statusPath, status)
 
@@ -755,7 +813,7 @@ func handleServiceInfo(args []string) error {
 	if err != nil {
 		return err
 	}
-	identity := collectRuntimeIdentity(config.AgentKey)
+	identity := collectRuntimeIdentity(config.AgentKey, config.ControlPlane)
 
 	result := map[string]any{
 		"config": map[string]any{
@@ -801,7 +859,7 @@ func collectInspectResult() (*InspectResult, error) {
 	if user == "" {
 		user = os.Getenv("LOGNAME")
 	}
-	identity := collectRuntimeIdentity("")
+	identity := collectRuntimeIdentity("", "")
 
 	result := &InspectResult{
 		CollectedAt:       time.Now().Format(time.RFC3339),
@@ -1135,6 +1193,49 @@ func buildLinuxHealthChecks(config *AgentConfig, configPath string) []map[string
 		}
 		checks = append(checks, checkItem("path.writable:"+target, dirWritable(target), map[string]any{"path": target}))
 	}
+	checks = append(checks, buildTomcatPermissionChecks()...)
+	return checks
+}
+
+func buildTomcatPermissionChecks() []map[string]any {
+	processArgs := findTomcatProcessArgs()
+	catalinaBase := extractJavaSystemProperty(processArgs, "catalina.base")
+	catalinaHome := extractJavaSystemProperty(processArgs, "catalina.home")
+	if catalinaBase == "" && catalinaHome == "" {
+		catalinaBase, catalinaHome = findTomcatInstallPaths()
+	}
+	if catalinaBase == "" && catalinaHome == "" {
+		return nil
+	}
+
+	checks := make([]map[string]any, 0, 2)
+	configPath := findTomcatConfigPath(catalinaBase, catalinaHome)
+	if configPath != "" {
+		checks = append(checks, checkItem("tomcat.config.readable", fileReadable(configPath), map[string]any{"path": configPath}))
+	}
+
+	for _, candidate := range findTomcatConfigCandidates(catalinaBase, catalinaHome) {
+		if candidate == "" || !fileReadable(candidate) {
+			continue
+		}
+		connectors, _ := parseTomcatServerXML(candidate, catalinaBase)
+		seen := make(map[string]struct{})
+		for _, connector := range connectors {
+			path := strings.TrimSpace(connector.KeystorePath)
+			if path == "" {
+				path = strings.TrimSpace(connector.CertificatePath)
+			}
+			if path == "" {
+				continue
+			}
+			if _, exists := seen[path]; exists {
+				continue
+			}
+			seen[path] = struct{}{}
+			checks = append(checks, checkItem("tomcat.tls.readable:"+path, fileReadable(path), map[string]any{"path": path}))
+		}
+		break
+	}
 	return checks
 }
 
@@ -1161,6 +1262,9 @@ func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot,
 			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
 			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
 			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
+			"directControlEnabled":       config.DirectControlEnabled,
+			"directControlListenHost":    effectiveDirectControlListenHost(config),
+			"directControlListenPort":    effectiveDirectControlListenPort(config),
 		},
 		"runtime": status,
 		"health": map[string]any{
@@ -1201,6 +1305,7 @@ func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapsh
 		LastSelfCheckAt:      status.LastSelfCheckAt,
 		LastError:            status.LastError,
 		DegradedReasons:      filteredReasons,
+		DirectControl:        status.DirectControl,
 		FailureCounts: runtimeFailureCounts{
 			Heartbeat: status.ConsecutiveHeartbeatFailures,
 			TaskPoll:  status.ConsecutiveTaskPollFailures,
@@ -1278,6 +1383,392 @@ func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
 	return defaultOfflineTTL
 }
 
+func effectiveDirectControlListenHost(config *AgentConfig) string {
+	if strings.TrimSpace(config.DirectControlListenHost) != "" {
+		return strings.TrimSpace(config.DirectControlListenHost)
+	}
+	return "0.0.0.0"
+}
+
+func effectiveDirectControlListenPort(config *AgentConfig) int {
+	if config.DirectControlListenPort > 0 {
+		return config.DirectControlListenPort
+	}
+	return 18931
+}
+
+func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
+	if strings.TrimSpace(config.DirectControlAdvertiseHost) != "" {
+		return strings.TrimSpace(config.DirectControlAdvertiseHost)
+	}
+	if primaryIP := strings.TrimSpace(collectRuntimeIdentity(config.AgentKey, config.ControlPlane).PrimaryIPAddress); primaryIP != "" {
+		return primaryIP
+	}
+	return effectiveDirectControlListenHost(config)
+}
+
+func newDirectControlState(config *AgentConfig) *directControlState {
+	state := &directControlState{
+		Enabled:          config.DirectControlEnabled,
+		Reachable:        false,
+		ProtocolVersion:  "v1",
+		SupportedActions: []string{"health", "discovery.run"},
+	}
+	if config.DirectControlEnabled {
+		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
+	}
+	return state
+}
+
+func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot) (*directControlServer, error) {
+	if !config.DirectControlEnabled {
+		return nil, nil
+	}
+	host := effectiveDirectControlListenHost(config)
+	port := effectiveDirectControlListenPort(config)
+	state := newDirectControlState(config)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
+		payload := map[string]any{
+			"success":         true,
+			"checkedAt":       time.Now().Format(time.RFC3339),
+			"protocolVersion": "v1",
+			"platform":        "linux",
+			"service": map[string]any{
+				"name":        config.Service.Name,
+				"displayName": config.Service.DisplayName,
+			},
+			"directControl": state,
+			"runtime":       status,
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+	mux.HandleFunc("/api/v1/control/discovery/run", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var request directDiscoveryRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		payload := buildDirectDiscoveryPayloadLinux(config.ControlPlane, request)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+	server := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return nil, err
+	}
+	state.Reachable = true
+	state.LastReadyAt = time.Now().Format(time.RFC3339)
+	go func() {
+		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			state.Reachable = false
+			state.LastDirectError = serveErr.Error()
+		}
+	}()
+	return &directControlServer{state: state, server: server, started: true}, nil
+}
+
+func (s *directControlServer) snapshot() *directControlState {
+	if s == nil || s.state == nil {
+		return nil
+	}
+	copyState := *s.state
+	copyState.SupportedActions = append([]string{}, s.state.SupportedActions...)
+	return &copyState
+}
+
+func (s *directControlServer) shutdown(ctx context.Context) {
+	if s == nil || s.server == nil || !s.started {
+		return
+	}
+	_ = s.server.Shutdown(ctx)
+}
+
+func buildDirectDiscoveryPayloadLinux(controlPlaneURL string, request directDiscoveryRequest) map[string]any {
+	identity := collectRuntimeIdentity("", controlPlaneURL)
+	hostname, _ := os.Hostname()
+	hosts := []map[string]any{
+		{
+			"hostname":        hostname,
+			"primaryIp":       identity.PrimaryIPAddress,
+			"ipAddresses":     firstIPv4Addresses(identity.NetworkInterfaces),
+			"osType":          "LINUX",
+			"osName":          identity.LinuxDistribution,
+			"osVersion":       identity.OSVersion,
+			"arch":            runtime.GOARCH,
+			"discoverySource": "AGENT",
+			"managementMode":  "AGENT",
+			"status":          "ACTIVE",
+		},
+	}
+	payload := map[string]any{
+		"collectedAt":   time.Now().Format(time.RFC3339),
+		"source":        "agent_direct",
+		"platform":      "linux",
+		"requestId":     request.RequestID,
+		"hosts":         hosts,
+		"services":      []map[string]any{},
+		"serviceAssets": []map[string]any{},
+		"siteAssets":    []map[string]any{},
+		"bindings":      []map[string]any{},
+	}
+
+	appendLinuxDetailDiscovery(payload, hostname, "NGINX", "nginx", detectNginxDetail(), request.IncludeBindings)
+	appendLinuxDetailDiscovery(payload, hostname, "APACHE", "apache", detectApacheDetail(), request.IncludeBindings)
+	appendLinuxTomcatDiscovery(payload, hostname, detectTomcatDetail(), request.IncludeBindings)
+	return payload
+}
+
+func firstIPv4Addresses(items []NetworkInterfaceInfo) []string {
+	results := make([]string, 0)
+	for _, item := range items {
+		results = append(results, item.IPv4...)
+	}
+	return results
+}
+
+func appendLinuxDetailDiscovery(payload map[string]any, hostname, providerType, serviceName string, detail any, includeBindings bool) {
+	if detail == nil {
+		return
+	}
+	detailMap, ok := anyToMap(detail)
+	if !ok || !readBool(detailMap, "Installed", "installed") {
+		return
+	}
+	services := payload["services"].([]map[string]any)
+	services = append(services, map[string]any{
+		"hostname":        hostname,
+		"providerType":    providerType,
+		"serviceName":     serviceName,
+		"displayName":     serviceName,
+		"configPath":      readStringMap(detailMap, "ConfigPath", "configPath"),
+		"discoverySource": "AGENT",
+		"status":          "ACTIVE",
+		"rawFacts":        detail,
+	})
+	payload["services"] = services
+
+	sites := readObjectSlice(detailMap, "Sites", "sites")
+	serviceAssets := payload["serviceAssets"].([]map[string]any)
+	bindings := payload["bindings"].([]map[string]any)
+	for _, site := range sites {
+		serverNames := readStringSliceMap(site, "ServerNames", "serverNames")
+		address := ""
+		if len(serverNames) > 0 {
+			address = serverNames[0]
+		}
+		if address == "" {
+			address = readStringMap(site, "Name", "name")
+		}
+		for _, listen := range readObjectSlice(site, "Listen", "listen") {
+			port := readIntMap(listen, "Port", "port")
+			protocol := normalizeProtocolString(readStringMap(listen, "Protocol", "protocol"))
+			if address == "" || port <= 0 || protocol == "" {
+				continue
+			}
+			serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, port, protocol))
+			serviceAssets = append(serviceAssets, map[string]any{
+				"serviceAssetRef": serviceAssetRef,
+				"hostname":        hostname,
+				"providerType":    providerType,
+				"serviceName":     serviceName,
+				"address":         address,
+				"port":            port,
+				"protocol":        protocol,
+				"sniName":         address,
+				"displayName":     address,
+			})
+			if includeBindings {
+				bindings = append(bindings, map[string]any{
+					"serviceAssetRef": serviceAssetRef,
+					"hostname":        hostname,
+					"providerType":    providerType,
+					"serviceName":     serviceName,
+					"domainName":      address,
+					"port":            port,
+					"protocol":        protocol,
+					"bindingType":     "FILE_PATH",
+					"certPath":        readStringMap(listen, "CertificatePath", "certificatePath"),
+					"keyPath":         readStringMap(listen, "CertificateKeyPath", "certificateKeyPath"),
+					"verifyMethod":    "TLS_CONNECT",
+				})
+			}
+		}
+	}
+	payload["serviceAssets"] = serviceAssets
+	payload["bindings"] = bindings
+}
+
+func appendLinuxTomcatDiscovery(payload map[string]any, hostname string, detail *tomcatDetail, includeBindings bool) {
+	if detail == nil || !detail.Installed {
+		return
+	}
+	services := payload["services"].([]map[string]any)
+	services = append(services, map[string]any{
+		"hostname":        hostname,
+		"providerType":    "TOMCAT",
+		"serviceName":     "tomcat",
+		"displayName":     "tomcat",
+		"configPath":      detail.ConfigPath,
+		"discoverySource": "AGENT",
+		"status":          "ACTIVE",
+		"rawFacts":        detail,
+	})
+	payload["services"] = services
+
+	serviceAssets := payload["serviceAssets"].([]map[string]any)
+	bindings := payload["bindings"].([]map[string]any)
+	for _, connector := range detail.Connectors {
+		protocol := normalizeProtocolString(connector.Protocol)
+		if connector.Port <= 0 || protocol == "" {
+			continue
+		}
+		address := strings.TrimSpace(connector.Address)
+		if address == "" || address == "0.0.0.0" {
+			address = hostname
+		}
+		serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, connector.Port, protocol))
+		serviceAssets = append(serviceAssets, map[string]any{
+			"serviceAssetRef": serviceAssetRef,
+			"hostname":        hostname,
+			"providerType":    "TOMCAT",
+			"serviceName":     "tomcat",
+			"address":         address,
+			"port":            connector.Port,
+			"protocol":        protocol,
+			"sniName":         address,
+			"displayName":     address,
+		})
+		if includeBindings {
+			bindings = append(bindings, map[string]any{
+				"serviceAssetRef": serviceAssetRef,
+				"hostname":        hostname,
+				"providerType":    "TOMCAT",
+				"serviceName":     "tomcat",
+				"domainName":      address,
+				"port":            connector.Port,
+				"protocol":        protocol,
+				"bindingType":     "FILE_PATH",
+				"certPath":        connector.CertificatePath,
+				"keyPath":         connector.CertificateKeyPath,
+				"keystorePath":    connector.KeystorePath,
+				"verifyMethod":    "TLS_CONNECT",
+			})
+		}
+	}
+	payload["serviceAssets"] = serviceAssets
+	payload["bindings"] = bindings
+}
+
+func anyToMap(value any) (map[string]any, bool) {
+	if value == nil {
+		return nil, false
+	}
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var out map[string]any
+	if err := json.Unmarshal(bytes, &out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+func readBool(value map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if raw, ok := value[key].(bool); ok {
+			return raw
+		}
+	}
+	return false
+}
+
+func readStringMap(value map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if raw, ok := value[key].(string); ok && strings.TrimSpace(raw) != "" {
+			return strings.TrimSpace(raw)
+		}
+	}
+	return ""
+}
+
+func readIntMap(value map[string]any, keys ...string) int {
+	for _, key := range keys {
+		switch raw := value[key].(type) {
+		case float64:
+			return int(raw)
+		case int:
+			return raw
+		}
+	}
+	return 0
+}
+
+func readObjectSlice(value map[string]any, keys ...string) []map[string]any {
+	for _, key := range keys {
+		raw, ok := value[key]
+		if !ok {
+			continue
+		}
+		items, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		result := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if record, ok := item.(map[string]any); ok {
+				result = append(result, record)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+func readStringSliceMap(value map[string]any, keys ...string) []string {
+	for _, key := range keys {
+		raw, ok := value[key]
+		if !ok {
+			continue
+		}
+		items, ok := raw.([]any)
+		if !ok {
+			continue
+		}
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+				result = append(result, strings.TrimSpace(text))
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+func normalizeProtocolString(value string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "HTTPS", "HTTP", "TLS", "STARTTLS":
+		return normalized
+	case "HTTP/1.1":
+		return "HTTPS"
+	default:
+		return ""
+	}
+}
+
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -1297,6 +1788,9 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		Labels:            []string{"linux-go", "systemd"},
 		EnrollmentToken:   strings.TrimSpace(config.EnrollmentToken),
 		Zone:              strings.TrimSpace(config.Zone),
+	}
+	if config.DirectControlEnabled {
+		request.Labels = append(request.Labels, "direct-control")
 	}
 
 	var response registerResponse
@@ -1334,6 +1828,7 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 	if status != nil {
 		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
+		request.DirectControl = status.DirectControl
 	}
 
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
@@ -1626,27 +2121,31 @@ func collectCapabilityReports() []reportedCapability {
 }
 
 func detectPrimaryIPAddress() string {
-	return collectRuntimeIdentity("").PrimaryIPAddress
+	return collectRuntimeIdentity("", "").PrimaryIPAddress
 }
 
 func detectLinuxDistribution() string {
-	return collectRuntimeIdentity("").LinuxDistribution
+	return collectRuntimeIdentity("", "").LinuxDistribution
 }
 
 func detectLinuxVersion() string {
-	return collectRuntimeIdentity("").OSVersion
+	return collectRuntimeIdentity("", "").OSVersion
 }
 
-func collectRuntimeIdentity(fallbackAgentKey string) runtimeIdentity {
+func collectRuntimeIdentity(fallbackAgentKey string, controlPlaneURL string) runtimeIdentity {
 	release := parseKeyValueFiles([]string{"/etc/os-release", "/usr/lib/os-release"})
 	machineID := detectMachineID()
 	defaultRouteInterfaces := detectDefaultRouteInterfaces()
 	dnsConfigured := hasConfiguredDNS()
 	interfaces := collectNetworkInterfaces(defaultRouteInterfaces)
+	primaryIP := detectPreferredSourceIP(controlPlaneURL)
+	if primaryIP == "" {
+		primaryIP = selectPrimaryIPAddress(interfaces, dnsConfigured)
+	}
 	identity := runtimeIdentity{
 		MachineID:         machineID,
 		StableAgentKey:    strings.TrimSpace(fallbackAgentKey),
-		PrimaryIPAddress:  selectPrimaryIPAddress(interfaces, dnsConfigured),
+		PrimaryIPAddress:  primaryIP,
 		LinuxDistribution: detectLinuxDistributionFromRelease(release),
 		OSVersion:         detectLinuxVersionFromRelease(release),
 		NetworkInterfaces: interfaces,
@@ -1656,6 +2155,57 @@ func collectRuntimeIdentity(fallbackAgentKey string) runtimeIdentity {
 		identity.StableAgentKey = buildStableAgentKey(machineID)
 	}
 	return identity
+}
+
+func detectPreferredSourceIP(controlPlaneURL string) string {
+	target := strings.TrimSpace(controlPlaneURL)
+	if target == "" {
+		return ""
+	}
+	address, err := parseDialTarget(target)
+	if err != nil {
+		return ""
+	}
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	tcpAddr, ok := conn.LocalAddr().(*net.TCPAddr)
+	if !ok || tcpAddr == nil || tcpAddr.IP == nil {
+		return ""
+	}
+	ip := tcpAddr.IP
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String()
+	}
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return ""
+	}
+	return ip.String()
+}
+
+func parseDialTarget(rawURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", err
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return "", fmt.Errorf("controlPlaneUrl 缺少主机名: %s", rawURL)
+	}
+	port := strings.TrimSpace(parsed.Port())
+	if port == "" {
+		switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		default:
+			port = "443"
+		}
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 func detectMachineID() string {
@@ -1941,11 +2491,16 @@ func detectNginxDetail() *nginxDetail {
 	detail.Prefix = parseNginxBuildArgument(versionOutput, "--prefix")
 
 	configDump, dumpErr := captureCombinedCommand(binaryPath, "-T")
-	if dumpErr != nil || strings.TrimSpace(configDump) == "" {
+	sites := make([]nginxSiteDetail, 0)
+	if strings.TrimSpace(configDump) != "" {
+		sites = parseNginxConfigDump(configDump)
+	}
+	if len(sites) == 0 && detail.ConfigPath != "" && fileExists(detail.ConfigPath) {
+		sites = parseNginxConfigTree(detail.ConfigPath, detail.Prefix)
+	}
+	if dumpErr != nil && len(sites) == 0 {
 		return detail
 	}
-
-	sites := parseNginxConfigDump(configDump)
 	for index := range sites {
 		enrichNginxSiteCertificates(&sites[index])
 	}
@@ -2085,6 +2640,155 @@ func parseNginxConfigDump(dump string) []nginxSiteDetail {
 		filtered = append(filtered, site)
 	}
 	return filtered
+}
+
+func parseNginxConfigTree(configPath string, prefix string) []nginxSiteDetail {
+	files := collectNginxConfigFiles(configPath, prefix, map[string]struct{}{})
+	sites := make([]nginxSiteDetail, 0)
+	for _, filePath := range files {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		dump := fmt.Sprintf("# configuration file %s:\n%s\n", filePath, string(content))
+		sites = append(sites, parseNginxConfigDump(dump)...)
+	}
+	return uniqueNginxSites(sites)
+}
+
+func collectNginxConfigFiles(configPath string, prefix string, visited map[string]struct{}) []string {
+	resolvedPath := resolveNginxPath("", prefix, configPath)
+	if resolvedPath == "" {
+		return nil
+	}
+	if _, seen := visited[resolvedPath]; seen {
+		return nil
+	}
+	visited[resolvedPath] = struct{}{}
+
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return nil
+	}
+
+	files := []string{resolvedPath}
+	baseDir := filepath.Dir(resolvedPath)
+	for _, includePattern := range parseNginxIncludePatterns(string(content)) {
+		for _, includePath := range resolveNginxIncludePaths(baseDir, prefix, includePattern) {
+			files = append(files, collectNginxConfigFiles(includePath, prefix, visited)...)
+		}
+	}
+	return files
+}
+
+func parseNginxIncludePatterns(content string) []string {
+	patterns := make([]string, 0)
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := stripNginxInlineComment(rawLine)
+		for _, statement := range splitNginxStatements(line) {
+			fields := strings.Fields(statement)
+			if len(fields) >= 2 && fields[0] == "include" {
+				pattern := strings.TrimSpace(strings.Trim(fields[1], "\"'"))
+				if pattern != "" {
+					patterns = append(patterns, pattern)
+				}
+			}
+		}
+	}
+	return uniqueStrings(patterns)
+}
+
+func splitNginxStatements(line string) []string {
+	statements := make([]string, 0)
+	rest := line
+	for {
+		trimmed := strings.TrimSpace(rest)
+		if trimmed == "" {
+			return statements
+		}
+		semicolonIndex := strings.Index(trimmed, ";")
+		if semicolonIndex < 0 {
+			return statements
+		}
+		statement := strings.TrimSpace(trimmed[:semicolonIndex])
+		if statement != "" {
+			statements = append(statements, statement)
+		}
+		rest = strings.TrimSpace(trimmed[semicolonIndex+1:])
+	}
+}
+
+func resolveNginxIncludePaths(baseDir string, prefix string, includePattern string) []string {
+	includePattern = strings.TrimSpace(strings.Trim(includePattern, "\"'"))
+	if includePattern == "" || strings.Contains(includePattern, "$") {
+		return nil
+	}
+	candidates := make([]string, 0, 2)
+	if filepath.IsAbs(includePattern) {
+		candidates = append(candidates, filepath.Clean(includePattern))
+	} else {
+		if baseDir != "" {
+			candidates = append(candidates, filepath.Clean(filepath.Join(baseDir, includePattern)))
+		}
+		if prefix != "" {
+			candidates = append(candidates, filepath.Clean(filepath.Join(prefix, includePattern)))
+		}
+	}
+
+	results := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		matches, err := filepath.Glob(candidate)
+		if err == nil && len(matches) > 0 {
+			for _, match := range matches {
+				if _, exists := seen[match]; exists {
+					continue
+				}
+				seen[match] = struct{}{}
+				results = append(results, match)
+			}
+			continue
+		}
+		if fileExists(candidate) {
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			results = append(results, candidate)
+		}
+	}
+	return results
+}
+
+func resolveNginxPath(baseDir string, prefix string, value string) string {
+	value = strings.TrimSpace(strings.Trim(value, "\"'"))
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	if baseDir != "" {
+		return filepath.Clean(filepath.Join(baseDir, value))
+	}
+	if prefix != "" {
+		return filepath.Clean(filepath.Join(prefix, value))
+	}
+	return filepath.Clean(value)
+}
+
+func uniqueNginxSites(items []nginxSiteDetail) []nginxSiteDetail {
+	seen := make(map[string]struct{}, len(items))
+	results := make([]nginxSiteDetail, 0, len(items))
+	for _, item := range items {
+		key := item.Name + "\n" + item.SitePath + "\n" + strings.Join(item.ServerNames, ",") + "\n" + strings.Join(item.ConfigFiles, ",")
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		results = append(results, item)
+	}
+	return results
 }
 
 func stripNginxInlineComment(line string) string {
@@ -2301,27 +3005,103 @@ func enrichNginxSiteCertificates(site *nginxSiteDetail) {
 		if site.Listen[index].CertificatePath == "" {
 			continue
 		}
-		site.Listen[index].CertificateName = readCertificateSubject(site.Listen[index].CertificatePath)
+		site.Listen[index].Certificate = readCertificateDetail(site.Listen[index].CertificatePath)
+		if site.Listen[index].Certificate != nil {
+			site.Listen[index].CertificateName = site.Listen[index].Certificate.Subject
+		}
 	}
 }
 
-func readCertificateSubject(path string) string {
+func readCertificateDetail(path string) *linuxCertificateDetail {
 	content, err := os.ReadFile(path)
 	if err != nil {
+		return nil
+	}
+	return readCertificateDetailFromPEMBytes(content, "FILE_PATH")
+}
+
+func readCertificateSubject(path string) string {
+	detail := readCertificateDetail(path)
+	if detail == nil {
 		return ""
 	}
+	return detail.Subject
+}
+
+func readCertificateDetailFromPEMBytes(content []byte, storeName string) *linuxCertificateDetail {
 	for {
 		block, rest := pem.Decode(content)
 		if block == nil {
-			return ""
+			return nil
 		}
 		if block.Type == "CERTIFICATE" {
 			certificate, err := x509.ParseCertificate(block.Bytes)
 			if err == nil {
-				return certificate.Subject.String()
+				return buildLinuxCertificateDetail(certificate, storeName)
 			}
 		}
 		content = rest
+	}
+}
+
+func buildLinuxCertificateDetail(certificate *x509.Certificate, storeName string) *linuxCertificateDetail {
+	if certificate == nil {
+		return nil
+	}
+	sum := sha1.Sum(certificate.Raw)
+	thumbprint := strings.ToUpper(hex.EncodeToString(sum[:]))
+	return &linuxCertificateDetail{
+		Subject:    certificate.Subject.String(),
+		Issuer:     certificate.Issuer.String(),
+		NotBefore:  certificate.NotBefore.UTC().Format(time.RFC3339),
+		NotAfter:   certificate.NotAfter.UTC().Format(time.RFC3339),
+		Thumbprint: thumbprint,
+		StoreName:  storeName,
+	}
+}
+
+func readPKCS12CertificateSubject(path string, password string) string {
+	detail := readPKCS12CertificateDetail(path, password)
+	if detail == nil {
+		return ""
+	}
+	return detail.Subject
+}
+
+func readPKCS12CertificateDetail(path string, password string) *linuxCertificateDetail {
+	if !fileExists(path) || !lookPath("openssl") {
+		return nil
+	}
+	args := []string{"pkcs12", "-in", path, "-clcerts", "-nokeys", "-passin", "pass:" + password}
+	output, err := captureCombinedCommand("openssl", args...)
+	if err != nil {
+		return nil
+	}
+	return readCertificateDetailFromPEM(output, path)
+}
+
+func readCertificateSubjectFromPEM(content string) string {
+	detail := readCertificateDetailFromPEM(content, "FILE_PATH")
+	if detail == nil {
+		return ""
+	}
+	return detail.Subject
+}
+
+func readCertificateDetailFromPEM(content string, storeName string) *linuxCertificateDetail {
+	remaining := []byte(content)
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			return nil
+		}
+		if block.Type == "CERTIFICATE" {
+			certificate, err := x509.ParseCertificate(block.Bytes)
+			if err == nil {
+				return buildLinuxCertificateDetail(certificate, storeName)
+			}
+		}
+		remaining = rest
 	}
 }
 
@@ -2549,6 +3329,10 @@ func parseApacheConfigFile(configPath string, serverRoot string, visited map[str
 			if siteIndex >= 0 && siteIndex < len(*sites) {
 				(*sites)[siteIndex].serverCertificateKeyPath = resolveApachePath(baseDir, serverRoot, firstArgument(args))
 			}
+		case "sslengine":
+			if siteIndex >= 0 && siteIndex < len(*sites) && len(args) > 0 && strings.EqualFold(strings.TrimSpace(args[0]), "on") {
+				(*sites)[siteIndex].tlsExplicitlyEnabled = true
+			}
 		case "proxypass":
 			if siteIndex >= 0 && siteIndex < len(*sites) && len(args) >= 2 {
 				target := strings.TrimSpace(args[1])
@@ -2635,6 +3419,9 @@ func resolveApachePath(baseDir string, serverRoot string, pathValue string) stri
 	if pathValue == "" {
 		return ""
 	}
+	if isUnixAbsolutePath(pathValue) {
+		return cleanUnixPath(pathValue)
+	}
 	if filepath.IsAbs(pathValue) {
 		return filepath.Clean(pathValue)
 	}
@@ -2645,6 +3432,32 @@ func resolveApachePath(baseDir string, serverRoot string, pathValue string) stri
 		return filepath.Clean(filepath.Join(serverRoot, pathValue))
 	}
 	return filepath.Clean(pathValue)
+}
+
+func isUnixAbsolutePath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	return strings.HasPrefix(value, "/")
+}
+
+func cleanUnixPath(value string) string {
+	parts := strings.Split(value, "/")
+	stack := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+			stack = append(stack, part)
+		}
+	}
+	return "/" + strings.Join(stack, "/")
 }
 
 func parseApacheListen(args []string) (apacheBindingDetail, bool) {
@@ -2716,12 +3529,6 @@ func applyApacheSiteCertificate(site *apacheSiteDetail) {
 	}
 	ensureApacheBinding(site, nil)
 	for index := range site.Listen {
-		if site.Listen[index].Protocol == "" {
-			site.Listen[index].Protocol = "http"
-		}
-		if site.Listen[index].Protocol != "https" && site.Listen[index].Port != 443 && site.Listen[index].Port != 8443 {
-			continue
-		}
 		site.Listen[index].Protocol = "https"
 		if site.Listen[index].CertificatePath == "" {
 			site.Listen[index].CertificatePath = site.serverCertificatePath
@@ -2737,7 +3544,10 @@ func enrichApacheSiteCertificates(site *apacheSiteDetail) {
 		if site.Listen[index].CertificatePath == "" {
 			continue
 		}
-		site.Listen[index].CertificateName = readCertificateSubject(site.Listen[index].CertificatePath)
+		site.Listen[index].Certificate = readCertificateDetail(site.Listen[index].CertificatePath)
+		if site.Listen[index].Certificate != nil {
+			site.Listen[index].CertificateName = site.Listen[index].Certificate.Subject
+		}
 		if site.Listen[index].Protocol == "" {
 			site.Listen[index].Protocol = "https"
 		}
@@ -2761,10 +3571,7 @@ func detectTomcatDetail() *tomcatDetail {
 	if catalinaHome == "" {
 		catalinaHome = catalinaBase
 	}
-	configPath := ""
-	if catalinaBase != "" {
-		configPath = filepath.Join(catalinaBase, "conf", "server.xml")
-	}
+	configPath := findTomcatConfigPath(catalinaBase, catalinaHome)
 	detail := &tomcatDetail{
 		Installed:    catalinaBase != "" || catalinaHome != "",
 		Running:      running,
@@ -2774,8 +3581,21 @@ func detectTomcatDetail() *tomcatDetail {
 		Service:      "tomcat",
 	}
 	detail.Version = detectTomcatVersion(catalinaHome)
-	if configPath != "" && fileExists(configPath) {
-		detail.Connectors, detail.Apps = parseTomcatServerXML(configPath, catalinaBase)
+	for _, candidate := range findTomcatConfigCandidates(catalinaBase, catalinaHome) {
+		if candidate == "" || !fileExists(candidate) {
+			continue
+		}
+		connectors, apps := parseTomcatServerXML(candidate, catalinaBase)
+		if len(connectors) == 0 && len(apps) == 0 {
+			continue
+		}
+		detail.ConfigPath = candidate
+		detail.Connectors = connectors
+		detail.Apps = apps
+		break
+	}
+	if len(detail.Apps) == 0 {
+		detail.Apps = append(detail.Apps, scanTomcatKnownAppBases(catalinaBase, catalinaHome)...)
 	}
 	detail.Apps = uniqueTomcatApps(detail.Apps)
 	return detail
@@ -2819,6 +3639,41 @@ func findTomcatInstallPaths() (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func findTomcatConfigPath(catalinaBase string, catalinaHome string) string {
+	for _, candidate := range findTomcatConfigCandidates(catalinaBase, catalinaHome) {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	candidates := findTomcatConfigCandidates(catalinaBase, catalinaHome)
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+func findTomcatConfigCandidates(catalinaBase string, catalinaHome string) []string {
+	candidates := make([]string, 0, 8)
+	if catalinaBase != "" {
+		candidates = append(candidates, filepath.Join(catalinaBase, "conf", "server.xml"))
+		if baseName := filepath.Base(catalinaBase); baseName != "" {
+			candidates = append(candidates, filepath.Join("/etc", baseName, "server.xml"))
+		}
+	}
+	if catalinaHome != "" {
+		candidates = append(candidates, filepath.Join(catalinaHome, "conf", "server.xml"))
+		if homeName := filepath.Base(catalinaHome); homeName != "" {
+			candidates = append(candidates, filepath.Join("/etc", homeName, "server.xml"))
+		}
+	}
+	candidates = append(candidates,
+		"/etc/tomcat/server.xml",
+		"/etc/tomcat9/server.xml",
+		"/etc/tomcat10/server.xml",
+	)
+	return uniqueStrings(candidates)
 }
 
 func detectTomcatVersion(catalinaHome string) string {
@@ -2870,6 +3725,7 @@ type tomcatConnectorXML struct {
 	CertificateFile string `xml:"certificateFile,attr"`
 	CertificateKey  string `xml:"certificateKeyFile,attr"`
 	KeystoreFile    string `xml:"keystoreFile,attr"`
+	KeystorePass    string `xml:"keystorePass,attr"`
 }
 
 func parseTomcatServerXML(configPath string, catalinaBase string) ([]tomcatConnectorDetail, []tomcatAppDetail) {
@@ -2901,12 +3757,24 @@ func parseTomcatServerXML(configPath string, catalinaBase string) ([]tomcatConne
 				KeystorePath:       resolveApachePath(baseDir, catalinaBase, connector.KeystoreFile),
 			}
 			if item.TLS && item.CertificatePath != "" {
-				item.CertificateName = readCertificateSubject(item.CertificatePath)
+				item.Certificate = readCertificateDetail(item.CertificatePath)
+				if item.Certificate != nil {
+					item.CertificateName = item.Certificate.Subject
+				}
+			}
+			if item.TLS && item.CertificateName == "" && item.KeystorePath != "" {
+				item.Certificate = readPKCS12CertificateDetail(item.KeystorePath, strings.TrimSpace(connector.KeystorePass))
+				if item.Certificate != nil {
+					item.CertificateName = item.Certificate.Subject
+				}
+			}
+			if item.Address == "" {
+				item.Address = "*"
 			}
 			connectors = append(connectors, item)
 		}
 		for _, host := range service.Engine.Hosts {
-			appBase := resolveApachePath(baseDir, catalinaBase, host.AppBase)
+			appBase := resolveTomcatAppBase(baseDir, catalinaBase, host.AppBase)
 			hostName := strings.TrimSpace(host.Name)
 			if hostName != "" {
 				hostAppBases[hostName] = appBase
@@ -2918,12 +3786,103 @@ func parseTomcatServerXML(configPath string, catalinaBase string) ([]tomcatConne
 					AppBase:     appBase,
 				})
 			}
+			apps = append(apps, scanTomcatAppBase(appBase)...)
 		}
 	}
 
 	apps = append(apps, parseTomcatExternalContexts(catalinaBase, hostAppBases)...)
 
 	return connectors, apps
+}
+
+func resolveTomcatAppBase(baseDir string, catalinaBase string, appBase string) string {
+	appBase = strings.TrimSpace(appBase)
+	if appBase == "" {
+		if catalinaBase != "" {
+			return filepath.Join(catalinaBase, "webapps")
+		}
+		return ""
+	}
+	if filepath.IsAbs(appBase) {
+		return filepath.Clean(appBase)
+	}
+	if catalinaBase != "" {
+		return filepath.Clean(filepath.Join(catalinaBase, appBase))
+	}
+	return resolveApachePath(baseDir, catalinaBase, appBase)
+}
+
+func scanTomcatAppBase(appBase string) []tomcatAppDetail {
+	appBase = strings.TrimSpace(appBase)
+	if appBase == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(appBase)
+	if err != nil {
+		return nil
+	}
+	apps := make([]tomcatAppDetail, 0)
+	directories := make(map[string]struct{})
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name())
+		if name == "" || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if entry.IsDir() {
+			directories[name] = struct{}{}
+			apps = append(apps, tomcatAppDetail{
+				ContextPath: deriveTomcatContextPathFromName(name),
+				DocBase:     filepath.Join(appBase, name),
+				AppBase:     appBase,
+			})
+		}
+	}
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name())
+		if name == "" || entry.IsDir() || !strings.HasSuffix(strings.ToLower(name), ".war") {
+			continue
+		}
+		baseName := strings.TrimSuffix(name, filepath.Ext(name))
+		if _, exists := directories[baseName]; exists {
+			continue
+		}
+		apps = append(apps, tomcatAppDetail{
+			ContextPath: deriveTomcatContextPathFromName(baseName),
+			DocBase:     filepath.Join(appBase, name),
+			AppBase:     appBase,
+		})
+	}
+	return apps
+}
+
+func scanTomcatKnownAppBases(catalinaBase string, catalinaHome string) []tomcatAppDetail {
+	candidates := make([]string, 0, 4)
+	if catalinaBase != "" {
+		candidates = append(candidates, filepath.Join(catalinaBase, "webapps"))
+	}
+	if catalinaHome != "" {
+		candidates = append(candidates, filepath.Join(catalinaHome, "webapps"))
+	}
+	results := make([]tomcatAppDetail, 0)
+	for _, candidate := range uniqueStrings(candidates) {
+		results = append(results, scanTomcatAppBase(candidate)...)
+	}
+	return results
+}
+
+func deriveTomcatContextPathFromName(name string) string {
+	name = strings.TrimSpace(name)
+	if strings.EqualFold(name, "ROOT") {
+		return "/"
+	}
+	name = strings.ReplaceAll(name, "#", "/")
+	if name == "" {
+		return "/"
+	}
+	if strings.HasPrefix(name, "/") {
+		return name
+	}
+	return "/" + name
 }
 
 type tomcatContextFileXML struct {
@@ -2989,17 +3948,7 @@ func parseTomcatContextFile(filePath string, catalinaBase string, appBase string
 
 func deriveTomcatContextPathFromFile(filePath string) string {
 	name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-	if strings.EqualFold(name, "ROOT") {
-		return "/"
-	}
-	name = strings.ReplaceAll(name, "#", "/")
-	if name == "" {
-		return "/"
-	}
-	if strings.HasPrefix(name, "/") {
-		return name
-	}
-	return "/" + name
+	return deriveTomcatContextPathFromName(name)
 }
 
 func normalizeTomcatContextPath(value string) string {
@@ -3218,6 +4167,15 @@ func loadInstallMetadata(path string) (*InstallMetadata, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func fileReadable(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 func dirWritable(path string) bool {

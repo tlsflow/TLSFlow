@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 User=__SERVICE_USER__
 Group=__SERVICE_GROUP__
+SupplementaryGroups=__SUPPLEMENTARY_GROUPS__
 WorkingDirectory=__INSTALL_ROOT__
 ExecStart=__INSTALL_ROOT__/gcac-linux-agent run --config __CONFIG_DIR__/agent.config.json
 ExecStartPre=__INSTALL_ROOT__/gcac-linux-agent self-check --config __CONFIG_DIR__/agent.config.json
