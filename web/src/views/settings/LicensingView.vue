@@ -6,7 +6,6 @@ import { ApiClientError } from '@/api/client'
 import { productBrand } from '@/brand/product-brand'
 import {
   createActivationRequest,
-  exportLicense,
   getLicensingStatus,
   importActivationResponse,
   importLicense,
@@ -17,7 +16,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t, locale } = useI18n()
 const status = ref<LicenseStatus | null>(null)
-const licenseText = ref('')
+const licenseFileInput = ref<HTMLInputElement | null>(null)
 const loading = ref(false)
 const importing = ref(false)
 const upgradeModalOpen = ref(false)
@@ -39,10 +38,24 @@ interface ComparisonCard {
 }
 
 const comparisonFeatureKeys: Record<ComparisonPlanCode, string[]> = {
-  community: ['full', 'usage', 'quota', 'support'],
+  community: ['full', 'usage', 'automation', 'quota', 'support'],
   commercial: ['full', 'usage', 'automation', 'quota', 'support'],
   enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'customization', 'support'],
 }
+
+const displayedFeatureKeys = [
+  'certificateManagementAutomation',
+  'internalExternalCaManagement',
+  'generalAssetManagement',
+  'certificateAutomatedDeployment',
+  'workflowEditor',
+  'certificateApplicationMonitoring',
+  'privateDeployment',
+  'pluginExtension',
+] as const
+
+// 试用申请地址尚未接入，暂时打开占位页面。
+const trialApplicationUrl = 'about:blank'
 
 const stateLabel = computed(() => {
   if (!status.value) return t('common.notAvailable')
@@ -81,19 +94,26 @@ const versionCompatibilityLabel = computed(() => {
     : t('settings.licensing.version.incompatible')
 })
 
-const versionRangeLabel = computed(() => {
-  const versionRange = status.value?.versionRange
-  if (!versionRange?.min && !versionRange?.max) return t('common.notAvailable')
-  return [
-    versionRange.min ? `>= ${versionRange.min}` : '',
-    versionRange.max ? `<= ${versionRange.max}` : '',
-  ].filter(Boolean).join(', ')
-})
-
 const validityLabel = computed(() => {
   if (status.value?.expiresAt) return formatBrowserLocalTime(status.value.expiresAt, { includeSeconds: false })
   if (status.value?.planCode && status.value.planCode !== 'none') return t('settings.licensing.validity.perpetual')
   return t('common.notAvailable')
+})
+
+const applicationAssetQuotaLabel = computed(() => {
+  if (!status.value) return t('common.notAvailable')
+  const quota = status.value.quotas.applicationAssets ?? status.value.quotas.managedTargets
+  const quotaLabel = quota === null || quota === undefined ? t('settings.licensing.quotas.unlimited') : String(quota)
+  const used = status.value.usage?.applicationAssets
+  return typeof used === 'number'
+    ? t('settings.licensing.quotas.usedAvailable', { used, quota: quotaLabel })
+    : quotaLabel
+})
+
+const applicationAssetQuotaExceeded = computed(() => {
+  const quota = status.value?.quotas.applicationAssets ?? status.value?.quotas.managedTargets
+  const used = status.value?.usage?.applicationAssets
+  return typeof used === 'number' && typeof quota === 'number' && used >= quota
 })
 
 const comparisonCards = computed<ComparisonCard[]>(() => {
@@ -129,12 +149,6 @@ const comparisonSummary = computed(() => {
   return t('settings.licensing.comparison.currentPlan', { plan: planLabel.value })
 })
 
-function featureLabel(feature: string): string {
-  const key = `settings.licensing.features.items.${feature}`
-  const localized = t(key)
-  return localized === key ? feature : localized
-}
-
 async function loadStatus(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
@@ -158,31 +172,41 @@ async function downloadJson(fileName: string, value: unknown): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-async function exportCurrentLicense(): Promise<void> {
+async function createRequest(): Promise<void> {
   errorMessage.value = ''
   try {
-    const response = await exportLicense()
-    if (!response.data) throw new Error('license export data missing')
-    await downloadJson(`${productBrand.slug}-license-export.json`, response.data)
-    message.value = t('settings.licensing.messages.exported')
-  } catch {
-    errorMessage.value = t('settings.licensing.messages.operationFailed')
-  }
-}
-
-async function createRequest(kind: 'online' | 'offline'): Promise<void> {
-  errorMessage.value = ''
-  try {
-    const response = await createActivationRequest(kind)
+    const response = await createActivationRequest()
     if (!response.data) throw new Error('activation request data missing')
-    await downloadJson(`${productBrand.slug}-activation-request-${kind}.json`, response.data.request)
+    await downloadJson(`${productBrand.slug}-activation-request-offline.json`, response.data.request)
     message.value = t('settings.licensing.messages.requestExported')
   } catch {
     errorMessage.value = t('settings.licensing.messages.operationFailed')
   }
 }
 
-async function importCurrentLicense(): Promise<void> {
+function applyForTrial(): void {
+  upgradeModalOpen.value = false
+  window.open(trialApplicationUrl, '_blank', 'noopener,noreferrer')
+}
+
+function chooseLicenseFile(): void {
+  licenseFileInput.value?.click()
+}
+
+async function handleLicenseFileChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  try {
+    await importLicensePayload(await file.text())
+  } catch {
+    errorMessage.value = t('settings.licensing.messages.operationFailed')
+  }
+}
+
+async function importLicensePayload(payload: string): Promise<void> {
   errorMessage.value = ''
   message.value = ''
   let parsed: {
@@ -195,7 +219,7 @@ async function importCurrentLicense(): Promise<void> {
     schemaVersion?: number
   }
   try {
-    parsed = JSON.parse(licenseText.value) as typeof parsed
+    parsed = JSON.parse(payload) as typeof parsed
   } catch {
     errorMessage.value = t('settings.licensing.messages.invalidJson')
     return
@@ -208,7 +232,6 @@ async function importCurrentLicense(): Promise<void> {
         ? await importLicense({ licenseGrant: parsed.licenseGrant, revocationList: parsed.revocationList })
         : (() => { throw new Error('license payload missing') })()
     if (response.data) status.value = response.data
-    licenseText.value = ''
     message.value = t('settings.licensing.messages.imported')
   } catch (error: unknown) {
     errorMessage.value = parsed.licenseGrant || isActivationResponsePayload(parsed)
@@ -284,7 +307,7 @@ onMounted(loadStatus)
           </div>
         </div>
         <div class="licensing-page__hero-aside">
-          <span :class="stateClass">{{ stateLabel }}</span>
+          <span v-if="status && status.state !== 'none'" :class="stateClass">{{ stateLabel }}</span>
           <div class="licensing-page__hero-actions">
             <button class="gc-button gc-button--primary" type="button" @click="upgradeModalOpen = true">
               {{ t('settings.licensing.actions.upgrade') }}
@@ -319,28 +342,13 @@ onMounted(loadStatus)
       <div class="licensing-page__panel-head">
         <div>
           <h2>{{ t('settings.licensing.info.title') }}</h2>
-          <p>{{ t('settings.licensing.info.description') }}</p>
         </div>
         <span class="licensing-page__panel-badge">{{ planLabel }}</span>
       </div>
-      <dl class="licensing-page__facts">
-        <div>
-          <dt>{{ t('settings.licensing.fields.currentVersion') }}</dt>
-          <dd>{{ status?.currentVersion || t('common.notAvailable') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.licensing.fields.expiresAt') }}</dt>
-          <dd>{{ status?.expiresAt ? formatBrowserLocalTime(status.expiresAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.licensing.fields.versionRange') }}</dt>
-          <dd>{{ versionRangeLabel }}</dd>
-        </div>
-      </dl>
       <div class="licensing-page__quota-block">
         <h3>{{ t('settings.licensing.quotas.title') }}</h3>
         <dl class="licensing-page__quota-list">
-          <div><dt>{{ t('settings.licensing.quotas.applicationAssets') }}</dt><dd>{{ status?.quotas.applicationAssets ?? status?.quotas.managedTargets ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
+          <div><dt>{{ t('settings.licensing.quotas.applicationAssets') }}</dt><dd :class="{ 'licensing-page__quota-value--exceeded': applicationAssetQuotaExceeded }">{{ applicationAssetQuotaLabel }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.concurrentExecutions') }}</dt><dd>{{ status?.quotas.concurrentExecutions ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.plugins') }}</dt><dd>{{ status?.quotas.plugins ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
         </dl>
@@ -351,13 +359,13 @@ onMounted(loadStatus)
       <section class="gc-card licensing-page__panel" :aria-label="t('settings.licensing.features.title')">
         <h2>{{ t('settings.licensing.features.title') }}</h2>
         <ul v-if="status?.features.length" class="licensing-page__list">
-          <li v-for="feature in status.features" :key="feature">
+          <li v-for="featureKey in displayedFeatureKeys" :key="featureKey">
             <span class="licensing-page__check" aria-hidden="true">
               <svg viewBox="0 0 24 24" role="presentation">
                 <path d="m5 12.5 4.5 4.5L19 7.5" />
               </svg>
             </span>
-            <span>{{ featureLabel(feature) }}</span>
+            <span>{{ t(`settings.licensing.features.items.${featureKey}`) }}</span>
           </li>
         </ul>
         <p v-else class="licensing-page__muted">{{ t('settings.licensing.features.empty') }}</p>
@@ -371,17 +379,19 @@ onMounted(loadStatus)
           </div>
         </div>
         <div class="licensing-page__actions">
-          <button class="gc-button gc-button--secondary" type="button" @click="createRequest('online')">{{ t('settings.licensing.actions.onlineRequest') }}</button>
-          <button class="gc-button gc-button--secondary" type="button" @click="createRequest('offline')">{{ t('settings.licensing.actions.offlineRequest') }}</button>
-          <button class="gc-button gc-button--secondary" type="button" @click="exportCurrentLicense">{{ t('settings.licensing.actions.export') }}</button>
+          <button class="gc-button gc-button--secondary" type="button" @click="createRequest">{{ t('settings.licensing.actions.offlineRequest') }}</button>
+          <button class="gc-button gc-button--secondary" type="button" :disabled="importing" @click="chooseLicenseFile">
+            {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
+          </button>
+          <input
+            ref="licenseFileInput"
+            hidden
+            type="file"
+            accept="application/json,.json"
+            :aria-label="t('settings.licensing.actions.import')"
+            @change="handleLicenseFileChange"
+          >
         </div>
-        <label class="licensing-page__input">
-          <span>{{ t('settings.licensing.actions.importLabel') }}</span>
-          <textarea v-model="licenseText" rows="4" :placeholder="t('settings.licensing.actions.importPlaceholder')" />
-        </label>
-        <button class="gc-button gc-button--primary" type="button" :disabled="importing || !licenseText.trim()" @click="importCurrentLicense">
-          {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
-        </button>
       </section>
     </section>
 
@@ -431,7 +441,20 @@ onMounted(loadStatus)
             <ul class="licensing-upgrade-modal__features">
               <li v-for="feature in card.features" :key="feature">{{ feature }}</li>
             </ul>
-            <p class="licensing-upgrade-modal__price">{{ card.price }}</p>
+            <div
+              class="licensing-upgrade-modal__price-row"
+              :class="{ 'licensing-upgrade-modal__price-row--with-action': card.code === 'enterprise' }"
+            >
+              <p class="licensing-upgrade-modal__price">{{ card.price }}</p>
+              <button
+                v-if="card.code === 'enterprise'"
+                class="gc-button gc-button--secondary licensing-upgrade-modal__trial-action"
+                type="button"
+                @click="applyForTrial"
+              >
+                {{ t('settings.licensing.comparison.applyTrial') }}
+              </button>
+            </div>
           </article>
         </section>
 
@@ -663,49 +686,14 @@ onMounted(loadStatus)
 .licensing-page__state--revoked,
 .licensing-page__state--expired,
 .licensing-page__state--clock_rollback_detected { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
-.licensing-page__state--none { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
-
-/* ---- 授权信息 ---- */
-
-.licensing-page__facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gc-space-2);
-  margin: 0;
-}
-
-.licensing-page__facts div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-  min-width: 0;
-  padding: var(--gc-space-2) var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
-  border-radius: var(--gc-radius-sm);
-  background: var(--gc-color-surface-subtle);
-}
-
-.licensing-page__facts dt {
-  flex: 0 0 auto;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  white-space: nowrap;
-}
-
-.licensing-page__facts dd {
-  margin: 0;
-  min-width: 0;
-  color: var(--gc-color-text);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
 
 .licensing-page__mono {
-  overflow-wrap: anywhere;
+  overflow-x: auto;
+  overflow-wrap: normal;
   font-family: var(--gc-font-family-mono);
   font-size: var(--gc-font-size-sm);
+  white-space: nowrap;
+  word-break: normal;
 }
 
 /* ---- 功能与额度 ---- */
@@ -806,31 +794,16 @@ onMounted(loadStatus)
   text-align: right;
 }
 
+.licensing-page__quota-list dd.licensing-page__quota-value--exceeded {
+  color: var(--gc-color-danger);
+}
+
 /* ---- 授权文件操作 ---- */
 
 .licensing-page__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--gc-space-2);
-}
-
-.licensing-page__input {
-  display: grid;
-  gap: var(--gc-space-2);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-}
-
-.licensing-page textarea {
-  width: 100%;
-  resize: vertical;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-sm);
-  color: var(--gc-color-text);
-  background: var(--gc-color-surface);
-  font-family: var(--gc-font-family-mono);
-  font-size: var(--gc-font-size-sm);
 }
 
 /* ---- 提示消息 ---- */
@@ -998,20 +971,59 @@ onMounted(loadStatus)
   line-height: 1.55;
 }
 
-.licensing-upgrade-modal__price {
+.licensing-upgrade-modal__price-row {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0;
+  flex-wrap: wrap;
+  gap: var(--gc-space-3);
   min-height: var(--gc-control-height-md);
   padding: var(--gc-space-2) 0;
   border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+}
+
+.licensing-upgrade-modal__price-row--with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  gap: var(--gc-space-2);
+}
+
+.licensing-upgrade-modal__price {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   color: var(--gc-color-info);
   font-size: var(--gc-font-size-md);
   font-weight: 900;
   text-align: center;
+}
+
+.licensing-upgrade-modal__price-row--with-action .licensing-upgrade-modal__price {
+  grid-column: 2;
+  text-align: center;
+}
+
+.licensing-upgrade-modal__trial-action {
+  grid-column: 3;
+  justify-self: end;
+  min-height: var(--gc-control-height-xs);
+  padding: var(--gc-space-1) var(--gc-space-2);
+  border-color: transparent;
+  color: var(--gc-color-text-muted);
+  background: transparent;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.licensing-upgrade-modal__trial-action:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--gc-color-text);
+  background: transparent;
+  box-shadow: none;
 }
 
 .licensing-upgrade-modal__footer {
@@ -1040,7 +1052,6 @@ onMounted(loadStatus)
   }
 
   .licensing-page__hero-stats,
-  .licensing-page__facts,
   .licensing-page__quota-list,
   .licensing-page__grid,
   .licensing-upgrade-modal__cards {
