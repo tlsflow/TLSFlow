@@ -20,9 +20,12 @@ import {
   type ExternalUserLookupResponse,
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal, GcPageToolbar, GcTabs } from '@/design-system/components'
+import { usePermissionStore } from '@/stores/permission.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import IdentitySourcesView from './IdentitySourcesView.vue'
 
 const { t } = useI18n()
+const permissionStore = usePermissionStore()
 const SETTINGS_PAGE_SIZE = 20
 
 interface UserDraft {
@@ -66,6 +69,8 @@ const groupEditorLoading = ref(false)
 const groupEditorError = ref('')
 const groupLookupLoading = ref(false)
 const groupLookupProfile = ref<ExternalGroupLookupResponse | null>(null)
+const identitySourcesModalOpen = ref(false)
+const canReadIdentitySources = computed(() => permissionStore.hasPermission('security.identity_source.read'))
 
 const draft = reactive<UserDraft>(buildDefaultDraft())
 const groupDraft = reactive<GroupDraft>(buildDefaultGroupDraft())
@@ -194,6 +199,10 @@ async function loadRoles() {
 }
 
 async function loadIdentitySources() {
+  if (!canReadIdentitySources.value) {
+    identitySourceItems.value = []
+    return
+  }
   const result = await listIdentitySources({ page: 1, pageSize: 200 })
   identitySourceItems.value = [...(result.data?.items ?? [])]
 }
@@ -403,6 +412,7 @@ onMounted(async () => {
         />
       </template>
       <template #primary>
+        <button v-if="canReadIdentitySources" class="gc-button" type="button" @click="identitySourcesModalOpen = true">{{ t('nav.identitySources') }}</button>
         <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
       </template>
       <template #tabs>
@@ -695,6 +705,16 @@ onMounted(async () => {
           {{ groupEditorLoading ? t('settings.users.actions.adding') : t('settings.users.actions.addGroup') }}
         </button>
       </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="identitySourcesModalOpen"
+      :title="t('nav.identitySources')"
+      :description="t('nav.identitySourcesDesc')"
+      size="xxl"
+      @update:open="(value) => { if (!value) void loadIdentitySources() }"
+    >
+      <IdentitySourcesView v-if="identitySourcesModalOpen" />
     </GcModal>
   </section>
 </template>
