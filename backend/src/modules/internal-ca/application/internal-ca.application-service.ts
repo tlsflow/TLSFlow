@@ -804,11 +804,19 @@ export class InternalCaApplicationService {
   async approveRevocation(tenantId: string, revocationId: string, approvalId: string, actorId: string): Promise<CertificateRevocationEntity> {
     const revocation = (await this.repository.listRevocations(tenantId)).find((item) => item.id === revocationId);
     if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '吊销申请不存在', { revocationId });
+    if (revocation.status === 'revoked') return revocation;
     if (revocation.status !== 'pending_approval' || !revocation.approvalId || revocation.approvalId !== approvalId) {
       throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '吊销申请需要匹配的审批单');
     }
     const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: revocation.certificateVersionId });
+    const ledgerRecord = await this.repository.getIssuanceByCertificateVersion(tenantId, version.id);
+    if (!ledgerRecord || ledgerRecord.caId !== revocation.caId || version.issuingCaId !== revocation.caId) {
+      throw new AppError('CA_LEDGER_INCONSISTENT', '证书不属于当前 CA 的签发账本', {
+        certificateVersionId: version.id,
+        caId: revocation.caId,
+      });
+    }
     await this.dependencies.approvals?.consume(approvalId, {
       certificateVersionId: version.id, caId: revocation.caId, serialNumber: version.serialNumber, reason: revocation.reason,
     });
@@ -818,6 +826,14 @@ export class InternalCaApplicationService {
     if (!adapter.revoke) throw new AppError('CERTIFICATE_REVOCATION_UNSUPPORTED', '当前 CA Provider 不支持吊销');
     await this.repository.saveRevocation({ ...revocation, status: 'revoking', updatedAt: new Date().toISOString() });
     const result = await adapter.revoke({ provider, authority, serialNumber: version.serialNumber, reason: revocation.reason, actorId });
+    await this.repository.saveIssuanceRecord({
+      ...ledgerRecord,
+      status: 'revoked',
+      revocationReason: revocation.reason,
+      revokedAt: result.revokedAt,
+      invalidityDate: result.revokedAt,
+      updatedAt: new Date().toISOString(),
+    });
     await this.dependencies.certificates.revokeVersion({ id: version.id, status: 'revoked', actorId });
     return this.repository.saveRevocation({ ...revocation, status: 'revoked', revokedAt: result.revokedAt, updatedAt: new Date().toISOString() });
   }

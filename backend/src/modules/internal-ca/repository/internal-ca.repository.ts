@@ -78,7 +78,11 @@ export class InternalCaRepository {
     return hexadecimal.length % 2 === 0 ? hexadecimal : `0${hexadecimal}`;
   }
 
-  saveIssuanceRecord(entity: CaIssuanceRecordEntity): Promise<CaIssuanceRecordEntity> {
+  async saveIssuanceRecord(entity: CaIssuanceRecordEntity): Promise<CaIssuanceRecordEntity> {
+    const existing = await this.getIssuanceBySerial(entity.tenantId, entity.caId, entity.serialNumber);
+    if (existing?.status === 'revoked' && entity.status !== 'revoked') {
+      throw new Error('已吊销的 CA 签发记录不可恢复为其他状态');
+    }
     return this.upsert('pg_ca_issuance_records', entity.id, entity, {
       tenant_id: entity.tenantId,
       ca_id: entity.caId,
@@ -95,6 +99,9 @@ export class InternalCaRepository {
       not_before: entity.notBefore ?? null,
       not_after: entity.notAfter ?? null,
       issued_at: entity.issuedAt ?? null,
+      revocation_reason: entity.revocationReason ?? null,
+      revoked_at: entity.revokedAt ?? null,
+      invalidity_date: entity.invalidityDate ?? null,
       observed_at: entity.observedAt,
     });
   }
@@ -105,6 +112,10 @@ export class InternalCaRepository {
 
   getIssuanceByRequest(tenantId: string, certificateRequestId: string): Promise<CaIssuanceRecordEntity | undefined> {
     return this.getByColumns('pg_ca_issuance_records', tenantId, { certificate_request_id: certificateRequestId });
+  }
+
+  getIssuanceByCertificateVersion(tenantId: string, certificateVersionId: string): Promise<CaIssuanceRecordEntity | undefined> {
+    return this.getByColumns('pg_ca_issuance_records', tenantId, { certificate_version_id: certificateVersionId });
   }
 
   listIssuanceRecords(tenantId: string, caId?: string): Promise<CaIssuanceRecordEntity[]> {

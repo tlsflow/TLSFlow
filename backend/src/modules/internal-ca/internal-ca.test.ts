@@ -162,6 +162,14 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   const revoked = await service.approveRevocation(tenantId, revocation.id, revocation.approvalId!, 'security-admin');
   assert.equal(revoked.status, 'revoked');
   assert.ok(revoked.warnings?.some((warning) => warning.includes('CRL')));
+  assert.equal((await service.approveRevocation(tenantId, revocation.id, revocation.approvalId!, 'security-admin')).status, 'revoked');
+  const revokedLedger = (await service.listIssuanceRecords(tenantId, intermediate.id))
+    .find((record) => record.certificateVersionId === issued.certificateVersionId)!;
+  assert.equal(revokedLedger.status, 'revoked');
+  assert.equal(revokedLedger.revocationReason, 'keyCompromise');
+  assert.ok(revokedLedger.revokedAt);
+  assert.equal(revokedLedger.invalidityDate, revokedLedger.revokedAt);
+  await assert.rejects(service.getRepository().saveIssuanceRecord({ ...revokedLedger, status: 'issued' }), /不可恢复/);
 
   const distribution = await service.createTrustDistribution(tenantId, intermediate.id, { agentIds: ['agent-a'], platform: 'linux' }, actorId);
   assert.ok(distribution.approvalId);

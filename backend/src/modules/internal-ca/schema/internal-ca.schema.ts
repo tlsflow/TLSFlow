@@ -78,6 +78,9 @@ export interface CaIssuanceRecordEntity {
   notBefore?: string;
   notAfter?: string;
   issuedAt?: string;
+  revocationReason?: string;
+  revokedAt?: string;
+  invalidityDate?: string;
   observedAt: string;
   createdAt: string;
   updatedAt: string;
