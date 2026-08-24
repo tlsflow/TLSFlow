@@ -162,6 +162,38 @@ test('全局凭据 API 支持创建 DNS Provider 配置', async () => {
   assert.equal(stored.rows[0]?.kind, 'DNS_PROVIDER');
 });
 
+test('全局凭据 API 支持创建 Cloud Provider 配置', async () => {
+  const { app, database } = await createTestApp();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: testAuthHeaders('user-cloud', 'tenant-cloud'),
+    body: {
+      name: '阿里云生产账号',
+      kind: 'CLOUD_PROVIDER',
+      scopeType: 'global',
+      metadata: { providerKey: 'cloud.aliyun' },
+      secretValues: {
+        accessKeyId: { plainText: 'access-key-id', type: 'api_token' },
+        accessKeySecret: { plainText: 'access-key-secret', type: 'api_token' },
+      },
+    },
+  });
+
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+  const credential = created.body as Record<string, unknown>;
+  assert.equal(credential.kind, 'CLOUD_PROVIDER');
+  assert.deepEqual(Object.keys(credential.secretSlots as Record<string, string>).sort(), ['accessKeyId', 'accessKeySecret']);
+  assert.equal(JSON.stringify(credential).includes('access-key-secret'), false);
+  assert.deepEqual((credential.metadata as Record<string, unknown>).providerKey, 'cloud.aliyun');
+
+  const stored = await database.query<{ kind: string }>(
+    'select kind from credential_profiles where id = $1',
+    [credential.id],
+  );
+  assert.equal(stored.rows[0]?.kind, 'CLOUD_PROVIDER');
+});
+
 test('全局凭据 API 支持创建待浏览器获取的 BROWSER_SESSION', async () => {
   const { app } = await createTestApp();
   const created = await app.inject({
