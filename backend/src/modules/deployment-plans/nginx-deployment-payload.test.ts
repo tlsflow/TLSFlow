@@ -5,16 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import type { UnifiedPluginsApplicationService } from '../plugins/application/unified-plugins.application-service.js';
-import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
+import type { PluginWorkflowPublisherService } from '../plugins/application/plugin-workflow-publisher.service.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { DeploymentInputSnapshotsRepository } from '../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 
-const headers = { 'x-actor-id': 'user_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_nginx_payload' };
+const headers = testAuthHeaders('user_1', 'tenant_1', { 'x-request-id': 'req_nginx_payload' });
+let nginxFixtureSequence = 0;
 
-test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请求', async () => {
+test('NGINX deployment plan 会通过统一插件能力生成 Workflow 请求', async () => {
   const security = createSecurityServices();
   security.rbac.createPolicy({
     subjectType: 'user',
@@ -30,6 +32,9 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
       'binding.manage',
       'certificate.import',
       'certificate.format.create',
+      'device_asset.manage',
+      'plugin.read',
+      'plugin.manage',
       'deployment_plan.create',
       'deployment_plan.submit',
       'deployment_plan.dry_run',
@@ -44,6 +49,8 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
       'certificate_binding',
       'certificate_version',
       'certificate_version_format',
+      'device_asset',
+      'plugin',
       'deploymentPlan',
     ],
     scope: { tenantId: 'tenant_1' },
@@ -51,38 +58,17 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
 
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
   const chain = createPemChainFixture('nginx-site.example.com');
 
-  const registered = await app.inject({
-    method: 'POST',
-    path: '/api/v1/agents/register',
-    headers,
-    body: {
-      agentKey: 'nginx-agent-01',
-      hostname: 'nginx-host-01.example.com',
-      ipAddress: '192.0.2.81',
-      version: '1.0.0',
-      osType: 'linux',
-      directControl: {
-        enabled: true,
-        reachable: true,
-        listenAddress: '127.0.0.1:19081',
-        protocolVersion: 'v1',
-        supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-      },
-    },
-  });
-  assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
-  const agentId = (registered.body as { id: string }).id;
-
-  const hostId = `host_${agentId}`;
+  const controlPlane = await createNginxControlPlaneFixture(app, security);
+  const { hostId, discoveryProviderKey } = controlPlane;
 
   const service = await app.inject({
     method: 'POST',
     path: '/api/v1/framework-instances',
     headers,
-    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey: `agent:${agentId}` },
+    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey },
   });
   assert.equal(service.statusCode, 201, JSON.stringify(service.body));
   const serviceInstanceId = (service.body as { id: string }).id;
@@ -94,7 +80,6 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
     body: {
       serviceInstanceId,
       hostId,
-      agentId,
       address: 'nginx-site.example.com',
       addressType: 'DNS',
       port: 9443,
@@ -114,7 +99,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
     body: {
       frameworkInstanceId: serviceInstanceId,
       deviceId: hostId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       siteType: 'web.site',
       siteName: 'nginx-site.example.com',
       siteKey: 'nginx:nginx-site.example.com:443:https',
@@ -146,12 +131,12 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
       deviceId: hostId,
       frameworkInstanceId: serviceInstanceId,
       siteId: siteAssetId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       targetType: 'tls.file',
       targetKey: 'nginx:file:/etc/nginx/certs/nginx-site.pem',
       bindingKey: 'nginx:nginx-site.example.com:443:https',
       supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
-      executionLocations: ['AGENT'],
+      executionLocations: ['CONTROL_PLANE'],
       metadata: { certPath: '/etc/nginx/certs/nginx-site.pem', keyPath: '/etc/nginx/certs/nginx-site.key' },
     },
   });
@@ -189,7 +174,7 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, serviceAssetId, managedTargetId, certificateFormatId, {
+  await configureApplicationAssetManagedTarget(app, security, serviceAssetId, managedTargetId, certificateFormatId, {
     certificatePath: '/etc/nginx/certs/nginx-site.pem',
     privateKeyPath: '/etc/nginx/certs/nginx-site.key',
     nginxProgram: '/usr/sbin/nginx',
@@ -255,31 +240,98 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { run: { id: string }; steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
-  assert.ok(atomicStep, JSON.stringify(dryRunBody));
-  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
-  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
-  assert.equal(atomicStep!.inputSnapshot.applicationAssetId, serviceAssetId);
-  assert.equal(atomicStep!.inputSnapshot.managedTargetId, managedTargetId);
-  assert.equal(atomicStep!.inputSnapshot.siteName, 'nginx-site.example.com');
-  assert.equal(atomicStep!.inputSnapshot.bindingSelector.hostHeader, 'nginx-site.example.com');
-  assert.equal(atomicStep!.inputSnapshot.bindingSelector.port, 443);
-  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
-  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
-  assert.equal(atomicStep!.inputSnapshot.deploymentInputSnapshotRef?.apiVersion, 'gcac.deployment-input-snapshot/v1');
+  const workflowStep = findWorkflowStep(dryRunBody.steps);
+  assert.equal(workflowStep.inputSnapshot.executorType, 'WORKFLOW');
+  assert.equal(workflowStep.inputSnapshot.pluginRuntimeCapability.runtime, 'WORKFLOW_DSL');
+  assert.equal(workflowStep.inputSnapshot.pluginRuntimeCapability.executionLocation, 'CONTROL_PLANE');
+  assert.equal(workflowStep.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(workflowStep.inputSnapshot.applicationAssetId, serviceAssetId);
+  assert.equal(workflowStep.inputSnapshot.managedTargetId, managedTargetId);
+  assert.equal(workflowStep.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
+  assert.equal(workflowStep.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(workflowStep.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
+  assert.equal(workflowStep.inputSnapshot.resolvedDeploymentInput, undefined);
+  assert.equal(workflowStep.inputSnapshot.deploymentInputSnapshotRef?.apiVersion, 'gcac.deployment-input-snapshot/v1');
+  const runtimeSnapshot = await new DeploymentInputSnapshotsRepository(db).getRuntimeSnapshot(
+    'tenant_1',
+    String(workflowStep.inputSnapshot.deploymentInputSnapshotRef?.snapshotId),
+  );
+  assert.equal(runtimeSnapshot?.contract.apiVersion, 'gcac.deployment-input/v1');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.certificatePath, '/etc/nginx/certs/nginx-site.pem');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.privateKeyPath, '/etc/nginx/certs/nginx-site.key');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.nginxProgram, '/usr/sbin/nginx');
+  assert.equal(runtimeSnapshot?.resolvedDeploymentInput.variables.serviceName, 'nginx');
 });
+
+async function createNginxControlPlaneFixture(
+  app: ReturnType<typeof createApp>,
+  security: ReturnType<typeof createSecurityServices>,
+): Promise<{ hostId: string; discoveryProviderKey: string }> {
+  await grantNginxDeviceAssetCreateAccess(security);
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/device-assets',
+    headers,
+    body: {
+      displayName: 'NGINX Control Plane Fixture',
+      managementAddress: 'nginx-control.example.com',
+      deviceFamily: 'fixture.nginx',
+      credentialId: 'fixture-nginx-credential',
+      authMode: 'AUTO',
+      tlsVerify: true,
+    },
+  });
+  assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+  const device = created.body as { id: string; hostId: string };
+  return { hostId: device.hostId, discoveryProviderKey: `device:${device.id}` };
+}
+
+async function grantNginxDeviceAssetCreateAccess(security: ReturnType<typeof createSecurityServices>): Promise<void> {
+  const roleId = 'role_nginx_device_asset_create';
+  const objectSetId = 'oset_nginx_device_asset_create';
+  await security.rbac.createRole({ id: roleId, code: roleId, name: 'NGINX device asset create test access', builtin: false });
+  const objectSet = await security.objectPermissions.createObjectSet({
+    id: objectSetId,
+    tenantId: 'tenant_1',
+    name: 'NGINX device asset create test access',
+    kind: 'dynamic',
+    objectTypes: ['device_asset'],
+    conditions: { tenantId: 'tenant_1' },
+    status: 'active',
+  });
+  await security.objectPermissions.createRoleBinding({
+    tenantId: 'tenant_1',
+    principalType: 'user',
+    principalId: 'user_1',
+    roleId,
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await security.objectPermissions.createAccessGrant({ tenantId: 'tenant_1', roleId, objectSetId: objectSet.id, accessLevel: 'edit', effect: 'allow' });
+}
+
+function findWorkflowStep(steps: Array<{ stepType: string; inputSnapshot: any }>) {
+  const step = steps.find((item) => item.inputSnapshot.executorType === 'WORKFLOW');
+  assert.ok(step, JSON.stringify(steps));
+  return step!;
+}
 
 async function configureApplicationAssetManagedTarget(
   app: ReturnType<typeof createApp>,
+  security: ReturnType<typeof createSecurityServices>,
   applicationAssetId: string,
   managedTargetId: string,
   certificateFormatId: string,
   variableBindings: Record<string, unknown>,
 ): Promise<void> {
   const unifiedPlugins = app.getResource('unifiedPluginsService') as UnifiedPluginsApplicationService | undefined;
+  const workflowPublisher = app.getResource('pluginWorkflowPublisher') as PluginWorkflowPublisherService | undefined;
   assert.ok(unifiedPlugins);
-  await new BuiltinUnifiedPluginLoader().installAll('tenant_1', unifiedPlugins);
+  assert.ok(workflowPublisher);
+  const nginxPlugin = await createNginxTestPlugin(unifiedPlugins, workflowPublisher);
+  const accessiblePlugins = await unifiedPlugins.listAccessibleVersions('tenant_1');
+  await grantNginxTestObjectAccess(security, applicationAssetId, managedTargetId, accessiblePlugins.map((plugin) => plugin.id));
 
   const compatible = await app.inject({
     method: 'GET',
@@ -287,7 +339,8 @@ async function configureApplicationAssetManagedTarget(
     headers,
   });
   assert.equal(compatible.statusCode, 200, JSON.stringify(compatible.body));
-  const plugin = (compatible.body as { items: Array<{ pluginVersionId: string; compatible: boolean }> }).items.find((item) => item.compatible);
+  const plugin = (compatible.body as { items: Array<{ pluginVersionId: string; compatible: boolean }> }).items
+    .find((item) => item.pluginVersionId === nginxPlugin.id && item.compatible);
   assert.ok(plugin, JSON.stringify(compatible.body));
 
   const saved = await app.inject({
@@ -305,8 +358,7 @@ async function configureApplicationAssetManagedTarget(
           connections: {},
           credentials: {},
           artifacts: {
-            certificate: { certificateFormatId, outputBindings: { certificate: 'leafPem' } },
-            privateKey: { certificateFormatId, outputBindings: { privateKey: 'privateKeyPem' } },
+            certificate: { certificateFormatId, outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' } },
           },
         },
       },
@@ -326,6 +378,143 @@ async function configureApplicationAssetManagedTarget(
     },
   });
   assert.equal(strategy.statusCode, 200, JSON.stringify(strategy.body));
+}
+
+async function createNginxTestPlugin(
+  unifiedPlugins: UnifiedPluginsApplicationService,
+  workflowPublisher: PluginWorkflowPublisherService,
+) {
+  const workflowPath = 'workflows/certificate-deploy.json';
+  const imported = await unifiedPlugins.importVersion('tenant_1', {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'fixture.nginx.certificate',
+      version: '1.0.0',
+      displayNameKey: 'plugin.fixture.nginx.name',
+      descriptionKey: 'plugin.fixture.nginx.description',
+      defaultLocale: 'zh-CN',
+      publisher: 'GCAC test',
+      runtime: 'WORKFLOW_DSL',
+      source: 'USER',
+      scope: 'MANAGED',
+      trust: 'UNSIGNED',
+      support: 'SELF_MANAGED',
+      capabilities: [{
+        key: 'certificate.deploy',
+        contractVersion: 'v1',
+        actionContractId: 'certificate.deploy.v1',
+        riskLevel: 'HIGH',
+        executionLocations: ['CONTROL_PLANE'],
+      }],
+      permissions: [],
+      compatibility: {
+        frameworkTypes: ['web.nginx'],
+        targetTypes: ['tls.file'],
+        managementMethods: ['PLUGIN'],
+        executionLocations: ['CONTROL_PLANE'],
+        artifactContracts: ['certificate.deploy.v1'],
+      },
+      resources: {
+        workflows: { 'certificate.deploy': workflowPath },
+        locales: { 'zh-CN': 'locales/zh-CN.json' },
+      },
+    },
+    resources: {
+      [workflowPath]: JSON.stringify({
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'fixture-nginx-certificate-deploy', version: '1.0.0' },
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {
+            certificatePath: requiredNginxVariable(),
+            privateKeyPath: requiredNginxVariable(),
+            nginxProgram: requiredNginxVariable(),
+            serviceName: requiredNginxVariable(),
+          },
+          connections: {},
+          credentials: {},
+          artifacts: {
+            certificate: {
+              kind: 'certificate',
+              required: true,
+              configurationMode: 'required',
+              lifecycle: 'pre_execution',
+              artifactContract: {
+                outputs: {
+                  leafPem: { role: 'public_certificate', required: true },
+                  privateKeyPem: { role: 'private_key', required: true, sensitive: true },
+                },
+              },
+            },
+          },
+        },
+        steps: [{
+          name: 'record-nginx-deployment',
+          type: 'transform',
+          stage: 'install',
+          transform: { engine: 'jsonata', input: {}, outputs: { result: { expression: '{}' } } },
+        }],
+      }),
+      'locales/zh-CN.json': JSON.stringify({
+        'plugin.fixture.nginx.name': 'NGINX 测试插件',
+        'plugin.fixture.nginx.description': 'NGINX 部署载荷测试插件',
+      }),
+    },
+  });
+  const enabled = await unifiedPlugins.enableVersion(imported.id);
+  await workflowPublisher.publishPlugin(enabled);
+  return enabled;
+}
+
+function requiredNginxVariable() {
+  return {
+    type: 'string',
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  } as const;
+}
+
+async function grantNginxTestObjectAccess(
+  security: ReturnType<typeof createSecurityServices>,
+  applicationAssetId: string,
+  managedTargetId: string,
+  pluginVersionIds: string[],
+): Promise<void> {
+  const fixtureSuffix = `${nginxFixtureSequence += 1}_${pluginVersionIds.at(-1) ?? managedTargetId}`;
+  const roleId = `role_nginx_payload_${managedTargetId}_${fixtureSuffix}`;
+  const objectSetId = `oset_nginx_payload_${managedTargetId}_${fixtureSuffix}`;
+  await security.rbac.createRole({ id: roleId, code: roleId, name: 'NGINX deployment payload test objects', builtin: false });
+  const objectSet = await security.objectPermissions.createObjectSet({
+    id: objectSetId,
+    tenantId: '*',
+    name: 'NGINX deployment payload test objects',
+    kind: 'static',
+    objectTypes: ['application_asset', 'managed_target', 'plugin_version'],
+    status: 'active',
+  });
+  const members = [
+    { objectType: 'application_asset', objectId: applicationAssetId, tenantId: 'tenant_1' },
+    { objectType: 'managed_target', objectId: managedTargetId, tenantId: 'tenant_1' },
+    ...pluginVersionIds.map((objectId) => ({ objectType: 'plugin_version', objectId, tenantId: 'tenant_1' })),
+  ];
+  for (const member of members) {
+    await security.objectPermissions.addObjectSetMember({ ...member, objectSetId: objectSet.id, addedBy: 'user_1' });
+  }
+  await security.objectPermissions.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_1',
+    roleId,
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await security.objectPermissions.createAccessGrant({ tenantId: '*', roleId, objectSetId: objectSet.id, accessLevel: 'control', effect: 'allow' });
 }
 
 function createPemChainFixture(commonName: string): { pem: string; privateKeyPem: string } {
@@ -387,6 +576,9 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
       'service_asset.read',
       'certificate.import',
       'certificate.format.create',
+      'device_asset.manage',
+      'plugin.read',
+      'plugin.manage',
       'deployment_plan.create',
       'deployment_plan.submit',
       'deployment_plan.dry_run',
@@ -401,6 +593,8 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
       'certificate_binding',
       'certificate_version',
       'certificate_version_format',
+      'device_asset',
+      'plugin',
       'deploymentPlan',
     ],
     scope: { tenantId: 'tenant_1' },
@@ -408,38 +602,17 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
 
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
   const chain = createPemChainFixture('nginx-asset.example.com');
 
-  const registered = await app.inject({
-    method: 'POST',
-    path: '/api/v1/agents/register',
-    headers,
-    body: {
-      agentKey: 'nginx-agent-asset-01',
-      hostname: 'nginx-asset-host.example.com',
-      ipAddress: '192.0.2.82',
-      version: '1.0.0',
-      osType: 'linux',
-      directControl: {
-        enabled: true,
-        reachable: true,
-        listenAddress: '127.0.0.1:19082',
-        protocolVersion: 'v1',
-        supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-      },
-    },
-  });
-  assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
-  const agentId = (registered.body as { id: string }).id;
-
-  const hostId = `host_${agentId}`;
+  const controlPlane = await createNginxControlPlaneFixture(app, security);
+  const { hostId, discoveryProviderKey } = controlPlane;
 
   const service = await app.inject({
     method: 'POST',
     path: '/api/v1/framework-instances',
     headers,
-    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey: `agent:${agentId}` },
+    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey },
   });
   assert.equal(service.statusCode, 201, JSON.stringify(service.body));
   const serviceInstanceId = (service.body as { id: string }).id;
@@ -451,7 +624,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
     body: {
       frameworkInstanceId: serviceInstanceId,
       deviceId: hostId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       siteType: 'web.site',
       siteName: 'nginx-asset.example.com',
       siteKey: 'nginx:nginx-asset.example.com:443:https',
@@ -479,12 +652,12 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
       deviceId: hostId,
       frameworkInstanceId: serviceInstanceId,
       siteId: siteAssetId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       targetType: 'tls.file',
       targetKey: 'nginx:file:/etc/nginx/certs/nginx-asset.pem',
       bindingKey: 'nginx:nginx-asset.example.com:443:https',
       supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
-      executionLocations: ['AGENT'],
+      executionLocations: ['CONTROL_PLANE'],
       metadata: { certPath: '/etc/nginx/certs/nginx-asset.pem', keyPath: '/etc/nginx/certs/nginx-asset.key' },
     },
   });
@@ -502,7 +675,6 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
       protocol: 'HTTPS',
       platform: 'LINUX',
       hostId,
-      agentId,
       serviceInstanceId,
       displayName: 'NGINX Asset',
     },
@@ -570,7 +742,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+  await configureApplicationAssetManagedTarget(app, security, applicationAssetId, managedTargetId, certificateFormatId, {
     certificatePath: '/etc/nginx/certs/nginx-asset.pem',
     privateKeyPath: '/etc/nginx/certs/nginx-asset.key',
     nginxProgram: '/usr/sbin/nginx',
@@ -668,7 +840,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal((updateAudit?.detail as any)?.deploymentInputSnapshots?.[0]?.snapshotId, latestSnapshotRef?.snapshotId);
   assert.equal(JSON.stringify(planAudits).includes(chain.privateKeyPem), false);
 
-  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+  await configureApplicationAssetManagedTarget(app, security, applicationAssetId, managedTargetId, certificateFormatId, {
     certificatePath: '/etc/nginx/certs/changed-after-plan.pem',
     privateKeyPath: '/etc/nginx/certs/changed-after-plan.key',
     nginxProgram: '/usr/bin/nginx',
@@ -691,15 +863,17 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { run: { id: string }; steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
-  assert.ok(atomicStep);
+  const atomicStep = findWorkflowStep(dryRunBody.steps);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
-  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
+  assert.equal(atomicStep!.inputSnapshot.executorType, 'WORKFLOW');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'WORKFLOW_DSL');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.executionLocation, 'CONTROL_PLANE');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
   assert.deepEqual(atomicStep!.inputSnapshot.deploymentInputSnapshotRef, latestSnapshotRef);
-  assert.equal(atomicStep!.inputSnapshot.pluginExecutionContext, undefined);
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
 
   const persistedSteps = await db.query<{ input_snapshot: unknown }>(
     `select input_snapshot from pg_execution_steps where execution_run_id=$1 order by step_no`,
@@ -745,6 +919,9 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
       'discovery.manage',
       'certificate.import',
       'certificate.format.create',
+      'device_asset.manage',
+      'plugin.read',
+      'plugin.manage',
       'deployment_plan.create',
       'deployment_plan.submit',
       'deployment_plan.dry_run',
@@ -760,6 +937,8 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
       'discovery_snapshot',
       'certificate_version',
       'certificate_version_format',
+      'device_asset',
+      'plugin',
       'deploymentPlan',
     ],
     scope: { tenantId: 'tenant_1' },
@@ -767,38 +946,17 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
 
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
   const chain = createPemChainFixture('nginx-legacy.example.com');
 
-  const registered = await app.inject({
-    method: 'POST',
-    path: '/api/v1/agents/register',
-    headers,
-    body: {
-      agentKey: 'nginx-agent-legacy-01',
-      hostname: 'nginx-legacy-host.example.com',
-      ipAddress: '192.0.2.83',
-      version: '1.0.0',
-      osType: 'linux',
-      directControl: {
-        enabled: true,
-        reachable: true,
-        listenAddress: '127.0.0.1:19083',
-        protocolVersion: 'v1',
-        supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
-      },
-    },
-  });
-  assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
-  const agentId = (registered.body as { id: string }).id;
-
-  const hostId = `host_${agentId}`;
+  const controlPlane = await createNginxControlPlaneFixture(app, security);
+  const { hostId, discoveryProviderKey } = controlPlane;
 
   const service = await app.inject({
     method: 'POST',
     path: '/api/v1/framework-instances',
     headers,
-    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey: `agent:${agentId}` },
+    body: { deviceId: hostId, frameworkType: 'web.nginx', frameworkKey: 'nginx', displayName: 'nginx', rawFacts: { configPath: '/etc/nginx/nginx.conf' }, discoveryProviderKey },
   });
   assert.equal(service.statusCode, 201, JSON.stringify(service.body));
   const serviceInstanceId = (service.body as { id: string }).id;
@@ -810,7 +968,7 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
     body: {
       frameworkInstanceId: serviceInstanceId,
       deviceId: hostId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       siteType: 'web.site',
       siteName: 'nginx-legacy.example.com',
       siteKey: 'nginx:nginx-legacy.example.com:443:https',
@@ -838,12 +996,12 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
       deviceId: hostId,
       frameworkInstanceId: serviceInstanceId,
       siteId: siteAssetId,
-      discoveryProviderKey: `agent:${agentId}`,
+      discoveryProviderKey,
       targetType: 'tls.file',
       targetKey: 'nginx:file:/etc/nginx/certs/nginx-legacy.pem',
       bindingKey: 'nginx:nginx-legacy.example.com:443:https',
       supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
-      executionLocations: ['AGENT'],
+      executionLocations: ['CONTROL_PLANE'],
       metadata: { certPath: '/etc/nginx/certs/nginx-legacy.pem', keyPath: '/etc/nginx/certs/nginx-legacy.key' },
     },
   });
@@ -861,7 +1019,6 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
       protocol: 'HTTPS',
       platform: 'LINUX',
       hostId,
-      agentId,
       serviceInstanceId,
       displayName: 'NGINX App',
     },
@@ -925,7 +1082,7 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   assert.equal(format.statusCode, 201, JSON.stringify(format.body));
   const certificateFormatId = (format.body as { id: string }).id;
 
-  await configureApplicationAssetManagedTarget(app, applicationAssetId, managedTargetId, certificateFormatId, {
+  await configureApplicationAssetManagedTarget(app, security, applicationAssetId, managedTargetId, certificateFormatId, {
     certificatePath: '/etc/nginx/certs/nginx-legacy.pem',
     privateKeyPath: '/etc/nginx/certs/nginx-legacy.key',
     nginxProgram: '/usr/sbin/nginx',
@@ -963,9 +1120,13 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
-  assert.ok(atomicStep);
-  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
+  const atomicStep = findWorkflowStep(dryRunBody.steps);
+  assert.equal(atomicStep!.inputSnapshot.actionType, undefined);
+  assert.equal(atomicStep!.inputSnapshot.executorType, 'WORKFLOW');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'WORKFLOW_DSL');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.executionLocation, 'CONTROL_PLANE');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.runner, 'CONTROL_PLANE');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.workflowVersionSelection, 'PINNED');
+  assert.equal(atomicStep!.inputSnapshot.workflowRequest.capabilityKey, 'certificate.deploy');
 });
