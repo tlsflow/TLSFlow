@@ -138,7 +138,6 @@ test('通用 CA 对象可以创建并查询，不携带厂商执行语义', asyn
     const [authority] = await service.createAuthority(tenantId, {
       providerId: provider.id,
       name: '通用根 CA 对象',
-      commonName: 'Generic Root CA',
       securityDomain: 'production',
       topologyMode: 'root_only',
       deploymentMode: 'builtin',
@@ -151,6 +150,7 @@ test('通用 CA 对象可以创建并查询，不携带厂商执行语义', asyn
 
     assert.equal(authority?.providerId, provider.id);
     assert.equal(authority?.role, 'root');
+    assert.equal(authority?.subjectCommonName, '通用根 CA 对象');
     assert.equal((await service.listAuthorities(tenantId)).length, 1);
   } finally {
     await db.close();

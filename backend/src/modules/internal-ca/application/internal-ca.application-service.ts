@@ -125,7 +125,7 @@ export interface CreateAuthorityInput extends PreviewCaInput {
   trustDomainId?: string;
   parentCaId?: string;
   name: string;
-  commonName: string;
+  commonName?: string;
   securityDomain: string;
   rootValidityDays?: number;
   intermediateValidityDays?: number;
@@ -589,6 +589,7 @@ export class InternalCaApplicationService {
   }
 
   async createAuthority(tenantId: string, input: CreateAuthorityInput, context?: RequestContext): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
+    const commonName = requiredText(input.commonName || input.name, 'commonName');
     const preview = this.previewAuthority(input);
     if (!verifyConfirmation(previewPayload(input), input.confirmationToken)) throw new AppError('CA_RISK_CONFIRMATION_REQUIRED', 'CA 风险确认已失效，请重新预览');
     if (preview.blockers.length > 0) throw new AppError('CA_TOPOLOGY_INVALID', 'CA 拓扑存在阻断项', { blockers: preview.blockers });
@@ -607,7 +608,7 @@ export class InternalCaApplicationService {
       if (parent.trustDomainId !== trustDomain.id || (parent.pathLengthConstraint ?? 0) < 1) {
         throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 不属于所选信任域或不允许签发中间 CA');
       }
-      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, input.commonName, context);
+      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, commonName, context);
       await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', intermediate.id, 'critical', context, {
         providerId: provider.id,
         trustDomainId: trustDomain.id,
@@ -627,7 +628,7 @@ export class InternalCaApplicationService {
     }
     const now = new Date().toISOString();
     const rootId = newId('ca');
-    const rootMaterial = await this.openssl.createRoot(input.commonName, input.rootValidityDays ?? 3650, input.topologyMode === 'root_only' ? 0 : 1);
+    const rootMaterial = await this.openssl.createRoot(commonName, input.rootValidityDays ?? 3650, input.topologyMode === 'root_only' ? 0 : 1);
     const rootSecret = await this.dependencies.secrets.create({
       tenantId,
       name: `CA 私钥 ${input.name}`,
@@ -656,7 +657,7 @@ export class InternalCaApplicationService {
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
       status: 'active',
       pathLengthConstraint: input.topologyMode === 'root_only' ? 0 : 1,
-      subjectCommonName: requiredText(input.commonName, 'commonName'),
+      subjectCommonName: commonName,
       notBefore: rootMaterial.notBefore,
       notAfter: rootMaterial.notAfter,
       fingerprintSha256: rootMaterial.fingerprintSha256,
@@ -671,7 +672,7 @@ export class InternalCaApplicationService {
         input,
         root,
         `${input.name} Issuing`,
-        `${input.commonName} Issuing CA`,
+        `${commonName} Issuing CA`,
         context,
         rootMaterial.privateKeyPem,
       ));
@@ -1153,7 +1154,7 @@ export class InternalCaApplicationService {
       trustDomainId,
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
       status: 'active',
-      subjectCommonName: requiredText(input.commonName, 'commonName'),
+      subjectCommonName: requiredText(input.commonName || input.name, 'commonName'),
       createdAt: now,
       updatedAt: now,
     });
