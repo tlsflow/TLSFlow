@@ -580,10 +580,12 @@ export default {
     description: 'View deployment execution status, step logs, dry-run precheck results, failure reasons, and rollback entry points.',
     resourceName: 'Execution run',
     errors: {
-      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}'
+      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}',
+      loadFailed: 'Failed to load execution records'
     },
     actions: {
       refreshList: 'Refresh list',
+      refreshing: 'Refreshing',
       viewDetail: 'View details',
       rollback: 'Start rollback',
       rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
@@ -625,6 +627,39 @@ export default {
       title: 'No execution records',
       description: 'Logs, status, and audit links appear here after a deployment plan runs.'
     },
+    list: {
+      ariaLabel: 'Execution record list',
+      title: 'Execution records',
+      summary: '{total} execution records, newest first.',
+      range: 'Showing {start}-{end} of {total}',
+      assetsLabel: 'Assets',
+      logLabel: 'Log summary',
+      runNumber: 'Run {number}',
+      planUnknown: 'No deployment plan linked',
+      assetUnknown: 'No asset recorded',
+      timeUnknown: 'Start time not recorded',
+      logRunning: 'Execution is running and detail logs will keep updating.',
+      logPending: 'Execution is queued and waiting for scheduling.',
+      logFailed: 'Execution failed with error code {code}.',
+      logSuccess: 'Execution succeeded in {duration}.',
+      logCompleted: 'Execution finished. Open details for the full log.',
+      errorCodeUnknown: 'not recorded',
+      durationUnknown: 'unknown',
+      durationSeconds: '{count} seconds',
+      durationMinutes: '{count} minutes',
+      viewDetailHint: 'Open details',
+      openDetailAria: 'Open execution {id} for plan {plan}',
+      previousPage: 'Previous',
+      nextPage: 'Next',
+      pageSummary: 'Page {page} of {pages}'
+    },
+    types: {
+      dryRun: 'Precheck',
+      apply: 'Apply',
+      rollback: 'Rollback',
+      retry: 'Retry',
+      unknown: 'Other'
+    },
     summary: {
       passed: 'Passed',
       warning: 'Warnings',
@@ -635,6 +670,7 @@ export default {
       title: 'Execution details',
       titleWithId: 'Execution details {id}',
       description: 'View basic information, step status, and logs for the execution run.',
+      eyebrow: 'Execution record',
       planLabel: 'Deployment plan {plan}',
       loadingSteps: 'Loading steps...',
       loadingLogs: 'Loading logs...',

@@ -580,10 +580,12 @@ export default {
     description: 'Veja o status da execução de implantação, logs das etapas, conclusões de pré-verificação dry-run, motivos de falha e entradas de rollback.',
     resourceName: 'Registro de execução',
     errors: {
-      streamConnectFailed: 'Falha na conexão de atualização dos detalhes da execução: HTTP {status}'
+      streamConnectFailed: 'Falha na conexão de atualização dos detalhes da execução: HTTP {status}',
+      loadFailed: 'Falha ao carregar os registros de execução'
     },
     actions: {
       refreshList: 'Atualizar lista',
+      refreshing: 'Atualizando',
       viewDetail: 'Ver detalhes',
       rollback: 'Iniciar rollback',
       rollbackRisk: 'O rollback alterará novamente a configuração do certificado no serviço de destino; confirme primeiro as referências de backup e o escopo de impacto.'
@@ -625,6 +627,13 @@ export default {
       title: 'Nenhum registro de execução',
       description: 'Após a execução de um plano de implantação, logs, status e vínculos de auditoria aparecerão aqui.'
     },
+    list: {
+      ariaLabel: 'Lista de execuções', title: 'Registros de execução', summary: '{total} registros, mais recentes primeiro.', range: 'Exibindo {start}-{end} de {total}',
+      assetsLabel: 'Ativos', logLabel: 'Resumo do log', runNumber: 'Execução {number}', planUnknown: 'Nenhum plano associado', assetUnknown: 'Nenhum ativo registrado', timeUnknown: 'Horário inicial não registrado',
+      logRunning: 'A execução está em andamento.', logPending: 'A execução está na fila.', logFailed: 'A execução falhou com o código {code}.', logSuccess: 'A execução foi concluída em {duration}.', logCompleted: 'Execução encerrada.',
+      errorCodeUnknown: 'não registrado', durationUnknown: 'desconhecida', durationSeconds: '{count} segundos', durationMinutes: '{count} minutos', viewDetailHint: 'Ver detalhes', openDetailAria: 'Abrir execução {id} do plano {plan}', previousPage: 'Anterior', nextPage: 'Próxima', pageSummary: 'Página {page} de {pages}'
+    },
+    types: { dryRun: 'Pré-verificação', apply: 'Executar', rollback: 'Rollback', retry: 'Repetir', unknown: 'Outro' },
     summary: {
       passed: 'Aprovado',
       warning: 'Aviso',
@@ -635,6 +644,7 @@ export default {
       title: 'Detalhes da execução',
       titleWithId: 'Detalhes da execução {id}',
       description: 'Veja as informações básicas, o status das etapas e os logs do registro de execução.',
+      eyebrow: 'Registro de execução',
       planLabel: 'Plano de implantação {plan}',
       loadingSteps: 'Carregando etapas...',
       loadingLogs: 'Carregando logs...',

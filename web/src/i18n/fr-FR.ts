@@ -580,10 +580,12 @@ export default {
     description: 'Voir déploiement exécution état, étape journaux, dry-run précontrôle résultats, échec raisons, et rollback entrée points.',
     resourceName: 'Exécution exécution',
     errors: {
-      streamConnectFailed: 'Échec de l’opération : connecter à le exécution détail flux: HTTP {status}'
+      streamConnectFailed: 'Échec de l’opération : connecter à le exécution détail flux: HTTP {status}',
+      loadFailed: 'Échec du chargement des exécutions'
     },
     actions: {
       refreshList: 'Actualiser la liste',
+      refreshing: 'Actualisation',
       viewDetail: 'Voir détails',
       rollback: 'Début rollback',
       rollbackRisk: 'Rollback va le cible service certificat configuration à nouveau. confirmer sauvegarde références et impact portée en premier.'
@@ -625,6 +627,13 @@ export default {
       title: 'Aucun exécution enregistrements',
       description: 'Journaux, état, et audit liens apparaître ici après un déploiement plan exécutions.'
     },
+    list: {
+      ariaLabel: 'Liste des exécutions', title: 'Exécutions', summary: '{total} exécutions, les plus récentes en premier.', range: 'Affichage {start}-{end} sur {total}',
+      assetsLabel: 'Actifs', logLabel: 'Résumé du journal', runNumber: 'Exécution {number}', planUnknown: 'Aucun plan associé', assetUnknown: 'Aucun actif enregistré', timeUnknown: 'Heure de début non enregistrée',
+      logRunning: 'L’exécution est en cours.', logPending: 'L’exécution est en attente.', logFailed: 'Échec de l’exécution, code {code}.', logSuccess: 'Exécution réussie en {duration}.', logCompleted: 'Exécution terminée.',
+      errorCodeUnknown: 'non enregistré', durationUnknown: 'inconnue', durationSeconds: '{count} secondes', durationMinutes: '{count} minutes', viewDetailHint: 'Voir les détails', openDetailAria: 'Ouvrir l’exécution {id} du plan {plan}', previousPage: 'Précédent', nextPage: 'Suivant', pageSummary: 'Page {page} sur {pages}'
+    },
+    types: { dryRun: 'Précontrôle', apply: 'Exécution', rollback: 'Rollback', retry: 'Nouvel essai', unknown: 'Autre' },
     summary: {
       passed: 'Réussi',
       warning: 'Avertissements',
@@ -635,6 +644,7 @@ export default {
       title: 'Détails de exécution',
       titleWithId: 'Exécution détails {id}',
       description: 'Voir base informations, étape état, et journaux pour le exécution exécution.',
+      eyebrow: 'Exécution',
       planLabel: 'Déploiement plan {plan}',
       loadingSteps: 'Chargement de étapes...',
       loadingLogs: 'Chargement de journaux...',

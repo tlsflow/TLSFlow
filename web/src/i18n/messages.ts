@@ -568,10 +568,12 @@ const zhCN = {
     description: '查看部署执行状态、步骤日志、dry-run 预检结论、失败原因和回滚入口。',
     resourceName: '执行记录',
     errors: {
-      streamConnectFailed: '执行详情更新连接失败：HTTP {status}'
+      streamConnectFailed: '执行详情更新连接失败：HTTP {status}',
+      loadFailed: '执行记录加载失败'
     },
     actions: {
       refreshList: '刷新列表',
+      refreshing: '正在刷新',
       viewDetail: '查看详情',
       rollback: '发起回滚',
       rollbackRisk: '回滚会再次改动目标服务证书配置，必须确认备份引用和影响范围。'
@@ -613,6 +615,39 @@ const zhCN = {
       title: '暂无执行记录',
       description: '部署计划执行后会在这里展示日志、状态和审计关联。'
     },
+    list: {
+      ariaLabel: '执行记录列表',
+      title: '执行记录列表',
+      summary: '共 {total} 条执行记录，按开始时间倒序排列。',
+      range: '显示 {start}-{end} / {total}',
+      assetsLabel: '资产',
+      logLabel: '日志概要',
+      runNumber: '第 {number} 次',
+      planUnknown: '未关联部署计划',
+      assetUnknown: '未记录对应资产',
+      timeUnknown: '未记录开始时间',
+      logRunning: '执行正在进行，详情日志会持续更新。',
+      logPending: '执行已进入队列，等待调度。',
+      logFailed: '执行失败，错误码：{code}',
+      logSuccess: '执行成功，耗时 {duration}。',
+      logCompleted: '执行已结束，可打开详情查看完整日志。',
+      errorCodeUnknown: '未记录',
+      durationUnknown: '未知',
+      durationSeconds: '{count} 秒',
+      durationMinutes: '{count} 分钟',
+      viewDetailHint: '点击查看详情',
+      openDetailAria: '查看计划 {plan} 的执行记录 {id}',
+      previousPage: '上一页',
+      nextPage: '下一页',
+      pageSummary: '第 {page} / {pages} 页'
+    },
+    types: {
+      dryRun: '预检',
+      apply: '正式执行',
+      rollback: '回滚',
+      retry: '重试',
+      unknown: '其他执行'
+    },
     summary: {
       passed: '通过',
       warning: '警告',
@@ -623,6 +658,7 @@ const zhCN = {
       title: '执行详情',
       titleWithId: '执行详情 {id}',
       description: '查看执行记录的基本信息、步骤状态和日志。',
+      eyebrow: '执行记录',
       planLabel: '部署计划 {plan}',
       loadingSteps: '正在加载步骤...',
       loadingLogs: '正在加载日志...',
@@ -3443,10 +3479,12 @@ const enUS = {
     description: 'View deployment execution status, step logs, dry-run precheck results, failure reasons, and rollback entry points.',
     resourceName: 'Execution run',
     errors: {
-      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}'
+      streamConnectFailed: 'Failed to connect to the execution detail stream: HTTP {status}',
+      loadFailed: 'Failed to load execution records'
     },
     actions: {
       refreshList: 'Refresh list',
+      refreshing: 'Refreshing',
       viewDetail: 'View details',
       rollback: 'Start rollback',
       rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
@@ -3488,6 +3526,39 @@ const enUS = {
       title: 'No execution records',
       description: 'Logs, status, and audit links appear here after a deployment plan runs.'
     },
+    list: {
+      ariaLabel: 'Execution record list',
+      title: 'Execution records',
+      summary: '{total} execution records, newest first.',
+      range: 'Showing {start}-{end} of {total}',
+      assetsLabel: 'Assets',
+      logLabel: 'Log summary',
+      runNumber: 'Run {number}',
+      planUnknown: 'No deployment plan linked',
+      assetUnknown: 'No asset recorded',
+      timeUnknown: 'Start time not recorded',
+      logRunning: 'Execution is running and detail logs will keep updating.',
+      logPending: 'Execution is queued and waiting for scheduling.',
+      logFailed: 'Execution failed with error code {code}.',
+      logSuccess: 'Execution succeeded in {duration}.',
+      logCompleted: 'Execution finished. Open details for the full log.',
+      errorCodeUnknown: 'not recorded',
+      durationUnknown: 'unknown',
+      durationSeconds: '{count} seconds',
+      durationMinutes: '{count} minutes',
+      viewDetailHint: 'Open details',
+      openDetailAria: 'Open execution {id} for plan {plan}',
+      previousPage: 'Previous',
+      nextPage: 'Next',
+      pageSummary: 'Page {page} of {pages}'
+    },
+    types: {
+      dryRun: 'Precheck',
+      apply: 'Apply',
+      rollback: 'Rollback',
+      retry: 'Retry',
+      unknown: 'Other'
+    },
     summary: {
       passed: 'Passed',
       warning: 'Warnings',
@@ -3498,6 +3569,7 @@ const enUS = {
       title: 'Execution details',
       titleWithId: 'Execution details {id}',
       description: 'View basic information, step status, and logs for the execution run.',
+      eyebrow: 'Execution record',
       planLabel: 'Deployment plan {plan}',
       loadingSteps: 'Loading steps...',
       loadingLogs: 'Loading logs...',

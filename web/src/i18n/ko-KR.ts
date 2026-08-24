@@ -580,10 +580,12 @@ export default {
     description: '보기배포실행상태, 단계로그, dry-run 사전 점검결론, 실패원인 및 롤백엔트리.',
     resourceName: '실행 기록',
     errors: {
-      streamConnectFailed: '세부 업데이트 연결 실패:HTTP {status}'
+      streamConnectFailed: '세부 업데이트 연결 실패:HTTP {status}',
+      loadFailed: '실행 기록을 불러오지 못했습니다'
     },
     actions: {
       refreshList: '목록 새로 고침',
+      refreshing: '새로 고치는 중',
       viewDetail: '상세한 상황을 조사하다.',
       rollback: '스크롤백 시작',
       rollbackRisk: '롤백은 대상 서비스 인증서 구성을 다시 변경하므로 백업 참조 및 영향을 확인해야 합니다.'
@@ -625,6 +627,13 @@ export default {
       title: '실행 기록이 없다',
       description: '배포 계획이 실행된 후 로그, 상태, 감사 연결이 표시됩니다.'
     },
+    list: {
+      ariaLabel: '실행 기록 목록', title: '실행 기록', summary: '총 {total}건, 최신 순으로 표시합니다.', range: '{start}-{end} / {total}',
+      assetsLabel: '자산', logLabel: '로그 요약', runNumber: '{number}번째 실행', planUnknown: '연결된 배포 계획 없음', assetUnknown: '기록된 자산 없음', timeUnknown: '시작 시간 미기록',
+      logRunning: '실행 중입니다.', logPending: '실행이 대기 중입니다.', logFailed: '실행 실패, 오류 코드: {code}', logSuccess: '실행 성공, 소요 시간 {duration}.', logCompleted: '실행이 종료되었습니다.',
+      errorCodeUnknown: '미기록', durationUnknown: '알 수 없음', durationSeconds: '{count}초', durationMinutes: '{count}분', viewDetailHint: '상세 보기', openDetailAria: '계획 {plan}의 실행 기록 {id} 보기', previousPage: '이전', nextPage: '다음', pageSummary: '{page} / {pages} 페이지'
+    },
+    types: { dryRun: '사전 점검', apply: '실행', rollback: '롤백', retry: '재시도', unknown: '기타' },
     summary: {
       passed: '통과',
       warning: '경고',
@@ -635,6 +644,7 @@ export default {
       title: '실행 내역',
       titleWithId: '자세한 정보 실행 {id}',
       description: '실행 기록의 기본 정보, 단계 상태 및 로그 보기.',
+      eyebrow: '실행 기록',
       planLabel: '배포 계획 {plan}',
       loadingSteps: '단계 불러오는 중...',
       loadingLogs: '로그 불러오는 중...',

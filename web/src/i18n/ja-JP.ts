@@ -580,10 +580,12 @@ export default {
     description: 'デプロイ実行ステータス、ステップログ、dry-run 事前チェックの結論、失敗原因、ロールバック導線を表示します。',
     resourceName: '実行記録',
     errors: {
-      streamConnectFailed: '実行詳細更新接続に失敗しました：HTTP {status}'
+      streamConnectFailed: '実行詳細更新接続に失敗しました：HTTP {status}',
+      loadFailed: '実行記録の読み込みに失敗しました'
     },
     actions: {
       refreshList: '更新一覧',
+      refreshing: '更新中',
       viewDetail: '表示詳細',
       rollback: 'ロールバックを開始',
       rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず確認バックアップ引用と影響範囲。'
@@ -625,6 +627,39 @@ export default {
       title: '実行記録はまだありません',
       description: 'デプロイプラン実行後はここで表示ログ、ステータスと監査関連。'
     },
+    list: {
+      ariaLabel: '実行記録一覧',
+      title: '実行記録一覧',
+      summary: '{total} 件の実行記録を新しい順に表示します。',
+      range: '{start}-{end} / {total}',
+      assetsLabel: '資産',
+      logLabel: 'ログ概要',
+      runNumber: '{number} 回目',
+      planUnknown: 'デプロイプラン未関連付け',
+      assetUnknown: '資産未記録',
+      timeUnknown: '開始時刻未記録',
+      logRunning: '実行中です。詳細ログは継続して更新されます。',
+      logPending: '実行はキューに入り、スケジュール待ちです。',
+      logFailed: '実行に失敗しました。エラーコード: {code}',
+      logSuccess: '実行に成功しました。所要時間 {duration}。',
+      logCompleted: '実行は終了しました。詳細で完全なログを確認できます。',
+      errorCodeUnknown: '未記録',
+      durationUnknown: '不明',
+      durationSeconds: '{count} 秒',
+      durationMinutes: '{count} 分',
+      viewDetailHint: '詳細を表示',
+      openDetailAria: 'プラン {plan} の実行記録 {id} を表示',
+      previousPage: '前へ',
+      nextPage: '次へ',
+      pageSummary: '{page} / {pages} ページ'
+    },
+    types: {
+      dryRun: '事前チェック',
+      apply: '本番実行',
+      rollback: 'ロールバック',
+      retry: '再試行',
+      unknown: 'その他'
+    },
     summary: {
       passed: '合格',
       warning: '警告',
@@ -635,6 +670,7 @@ export default {
       title: '実行詳細',
       titleWithId: '実行詳細 {id}',
       description: '表示実行記録の基本情報、ステップステータスとログ。',
+      eyebrow: '実行記録',
       planLabel: 'デプロイプラン {plan}',
       loadingSteps: '読み込みステップ中...',
       loadingLogs: '読み込みログ中...',

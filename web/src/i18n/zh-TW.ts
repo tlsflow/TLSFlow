@@ -580,10 +580,12 @@ export default {
     description: "檢視部署執行狀態、步驟記錄、dry-run 預檢結論、失敗原因和復原入口。",
     resourceName: "執行記錄",
     errors: {
-      streamConnectFailed: "執行詳情更新連線失敗：HTTP {status}"
+      streamConnectFailed: "執行詳情更新連線失敗：HTTP {status}",
+      loadFailed: "執行記錄載入失敗"
     },
     actions: {
       refreshList: "重新整理列表",
+      refreshing: "正在重新整理",
       viewDetail: "檢視詳情",
       rollback: "啟動復原",
       rollbackRisk: "復原會再次改動目標服務憑證設定，必須確認備份引用和影響範圍。"
@@ -625,6 +627,39 @@ export default {
       title: "暫無執行記錄",
       description: "部署計畫執行後會在這裡展示記錄、狀態和審計關聯。"
     },
+    list: {
+      ariaLabel: "執行記錄列表",
+      title: "執行記錄列表",
+      summary: "共 {total} 筆執行記錄，依開始時間倒序排列。",
+      range: "顯示 {start}-{end} / {total}",
+      assetsLabel: "資產",
+      logLabel: "記錄摘要",
+      runNumber: "第 {number} 次",
+      planUnknown: "未關聯部署計畫",
+      assetUnknown: "未記錄對應資產",
+      timeUnknown: "未記錄開始時間",
+      logRunning: "執行正在進行，詳細記錄會持續更新。",
+      logPending: "執行已進入佇列，等待排程。",
+      logFailed: "執行失敗，錯誤碼：{code}",
+      logSuccess: "執行成功，耗時 {duration}。",
+      logCompleted: "執行已結束，可開啟詳情檢視完整記錄。",
+      errorCodeUnknown: "未記錄",
+      durationUnknown: "未知",
+      durationSeconds: "{count} 秒",
+      durationMinutes: "{count} 分鐘",
+      viewDetailHint: "點擊檢視詳情",
+      openDetailAria: "檢視計畫 {plan} 的執行記錄 {id}",
+      previousPage: "上一頁",
+      nextPage: "下一頁",
+      pageSummary: "第 {page} / {pages} 頁"
+    },
+    types: {
+      dryRun: "預檢",
+      apply: "正式執行",
+      rollback: "復原",
+      retry: "重試",
+      unknown: "其他執行"
+    },
     summary: {
       passed: "通過",
       warning: "警告",
@@ -635,6 +670,7 @@ export default {
       title: "執行詳情",
       titleWithId: "執行詳情 {id}",
       description: "檢視執行記錄的基本資訊、步驟狀態和記錄。",
+      eyebrow: "執行記錄",
       planLabel: "部署計畫 {plan}",
       loadingSteps: "正在載入步驟...",
       loadingLogs: "正在載入記錄...",

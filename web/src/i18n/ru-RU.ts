@@ -580,10 +580,12 @@ export default {
     description: 'Просмотр статуса выполнения развертывания, журналов шагов, итогов dry-run, причин ошибок и входов отката.',
     resourceName: 'Запись выполнения',
     errors: {
-      streamConnectFailed: 'Не удалось подключиться к обновлению деталей выполнения: HTTP {status}'
+      streamConnectFailed: 'Не удалось подключиться к обновлению деталей выполнения: HTTP {status}',
+      loadFailed: 'Не удалось загрузить записи выполнения'
     },
     actions: {
       refreshList: 'Обновить список',
+      refreshing: 'Обновление',
       viewDetail: 'Детали',
       rollback: 'Запустить откат',
       rollbackRisk: 'Откат снова изменит конфигурацию сертификата целевого сервиса; нужно подтвердить ссылки на резервные копии и область влияния.'
@@ -625,6 +627,13 @@ export default {
       title: 'Нет записей выполнения',
       description: 'После выполнения плана развертывания здесь появятся журналы, статус и связи аудита.'
     },
+    list: {
+      ariaLabel: 'Список выполнений', title: 'Записи выполнения', summary: 'Всего записей: {total}, новые сверху.', range: 'Показано {start}-{end} из {total}',
+      assetsLabel: 'Ресурсы', logLabel: 'Сводка журнала', runNumber: 'Запуск {number}', planUnknown: 'План не связан', assetUnknown: 'Ресурс не указан', timeUnknown: 'Время начала не указано',
+      logRunning: 'Выполнение продолжается.', logPending: 'Выполнение ожидает запуска.', logFailed: 'Ошибка выполнения, код {code}.', logSuccess: 'Выполнение успешно за {duration}.', logCompleted: 'Выполнение завершено.',
+      errorCodeUnknown: 'не указан', durationUnknown: 'неизвестно', durationSeconds: '{count} сек.', durationMinutes: '{count} мин.', viewDetailHint: 'Открыть детали', openDetailAria: 'Открыть выполнение {id} плана {plan}', previousPage: 'Назад', nextPage: 'Вперед', pageSummary: 'Страница {page} из {pages}'
+    },
+    types: { dryRun: 'Проверка', apply: 'Выполнение', rollback: 'Откат', retry: 'Повтор', unknown: 'Другое' },
     summary: {
       passed: 'Пройдено',
       warning: 'Предупреждение',
@@ -635,6 +644,7 @@ export default {
       title: 'Детали выполнения',
       titleWithId: 'Детали выполнения {id}',
       description: 'Просмотр основной информации записи выполнения, статуса шагов и журналов.',
+      eyebrow: 'Запись выполнения',
       planLabel: 'План развертывания {plan}',
       loadingSteps: 'Загрузка шагов...',
       loadingLogs: 'Загрузка журналов...',
