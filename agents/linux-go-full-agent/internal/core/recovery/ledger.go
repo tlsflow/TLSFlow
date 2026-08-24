@@ -22,7 +22,6 @@ type FileState struct {
 
 type Entry struct {
 	SchemaVersion   string         `json:"schemaVersion"`
-	State           string         `json:"state"`
 	OperationID     string         `json:"operationId"`
 	ActionType      string         `json:"actionType"`
 	AuditID         string         `json:"auditId"`
@@ -52,7 +51,6 @@ func Start(path string, entry Entry) (*Ledger, error) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	entry.SchemaVersion = "gcac.linux.recovery.v1"
-	entry.State = "in_progress"
 	entry.StartedAt = now
 	entry.UpdatedAt = now
 	ledger := &Ledger{path: path, entry: entry}
@@ -96,14 +94,6 @@ func (ledger *Ledger) Fail(step, code, message string) error {
 	ledger.entry.FailedStep = strings.TrimSpace(step)
 	ledger.entry.FailureCode = strings.TrimSpace(code)
 	ledger.entry.FailureMessage = strings.TrimSpace(message)
-	ledger.entry.State = "failed"
-	return ledger.persistLocked()
-}
-
-func (ledger *Ledger) Complete() error {
-	ledger.mu.Lock()
-	defer ledger.mu.Unlock()
-	ledger.entry.State = "completed"
 	return ledger.persistLocked()
 }
 
@@ -113,34 +103,7 @@ func (ledger *Ledger) RecordRecovery(steps []string, result, message string) err
 	ledger.entry.RecoverySteps = append([]string(nil), steps...)
 	ledger.entry.RecoveryResult = strings.TrimSpace(result)
 	ledger.entry.RecoveryMessage = strings.TrimSpace(message)
-	if strings.EqualFold(strings.TrimSpace(result), "completed") || strings.EqualFold(strings.TrimSpace(result), "succeeded") {
-		ledger.entry.State = "recovered"
-	}
 	return ledger.persistLocked()
-}
-
-func Pending(root string) ([]Entry, error) {
-	entries := []Entry{}
-	err := filepath.WalkDir(root, func(path string, item os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if item.IsDir() || !strings.HasSuffix(strings.ToLower(item.Name()), ".json") {
-			return nil
-		}
-		entry, err := Load(path)
-		if err != nil {
-			return nil
-		}
-		if entry.State == "in_progress" || entry.State == "failed" {
-			entries = append(entries, entry)
-		}
-		return nil
-	})
-	if os.IsNotExist(err) {
-		return entries, nil
-	}
-	return entries, err
 }
 
 func (ledger *Ledger) persist() error {

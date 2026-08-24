@@ -33,15 +33,9 @@ import (
 	"unicode"
 
 	"gcac/linux-go-full-agent/internal/buildinfo"
-	"gcac/linux-go-full-agent/internal/compatibility"
-	"gcac/linux-go-full-agent/internal/core/actioncontract"
 	"gcac/linux-go-full-agent/internal/core/controlplane"
 	"gcac/linux-go-full-agent/internal/core/recovery"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
-	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
-	"gcac/linux-go-full-agent/internal/handlers/productruntime"
-	productRegistry "gcac/linux-go-full-agent/internal/handlers/registry"
-	linuxCommand "gcac/linux-go-full-agent/internal/platform/linux/command"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
@@ -795,17 +789,21 @@ func handleRun(args []string) error {
 	status.State = "running"
 	saveRuntimeStatusSnapshot(statusPath, status)
 
-	rescanInterval := time.Duration(0)
+	heartbeatTicker := time.NewTicker(time.Duration(heartbeatSeconds) * time.Second)
+	defer heartbeatTicker.Stop()
+	taskTicker := time.NewTicker(time.Duration(taskPollSeconds) * time.Second)
+	defer taskTicker.Stop()
+	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
+	defer healthTicker.Stop()
+	var rescanTicker *time.Ticker
 	if rescanEnabled {
-		rescanInterval = time.Duration(rescanSeconds) * time.Second
+		rescanTicker = time.NewTicker(time.Duration(rescanSeconds) * time.Second)
+		defer rescanTicker.Stop()
 	}
-	return coreRuntime.Run(ctx, coreRuntime.Schedule{
-		Heartbeat: time.Duration(heartbeatSeconds) * time.Second,
-		TaskPoll:  time.Duration(taskPollSeconds) * time.Second,
-		Health:    time.Duration(healthCheckSeconds) * time.Second,
-		Rescan:    rescanInterval,
-	}, coreRuntime.Hooks{
-		Stop: func(context.Context) {
+
+	for {
+		select {
+		case <-ctx.Done():
 			status.State = "stopped"
 			status.StoppedAt = time.Now().Format(time.RFC3339)
 			saveRuntimeStatusSnapshot(statusPath, status)
@@ -818,8 +816,8 @@ func handleRun(args []string) error {
 				EmittedAt: time.Now().Format(time.RFC3339),
 			})
 			fmt.Fprintln(os.Stderr, "received stop signal, Linux Agent exiting")
-		},
-		Heartbeat: func(ctx context.Context, now time.Time) {
+			return nil
+		case now := <-heartbeatTicker.C:
 			if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
 				status.LastError = err.Error()
 				status.ConsecutiveHeartbeatFailures++
@@ -839,8 +837,7 @@ func handleRun(args []string) error {
 			}
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		},
-		TaskPoll: func(ctx context.Context, _ time.Time) {
+		case <-taskTicker.C:
 			if err := recoverPendingResults(ctx, client, config, state, counters, ledger); err != nil {
 				status.LastError = err.Error()
 				status.ConsecutiveRecoveryFailures++
@@ -860,18 +857,16 @@ func handleRun(args []string) error {
 			}
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		},
-		Health: func(context.Context, time.Time) {
+		case <-healthTicker.C:
 			status.LastSelfCheckAt = time.Now().Format(time.RFC3339)
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		},
-		Rescan: func(ctx context.Context, _ time.Time) {
+		case <-rescanTickerChannel(rescanTicker):
 			if _, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "scheduled", nil); err != nil {
 				fmt.Fprintf(os.Stderr, "[rescan] scheduled failed agent=%s error=%v\n", config.AgentKey, err)
 			}
-		},
-	})
+		}
+	}
 }
 
 func handleServiceInfo(args []string) error {
@@ -2256,7 +2251,7 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 		AgentID:            state.AgentID,
 		CompatibilityLevel: "L1",
 		Capabilities:       capabilities,
-		Adapters:           registeredLinuxAdapterIDs(config),
+		Adapters:           gatewayAdaptersIfNeeded(config),
 	}
 	if isGatewayEnabled(config) {
 		for _, capability := range gatewayCapabilityKeys() {
@@ -2370,7 +2365,7 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
+	taskType, _ := payload["type"].(string)
 	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
 		return success, code, message, detail
 	}
@@ -2384,11 +2379,7 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		counters: counters,
 		rescan:   rescan,
 	})
-	schemaVersion := coreRegistry.DefaultSchemaVersion
-	if taskType == actioncontract.DeployAction {
-		schemaVersion = actioncontract.DeployVersion
-	}
-	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: schemaVersion, Payload: payload})
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, Payload: payload})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
@@ -2517,16 +2508,11 @@ var (
 )
 
 func executeLinuxTaskPayload(taskID string, payload map[string]any) (bool, string, string, map[string]any) {
-	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
-	schemaVersion := coreRegistry.DefaultSchemaVersion
-	if taskType == actioncontract.DeployAction {
-		schemaVersion = actioncontract.DeployVersion
-	}
+	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
-		TaskID:        taskID,
-		ActionType:    taskType,
-		SchemaVersion: schemaVersion,
-		Payload:       payload,
+		TaskID:     taskID,
+		ActionType: taskType,
+		Payload:    payload,
 	})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
@@ -2552,28 +2538,19 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		},
 	})
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
-		ActionType:    actioncontract.DeployAction,
-		SchemaVersion: actioncontract.DeployVersion,
-		Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
-			return executeCanonicalDeploy(ctx, request.TaskID, request.Payload, currentLinuxCapabilityMap())
+		ActionType: "linux.nginx.deploy_certificate",
+		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
+			input, err := parseLinuxNginxDeployInput(request.Payload)
+			if err != nil {
+				return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: map[string]any{
+					"taskId":   request.TaskID,
+					"executor": "linux-nginx-provider",
+				}}
+			}
+			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
+			return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
 		},
 	})
-	for _, alias := range []string{"linux.nginx.deploy_certificate", "linux.apache.deploy_certificate", "linux.tomcat.deploy_certificate"} {
-		aliasAction := alias
-		mustRegisterAction(registry, coreRegistry.HandlerFunc{
-			ActionType: aliasAction,
-			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
-				payload, err := compatibility.NormalizeLegacyAction(aliasAction, request.TaskID, request.Payload)
-				if err != nil {
-					return coreRegistry.Result{ErrorCode: "ACTION_HANDLER_NOT_REGISTERED", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": request.TaskID}}
-				}
-				capabilities := currentLinuxCapabilityMap()
-				capabilities[compatibility.CapabilityServiceReload] = true
-				capabilities[compatibility.CapabilityServiceRestart] = true
-				return executeCanonicalDeploy(ctx, request.TaskID, payload, capabilities)
-			},
-		})
-	}
 	if runtime != nil {
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
 			ActionType: "agent.capability.rescan",
@@ -2589,80 +2566,10 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 	return registry
 }
 
-func executeCanonicalDeploy(_ context.Context, taskID string, payload map[string]any, capabilities map[string]bool) coreRegistry.Result {
-	action, err := actioncontract.Parse(payload)
-	if err != nil {
-		return actionContractFailure(taskID, err)
-	}
-	resolution, err := compatibility.ResolveProduct(action.ProductAdapterID, "", action.ArtifactFormat, capabilities)
-	if err != nil {
-		return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
-	}
-	result := newLinuxProductRegistry().Execute(context.Background(), productRegistry.Request{
-		TaskID: taskID, Input: action.Input, Capabilities: capabilities, Resolution: resolution,
-	})
-	detail := result.Detail
-	if detail == nil {
-		detail = map[string]any{}
-	}
-	for key, value := range adapterResolutionDetail(taskID, resolution) {
-		detail[key] = value
-	}
-	return coreRegistry.Result{Success: result.Success, ErrorCode: result.ErrorCode, ErrorMessage: result.ErrorMessage, Detail: detail}
-}
-
-func newLinuxProductRegistry() *productRegistry.Registry {
-	registry := productRegistry.New()
-	mustRegisterProductHandler(registry, productRegistry.HandlerFunc{
-		AdapterID: compatibility.ProductNginx,
-		Execute: func(_ context.Context, request productRegistry.Request) productRegistry.Result {
-			input, err := parseLinuxNginxDeployInput(request.Input)
-			if err != nil {
-				return productRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error()}
-			}
-			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
-			return productRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
-		},
-	})
-	if err := productruntime.Register(registry, linuxCommand.ExecRunner{}); err != nil {
-		panic(err)
-	}
-	return registry
-}
-
-func mustRegisterProductHandler(registry *productRegistry.Registry, handler productRegistry.Handler) {
-	if err := registry.Register(handler); err != nil {
-		panic(err)
-	}
-}
-
 func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Handler) {
 	if err := registry.Register(handler); err != nil {
 		panic(err)
 	}
-}
-
-func actionContractFailure(taskID string, err error) coreRegistry.Result {
-	code := strings.TrimSpace(err.Error())
-	if !strings.Contains(code, "_") {
-		code = "ACTION_REQUEST_INVALID"
-	}
-	return coreRegistry.Result{ErrorCode: code, ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
-}
-
-func adapterResolutionDetail(taskID string, resolution compatibility.Resolution) map[string]any {
-	return map[string]any{
-		"taskId": taskID,
-		"adapters": map[string]any{
-			"product": resolution.ProductAdapterID, "certificateStore": resolution.StoreAdapterID,
-			"artifactCodec": resolution.ArtifactCodecID, "serviceController": resolution.ServiceID,
-			"verifier": resolution.VerifierID, "rollback": resolution.RollbackID,
-		},
-	}
-}
-
-func currentLinuxCapabilityMap() map[string]bool {
-	return linuxFacts.CapabilityMap(collectLinuxPlatformFacts())
 }
 
 func cloneMap(source map[string]any) map[string]any {
@@ -2725,34 +2632,21 @@ func collectRuntimeFacts(context.Context) (any, error) {
 }
 
 func collectServiceFacts(context.Context) (any, error) {
-	systemd := lookPath("systemctl") && fileExists("/run/systemd/system")
-	openrc := !systemd && lookPath("rc-service") && (fileExists("/run/openrc") || fileExists("/run/softlevel"))
-	sysv := !systemd && !openrc && (lookPath("service") || fileExists("/etc/init.d"))
 	return map[string]any{
-		"systemd": map[string]any{"available": systemd, "runtimeDirectory": fileExists("/run/systemd/system")},
-		"sysv":    map[string]any{"available": sysv},
-		"openrc":  map[string]any{"available": openrc},
+		"systemd": map[string]any{"available": lookPath("systemctl"), "runtimeDirectory": fileExists("/run/systemd/system")},
+		"sysv":    map[string]any{"available": lookPath("service") || fileExists("/etc/init.d")},
+		"openrc":  map[string]any{"available": lookPath("rc-service")},
 	}, nil
 }
 
 func collectPrivilegeFacts(context.Context) (any, error) {
-	isRoot := os.Geteuid() == 0
-	sudoAvailable, _ := probeSudoNoPassword()
 	return map[string]any{
 		"effectiveUid": os.Geteuid(),
-		"root":         isRoot,
-		"sudo":         !isRoot && sudoAvailable,
+		"root":         os.Geteuid() == 0,
+		"sudo":         lookPath("sudo"),
 		"su":           lookPath("su"),
-		"doas":         !isRoot && commandSucceeds("doas", "-n", "true"),
+		"doas":         lookPath("doas"),
 	}, nil
-}
-
-func commandSucceeds(name string, args ...string) bool {
-	if !lookPath(name) {
-		return false
-	}
-	_, err := captureCommand(name, args...)
-	return err == nil
 }
 
 func collectFilesystemFacts(context.Context) (any, error) {
@@ -2886,7 +2780,6 @@ func runLinuxNginxDeployment(taskID string, input linuxNginxDeployInput) (bool, 
 	detail["recoveryLedgerPath"] = ledgerPath
 	if success {
 		_ = ledger.CompleteStep("completed:" + operation)
-		_ = ledger.Complete()
 		return success, errorCode, errorMessage, detail
 	}
 	_ = ledger.Fail(operation, errorCode, errorMessage)
@@ -5005,19 +4898,6 @@ func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
 	return gatewayRouteChannels()
 }
 
-func registeredLinuxAdapterIDs(config *AgentConfig) []string {
-	items := append([]string(nil), compatibility.PublicAdapterIDs()...)
-	items = append(items, gatewayAdaptersIfNeeded(config)...)
-	sort.Strings(items)
-	result := items[:0]
-	for _, item := range items {
-		if len(result) == 0 || result[len(result)-1] != item {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
 func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
 	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
 	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" && taskType != "gateway.forward.direct_control" {
@@ -5677,17 +5557,7 @@ func runtimeLogSummaryForTrigger(trigger string, success bool) string {
 }
 
 func collectCapabilityReports() []reportedCapability {
-	snapshot := collectLinuxPlatformFacts()
-	publicCapabilities := linuxFacts.Capabilities(snapshot)
-	capabilities := make([]reportedCapability, 0, len(publicCapabilities)+3)
-	for _, capability := range publicCapabilities {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: capability.Key,
-			Value:         capability.Value,
-			Confidence:    capability.Confidence,
-			Evidence:      capability.Evidence,
-		})
-	}
+	capabilities := make([]reportedCapability, 0, 3)
 	if detail := detectNginxDetail(); detail != nil && detail.Installed {
 		capabilities = append(capabilities, reportedCapability{
 			CapabilityKey: "linux.nginx.detail",
