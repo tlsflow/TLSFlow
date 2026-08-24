@@ -32,8 +32,9 @@ export function deleteWorkflowTemplate(templateId: string, payload: ApiBody = {}
   return postAction(`${WORKFLOW_TEMPLATES_PATH}/delete`, { ...payload, id: templateId }, 'workflow_template_delete')
 }
 
-export function listPluginWorkflowSources() {
-  return apiClient.get<{ items?: readonly ApiRecord[] }>(toClientPath('/api/v1/workflow-sources/plugins'))
+export function listPluginWorkflowSources(locale = 'zh-CN') {
+  const query = new URLSearchParams({ locale }).toString()
+  return apiClient.get<{ items?: readonly ApiRecord[] }>(`${toClientPath('/api/v1/workflow-sources/plugins')}?${query}`)
 }
 
 export function getWorkflowExecutionBinding(bindingId: string) {

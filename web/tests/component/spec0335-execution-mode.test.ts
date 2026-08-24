@@ -31,15 +31,25 @@ describe('Spec 033.5 执行来源组件', () => {
     expect(wrapper.emitted('update:versionSelection')).toEqual([['PINNED']])
   })
 
-  it('插件来源选择返回插件版本与能力组合键', async () => {
+  it('插件来源选择合并同一版本，并返回插件版本与能力组合键', async () => {
     const wrapper = mount(GcPluginWorkflowSourceSelector, {
       props: {
         modelValue: '',
-        items: [{ pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.deploy' }],
+        items: [
+          { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.deploy' },
+          { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.rollback' },
+        ],
         labels: { loading: 'loading', empty: 'empty', deploy: 'deploy', rollback: 'rollback', version: 'version' },
       },
     })
-    await wrapper.find('input').setValue(true)
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__item')).toHaveLength(1)
+    expect(wrapper.findAll('input')).toHaveLength(2)
+    await wrapper.find('input[value="plugin-version-1:certificate.deploy"]').setValue(true)
     expect(wrapper.emitted('update:modelValue')).toEqual([['plugin-version-1:certificate.deploy']])
+    await wrapper.find('input[value="plugin-version-1:certificate.rollback"]').setValue(true)
+    expect(wrapper.emitted('update:modelValue')).toEqual([
+      ['plugin-version-1:certificate.deploy'],
+      ['plugin-version-1:certificate.rollback'],
+    ])
   })
 })

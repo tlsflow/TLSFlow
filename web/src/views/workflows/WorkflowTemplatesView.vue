@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import {
@@ -30,7 +30,7 @@ import {
 } from './workflow-canvas.model'
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const detailModalOpen = ref(false)
 const versionManagerModalOpen = ref(false)
 const editorModalOpen = ref(false)
@@ -163,12 +163,17 @@ const pluginSourceActionLabel = computed(() => pluginSourceMode.value === 'creat
 const selectedPluginSource = computed(() => pluginSourceItems.value.find((item) => pluginSourceId(item) === selectedPluginSourceId.value) ?? null)
 
 function isPluginInternal(row: ViewRow): boolean {
-  return readString(row.raw, ['origin']) === 'plugin_internal'
+  return workflowOrigin(row) === 'plugin_internal'
 }
 
 function isUserOwnedWorkflow(row: ViewRow): boolean {
-  const origin = readString(row.raw, ['origin'], 'legacy')
+  const origin = workflowOrigin(row)
   return origin === 'user' || origin === 'plugin_derived' || origin === 'legacy'
+}
+
+function workflowOrigin(row: ViewRow): string {
+  const rawOrigin = readString(row.raw, ['origin'], 'legacy').trim().toLowerCase()
+  return rawOrigin.replace(/-/g, '_')
 }
 
 function pluginSourceId(item: ApiRecord): string {
@@ -329,7 +334,7 @@ async function loadPluginSources() {
   pluginSourceLoading.value = true
   pluginSourceError.value = ''
   try {
-    const result = await listPluginWorkflowSources()
+    const result = await listPluginWorkflowSources(locale.value)
     pluginSourceItems.value = [...(result.data?.items ?? [])]
     selectedPluginSourceId.value = pluginSourceItems.value[0] ? pluginSourceId(pluginSourceItems.value[0]) : ''
   } catch (cause) {
@@ -339,6 +344,10 @@ async function loadPluginSources() {
     pluginSourceLoading.value = false
   }
 }
+
+watch(locale, () => {
+  if (pluginSourceModalOpen.value) void loadPluginSources()
+})
 
 function hydrateCanvasFromLatestVersion() {
   const latest = [...versionItems.value].sort((left, right) => Number(readString(right, ['version'], '0')) - Number(readString(left, ['version'], '0')))[0]
@@ -384,6 +393,7 @@ async function submitPluginSourceAction() {
     } else {
       const row = pluginSourceTargetRow.value
       if (!row) throw new Error(t('workflows.templates.pluginSources.errors.missingApplyTarget'))
+      if (!isUserOwnedWorkflow(row)) throw new Error(t('workflows.templates.pluginSources.errors.actionFailed'))
       await createWorkflowDraftFromPlugin(readString(row.raw, ['id']), {
         ...sourcePayload,
         changeSummary: t('workflows.templates.changeSummaries.applyFromPlugin'),

@@ -195,6 +195,27 @@ describe('WorkflowTemplatesView', () => {
     }))
   })
 
+  it('插件内部工作流不显示从插件生成草稿入口', async () => {
+    vi.mocked(listWorkflowTemplates).mockResolvedValueOnce(okPage([
+      {
+        id: 'plugin-internal-workflow',
+        name: 'apache-8444-cert-switch',
+        origin: 'PLUGIN_INTERNAL',
+        status: 'published',
+        currentVersionLabel: 'V1',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-03T00:00:00.000Z',
+      },
+    ]))
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).not.toContain('生成草稿')
+  })
+
   it('没有草稿版本的工作流记录不显示编辑按钮', async () => {
     vi.mocked(listWorkflowTemplates).mockResolvedValue(okPage([
       {
