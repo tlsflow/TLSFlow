@@ -78,11 +78,11 @@ function releaseManifest(packageContent: string): P2PluginReleaseManifest {
     plugins: [{
       canonicalPluginId: 'web.nginx',
       packageDirectory: 'web-nginx',
-      firstPluginVersion: '1.0.0',
+      pluginVersion: '1.0.0',
       implementationStatus: 'P2_RELEASED',
       executionMode: 'PLUGIN_RUNNER',
       agentSidePlugin: false,
-      packageDigest: { status: 'P2_RELEASED', sha256: `sha256:${sha256(packageContent)}` },
+      packageDigest: { status: 'P2_RELEASED', sha256: `sha256:${sha256(packageContent)}`, catalogEntryRequired: true },
       capabilities: [{ key: 'application.discover', contractVersion: 'v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] }],
       hostApiGrants: [],
       workflows: [{ key: 'application.discover', capabilityKey: 'application.discover', path: 'workflows/read.json', initialVersion: '1.0.0', readOnly: true }],

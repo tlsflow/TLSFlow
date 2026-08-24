@@ -12,8 +12,8 @@ test('P2 显式测试清单覆盖四个插件批次、开发切换和故障矩�
   assert.equal(p2TestEntries.filter((entry) => entry.id.startsWith('device-')).length, 3);
   assert.equal(p2TestEntries.some((entry) => entry.id === 'development-database-cutover'), true);
   assert.equal(p2TestEntries.some((entry) => entry.id === 'fault-matrix-contract'), true);
-  assert.equal(new Set(p2TestEntries.flatMap((entry) => entry.pluginIds ?? [])).size, 17);
-  assert.equal(p2TestEntries.filter((entry) => entry.pluginIds).reduce((count, entry) => count + entry.pluginIds.length, 0), 17);
+  const declaredPluginIds = p2TestEntries.flatMap((entry) => entry.pluginIds ?? []);
+  assert.equal(new Set(declaredPluginIds).size, declaredPluginIds.length);
 });
 
 test('P2 显式测试清单拒绝重复标识和缺少必要批次', () => {

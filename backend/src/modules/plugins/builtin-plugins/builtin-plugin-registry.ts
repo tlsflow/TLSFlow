@@ -15,11 +15,11 @@ const defaultReleaseManifestPath = resolve(moduleDirectory, '../../../../../scri
 export interface P2PluginReleaseEntry {
   canonicalPluginId: string;
   packageDirectory: string;
-  firstPluginVersion: string;
+  pluginVersion: string;
   implementationStatus: string;
   executionMode: 'PLUGIN_RUNNER';
   agentSidePlugin: boolean;
-  packageDigest?: { status: string; sha256: string | null };
+  packageDigest?: { status: string; sha256: string | null; catalogEntryRequired?: boolean };
   capabilities: Array<{ key: string; contractVersion: string; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; executionLocations: string[] }>;
   hostApiGrants: Array<{ method: string; grantKind: string; required: boolean }>;
   workflows: PluginWorkflowDeclaration[];
@@ -78,7 +78,7 @@ export class BuiltinPluginRegistry {
       const release = releaseByDirectory.get(basename(pluginPackage.packageDirectory));
       if (!release) throw new AppError('VALIDATION_FAILED', '内置插件包未进入 P2 发布清单', { packageDirectory: pluginPackage.packageDirectory });
       if (!options.allowUnreleased && release.packageDigest?.status !== 'P2_RELEASED') continue;
-      if (options.allowUnreleased && release.firstPluginVersion !== pluginIdentity(pluginPackage.manifest).version) continue;
+      if (options.allowUnreleased && release.pluginVersion !== pluginIdentity(pluginPackage.manifest).version) continue;
       const entry = buildRegistryEntry(pluginPackage, release, this.releaseManifest);
       const key = identityKey(entry.pluginId, entry.version);
       if (this.entries.has(key)) throw new AppError('VALIDATION_FAILED', '内置插件 Registry 存在重复身份', { key });
@@ -106,7 +106,7 @@ export class BuiltinPluginRegistry {
 
   /** 返回发布清单中的声明，不依赖包是否已经刷新到运行时 Registry。 */
   getDeclaredWorkflowDeclarations(pluginId: string, version: string): PluginWorkflowDeclaration[] | undefined {
-    const release = this.releaseManifest.plugins.find((entry) => entry.canonicalPluginId === pluginId && entry.firstPluginVersion === version);
+    const release = this.releaseManifest.plugins.find((entry) => entry.canonicalPluginId === pluginId && entry.pluginVersion === version);
     return release?.workflows.map((workflow) => ({ ...workflow }));
   }
 }
@@ -117,10 +117,10 @@ function buildRegistryEntry(
   releaseManifest: P2PluginReleaseManifest,
 ): BuiltinPluginRegistryEntry {
   const identity = pluginIdentity(pluginPackage.manifest);
-  if (identity.pluginId !== release.canonicalPluginId || identity.version !== release.firstPluginVersion) {
+  if (identity.pluginId !== release.canonicalPluginId || identity.version !== release.pluginVersion) {
     throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Manifest 身份或版本与 P2 发布清单不一致', {
       expectedPluginId: release.canonicalPluginId,
-      expectedVersion: release.firstPluginVersion,
+      expectedVersion: release.pluginVersion,
       actualPluginId: identity.pluginId,
       actualVersion: identity.version,
     });

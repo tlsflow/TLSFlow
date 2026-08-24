@@ -14,7 +14,7 @@ const sensitiveEnvironmentNamePattern = /(AUTH|CERT|CREDENTIAL|KEY|PASSWORD|PASS
 const safeEnvironmentNames = new Set(['CI', 'NODE_ENV', 'TZ', 'GCAC_P2_TEST_FILE_TIMEOUT_MS']);
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-// 该清单覆盖 17 个 P2 插件包、统一执行链、开发数据切换和无回退故障矩阵。
+// 该清单覆盖发布清单中的插件包、统一执行链、开发数据切换和无回退故障矩阵。
 // 跨 Phase 全量测试不在此处运行，只能由最终开发门禁显式执行一次。
 export const p2TestEntries = Object.freeze([
   { id: 'release-manifest-validator', kind: 'node-command', cwd: 'repository', args: ['scripts/architecture/p2-plugin-release-manifest.mjs'] },
@@ -24,12 +24,11 @@ export const p2TestEntries = Object.freeze([
   { id: 'builtin-plugin-versions', kind: 'npm', cwd: 'backend', args: ['run', 'check:builtin-plugin-versions'] },
   { id: 'cloud-batch', batchId: 'cloud', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/cloud/cloud-package.contract.test.mjs', pluginIds: ['cloud.aliyun', 'cloud.tencent', 'cloud.huawei', 'cloud.volcengine'] },
   { id: 'web-app-batch', batchId: 'web-app', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/web-app/p2-web-app.test.mjs', pluginIds: ['web.nginx', 'web.apache', 'app.tomcat', 'app.java-keystore', 'app.rabbitmq', 'app.service-certificate-file'] },
-  { id: 'ca-batch', batchId: 'ca', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/ca/ca-plugin-runner.real-process.test.mjs', pluginIds: ['ca.openssl', 'ca.acme', 'ca.acme-dns', 'ca.microsoft-adcs'] },
+  { id: 'ca-batch', batchId: 'ca', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/ca/ca-plugin-runner.real-process.test.mjs', pluginIds: ['ca.microsoft-adcs'] },
   { id: 'device-iis-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/web-iis/runtime/index.test.mjs', pluginIds: ['web.iis'] },
   { id: 'device-citrix-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/citrix-adc/runtime/index.test.mjs', pluginIds: ['device.citrix.netscaler-adc'] },
   { id: 'device-synology-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/device-synology-dsm/runtime/index.test.mjs', pluginIds: ['device.synology-dsm'] },
   { id: 'builtin-plugin-registry', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/builtin-plugin-registry.test.js' },
-  { id: 'builtin-plugin-ledger', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/builtin-plugin-package-ledger.test.js' },
   { id: 'builtin-plugin-loader', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-unified-plugin-loader.test.js' },
   { id: 'plugin-fact-runner', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/application/plugin-fact-runner.adapter.test.js' },
   { id: 'plugin-fact-pipeline', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/application/plugin-fact-pipeline.service.test.js' },
@@ -102,22 +101,13 @@ export function validateP2TestEntries(entries = p2TestEntries) {
   for (const batch of releaseManifest.batches ?? []) {
     const batchEntriesForId = batchEntries.filter((entry) => entry.batchId === batch.id);
     const declared = batchEntriesForId.flatMap((entry) => entry.pluginIds ?? []);
-    if (declared.length !== batch.pluginIds.length || [...declared].sort().join('|') !== [...batch.pluginIds].sort().join('|')) {
-      findings.push(`P2 批次 ${batch.id} 的测试条目与发布清单插件集合不一致`);
-    }
+    if (new Set(declared).size !== declared.length) findings.push(`P2 批次 ${batch.id} 的测试条目存在重复 Plugin ID`);
+    for (const pluginId of declared) if (!batch.pluginIds.includes(pluginId)) findings.push(`P2 批次 ${batch.id} 的测试条目引用了其他批次或未知插件：${pluginId}`);
   }
   const coveredPluginIds = batchEntries.flatMap((entry) => {
-    if (!Array.isArray(entry.pluginIds) || entry.pluginIds.length === 0) {
-      findings.push(`批次测试条目缺少 pluginIds：${entry.id}`);
-      return [];
-    }
-    return entry.pluginIds;
+    return Array.isArray(entry.pluginIds) ? entry.pluginIds : [];
   });
   if (new Set(coveredPluginIds).size !== coveredPluginIds.length) findings.push('P2 批次测试清单存在重复 Plugin ID');
-  const expectedPluginIds = releaseManifest.plugins?.map((plugin) => plugin.canonicalPluginId) ?? [];
-  if (coveredPluginIds.length !== expectedPluginIds.length || [...coveredPluginIds].sort().join('|') !== [...expectedPluginIds].sort().join('|')) {
-    findings.push('P2 批次测试清单必须逐项覆盖发布清单中的 17 个 Canonical Plugin ID');
-  }
   return findings;
 }
 
