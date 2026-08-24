@@ -589,6 +589,30 @@ test('强制结束会清理运行租约并吞掉旧 Worker 的完成回写', asy
   assert.deepEqual(cancelledRuns, ['run-force-cancel:admin-force:tenant-force-cancel']);
 });
 
+test('强制结束 Agent 升级任务会同步通知升级计划进入人工处置', async () => {
+  const { service } = await createFixture();
+  const cancellations: string[] = [];
+  service.setAgentUpgradeCancellationHandler({
+    cancelUpgrade: async (tenantId, agentId, planId, actorId, reason) => {
+      cancellations.push(`${tenantId}:${agentId}:${planId}:${actorId}:${reason}`);
+    },
+  });
+  const task = await service.enqueue({
+    tenantId: 'tenant-agent-upgrade-cancel',
+    taskType: 'AGENT_UPDATE',
+    requestedBy: 'user-upgrade',
+    triggerSource: 'agent-upgrade-confirmed',
+    payload: { agentId: 'agent-cancel', planId: 'plan-cancel' },
+  });
+
+  const finished = await service.forceCancel(task.tenantId, task.id, 'admin-force', '远端升级结果无法确认');
+
+  assert.equal(finished.status, 'CANCELLED');
+  assert.deepEqual(cancellations, [
+    'tenant-agent-upgrade-cancel:agent-cancel:plan-cancel:admin-force:远端升级结果无法确认',
+  ]);
+});
+
 test('部署审批占位任务只在审批决策后收敛，不会被 Worker 抢占', async () => {
   const { repository, service } = await createFixture();
   const task = await service.enqueue({

@@ -19,6 +19,16 @@ build_target() {
   shasum -a 256 "$output_path"
 }
 
+build_updater() {
+  target_arch="$1"
+  output_path="$OUTPUT_DIR/gcac-agent-updater.windows-$target_arch.exe"
+  temporary_path="$output_path.tmp.$$"
+  rm -f "$temporary_path"
+  CGO_ENABLED=0 GOOS=windows GOARCH="$target_arch" go build -trimpath -o "$temporary_path" ./cmd/gcac-agent-updater
+  mv -f "$temporary_path" "$output_path"
+  shasum -a 256 "$output_path"
+}
+
 build_side_plugin() {
 
   target_arch="$1"
@@ -51,9 +61,12 @@ else
 fi
 build_target amd64
 build_target arm64
+build_updater amd64
+build_updater arm64
 build_side_plugin amd64
 build_side_plugin arm64
 
 # 兼容尚未重启的旧后端安装器；新后端只从 dist 读取发布物。
 cp "$OUTPUT_DIR/gcac-agent.windows-amd64.exe" "$SCRIPT_DIR/gcac-agent.exe"
+cp "$OUTPUT_DIR/gcac-agent-updater.windows-amd64.exe" "$SCRIPT_DIR/gcac-agent-updater.exe"
 cp "$OUTPUT_DIR/plugins/windows-runtime-discovery.windows-amd64.exe" "$OUTPUT_DIR/plugins/windows-runtime-discovery.exe"

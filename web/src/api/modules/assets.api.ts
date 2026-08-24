@@ -172,6 +172,10 @@ export function checkAgentUpgrade(agentId: string) {
   })
 }
 
+export function dispatchAgentUpgrade(agentId: string, planId: string) {
+  return postAction(`${AGENTS_PATH}/${encodeURIComponent(agentId)}/upgrades`, { planId }, 'agent_upgrade_dispatch')
+}
+
 export function createAgentEnrollmentToken(payload: ApiBody) {
   return postAction(`${AGENTS_PATH}/enrollment-tokens`, payload, 'agent_enrollment_token')
 }

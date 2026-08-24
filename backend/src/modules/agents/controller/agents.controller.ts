@@ -9,39 +9,22 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AgentsApplicationService, type AgentInstallMaterialRequest } from '../application/agents.application-service.js';
-import type {
-  AckAgentTaskInput,
-  AgentCapabilitySnapshotInput,
-  AgentHeartbeatInput,
-  CheckAgentUpgradeInput,
-  CreateAgentCertificateSigningRequestInput,
-  CreateAgentInstallSessionInput,
-  CreateAgentSessionInput,
-  CreateEnrollmentTokenInput,
-  DeleteAgentInput,
-  DisableAgentInput,
-  EnableAgentInput,
-  EnqueueAgentTaskInput,
-  PublishAgentVersionInput,
-  RegisterAgentInput,
-  RevokeAgentCertificateInput,
-  RotateAgentCertificateInput,
-  SignAgentCertificateInput,
-  SubmitAgentTaskLogInput,
-  SubmitAgentTaskLogsInput,
-  SubmitAgentTaskResultInput,
-  SubmitAgentRuntimeLogInput,
-  SubmitAgentUpgradeResultInput,
-} from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilitySnapshotInput, AgentHeartbeatInput, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, DispatchAgentUpgradeInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentRuntimeLogInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
 const WINDOWS_COMPATIBILITY_PLATFORMS = new Set(['windows_compatibility_service']);
 
 export class AgentsController {
-  constructor(private readonly service = new AgentsApplicationService(), private readonly security?: SecurityServices) {}
+  constructor(
+    private readonly service = new AgentsApplicationService(),
+    private readonly security?: SecurityServices,
+  ) {}
 
   register(router: Router): void {
+    // Agent 升级器不带控制面用户会话；Release ID 是不可猜测的租户绑定标识，
+    // 服务端仍会在发送前重新校验产品线、状态、大小和 SHA-256。
+    router.get('/agent-releases/:releaseId', '下载受控 Agent Release 制品', tags, (request) => this.downloadRelease(request));
     router.post('/api/v1/agents/enable', '启用 Agent', tags, (request) => this.enableAgent(request));
     router.post('/api/v1/agents/delete', '删除 Agent', tags, (request) => this.deleteAgent(request));
     router.get('/api/v1/agents', '查询 Agent 列表', tags, (request) => this.listAgents(request));
@@ -51,6 +34,10 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks', '查询 Agent 任务队列', tags, (request) => this.listTaskQueue(request));
     router.get('/api/v1/agents/tasks/log-cursor', '查询 Agent 日志 ack cursor', tags, (request) => this.getLogCursor(request));
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
+    router.post('/api/v1/agents/:agentId/upgrades/check', '检查指定 Agent 升级计划', tags, (request) => this.checkAgentUpgrade(request));
+    router.post('/api/v1/agents/:agentId/upgrades', '发送指定 Agent 升级事务', tags, (request) => this.dispatchAgentUpgrade(request));
+    router.get('/api/v1/agents/:agentId/upgrades/:planId', '查询指定 Agent 升级事务状态', tags, (request) => this.getAgentUpgradeStatus(request));
+    router.post('/api/v1/agents/:agentId/upgrades/:planId/retry', '重试指定 Agent 升级事务传输', tags, (request) => this.retryAgentUpgrade(request));
     router.post('/api/v1/agents/:agentId/rescan', '通过管理端点直接执行 Agent 手动能力重扫', tags, (request) => this.refreshDiscovery(request));
     router.post('/api/v1/agents/:agentId/management-probe', '立即探测 Agent TCP 管理端口', tags, (request) => this.probeManagementEndpoint(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
@@ -101,7 +88,14 @@ export class AgentsController {
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
-    return { id: actorId(request), type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
+    return {
+      id: actorId(request),
+      type: 'user',
+      scope: {
+        tenantId: request.context.tenantId,
+        tenantScope: request.context.tenantScope,
+      },
+    };
   }
 
   private async authorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: 'read' | 'edit' | 'control', query: PageQuery): Promise<PageQuery> {
@@ -119,7 +113,14 @@ export class AgentsController {
     });
     return {
       statusCode: 201,
-      body: this.service.createEnrollmentToken(tenantId(request), { createdBy: actorId(request), ...body } as unknown as CreateEnrollmentTokenInput, requestId(request)),
+      body: this.service.createEnrollmentToken(
+        tenantId(request),
+        {
+          createdBy: actorId(request),
+          ...body,
+        } as unknown as CreateEnrollmentTokenInput,
+        requestId(request),
+      ),
     };
   }
 
@@ -128,7 +129,11 @@ export class AgentsController {
       throw new AppError('VALIDATION_FAILED', '安装材料接口不接受查询参数');
     }
     const body = validateExactObject(request.body, {
-      platform: { type: 'string', required: true, enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+      platform: {
+        type: 'string',
+        required: true,
+        enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+      },
       role: { type: 'string', enum: ['full_agent', 'gateway'] },
       zone: { type: 'string' },
       agentKey: { type: 'string' },
@@ -156,7 +161,10 @@ export class AgentsController {
     if (Object.keys(request.query).length > 0) {
       throw new AppError('VALIDATION_FAILED', '安装会话接口不接受查询参数');
     }
-    const body = validateAgentInstallSessionBody({ ...(request.body as Record<string, unknown> | undefined), platform });
+    const body = validateAgentInstallSessionBody({
+      ...(request.body as Record<string, unknown> | undefined),
+      platform,
+    });
     return {
       statusCode: 201,
       body: this.service.createAgentInstallSession(tenantId(request), body, requestId(request), resolveInstallPublicBaseUrl(request)),
@@ -166,7 +174,7 @@ export class AgentsController {
   private async getWindowsBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.getInstallSessionByToken(token);
-    const manifest = await this.service.buildWindowsInstallManifest(session, resolveInstallPublicBaseUrl(request));
+    const manifest = await this.service.buildWindowsInstallManifest(session, resolveInstallPublicBaseUrl(request), token);
     await this.service.consumeInstallSessionByToken(token, request.context.ip);
     return {
       statusCode: 200,
@@ -249,23 +257,38 @@ export class AgentsController {
       reason: { type: 'string' },
       revokeCertificate: { type: 'boolean' },
     });
-    if (body.dryRun) return { dryRun: true, status: 'DISABLED', agentId: body.agentId, reason: body.reason, revokeCertificate: Boolean(body.revokeCertificate) };
-    return this.service.disableAgent(tenantId(request), {
-      agentId: String(body.agentId),
-      reason: typeof body.reason === 'string' ? body.reason : undefined,
-      revokeCertificate: Boolean(body.revokeCertificate),
-      actorId: actorId(request),
-    }, requestId(request));
+    if (body.dryRun)
+      return {
+        dryRun: true,
+        status: 'DISABLED',
+        agentId: body.agentId,
+        reason: body.reason,
+        revokeCertificate: Boolean(body.revokeCertificate),
+      };
+    return this.service.disableAgent(
+      tenantId(request),
+      {
+        agentId: String(body.agentId),
+        reason: typeof body.reason === 'string' ? body.reason : undefined,
+        revokeCertificate: Boolean(body.revokeCertificate),
+        actorId: actorId(request),
+      },
+      requestId(request),
+    );
   }
 
   private enableAgent(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentId: { type: 'string', required: true },
     });
-    return this.service.enableAgent(tenantId(request), {
-      agentId: String(body.agentId),
-      actorId: actorId(request),
-    } as EnableAgentInput, requestId(request));
+    return this.service.enableAgent(
+      tenantId(request),
+      {
+        agentId: String(body.agentId),
+        actorId: actorId(request),
+      } as EnableAgentInput,
+      requestId(request),
+    );
   }
 
   private deleteAgent(request: HttpRequest) {
@@ -316,7 +339,10 @@ export class AgentsController {
       agentId: { type: 'string', required: true },
       certificateFingerprint: { type: 'string', required: true },
     });
-    return { statusCode: 201, body: this.service.createMtlsSession(tenantId(request), body as unknown as CreateAgentSessionInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.createMtlsSession(tenantId(request), body as unknown as CreateAgentSessionInput, requestId(request)),
+    };
   }
 
   private createCertificateSigningRequest(request: HttpRequest) {
@@ -325,7 +351,10 @@ export class AgentsController {
       csrPem: { type: 'string', required: true },
       requestedTtlDays: { type: 'number' },
     });
-    return { statusCode: 201, body: this.service.createCertificateSigningRequest(tenantId(request), body as unknown as CreateAgentCertificateSigningRequestInput, actorId(request), requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.createCertificateSigningRequest(tenantId(request), body as unknown as CreateAgentCertificateSigningRequestInput, actorId(request), requestId(request)),
+    };
   }
 
   private signCertificate(request: HttpRequest) {
@@ -335,7 +364,13 @@ export class AgentsController {
       ttlDays: { type: 'number' },
       issuedBy: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.signCertificate(tenantId(request), { issuedBy: actorId(request), ...body } as unknown as SignAgentCertificateInput) };
+    return {
+      statusCode: 201,
+      body: this.service.signCertificate(tenantId(request), {
+        issuedBy: actorId(request),
+        ...body,
+      } as unknown as SignAgentCertificateInput),
+    };
   }
 
   private rotateCertificate(request: HttpRequest) {
@@ -345,7 +380,17 @@ export class AgentsController {
       ttlDays: { type: 'number' },
       issuedBy: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.rotateCertificate(tenantId(request), { issuedBy: actorId(request), ...body } as unknown as RotateAgentCertificateInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.rotateCertificate(
+        tenantId(request),
+        {
+          issuedBy: actorId(request),
+          ...body,
+        } as unknown as RotateAgentCertificateInput,
+        requestId(request),
+      ),
+    };
   }
 
   private revokeCertificate(request: HttpRequest) {
@@ -355,7 +400,10 @@ export class AgentsController {
       reason: { type: 'string' },
       revokedBy: { type: 'string' },
     });
-    return this.service.revokeCertificate(tenantId(request), { revokedBy: actorId(request), ...body } as unknown as RevokeAgentCertificateInput);
+    return this.service.revokeCertificate(tenantId(request), {
+      revokedBy: actorId(request),
+      ...body,
+    } as unknown as RevokeAgentCertificateInput);
   }
 
   private heartbeat(request: HttpRequest) {
@@ -388,7 +436,10 @@ export class AgentsController {
       maxConcurrentTasks: { type: 'number' },
       successRate: { type: 'number' },
     });
-    return { statusCode: 201, body: this.service.reportCapabilities(tenantId(request), body as unknown as AgentCapabilitySnapshotInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.reportCapabilities(tenantId(request), body as unknown as AgentCapabilitySnapshotInput, requestId(request)),
+    };
   }
 
   private enqueueTask(request: HttpRequest) {
@@ -399,7 +450,10 @@ export class AgentsController {
       idempotencyKey: { type: 'string', required: true },
       payload: { type: 'object' },
     });
-    return { statusCode: 201, body: this.service.enqueueTask(tenantId(request), body as unknown as EnqueueAgentTaskInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.enqueueTask(tenantId(request), body as unknown as EnqueueAgentTaskInput, requestId(request)),
+    };
   }
 
   private refreshDiscovery(request: HttpRequest) {
@@ -412,7 +466,9 @@ export class AgentsController {
 
   private probeManagementEndpoint(request: HttpRequest) {
     const agentId = readPathParam(request, 'agentId', 'management-probe');
-    const body = validateObject(request.body, { timeoutMs: { type: 'number' } });
+    const body = validateObject(request.body, {
+      timeoutMs: { type: 'number' },
+    });
     return {
       statusCode: 200,
       body: this.service.probeManagementEndpoint(tenantId(request), agentId, typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined),
@@ -443,7 +499,10 @@ export class AgentsController {
       message: { type: 'string', required: true },
       emittedAt: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.submitLog(tenantId(request), body as unknown as SubmitAgentTaskLogInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.submitLog(tenantId(request), body as unknown as SubmitAgentTaskLogInput, requestId(request)),
+    };
   }
 
   private submitRuntimeLog(request: HttpRequest) {
@@ -455,7 +514,10 @@ export class AgentsController {
       detail: { type: 'object' },
       emittedAt: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.submitRuntimeLog(tenantId(request), body as unknown as SubmitAgentRuntimeLogInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: this.service.submitRuntimeLog(tenantId(request), body as unknown as SubmitAgentRuntimeLogInput, requestId(request)),
+    };
   }
 
   private submitLogBatch(request: HttpRequest) {
@@ -477,7 +539,10 @@ export class AgentsController {
       taskId: { type: 'string', required: true },
       leaseId: { type: 'string', required: true },
       success: { type: 'boolean', required: true },
-      status: { type: 'string', enum: ['SUCCESS', 'FAILED', 'UNKNOWN', 'CANCELLED'] },
+      status: {
+        type: 'string',
+        enum: ['SUCCESS', 'FAILED', 'UNKNOWN', 'CANCELLED'],
+      },
       errorCode: { type: 'string' },
       errorMessage: { type: 'string' },
       detail: { type: 'object' },
@@ -490,6 +555,13 @@ export class AgentsController {
       version: { type: 'string', required: true },
       platform: { type: 'string', required: true },
       arch: { type: 'string' },
+      productLine: {
+        type: 'string',
+        enum: ['windows-go-full', 'linux-go-full', 'windows-compat-full', 'gateway', 'ca-node'],
+      },
+      signatureKeyId: { type: 'string' },
+      artifactSignature: { type: 'string' },
+      artifactSize: { type: 'number' },
       minCompatibilityLevel: { type: 'string' },
       downloadUrl: { type: 'string', required: true },
       checksumSha256: { type: 'string', required: true },
@@ -498,12 +570,89 @@ export class AgentsController {
       rolloutPercent: { type: 'number' },
       createdBy: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.publishVersion(tenantId(request), { createdBy: actorId(request), ...body } as unknown as PublishAgentVersionInput) };
+    return {
+      statusCode: 201,
+      body: this.service.publishVersion(tenantId(request), {
+        createdBy: actorId(request),
+        ...body,
+      } as unknown as PublishAgentVersionInput),
+    };
+  }
+
+  private async downloadRelease(request: HttpRequest) {
+    const prefix = '/agent-releases/';
+    let releaseId: string;
+    try {
+      releaseId = decodeURIComponent(request.path.slice(prefix.length));
+    } catch {
+      throw new AppError('VALIDATION_FAILED', 'Release ID 编码无效');
+    }
+    if (!releaseId || releaseId.includes('/')) throw new AppError('VALIDATION_FAILED', 'Release ID 无效');
+    const artifact = await this.service.getReleaseArtifact(releaseId);
+    const architecture = artifact.release.arch === 'arm64' ? 'arm64' : 'amd64';
+    return {
+      statusCode: 200,
+      body: artifact.content,
+      headers: {
+        'content-type': 'application/vnd.microsoft.portable-executable',
+        'content-length': String(artifact.content.length),
+        'content-disposition': `attachment; filename="gcac-agent.windows-${architecture}.exe"`,
+        'cache-control': 'public, max-age=31536000, immutable',
+      },
+    };
   }
 
   private checkUpgrade(request: HttpRequest) {
-    const body = validateObject(request.body, { agentId: { type: 'string', required: true } });
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+    });
     return this.service.checkUpgrade(tenantId(request), body as unknown as CheckAgentUpgradeInput);
+  }
+
+  private checkAgentUpgrade(request: HttpRequest) {
+    const agentId = readUpgradeAgentId(request);
+    const body = validateObject(request.body, {
+      releaseId: { type: 'string' },
+      targetVersion: { type: 'string' },
+      idempotencyKey: { type: 'string' },
+    });
+    return this.service.checkUpgrade(tenantId(request), {
+      agentId,
+      ...body,
+    } as CheckAgentUpgradeInput);
+  }
+
+  private dispatchAgentUpgrade(request: HttpRequest) {
+    const agentId = readUpgradeAgentId(request);
+    const body = validateObject(request.body, {
+      planId: { type: 'string', required: true },
+      approvalRef: { type: 'string' },
+      policyRef: { type: 'string' },
+      retryReason: { type: 'string' },
+    });
+    return this.service.dispatchUpgrade(tenantId(request), { agentId, ...body } as unknown as DispatchAgentUpgradeInput, actorId(request), requestId(request));
+  }
+
+  private getAgentUpgradeStatus(request: HttpRequest) {
+    const { agentId, planId } = readUpgradeAgentAndPlan(request);
+    return this.service.getUpgradeStatus(tenantId(request), agentId, planId);
+  }
+
+  private retryAgentUpgrade(request: HttpRequest) {
+    const { agentId, planId } = readUpgradeAgentAndPlan(request);
+    const body = validateObject(request.body, {
+      retryReason: { type: 'string' },
+    });
+    return this.service.dispatchUpgrade(
+      tenantId(request),
+      {
+        agentId,
+        planId,
+        retryReason: typeof body.retryReason === 'string' ? body.retryReason : undefined,
+      },
+      actorId(request),
+      requestId(request),
+    );
   }
 
   private submitUpgradeResult(request: HttpRequest) {
@@ -522,16 +671,118 @@ export class AgentsController {
 export function getAgentsRouteContracts(): RouteContract[] {
   const schema = { type: 'object', additionalProperties: true };
   return [
-    { method: 'GET', path: '/api/v1/agents', operationId: 'listAgents', summary: '查询 Agent 列表', tags, responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/agents/detail', operationId: 'getAgentDetail', summary: '查询 Agent 详情聚合', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/capabilities', operationId: 'getAgentCapabilities', summary: '查询 Agent 能力快照', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/certificates', operationId: 'listAgentCertificates', summary: '查询 Agent 证书列表', tags, responseSchema: { type: 'array', items: schema } },
-    { method: 'GET', path: '/api/v1/agents/tasks', operationId: 'listAgentTaskQueue', summary: '查询 Agent 任务队列', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/tasks/log-cursor', operationId: 'getAgentTaskLogCursor', summary: '查询 Agent 日志 ack cursor', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'refreshAgentDiscovery', summary: '通过管理端点直接执行 Agent 手动能力重扫', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/:agentId/management-probe', operationId: 'probeAgentManagementEndpoint', summary: '立即探测 Agent TCP 管理端口', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
+    {
+      method: 'GET',
+      path: '/api/v1/agents',
+      operationId: 'listAgents',
+      summary: '查询 Agent 列表',
+      tags,
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/detail',
+      operationId: 'getAgentDetail',
+      summary: '查询 Agent 详情聚合',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/capabilities',
+      operationId: 'getAgentCapabilities',
+      summary: '查询 Agent 能力快照',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/certificates',
+      operationId: 'listAgentCertificates',
+      summary: '查询 Agent 证书列表',
+      tags,
+      responseSchema: { type: 'array', items: schema },
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/tasks',
+      operationId: 'listAgentTaskQueue',
+      summary: '查询 Agent 任务队列',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/tasks/log-cursor',
+      operationId: 'getAgentTaskLogCursor',
+      summary: '查询 Agent 日志 ack cursor',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/upgrades/suggestion',
+      operationId: 'getAgentUpgradeSuggestion',
+      summary: '查询 Agent 升级建议',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/upgrades/check',
+      operationId: 'checkAgentUpgradePlan',
+      summary: '检查指定 Agent 升级计划',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/upgrades',
+      operationId: 'dispatchAgentUpgrade',
+      summary: '发送指定 Agent 升级事务',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/:agentId/upgrades/:planId',
+      operationId: 'getAgentUpgradeStatus',
+      summary: '查询指定 Agent 升级事务状态',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/upgrades/:planId/retry',
+      operationId: 'retryAgentUpgrade',
+      summary: '重试指定 Agent 升级事务传输',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/rescan',
+      operationId: 'refreshAgentDiscovery',
+      summary: '通过管理端点直接执行 Agent 手动能力重扫',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/:agentId/management-probe',
+      operationId: 'probeAgentManagementEndpoint',
+      summary: '立即探测 Agent TCP 管理端口',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/enrollment-tokens',
+      operationId: 'createAgentEnrollmentToken',
+      summary: '创建 Agent 注册令牌',
+      tags,
+      responseSchema: schema,
+    },
     {
       method: 'POST',
       path: '/api/v1/agents/install-sessions',
@@ -543,7 +794,10 @@ export function getAgentsRouteContracts(): RouteContract[] {
         additionalProperties: false,
         required: ['platform'],
         properties: {
-          platform: { type: 'string', enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+          platform: {
+            type: 'string',
+            enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+          },
           role: { type: 'string', enum: ['full_agent', 'gateway'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
@@ -564,7 +818,10 @@ export function getAgentsRouteContracts(): RouteContract[] {
         required: ['sessionId', 'platform', 'expiresAt', 'bootstrapUrl', 'installCommand'],
         properties: {
           sessionId: { type: 'string' },
-          platform: { type: 'string', enum: ['windows_go_service', 'windows_compatibility_service', 'linux_go_systemd'] },
+          platform: {
+            type: 'string',
+            enum: ['windows_go_service', 'windows_compatibility_service', 'linux_go_systemd'],
+          },
           expiresAt: { type: 'string' },
           bootstrapUrl: { type: 'string' },
           installCommand: { type: 'string' },
@@ -669,7 +926,10 @@ export function getAgentsRouteContracts(): RouteContract[] {
         additionalProperties: false,
         required: ['platform'],
         properties: {
-          platform: { type: 'string', enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+          platform: {
+            type: 'string',
+            enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+          },
           role: { type: 'string', enum: ['full_agent', 'gateway'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
@@ -690,7 +950,10 @@ export function getAgentsRouteContracts(): RouteContract[] {
               additionalProperties: false,
               required: ['platform', 'arch', 'artifactRef', 'version', 'digest', 'signature', 'signatureAlgorithm', 'signingKeyId'],
               properties: {
-                platform: { type: 'string', enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+                platform: {
+                  type: 'string',
+                  enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+                },
                 arch: { type: 'string', enum: ['amd64', 'arm64'] },
                 artifactRef: { type: 'string' },
                 version: { type: 'string' },
@@ -730,8 +993,14 @@ export function getAgentsRouteContracts(): RouteContract[] {
                   configDir: { type: 'string' },
                   dataDir: { type: 'string' },
                   logDir: { type: 'string' },
-                  relayAllowedTargets: { type: 'array', items: { type: 'string' } },
-                  relayAllowedPorts: { type: 'array', items: { type: 'number' } },
+                  relayAllowedTargets: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                  relayAllowedPorts: {
+                    type: 'array',
+                    items: { type: 'number' },
+                  },
                 },
               },
             },
@@ -739,25 +1008,158 @@ export function getAgentsRouteContracts(): RouteContract[] {
         },
       },
     },
-    { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/register', operationId: 'registerAgent', summary: '注册 Agent', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/sessions', operationId: 'createAgentMtlsSession', summary: '创建 Agent mTLS 会话', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/certificate-requests', operationId: 'createAgentCertificateSigningRequest', summary: '创建 Agent CSR', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/certificates/sign', operationId: 'signAgentCertificate', summary: '签发 Agent 证书', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/certificates/rotate', operationId: 'rotateAgentCertificate', summary: '轮换 Agent 证书', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/certificates/revoke', operationId: 'revokeAgentCertificate', summary: '吊销 Agent 证书', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/heartbeat', operationId: 'heartbeatAgent', summary: 'Agent 心跳', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/capabilities', operationId: 'reportAgentCapabilities', summary: 'Agent 能力快照上报', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/tasks', operationId: 'enqueueAgentTask', summary: '创建 Agent 任务', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/tasks/pull', operationId: 'pullAgentTasks', summary: 'Agent 拉取任务', tags, responseSchema: { type: 'array', items: schema } },
-    { method: 'POST', path: '/api/v1/agents/tasks/ack', operationId: 'ackAgentTask', summary: 'Agent 确认任务', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/tasks/logs', operationId: 'submitAgentTaskLog', summary: 'Agent 提交任务日志', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/tasks/log-batches', operationId: 'submitAgentTaskLogBatch', summary: 'Agent 批量提交任务日志并返回 ack cursor', tags, responseSchema: schema },
-    { method: 'GET', path: '/api/v1/agents/tasks/logs', operationId: 'listAgentTaskLogs', summary: '查询 Agent 任务日志', tags, responseSchema: { type: 'array', items: schema } },
-    { method: 'POST', path: '/api/v1/agents/tasks/result', operationId: 'submitAgentTaskResult', summary: 'Agent 提交任务结果', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/versions', operationId: 'publishAgentVersion', summary: '发布 Agent 版本', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/upgrades/check', operationId: 'checkAgentUpgrade', summary: '检查 Agent 升级计划', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/upgrades/result', operationId: 'submitAgentUpgradeResult', summary: '提交 Agent 升级结果', tags, responseSchema: schema },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/disable',
+      operationId: 'disableAgent',
+      summary: '禁用 Agent',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      operationId: 'registerAgent',
+      summary: '注册 Agent',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/sessions',
+      operationId: 'createAgentMtlsSession',
+      summary: '创建 Agent mTLS 会话',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/certificate-requests',
+      operationId: 'createAgentCertificateSigningRequest',
+      summary: '创建 Agent CSR',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/certificates/sign',
+      operationId: 'signAgentCertificate',
+      summary: '签发 Agent 证书',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/certificates/rotate',
+      operationId: 'rotateAgentCertificate',
+      summary: '轮换 Agent 证书',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/certificates/revoke',
+      operationId: 'revokeAgentCertificate',
+      summary: '吊销 Agent 证书',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/heartbeat',
+      operationId: 'heartbeatAgent',
+      summary: 'Agent 心跳',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/capabilities',
+      operationId: 'reportAgentCapabilities',
+      summary: 'Agent 能力快照上报',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/tasks',
+      operationId: 'enqueueAgentTask',
+      summary: '创建 Agent 任务',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/tasks/pull',
+      operationId: 'pullAgentTasks',
+      summary: 'Agent 拉取任务',
+      tags,
+      responseSchema: { type: 'array', items: schema },
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/tasks/ack',
+      operationId: 'ackAgentTask',
+      summary: 'Agent 确认任务',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/tasks/logs',
+      operationId: 'submitAgentTaskLog',
+      summary: 'Agent 提交任务日志',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/tasks/log-batches',
+      operationId: 'submitAgentTaskLogBatch',
+      summary: 'Agent 批量提交任务日志并返回 ack cursor',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/agents/tasks/logs',
+      operationId: 'listAgentTaskLogs',
+      summary: '查询 Agent 任务日志',
+      tags,
+      responseSchema: { type: 'array', items: schema },
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/tasks/result',
+      operationId: 'submitAgentTaskResult',
+      summary: 'Agent 提交任务结果',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/versions',
+      operationId: 'publishAgentVersion',
+      summary: '发布 Agent 版本',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/upgrades/check',
+      operationId: 'checkAgentUpgrade',
+      summary: '检查 Agent 升级计划',
+      tags,
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/upgrades/result',
+      operationId: 'submitAgentUpgradeResult',
+      summary: '提交 Agent 升级结果',
+      tags,
+      responseSchema: schema,
+    },
   ];
 }
 
@@ -782,18 +1184,40 @@ function readQuery(request: HttpRequest, key: string, fallback?: string): string
 }
 
 function readPathParam(request: HttpRequest, key: string, suffix = 'rescan'): string {
-  const value = key === 'agentId'
-    ? request.path.match(new RegExp(`^/api/v1/agents/([^/]+)/${suffix}$`))?.[1]
-    : undefined;
+  const value = key === 'agentId' ? request.path.match(new RegExp(`^/api/v1/agents/([^/]+)/${suffix}$`))?.[1] : undefined;
   if (!value) throw new AppError('VALIDATION_FAILED', `${key} 不能为空`, { key });
   return value;
+}
+
+function readUpgradeAgentId(request: HttpRequest): string {
+  const value = request.path.match(/^\/api\/v1\/agents\/([^/]+)\/upgrades\/check$/u)?.[1] ?? request.path.match(/^\/api\/v1\/agents\/([^/]+)\/upgrades$/u)?.[1];
+  if (!value)
+    throw new AppError('VALIDATION_FAILED', 'agentId 不能为空', {
+      key: 'agentId',
+    });
+  return value;
+}
+
+function readUpgradeAgentAndPlan(request: HttpRequest): {
+  agentId: string;
+  planId: string;
+} {
+  const match = request.path.match(/^\/api\/v1\/agents\/([^/]+)\/upgrades\/([^/]+)(?:\/retry)?$/u);
+  if (!match?.[1] || !match[2])
+    throw new AppError('VALIDATION_FAILED', '升级计划路径参数不能为空', {
+      key: 'planId',
+    });
+  return { agentId: match[1], planId: match[2] };
 }
 
 function readOptionalCsv(request: HttpRequest, key: string): string[] | undefined {
   const value = request.query[key];
   const normalized = Array.isArray(value) ? value.join(',') : value;
   if (!normalized) return undefined;
-  return normalized.split(',').map((item) => item.trim()).filter(Boolean);
+  return normalized
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function validateExactObject(input: unknown, schema: ObjectValidationSchema): Record<string, unknown> {
@@ -801,14 +1225,20 @@ function validateExactObject(input: unknown, schema: ObjectValidationSchema): Re
   const allowedFields = new Set(Object.keys(schema));
   const unknownFields = Object.keys(value).filter((field) => !allowedFields.has(field));
   if (unknownFields.length > 0) {
-    throw new AppError('VALIDATION_FAILED', '请求体包含不支持的字段', { fields: unknownFields.sort() });
+    throw new AppError('VALIDATION_FAILED', '请求体包含不支持的字段', {
+      fields: unknownFields.sort(),
+    });
   }
   return value;
 }
 
 function validateAgentInstallSessionBody(input: unknown): CreateAgentInstallSessionInput {
   const body = validateExactObject(input, {
-    platform: { type: 'string', required: true, enum: ['windows_go', 'windows_compatibility', 'linux_go'] },
+    platform: {
+      type: 'string',
+      required: true,
+      enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+    },
     role: { type: 'string', enum: ['full_agent', 'gateway'] },
     zone: { type: 'string' },
     agentKey: { type: 'string' },
@@ -826,13 +1256,7 @@ function validateAgentInstallSessionBody(input: unknown): CreateAgentInstallSess
 }
 
 function resolveInstallPublicBaseUrl(request: HttpRequest): string {
-  const candidates = [
-    process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL,
-    singleHeader(request, 'x-public-base-url'),
-    singleHeader(request, 'origin'),
-    originFromReferer(singleHeader(request, 'referer')),
-    inferredRequestOrigin(request),
-  ];
+  const candidates = [process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL, singleHeader(request, 'x-public-base-url'), singleHeader(request, 'origin'), originFromReferer(singleHeader(request, 'referer')), inferredRequestOrigin(request)];
   for (const candidate of candidates) {
     const normalized = normalizeBaseUrl(candidate);
     if (normalized) return normalized;
@@ -874,12 +1298,8 @@ function normalizeBaseUrl(value: string | undefined): string | undefined {
 }
 
 function renderWindowsBootstrapScript(manifest: unknown): string {
-  const platform = manifest && typeof manifest === 'object'
-    ? (manifest as { platform?: unknown }).platform
-    : undefined;
-  return WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform))
-    ? renderWindowsCompatibilityBootstrapScript(manifest)
-    : renderWindowsGoBootstrapScript(manifest);
+  const platform = manifest && typeof manifest === 'object' ? (manifest as { platform?: unknown }).platform : undefined;
+  return WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform)) ? renderWindowsCompatibilityBootstrapScript(manifest) : renderWindowsGoBootstrapScript(manifest);
 }
 
 function renderWindowsGoBootstrapScript(manifest: unknown): string {
@@ -888,9 +1308,9 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
-    '$manifest = @\'',
+    "$manifest = @'",
     manifestJson,
-    '\'@ | ConvertFrom-Json',
+    "'@ | ConvertFrom-Json",
     '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
     "$root = Join-Path $env:TEMP ('gcac-windows-go-agent-' + $manifest.sessionId)",
     'New-Item -ItemType Directory -Force -Path $root | Out-Null',
@@ -953,6 +1373,9 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  if (-not (Test-Path -LiteralPath $pluginSource)) { throw "Windows Agent-side discovery plugin is missing from the bootstrap bundle." }',
     '}',
     '$agentTarget = Join-Path $manifest.installRoot $binaryName',
+    '$updaterSource = Join-Path $root "gcac-agent-updater.exe"',
+    '$updaterTarget = Join-Path $manifest.installRoot "gcac-agent-updater.exe"',
+    'if (-not $isGateway -and -not (Test-Path -LiteralPath $updaterSource)) { throw "Windows Go Agent updater is missing from the bootstrap bundle." }',
     '$serviceNames = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)',
     '[void]$serviceNames.Add([string]$manifest.serviceName)',
     'if (Test-Path -LiteralPath $metadataPath) {',
@@ -999,9 +1422,14 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '} else {',
     '  Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930',
     '}',
+    '$agentSource = Join-Path $root $binaryName',
+    'New-Item -ItemType Directory -Force -Path $manifest.installRoot, $manifest.configDir | Out-Null',
+    'Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force',
     "$configPath = Join-Path $manifest.configDir 'agent.config.json'",
     "$policyDir = Join-Path ([string]$manifest.dataDir) 'policy'",
     '$authorizationTrustKeySet = if ($null -eq $manifest.authorizationTrustKeySet) { @{} } else { $manifest.authorizationTrustKeySet }',
+    '$upgradeTrustKeySet = if ($null -eq $manifest.upgradeTrustKeySet) { @{} } else { $manifest.upgradeTrustKeySet }',
+    '$releaseTrustKeySet = if ($null -eq $manifest.releaseTrustKeySet) { @{} } else { $manifest.releaseTrustKeySet }',
     '$config = [ordered]@{',
     '  schemaVersion = if ($isGateway) { "gcac.gateway-agent.v1" } else { "full-agent.go.windows.config.v1" }',
     '  tenantId = [string]$manifest.tenantId',
@@ -1017,6 +1445,8 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  managementPort = if ($isGateway) { 18935 } else { 18930 }',
     '  authorizationMaterialPath = [string](Join-Path $policyDir "agent-trust-material.json")',
     '  authorizationTrustKeySet = $authorizationTrustKeySet',
+    '  upgradeTrustKeySet = $upgradeTrustKeySet',
+    '  releaseTrustKeySet = $releaseTrustKeySet',
     '  paths = @{ windows = @{ configPath = [string]$configPath; dataDir = [string]$manifest.dataDir; logDir = [string]$manifest.logDir } }',
     '  service = @{ name = [string]$manifest.serviceName; displayName = [string]$manifest.displayName }',
     '}',
@@ -1036,10 +1466,10 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '& icacls.exe $policyDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)(F)" "*S-1-5-32-544:(OI)(CI)(F)" | Out-Null',
     'if ($LASTEXITCODE -ne 0) { throw "Go Agent policy directory ACL configuration failed: $policyDir" }',
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
-    '$agentSource = Join-Path $root $binaryName',
     'New-Item -ItemType Directory -Force -Path $manifest.installRoot | Out-Null',
     'Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force',
     'if (-not $isGateway) {',
+    '  Copy-Item -LiteralPath $updaterSource -Destination $updaterTarget -Force',
     '  $pluginTarget = Join-Path $manifest.installRoot "plugins/windows-runtime-discovery.exe"',
     '  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pluginTarget) | Out-Null',
     '  Copy-Item -LiteralPath $pluginSource -Destination $pluginTarget -Force',
@@ -1079,9 +1509,9 @@ function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
     "$ProgressPreference = 'SilentlyContinue'",
     'Add-Type -AssemblyName System.Web.Extensions',
     '$jsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer',
-    '$manifest = @\'',
+    "$manifest = @'",
     manifestJson,
-    '\'@',
+    "'@",
     '$manifest = $jsonSerializer.DeserializeObject($manifest)',
     '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
     "$root = Join-Path $env:TEMP ('gcac-windows-compatibility-agent-' + [string]$manifest['sessionId'])",
@@ -1141,31 +1571,31 @@ function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
     '  return $jsonSerializer.Serialize([string]$Value)',
     '}',
     '$configJson = @(',
-    '  \'{\',',
-    '  (\'"schemaVersion":\' + (Serialize-JsonString \'gcac.windows-compat-agent-config/v1\') + \',\'),',
-    '  (\'"tenantId":\' + (Serialize-JsonString ([string]$manifest[\'tenantId\'])) + \',\'),',
-    '  (\'"agentKey":\' + (Serialize-JsonString ([string]$manifest[\'agentKey\'])) + \',\'),',
-    '  (\'"enrollmentToken":\' + (Serialize-JsonString ([string]$manifest[\'enrollmentToken\'])) + \',\'),',
-    '  (\'"controlPlaneUrl":\' + (Serialize-JsonString ([string]$manifest[\'controlPlaneUrl\'])) + \',\'),',
+    "  '{',",
+    "  ('\"schemaVersion\":' + (Serialize-JsonString 'gcac.windows-compat-agent-config/v1') + ','),",
+    "  ('\"tenantId\":' + (Serialize-JsonString ([string]$manifest['tenantId'])) + ','),",
+    "  ('\"agentKey\":' + (Serialize-JsonString ([string]$manifest['agentKey'])) + ','),",
+    "  ('\"enrollmentToken\":' + (Serialize-JsonString ([string]$manifest['enrollmentToken'])) + ','),",
+    "  ('\"controlPlaneUrl\":' + (Serialize-JsonString ([string]$manifest['controlPlaneUrl'])) + ','),",
     '  \'"heartbeatIntervalSeconds":10,\',',
     '  \'"taskPollIntervalSeconds":5,\',',
     '  \'"managementListenAddress":"0.0.0.0",\',',
     '  \'"managementPort":18932,\',',
     '  \'"requiredHotfixes":[],\',',
-    '  (\'"dataDirectory":\' + (Serialize-JsonString $dataDir) + \',\'),',
-    '  (\'"logDirectory":\' + (Serialize-JsonString $logDir) + \',\'),',
-    '  (\'"policyTrustRootPath":\' + (Serialize-JsonString (Join-Path $policyDir \'trust-root.json\')) + \',\'),',
-    '  (\'"policyKeySetPath":\' + (Serialize-JsonString (Join-Path $policyDir \'key-set.json\')) + \',\'),',
-    '  (\'"localPolicyTrustRootPath":\' + (Serialize-JsonString (Join-Path $policyDir \'local-policy-root.json\')) + \',\'),',
-    '  (\'"localPolicyPath":\' + (Serialize-JsonString (Join-Path $policyDir \'local-policy.json\')) + \',\'),',
-    '  (\'"revokedTokenIdsPath":\' + (Serialize-JsonString (Join-Path $policyDir \'revoked-tokens.json\')) + \',\'),',
-    '  (\'"revokedDecisionIdsPath":\' + (Serialize-JsonString (Join-Path $policyDir \'revoked-decisions.json\')) + \',\'),',
-    '  (\'"revokedKeyIdsPath":\' + (Serialize-JsonString (Join-Path $policyDir \'revoked-keys.json\')) + \',\'),',
+    "  ('\"dataDirectory\":' + (Serialize-JsonString $dataDir) + ','),",
+    "  ('\"logDirectory\":' + (Serialize-JsonString $logDir) + ','),",
+    "  ('\"policyTrustRootPath\":' + (Serialize-JsonString (Join-Path $policyDir 'trust-root.json')) + ','),",
+    "  ('\"policyKeySetPath\":' + (Serialize-JsonString (Join-Path $policyDir 'key-set.json')) + ','),",
+    "  ('\"localPolicyTrustRootPath\":' + (Serialize-JsonString (Join-Path $policyDir 'local-policy-root.json')) + ','),",
+    "  ('\"localPolicyPath\":' + (Serialize-JsonString (Join-Path $policyDir 'local-policy.json')) + ','),",
+    "  ('\"revokedTokenIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-tokens.json')) + ','),",
+    "  ('\"revokedDecisionIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-decisions.json')) + ','),",
+    "  ('\"revokedKeyIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-keys.json')) + ','),",
     '  \'"receiptKeyId":"agent-receipt-key-id"\',',
     "  (',\"receiptSigningKeyPath\":' + (Serialize-JsonString (Join-Path $policyDir 'agent-receipt-signing-key.bin')) + ','),",
-    '  (\'"receiptKeySetPath":\' + (Serialize-JsonString (Join-Path $policyDir \'agent-receipt-keyset.json\'))),',
-    '  \'}\'',
-    ') -join \'\'',
+    "  ('\"receiptKeySetPath\":' + (Serialize-JsonString (Join-Path $policyDir 'agent-receipt-keyset.json'))),",
+    "  '}'",
+    ") -join ''",
     '[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)',
     '$serviceCommand = "`"" + $agentTarget + "`" --config `"" + $configPath + "`""',
     'New-Service -Name $serviceName -BinaryPathName $serviceCommand -DisplayName $displayName -StartupType Automatic | Out-Null',
@@ -1174,18 +1604,18 @@ function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
     'sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000 | Out-Null',
     '$metadataPath = Join-Path (Split-Path -Parent $configDir) "service.install.json"',
     '$metadataJson = @(',
-    '  \'{\',',
-    '  (\'"ServiceName":\' + (Serialize-JsonString $serviceName) + \',\'),',
-    '  (\'"DisplayName":\' + (Serialize-JsonString $displayName) + \',\'),',
-    '  (\'"InstallRoot":\' + (Serialize-JsonString $installRoot) + \',\'),',
-    '  (\'"ConfigPath":\' + (Serialize-JsonString $configPath) + \',\'),',
-    '  (\'"DataDir":\' + (Serialize-JsonString $dataDir) + \',\'),',
-    '  (\'"LogDir":\' + (Serialize-JsonString $logDir) + \',\'),',
-    '  (\'"BinaryPath":\' + (Serialize-JsonString $agentTarget) + \',\'),',
+    "  '{',",
+    "  ('\"ServiceName\":' + (Serialize-JsonString $serviceName) + ','),",
+    "  ('\"DisplayName\":' + (Serialize-JsonString $displayName) + ','),",
+    "  ('\"InstallRoot\":' + (Serialize-JsonString $installRoot) + ','),",
+    "  ('\"ConfigPath\":' + (Serialize-JsonString $configPath) + ','),",
+    "  ('\"DataDir\":' + (Serialize-JsonString $dataDir) + ','),",
+    "  ('\"LogDir\":' + (Serialize-JsonString $logDir) + ','),",
+    "  ('\"BinaryPath\":' + (Serialize-JsonString $agentTarget) + ','),",
     '  (\'"InstalledAt":\' + (Serialize-JsonString ((Get-Date).ToString("o"))) + \',\'),',
     '  \'"Mode":"windows-service-compatibility-bootstrap"\',',
-    '  \'}\'',
-    ') -join \'\'',
+    "  '}'",
+    ") -join ''",
     '[System.IO.File]::WriteAllText($metadataPath, $metadataJson, $utf8NoBom)',
     "if ([bool]$manifest['startAfterInstall']) { Start-Service -Name $serviceName }",
   ].join('\r\n');
@@ -1193,7 +1623,18 @@ function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
 
 function renderLinuxBootstrapScript(manifest: unknown): string {
   const manifestJson = JSON.stringify(manifest, null, 2);
-  const installManifest = manifest as { role?: string; gatewayBundleUrl?: string; bundleUrl?: string; serviceName?: string; displayName?: string; installRoot?: string; configDir?: string; dataDir?: string; logDir?: string; startAfterInstall?: boolean };
+  const installManifest = manifest as {
+    role?: string;
+    gatewayBundleUrl?: string;
+    bundleUrl?: string;
+    serviceName?: string;
+    displayName?: string;
+    installRoot?: string;
+    configDir?: string;
+    dataDir?: string;
+    logDir?: string;
+    startAfterInstall?: boolean;
+  };
   const isGateway = installManifest.role === 'gateway';
   return [
     '#!/usr/bin/env bash',
@@ -1208,7 +1649,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     'cleanup() { rm -rf "$WORKDIR"; }',
     'trap cleanup EXIT',
     '',
-    "cat <<'JSON' > \"$WORKDIR/manifest.json\"",
+    'cat <<\'JSON\' > "$WORKDIR/manifest.json"',
     manifestJson,
     'JSON',
     'MANIFEST_PATH="$WORKDIR/manifest.json" node <<\'NODE\'',
@@ -1250,7 +1691,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',
     'NODE',
     '',
-    `BUNDLE_URL=${toBashSingleQuoted(isGateway ? installManifest.gatewayBundleUrl ?? '' : installManifest.bundleUrl ?? '')}`,
+    `BUNDLE_URL=${toBashSingleQuoted(isGateway ? (installManifest.gatewayBundleUrl ?? '') : (installManifest.bundleUrl ?? ''))}`,
     `SERVICE_NAME=${toBashSingleQuoted(installManifest.serviceName ?? (isGateway ? 'gcac-gateway-agent' : 'gcac-linux-agent'))}`,
     `DISPLAY_NAME=${toBashSingleQuoted(installManifest.displayName ?? (isGateway ? 'GCAC Gateway Agent' : 'GCAC Linux Go Full Agent'))}`,
     `INSTALL_ROOT=${toBashSingleQuoted(installManifest.installRoot ?? (isGateway ? '/opt/gcac/gateway' : '/opt/gcac/linux-agent'))}`,

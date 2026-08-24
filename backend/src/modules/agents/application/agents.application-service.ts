@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto';
+import { createHash, createPrivateKey, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
@@ -10,20 +11,11 @@ import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, DispatchAgentUpgradeInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
-import {
-  agentV2ContractTypes,
-  validateAgentCapabilityToken,
-  validateAgentExecutionReceipt,
-  validateAgentPlan,
-  validatePolicyAuthorityDecision,
-  type AgentExecutionReceiptV1,
-  type AgentSecurityStatus,
-  type AgentV2ContractType,
-} from '../security/agent-security.contract.js';
+import { agentV2ContractTypes, validateAgentCapabilityToken, validateAgentExecutionReceipt, validateAgentPlan, validatePolicyAuthorityDecision, type AgentExecutionReceiptV1, type AgentSecurityStatus, type AgentV2ContractType } from '../security/agent-security.contract.js';
 import { AGENT_RELEASE_SIGNING_KEY_ID, buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest, getLinuxAgentInstallMaterials, LINUX_AGENT_RELEASE_VERSION, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
 import { buildGatewayAgentBundleTarGz, getGatewayAgentBundleManifest, getGatewayAgentInstallMaterials, loadGatewayWindowsAgentArtifacts } from './gateway-agent-bundle.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
@@ -38,6 +30,9 @@ import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pi
 import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { AgentDiscoveryRequestFactory } from './agent-discovery-task-factory.js';
 import { AgentDirectClient } from './agent-direct-client.js';
+import { AgentManagementClient, signAgentUpgradeEnvelope, type AgentManagementResponse, type AgentUpgradeEnvelope } from './agent-management-client.js';
+
+const agentV2PreExecutionFailureCodes = new Set(['ACTION_HANDLER_NOT_REGISTERED', 'AGENT_V2_AUTHORIZATION_DENIED', 'AGENT_V2_MESSAGE_INVALID', 'AGENT_V2_ACTION_UNSUPPORTED', 'AGENT_PLAN_INVALID']);
 
 export interface AgentTrustMaterialIssuer {
   issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown>;
@@ -143,13 +138,21 @@ interface AgentInstallSessionManifest {
   /** gateway 角色时的独立 Gateway Agent bundle。 */
   gatewayBundleUrl?: string;
   gatewayBundleManifest?: ReturnType<typeof getGatewayAgentBundleManifest>;
-	artifacts?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
-	authorizationTrustKeySet?: Record<string, string>;
-	/** gateway 角色时注入的控制面中继公钥（hex ed25519）。 */
-	relayClientPublicKeys?: string[];
-	relayPort?: number;
-	relayAllowedTargets?: string[];
-	relayAllowedPorts?: number[];
+  artifacts?: Array<{
+    path: string;
+    content: string;
+    encoding?: 'utf8' | 'base64';
+  }>;
+  authorizationTrustKeySet?: Record<string, string>;
+  /** 宿主端 UpgradeEnvelope 的独立签名信任根，不得复用策略或发布信任根。 */
+  upgradeTrustKeySet?: Record<string, string>;
+  /** 下载升级制品的独立发布签名信任根。 */
+  releaseTrustKeySet?: Record<string, string>;
+  /** gateway 角色时注入的控制面中继公钥（hex ed25519）。 */
+  relayClientPublicKeys?: string[];
+  relayPort?: number;
+  relayAllowedTargets?: string[];
+  relayAllowedPorts?: number[];
 }
 
 const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
@@ -175,8 +178,41 @@ const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatib
   }),
 });
 
+const AGENT_UPGRADE_TRUST_KEYS_ENV = 'GCAC_AGENT_UPGRADE_TRUST_KEYS_JSON';
+const AGENT_RELEASE_TRUST_KEYS_ENV = 'GCAC_AGENT_RELEASE_TRUST_KEYS_JSON';
+
+function readAgentTrustKeySet(environmentName: string): Record<string, string> {
+  const raw = process.env[environmentName]?.trim();
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new AppError('CONFIGURATION_ERROR', `${environmentName} 必须是 JSON 对象`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new AppError('CONFIGURATION_ERROR', `${environmentName} 必须是 keyId 到 Ed25519 公钥的对象`);
+  }
+  const result: Record<string, string> = {};
+  for (const [keyId, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{1,127}$/.test(keyId) || typeof value !== 'string' || value.trim() === '') {
+      throw new AppError('CONFIGURATION_ERROR', `${environmentName} 包含无效的 keyId 或公钥`);
+    }
+    const normalized = value.trim().replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) || normalized.length % 4 === 1) {
+      throw new AppError('CONFIGURATION_ERROR', `${environmentName} 包含无效的 Ed25519 公钥`);
+    }
+    const decoded = Buffer.from(normalized, 'base64');
+    if (decoded.length !== 32) throw new AppError('CONFIGURATION_ERROR', `${environmentName} 包含无效的 Ed25519 公钥`);
+    result[keyId] = value.trim();
+  }
+  return result;
+}
+
 export class AgentsApplicationService {
   private readonly offlineTimeoutCounts = new Map<string, number>();
+  private readonly activeUpgradeLocks = new Set<string>();
+  private readonly localReleaseSync = new Map<string, Promise<void>>();
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -192,6 +228,7 @@ export class AgentsApplicationService {
     private discoveryRequestFactory?: AgentDiscoveryRequestFactory,
     private trustMaterialIssuer?: AgentTrustMaterialIssuer,
     private readonly directAgentClient = new AgentDirectClient(),
+    private readonly agentManagementClient = new AgentManagementClient(),
   ) {}
 
   getModuleMetadata() {
@@ -224,7 +261,10 @@ export class AgentsApplicationService {
       if (!token) throw new AppError('AUTH_FORBIDDEN', '注册令牌无效');
       const reusingOriginalEnrollment = existing?.enrollmentTokenId === token.id;
       if (reusingOriginalEnrollment) {
-        if (token.status === 'revoked') throw new AppError('AUTH_FORBIDDEN', '注册令牌已撤销', { tokenId: token.id });
+        if (token.status === 'revoked')
+          throw new AppError('AUTH_FORBIDDEN', '注册令牌已撤销', {
+            tokenId: token.id,
+          });
       } else {
         this.domain.assertEnrollmentAllowed(token, input);
         const usedCount = token.usedCount + 1;
@@ -285,9 +325,7 @@ export class AgentsApplicationService {
       descriptor: {
         ...agent.descriptor,
         version: input.version,
-        managementEndpoint: input.managementEndpoint === undefined
-          ? agent.descriptor.managementEndpoint
-          : this.domain.normalizeManagementEndpoint(input.managementEndpoint),
+        managementEndpoint: input.managementEndpoint === undefined ? agent.descriptor.managementEndpoint : this.domain.normalizeManagementEndpoint(input.managementEndpoint),
       },
       gateway,
       updatedAt: now,
@@ -341,11 +379,26 @@ export class AgentsApplicationService {
 
   async signCertificate(tenantId: string, input: SignAgentCertificateInput): Promise<AgentCertificateIssueResult> {
     const agent = await this.requireAgent(tenantId, input.agentId);
-    if (agent.status === 'DISABLED') throw new AppError('VALIDATION_FAILED', 'DISABLED Agent 不能签发新证书', { agentId: agent.id });
+    if (agent.status === 'DISABLED')
+      throw new AppError('VALIDATION_FAILED', 'DISABLED Agent 不能签发新证书', {
+        agentId: agent.id,
+      });
     const csr = await this.repository.getCertificateSigningRequest(tenantId, input.csrId);
-    if (!csr) throw new AppError('RESOURCE_NOT_FOUND', 'Agent CSR 不存在', { csrId: input.csrId });
+    if (!csr)
+      throw new AppError('RESOURCE_NOT_FOUND', 'Agent CSR 不存在', {
+        csrId: input.csrId,
+      });
     const ca = await this.ensureCertificateAuthority();
-    const certificate = await this.repository.createCertificate(this.domain.issueCertificate({ tenantId, agent, csr, ca, ttlDays: input.ttlDays, issuedBy: input.issuedBy }));
+    const certificate = await this.repository.createCertificate(
+      this.domain.issueCertificate({
+        tenantId,
+        agent,
+        csr,
+        ca,
+        ttlDays: input.ttlDays,
+        issuedBy: input.issuedBy,
+      }),
+    );
     const signedCsr = await this.repository.updateCertificateSigningRequest(csr.id, {
       status: 'signed',
       signedCertificateId: certificate.id,
@@ -363,39 +416,61 @@ export class AgentsApplicationService {
   async rotateCertificate(tenantId: string, input: RotateAgentCertificateInput, requestId: string): Promise<AgentCertificateRotateResult> {
     const agent = await this.requireAgent(tenantId, input.agentId);
     const previousCertificate = await this.repository.findActiveCertificate(tenantId, agent.id);
-    const csr = await this.repository.createCertificateSigningRequest(this.domain.normalizeCertificateSigningRequest(tenantId, agent, {
-      csrPem: input.csrPem,
-      requestedTtlDays: input.ttlDays,
-    }, input.issuedBy, requestId));
+    const csr = await this.repository.createCertificateSigningRequest(
+      this.domain.normalizeCertificateSigningRequest(
+        tenantId,
+        agent,
+        {
+          csrPem: input.csrPem,
+          requestedTtlDays: input.ttlDays,
+        },
+        input.issuedBy,
+        requestId,
+      ),
+    );
     const ca = await this.ensureCertificateAuthority();
-    const certificate = await this.repository.createCertificate(this.domain.issueCertificate({
-      tenantId,
-      agent,
-      csr,
-      ca,
-      ttlDays: input.ttlDays,
-      issuedBy: input.issuedBy,
-      rotatedFromCertificateId: previousCertificate?.id,
-    }));
+    const certificate = await this.repository.createCertificate(
+      this.domain.issueCertificate({
+        tenantId,
+        agent,
+        csr,
+        ca,
+        ttlDays: input.ttlDays,
+        issuedBy: input.issuedBy,
+        rotatedFromCertificateId: previousCertificate?.id,
+      }),
+    );
     const signedCsr = await this.repository.updateCertificateSigningRequest(csr.id, {
       status: 'signed',
       signedCertificateId: certificate.id,
       signedAt: certificate.issuedAt,
     });
-    const rotatedPrevious = previousCertificate ? await this.repository.updateCertificate(previousCertificate.id, { status: 'rotated' }) : undefined;
+    const rotatedPrevious = previousCertificate
+      ? await this.repository.updateCertificate(previousCertificate.id, {
+          status: 'rotated',
+        })
+      : undefined;
     await this.repository.updateRegistration(agent.id, {
       certificateFingerprint: certificate.fingerprintSha256,
       certificateExpiresAt: certificate.notAfter,
       certificateRevoked: false,
       updatedAt: new Date().toISOString(),
     });
-    return { csr: signedCsr, certificate, ca, previousCertificate: rotatedPrevious };
+    return {
+      csr: signedCsr,
+      certificate,
+      ca,
+      previousCertificate: rotatedPrevious,
+    };
   }
 
   async revokeCertificate(tenantId: string, input: RevokeAgentCertificateInput) {
     const agent = await this.requireAgent(tenantId, input.agentId);
     const certificate = await this.repository.getCertificate(tenantId, input.certificateId);
-    if (!certificate || certificate.agentId !== agent.id) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 证书不存在', { certificateId: input.certificateId });
+    if (!certificate || certificate.agentId !== agent.id)
+      throw new AppError('RESOURCE_NOT_FOUND', 'Agent 证书不存在', {
+        certificateId: input.certificateId,
+      });
     if (certificate.status === 'revoked') return certificate;
     const now = new Date().toISOString();
     const revoked = await this.repository.updateCertificate(certificate.id, {
@@ -428,37 +503,41 @@ export class AgentsApplicationService {
       try {
         await this.capabilityDiscoveryProjector.project(agent, snapshot);
       } catch (error) {
-        structuredLogger.error('Agent capability discovery projection failed', {
-          error: error instanceof Error ? error.message : String(error),
-          snapshotId: snapshot.id,
-        }, {
-          module: 'agents',
-          tenantId,
-          resourceType: 'agent',
-          resourceId: agent.id,
-        });
+        structuredLogger.error(
+          'Agent capability discovery projection failed',
+          {
+            error: error instanceof Error ? error.message : String(error),
+            snapshotId: snapshot.id,
+          },
+          {
+            module: 'agents',
+            tenantId,
+            resourceType: 'agent',
+            resourceId: agent.id,
+          },
+        );
       }
     }
     const gateway = this.domain.normalizeGatewayOnCapabilities(agent, input);
-    const updated = gateway ? await this.repository.updateRegistration(agent.id, {
-      gateway,
-      updatedAt: new Date().toISOString(),
-      lastRequestId: requestId,
-    }) : agent;
+    const updated = gateway
+      ? await this.repository.updateRegistration(agent.id, {
+          gateway,
+          updatedAt: new Date().toISOString(),
+          lastRequestId: requestId,
+        })
+      : agent;
     await this.syncGatewayRegistry(tenantId, updated);
-    return { agentId: agent.id, declarations: this.domain.toCapabilityDeclarations(updated, snapshot) };
+    return {
+      agentId: agent.id,
+      declarations: this.domain.toCapabilityDeclarations(updated, snapshot),
+    };
   }
 
-  async parseAgentRequestIdentity(
-    token: string,
-    request: { method: string; path: string },
-  ): Promise<{ actorId: string; tenantId: string } | undefined> {
+  async parseAgentRequestIdentity(token: string, request: { method: string; path: string }): Promise<{ actorId: string; tenantId: string } | undefined> {
     if (!isAgentMachineRoute(request.method, request.path)) return undefined;
     const normalizedToken = token.trim();
     if (!normalizedToken) return undefined;
-    const enrollment = await this.repository.findEnrollmentTokenByHashAnyTenant(
-      this.domain.hashEnrollmentToken(normalizedToken),
-    );
+    const enrollment = await this.repository.findEnrollmentTokenByHashAnyTenant(this.domain.hashEnrollmentToken(normalizedToken));
     if (!enrollment || enrollment.status === 'revoked') return undefined;
     return {
       actorId: `agent-token:${enrollment.id}`,
@@ -503,17 +582,25 @@ export class AgentsApplicationService {
         summary.projected += 1;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        summary.failed.push({ tenantId: agent.tenantId, agentId: agent.id, error: message });
-        structuredLogger.error('内置插件刷新后的 Agent 发现重投影失败', {
-          agentId: agent.id,
-          snapshotId: snapshot.id,
-          errorMessage: message,
-        }, {
+        summary.failed.push({
           tenantId: agent.tenantId,
-          module: 'agents',
-          resourceType: 'agent',
-          resourceId: agent.id,
+          agentId: agent.id,
+          error: message,
         });
+        structuredLogger.error(
+          '内置插件刷新后的 Agent 发现重投影失败',
+          {
+            agentId: agent.id,
+            snapshotId: snapshot.id,
+            errorMessage: message,
+          },
+          {
+            tenantId: agent.tenantId,
+            module: 'agents',
+            resourceType: 'agent',
+            resourceId: agent.id,
+          },
+        );
       }
     }
 
@@ -546,10 +633,19 @@ export class AgentsApplicationService {
   async probeManagementEndpoint(tenantId: string, agentId: string, timeoutMs?: number) {
     await this.requireAgent(tenantId, agentId);
     if (!this.liveness) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent TCP 探测服务未配置');
-    return this.liveness.probeAgentManagementEndpoint({ tenantId, agentId, timeoutMs });
+    return this.liveness.probeAgentManagementEndpoint({
+      tenantId,
+      agentId,
+      timeoutMs,
+    });
   }
 
-  async refreshStandardDiscovery(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{
+  async refreshStandardDiscovery(
+    tenantId: string,
+    agentId: string,
+    requestedBy: string,
+    requestId: string,
+  ): Promise<{
     mode: 'direct';
     requestId: string;
     capabilitySnapshotId?: string;
@@ -563,7 +659,12 @@ export class AgentsApplicationService {
     if (!this.discoveryRequestFactory) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', 'Web 发现直连请求工厂未配置，拒绝退回异步任务路径');
     }
-    const directRequest = await this.discoveryRequestFactory.createForAgent({ tenantId, agent, requestedBy, requestId });
+    const directRequest = await this.discoveryRequestFactory.createForAgent({
+      tenantId,
+      agent,
+      requestedBy,
+      requestId,
+    });
     const response = await this.directAgentClient.refreshWebInventory(agent, directRequest);
     const snapshot = await this.repository.getLatestFullWebInventorySnapshot(tenantId, agentId);
     return {
@@ -572,6 +673,29 @@ export class AgentsApplicationService {
       capabilitySnapshotId: snapshot?.id,
       detail: response.detail,
     };
+  }
+
+  /**
+   * 为需要通用主机事实的宿主流程生成完整 Agent v2 事实采集载荷。
+   * 证书信任检查复用这条授权链，不得自行拼装 factKinds 等未注册字段。
+   */
+  async createFactCollectionRequest(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{ requestId: string; payload: Record<string, unknown> }> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    if (!this.discoveryRequestFactory) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent 事实采集请求工厂未配置，拒绝生成未授权载荷');
+    }
+    return this.discoveryRequestFactory.createForAgent({
+      tenantId,
+      agent,
+      requestedBy,
+      requestId,
+      refreshWebInventory: false,
+    });
+  }
+
+  async findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined> {
+    await this.requireFullAgentForTask(tenantId, agentId);
+    return this.repository.findTaskByIdempotencyKey(tenantId, agentId, idempotencyKey);
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
@@ -604,17 +728,23 @@ export class AgentsApplicationService {
     if (task.status === 'acked') return task;
     if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') return task;
     if (task.status === 'leased') return task;
-    throw new AppError('VALIDATION_FAILED', '任务状态不允许 ack', { taskId: task.id, status: task.status });
+    throw new AppError('VALIDATION_FAILED', '任务状态不允许 ack', {
+      taskId: task.id,
+      status: task.status,
+    });
   }
 
   async submitResult(tenantId: string, input: SubmitAgentTaskResultInput): Promise<AgentTaskEnvelope> {
     await this.requireFullAgentForTask(tenantId, input.agentId);
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
-    if (task.leaseId !== input.leaseId) throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', { taskId: task.id });
+    if (task.leaseId !== input.leaseId)
+      throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', {
+        taskId: task.id,
+      });
     const rawDetail = input.detail ?? {};
     const actionType = resolveAgentTaskActionType(task.payload);
     // Receipt 摘要覆盖 tokenId 等绑定标识，必须先按原始合同验证，再执行日志脱敏。
-    const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, task.tenantId, input.status, input.success);
+    const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, task.tenantId, input.status, input.success, input.errorCode);
     if (['succeeded', 'failed'].includes(task.status)) {
       // 终态任务只接受同一份回执的幂等重传；迟到或替换回执必须显式拒绝，不能静默覆盖。
       if (validatedReceipt) {
@@ -638,66 +768,35 @@ export class AgentsApplicationService {
       return task;
     }
     if (!['acked', 'leased'].includes(task.status)) {
-      throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', { taskId: task.id, status: task.status });
+      throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', {
+        taskId: task.id,
+        status: task.status,
+      });
     }
     const sanitizedAgentDetail = this.domain.sanitizeResultDetail(rawDetail);
     const submittedOutcome = resolveAgentTaskOutcome(input, sanitizedAgentDetail);
     assertAgentTaskResultConsistency(input.success, submittedOutcome);
     const pluginFactBinding = resolvePluginFactBinding(task, actionType);
-    const pluginFactResult = pluginFactBinding && input.success
-      ? await this.executePluginFactPipeline(task, rawDetail, pluginFactBinding)
-      : undefined;
+    const pluginFactResult = pluginFactBinding && input.success ? await this.executePluginFactPipeline(task, rawDetail, pluginFactBinding) : undefined;
     const success = input.success && (!pluginFactResult || pluginFactResult.status === 'SUCCESS');
     const outcome = pluginFactResult ? resolvePluginFactTaskOutcome(pluginFactResult) : submittedOutcome;
     const errorCode = input.errorCode ?? pluginFactResult?.error?.code;
     const errorMessage = input.errorMessage ?? pluginFactResult?.error?.message;
     const resultDetail = pluginFactResult
-      ? { ...rawDetail, pluginFactPipeline: serializePluginFactPipelineResult(pluginFactResult) }
+      ? {
+          ...rawDetail,
+          pluginFactPipeline: serializePluginFactPipelineResult(pluginFactResult),
+        }
       : rawDetail;
     const sanitizedDetail = this.domain.sanitizeResultDetail(resultDetail);
-    console.info('[agents.submitResult]', JSON.stringify({
-      tenantId,
-      agentId: task.agentId,
-      taskId: task.id,
-      leaseId: input.leaseId,
-      success,
-      errorCode,
-      errorMessage,
-      detailKeys: Object.keys(sanitizedDetail),
-      dryRunDebug: {
-        mode: sanitizedDetail.mode,
-        pfxPassLen: sanitizedDetail.pfxPassLen,
-        pfxEdgeWhitespace: sanitizedDetail.pfxEdgeWhitespace,
-        pfxPassUtf8Sha256: sanitizedDetail.pfxPassUtf8Sha256,
-        pfxPassUtf8Len: sanitizedDetail.pfxPassUtf8Len,
-        decodedPfxSha256: sanitizedDetail.decodedPfxSha256,
-        decodedPfxSize: sanitizedDetail.decodedPfxSize,
-        pfxSource: sanitizedDetail.pfxSource,
-        dryRunSummary: sanitizedDetail.dryRunSummary,
-        dryRunCheckCount: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.length : undefined,
-        firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks)
-          ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed')
-          : undefined,
-      },
-    }));
-    const updated = await this.repository.updateTask(task.id, {
-      status: success ? 'succeeded' : 'failed',
-      resultAt: new Date().toISOString(),
-      result: {
+    console.info(
+      '[agents.submitResult]',
+      JSON.stringify({
+        tenantId,
+        agentId: task.agentId,
+        taskId: task.id,
+        leaseId: input.leaseId,
         success,
-        status: outcome,
-        errorCode,
-        errorMessage,
-        detail: sanitizedDetail,
-      },
-    });
-    if (this.executionResultSync) {
-      console.info('[agents.submitResult.sync]', JSON.stringify({
-        tenantId: task.tenantId,
-        executionRunId: task.executionRunId,
-        executionStepId: task.executionStepId,
-        success,
-        status: outcome,
         errorCode,
         errorMessage,
         detailKeys: Object.keys(sanitizedDetail),
@@ -712,11 +811,48 @@ export class AgentsApplicationService {
           pfxSource: sanitizedDetail.pfxSource,
           dryRunSummary: sanitizedDetail.dryRunSummary,
           dryRunCheckCount: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.length : undefined,
-          firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks)
-            ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed')
-            : undefined,
+          firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed') : undefined,
         },
-      }));
+      }),
+    );
+    const updated = await this.repository.updateTask(task.id, {
+      status: success ? 'succeeded' : 'failed',
+      resultAt: new Date().toISOString(),
+      result: {
+        success,
+        status: outcome,
+        errorCode,
+        errorMessage,
+        detail: sanitizedDetail,
+      },
+    });
+    if (this.executionResultSync) {
+      console.info(
+        '[agents.submitResult.sync]',
+        JSON.stringify({
+          tenantId: task.tenantId,
+          executionRunId: task.executionRunId,
+          executionStepId: task.executionStepId,
+          success,
+          status: outcome,
+          errorCode,
+          errorMessage,
+          detailKeys: Object.keys(sanitizedDetail),
+          dryRunDebug: {
+            mode: sanitizedDetail.mode,
+            pfxPassLen: sanitizedDetail.pfxPassLen,
+            pfxEdgeWhitespace: sanitizedDetail.pfxEdgeWhitespace,
+            pfxPassUtf8Sha256: sanitizedDetail.pfxPassUtf8Sha256,
+            pfxPassUtf8Len: sanitizedDetail.pfxPassUtf8Len,
+            decodedPfxSha256: sanitizedDetail.decodedPfxSha256,
+            decodedPfxSize: sanitizedDetail.decodedPfxSize,
+            pfxSource: sanitizedDetail.pfxSource,
+            dryRunSummary: sanitizedDetail.dryRunSummary,
+            dryRunCheckCount: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.length : undefined,
+            firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed') : undefined,
+          },
+        }),
+      );
       await this.executionResultSync.applyAgentTaskResult({
         tenantId: task.tenantId,
         executionRunId: task.executionRunId,
@@ -735,11 +871,7 @@ export class AgentsApplicationService {
     return updated;
   }
 
-  private async executePluginFactPipeline(
-    task: AgentTaskEnvelope,
-    rawDetail: Record<string, unknown>,
-    binding: PluginFactBindingV1,
-  ): Promise<PluginFactPipelineResult> {
+  private async executePluginFactPipeline(task: AgentTaskEnvelope, rawDetail: Record<string, unknown>, binding: PluginFactBindingV1): Promise<PluginFactPipelineResult> {
     if (!this.pluginFactPipeline) {
       throw new AppError('PLUGIN_RUNNER_START_FAILED', '插件事实任务缺少已装配的 Plugin Runner 流水线', {
         reason: 'PLUGIN_FACT_PIPELINE_UNAVAILABLE',
@@ -785,15 +917,19 @@ export class AgentsApplicationService {
       const agent = await this.requireAgent(tenantId, agentId);
       await this.capabilityDiscoveryProjector.project(agent, snapshot);
     } catch (error) {
-      structuredLogger.error('Agent 能力重扫完成后的标准发现投影失败', {
-        agentId,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      }, {
-        tenantId,
-        module: 'agents',
-        resourceType: 'agent',
-        resourceId: agentId,
-      });
+      structuredLogger.error(
+        'Agent 能力重扫完成后的标准发现投影失败',
+        {
+          agentId,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        },
+        {
+          tenantId,
+          module: 'agents',
+          resourceType: 'agent',
+          resourceId: agentId,
+        },
+      );
     }
   }
 
@@ -824,7 +960,11 @@ export class AgentsApplicationService {
     const result = await this.submitLogs(tenantId, { agentId: input.agentId, taskId: input.taskId, logs: [input] }, requestId);
     const entry = (await this.repository.listTaskLogs(tenantId, input.taskId)).find((item) => item.agentId === input.agentId && item.sequence === input.sequence);
     if (!entry) throw new AppError('RESOURCE_VERSION_CONFLICT', '日志 sequence 已落后于 ack cursor，不能补写', { sequence: input.sequence, ackedSequence: result.ackedSequence });
-    return { ...entry, ackedSequence: result.ackedSequence, lastAckedSequence: result.lastAckedSequence };
+    return {
+      ...entry,
+      ackedSequence: result.ackedSequence,
+      lastAckedSequence: result.lastAckedSequence,
+    };
   }
 
   async submitRuntimeLog(tenantId: string, input: SubmitAgentRuntimeLogInput, requestId: string) {
@@ -861,9 +1001,7 @@ export class AgentsApplicationService {
       }
     }
 
-    const allSequences = existingLogs
-      .filter((item) => item.agentId === input.agentId)
-      .map((item) => item.sequence);
+    const allSequences = existingLogs.filter((item) => item.agentId === input.agentId).map((item) => item.sequence);
     const ackedSequence = this.domain.nextContiguousAckedSequence(allSequences, previousAck);
     await this.repository.saveTaskLogCursor({
       tenantId,
@@ -892,47 +1030,303 @@ export class AgentsApplicationService {
 
   async getLogCursor(tenantId: string, agentId: string, taskId: string) {
     await this.requireTask(tenantId, agentId, taskId);
-    return await this.repository.getTaskLogCursor(tenantId, agentId, taskId) ?? {
-      tenantId,
-      agentId,
-      taskId,
-      lastAckedSequence: 0,
-      updatedAt: undefined,
-    };
+    return (
+      (await this.repository.getTaskLogCursor(tenantId, agentId, taskId)) ?? {
+        tenantId,
+        agentId,
+        taskId,
+        lastAckedSequence: 0,
+        updatedAt: undefined,
+      }
+    );
   }
 
   async publishVersion(tenantId: string, input: PublishAgentVersionInput) {
     return this.repository.publishVersion(this.domain.normalizeRelease(tenantId, input));
   }
 
+  /**
+   * 返回控制面托管的本地 Agent 制品。路径只由已登记 Release 的产品线和架构映射，
+   * 不接受请求方传入任意文件路径；每次下载前重新核对大小和摘要，避免构建目录被替换后继续分发旧登记。
+   */
+  async getReleaseArtifact(releaseId: string): Promise<{ release: AgentVersionRelease; content: Buffer }> {
+    const release = await this.repository.getVersion(releaseId);
+    if (!release || release.status !== 'active') {
+      throw new AppError('RESOURCE_NOT_FOUND', 'Agent Release 不存在或已不可用', { releaseId });
+    }
+    if (release.productLine !== windowsGoProductLine) {
+      throw new AppError('RESOURCE_NOT_FOUND', '该 Agent Release 未启用控制面下载', { releaseId });
+    }
+    const architecture = normalizeWindowsArchitecture(release.arch);
+    const artifactPath = architecture === 'amd64'
+      ? windowsGoAgentAmd64Artifact
+      : architecture === 'arm64'
+        ? windowsGoAgentArm64Artifact
+        : undefined;
+    if (!artifactPath || !existsSync(artifactPath)) {
+      throw new AppError('RESOURCE_NOT_FOUND', '本地 Agent 制品不存在，请先完成构建', { releaseId, architecture: release.arch });
+    }
+    const content = await readFile(artifactPath);
+    const digest = createHash('sha256').update(content).digest('hex');
+    if (content.length !== release.artifactSize || digest !== release.checksumSha256) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '本地 Agent 制品与 Release 摘要不一致', {
+        releaseId,
+        expectedSize: release.artifactSize,
+        actualSize: content.length,
+        expectedSha256: release.checksumSha256,
+        actualSha256: digest,
+      });
+    }
+    return { release, content };
+  }
+
   async checkUpgrade(tenantId: string, input: CheckAgentUpgradeInput): Promise<AgentUpgradePlan | { status: 'not_required'; reason: string }> {
     const agent = await this.requireAgent(tenantId, input.agentId);
-    const releases = await this.repository.listActiveVersions(tenantId);
-    const release = releases.find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
-    if (!release) return { status: 'not_required', reason: '没有匹配平台的升级版本' };
+    const releases = await this.listActiveVersions(tenantId);
+    const release = selectUpgradeRelease(agent, releases, input);
+    if (!release)
+      return {
+        status: 'not_required',
+        reason: '没有匹配平台、架构或目标版本的升级版本',
+      };
     if (release.version === agent.descriptor.version) return { status: 'not_required', reason: 'Agent 已是目标版本' };
+    const idempotencyKey = input.idempotencyKey?.trim() || `agent-upgrade:${agent.id}:${release.id}`;
+    const existingByKey = await this.repository.findUpgradePlanByIdempotencyKey?.(tenantId, agent.id, idempotencyKey);
+    if (existingByKey) return existingByKey;
     const existing = await this.repository.findUpgradePlanForAgent(tenantId, agent.id, release.id);
     if (existing) return existing;
     const now = new Date().toISOString();
     return this.repository.createUpgradePlan({
       id: newId('agup'),
+      transactionId: newId('agtxn'),
       tenantId,
       agentId: agent.id,
       releaseId: release.id,
+      releaseDigest: release.checksumSha256,
+      currentVersion: agent.descriptor.version,
       targetVersion: release.version,
+      idempotencyKey,
+      attempt: 0,
       status: 'planned',
-      reason: '发现可用升级版本',
+      reason: '发现可用升级版本，等待宿主端确认',
       createdAt: now,
       updatedAt: now,
+    });
+  }
+
+  /**
+   * 发送同一 UpgradePlan 的唯一 Envelope。传输成功只会进入 accepted，不能把 HTTP
+   * 200 或 Agent 已接受误记为最终 succeeded。
+   */
+  async dispatchUpgrade(tenantId: string, input: DispatchAgentUpgradeInput, actorId: string, requestId: string): Promise<AgentUpgradePlan> {
+    const agent = await this.requireAgent(tenantId, input.agentId);
+    if (!isWindowsGoAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
+    const plan = await this.repository.getUpgradePlan(tenantId, input.planId);
+    if (!plan || plan.agentId !== agent.id)
+      throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', {
+        planId: input.planId,
+      });
+    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'manual_required'].includes(plan.status)) return plan;
+    const existingPlans = (await this.repository.listUpgradePlansForAgent?.(tenantId, agent.id)) ?? [];
+    const activePlan = existingPlans.find((item) => item.id !== plan.id && ['approved', 'dispatching', 'accepted', 'running', 'retrying', 'unknown'].includes(item.status));
+    if (activePlan)
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '同一 Agent 已有活动升级事务', {
+        agentId: agent.id,
+        planId: activePlan.id,
+        reason: 'UPGRADE_CONFLICT',
+      });
+    const lockKey = `${tenantId}:${agent.id}`;
+    if (this.activeUpgradeLocks.has(lockKey)) throw new AppError('RESOURCE_VERSION_CONFLICT', '同一 Agent 已有升级请求正在发送', { agentId: agent.id, reason: 'UPGRADE_CONFLICT' });
+    this.activeUpgradeLocks.add(lockKey);
+    try {
+      const releases = await this.listActiveVersions(tenantId);
+      const release = releases.find((item) => item.id === plan.releaseId);
+      if (!release) throw new AppError('RESOURCE_NOT_FOUND', '升级计划绑定的 Release 不存在或已不可用', { releaseId: plan.releaseId });
+      assertWindowsGoRelease(agent, release, plan.targetVersion);
+      const transactionId = plan.transactionId || newId('agtxn');
+      const attempt = (plan.attempt ?? 0) + 1;
+      const globalTask = await this.enqueueUpgradeTask({
+        tenantId,
+        agent,
+        plan,
+        actorId,
+        transactionId,
+        attempt,
+      });
+      const dispatching = await this.repository.updateUpgradePlan(plan.id, {
+        transactionId,
+        actorId,
+        approvalRef: input.approvalRef ?? plan.approvalRef,
+        policyRef: input.policyRef ?? plan.policyRef ?? 'gcac.agent.upgrade',
+        attempt,
+        status: 'dispatching',
+        reason: '正在通过 Agent 管理端点发送升级授权',
+        result: globalTask ? { taskId: globalTask.id } : plan.result,
+        updatedAt: new Date().toISOString(),
+      });
+      let envelope: AgentUpgradeEnvelope;
+      try {
+        envelope = buildWindowsGoUpgradeEnvelope(agent, dispatching, release, requestId);
+      } catch (error) {
+        await this.repository.updateUpgradePlan(plan.id, {
+          status: 'rejected',
+          reason: safeErrorMessage(error),
+          result: {
+            requestId,
+            transport: 'not_sent',
+            errorCode: readAppErrorCode(error),
+            errorMessage: safeErrorMessage(error),
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        throw error;
+      }
+      let response: AgentManagementResponse;
+      try {
+        response = await this.agentManagementClient.dispatchUpgrade(agent, envelope);
+      } catch (error) {
+        await this.repository.updateUpgradePlan(plan.id, {
+          status: 'transport_failed',
+          reason: 'Agent 管理端点传输失败，未确认本地副作用',
+          result: {
+            requestId,
+            transport: 'failed',
+            errorCode: readAppErrorCode(error),
+            errorMessage: safeErrorMessage(error),
+          },
+          updatedAt: new Date().toISOString(),
+        });
+        throw error;
+      }
+      const accepted = response.accepted === true || response.success === true || response.status === 'accepted';
+      return this.repository.updateUpgradePlan(plan.id, {
+        status: accepted ? 'accepted' : 'rejected',
+        reason: accepted ? 'Agent 已接受升级事务，等待本地 Receipt' : response.errorMessage || 'Agent 拒绝升级事务',
+        result: {
+          requestId,
+          transport: 'accepted',
+          accepted,
+          status: response.status,
+          transactionId,
+          taskId: globalTask?.id,
+          errorCode: response.errorCode,
+          errorMessage: response.errorMessage,
+        },
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      this.activeUpgradeLocks.delete(lockKey);
+    }
+  }
+
+  /** 中文说明：统一任务只负责观察已经确认的 UpgradePlan，升级授权仍由本次用户确认请求发送。 */
+  private async enqueueUpgradeTask(input: {
+    tenantId: string;
+    agent: AgentRegistration;
+    plan: AgentUpgradePlan;
+    actorId: string;
+    transactionId: string;
+    attempt: number;
+  }) {
+    if (!this.tasks) return undefined;
+    const displayName = input.agent.descriptor.hostname || input.agent.agentKey || input.agent.id;
+    const summary = {
+      resourceType: 'agent',
+      resourceId: input.agent.id,
+      displayName,
+      agentId: input.agent.id,
+      currentVersion: input.plan.currentVersion ?? input.agent.descriptor.version,
+      targetVersion: input.plan.targetVersion,
+      releaseId: input.plan.releaseId,
+      planId: input.plan.id,
+      transactionId: input.transactionId,
+      phase: 'queued',
+      summaryCode: 'queued',
+    };
+    return this.tasks.enqueue({
+      tenantId: input.tenantId,
+      taskType: 'AGENT_UPDATE',
+      requestedBy: input.actorId,
+      triggerSource: 'agent-upgrade-confirmed',
+      idempotencyKey: `agent-upgrade:${input.plan.id}:attempt:${input.attempt}`,
+      idempotencyScope: {
+        actionType: 'agent.update',
+        resourceType: 'agent',
+        resourceId: input.agent.id,
+      },
+      payload: {
+        agentId: input.agent.id,
+        planId: input.plan.id,
+        releaseId: input.plan.releaseId,
+        transactionId: input.transactionId,
+        currentVersion: input.plan.currentVersion ?? input.agent.descriptor.version,
+        targetVersion: input.plan.targetVersion,
+        attempt: input.attempt,
+      },
+      resourceSummary: summary,
+      initialProgress: summary,
+      resourceRefs: [{ resourceType: 'agent', resourceId: input.agent.id, displayKey: 'agents.page.title' }],
+    });
+  }
+
+  async getUpgradeStatus(tenantId: string, agentId: string, planId: string): Promise<AgentUpgradePlan> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    if (!isWindowsGoAgent(agent)) throw new AppError('VALIDATION_FAILED', '当前接口只支持 Windows Go Full Agent 升级', { reason: 'PRODUCT_LINE_UNSUPPORTED' });
+    const plan = await this.repository.getUpgradePlan(tenantId, planId);
+    if (!plan || plan.agentId !== agent.id) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId });
+    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'manual_required', 'transport_failed'].includes(plan.status)) return plan;
+    if (!plan.transactionId) return plan;
+    const status = await this.agentManagementClient.getUpgradeStatus(agent, plan.transactionId);
+    const mapped = mapAgentUpgradeStatus(status.status);
+    if (!mapped) return plan;
+    return this.repository.updateUpgradePlan(plan.id, {
+      status: mapped,
+      reason: status.errorMessage || `Agent 本地升级阶段：${status.phase ?? 'unknown'}`,
+      result: { ...plan.result, receipt: status },
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * 中文说明：全局任务被强制结束不等于远端 Agent 已停止。将计划标记为人工处置，
+   * 阻止 Worker 继续轮询，也避免控制面把未确认的远端结果当成可再次派发的活动计划。
+   */
+  async markUpgradeManualRequired(
+    tenantId: string,
+    agentId: string,
+    planId: string,
+    actorId: string,
+    reason?: string,
+  ): Promise<AgentUpgradePlan> {
+    const plan = await this.repository.getUpgradePlan(tenantId, planId);
+    if (!plan || plan.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId });
+    if (['succeeded', 'failed', 'rolled_back', 'rejected', 'manual_required'].includes(plan.status)) return plan;
+    return this.repository.updateUpgradePlan(plan.id, {
+      status: 'manual_required',
+      actorId,
+      reason: reason?.trim() || '全局任务已强制结束，远端升级结果需要人工确认',
+      result: {
+        ...plan.result,
+        taskCancelled: true,
+        taskCancelReason: reason?.trim() || '全局任务已强制结束',
+      },
+      updatedAt: new Date().toISOString(),
     });
   }
 
   async submitUpgradeResult(tenantId: string, input: SubmitAgentUpgradeResultInput) {
     await this.requireAgent(tenantId, input.agentId);
     const plan = await this.repository.getUpgradePlan(tenantId, input.planId);
-    if (!plan || plan.agentId !== input.agentId) throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', { planId: input.planId });
+    if (!plan || plan.agentId !== input.agentId)
+      throw new AppError('RESOURCE_NOT_FOUND', '升级计划不存在', {
+        planId: input.planId,
+      });
+    if (plan.transactionId && input.planId !== plan.id)
+      throw new AppError('VALIDATION_FAILED', '升级回执计划身份不匹配', {
+        planId: input.planId,
+      });
     return this.repository.updateUpgradePlan(plan.id, {
-      status: input.success ? 'succeeded' : (input.rolledBack ? 'rolled_back' : 'failed'),
+      status: input.success ? 'succeeded' : input.rolledBack ? 'rolled_back' : 'failed',
       result: {
         success: input.success,
         rolledBack: input.rolledBack ?? false,
@@ -947,7 +1341,12 @@ export class AgentsApplicationService {
     const now = new Date().toISOString();
     const updated = await this.repository.updateRegistration(agent.id, {
       status: 'DISABLED',
-      gateway: agent.gateway ? { ...agent.gateway, status: input.revokeCertificate ? 'revoked' : 'disabled' } : undefined,
+      gateway: agent.gateway
+        ? {
+            ...agent.gateway,
+            status: input.revokeCertificate ? 'revoked' : 'disabled',
+          }
+        : undefined,
       updatedAt: now,
       lastRequestId: requestId,
       disabledAt: agent.disabledAt ?? now,
@@ -984,12 +1383,7 @@ export class AgentsApplicationService {
     return { deleted: true, agentId: agent.id };
   }
 
-  async createAgentInstallSession(
-    tenantId: string,
-    input: CreateAgentInstallSessionInput,
-    requestId: string,
-    baseUrl: string,
-  ): Promise<AgentInstallSessionBootstrapProjection> {
+  async createAgentInstallSession(tenantId: string, input: CreateAgentInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
     if (input.platform === 'windows_go') await ensureWindowsGoBundleAvailable();
     if (input.platform === 'windows_compatibility') await ensureWindowsCompatibilityBundleAvailable();
     if (input.platform === 'linux_go') buildLinuxAgentBundleTarGz();
@@ -1045,15 +1439,21 @@ export class AgentsApplicationService {
     return session;
   }
 
-  async buildWindowsInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
+  async buildWindowsInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl, bootstrapToken?: string): Promise<AgentInstallSessionManifest> {
     requireInstallPlatform(session.platform, WINDOWS_INSTALL_PLATFORMS, '安装会话不是 Windows 平台');
     return {
       ...this.baseInstallManifest(session, baseUrl),
-      artifacts: session.role === 'gateway'
-        ? await loadGatewayWindowsAgentArtifacts()
-        : await WINDOWS_ARTIFACT_LOADERS[session.platform](),
+      artifacts: session.role === 'gateway' ? await loadGatewayWindowsAgentArtifacts() : await WINDOWS_ARTIFACT_LOADERS[session.platform](),
       ...(isWindowsGoInstallPlatform(session.platform) && this.trustMaterialIssuer
-        ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() }
+        ? {
+            authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet(),
+          }
+        : {}),
+      ...(isWindowsGoInstallPlatform(session.platform)
+        ? {
+            upgradeTrustKeySet: readAgentTrustKeySet(AGENT_UPGRADE_TRUST_KEYS_ENV),
+            releaseTrustKeySet: readAgentTrustKeySet(AGENT_RELEASE_TRUST_KEYS_ENV),
+          }
         : {}),
       ...(session.role === 'gateway' ? await this.relayInstallManifest() : {}),
     };
@@ -1066,7 +1466,11 @@ export class AgentsApplicationService {
         ...this.baseInstallManifest(session, baseUrl),
         gatewayBundleUrl: `${baseUrl}/api/v1/agents/install/gateway/bundle.tar.gz`,
         gatewayBundleManifest: getGatewayAgentBundleManifest(),
-        ...(this.trustMaterialIssuer ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() } : {}),
+        ...(this.trustMaterialIssuer
+          ? {
+              authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet(),
+            }
+          : {}),
         ...(await this.relayInstallManifest()),
       };
     }
@@ -1074,14 +1478,24 @@ export class AgentsApplicationService {
       ...this.baseInstallManifest(session, baseUrl),
       bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
       bundleManifest: getLinuxAgentBundleManifest(LINUX_AGENT_RELEASE_VERSION),
-      ...(this.trustMaterialIssuer ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() } : {}),
+      ...(this.trustMaterialIssuer
+        ? {
+            authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet(),
+          }
+        : {}),
     };
   }
 
   /** gateway 角色安装时附带控制面中继身份：公钥注入 Agent 配置，私钥只留在控制面。 */
-  private async relayInstallManifest(): Promise<{ relayClientPublicKeys: string[]; relayPort: number }> {
+  private async relayInstallManifest(): Promise<{
+    relayClientPublicKeys: string[];
+    relayPort: number;
+  }> {
     const identity = await loadOrCreateGatewayRelayIdentity();
-    return { relayClientPublicKeys: [identity.publicKeyHex], relayPort: GATEWAY_RELAY_DEFAULT_PORT };
+    return {
+      relayClientPublicKeys: [identity.publicKeyHex],
+      relayPort: GATEWAY_RELAY_DEFAULT_PORT,
+    };
   }
 
   buildLinuxBundleTarGz(): Buffer {
@@ -1092,11 +1506,7 @@ export class AgentsApplicationService {
     return buildGatewayAgentBundleTarGz();
   }
 
-  async createAgentInstallMaterials(
-    tenantId: string,
-    input: AgentInstallMaterialRequest,
-    requestId: string,
-  ): Promise<AgentInstallMaterialProjection> {
+  async createAgentInstallMaterials(tenantId: string, input: AgentInstallMaterialRequest, requestId: string): Promise<AgentInstallMaterialProjection> {
     const descriptor = this.createInstallDescriptor(tenantId, input, requestId);
     const { token: enrollmentToken, ...enrollmentTokenRecord } = descriptor.enrollmentTokenRecord;
     await this.repository.createEnrollmentToken(enrollmentTokenRecord);
@@ -1119,15 +1529,17 @@ export class AgentsApplicationService {
         configDir: descriptor.configDir,
         dataDir: descriptor.dataDir,
         logDir: descriptor.logDir,
-        ...(relayManifest ? {
-          relayEnabled: true,
-          relayListenAddress: '0.0.0.0',
-          relayPort: relayManifest.relayPort,
-          relayClientPublicKeys: relayManifest.relayClientPublicKeys,
-          relayIdleTimeoutSeconds: 300,
-          relayAllowedTargets: descriptor.relayAllowedTargets,
-          relayAllowedPorts: descriptor.relayAllowedPorts,
-        } : {}),
+        ...(relayManifest
+          ? {
+              relayEnabled: true,
+              relayListenAddress: '0.0.0.0',
+              relayPort: relayManifest.relayPort,
+              relayClientPublicKeys: relayManifest.relayClientPublicKeys,
+              relayIdleTimeoutSeconds: 300,
+              relayAllowedTargets: descriptor.relayAllowedTargets,
+              relayAllowedPorts: descriptor.relayAllowedPorts,
+            }
+          : {}),
       },
       expiresAt: descriptor.expiresAt,
     };
@@ -1180,7 +1592,11 @@ export class AgentsApplicationService {
     if (!this.trustMaterialIssuer || !isTrustedAgentOsType(osType)) return agent;
     return {
       ...agent,
-      trustMaterial: await this.trustMaterialIssuer.issue({ tenantId: agent.tenantId, agentId: agent.id, osType: agent.descriptor.osType }),
+      trustMaterial: await this.trustMaterialIssuer.issue({
+        tenantId: agent.tenantId,
+        agentId: agent.id,
+        osType: agent.descriptor.osType,
+      }),
     };
   }
 
@@ -1194,13 +1610,17 @@ export class AgentsApplicationService {
     const agentKey = normalizeInstallMaterialValue(input.agentKey ?? `${input.platform}.${id.toLowerCase()}`, 'agentKey');
     const relayPolicy = this.domain.normalizeRelayPolicy(role, input.relayAllowedTargets, input.relayAllowedPorts);
     const profile = installMaterialProfile(input.platform, role);
-    const enrollmentTokenRecord = this.domain.createEnrollmentToken(tenantId, {
-      allowedRoles: [role],
-      allowedZones: [zone],
-      maxUses: 1,
-      ttlSeconds: 1800,
-      createdBy: 'agent.install-materials',
-    }, requestId);
+    const enrollmentTokenRecord = this.domain.createEnrollmentToken(
+      tenantId,
+      {
+        allowedRoles: [role],
+        allowedZones: [zone],
+        maxUses: 1,
+        ttlSeconds: 1800,
+        createdBy: 'agent.install-materials',
+      },
+      requestId,
+    );
     return {
       id,
       role,
@@ -1226,33 +1646,36 @@ export class AgentsApplicationService {
       return structuredClone(artifact);
     }
     const artifact = PINNED_WINDOWS_ARTIFACTS[platform];
-    if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 安装 Artifact 未登记', { platform });
+    if (!artifact)
+      throw new AppError('RESOURCE_NOT_FOUND', 'Agent 安装 Artifact 未登记', {
+        platform,
+      });
     return structuredClone(artifact);
   }
 
   listAgents(tenantId: string, query: PageQuery) {
     return this.repository.listRegistrations(tenantId, query).then(async (page) => {
       const items = this.deduplicateRegistrations(page.items);
-      const projected = await Promise.all(items.map(async (agent) => ({
-        ...agent,
-        // 列表状态与详情状态必须一致：Agent 在线性只看心跳，管理 TCP 单独展示。
-        ...(this.liveness ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT']) : {}),
-      })));
+      const projected = await Promise.all(
+        items.map(async (agent) => ({
+          ...agent,
+          // 列表状态与详情状态必须一致：Agent 在线性只看心跳，管理 TCP 单独展示。
+          ...(this.liveness ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT']) : {}),
+        })),
+      );
       return { ...page, items: projected, total: projected.length };
     });
   }
 
-  async evaluateOfflineAgents(options: {
-    offlineTimeoutSeconds?: number;
-    requiredConsecutiveTimeouts?: number;
-    now?: Date;
-  } = {}) {
-    const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0
-      ? options.offlineTimeoutSeconds
-      : 180;
-    const requiredConsecutiveTimeouts = options.requiredConsecutiveTimeouts && options.requiredConsecutiveTimeouts > 0
-      ? Math.ceil(options.requiredConsecutiveTimeouts)
-      : 2;
+  async evaluateOfflineAgents(
+    options: {
+      offlineTimeoutSeconds?: number;
+      requiredConsecutiveTimeouts?: number;
+      now?: Date;
+    } = {},
+  ) {
+    const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0 ? options.offlineTimeoutSeconds : 180;
+    const requiredConsecutiveTimeouts = options.requiredConsecutiveTimeouts && options.requiredConsecutiveTimeouts > 0 ? Math.ceil(options.requiredConsecutiveTimeouts) : 2;
     const now = options.now ?? new Date();
     const nowIso = now.toISOString();
     const registrations = await this.repository.listAllRegistrations();
@@ -1268,7 +1691,7 @@ export class AgentsApplicationService {
       const referenceAt = latestHeartbeat?.receivedAt ?? agent.updatedAt ?? agent.registeredAt;
       const referenceTime = Date.parse(referenceAt);
       if (Number.isNaN(referenceTime)) continue;
-      const stale = now.getTime()- referenceTime > offlineTimeoutSeconds * 1000;
+      const stale = now.getTime() - referenceTime > offlineTimeoutSeconds * 1000;
       if (!stale) {
         this.offlineTimeoutCounts.delete(timeoutKey);
         continue;
@@ -1290,16 +1713,20 @@ export class AgentsApplicationService {
       });
       // Agent 是否在线只由出站心跳决定。管理 TCP 是入站手动探测能力，不能
       // 因为防火墙、NAT 或临时端口故障把仍在主动心跳的 Agent 判成离线。
-      const liveness = this.liveness
-        ? await this.liveness.project(agent.tenantId, 'AGENT', agent.id, ['HEARTBEAT'])
-        : undefined;
+      const liveness = this.liveness ? await this.liveness.project(agent.tenantId, 'AGENT', agent.id, ['HEARTBEAT']) : undefined;
       if (liveness && liveness.livenessStatus !== 'OFFLINE') continue;
       if (!liveness && requiredConsecutiveTimeouts > 1) continue;
       if (agent.status === 'OFFLINE') continue;
 
       const updated = await this.repository.updateRegistration(agent.id, {
         status: 'OFFLINE',
-        gateway: agent.gateway ? { ...agent.gateway, status: 'offline', lastHeartbeatAt: latestHeartbeat?.receivedAt ?? agent.gateway.lastHeartbeatAt } : agent.gateway,
+        gateway: agent.gateway
+          ? {
+              ...agent.gateway,
+              status: 'offline',
+              lastHeartbeatAt: latestHeartbeat?.receivedAt ?? agent.gateway.lastHeartbeatAt,
+            }
+          : agent.gateway,
         updatedAt: nowIso,
         lastRequestId: `offline_evaluator:${now.getTime()}`,
       });
@@ -1318,11 +1745,8 @@ export class AgentsApplicationService {
   }
 
   async getAgentDetail(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailProjection> {
-    const [detailData, liveness, managementLiveness] = await Promise.all([
-      this.repository.getDetailData(tenantId, agentId, options),
-      this.liveness?.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']),
-      this.liveness?.project(tenantId, 'AGENT', agentId, ['MANAGEMENT_TCP']),
-    ]);
+    await this.ensureLocalWindowsGoRelease(tenantId);
+    const [detailData, liveness, managementLiveness] = await Promise.all([this.repository.getDetailData(tenantId, agentId, options), this.liveness?.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']), this.liveness?.project(tenantId, 'AGENT', agentId, ['MANAGEMENT_TCP'])]);
     if (!detailData) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
     const { agent, capabilitySnapshot, latestHeartbeat, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans } = detailData;
     const capabilities = {
@@ -1357,7 +1781,10 @@ export class AgentsApplicationService {
   async getCapabilityProjection(tenantId: string, agentId: string): Promise<AgentCapabilityProjection> {
     const agent = await this.requireAgent(tenantId, agentId);
     const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agent.id);
-    return { agentId: agent.id, declarations: snapshot ? this.domain.toCapabilityDeclarations(agent, snapshot) : [] };
+    return {
+      agentId: agent.id,
+      declarations: snapshot ? this.domain.toCapabilityDeclarations(agent, snapshot) : [],
+    };
   }
 
   async listTaskQueue(tenantId: string, agentId: string, statuses?: AgentTaskEnvelope['status'][]): Promise<AgentTaskQueueProjection> {
@@ -1369,13 +1796,24 @@ export class AgentsApplicationService {
 
   async getUpgradeSuggestion(tenantId: string, agentId: string): Promise<AgentUpgradeSuggestionProjection> {
     const agent = await this.requireAgent(tenantId, agentId);
-    const releases = await this.repository.listActiveVersions(tenantId);
+    const releases = await this.listActiveVersions(tenantId);
     const release = releases.find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
     if (!release) {
-      return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: '没有匹配平台的升级版本' } };
+      return {
+        agentId: agent.id,
+        currentVersion: agent.descriptor.version,
+        suggestion: {
+          status: 'not_required',
+          reason: '没有匹配平台的升级版本',
+        },
+      };
     }
     if (release.version === agent.descriptor.version) {
-      return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' } };
+      return {
+        agentId: agent.id,
+        currentVersion: agent.descriptor.version,
+        suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' },
+      };
     }
     const existingPlan = await this.repository.findUpgradePlanForAgent(tenantId, agent.id, release.id);
     return {
@@ -1397,6 +1835,53 @@ export class AgentsApplicationService {
 
   getRepository(): AgentsRepository {
     return this.repository;
+  }
+
+  private async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
+    await this.ensureLocalWindowsGoRelease(tenantId);
+    return this.repository.listActiveVersions(tenantId);
+  }
+
+  private async ensureLocalWindowsGoRelease(tenantId: string): Promise<void> {
+    const existing = this.localReleaseSync.get(tenantId);
+    if (existing) return existing;
+    const sync = (async () => {
+      if (typeof this.repository.publishVersion !== 'function') return;
+      const version = await readWindowsGoAgentVersion();
+      for (const architecture of ['amd64', 'arm64'] as const) {
+        const artifactPath = architecture === 'amd64' ? windowsGoAgentAmd64Artifact : windowsGoAgentArm64Artifact;
+        if (!existsSync(artifactPath)) continue;
+        const content = await readFile(artifactPath);
+        const checksumSha256 = createHash('sha256').update(content).digest('hex');
+        const releaseId = localWindowsReleaseId(tenantId, version, architecture);
+        const release: AgentVersionRelease = {
+          id: releaseId,
+          tenantId,
+          version,
+          platform: 'WINDOWS',
+          arch: architecture,
+          productLine: windowsGoProductLine,
+          artifactSize: content.length,
+          downloadUrl: localWindowsReleaseDownloadUrl(releaseId),
+          checksumSha256,
+          // 开发/测试环境先允许摘要校验闭环；配置发布信任根后，Agent 会强制验签。
+          signature: 'unsigned',
+          rolloutPercent: 100,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          createdBy: 'system:local-build',
+        };
+        await this.repository.publishVersion(release);
+      }
+    })();
+    this.localReleaseSync.set(tenantId, sync);
+    try {
+      await sync;
+    } finally {
+      // 只合并同一时刻的并发检查；构建产物可能在进程运行期间更新，
+      // 下一次检查必须重新计算摘要并刷新同一个 Release 记录。
+      this.localReleaseSync.delete(tenantId);
+    }
   }
 
   private async ensureCertificateAuthority() {
@@ -1486,11 +1971,15 @@ export class AgentsApplicationService {
 
   private syncGatewayRegistryInBackground(tenantId: string, agent: AgentRegistration): void {
     void this.syncGatewayRegistry(tenantId, agent).catch((cause: unknown) => {
-      structuredLogger.error('GatewayRegistry 后台同步失败', {
-        tenantId,
-        agentId: agent.id,
-        error: cause instanceof Error ? cause.message : String(cause),
-      }, { module: 'agents', resourceType: 'agent', resourceId: agent.id });
+      structuredLogger.error(
+        'GatewayRegistry 后台同步失败',
+        {
+          tenantId,
+          agentId: agent.id,
+          error: cause instanceof Error ? cause.message : String(cause),
+        },
+        { module: 'agents', resourceType: 'agent', resourceId: agent.id },
+      );
     });
   }
 
@@ -1513,28 +2002,29 @@ export class AgentsApplicationService {
     };
   }
 
-  private toHealthProjection(agent: AgentRegistration, latestHeartbeat?: AgentHeartbeat, liveness?: { livenessStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'; livenessReasonCode?: string }): AgentHealthProjection {
+  private toHealthProjection(
+    agent: AgentRegistration,
+    latestHeartbeat?: AgentHeartbeat,
+    liveness?: {
+      livenessStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+      livenessReasonCode?: string;
+    },
+  ): AgentHealthProjection {
     const offlineTimeoutSeconds = this.getOfflineTimeoutSeconds();
     const runtimeHealth = latestHeartbeat?.runtimeHealth;
     const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt;
     const heartbeatAgeSeconds = safeAgeSeconds(lastHeartbeatAt);
-    const offline = liveness?.livenessStatus === 'OFFLINE'
-      || (liveness === undefined && (agent.status === 'OFFLINE' || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds)));
+    const offline = liveness?.livenessStatus === 'OFFLINE' || (liveness === undefined && (agent.status === 'OFFLINE' || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds)));
     const degradedReasons = dedupeStrings(runtimeHealth?.degradedReasons ?? []);
     const failureCounts = {
       heartbeat: runtimeHealth?.failureCounts?.heartbeat ?? 0,
       taskPoll: runtimeHealth?.failureCounts?.taskPoll ?? 0,
       recovery: runtimeHealth?.failureCounts?.recovery ?? 0,
     };
-    const offlineEvidence = [
-      offline ? (liveness?.livenessStatus === 'OFFLINE' ? `livenessReasonCode=${liveness.livenessReasonCode ?? 'unknown'}` : 'agent.status=OFFLINE') : '',
-      lastHeartbeatAt ? `lastHeartbeatAt=${lastHeartbeatAt}` : 'lastHeartbeatAt=missing',
-      heartbeatAgeSeconds !== undefined ? `heartbeatAgeSeconds=${heartbeatAgeSeconds}` : '',
-      `offlineTimeoutSeconds=${offlineTimeoutSeconds}`,
-    ].filter(Boolean);
+    const offlineEvidence = [offline ? (liveness?.livenessStatus === 'OFFLINE' ? `livenessReasonCode=${liveness.livenessReasonCode ?? 'unknown'}` : 'agent.status=OFFLINE') : '', lastHeartbeatAt ? `lastHeartbeatAt=${lastHeartbeatAt}` : 'lastHeartbeatAt=missing', heartbeatAgeSeconds !== undefined ? `heartbeatAgeSeconds=${heartbeatAgeSeconds}` : '', `offlineTimeoutSeconds=${offlineTimeoutSeconds}`].filter(Boolean);
 
     return {
-      status: offline ? 'failed' : runtimeHealth?.status ?? (degradedReasons.length > 0 ? 'degraded' : 'unknown'),
+      status: offline ? 'failed' : (runtimeHealth?.status ?? (degradedReasons.length > 0 ? 'degraded' : 'unknown')),
       offline,
       offlineTimeoutSeconds,
       lastHeartbeatAt,
@@ -1571,7 +2061,10 @@ export class AgentsApplicationService {
 
   private async assertManagementEndpointReachable(tenantId: string, agentId: string): Promise<void> {
     if (!this.liveness) return;
-    const result = await this.liveness.probeAgentManagementEndpoint({ tenantId, agentId });
+    const result = await this.liveness.probeAgentManagementEndpoint({
+      tenantId,
+      agentId,
+    });
     if (result.success) return;
     throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 管理 TCP 端口不可达，不能下发重新发现任务', {
       agentId,
@@ -1617,30 +2110,158 @@ function buildRecentTaskRuntimeLogs(tasks: AgentTaskEnvelope[], logs: AgentTaskL
     .slice(0, 50);
 }
 
-function buildUpgradeSuggestion(
-  agent: AgentRegistration,
-  releases: AgentVersionRelease[],
-  upgradePlans: AgentUpgradePlan[],
-): AgentUpgradeSuggestionProjection {
-  const release = [...releases]
-    .sort((left, right) => compareAgentVersions(right.version, left.version))
-    .find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
+function buildUpgradeSuggestion(agent: AgentRegistration, releases: AgentVersionRelease[], upgradePlans: AgentUpgradePlan[]): AgentUpgradeSuggestionProjection {
+  const release = [...releases].sort((left, right) => compareAgentVersions(right.version, left.version)).find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
   if (!release) {
-    return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: '没有匹配平台的升级版本' } };
+    return {
+      agentId: agent.id,
+      currentVersion: agent.descriptor.version,
+      suggestion: { status: 'not_required', reason: '没有匹配平台的升级版本' },
+    };
   }
   if (release.version === agent.descriptor.version) {
-    return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' } };
+    return {
+      agentId: agent.id,
+      currentVersion: agent.descriptor.version,
+      suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' },
+    };
   }
   return {
     agentId: agent.id,
     currentVersion: agent.descriptor.version,
     suggestion: {
-      status: 'available', reason: '发现可用升级版本', targetVersion: release.version, releaseId: release.id,
-      downloadUrl: release.downloadUrl, checksumSha256: release.checksumSha256, signature: release.signature,
+      status: 'available',
+      reason: '发现可用升级版本',
+      targetVersion: release.version,
+      releaseId: release.id,
+      downloadUrl: release.downloadUrl,
+      checksumSha256: release.checksumSha256,
+      signature: release.signature,
       rollbackVersion: release.rollbackVersion,
       existingPlan: upgradePlans.find((plan) => plan.releaseId === release.id),
     },
   };
+}
+
+const windowsGoAgentOS = 'WINDOWS';
+const windowsGoProductLine: 'windows-go-full' = 'windows-go-full';
+
+function isWindowsGoAgent(agent: AgentRegistration): boolean {
+  return agent.role !== 'gateway' && agent.descriptor.osType.toUpperCase() === windowsGoAgentOS && !agent.descriptor.osType.toUpperCase().includes('COMPATIBILITY');
+}
+
+function selectUpgradeRelease(agent: AgentRegistration, releases: AgentVersionRelease[], input: CheckAgentUpgradeInput): AgentVersionRelease | undefined {
+  const candidates = releases.filter((item) => item.platform.toUpperCase() === agent.descriptor.osType.toUpperCase() && (!item.arch || item.arch === agent.descriptor.arch || normalizeWindowsArchitecture(item.arch) === normalizeWindowsArchitecture(agent.descriptor.arch)));
+  if (input.releaseId) return candidates.find((item) => item.id === input.releaseId);
+  if (input.targetVersion) return candidates.find((item) => item.version === input.targetVersion);
+  return candidates[0];
+}
+
+function assertWindowsGoRelease(agent: AgentRegistration, release: AgentVersionRelease, targetVersion: string): void {
+  if (!isWindowsGoAgent(agent) || release.platform.toUpperCase() !== windowsGoAgentOS || (release.productLine !== undefined && release.productLine !== windowsGoProductLine) || release.version !== targetVersion) {
+    throw new AppError('VALIDATION_FAILED', 'Release 与 Windows Go Full Agent 的产品线、平台或版本不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
+  }
+  const agentArch = normalizeWindowsArchitecture(agent.descriptor.arch);
+  const releaseArch = normalizeWindowsArchitecture(release.arch);
+  if (!agentArch || !releaseArch || agentArch !== releaseArch) {
+    throw new AppError('VALIDATION_FAILED', 'Release 与 Windows Go Full Agent 的架构不匹配', { reason: 'RUNTIME_BASELINE_MISMATCH' });
+  }
+}
+
+function normalizeWindowsArchitecture(value: string | undefined): 'amd64' | 'arm64' | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'amd64' || normalized === 'x86_64' || normalized === 'x64') return 'amd64';
+  if (normalized === 'arm64' || normalized === 'aarch64') return 'arm64';
+  return undefined;
+}
+
+function buildWindowsGoUpgradeEnvelope(agent: AgentRegistration, plan: AgentUpgradePlan, release: AgentVersionRelease, requestId: string): AgentUpgradeEnvelope {
+  const authorityKeyId = process.env.GCAC_AGENT_UPGRADE_AUTHORITY_KEY_ID?.trim();
+  const privateKeyPem = process.env.GCAC_AGENT_UPGRADE_SIGNING_KEY_PEM?.replaceAll('\\n', '\n').trim();
+  const architecture = normalizeWindowsArchitecture(agent.descriptor.arch);
+  const signatureKeyId = release.signatureKeyId?.trim() || process.env.GCAC_AGENT_RELEASE_SIGNING_KEY_ID?.trim();
+  // 本地构建 Release 在没有发布信任根时只携带 SHA-256；一旦配置 keyId，
+  // 必须同时提供真实 Ed25519 制品签名，避免把占位字符串送到 Agent 验签。
+  const configuredArtifactSignature = release.artifactSignature?.trim();
+  const artifactSignature = signatureKeyId && configuredArtifactSignature ? configuredArtifactSignature : '';
+  if (!architecture || !release.artifactSize || release.artifactSize <= 0) {
+    throw new AppError('VALIDATION_FAILED', 'Windows Go Release 缺少架构或制品大小', { reason: 'RELEASE_METADATA_INCOMPLETE', releaseId: release.id });
+  }
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
+  const unsigned = {
+    schemaVersion: 'management.upgrade.v1' as const,
+    planId: plan.id,
+    transactionId: plan.transactionId ?? newId('agtxn'),
+    agentId: agent.id,
+    release: {
+      releaseId: release.id,
+      productLine: windowsGoProductLine,
+      version: release.version,
+      platform: 'windows' as const,
+      architecture,
+      downloadUrl: release.downloadUrl,
+      artifactSha256: release.checksumSha256,
+      artifactSize: release.artifactSize,
+      signatureKeyId: signatureKeyId ?? '',
+      artifactSignature: artifactSignature ?? '',
+    },
+    policyRef: plan.policyRef ?? 'gcac.agent.upgrade',
+    approvalRef: plan.approvalRef ?? '',
+    nonce: randomBytes(24).toString('base64url'),
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    authorityKeyId: authorityKeyId ?? '',
+  };
+  let envelope: AgentUpgradeEnvelope = {
+    ...unsigned,
+    controlPlaneSignature: '',
+  };
+  if (authorityKeyId && privateKeyPem) {
+    let privateKey;
+    try {
+      privateKey = createPrivateKey(privateKeyPem);
+    } catch {
+      throw new AppError('CONFIGURATION_ERROR', 'Windows Go 升级签名私钥无法解析', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
+    }
+    if (privateKey.asymmetricKeyType !== 'ed25519') {
+      throw new AppError('CONFIGURATION_ERROR', 'Windows Go 升级签名私钥必须是 Ed25519', { reason: 'UPGRADE_SIGNING_KEY_INVALID' });
+    }
+    envelope = signAgentUpgradeEnvelope(unsigned, privateKey);
+  }
+  structuredLogger.info(
+    'Windows Go UpgradeEnvelope 已签发',
+    {
+      tenantId: plan.tenantId,
+      agentId: agent.id,
+      planId: plan.id,
+      transactionId: unsigned.transactionId,
+      requestId,
+      releaseId: release.id,
+      artifactSha256: release.checksumSha256,
+    },
+    { module: 'agents', resourceType: 'agent_upgrade', resourceId: plan.id },
+  );
+  return envelope;
+}
+
+function mapAgentUpgradeStatus(status: string | undefined): AgentUpgradePlan['status'] | undefined {
+  if (!status) return undefined;
+  if (status === 'accepted') return 'accepted';
+  if (status === 'running') return 'running';
+  if (status === 'succeeded') return 'succeeded';
+  if (status === 'failed') return 'failed';
+  if (status === 'rolled_back') return 'rolled_back';
+  if (status === 'manual_required') return 'manual_required';
+  return undefined;
+}
+
+function readAppErrorCode(error: unknown): string {
+  return error instanceof AppError ? error.errorCode : 'AGENT_UPGRADE_TRANSPORT_FAILED';
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
 }
 
 function compareAgentVersions(left: string, right: string): number {
@@ -1654,19 +2275,17 @@ function compareAgentVersions(left: string, right: string): number {
 }
 
 function countTasks(tasks: AgentTaskEnvelope[]): Record<AgentTaskEnvelope['status'], number> {
-  return tasks.reduce<Record<AgentTaskEnvelope['status'], number>>((counts, task) => {
-    counts[task.status] += 1;
-    return counts;
-  }, { queued: 0, leased: 0, acked: 0, succeeded: 0, failed: 0, rejected: 0 });
+  return tasks.reduce<Record<AgentTaskEnvelope['status'], number>>(
+    (counts, task) => {
+      counts[task.status] += 1;
+      return counts;
+    },
+    { queued: 0, leased: 0, acked: 0, succeeded: 0, failed: 0, rejected: 0 },
+  );
 }
 
 function resolveAgentTaskOutcome(input: SubmitAgentTaskResultInput, detail: Record<string, unknown>): AgentSecurityStatus {
-  const candidates = [
-    input.status,
-    detail.status,
-    detail.executionStatus,
-    readRecord(detail.receipt)?.status,
-  ];
+  const candidates = [input.status, detail.status, detail.executionStatus, readRecord(detail.receipt)?.status];
   const explicit = candidates.find((value): value is AgentSecurityStatus => value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
   if (explicit) return explicit;
   return input.success ? 'SUCCESS' : 'FAILED';
@@ -1693,45 +2312,20 @@ function dedupeStrings(items: string[]): string[] {
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-const AGENT_MACHINE_ROUTES = new Set([
-  'POST /api/v1/agents/register',
-  'POST /api/v1/agents/sessions',
-  'POST /api/v1/agents/certificate-requests',
-  'POST /api/v1/agents/certificates/rotate',
-  'POST /api/v1/agents/heartbeat',
-  'POST /api/v1/agents/capabilities',
-  'GET /api/v1/agents/tasks/pull',
-  'POST /api/v1/agents/tasks/ack',
-  'POST /api/v1/agents/tasks/logs',
-  'POST /api/v1/agents/runtime-logs',
-  'POST /api/v1/agents/tasks/log-batches',
-  'POST /api/v1/agents/tasks/result',
-  'POST /api/v1/agents/upgrades/check',
-  'POST /api/v1/agents/upgrades/result',
-  'POST /api/v1/gateways/probe',
-  'POST /api/v1/gateways/status',
-]);
+const AGENT_MACHINE_ROUTES = new Set(['POST /api/v1/agents/register', 'POST /api/v1/agents/sessions', 'POST /api/v1/agents/certificate-requests', 'POST /api/v1/agents/certificates/rotate', 'POST /api/v1/agents/heartbeat', 'POST /api/v1/agents/capabilities', 'GET /api/v1/agents/tasks/pull', 'POST /api/v1/agents/tasks/ack', 'POST /api/v1/agents/tasks/logs', 'POST /api/v1/agents/runtime-logs', 'POST /api/v1/agents/tasks/log-batches', 'POST /api/v1/agents/tasks/result', 'POST /api/v1/agents/upgrades/check', 'POST /api/v1/agents/upgrades/result', 'POST /api/v1/gateways/probe', 'POST /api/v1/gateways/status']);
 
 function isAgentMachineRoute(method: string, path: string): boolean {
   return AGENT_MACHINE_ROUTES.has(`${method.toUpperCase()} ${path}`);
 }
 
-function validateQueuedAgentV2Receipt(
-  task: AgentTaskEnvelope,
-  detail: Record<string, unknown>,
-  tenantId: string,
-  submittedStatus?: AgentSecurityStatus,
-  submittedSuccess = false,
-): AgentExecutionReceiptV1 | undefined {
+function validateQueuedAgentV2Receipt(task: AgentTaskEnvelope, detail: Record<string, unknown>, tenantId: string, submittedStatus?: AgentSecurityStatus, submittedSuccess = false, submittedErrorCode?: string): AgentExecutionReceiptV1 | undefined {
   const authorizationPayload = task.payload;
   const actionType = resolveAgentTaskActionType(task.payload);
   const receiptValue = readOptionalRecord(detail.receipt);
@@ -1749,7 +2343,9 @@ function validateQueuedAgentV2Receipt(
   const executionStatus = submittedStatus ?? readAgentSecurityStatus(detail.executionStatus);
   if (!receiptValue) {
     // 已进入 UNKNOWN 时不能凭空生成 Receipt；其它写操作必须由真实 Full Agent 提交回执。
-    if (receiptRequired && executionStatus !== 'UNKNOWN') {
+    // ACTION_HANDLER_NOT_REGISTERED 发生在 Agent v2 计划进入执行器之前，
+    // 没有任何写操作结果可签发 Receipt；按确定性失败收敛，避免旧任务永久 acked。
+    if (receiptRequired && executionStatus !== 'UNKNOWN' && !agentV2PreExecutionFailureCodes.has(submittedErrorCode ?? '')) {
       throw new AppError('VALIDATION_FAILED', 'Agent v2 写操作结果缺少完整 Execution Receipt', {
         reason: 'AGENT_V2_RECEIPT_REQUIRED',
         taskId: task.id,
@@ -1782,19 +2378,13 @@ function validateQueuedAgentV2Receipt(
   const token = validateAgentCapabilityToken(tokenValue);
   const decision = validatePolicyAuthorityDecision(decisionValue);
   const plan = planValue ? validateAgentPlan(planValue) : undefined;
-  if (token.agentId !== receipt.agentId || token.tenantId !== receipt.tenantId
-    || token.tokenId !== receipt.tokenId || token.planDigest !== receipt.planDigest
-    || decision.agentId !== token.agentId || decision.tenantId !== token.tenantId
-    || decision.tokenId !== token.tokenId || decision.planDigest !== token.planDigest
-    || decision.nonce !== token.nonce) {
+  if (token.agentId !== receipt.agentId || token.tenantId !== receipt.tenantId || token.tokenId !== receipt.tokenId || token.planDigest !== receipt.planDigest || decision.agentId !== token.agentId || decision.tenantId !== token.tenantId || decision.tokenId !== token.tokenId || decision.planDigest !== token.planDigest || decision.nonce !== token.nonce) {
     throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 Token、Decision 绑定不一致', {
       reason: 'AGENT_V2_RECEIPT_BINDING_DENIED',
       taskId: task.id,
     });
   }
-  if (plan && (plan.planId !== receipt.planId || plan.planDigest !== receipt.planDigest
-    || plan.agentId !== receipt.agentId || plan.tenantId !== receipt.tenantId
-    || !plan.operations.some((operation) => operation.operationId === receipt.operationId))) {
+  if (plan && (plan.planId !== receipt.planId || plan.planDigest !== receipt.planDigest || plan.agentId !== receipt.agentId || plan.tenantId !== receipt.tenantId || !plan.operations.some((operation) => operation.operationId === receipt.operationId))) {
     throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 与 AgentPlanV1 绑定不一致', {
       reason: 'AGENT_V2_RECEIPT_PLAN_BINDING_DENIED',
       taskId: task.id,
@@ -1810,17 +2400,13 @@ function validateQueuedAgentV2Receipt(
 }
 
 function readAgentSecurityStatus(value: unknown): AgentSecurityStatus | undefined {
-  return value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED'
-    ? value
-    : undefined;
+  return value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED' ? value : undefined;
 }
 
 function readAgentTaskOutcome(task: AgentTaskEnvelope): AgentSecurityStatus | undefined {
   const result = readRecord(task.result);
   const status = result.status ?? readRecord(result.detail).executionStatus;
-  return status === 'SUCCESS' || status === 'FAILED' || status === 'UNKNOWN' || status === 'CANCELLED'
-    ? status
-    : undefined;
+  return status === 'SUCCESS' || status === 'FAILED' || status === 'UNKNOWN' || status === 'CANCELLED' ? status : undefined;
 }
 
 function readReceipt(value: unknown): AgentExecutionReceiptV1 | undefined {
@@ -1829,9 +2415,7 @@ function readReceipt(value: unknown): AgentExecutionReceiptV1 | undefined {
 }
 
 function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function resolvePluginFactBinding(task: AgentTaskEnvelope, actionType: AgentV2ContractType | undefined): PluginFactBindingV1 | undefined {
@@ -1858,9 +2442,7 @@ function serializePluginFactPipelineResult(result: PluginFactPipelineResult): Re
 
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {
   const actionType = readStringValue(payload?.actionType);
-  return actionType && agentV2ContractTypes.includes(actionType as AgentV2ContractType)
-    ? actionType as AgentV2ContractType
-    : undefined;
+  return actionType && agentV2ContractTypes.includes(actionType as AgentV2ContractType) ? (actionType as AgentV2ContractType) : undefined;
 }
 
 function assertSupportedAgentTaskPayload(payload: Record<string, unknown>): void {
@@ -1882,13 +2464,15 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
 const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
 const windowsGoAgentAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
+const windowsGoAgentArm64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-arm64.exe');
+const windowsGoAgentUpdaterAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent-updater.windows-amd64.exe');
 const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
 const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'bin', 'Release');
 const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
 const WINDOWS_GO_INSTALL_PLATFORM = 'windows_go_service' as const;
 const TRUSTED_AGENT_OS_TYPES = new Set(['linux', 'windows']);
-const WINDOWS_ARTIFACT_LOADERS: Record<typeof WINDOWS_INSTALL_PLATFORMS[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
+const WINDOWS_ARTIFACT_LOADERS: Record<(typeof WINDOWS_INSTALL_PLATFORMS)[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
   windows_go_service: loadWindowsGoAgentArtifacts,
   windows_compatibility_service: loadWindowsCompatibilityAgentArtifacts,
 };
@@ -1935,6 +2519,9 @@ async function ensureWindowsGoBundleAvailable(): Promise<void> {
   if (!existsSync(windowsGoAgentAmd64Artifact)) {
     throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent 可执行文件未构建，不能生成一键安装命令');
   }
+  if (!existsSync(windowsGoAgentUpdaterAmd64Artifact)) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent 升级器未构建，不能生成一键安装命令');
+  }
   if (!existsSync(windowsGoRuntimeDiscoveryAmd64Artifact)) {
     throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent-side 发现插件未构建，不能生成一键安装命令');
   }
@@ -1942,17 +2529,16 @@ async function ensureWindowsGoBundleAvailable(): Promise<void> {
 
 async function loadWindowsGoAgentArtifacts() {
   await ensureWindowsGoBundleAvailable();
-  const artifacts = await walkWindowsAgentArtifacts(windowsGoAgentRoot, [
-    'install-service.ps1',
-    'service-control.ps1',
-    'uninstall-service.ps1',
-    'config/agent.config.template.json',
-    'release/verify-signature.ps1',
-  ]);
+  const artifacts = await walkWindowsAgentArtifacts(windowsGoAgentRoot, ['install-service.ps1', 'service-control.ps1', 'uninstall-service.ps1', 'config/agent.config.template.json', 'release/verify-signature.ps1']);
   // 安装器只分发本次构建生成的 amd64 发布物，根目录遗留的本地二进制不能参与打包。
   artifacts.push({
     path: 'gcac-agent.exe',
     content: (await readFile(windowsGoAgentAmd64Artifact)).toString('base64'),
+    encoding: 'base64',
+  });
+  artifacts.push({
+    path: 'gcac-agent-updater.exe',
+    content: (await readFile(windowsGoAgentUpdaterAmd64Artifact)).toString('base64'),
     encoding: 'base64',
   });
   artifacts.push({
@@ -1973,25 +2559,22 @@ async function ensureWindowsCompatibilityBundleAvailable(): Promise<void> {
 
 async function loadWindowsCompatibilityAgentArtifacts() {
   await ensureWindowsCompatibilityBundleAvailable();
-  const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, [
-    'GCAC.WindowsCompatibilityAgent.exe',
-    'GCAC.WindowsCompatibilityAgent.exe.config',
-  ]);
+  const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, ['GCAC.WindowsCompatibilityAgent.exe', 'GCAC.WindowsCompatibilityAgent.exe.config']);
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function walkWindowsAgentArtifacts(
-  currentDir: string,
-  allowedPaths: readonly string[],
-  relativeDir = '',
-): Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>> {
+async function walkWindowsAgentArtifacts(currentDir: string, allowedPaths: readonly string[], relativeDir = ''): Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>> {
   const entries = await import('node:fs/promises').then(({ readdir }) => readdir(currentDir, { withFileTypes: true }));
-  const artifacts: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
+  const artifacts: Array<{
+    path: string;
+    content: string;
+    encoding?: 'utf8' | 'base64';
+  }> = [];
   for (const entry of entries) {
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       if (allowedPaths.some((allowed) => allowed.startsWith(`${relativePath}/`))) {
-        artifacts.push(...await walkWindowsAgentArtifacts(path.join(currentDir, entry.name), allowedPaths, relativePath));
+        artifacts.push(...(await walkWindowsAgentArtifacts(path.join(currentDir, entry.name), allowedPaths, relativePath)));
       }
       continue;
     }
@@ -2018,6 +2601,45 @@ function resolveRepositoryAgentRoot(agentDirectoryName: string): string {
   return path.resolve(process.cwd(), '..', 'agents', agentDirectoryName);
 }
 
+async function readWindowsGoAgentVersion(): Promise<string> {
+  const source = await readFile(path.join(windowsGoAgentRoot, 'main.go'), 'utf8');
+  const match = source.match(/\bagentVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/u);
+  if (!match?.[1]) throw new AppError('RESOURCE_NOT_FOUND', '无法从 Windows Go Agent 源码读取版本');
+  return match[1];
+}
+
+function localWindowsReleaseId(tenantId: string, version: string, architecture: string): string {
+  // Release ID 表示租户、版本和架构，而不是某一次构建的摘要。
+  // 这样重新构建同一版本时会幂等更新制品元数据，不会遗留多个同版本候选。
+  return `agrel-local-windows-go-${sha256(`${tenantId}:${version}:${architecture}`).slice(0, 24)}`;
+}
+
+function localWindowsReleaseDownloadUrl(releaseId: string): string {
+  const configuredReleaseBase = process.env.GCAC_AGENT_RELEASE_BASE_URL?.trim();
+  const configuredBase = configuredReleaseBase
+    || process.env.GCAC_PUBLIC_BASE_URL?.trim()
+    || `http://${resolveReachableHost()}:${process.env.PORT?.trim() || '3003'}`;
+  let base: URL;
+  try {
+    base = new URL(configuredBase.endsWith('/') ? configuredBase : `${configuredBase}/`);
+  } catch {
+    throw new AppError('CONFIGURATION_ERROR', 'GCAC_AGENT_RELEASE_BASE_URL 或 GCAC_PUBLIC_BASE_URL 无效');
+  }
+  // 开发环境的既有公开基址通常指向 Vite 5172；Agent 下载应直接命中控制面 3003，
+  // 避免依赖已经启动的前端代理。生产/显式 GCAC_AGENT_RELEASE_BASE_URL 不改写端口。
+  if (!configuredReleaseBase && process.env.NODE_ENV !== 'production' && base.port === '5172') {
+    base.port = process.env.PORT?.trim() || '3003';
+  }
+  return new URL(`/agent-releases/${encodeURIComponent(releaseId)}`, base).toString();
+}
+
+function resolveReachableHost(): string {
+  const address = Object.values(networkInterfaces())
+    .flatMap((items) => items ?? [])
+    .find((item) => item.family === 'IPv4' && !item.internal)?.address;
+  return address ?? '127.0.0.1';
+}
+
 function stripUtf8Bom(value: string): string {
   return value.replace(/^\uFEFF/u, '');
 }
@@ -2034,7 +2656,9 @@ interface InstallMaterialProfile {
 function normalizeInstallMaterialRole(value: AgentInstallMaterialRequest['role']): 'full_agent' | 'gateway' {
   if (value === undefined || value === 'full_agent') return 'full_agent';
   if (value === 'gateway') return 'gateway';
-  throw new AppError('VALIDATION_FAILED', 'role 只能是 full_agent 或 gateway', { role: value });
+  throw new AppError('VALIDATION_FAILED', 'role 只能是 full_agent 或 gateway', {
+    role: value,
+  });
 }
 
 function normalizeInstallMaterialValue(value: string, field: string): string {
@@ -2060,37 +2684,37 @@ function installMaterialProfile(platform: AgentInstallMaterialPlatform, role: 'f
   if (platform === 'windows_go') {
     return role === 'gateway'
       ? {
-        serviceName: 'gcac-gateway-agent',
-        displayName: 'GCAC Windows Gateway Agent',
-        installRoot: 'C:\\Program Files\\GCAC\\Gateway',
-        configDir: 'C:\\ProgramData\\GCAC\\Gateway\\config',
-        dataDir: 'C:\\ProgramData\\GCAC\\Gateway\\data',
-        logDir: 'C:\\ProgramData\\GCAC\\Gateway\\logs',
-      }
+          serviceName: 'gcac-gateway-agent',
+          displayName: 'GCAC Windows Gateway Agent',
+          installRoot: 'C:\\Program Files\\GCAC\\Gateway',
+          configDir: 'C:\\ProgramData\\GCAC\\Gateway\\config',
+          dataDir: 'C:\\ProgramData\\GCAC\\Gateway\\data',
+          logDir: 'C:\\ProgramData\\GCAC\\Gateway\\logs',
+        }
       : {
-        serviceName: 'gcac-windows-go-agent',
-        displayName: 'GCAC Windows Go Full Agent',
-        installRoot: 'C:\\Program Files\\GCAC\\WindowsGoAgent',
-        configDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config',
-        dataDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\data',
-        logDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs',
-      };
+          serviceName: 'gcac-windows-go-agent',
+          displayName: 'GCAC Windows Go Full Agent',
+          installRoot: 'C:\\Program Files\\GCAC\\WindowsGoAgent',
+          configDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config',
+          dataDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\data',
+          logDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs',
+        };
   }
   return role === 'gateway'
     ? {
-      serviceName: 'gcac-gateway-agent',
-      displayName: 'GCAC Linux Gateway Agent',
-      installRoot: '/opt/gcac/gateway',
-      configDir: '/etc/gcac/gateway',
-      dataDir: '/var/lib/gcac/gateway',
-      logDir: '/var/log/gcac/gateway',
-    }
+        serviceName: 'gcac-gateway-agent',
+        displayName: 'GCAC Linux Gateway Agent',
+        installRoot: '/opt/gcac/gateway',
+        configDir: '/etc/gcac/gateway',
+        dataDir: '/var/lib/gcac/gateway',
+        logDir: '/var/log/gcac/gateway',
+      }
     : {
-      serviceName: 'gcac-linux-agent',
-      displayName: 'GCAC Linux Go Full Agent',
-      installRoot: '/opt/gcac/linux-agent',
-      configDir: '/etc/gcac/linux-agent',
-      dataDir: '/var/lib/gcac/linux-agent',
-      logDir: '/var/log/gcac/linux-agent',
-    };
+        serviceName: 'gcac-linux-agent',
+        displayName: 'GCAC Linux Go Full Agent',
+        installRoot: '/opt/gcac/linux-agent',
+        configDir: '/etc/gcac/linux-agent',
+        dataDir: '/var/lib/gcac/linux-agent',
+        logDir: '/var/log/gcac/linux-agent',
+      };
 }

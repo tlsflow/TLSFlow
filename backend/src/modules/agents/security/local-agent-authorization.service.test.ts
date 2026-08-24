@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -84,6 +84,71 @@ test('本机 Agent Authority 只签发 Agent Core 短期只读发现授权', asy
       localPolicy: { pathRules: Array<{ prefix: string }> };
     };
     assert.deepEqual(windowsMaterial.localPolicy.pathRules, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('本机执行策略必须精确绑定后才允许证书根信任安装', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'gcac-local-execution-policy-'));
+  try {
+    writeFileSync(join(directory, 'execution-policy.json'), JSON.stringify({
+      version: 'gcac.local-agent-execution-policy/v1',
+      bindings: [{
+        tenantId: 'tenant-execution',
+        agentId: 'agt-execution',
+        pluginId: 'web.apache.windows',
+        pluginVersionId: 'plugin-version-apache',
+        capability: 'certificate.deploy',
+        policyRef: 'certificate-update-policy',
+        policyVersion: 'v1',
+        actions: ['certificate.store.install'],
+        allowedPaths: ['C:/GCAC-Lab/certs'],
+        allowedServices: [],
+        artifactDigests: [],
+        commandRules: [],
+      }],
+    }));
+    const services = createLocalAgentAuthorizationServicesV1({
+      NODE_ENV: 'development',
+      GCAC_LOCAL_AGENT_AUTHORITY_DIR: directory,
+    });
+    assert.ok(services);
+    const allowed = await services.authorization.policyAuthority.issueAuthorization({
+      agentId: 'agt-execution',
+      tenantId: 'tenant-execution',
+      pluginId: 'web.apache.windows',
+      pluginVersionId: 'plugin-version-apache',
+      capability: 'certificate.deploy',
+      actions: ['certificate.store.install'],
+      allowedPaths: ['C:/GCAC-Lab/certs/apache.crt.pem'],
+      allowedServices: [],
+      artifactDigests: [],
+      policyRef: 'certificate-update-policy',
+      policyVersion: 'v1',
+      planDigest: 'a'.repeat(64),
+      lifetimeSeconds: 300,
+    });
+    assert.equal(allowed.decision.allowed, true);
+    assert.ok(allowed.token);
+
+    const wrongVersion = await services.authorization.policyAuthority.issueAuthorization({
+      agentId: 'agt-execution',
+      tenantId: 'tenant-execution',
+      pluginId: 'web.apache.windows',
+      pluginVersionId: 'plugin-version-other',
+      capability: 'certificate.deploy',
+      actions: ['certificate.store.install'],
+      allowedPaths: ['C:/GCAC-Lab/certs/apache.crt.pem'],
+      allowedServices: [],
+      artifactDigests: [],
+      policyRef: 'certificate-update-policy',
+      policyVersion: 'v1',
+      planDigest: 'b'.repeat(64),
+      lifetimeSeconds: 300,
+    });
+    assert.equal(wrongVersion.decision.allowed, false);
+    assert.equal(wrongVersion.token, undefined);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

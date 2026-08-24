@@ -33,6 +33,7 @@ export const allowedAgentOperationTypes = [
   'filesystem.restore',
   'certificate.material.validate',
   'certificate.store.inspect',
+  'certificate.store.install',
   // Windows Full Agent 部署写入前的本机真实 TLS 握手。
   'certificate.tls.verify',
   'service.start',
@@ -614,6 +615,15 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
     identifier(input.bindingKey, `${path}.bindingKey`);
     dateTime(input.checkedAt, `${path}.checkedAt`);
     if (input.connectHost !== '127.0.0.1' && input.connectHost !== '::1') fail(`${path}.connectHost`, '部署前 TLS 验证只能连接 Agent 本机回环地址');
+  }
+  if (operationType === 'certificate.store.install') {
+    exactKeys(input, ['certificatePem', 'fingerprintSha256', 'store'], path);
+    const certificatePem = nonEmptyString(input.certificatePem, `${path}.certificatePem`);
+    if (certificatePem.length > 128 * 1024 || !certificatePem.includes('BEGIN CERTIFICATE')) {
+      fail(`${path}.certificatePem`, '根证书 PEM 无效或超出大小限制');
+    }
+    digest(input.fingerprintSha256, `${path}.fingerprintSha256`);
+    exact(input.store, 'root', `${path}.store`);
   }
   if (operationType === 'command.execute_allowlisted') {
     exactKeys(input, ['executablePath', 'executableSha256', 'args', 'argumentTemplate', 'environmentAllowlist', 'workingDirectory', 'networkScopes', 'childProcessPolicy', 'timeoutSeconds', 'outputLimitBytes', 'artifactDigest'], path);

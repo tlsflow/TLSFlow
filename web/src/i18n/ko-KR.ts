@@ -453,6 +453,14 @@ export default {
     actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지', forceCancel: '강제 종료', forceCancelConfirm: '이 작업을 강제 종료할까요? 진행 중인 원격 작업은 수동 확인이 필요할 수 있습니다.', forceCancelReason: '전체 작업에서 운영자가 강제 종료' },
     messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.', forceCancelFailed: '작업을 강제 종료하지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
+    agentUpdate: {
+      title: 'Agent 업데이트 진행률', timelineTitle: '업데이트 진행 과정',
+      fields: { target: '대상 호스트', currentVersion: '현재 버전', targetVersion: '대상 버전', phase: '현재 단계', planId: '업데이트 계획', transactionId: '업데이트 트랜잭션' },
+      values: { unknown: '알 수 없음' },
+      phases: { queued: '대기 중', dispatching: '승인 전송 중', accepted: 'Agent 수락', upgrading: '업데이트 중', status_checking: '결과 확인 중', succeeded: '완료', failed: '완료되지 않음', rolled_back: '롤백됨', manual_required: '수동 조치 필요', unknown: '알 수 없음' },
+      summary: { queued: '업데이트 작업이 대기 중입니다.', dispatching: '업데이트 승인을 전송하는 중입니다.', accepted: 'Agent가 업데이트를 수락했으며 실행을 기다립니다.', upgrading: 'Agent가 새 버전을 다운로드하고 교체하는 중입니다.', waiting: 'Agent 결과를 기다리는 중입니다.', succeeded: 'Agent가 {currentVersion}에서 {targetVersion}(으)로 업데이트되었습니다.', failed: 'Agent 업데이트가 완료되지 않았습니다.' },
+      events: { created: '작업 생성', claimed: '작업 할당', started: '업데이트 상태 확인 시작', progress: '업데이트 상태 갱신', waiting_result: '업데이트 결과 대기', succeeded: '업데이트 성공', failed: '업데이트 실패', retry_scheduled: '다음 확인 대기', cancelled: '작업 취소' },
+    },
     pluginRefresh: {
       subtitle: '플러그인 카탈로그 유지 관리 작업',
       overview: { kicker: '새로 고침 결과', description: '{scope}을(를) 새로 고치고 최신 플러그인 참조를 사용 가능한 실행 노드에 동기화했습니다.' },
@@ -952,7 +960,7 @@ export default {
     standardFields: {
       connectionAddress: '연결 주소', connectionPort: '연결 포트', basePath: '기본 경로', timeoutSeconds: '시간 제한(초)', gateway: '실행 Gateway',
       authenticationMode: '인증 방식', credential: '장치 관리 자격 증명', username: '사용자 이름', passwordSecret: '암호 SecretRef', apiTokenSecret: 'API 토큰 SecretRef', clientCertificate: '클라이언트 인증서',
-      tlsEnabled: 'TLS 사용', tlsVerifyPeer: '서버 인증서 검증', tlsServerName: 'TLS 서버 이름', caSecret: 'CA SecretRef', tlsMinimumVersion: '최소 TLS 버전',
+      tlsEnabled: 'HTTPS 사용', tlsVerifyPeer: '서버 인증서 검증', tlsIgnoreCertificateErrors: '인증서 오류 무시', tlsServerName: 'TLS 서버 이름', caSecret: 'CA SecretRef', tlsMinimumVersion: '최소 TLS 버전',
       deviceDisplayName: '장치 표시 이름', deviceDescription: '장치 설명', deviceTags: '장치 태그', targetName: '대상 이름', targetLabels: '대상 레이블'
     },
     forms: { loadOptions: '옵션 불러오기', previewTitle: '플러그인 구성 양식', loading: '플러그인 양식을 불러오는 중...', loadFailed: '플러그인 양식을 불러오지 못했습니다', empty: '이 플러그인은 구성 양식을 선언하지 않았습니다.' },

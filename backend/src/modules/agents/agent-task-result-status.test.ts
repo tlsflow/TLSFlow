@@ -80,6 +80,33 @@ test('Agent 任务写操作结果 UNKNOWN 会保留不明状态', async () => {
   assert.equal(updated?.result?.success, false);
 });
 
+test('Agent v2 计划尚未进入执行器时允许无 Receipt 的确定性失败', async () => {
+  const task = createTask();
+  let updated: AgentTaskEnvelope | undefined;
+  const repository = {
+    getRegistration: async () => fullAgentRegistration(task),
+    getTask: async () => updated ?? task,
+    updateTask: async (_taskId: string, patch: Partial<AgentTaskEnvelope>) => {
+      updated = { ...task, ...patch };
+      return updated;
+    },
+  };
+  const service = new AgentsApplicationService(repository as never);
+
+  await service.submitResult('tenant-result-status', {
+    agentId: task.agentId,
+    taskId: task.id,
+    leaseId: task.leaseId!,
+    success: false,
+    errorCode: 'AGENT_V2_AUTHORIZATION_DENIED',
+    errorMessage: 'Agent v2 队列载荷校验失败',
+  });
+
+  assert.equal(updated?.status, 'failed');
+  assert.equal(updated?.result?.success, false);
+  assert.equal(updated?.result?.status, 'FAILED');
+});
+
 test('Agent v2 队列拒绝摘要被篡改的 Receipt，不能把伪造结果写入任务', async () => {
   const task = createTask();
   let updateCount = 0;

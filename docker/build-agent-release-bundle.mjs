@@ -85,11 +85,23 @@ for (const [goArch, bundleArch] of [['amd64', 'amd64'], ['arm64', 'arm64']]) {
     GOARCH: goArch,
     CGO_ENABLED: '0',
   });
+  run('go', ['build', '-trimpath', '-ldflags=-s -w -buildid=', '-o', join(windowsTarget, 'gcac-agent-updater.exe'), './cmd/gcac-agent-updater'], windowsGoSource, {
+    GOOS: 'windows',
+    GOARCH: goArch,
+    CGO_ENABLED: '0',
+  });
+  await mkdir(join(windowsTarget, 'plugins'), { recursive: true });
+  run('go', ['build', '-trimpath', '-ldflags=-s -w -buildid=', '-o', join(windowsTarget, 'plugins', 'windows-runtime-discovery.exe'), './agent-side-plugins/windows-runtime-discovery'], windowsGoSource, {
+    GOOS: 'windows',
+    GOARCH: goArch,
+    CGO_ENABLED: '0',
+  });
   await copyFiles(windowsGoSource, windowsTarget, [
     'config/agent.config.template.json',
     'install-service.ps1',
     'uninstall-service.ps1',
     'service-control.ps1',
+    'release/verify-signature.ps1',
     'README.md',
   ]);
 }

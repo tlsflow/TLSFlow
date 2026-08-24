@@ -338,6 +338,12 @@ defineExpose({
         {{ readNumber(row.raw, ['count', 'targetCount', 'affectedCount']) ?? row.count }}
       </template>
 
+      <template #cell-controlVersion="{ row }">
+        <slot name="cell-controlVersion" :row="row">
+          {{ row.controlVersion }}
+        </slot>
+      </template>
+
       <template #cell-updateNeeded="{ row }">
         <GcStatusTag
           v-if="readString(row.raw, ['updateNeeded'], String(row.updateNeeded ?? ''))"

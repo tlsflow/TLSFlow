@@ -449,6 +449,14 @@ export default {
     actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', viewRawLogs: 'Voir les journaux bruts', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante', forceCancel: 'Arrêt forcé', forceCancelConfirm: 'Forcer l’arrêt de cette tâche ? Une action distante en cours peut nécessiter une vérification manuelle.', forceCancelReason: 'Arrêt forcé par un opérateur depuis les tâches globales' },
     messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.', forceCancelFailed: 'Impossible d’arrêter la tâche.' },
     values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
+    agentUpdate: {
+      title: 'Progression de la mise à jour de l’Agent', timelineTitle: 'Progression de la mise à jour',
+      fields: { target: 'Hôte cible', currentVersion: 'Version actuelle', targetVersion: 'Version cible', phase: 'Étape actuelle', planId: 'Plan de mise à jour', transactionId: 'Transaction de mise à jour' },
+      values: { unknown: 'Inconnu' },
+      phases: { queued: 'En attente', dispatching: 'Envoi de l’autorisation', accepted: 'Agent accepté', upgrading: 'Mise à jour', status_checking: 'Lecture du résultat', succeeded: 'Terminée', failed: 'Non terminée', rolled_back: 'Rétablie', manual_required: 'Action manuelle requise', unknown: 'Inconnue' },
+      summary: { queued: 'La tâche de mise à jour est en attente.', dispatching: 'Envoi de l’autorisation de mise à jour.', accepted: 'L’Agent a accepté la mise à jour et attend son exécution locale.', upgrading: 'L’Agent télécharge et remplace la nouvelle version.', waiting: 'En attente du résultat de l’Agent.', succeeded: 'L’Agent est passé de {currentVersion} à {targetVersion}.', failed: 'La mise à jour de l’Agent n’est pas terminée.' },
+      events: { created: 'Tâche créée', claimed: 'Tâche attribuée', started: 'Lecture du statut démarrée', progress: 'Statut mis à jour', waiting_result: 'En attente du résultat', succeeded: 'Mise à jour réussie', failed: 'Échec de la mise à jour', retry_scheduled: 'En attente de la prochaine vérification', cancelled: 'Tâche annulée' },
+    },
     pluginRefresh: {
       subtitle: 'Tâche de maintenance du catalogue des plugins',
       overview: { kicker: 'Résultat de la mise à jour', description: '{scope} a été actualisé et les références de plugins ont été synchronisées avec les nœuds disponibles.' },
@@ -974,7 +982,7 @@ export default {
     standardFields: {
       connectionAddress: 'Adresse de connexion', connectionPort: 'Port de connexion', basePath: 'Chemin de base', timeoutSeconds: 'Délai en secondes', gateway: 'Gateway d’exécution',
       authenticationMode: 'Mode d’authentification', credential: 'Identifiant de gestion de l’appareil', username: 'Nom d’utilisateur', passwordSecret: 'SecretRef du mot de passe', apiTokenSecret: 'SecretRef du jeton API', clientCertificate: 'Certificat client',
-      tlsEnabled: 'Activer TLS', tlsVerifyPeer: 'Vérifier le certificat serveur', tlsServerName: 'Nom du serveur TLS', caSecret: 'SecretRef de l’AC', tlsMinimumVersion: 'Version TLS minimale',
+      tlsEnabled: 'Activer HTTPS', tlsVerifyPeer: 'Vérifier le certificat serveur', tlsIgnoreCertificateErrors: 'Ignorer les erreurs de certificat', tlsServerName: 'Nom du serveur TLS', caSecret: 'SecretRef de l’AC', tlsMinimumVersion: 'Version TLS minimale',
       deviceDisplayName: 'Nom d’affichage de l’appareil', deviceDescription: 'Description de l’appareil', deviceTags: 'Étiquettes de l’appareil', targetName: 'Nom de la cible', targetLabels: 'Étiquettes de la cible'
     },
     forms: { loadOptions: 'Charger les options', previewTitle: 'Formulaire de configuration du plug-in', loading: 'Chargement du formulaire...', loadFailed: 'Échec du chargement du formulaire', empty: 'Ce plug-in ne déclare aucun formulaire de configuration.' },

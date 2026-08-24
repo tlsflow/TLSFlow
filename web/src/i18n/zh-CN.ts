@@ -448,6 +448,14 @@ export default {
     actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页', forceCancel: '强制结束', forceCancelConfirm: '确定要强制结束此任务吗？正在进行的远端动作可能仍需人工确认。', forceCancelReason: '操作员从全局任务中强制结束' },
     messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。', forceCancelFailed: '强制结束任务失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
+    agentUpdate: {
+      title: 'Agent 升级进度', timelineTitle: '升级过程',
+      fields: { target: '目标主机', currentVersion: '当前版本', targetVersion: '目标版本', phase: '当前阶段', planId: '升级计划', transactionId: '升级事务' },
+      values: { unknown: '未知' },
+      phases: { queued: '已排队', dispatching: '发送授权中', accepted: 'Agent 已接受', upgrading: '正在升级', status_checking: '正在读取结果', succeeded: '已完成', failed: '未完成', rolled_back: '已回滚', manual_required: '需要人工处理', unknown: '未知' },
+      summary: { queued: '升级任务已排队。', dispatching: '正在发送升级授权。', accepted: 'Agent 已接受升级，等待本地执行。', upgrading: 'Agent 正在下载、替换并检查版本。', waiting: '正在等待 Agent 返回结果。', succeeded: 'Agent 已从 {currentVersion} 升级到 {targetVersion}。', failed: 'Agent 升级未完成。' },
+      events: { created: '任务已创建', claimed: '任务已分配', started: '开始查询升级状态', progress: '升级状态已更新', waiting_result: '等待升级结果', succeeded: '升级成功', failed: '升级失败', retry_scheduled: '等待再次查询', cancelled: '任务已取消' },
+    },
     pluginRefresh: {
       subtitle: '插件目录维护任务',
       overview: { kicker: '刷新结果', description: '本次操作刷新了 {scope}，并将最新插件引用同步到可用运行节点。' },
@@ -996,7 +1004,7 @@ export default {
     standardFields: {
       connectionAddress: '连接地址', connectionPort: '连接端口', basePath: '基础路径', timeoutSeconds: '超时秒数', gateway: '执行 Gateway',
       authenticationMode: '认证方式', credential: '设备管理凭据', username: '用户名', passwordSecret: '密码 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '客户端证书',
-      tlsEnabled: '启用 TLS', tlsVerifyPeer: '验证服务端证书', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
+      tlsEnabled: '启用 HTTPS', tlsVerifyPeer: '验证服务端证书', tlsIgnoreCertificateErrors: '忽略证书错误', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
       deviceDisplayName: '设备显示名称', deviceDescription: '设备说明', deviceTags: '设备标签', targetName: '目标名称', targetLabels: '目标标签'
     },
     forms: { loadOptions: '加载选项', previewTitle: '插件配置表单', loading: '正在加载插件表单...', loadFailed: '插件表单加载失败', empty: '此插件未声明配置表单。' },

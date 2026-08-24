@@ -2,7 +2,20 @@ import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core
 
 export type AgentTaskStatus = 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
 export type EnrollmentTokenStatus = 'active' | 'expired' | 'exhausted' | 'revoked';
-export type AgentUpgradeStatus = 'planned' | 'accepted' | 'succeeded' | 'failed' | 'rolled_back';
+export type AgentUpgradeStatus =
+  | 'planned'
+  | 'approved'
+  | 'dispatching'
+  | 'accepted'
+  | 'running'
+  | 'retrying'
+  | 'transport_failed'
+  | 'succeeded'
+  | 'failed'
+  | 'rolled_back'
+  | 'rejected'
+  | 'unknown'
+  | 'manual_required';
 export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejected' | 'superseded';
 export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
 export type AgentInstallSessionPlatform = 'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd';
@@ -250,6 +263,12 @@ export interface AgentVersionRelease {
   version: string;
   platform: string;
   arch?: string;
+  /** UpgradeEnvelope 使用的稳定产品线标识；旧 Release 没有时按 Agent 注册事实推导。 */
+  productLine?: 'windows-go-full' | 'linux-go-full' | 'windows-compat-full' | 'gateway' | 'ca-node';
+  /** 制品签名使用的独立 keyId；旧字段 signature 仍保留作为签名值兼容。 */
+  signatureKeyId?: string;
+  artifactSignature?: string;
+  artifactSize?: number;
   minCompatibilityLevel?: string;
   downloadUrl: string;
   checksumSha256: string;
@@ -266,7 +285,15 @@ export interface AgentUpgradePlan {
   tenantId: string;
   agentId: string;
   releaseId: string;
+  transactionId?: string;
+  releaseDigest?: string;
+  currentVersion?: string;
   targetVersion: string;
+  idempotencyKey?: string;
+  actorId?: string;
+  approvalRef?: string;
+  policyRef?: string;
+  attempt?: number;
   status: AgentUpgradeStatus;
   reason: string;
   createdAt: string;

@@ -448,6 +448,14 @@ export default {
     actions: { backToList: 'Back to task list', viewAll: 'View all tasks', viewRawLogs: 'View raw logs', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page', forceCancel: 'Force stop', forceCancelConfirm: 'Force stop this task? A remote action already in progress may still require manual verification.', forceCancelReason: 'Force stopped by an operator from global tasks' },
     messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.', forceCancelFailed: 'Failed to force stop the task.' },
     values: { system: 'System', empty: 'No records', none: 'None' },
+    agentUpdate: {
+      title: 'Agent upgrade progress', timelineTitle: 'Upgrade progress',
+      fields: { target: 'Target host', currentVersion: 'Current version', targetVersion: 'Target version', phase: 'Current phase', planId: 'Upgrade plan', transactionId: 'Upgrade transaction' },
+      values: { unknown: 'Unknown' },
+      phases: { queued: 'Queued', dispatching: 'Sending authorization', accepted: 'Agent accepted', upgrading: 'Upgrading', status_checking: 'Reading result', succeeded: 'Completed', failed: 'Not completed', rolled_back: 'Rolled back', manual_required: 'Manual action required', unknown: 'Unknown' },
+      summary: { queued: 'The upgrade task is queued.', dispatching: 'Sending the upgrade authorization.', accepted: 'The Agent accepted the upgrade and is waiting for local execution.', upgrading: 'The Agent is downloading, replacing, and checking the new version.', waiting: 'Waiting for the Agent to return the result.', succeeded: 'The Agent upgraded from {currentVersion} to {targetVersion}.', failed: 'The Agent upgrade did not complete.' },
+      events: { created: 'Task created', claimed: 'Task assigned', started: 'Started reading upgrade status', progress: 'Upgrade status updated', waiting_result: 'Waiting for upgrade result', succeeded: 'Upgrade succeeded', failed: 'Upgrade failed', retry_scheduled: 'Waiting for the next status check', cancelled: 'Task cancelled' },
+    },
     pluginRefresh: {
       subtitle: 'Plugin catalog maintenance task',
       overview: { kicker: 'Refresh result', description: 'This operation refreshed {scope} and synchronized the latest plugin references to available runtime nodes.' },
@@ -996,7 +1004,7 @@ export default {
     standardFields: {
       connectionAddress: 'Connection address', connectionPort: 'Connection port', basePath: 'Base path', timeoutSeconds: 'Timeout seconds', gateway: 'Execution gateway',
       authenticationMode: 'Authentication mode', credential: 'Credential', username: 'Username', passwordSecret: 'Password SecretRef', apiTokenSecret: 'API token SecretRef', clientCertificate: 'Client certificate',
-      tlsEnabled: 'Enable TLS', tlsVerifyPeer: 'Verify server certificate', tlsServerName: 'TLS server name', caSecret: 'CA SecretRef', tlsMinimumVersion: 'Minimum TLS version',
+      tlsEnabled: 'Enable HTTPS', tlsVerifyPeer: 'Verify server certificate', tlsIgnoreCertificateErrors: 'Ignore certificate errors', tlsServerName: 'TLS server name', caSecret: 'CA SecretRef', tlsMinimumVersion: 'Minimum TLS version',
       deviceDisplayName: 'Device display name', deviceDescription: 'Device description', deviceTags: 'Device tags', targetName: 'Target name', targetLabels: 'Target labels'
     },
     forms: { loadOptions: 'Load options', previewTitle: 'Plugin configuration form', loading: 'Loading plugin form...', loadFailed: 'Failed to load plugin form', empty: 'This plugin does not declare a configuration form.' },

@@ -23,6 +23,7 @@ import {
   signPolicyPayload,
   type AgentLocalPolicyV1,
   type PolicyAuthorityKeySetV1,
+  validateAgentLocalPolicy,
 } from './agent-security.contract.js';
 import {
   FilePolicyAuthorityStateStoreV1,
@@ -36,6 +37,7 @@ import {
 } from './policy-authority.service.js';
 import type {
   UnifiedAgentPlanAuthorizationDependenciesV1,
+  UnifiedAgentPlanGrantPortV1,
   UnifiedAgentPlanLocalPolicyPortV1,
   UnifiedAgentPlanPolicyAuthorityPortV1,
 } from '../../plugins/application/unified-agent-plan-authorization.port.js';
@@ -53,6 +55,28 @@ const discoveryPolicyRef = 'gcac.agent.discovery';
 const discoveryPolicyVersion = '1';
 const discoveryCapability = 'application.discover';
 const discoveryActions = Object.freeze(['filesystem.read', 'process.list', 'service.list']);
+const executionPolicyFileVersion = 'gcac.local-agent-execution-policy/v1' as const;
+const executionPolicyFileName = 'execution-policy.json';
+
+interface LocalExecutionBindingV1 {
+  tenantId: string;
+  agentId: string;
+  pluginId: string;
+  pluginVersionId: string;
+  capability: string;
+  policyRef: string;
+  policyVersion: string;
+  actions: string[];
+  allowedPaths: string[];
+  allowedServices: string[];
+  artifactDigests: string[];
+  commandRules: AgentLocalPolicyV1['commandRules'];
+}
+
+interface LocalExecutionPolicyFileV1 {
+  version: typeof executionPolicyFileVersion;
+  bindings: LocalExecutionBindingV1[];
+}
 
 interface LocalAuthorityMaterialFileV1 {
   version: typeof localAuthorityFileVersion;
@@ -103,6 +127,7 @@ export interface LocalAgentAuthorizationServicesV1 {
  */
 export function createLocalAgentAuthorizationServicesV1(
   environment: NodeJS.ProcessEnv = process.env,
+  options: { grants?: UnifiedAgentPlanGrantPortV1 } = {},
 ): LocalAgentAuthorizationServicesV1 | undefined {
   if (environment.NODE_ENV === 'production') return undefined;
   const directory = environment.GCAC_LOCAL_AGENT_AUTHORITY_DIR?.trim();
@@ -120,6 +145,7 @@ export function createLocalAgentAuthorizationServicesV1(
   const keySet = createKeySet(material, signingPublicKey);
   const keySetEnvelope = signKeySet(trustRoot, keySet, rootPrivateKey);
   const bootstrap = signBootstrap(trustRoot, rootPrivateKey, material.createdAt);
+  const executionPolicy = loadExecutionPolicy(resolve(directory));
   const state = ensureAuthorityState(resolve(directory, 'state.json'));
   const authority = new PolicyAuthorityServiceV1({
     trustRoot,
@@ -129,7 +155,7 @@ export function createLocalAgentAuthorizationServicesV1(
       getPrivateKey: (keyId) => keyId === material.signingKeyId ? signingPrivateKey : undefined,
     },
     evaluator: {
-      evaluate: (input) => evaluateDiscoveryRequest(input),
+      evaluate: (input) => evaluateRequest(input, executionPolicy),
     },
     revocations: state,
     nonceStore: state,
@@ -142,7 +168,7 @@ export function createLocalAgentAuthorizationServicesV1(
     issueAuthorization: (request) => authority.issueAuthorization(request),
   };
   const localPolicy: UnifiedAgentPlanLocalPolicyPortV1 = {
-    resolve: async ({ agentId }) => createLocalPolicy(agentId, material.signingKeyId, LINUX_WEB_DISCOVERY_PATHS),
+    resolve: async ({ agentId, tenantId }) => createContextLocalPolicy(agentId, tenantId, material.signingKeyId, executionPolicy),
   };
   const trustMaterialIssuer: AgentTrustMaterialIssuer = {
     issue: async ({ tenantId, agentId, osType }) => createAgentTrustMaterial(
@@ -155,7 +181,7 @@ export function createLocalAgentAuthorizationServicesV1(
       rootPrivateKey,
       trustRoot,
       keySet,
-      osType?.toLowerCase().includes('windows') ? WINDOWS_WEB_DISCOVERY_PATHS : LINUX_WEB_DISCOVERY_PATHS,
+      executionPolicy,
     ),
     getTrustedKeySet: () => Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)])),
   };
@@ -163,8 +189,9 @@ export function createLocalAgentAuthorizationServicesV1(
     authorization: {
       policyAuthority,
       grants: {
-        // 手动发现不编译写 Plan；该端口保留失败关闭，防止本机 Authority 被错误复用。
-        validate: async () => {
+        // 没有显式执行策略时，开发 Authority 仍然只允许发现；写操作保持失败关闭。
+        validate: async (input: Parameters<UnifiedAgentPlanGrantPortV1['validate']>[0]) => {
+          if (executionPolicy && options.grants) return options.grants.validate(input);
           throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '本机 Agent Authority 不签发执行 Grant', { fallback: false });
         },
       },
@@ -324,6 +351,36 @@ function evaluateDiscoveryRequest(input: PolicyAuthorityEvaluationInputV1): Poli
   };
 }
 
+function evaluateRequest(
+  input: PolicyAuthorityEvaluationInputV1,
+  executionPolicy: LocalExecutionPolicyFileV1 | undefined,
+): PolicyAuthorityEvaluationV1 {
+  const discovery = evaluateDiscoveryRequest(input);
+  if (discovery.allowed) return discovery;
+  const binding = executionPolicy?.bindings.find((candidate) => candidate.tenantId === input.tenantId
+    && candidate.agentId === input.agentId
+    && candidate.pluginId === input.pluginId
+    && candidate.pluginVersionId === input.pluginVersionId
+    && candidate.capability === input.capability
+    && candidate.policyRef === input.policyRef
+    && candidate.policyVersion === input.policyVersion);
+  const allowed = binding !== undefined
+    && isSubset(input.actions, binding.actions)
+    && input.allowedPaths.every((path) => isPathWithin(path, binding.allowedPaths))
+    && isSubset(input.allowedServices, binding.allowedServices)
+    && isSubset(input.artifactDigests, binding.artifactDigests);
+  return {
+    allowed,
+    actions: [...input.actions],
+    allowedPaths: [...input.allowedPaths],
+    allowedServices: [...input.allowedServices],
+    artifactDigests: [...input.artifactDigests],
+    policyRef: input.policyRef,
+    policyVersion: input.policyVersion,
+    ...(allowed ? {} : { reason: '本机执行策略未精确匹配当前租户、Agent、插件版本或请求范围' }),
+  };
+}
+
 function createAgentTrustMaterial(
   agentId: string,
   tenantId: string,
@@ -334,9 +391,9 @@ function createAgentTrustMaterial(
   rootPrivateKey: KeyObject,
   trustRoot: PolicyAuthorityTrustRootV1,
   keySet: PolicyAuthorityKeySetV1,
-  allowedPaths: readonly string[],
+  executionPolicy: LocalExecutionPolicyFileV1 | undefined,
 ): AgentTrustMaterialV1 {
-  const policy = createLocalPolicy(agentId, signingKeyId, allowedPaths);
+  const policy = createContextLocalPolicy(agentId, tenantId, signingKeyId, executionPolicy, osType);
   const keyMap = Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)]));
   const issuedAt = new Date().toISOString();
   const compatibility = WINDOWS_OS_TYPES.has(osType?.toLowerCase().split(/[-_]/u)[0] ?? '');
@@ -384,6 +441,115 @@ function createLocalPolicy(agentId: string, signingKeyId: string, allowedPaths: 
     disabled: false,
     updatedAt: new Date().toISOString(),
   };
+}
+
+function createContextLocalPolicy(
+  agentId: string,
+  tenantId: string,
+  signingKeyId: string,
+  executionPolicy: LocalExecutionPolicyFileV1 | undefined,
+  osType?: string,
+): AgentLocalPolicyV1 {
+  const bindings = executionPolicy?.bindings.filter((binding) => binding.tenantId === tenantId && binding.agentId === agentId) ?? [];
+  if (bindings.length === 0) {
+    const discoveryPaths = osType?.toLowerCase().includes('windows') ? WINDOWS_WEB_DISCOVERY_PATHS : LINUX_WEB_DISCOVERY_PATHS;
+    return createLocalPolicy(agentId, signingKeyId, discoveryPaths);
+  }
+  const actions = [...new Set([...discoveryActions, ...bindings.flatMap((binding) => binding.actions)])];
+  const paths = [...new Set(bindings.flatMap((binding) => binding.allowedPaths))];
+  const pathOperations = [...new Set(bindings.flatMap((binding) => binding.actions))];
+  const commandRules = bindings.flatMap((binding) => binding.commandRules);
+  return validateAgentLocalPolicy({
+    policyVersion: agentSecurityContractVersion,
+    agentId,
+    authorityKeyIds: [signingKeyId],
+    allowedActions: actions,
+    pathRules: paths.map((prefix) => ({ prefix, operations: pathOperations })),
+    serviceRules: [...new Set(bindings.flatMap((binding) => binding.allowedServices))],
+    commandRules,
+    disabled: false,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function loadExecutionPolicy(directory: string): LocalExecutionPolicyFileV1 | undefined {
+  const filePath = resolve(directory, executionPolicyFileName);
+  if (!existsSync(filePath)) return undefined;
+  const value = readJson(filePath);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) unavailable('本机执行策略文件必须是对象');
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !['version', 'bindings'].includes(key))
+    || record.version !== executionPolicyFileVersion
+    || !Array.isArray(record.bindings)
+    || record.bindings.length === 0
+    || record.bindings.length > 100) {
+    unavailable(`本机执行策略文件无效：${filePath}`);
+  }
+  const bindings = record.bindings.map((item, index) => parseExecutionBinding(item, `bindings.${index}`));
+  const identities = bindings.map((binding) => `${binding.tenantId}:${binding.agentId}:${binding.pluginVersionId}:${binding.capability}`);
+  if (new Set(identities).size !== identities.length) unavailable('本机执行策略包含重复绑定');
+  return { version: executionPolicyFileVersion, bindings };
+}
+
+function parseExecutionBinding(value: unknown, path: string): LocalExecutionBindingV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) unavailable(`${path} 必须是对象`);
+  const record = value as Record<string, unknown>;
+  const required = ['tenantId', 'agentId', 'pluginId', 'pluginVersionId', 'capability', 'policyRef', 'policyVersion', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests', 'commandRules'];
+  if (Object.keys(record).some((key) => !required.includes(key))
+    || required.some((key) => record[key] === undefined)) unavailable(`${path} 字段不完整`);
+  const strings = (key: string): string[] => {
+    const candidate = record[key];
+    if (!Array.isArray(candidate) || candidate.some((item) => typeof item !== 'string' || !item.trim())) unavailable(`${path}.${key} 必须是非空字符串数组`);
+    return [...new Set(candidate as string[])];
+  };
+  const text = (key: string): string => {
+    const candidate = record[key];
+    if (typeof candidate !== 'string' || !candidate.trim()) unavailable(`${path}.${key} 无效`);
+    return candidate;
+  };
+  const binding: LocalExecutionBindingV1 = {
+    tenantId: text('tenantId'),
+    agentId: text('agentId'),
+    pluginId: text('pluginId'),
+    pluginVersionId: text('pluginVersionId'),
+    capability: text('capability'),
+    policyRef: text('policyRef'),
+    policyVersion: text('policyVersion'),
+    actions: strings('actions'),
+    allowedPaths: strings('allowedPaths'),
+    allowedServices: strings('allowedServices'),
+    artifactDigests: strings('artifactDigests'),
+    commandRules: Array.isArray(record.commandRules) ? record.commandRules as AgentLocalPolicyV1['commandRules'] : [],
+  };
+  // 通过统一本地策略合同校验路径、动作、命令和摘要格式，拒绝拼接式旁路配置。
+  const validatedPolicy = validateAgentLocalPolicy({
+    policyVersion: agentSecurityContractVersion,
+    agentId: binding.agentId,
+    authorityKeyIds: ['local-execution-policy-key'],
+    allowedActions: binding.actions,
+    pathRules: binding.allowedPaths.map((prefix) => ({ prefix, operations: binding.actions })),
+    serviceRules: binding.allowedServices,
+    commandRules: binding.commandRules,
+    disabled: false,
+    updatedAt: new Date().toISOString(),
+  });
+  return {
+    ...binding,
+    allowedPaths: validatedPolicy.pathRules.map((rule) => rule.prefix),
+    commandRules: validatedPolicy.commandRules,
+  };
+}
+
+function isSubset(values: readonly string[], allowed: readonly string[]): boolean {
+  return values.every((value) => allowed.includes(value));
+}
+
+function isPathWithin(value: string, prefixes: readonly string[]): boolean {
+  const normalized = value.replaceAll('/', '\\').toLowerCase().replace(/[\\]+$/u, '');
+  return prefixes.some((prefix) => {
+    const root = prefix.replaceAll('/', '\\').toLowerCase().replace(/[\\]+$/u, '');
+    return normalized === root || normalized.startsWith(`${root}\\`);
+  });
 }
 
 function rawEd25519PublicKey(publicKeyPem: string): string {

@@ -32,11 +32,17 @@ export interface TaskExecutionCancellationHandler {
   cancelRun(runId: string, actorId: string, tenantId: string): Promise<unknown>;
 }
 
+/** 中文说明：强制结束 Agent 升级任务时，把对应 UpgradePlan 收敛到人工处置，避免留下活动计划。 */
+export interface AgentUpgradeCancellationHandler {
+  cancelUpgrade(tenantId: string, agentId: string, planId: string, actorId: string, reason?: string): Promise<unknown>;
+}
+
 export class TasksApplicationService {
   readonly registry: TaskRegistry;
   private lifecycle: TaskControlPlaneLifecycle = { status: 'MIGRATION_PENDING' };
   private initializationPromise?: Promise<void>;
   private executionCancellationHandler?: TaskExecutionCancellationHandler;
+  private agentUpgradeCancellationHandler?: AgentUpgradeCancellationHandler;
 
   constructor(
     private readonly repository: TaskRepository,
@@ -56,6 +62,11 @@ export class TasksApplicationService {
   /** 中文说明：强制结束统一任务时同步收敛关联执行运行，避免留下 RUNNING 孤儿。 */
   setExecutionCancellationHandler(handler: TaskExecutionCancellationHandler): void {
     this.executionCancellationHandler = handler;
+  }
+
+  /** 中文说明：全局任务只是升级过程的观察者，强制结束时必须同步记录人工接管事实。 */
+  setAgentUpgradeCancellationHandler(handler: AgentUpgradeCancellationHandler): void {
+    this.agentUpgradeCancellationHandler = handler;
   }
 
   async initialize(): Promise<void> {
@@ -207,6 +218,7 @@ export class TasksApplicationService {
       const current = await this.repository.getById(tenantId, id);
       const task = await this.repository.forceCancel(tenantId, id, actorId, reason);
       await this.cancelLinkedExecution(current ?? task, actorId ?? 'system');
+      await this.cancelLinkedAgentUpgrade(current ?? task, actorId ?? 'system', reason);
       if (shouldWriteTaskAudit(task)) {
         await this.audit?.write({
           eventType: 'task.cancelled',
@@ -370,6 +382,24 @@ export class TasksApplicationService {
       }, { module: 'task-control-plane', resourceType: 'task', resourceId: task.id, tenantId: task.tenantId });
     }
   }
+
+  private async cancelLinkedAgentUpgrade(task: TaskRun, actorId: string, reason?: string): Promise<void> {
+    if (!this.agentUpgradeCancellationHandler || task.taskType !== 'AGENT_UPDATE') return;
+    const agentId = readAgentId(task.payload) ?? readAgentId(task.resourceSummary);
+    const planId = readPlanId(task.payload) ?? readPlanId(task.resourceSummary);
+    if (!agentId || !planId) return;
+    try {
+      await this.agentUpgradeCancellationHandler.cancelUpgrade(task.tenantId, agentId, planId, actorId, reason);
+    } catch (error) {
+      // 中文说明：任务已经结束，不能因为升级计划投影失败而把强制结束接口变成 500；保留日志供人工处置。
+      structuredLogger.warn('强制结束 Agent 升级任务后收敛升级计划失败', {
+        taskId: task.id,
+        agentId,
+        planId,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'task-control-plane', resourceType: 'task', resourceId: task.id, tenantId: task.tenantId });
+    }
+  }
 }
 
 /**
@@ -383,4 +413,14 @@ function shouldWriteTaskAudit(task: Pick<TaskRun, 'category'>): boolean {
 function readRunId(value: Record<string, unknown> | undefined): string | undefined {
   const runId = value?.runId;
   return typeof runId === 'string' && runId.trim() ? runId.trim() : undefined;
+}
+
+function readAgentId(value: Record<string, unknown> | undefined): string | undefined {
+  const agentId = value?.agentId;
+  return typeof agentId === 'string' && agentId.trim() ? agentId.trim() : undefined;
+}
+
+function readPlanId(value: Record<string, unknown> | undefined): string | undefined {
+  const planId = value?.planId;
+  return typeof planId === 'string' && planId.trim() ? planId.trim() : undefined;
 }

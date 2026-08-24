@@ -306,7 +306,7 @@ func atomicWriteJSON(path string, value any) error {
 	if err := os.WriteFile(tmpPath, append(content, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	return replaceAtomicFile(tmpPath, path)
 }
 
 func fingerprintTaskPayload(task agentTaskEnvelope) string {

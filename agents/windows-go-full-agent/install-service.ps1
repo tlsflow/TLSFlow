@@ -174,6 +174,7 @@ function Assert-ServiceRegistration {
 $sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $binarySource = Join-Path $sourceRoot "gcac-agent.exe"
 $runtimeDiscoveryPluginSource = Join-Path $sourceRoot "plugins\windows-runtime-discovery.exe"
+$updaterSource = Join-Path $sourceRoot "gcac-agent-updater.exe"
 $configTemplate = Join-Path $sourceRoot "config\agent.config.template.json"
 $metadataPath = Join-Path (Split-Path -Parent $ConfigDir) "service.install.json"
 
@@ -183,6 +184,10 @@ if (-not (Test-Path -LiteralPath $binarySource)) {
 
 if (-not (Test-Path -LiteralPath $runtimeDiscoveryPluginSource)) {
   throw "Windows Agent-side runtime discovery plugin not found: $runtimeDiscoveryPluginSource"
+}
+
+if (-not (Test-Path -LiteralPath $updaterSource)) {
+  throw "Windows Agent updater not found: $updaterSource"
 }
 
 if (-not (Test-Path -LiteralPath $configTemplate)) {
@@ -201,6 +206,7 @@ New-Item -ItemType Directory -Force -Path $InstallRoot, (Join-Path $InstallRoot 
 
 $binaryTarget = Join-Path $InstallRoot "gcac-agent.exe"
 $runtimeDiscoveryPluginTarget = Join-Path $InstallRoot "plugins\windows-runtime-discovery.exe"
+$updaterTarget = Join-Path $InstallRoot "gcac-agent-updater.exe"
 $configTarget = Join-Path $ConfigDir "agent.config.json"
 
 if (Test-Path -LiteralPath $binaryTarget) {
@@ -209,6 +215,7 @@ if (Test-Path -LiteralPath $binaryTarget) {
 
 Copy-Item -LiteralPath $binarySource -Destination $binaryTarget -Force
 Copy-Item -LiteralPath $runtimeDiscoveryPluginSource -Destination $runtimeDiscoveryPluginTarget -Force
+Copy-Item -LiteralPath $updaterSource -Destination $updaterTarget -Force
 if (-not (Test-Path -LiteralPath $configTarget)) {
   Copy-Item -LiteralPath $configTemplate -Destination $configTarget -Force
 }

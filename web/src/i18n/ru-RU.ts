@@ -453,6 +453,14 @@ export default {
     actions: { backToList: 'Вернуться к списку', viewAll: 'Посмотреть все задачи', viewRawLogs: 'Показать исходные журналы', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница', forceCancel: 'Принудительно остановить', forceCancelConfirm: 'Принудительно остановить эту задачу? Для уже выполняющегося удалённого действия может потребоваться ручная проверка.', forceCancelReason: 'Принудительно остановлено оператором из глобальных задач' },
     messages: { loadFailed: 'Не удалось загрузить задачи.', detailFailed: 'Не удалось загрузить сведения о задаче.', forceCancelFailed: 'Не удалось принудительно остановить задачу.' },
     values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
+    agentUpdate: {
+      title: 'Прогресс обновления Agent', timelineTitle: 'Ход обновления',
+      fields: { target: 'Целевой хост', currentVersion: 'Текущая версия', targetVersion: 'Целевая версия', phase: 'Текущий этап', planId: 'План обновления', transactionId: 'Транзакция обновления' },
+      values: { unknown: 'Неизвестно' },
+      phases: { queued: 'В очереди', dispatching: 'Отправка авторизации', accepted: 'Agent принял запрос', upgrading: 'Обновление', status_checking: 'Проверка результата', succeeded: 'Завершено', failed: 'Не завершено', rolled_back: 'Откат выполнен', manual_required: 'Требуется ручное действие', unknown: 'Неизвестно' },
+      summary: { queued: 'Задача обновления поставлена в очередь.', dispatching: 'Отправляется авторизация обновления.', accepted: 'Agent принял обновление и ожидает локального запуска.', upgrading: 'Agent загружает и заменяет новую версию.', waiting: 'Ожидание результата от Agent.', succeeded: 'Agent обновлён с {currentVersion} до {targetVersion}.', failed: 'Обновление Agent не завершено.' },
+      events: { created: 'Задача создана', claimed: 'Задача назначена', started: 'Проверка статуса обновления начата', progress: 'Статус обновления изменён', waiting_result: 'Ожидание результата обновления', succeeded: 'Обновление успешно', failed: 'Ошибка обновления', retry_scheduled: 'Ожидание следующей проверки', cancelled: 'Задача отменена' },
+    },
     pluginRefresh: {
       subtitle: 'Задача обслуживания каталога плагинов',
       overview: { kicker: 'Результат обновления', description: '{scope} обновлён, а последние ссылки на плагины синхронизированы с доступными узлами.' },
@@ -952,7 +960,7 @@ export default {
     standardFields: {
       connectionAddress: 'Адрес подключения', connectionPort: 'Порт подключения', basePath: 'Базовый путь', timeoutSeconds: 'Тайм-аут в секундах', gateway: 'Gateway выполнения',
       authenticationMode: 'Способ аутентификации', credential: 'Учетные данные управления устройством', username: 'Имя пользователя', passwordSecret: 'SecretRef пароля', apiTokenSecret: 'SecretRef API-токена', clientCertificate: 'Клиентский сертификат',
-      tlsEnabled: 'Включить TLS', tlsVerifyPeer: 'Проверять сертификат сервера', tlsServerName: 'Имя сервера TLS', caSecret: 'SecretRef центра сертификации', tlsMinimumVersion: 'Минимальная версия TLS',
+      tlsEnabled: 'Включить HTTPS', tlsVerifyPeer: 'Проверять сертификат сервера', tlsIgnoreCertificateErrors: 'Игнорировать ошибки сертификата', tlsServerName: 'Имя сервера TLS', caSecret: 'SecretRef центра сертификации', tlsMinimumVersion: 'Минимальная версия TLS',
       deviceDisplayName: 'Отображаемое имя устройства', deviceDescription: 'Описание устройства', deviceTags: 'Теги устройства', targetName: 'Имя цели', targetLabels: 'Метки цели'
     },
     forms: { loadOptions: 'Загрузить варианты', previewTitle: 'Форма настройки плагина', loading: 'Загрузка формы плагина...', loadFailed: 'Не удалось загрузить форму плагина', empty: 'Плагин не объявляет форму настройки.' },

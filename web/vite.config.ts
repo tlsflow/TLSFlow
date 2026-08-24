@@ -43,6 +43,10 @@ export default defineConfig(({ mode }) => {
           target: 'http://127.0.0.1:3003',
           changeOrigin: true
         },
+        '/agent-releases': {
+          target: 'http://127.0.0.1:3003',
+          changeOrigin: true
+        },
         '/tls-inspector': {
           target: 'http://127.0.0.1:8788',
           changeOrigin: true,

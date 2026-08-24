@@ -452,6 +452,14 @@ export default {
     actions: { backToList: "返回任務列表", viewAll: "查看所有任務", viewRawLogs: "查看原始日誌", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁", forceCancel: "強制結束", forceCancelConfirm: "確定要強制結束此任務嗎？正在進行的遠端動作可能仍需人工確認。", forceCancelReason: "由操作員從全域任務強制結束" },
     messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。", forceCancelFailed: "強制結束任務失敗。" },
     values: { system: "系統", empty: "暫無記錄", none: "無" },
+    agentUpdate: {
+      title: 'Agent 升級進度', timelineTitle: '升級過程',
+      fields: { target: '目標主機', currentVersion: '目前版本', targetVersion: '目標版本', phase: '目前階段', planId: '升級計畫', transactionId: '升級交易' },
+      values: { unknown: '未知' },
+      phases: { queued: '已排隊', dispatching: '傳送授權中', accepted: 'Agent 已接受', upgrading: '升級中', status_checking: '讀取結果中', succeeded: '已完成', failed: '未完成', rolled_back: '已回滾', manual_required: '需要人工處理', unknown: '未知' },
+      summary: { queued: '升級任務已排隊。', dispatching: '正在傳送升級授權。', accepted: 'Agent 已接受升級，等待本機執行。', upgrading: 'Agent 正在下載並替換版本。', waiting: '正在等待 Agent 回傳結果。', succeeded: 'Agent 已從 {currentVersion} 升級到 {targetVersion}。', failed: 'Agent 升級未完成。' },
+      events: { created: '任務已建立', claimed: '任務已指派', started: '開始查詢升級狀態', progress: '升級狀態已更新', waiting_result: '等待升級結果', succeeded: '升級成功', failed: '升級失敗', retry_scheduled: '等待下一次查詢', cancelled: '任務已取消' },
+    },
     pluginRefresh: {
       subtitle: "外掛目錄維護任務",
       overview: { kicker: "刷新結果", description: "本次操作刷新了 {scope}，並將最新外掛引用同步至可用執行節點。" },
@@ -977,7 +985,7 @@ export default {
     standardFields: {
       connectionAddress: '連線位址', connectionPort: '連線連接埠', basePath: '基礎路徑', timeoutSeconds: '逾時秒數', gateway: '執行 Gateway',
       authenticationMode: '驗證方式', credential: '裝置管理憑證', username: '使用者名稱', passwordSecret: '密碼 SecretRef', apiTokenSecret: 'API Token SecretRef', clientCertificate: '用戶端憑證',
-      tlsEnabled: '啟用 TLS', tlsVerifyPeer: '驗證伺服器憑證', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
+      tlsEnabled: '啟用 HTTPS', tlsVerifyPeer: '驗證伺服器憑證', tlsIgnoreCertificateErrors: '忽略憑證錯誤', tlsServerName: 'TLS Server Name', caSecret: 'CA SecretRef', tlsMinimumVersion: '最低 TLS 版本',
       deviceDisplayName: '裝置顯示名稱', deviceDescription: '裝置說明', deviceTags: '裝置標籤', targetName: '目標名稱', targetLabels: '目標標籤'
     },
     forms: { loadOptions: '載入選項', previewTitle: '外掛設定表單', loading: '正在載入外掛表單...', loadFailed: '外掛表單載入失敗', empty: '此外掛未宣告設定表單。' },

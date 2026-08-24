@@ -74,6 +74,33 @@ func TestManagementServerExposesHealthAndDirectDiscoveryOnly(t *testing.T) {
 	}
 }
 
+func TestManagementServerUpgradeRequiresUpgradeHandler(t *testing.T) {
+	port := freeTCPPort(t)
+	config := &AgentConfig{ManagementListenAddress: "127.0.0.1", ManagementPort: port}
+	server, _, err := startManagementServer(config, runtimeIdentity{PrimaryIPAddress: "127.0.0.1"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Shutdown(context.Background())
+
+	client := &http.Client{Timeout: time.Second}
+	var response *http.Response
+	for attempt := 0; attempt < 20; attempt++ {
+		response, err = client.Post(fmt.Sprintf("http://127.0.0.1:%d/api/v1/control/upgrade", port), "application/json", bytes.NewBufferString(`{"schemaVersion":"management.upgrade.v1"}`))
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("未装配升级处理器时必须失败关闭 status=%d", response.StatusCode)
+	}
+}
+
 func TestDirectDiscoveryControllerDoesNotBlockConcurrentScan(t *testing.T) {
 	controller := &directDiscoveryController{}
 	started := make(chan struct{})

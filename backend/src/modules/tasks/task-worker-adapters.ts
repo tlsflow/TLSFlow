@@ -34,7 +34,7 @@ export interface TaskWorkerAdapterDependencies {
   monitors?: Pick<MonitorsApplicationService, 'runMonitorBatch'>;
   notifications?: Pick<NotificationWorker, 'runDelivery' | 'getDelivery'>;
   reports?: Pick<ReportExportService, 'executeTask'>;
-  agents?: Pick<AgentsApplicationService, 'getRepository'>;
+  agents?: Pick<AgentsApplicationService, 'getRepository' | 'getUpgradeStatus'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
 }
 
@@ -140,7 +140,10 @@ export function createTaskExecutorRegistry(
 
   registry.register('agent.install', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'install'));
 
-  registry.register('agent.update', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'update'));
+  registry.register('agent.update', async (task, attempt) => {
+    if (optionalPayloadString(task, 'planId')) return executeAgentUpgradeTask(task, dependencies);
+    return executeAgentEnrollmentTask(task, attempt, dependencies, 'update');
+  });
 
   registry.register('ca.node-task', dependencyExecutor('CA Node 任务', dependencies.internalCa, async (task) => {
     const nodeTaskId = requiredPayloadString(task, 'nodeTaskId');
@@ -319,6 +322,98 @@ async function executeAgentEnrollmentTask(
       ? 'Agent 安装任务缺少 enrollmentTokenId'
       : 'Agent 更新任务缺少 enrollmentTokenId',
   };
+}
+
+async function executeAgentUpgradeTask(
+  task: TaskRun,
+  dependencies: TaskWorkerAdapterDependencies,
+): Promise<TaskExecutionResult> {
+  if (!dependencies.agents?.getUpgradeStatus) {
+    return { success: false, errorCode: 'TASK_EXECUTOR_NOT_CONFIGURED', errorMessage: 'Agent 升级状态查询未接入统一任务控制面' };
+  }
+  const agentId = requiredPayloadString(task, 'agentId');
+  const planId = requiredPayloadString(task, 'planId');
+  const currentVersion = optionalPayloadString(task, 'currentVersion');
+  const targetVersion = optionalPayloadString(task, 'targetVersion');
+  const baseDetail = {
+    agentId,
+    planId,
+    currentVersion,
+      targetVersion,
+      releaseId: optionalPayloadString(task, 'releaseId'),
+      transactionId: optionalPayloadString(task, 'transactionId'),
+  };
+  try {
+    const plan = await dependencies.agents.getUpgradeStatus(task.tenantId, agentId, planId);
+    const receipt = isRecord(plan.result?.receipt) ? plan.result.receipt : undefined;
+    const phase = optionalRecordString(receipt, 'phase') ?? upgradePlanPhase(plan.status);
+    const detail = {
+      ...baseDetail,
+      phase,
+      upgradeStatus: plan.status,
+      summaryCode: upgradePlanSummaryCode(plan.status, phase),
+      ...(receipt ? { receipt } : {}),
+    };
+    if (plan.status === 'succeeded') return { success: true, detail };
+    if (['failed', 'rolled_back', 'rejected', 'manual_required', 'transport_failed'].includes(plan.status)) {
+      return {
+        success: false,
+        retryable: false,
+        errorCode: optionalRecordString(receipt, 'errorCode') ?? plan.status.toUpperCase(),
+        errorMessage: optionalRecordString(receipt, 'errorMessage') ?? plan.reason,
+        detail,
+      };
+    }
+    return {
+      success: false,
+      waitingStatus: 'WAITING_RESULT',
+      retryAfterSeconds: 5,
+      errorCode: 'AGENT_UPDATE_PENDING',
+      detail,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      waitingStatus: 'WAITING_RESULT',
+      retryAfterSeconds: 10,
+      errorCode: 'AGENT_UPDATE_STATUS_PENDING',
+      errorMessage: 'Agent 升级仍在执行，暂时无法读取最终回执',
+      detail: {
+        ...baseDetail,
+        phase: 'status_checking',
+        summaryCode: 'waiting',
+        lastStatusError: errorMessage,
+      },
+    };
+  }
+}
+
+function upgradePlanPhase(status: string): string {
+  if (status === 'planned') return 'queued';
+  if (status === 'dispatching') return 'dispatching';
+  if (status === 'accepted') return 'accepted';
+  if (status === 'running' || status === 'retrying') return 'upgrading';
+  if (status === 'succeeded') return 'succeeded';
+  if (status === 'rolled_back') return 'rolled_back';
+  if (status === 'manual_required') return 'manual_required';
+  if (status === 'failed' || status === 'rejected' || status === 'transport_failed') return 'failed';
+  return 'unknown';
+}
+
+function upgradePlanSummaryCode(status: string, phase: string): string {
+  if (status === 'succeeded') return 'succeeded';
+  if (['failed', 'rolled_back', 'rejected', 'manual_required', 'transport_failed'].includes(status)) return 'failed';
+  if (phase === 'queued') return 'queued';
+  if (phase === 'dispatching') return 'dispatching';
+  if (phase === 'accepted') return 'accepted';
+  if (phase === 'upgrading') return 'upgrading';
+  return 'waiting';
+}
+
+function optionalRecordString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function dependencyExecutor<T>(

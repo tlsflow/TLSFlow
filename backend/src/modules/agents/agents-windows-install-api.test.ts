@@ -58,9 +58,9 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /no rules match\|没有规则匹配\|找不到规则/);
     assert.match(script, /GCAC Go Full Agent Management TCP 18930/);
     assert.match(script, /GCAC Agent Direct Control \(\*\)/);
-	assert.match(script, /authorizationMaterialPath/);
-	assert.match(script, /authorizationTrustKeySet/);
-	assert.match(script, /agent-trust-material\.json/);
+    assert.match(script, /authorizationMaterialPath/);
+    assert.match(script, /authorizationTrustKeySet/);
+    assert.match(script, /agent-trust-material\.json/);
     assert.match(script, /Go Agent policy directory ACL configuration failed/);
     assert.match(script, /S-1-5-18/);
     assert.match(script, /\$pluginSource = Join-Path \$root "plugins\/windows-runtime-discovery\.exe"/);
@@ -79,7 +79,15 @@ describe('Agent 一键安装会话', () => {
   it('Windows Go bootstrap 将安装固定的授权 KeySet 写入 manifest', async () => {
     const authorityDirectory = mkdtempSync(join(tmpdir(), 'gcac-windows-go-authority-'));
     const previous = process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR;
+    const previousUpgradeKeys = process.env.GCAC_AGENT_UPGRADE_TRUST_KEYS_JSON;
+    const previousReleaseKeys = process.env.GCAC_AGENT_RELEASE_TRUST_KEYS_JSON;
     process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR = authorityDirectory;
+    process.env.GCAC_AGENT_UPGRADE_TRUST_KEYS_JSON = JSON.stringify({
+      'upgrade-authority-v1': Buffer.alloc(32, 7).toString('base64'),
+    });
+    process.env.GCAC_AGENT_RELEASE_TRUST_KEYS_JSON = JSON.stringify({
+      'gcac-agent-release-v1': Buffer.alloc(32, 8).toString('base64'),
+    });
     try {
       const app = await createTestApp();
       const session = await app.inject({
@@ -107,9 +115,19 @@ describe('Agent 一键安装会话', () => {
       const keySet = manifest.authorizationTrustKeySet;
       assert.ok(keySet && typeof keySet === 'object' && !Array.isArray(keySet));
       assert.ok(Object.values(keySet).some((value) => typeof value === 'string' && value.length > 0));
+      assert.deepEqual(manifest.upgradeTrustKeySet, {
+        'upgrade-authority-v1': Buffer.alloc(32, 7).toString('base64'),
+      });
+      assert.deepEqual(manifest.releaseTrustKeySet, {
+        'gcac-agent-release-v1': Buffer.alloc(32, 8).toString('base64'),
+      });
     } finally {
       if (previous === undefined) delete process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR;
       else process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR = previous;
+      if (previousUpgradeKeys === undefined) delete process.env.GCAC_AGENT_UPGRADE_TRUST_KEYS_JSON;
+      else process.env.GCAC_AGENT_UPGRADE_TRUST_KEYS_JSON = previousUpgradeKeys;
+      if (previousReleaseKeys === undefined) delete process.env.GCAC_AGENT_RELEASE_TRUST_KEYS_JSON;
+      else process.env.GCAC_AGENT_RELEASE_TRUST_KEYS_JSON = previousReleaseKeys;
       rmSync(authorityDirectory, { recursive: true, force: true });
     }
   });
@@ -309,38 +327,46 @@ function assertWindowsGoBootstrapUsesLatestAmd64Artifact(manifest: Record<string
   const artifacts = manifest.artifacts;
   assert.ok(Array.isArray(artifacts), 'Windows bootstrap 必须包含安装文件');
   const agentArtifact = artifacts.find((artifact): artifact is Record<string, unknown> => {
-    return Boolean(artifact)
-      && typeof artifact === 'object'
-      && (artifact as Record<string, unknown>).path === 'gcac-agent.exe';
+    return Boolean(artifact) && typeof artifact === 'object' && (artifact as Record<string, unknown>).path === 'gcac-agent.exe';
   });
   assert.ok(agentArtifact, 'Windows bootstrap 缺少 Go Agent 可执行文件');
   assert.equal(agentArtifact.encoding, 'base64');
   assert.equal(typeof agentArtifact.content, 'string');
 
-  const expectedPath = resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '../../../../agents/windows-go-full-agent/dist/gcac-agent.windows-amd64.exe',
-  );
+  const expectedPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../agents/windows-go-full-agent/dist/gcac-agent.windows-amd64.exe');
   const expectedHash = createHash('sha256').update(readFileSync(expectedPath)).digest('hex');
-  const actualHash = createHash('sha256').update(Buffer.from(agentArtifact.content as string, 'base64')).digest('hex');
+  const actualHash = createHash('sha256')
+    .update(Buffer.from(agentArtifact.content as string, 'base64'))
+    .digest('hex');
   assert.equal(actualHash, expectedHash, 'Windows bootstrap 必须分发当前 amd64 发布物');
 
   const runtimeDiscoveryArtifact = artifacts.find((artifact): artifact is Record<string, unknown> => {
-    return Boolean(artifact)
-      && typeof artifact === 'object'
-      && (artifact as Record<string, unknown>).path === 'plugins/windows-runtime-discovery.exe';
+    return Boolean(artifact) && typeof artifact === 'object' && (artifact as Record<string, unknown>).path === 'plugins/windows-runtime-discovery.exe';
   });
   assert.ok(runtimeDiscoveryArtifact, 'Windows bootstrap 缺少 runtime discovery Agent-side Plugin');
   assert.equal(runtimeDiscoveryArtifact.encoding, 'base64');
   assert.equal(typeof runtimeDiscoveryArtifact.content, 'string');
 
-  const pluginExpectedPath = resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '../../../../agents/windows-go-full-agent/dist/plugins/windows-runtime-discovery.windows-amd64.exe',
-  );
+  const pluginExpectedPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../agents/windows-go-full-agent/dist/plugins/windows-runtime-discovery.windows-amd64.exe');
   const pluginExpectedHash = createHash('sha256').update(readFileSync(pluginExpectedPath)).digest('hex');
-  const pluginActualHash = createHash('sha256').update(Buffer.from(runtimeDiscoveryArtifact.content as string, 'base64')).digest('hex');
+  const pluginActualHash = createHash('sha256')
+    .update(Buffer.from(runtimeDiscoveryArtifact.content as string, 'base64'))
+    .digest('hex');
   assert.equal(pluginActualHash, pluginExpectedHash, 'Windows bootstrap 必须分发当前 amd64 runtime discovery Plugin');
+
+  const updaterArtifact = artifacts.find((artifact): artifact is Record<string, unknown> => {
+    return Boolean(artifact) && typeof artifact === 'object' && (artifact as Record<string, unknown>).path === 'gcac-agent-updater.exe';
+  });
+  assert.ok(updaterArtifact, 'Windows bootstrap 缺少 Go Agent 升级器');
+  assert.equal(updaterArtifact.encoding, 'base64');
+  assert.equal(typeof updaterArtifact.content, 'string');
+
+  const updaterExpectedPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../agents/windows-go-full-agent/dist/gcac-agent-updater.windows-amd64.exe');
+  const updaterExpectedHash = createHash('sha256').update(readFileSync(updaterExpectedPath)).digest('hex');
+  const updaterActualHash = createHash('sha256')
+    .update(Buffer.from(updaterArtifact.content as string, 'base64'))
+    .digest('hex');
+  assert.equal(updaterActualHash, updaterExpectedHash, 'Windows bootstrap 必须分发当前 amd64 升级器');
 }
 
 async function createTestApp() {
@@ -350,5 +376,8 @@ async function createTestApp() {
 }
 
 function requestHeaders(tenantId: string, requestId: string, extra: Record<string, string> = {}): Record<string, string> {
-  return testAuthHeaders('agent_install_test', tenantId, { 'x-request-id': requestId, ...extra });
+  return testAuthHeaders('agent_install_test', tenantId, {
+    'x-request-id': requestId,
+    ...extra,
+  });
 }

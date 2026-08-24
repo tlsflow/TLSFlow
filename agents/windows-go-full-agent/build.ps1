@@ -22,6 +22,16 @@ try {
     Move-Item -LiteralPath $temporaryPath -Destination $outputPath -Force
     Get-FileHash -Algorithm SHA256 -LiteralPath $outputPath
 
+    $updaterOutputPath = Join-Path $outputDirectory "gcac-agent-updater.windows-$architecture.exe"
+    $updaterTemporaryPath = "$updaterOutputPath.tmp.$PID"
+    Remove-Item -LiteralPath $updaterTemporaryPath -Force -ErrorAction SilentlyContinue
+    $env:CGO_ENABLED = '0'
+    $env:GOOS = 'windows'
+    $env:GOARCH = $architecture
+    go build -trimpath -o $updaterTemporaryPath ./cmd/gcac-agent-updater
+    Move-Item -LiteralPath $updaterTemporaryPath -Destination $updaterOutputPath -Force
+    Get-FileHash -Algorithm SHA256 -LiteralPath $updaterOutputPath
+
     $pluginOutputPath = Join-Path $pluginOutputDirectory "windows-runtime-discovery.windows-$architecture.exe"
     $pluginTemporaryPath = "$pluginOutputPath.tmp.$PID"
     Remove-Item -LiteralPath $pluginTemporaryPath -Force -ErrorAction SilentlyContinue
@@ -34,6 +44,7 @@ try {
   }
   # 兼容尚未重启的旧后端安装器；新后端只从 dist 读取发布物。
   Copy-Item -LiteralPath (Join-Path $outputDirectory 'gcac-agent.windows-amd64.exe') -Destination (Join-Path $PSScriptRoot 'gcac-agent.exe') -Force
+  Copy-Item -LiteralPath (Join-Path $outputDirectory 'gcac-agent-updater.windows-amd64.exe') -Destination (Join-Path $PSScriptRoot 'gcac-agent-updater.exe') -Force
   Copy-Item -LiteralPath (Join-Path $pluginOutputDirectory 'windows-runtime-discovery.windows-amd64.exe') -Destination (Join-Path $pluginOutputDirectory 'windows-runtime-discovery.exe') -Force
 } finally {
   if ($null -eq $originalCgoEnabled) { Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue } else { $env:CGO_ENABLED = $originalCgoEnabled }

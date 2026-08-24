@@ -91,6 +91,47 @@ test('执行任务遇到异步步骤时等待控制面结果，不进入重试�
   assert.equal(result.errorCode, 'EXECUTION_PENDING');
 });
 
+test('Agent 更新任务持续读取 UpgradePlan，成功和失败都收敛为明确结果', async () => {
+  const waitingRegistry = createTaskExecutorRegistry({
+    agents: {
+      getUpgradeStatus: async () => ({ status: 'accepted', reason: '等待本地执行', result: {} }),
+    } as never,
+  });
+  const waiting = await waitingRegistry.get('agent.update')(
+    task('AGENT_UPDATE', { agentId: 'agent-1', planId: 'plan-1', currentVersion: '0.1.32', targetVersion: '0.1.33' }),
+    attempt,
+  );
+  assert.equal(waiting.success, false);
+  assert.equal(waiting.waitingStatus, 'WAITING_RESULT');
+  assert.equal((waiting.detail as { phase?: string }).phase, 'accepted');
+  assert.equal((waiting.detail as { summaryCode?: string }).summaryCode, 'accepted');
+
+  const successRegistry = createTaskExecutorRegistry({
+    agents: {
+      getUpgradeStatus: async () => ({ status: 'succeeded', reason: '完成', result: { receipt: { phase: 'succeeded' } } }),
+    } as never,
+  });
+  const succeeded = await successRegistry.get('agent.update')(
+    task('AGENT_UPDATE', { agentId: 'agent-1', planId: 'plan-1', currentVersion: '0.1.32', targetVersion: '0.1.33' }),
+    attempt,
+  );
+  assert.equal(succeeded.success, true);
+  assert.equal((succeeded.detail as { phase?: string }).phase, 'succeeded');
+
+  const failedRegistry = createTaskExecutorRegistry({
+    agents: {
+      getUpgradeStatus: async () => ({ status: 'failed', reason: '制品校验失败', result: { receipt: { errorCode: 'AGENT_UPGRADE_ARTIFACT_INVALID' } } }),
+    } as never,
+  });
+  const failed = await failedRegistry.get('agent.update')(
+    task('AGENT_UPDATE', { agentId: 'agent-1', planId: 'plan-1', currentVersion: '0.1.32', targetVersion: '0.1.33' }),
+    attempt,
+  );
+  assert.equal(failed.success, false);
+  assert.equal(failed.retryable, false);
+  assert.equal(failed.errorCode, 'AGENT_UPGRADE_ARTIFACT_INVALID');
+});
+
 test('执行任务写入结果不明时冻结待确认，不允许自动重放', async () => {
   const registry = createTaskExecutorRegistry({
     executions: {

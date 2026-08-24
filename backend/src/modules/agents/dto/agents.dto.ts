@@ -148,6 +148,10 @@ export interface PublishAgentVersionInput {
   version: string;
   platform: string;
   arch?: string;
+  productLine?: AgentVersionRelease['productLine'];
+  signatureKeyId?: string;
+  artifactSignature?: string;
+  artifactSize?: number;
   minCompatibilityLevel?: string;
   downloadUrl: string;
   checksumSha256: string;
@@ -159,6 +163,17 @@ export interface PublishAgentVersionInput {
 
 export interface CheckAgentUpgradeInput {
   agentId: string;
+  releaseId?: string;
+  targetVersion?: string;
+  idempotencyKey?: string;
+}
+
+export interface DispatchAgentUpgradeInput {
+  agentId: string;
+  planId: string;
+  approvalRef?: string;
+  policyRef?: string;
+  retryReason?: string;
 }
 
 export interface SubmitAgentUpgradeResultInput {

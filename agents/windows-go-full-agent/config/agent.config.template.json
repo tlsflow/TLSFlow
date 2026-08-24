@@ -12,6 +12,8 @@
   "managementPort": 18930,
   "authorizationMaterialPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\data\\policy\\agent-trust-material.json",
   "authorizationTrustKeySet": {},
+  "upgradeTrustKeySet": {},
+  "releaseTrustKeySet": {},
   "paths": {
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",

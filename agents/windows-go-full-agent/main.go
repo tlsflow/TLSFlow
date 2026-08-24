@@ -35,7 +35,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.29"
+	agentVersion                = "0.1.33"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 60
@@ -61,6 +61,8 @@ type AgentConfig struct {
 	ManagementPort             int               `json:"managementPort"`
 	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
 	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
+	UpgradeTrustKeySet         map[string]string `json:"upgradeTrustKeySet"`
+	ReleaseTrustKeySet         map[string]string `json:"releaseTrustKeySet"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -709,6 +711,8 @@ func runForeground(ctx context.Context, configPath string) error {
 		return directDiscovery.execute(requestCtx, func(scanCtx context.Context) directDiscoveryResponse {
 			return executeDirectWebDiscovery(scanCtx, client, config, registration, payload, logger)
 		})
+	}, func(requestCtx context.Context, payload map[string]any) directUpgradeResponse {
+		return executeLocalUpgrade(requestCtx, config, registration, payload, logger)
 	})
 	if err != nil {
 		return err
@@ -1406,6 +1410,7 @@ func startManagementServer(
 	config *AgentConfig,
 	identity runtimeIdentity,
 	executeDiscovery func(context.Context, map[string]any) directDiscoveryResponse,
+	upgradeHandlers ...func(context.Context, map[string]any) directUpgradeResponse,
 ) (*http.Server, string, error) {
 	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
 	listener, err := net.Listen("tcp", listenAddress)
@@ -1414,16 +1419,49 @@ func startManagementServer(
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      directWebDiscoveryTimeout,
+		WriteTimeout:      15 * time.Minute,
 		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.Method == http.MethodGet && (request.URL.Path == "/api/v1/control/health" || request.URL.Path == "/healthz") {
 				writer.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion})
 				return
 			}
+			if request.Method == http.MethodGet && request.URL.Path == "/api/v1/control/upgrade/status" {
+				status := loadUpgradeStatus(config)
+				requestedTransactionID := strings.TrimSpace(request.URL.Query().Get("transactionId"))
+				if requestedTransactionID != "" && status.TransactionID != requestedTransactionID {
+					writeUpgradeResponse(writer, http.StatusConflict, directUpgradeResponse{
+						ErrorCode:     "AGENT_UPGRADE_STATUS_IDENTITY_MISMATCH",
+						ErrorMessage:  "查询的升级事务与 Agent 当前事务不匹配",
+						TransactionID: status.TransactionID,
+						Status:        status.Status,
+					})
+					return
+				}
+				writeUpgradeStatusResponse(writer, status)
+				return
+			}
+			if request.Method == http.MethodPost && request.URL.Path == "/api/v1/control/upgrade" {
+				if len(upgradeHandlers) == 0 || upgradeHandlers[0] == nil {
+					writeUpgradeResponse(writer, http.StatusServiceUnavailable, directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_UNAVAILABLE", ErrorMessage: "Agent 升级运行时尚未装配"})
+					return
+				}
+				defer request.Body.Close()
+				var payload map[string]any
+				decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+				if err := decoder.Decode(&payload); err != nil || payload == nil {
+					writeUpgradeResponse(writer, http.StatusBadRequest, directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_INVALID", ErrorMessage: "升级请求不是有效 JSON"})
+					return
+				}
+				requestCtx, cancel := context.WithTimeout(request.Context(), 15*time.Minute)
+				defer cancel()
+				result := upgradeHandlers[0](requestCtx, payload)
+				writeUpgradeResponse(writer, directUpgradeHTTPStatus(result), result)
+				return
+			}
 			if request.Method != http.MethodPost || request.URL.Path != "/api/v1/control/discovery" {
 				writer.Header().Set("Allow", "GET, POST")
-				http.Error(writer, "management endpoint only supports health checks and direct web discovery", http.StatusNotFound)
+				http.Error(writer, "management endpoint only supports health checks, local upgrades and direct web discovery", http.StatusNotFound)
 				return
 			}
 			if executeDiscovery == nil {
@@ -1459,6 +1497,28 @@ func startManagementServer(
 		host = "127.0.0.1"
 	}
 	return server, fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config)))), nil
+}
+
+func writeUpgradeResponse(writer http.ResponseWriter, status int, response directUpgradeResponse) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(response)
+}
+
+func directUpgradeHTTPStatus(response directUpgradeResponse) int {
+	if response.Success || response.Accepted {
+		return http.StatusOK
+	}
+	switch response.ErrorCode {
+	case "AGENT_UPGRADE_CONFLICT", "AGENT_UPGRADE_STATUS_IDENTITY_MISMATCH":
+		return http.StatusConflict
+	case "AGENT_UPGRADE_AUTHORIZATION_DENIED", "AGENT_UPGRADE_RELEASE_INVALID":
+		return http.StatusForbidden
+	case "AGENT_UPGRADE_UNAVAILABLE":
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func writeDirectDiscoveryResponse(writer http.ResponseWriter, status int, response directDiscoveryResponse) {

@@ -453,6 +453,14 @@ export default {
     actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página', forceCancel: 'Parar à força', forceCancelConfirm: 'Forçar a parada desta tarefa? Uma ação remota em andamento pode exigir verificação manual.', forceCancelReason: 'Parada forçada por um operador nas tarefas globais' },
     messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.', forceCancelFailed: 'Falha ao parar a tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
+    agentUpdate: {
+      title: 'Progresso da atualização do Agent', timelineTitle: 'Progresso da atualização',
+      fields: { target: 'Host de destino', currentVersion: 'Versão atual', targetVersion: 'Versão de destino', phase: 'Etapa atual', planId: 'Plano de atualização', transactionId: 'Transação de atualização' },
+      values: { unknown: 'Desconhecido' },
+      phases: { queued: 'Na fila', dispatching: 'Enviando autorização', accepted: 'Agent aceitou', upgrading: 'Atualizando', status_checking: 'Lendo resultado', succeeded: 'Concluída', failed: 'Não concluída', rolled_back: 'Revertida', manual_required: 'Ação manual necessária', unknown: 'Desconhecida' },
+      summary: { queued: 'A tarefa de atualização está na fila.', dispatching: 'Enviando a autorização de atualização.', accepted: 'O Agent aceitou a atualização e aguarda a execução local.', upgrading: 'O Agent está baixando e substituindo a nova versão.', waiting: 'Aguardando o resultado do Agent.', succeeded: 'O Agent foi atualizado de {currentVersion} para {targetVersion}.', failed: 'A atualização do Agent não foi concluída.' },
+      events: { created: 'Tarefa criada', claimed: 'Tarefa atribuída', started: 'Leitura do status iniciada', progress: 'Status atualizado', waiting_result: 'Aguardando resultado', succeeded: 'Atualização concluída', failed: 'Falha na atualização', retry_scheduled: 'Aguardando a próxima verificação', cancelled: 'Tarefa cancelada' },
+    },
     pluginRefresh: {
       subtitle: 'Tarefa de manutenção do catálogo de plugins',
       overview: { kicker: 'Resultado da atualização', description: '{scope} foi atualizado e as referências de plugins foram sincronizadas com os nós disponíveis.' },
@@ -952,7 +960,7 @@ export default {
     standardFields: {
       connectionAddress: 'Endereço de conexão', connectionPort: 'Porta de conexão', basePath: 'Caminho base', timeoutSeconds: 'Tempo limite em segundos', gateway: 'Gateway de execução',
       authenticationMode: 'Modo de autenticação', credential: 'Credencial de gerenciamento do dispositivo', username: 'Nome de usuário', passwordSecret: 'SecretRef da senha', apiTokenSecret: 'SecretRef do token de API', clientCertificate: 'Certificado do cliente',
-      tlsEnabled: 'Ativar TLS', tlsVerifyPeer: 'Verificar certificado do servidor', tlsServerName: 'Nome do servidor TLS', caSecret: 'SecretRef da CA', tlsMinimumVersion: 'Versão TLS mínima',
+      tlsEnabled: 'Ativar HTTPS', tlsVerifyPeer: 'Verificar certificado do servidor', tlsIgnoreCertificateErrors: 'Ignorar erros de certificado', tlsServerName: 'Nome do servidor TLS', caSecret: 'SecretRef da CA', tlsMinimumVersion: 'Versão TLS mínima',
       deviceDisplayName: 'Nome de exibição do dispositivo', deviceDescription: 'Descrição do dispositivo', deviceTags: 'Tags do dispositivo', targetName: 'Nome do destino', targetLabels: 'Rótulos do destino'
     },
     forms: { loadOptions: 'Carregar opções', previewTitle: 'Formulário de configuração do plugin', loading: 'Carregando formulário do plugin...', loadFailed: 'Falha ao carregar o formulário do plugin', empty: 'Este plugin não declara um formulário de configuração.' },

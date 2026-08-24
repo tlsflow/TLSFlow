@@ -1110,6 +1110,7 @@ function taskOverview(task: TaskRun): string {
 }
 
 function taskStatusSummary(task: TaskRun): string {
+  if (task.taskType === 'AGENT_UPDATE') return agentUpgradeSummary(task)
   if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') return acmeRenewalTaskSummary(task)
   const status = taskStatusLabel(task)
   const overview = taskOverview(task)
@@ -1128,6 +1129,64 @@ function acmeRenewalTaskSummary(task: TaskRun): string {
   if (task.status === 'RETRY_WAITING') return acmeAttemptLabel('retryWaiting')
   if (task.status === 'SUCCEEDED') return acmeAttemptLabel('succeeded')
   return taskStatusLabel(task)
+}
+
+function agentUpgradeSummary(task: TaskRun): string {
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+    return task.lastErrorMessage || t('tasks.agentUpdate.summary.failed')
+  }
+  const code = firstNonEmptyString(
+    stringFromRecord(task.progress, 'summaryCode'),
+    stringFromRecord(task.resourceSummary, 'summaryCode'),
+  ) ?? agentUpgradePhase(task)
+  const key = `tasks.agentUpdate.summary.${code}`
+  if (!te(key)) return t(`tasks.summaryTemplates.${task.status}`, { task: taskTypeLabel(task) })
+  return t(key, {
+    currentVersion: agentUpgradeVersion(task, 'currentVersion'),
+    targetVersion: agentUpgradeVersion(task, 'targetVersion'),
+  })
+}
+
+function agentUpgradePhase(task: TaskRun): string {
+  const phase = firstNonEmptyString(
+    stringFromRecord(task.progress, 'phase'),
+    stringFromRecord(task.resourceSummary, 'phase'),
+  )
+  if (phase) return phase
+  if (task.status === 'SUCCEEDED') return 'succeeded'
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') return 'failed'
+  if (task.status === 'RUNNING') return 'upgrading'
+  return 'queued'
+}
+
+function agentUpgradePhaseLabel(task: TaskRun): string {
+  const key = `tasks.agentUpdate.phases.${agentUpgradePhase(task)}`
+  return te(key) ? t(key) : agentUpgradePhase(task)
+}
+
+function agentUpgradeVersion(task: TaskRun, key: 'currentVersion' | 'targetVersion'): string {
+  return firstNonEmptyString(
+    stringFromRecord(task.progress, key),
+    stringFromRecord(task.resourceSummary, key),
+    stringFromRecord(task.payload, key),
+  ) ?? t('tasks.agentUpdate.values.unknown')
+}
+
+function agentUpgradeEventLabel(event: Record<string, unknown>): string {
+  const eventType = String(event.eventType ?? '').toUpperCase()
+  const key = `tasks.agentUpdate.events.${eventType.toLowerCase()}`
+  return te(key) ? t(key) : eventType
+}
+
+function agentUpgradeProgress(task: TaskRun): number {
+  if (task.status === 'SUCCEEDED' || task.status === 'FAILED' || task.status === 'CANCELLED') return 100
+  const phase = agentUpgradePhase(task)
+  if (phase === 'queued') return 10
+  if (phase === 'dispatching') return 25
+  if (phase === 'accepted') return 45
+  if (phase === 'upgrading') return 70
+  if (phase === 'status_checking') return 80
+  return 35
 }
 
 function acmeAttemptLabel(state: AcmeTaskAttemptState): string {
@@ -1155,7 +1214,7 @@ function isAutomationTask(task: TaskRun | null | undefined): task is TaskRun {
 }
 
 function shouldRenderTaskProgress(task: TaskRun): boolean {
-  return isDeploymentExecutionTask(task) || isAutomationTask(task)
+  return isDeploymentExecutionTask(task) || task.taskType === 'AUTOMATION_RUN' || task.taskType === 'AGENT_UPDATE'
 }
 
 function taskProgressPercent(task: TaskRun): number {
@@ -1165,6 +1224,7 @@ function taskProgressPercent(task: TaskRun): number {
     recordNumberByKeys(task.payload, ['percent', 'percentage', 'progressPercent', 'progress', 'completedPercent']),
   )
   if (explicit !== undefined) return clampPercent(explicit <= 1 ? explicit * 100 : explicit)
+  if (task.taskType === 'AGENT_UPDATE') return agentUpgradeProgress(task)
   const completed = firstFiniteNumber(
     recordNumberByKeys(task.progress, ['completed', 'completedSteps', 'finishedSteps', 'done']),
     recordNumberByKeys(task.resourceSummary, ['completed', 'completedSteps', 'finishedSteps', 'done']),
@@ -1726,6 +1786,40 @@ function recordString(record: InternalCaRecord, key: string): string {
               <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask?.finishedAt) }}</dd></div>
               <div><dt>{{ t('tasks.fields.error') }}</dt><dd>{{ detailTask?.lastErrorMessage || t('common.notAvailable') }}</dd></div>
             </dl>
+            <section v-if="detailTask?.taskType === 'AGENT_UPDATE'" class="task-drawer__section task-drawer__agent-update">
+              <div class="task-drawer__section-heading">
+                <h4>{{ t('tasks.agentUpdate.title') }}</h4>
+                <GcStatusTag :status="detailTask.status" :label="taskStatusLabel(detailTask)" :tone="statusTone(detailTask.status)" />
+              </div>
+              <p class="task-drawer__agent-update-summary">{{ agentUpgradeSummary(detailTask) }}</p>
+              <GcProgressBar
+                class="task-drawer__item-progress"
+                :value="agentUpgradeProgress(detailTask)"
+                :tone="statusTone(detailTask.status)"
+                captionInside
+                :ariaLabel="agentUpgradeSummary(detailTask)"
+              >
+                <span class="task-drawer__item-progress-text">{{ agentUpgradeProgress(detailTask) }}%</span>
+              </GcProgressBar>
+              <dl class="task-drawer__facts task-drawer__agent-update-facts">
+                <div><dt>{{ t('tasks.agentUpdate.fields.target') }}</dt><dd>{{ taskRelatedName(detailTask) }}</dd></div>
+                <div><dt>{{ t('tasks.agentUpdate.fields.currentVersion') }}</dt><dd>{{ agentUpgradeVersion(detailTask, 'currentVersion') }}</dd></div>
+                <div><dt>{{ t('tasks.agentUpdate.fields.targetVersion') }}</dt><dd class="task-drawer__agent-update-target">{{ agentUpgradeVersion(detailTask, 'targetVersion') }}</dd></div>
+                <div><dt>{{ t('tasks.agentUpdate.fields.phase') }}</dt><dd>{{ agentUpgradePhaseLabel(detailTask) }}</dd></div>
+                <div><dt>{{ t('tasks.agentUpdate.fields.planId') }}</dt><dd>{{ recordValue(detailTask.payload ?? {}, 'planId') }}</dd></div>
+                <div><dt>{{ t('tasks.agentUpdate.fields.transactionId') }}</dt><dd>{{ recordValue(detailTask.payload ?? {}, 'transactionId') }}</dd></div>
+              </dl>
+              <p v-if="detailTask.lastErrorMessage" class="task-drawer__agent-update-error">{{ detailTask.lastErrorMessage }}</p>
+              <div class="task-drawer__agent-update-events">
+                <h5>{{ t('tasks.agentUpdate.timelineTitle') }}</h5>
+                <ol class="task-drawer__timeline">
+                  <li v-for="event in visibleDetailEvents" :key="String(event.id)">
+                    <strong>{{ agentUpgradeEventLabel(event) }}</strong>
+                    <time>{{ localTime(recordValue(event, 'createdAt')) }}</time>
+                  </li>
+                </ol>
+              </div>
+            </section>
             <section v-if="detailTask?.taskType === 'ACME_CERTIFICATE_RENEWAL'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.acmeHistory') }}</h4>
               <GcEmptyState v-if="acmeAttemptHistory.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
@@ -1747,7 +1841,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </li>
               </ol>
             </section>
-            <section v-else class="task-drawer__section">
+            <section v-else-if="detailTask?.taskType !== 'AGENT_UPDATE'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.timeline') }}</h4>
               <ol class="task-drawer__timeline">
                 <li v-for="event in visibleDetailEvents" :key="String(event.id)">
@@ -3076,6 +3170,50 @@ function recordString(record: InternalCaRecord, key: string): string {
   font-size: var(--gc-font-size-sm);
 }
 
+.task-drawer__agent-update {
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-card);
+  background: var(--gc-color-primary-soft);
+}
+
+.task-drawer__agent-update-summary {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.task-drawer__agent-update-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.task-drawer__agent-update-target {
+  color: var(--gc-color-success);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__agent-update-error {
+  margin: 0;
+  padding: var(--gc-space-3);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-sm);
+}
+
+.task-drawer__agent-update-events {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__agent-update-events h5 {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
 .task-drawer__timeline {
   display: grid;
   gap: var(--gc-space-2);
@@ -3232,6 +3370,10 @@ function recordString(record: InternalCaRecord, key: string): string {
   }
 
   .task-drawer__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-drawer__agent-update-facts {
     grid-template-columns: minmax(0, 1fr);
   }
 

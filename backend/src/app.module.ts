@@ -220,7 +220,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
   app.setResource('securityServices', security);
-  const localAgentAuthorization = createLocalAgentAuthorizationServicesV1();
+  const localAgentAuthorization = createLocalAgentAuthorizationServicesV1(process.env, {
+    grants: { validate: (input) => security.grants.validate(input) },
+  });
   const policyAuthorityServices = registerPolicyAuthorityServices(app, dependencies.policyAuthority);
   const localPolicy = resolveAgentLocalPolicy(dependencies.localPolicy);
   const taskRealtimeStream = new TaskRealtimeStreamService();
@@ -960,6 +962,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const executionsService = deploymentPlans.getExecutionsService();
   tasksService.setExecutionCancellationHandler({
     cancelRun: (runId, actorId, tenantId) => executionsService.cancelRun(runId, actorId, tenantId),
+  });
+  tasksService.setAgentUpgradeCancellationHandler({
+    cancelUpgrade: (tenantId, agentId, planId, actorId, reason) =>
+      agentsService.markUpgradeManualRequired(tenantId, agentId, planId, actorId, reason),
   });
   app.setResource('deploymentPlansController', deploymentPlans);
   app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());

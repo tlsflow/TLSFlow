@@ -71,11 +71,13 @@ export interface AgentsRepository {
   listAgentRuntimeLogs(tenantId: string, agentId: string, categories?: AgentRuntimeLogEntry['category'][]): Promise<AgentRuntimeLogEntry[]>;
   getDetailData(tenantId: string, agentId: string, options?: { includeLogs?: boolean }): Promise<AgentDetailData | undefined>;
   publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease>;
+  getVersion(releaseId: string): Promise<AgentVersionRelease | undefined>;
   listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]>;
   createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan>;
   updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): Promise<AgentUpgradePlan>;
   getUpgradePlan(tenantId: string, planId: string): Promise<AgentUpgradePlan | undefined>;
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): Promise<AgentUpgradePlan | undefined>;
+  findUpgradePlanByIdempotencyKey?(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentUpgradePlan | undefined>;
   listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]>;
   createInstallSession(session: AgentInstallSession): Promise<AgentInstallSession>;
   getInstallSession(tenantId: string, sessionId: string): Promise<AgentInstallSession | undefined>;
@@ -160,6 +162,7 @@ export class PgAgentsRepository implements AgentsRepository {
   private readonly runtimeLogs: PgDocumentRepository<AgentRuntimeLogEntry>;
   private readonly taskLogCursors: PgDocumentRepository<AgentTaskLogCursorRecord>;
   private readonly releases: PgDocumentRepository<AgentVersionRelease>;
+  private readonly legacyReleases: PgDocumentRepository<AgentVersionRelease>;
   private readonly upgradePlans: PgDocumentRepository<AgentUpgradePlan>;
   private readonly installSessions: PgDocumentRepository<AgentInstallSession>;
 
@@ -177,7 +180,10 @@ export class PgAgentsRepository implements AgentsRepository {
     this.taskLogs = new PgDocumentRepository(db, 'agents:taskLogs');
     this.runtimeLogs = new PgDocumentRepository(db, 'agents:runtimeLogs');
     this.taskLogCursors = new PgDocumentRepository(db, 'agents:taskLogCursors');
-    this.releases = new PgDocumentRepository(db, 'agents:releases');
+    // `agents:versions` 是当前 Release 唯一命名空间；保留旧 `agents:releases` 只用于读兼容，
+    // 避免历史登记在切换后消失。所有新登记统一写入当前命名空间。
+    this.releases = new PgDocumentRepository(db, 'agents:versions');
+    this.legacyReleases = new PgDocumentRepository(db, 'agents:releases');
     this.upgradePlans = new PgDocumentRepository(db, 'agents:upgradePlans');
     this.installSessions = new PgDocumentRepository(db, 'agents:installSessions');
   }
@@ -750,12 +756,7 @@ export class PgAgentsRepository implements AgentsRepository {
           order by payload->>'emittedAt' desc, (payload->>'sequence')::int desc limit 50`,
         [tenantId, agentId],
       ) : Promise.resolve({ rows: [] as DocumentRow<AgentTaskLogEntry>[] }),
-      this.db.query<DocumentRow<AgentVersionRelease>>(
-        `select document_id, payload from pg_documents
-          where namespace='agents:versions' and payload->>'tenantId'=$1 and payload->>'status'='active'
-          order by payload->>'version' desc`,
-        [tenantId],
-      ),
+      this.listActiveVersions(tenantId),
       this.db.query<DocumentRow<AgentUpgradePlan>>(
         `select document_id, payload from pg_documents
           where namespace='agents:upgradePlans' and payload->>'tenantId'=$1 and payload->>'agentId'=$2`,
@@ -772,7 +773,7 @@ export class PgAgentsRepository implements AgentsRepository {
       recentErrors: recentErrors.rows.map(documentEntity).filter(isDefined),
       runtimeLogs: runtimeLogs.rows.map(documentEntity).filter(isDefined),
       recentTaskLogs: recentTaskLogs.rows.map(documentEntity).filter(isDefined),
-      releases: releases.rows.map(documentEntity).filter(isDefined),
+      releases,
       upgradePlans: upgradePlans.rows.map(documentEntity).filter(isDefined),
     };
   }
@@ -781,11 +782,21 @@ export class PgAgentsRepository implements AgentsRepository {
     return this.releases.upsert(release);
   }
 
+  async getVersion(releaseId: string): Promise<AgentVersionRelease | undefined> {
+    return (await this.releases.get(releaseId)) ?? this.legacyReleases.get(releaseId);
+  }
+
   async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
-    return (await listDocuments<AgentVersionRelease>(this.db, 'agents:versions', `
-      and payload->>'tenantId' = $2
-      and payload->>'status' = 'active'`, [tenantId]))
-      .sort((left, right) => compareVersions(right.version, left.version));
+    const [current, legacy] = await Promise.all([
+      listDocuments<AgentVersionRelease>(this.db, 'agents:versions', `
+        and payload->>'tenantId' = $2
+        and payload->>'status' = 'active'`, [tenantId]),
+      listDocuments<AgentVersionRelease>(this.db, 'agents:releases', `
+        and payload->>'tenantId' = $2
+        and payload->>'status' = 'active'`, [tenantId]),
+    ]);
+    return [...new Map([...legacy, ...current].map((release) => [release.id, release])).values()]
+      .sort((left, right) => compareVersions(right.version, left.version) || right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id));
   }
 
   async createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan> {
@@ -807,6 +818,15 @@ export class PgAgentsRepository implements AgentsRepository {
       and payload->>'agentId' = $3
       and payload->>'releaseId' = $4
       limit 1`, [tenantId, agentId, releaseId]);
+  }
+
+  async findUpgradePlanByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentUpgradePlan | undefined> {
+    return findDocument(this.db, 'agents:upgradePlans', `
+      and payload->>'tenantId' = $2
+      and payload->>'agentId' = $3
+      and payload->>'idempotencyKey' = $4
+      order by payload->>'createdAt' asc
+      limit 1`, [tenantId, agentId, idempotencyKey]);
   }
 
   async listUpgradePlansForAgent(tenantId: string, agentId: string): Promise<AgentUpgradePlan[]> {

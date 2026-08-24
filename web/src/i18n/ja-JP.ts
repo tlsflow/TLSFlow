@@ -453,6 +453,14 @@ export default {
     actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ', forceCancel: '強制終了', forceCancelConfirm: 'このタスクを強制終了しますか？ 実行中のリモート処理は手動確認が必要になる場合があります。', forceCancelReason: 'グローバルタスクからオペレーターが強制終了' },
     messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。', forceCancelFailed: 'タスクの強制終了に失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
+    agentUpdate: {
+      title: 'Agent 更新進捗', timelineTitle: '更新の進行状況',
+      fields: { target: '対象ホスト', currentVersion: '現在のバージョン', targetVersion: '対象バージョン', phase: '現在の段階', planId: '更新計画', transactionId: '更新トランザクション' },
+      values: { unknown: '不明' },
+      phases: { queued: '待機中', dispatching: '承認送信中', accepted: 'Agent が受付', upgrading: '更新中', status_checking: '結果確認中', succeeded: '完了', failed: '未完了', rolled_back: 'ロールバック済み', manual_required: '手動対応が必要', unknown: '不明' },
+      summary: { queued: '更新タスクは待機中です。', dispatching: '更新承認を送信しています。', accepted: 'Agent が更新を受け付け、実行を待っています。', upgrading: 'Agent が新しいバージョンをダウンロードして更新しています。', waiting: 'Agent の結果を待っています。', succeeded: 'Agent を {currentVersion} から {targetVersion} に更新しました。', failed: 'Agent の更新が完了しませんでした。' },
+      events: { created: 'タスク作成', claimed: 'タスク割り当て', started: '更新状態の確認開始', progress: '更新状態を更新', waiting_result: '更新結果を待機', succeeded: '更新成功', failed: '更新失敗', retry_scheduled: '次の確認を待機', cancelled: 'タスクキャンセル' },
+    },
     pluginRefresh: {
       subtitle: 'プラグインカタログ保守タスク',
       overview: { kicker: '更新結果', description: '{scope} を更新し、最新のプラグイン参照を利用可能な実行ノードへ同期しました。' },
@@ -978,7 +986,7 @@ export default {
     standardFields: {
       connectionAddress: '接続アドレス', connectionPort: '接続ポート', basePath: 'ベースパス', timeoutSeconds: 'タイムアウト秒数', gateway: '実行 Gateway',
       authenticationMode: '認証方式', credential: 'デバイス管理認証情報', username: 'ユーザー名', passwordSecret: 'パスワード SecretRef', apiTokenSecret: 'API トークン SecretRef', clientCertificate: 'クライアント証明書',
-      tlsEnabled: 'TLS を有効化', tlsVerifyPeer: 'サーバー証明書を検証', tlsServerName: 'TLS サーバー名', caSecret: 'CA SecretRef', tlsMinimumVersion: '最小 TLS バージョン',
+      tlsEnabled: 'HTTPS を有効化', tlsVerifyPeer: 'サーバー証明書を検証', tlsIgnoreCertificateErrors: '証明書エラーを無視', tlsServerName: 'TLS サーバー名', caSecret: 'CA SecretRef', tlsMinimumVersion: '最小 TLS バージョン',
       deviceDisplayName: 'デバイス表示名', deviceDescription: 'デバイス説明', deviceTags: 'デバイスタグ', targetName: 'ターゲット名', targetLabels: 'ターゲットラベル'
     },
     forms: { loadOptions: '選択肢を読み込む', previewTitle: 'プラグイン設定フォーム', loading: 'プラグインフォームを読み込み中...', loadFailed: 'プラグインフォームの読み込みに失敗しました', empty: 'このプラグインは設定フォームを宣言していません。' },
