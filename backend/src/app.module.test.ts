@@ -3,71 +3,76 @@ import test from 'node:test';
 import { StructuredLogger, type LogEvent } from './common/logging/structured-logger.js';
 import { AppError } from './common/errors/app-error.js';
 import { initializeBuiltinPlugins } from './app.module.js';
-import { createAppAsync } from './app.module.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import type { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
-import { createHash } from 'node:crypto';
 import { PgliteDatabase } from './database/pglite-database.js';
 import { runMigrations } from './database/migration-runner.js';
 import { createApp } from './app.module.js';
+import { App } from './common/http/app.js';
+import { registerPolicyAuthorityServices } from './app.module.js';
+import type { ProductionPolicyAuthorityServicesV1 } from './modules/agents/security/policy-authority.service.js';
 
-test('公开 HTTP-01 路由返回共享存储中的 key authorization', async () => {
+test('非生产 App 只注册显式注入的 Policy Authority 资源', () => {
+  const app = new App();
+  const services = {
+    service: {},
+    trustRoot: {},
+    keySet: {},
+    signingKeys: {},
+    policy: {},
+    state: {},
+  } as unknown as ProductionPolicyAuthorityServicesV1;
+
+  assert.equal(registerPolicyAuthorityServices(app, services, { NODE_ENV: 'test' }), services);
+  assert.equal(app.getResource('policyAuthorityService'), services.service);
+  assert.equal(app.getResource('policyAuthorityTrustRootService'), services.trustRoot);
+  assert.equal(app.getResource('policyAuthorityKeySetService'), services.keySet);
+  assert.equal(app.getResource('policyAuthoritySigningKeySource'), services.signingKeys);
+});
+
+test('生产 App 缺少 Policy Authority 配置时失败关闭', () => {
+  assert.throws(
+    () => registerPolicyAuthorityServices(new App(), undefined, { NODE_ENV: 'production' }),
+    /失败关闭/,
+  );
+});
+
+test('主装配移除 ACME HTTP-01 和旧 Provider 资源，同时保留通用 CA 与统一任务 Worker', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const token = 'route-test-token';
-  await db.query(
-    `insert into pg_acme_http01_presentations (
-       token_sha256, tenant_id, identifier, key_authorization, presentation_id, expires_at, created_at, updated_at
-     ) values ($1, $2, $3, $4, $5, now() + interval '5 minutes', now(), now())`,
-    [
-      createHash('sha256').update(token).digest('hex'),
-      'tenant-route-test',
-      'example.com',
-      'route-test-token.thumbprint',
-      'presentation-route-test',
-    ],
-  );
-
   const app = createApp({ db, corePersistence: { mode: 'memory' } });
   const response = await app.inject({
     method: 'GET',
-    path: `/.well-known/acme-challenge/${token}`,
+    path: '/.well-known/acme-challenge/retired-route',
   });
 
-  assert.equal(response.statusCode, 200);
-  assert.equal(response.body, 'route-test-token.thumbprint');
+  assert.equal(response.statusCode, 404);
+  assert.ok(app.getResource('certificateServices'));
+  assert.ok(app.getResource('taskWorkerSupervisor'));
+  assert.ok(app.getResource('cloudAccountAssetsService'));
+  assert.equal(app.getResource('internalCaService'), undefined);
+  assert.equal(app.getResource('caSyncWorker'), undefined);
+  assert.equal(app.getResource('caAutoSyncScheduler'), undefined);
+  assert.ok(app.router.match('GET', '/api/v1/cloud-account-assets'));
+  assert.ok(app.router.match('POST', '/api/v1/cloud-account-assets'));
+  assert.ok(app.router.match('PATCH', '/api/v1/cloud-account-assets'));
+  assert.ok(app.router.match('POST', '/api/v1/cloud-account-assets/delete'));
+  assert.equal(app.getResource('acmeRepository'), undefined);
+  assert.equal(app.getResource('providerOperationLedgerService'), undefined);
+  assert.equal(app.getResource('cloudProviderDiscoveryService'), undefined);
+  assert.equal(app.getResource('providerCatalogService'), undefined);
+  assert.equal(app.getResource('trustedJsProviderRuntime'), undefined);
 });
 
-test('应用启动初始化后，插件目录会包含四个内置云 Provider 插件', async () => {
-  const db = new PgliteDatabase();
-  await runMigrations(db);
-  const app = await createAppAsync({ db, corePersistence: { mode: 'memory' } });
-  const plugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
-  assert.ok(plugins);
-  const catalog = await plugins.listCatalog('tenant-cloud-test', 'zh-CN');
-  const cloudPluginIds = catalog
-    .filter((item) => item.runtime === 'TRUSTED_JS' && item.providerKey?.startsWith('cloud.'))
-    .map((item) => item.pluginId)
-    .sort();
-
-  assert.deepEqual(cloudPluginIds, [
-    'builtin.cloud.aliyun.provider',
-    'builtin.cloud.huawei.provider',
-    'builtin.cloud.tencent.provider',
-    'builtin.cloud.volcengine.provider',
-  ]);
-});
-
-test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继续', async () => {
+test('内置插件 Workflow 发布失败时启动初始化仍继续', async () => {
   const plugins = [
     pluginRecord('plugin.publish-failure', '1.0.0'),
-    pluginRecord('plugin.upgrade-failure', '1.0.1'),
+    pluginRecord('plugin.continues', '1.0.1'),
   ];
   const published: string[] = [];
   const disabled: string[] = [];
-  const upgraded: string[] = [];
   const warnings: LogEvent[] = [];
   const logger = new StructuredLogger((event) => warnings.push(event));
   const loader = {
@@ -89,25 +94,14 @@ test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继�
       return { ...plugin, status: 'DISABLED' as const };
     },
   } as unknown as UnifiedPluginsApplicationService;
-  const compatibilityUpgrader = {
-    upgradePatchLine: async (_tenantId: string, pluginVersionId: string) => {
-      upgraded.push(pluginVersionId);
-      if (pluginVersionId === 'plugin-version-2') {
-        throw new AppError('RESOURCE_VERSION_CONFLICT', '模拟兼容引用升级失败');
-      }
-    },
-  };
-
   await initializeBuiltinPlugins(
     unifiedPlugins,
     publisher,
-    {} as never,
-    { loader, compatibilityUpgrader, logger },
+    { loader, logger },
   );
 
-  assert.deepEqual(published, ['plugin.publish-failure', 'plugin.upgrade-failure']);
+  assert.deepEqual(published, ['plugin.publish-failure', 'plugin.continues']);
   assert.deepEqual(disabled, ['plugin-version-1']);
-  assert.deepEqual(upgraded, ['plugin-version-1', 'plugin-version-2']);
   assert.deepEqual(
     warnings.map((event) => {
       const details = event.details as { phase: string; pluginId: string; version: string; errorCode: string };
@@ -120,7 +114,6 @@ test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继�
     }),
     [
       { phase: 'publishWorkflow', pluginId: 'plugin.publish-failure', version: '1.0.0', errorCode: 'VALIDATION_FAILED' },
-      { phase: 'upgradeCompatibility', pluginId: 'plugin.upgrade-failure', version: '1.0.1', errorCode: 'RESOURCE_VERSION_CONFLICT' },
     ],
   );
 });

@@ -1,22 +1,15 @@
 import { editionLicensingErrorCodes } from '../../edition/licensing-error-codes.js';
 
-export const errorCodes = {
+export interface ErrorCodeDefinition {
+  readonly httpStatus: number;
+  readonly message: string;
+}
+
+const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   VALIDATION_FAILED: { httpStatus: 400, message: '请求参数不合法' },
   RESOURCE_NOT_FOUND: { httpStatus: 404, message: '资源不存在' },
   RESOURCE_ALREADY_EXISTS: { httpStatus: 409, message: '资源已存在' },
   RESOURCE_VERSION_CONFLICT: { httpStatus: 409, message: '资源版本冲突' },
-  PROVIDER_NOT_FOUND: { httpStatus: 404, message: 'Provider 不存在' },
-  PROVIDER_EXTENSION_UNAVAILABLE: { httpStatus: 503, message: 'Provider Extension 不可用' },
-  PROVIDER_OPERATION_UNSUPPORTED: { httpStatus: 422, message: 'Provider 操作不支持' },
-  PROVIDER_CREDENTIAL_INVALID: { httpStatus: 422, message: 'Provider 凭据无效' },
-  PROVIDER_SCOPE_INVALID: { httpStatus: 422, message: 'Provider 作用域无效' },
-  PROVIDER_PERMISSION_DENIED: { httpStatus: 403, message: 'Provider 权限不足' },
-  PROVIDER_RESOURCE_NOT_FOUND: { httpStatus: 404, message: 'Provider 资源不存在' },
-  PROVIDER_ASYNC_TIMEOUT: { httpStatus: 504, message: 'Provider 异步操作超时' },
-  PROVIDER_STATE_CONFLICT: { httpStatus: 409, message: 'Provider 远端状态冲突' },
-  PROVIDER_CONNECTION_FAILED: { httpStatus: 503, message: 'Provider 连接失败' },
-  PROVIDER_REQUEST_FAILED: { httpStatus: 502, message: 'Provider 请求失败' },
-  PROVIDER_ROLLBACK_UNAVAILABLE: { httpStatus: 409, message: 'Provider 无可用回滚点' },
   IDEMPOTENCY_CONFLICT: { httpStatus: 409, message: '幂等键冲突' },
   TASK_TYPE_NOT_REGISTERED: { httpStatus: 422, message: '任务类型未注册' },
   TASK_TYPE_DISABLED: { httpStatus: 409, message: '任务类型已停用' },
@@ -49,7 +42,6 @@ export const errorCodes = {
   CA_TOPOLOGY_INVALID: { httpStatus: 422, message: 'CA 拓扑无效' },
   CA_RISK_CONFIRMATION_REQUIRED: { httpStatus: 409, message: '需要重新确认 CA 风险' },
   CA_TRUST_DOMAIN_STATE_INVALID: { httpStatus: 409, message: 'CA 信任域状态不允许当前操作' },
-  CA_PROVIDER_UNAVAILABLE: { httpStatus: 503, message: 'CA Provider 不可用' },
   CA_CAPABILITY_UNSUPPORTED: { httpStatus: 422, message: 'CA 能力不支持' },
   CA_OPERATIONS_VIEW_UNSUPPORTED: { httpStatus: 422, message: 'CA 不支持所选运营视图' },
   CA_OPERATIONS_QUERY_INVALID: { httpStatus: 400, message: 'CA 运营查询参数无效' },
@@ -63,24 +55,6 @@ export const errorCodes = {
   CA_OPERATION_RESULT_UNKNOWN: { httpStatus: 202, message: 'CA 远程操作结果待确认' },
   CA_KEY_BACKEND_UNAVAILABLE: { httpStatus: 503, message: 'CA 密钥后端不可用' },
   CA_LEDGER_INCONSISTENT: { httpStatus: 409, message: 'CA 签发账本与证书状态不一致' },
-  ACME_DIRECTORY_UNAVAILABLE: { httpStatus: 503, message: 'ACME Directory 不可用' },
-  ACME_PROVIDER_CONFIG_INVALID: { httpStatus: 422, message: 'ACME Provider 配置无效' },
-  ACME_ACCOUNT_INVALID: { httpStatus: 422, message: 'ACME Account 无效' },
-  ACME_NONCE_REJECTED: { httpStatus: 503, message: 'ACME Nonce 被拒绝' },
-  ACME_RATE_LIMITED: { httpStatus: 429, message: 'ACME CA 请求受到限流' },
-  ACME_ORDER_CONFLICT: { httpStatus: 409, message: 'ACME 订单冲突' },
-  ACME_ORDER_REQUIRED: { httpStatus: 409, message: 'ACME 申请必须通过订单流程执行' },
-  ACME_CHALLENGE_FAILED: { httpStatus: 422, message: 'ACME 域名挑战失败' },
-  ACME_CERTIFICATE_MISMATCH: { httpStatus: 422, message: 'ACME 证书与申请材料不匹配' },
-  ACME_DOWNLOAD_FAILED: { httpStatus: 503, message: 'ACME 证书下载失败' },
-  ACME_SECRET_RESOLVE_DENIED: { httpStatus: 403, message: 'ACME Secret 无法解析' },
-  ACME_DEPLOYMENT_BLOCKED: { httpStatus: 422, message: 'ACME 证书部署被阻断' },
-  ACME_VERIFY_FAILED: { httpStatus: 422, message: 'ACME 证书 TLS 验证失败' },
-  ACME_CLEANUP_FAILED: { httpStatus: 409, message: 'ACME Challenge 清理失败' },
-  ACME_LEASE_LOST: { httpStatus: 409, message: 'ACME Worker 租约已丢失' },
-  ACME_RENEWAL_FAILED: { httpStatus: 409, message: 'ACME 自动续签失败' },
-  ACME_KEY_ROTATION_UNSUPPORTED: { httpStatus: 422, message: '当前密钥托管方式不支持 ACME 密钥轮换' },
-  ACME_CERTIFICATE_INVALID: { httpStatus: 422, message: 'ACME 证书材料无效' },
   CERTIFICATE_PROMOTION_BLOCKED: { httpStatus: 409, message: '证书版本 Promotion 被阻断' },
   CA_NODE_SPLIT_BRAIN_RISK: { httpStatus: 409, message: 'CA 节点存在双主风险' },
   CERTIFICATE_PROFILE_VIOLATION: { httpStatus: 422, message: '证书申请不符合 Profile' },
@@ -118,21 +92,30 @@ export const errorCodes = {
   PLUGIN_SIGNATURE_INVALID: { httpStatus: 422, message: '插件签名无效' },
   PLUGIN_PERMISSION_DENIED: { httpStatus: 403, message: '插件权限不足' },
   PLUGIN_CAPABILITY_EXECUTION_FAILED: { httpStatus: 502, message: '插件能力执行失败' },
+  PLUGIN_OPERATION_FAILED: { httpStatus: 502, message: '插件操作失败' },
+  PLUGIN_REMOTE_ERROR: { httpStatus: 502, message: '插件返回远端错误' },
+  PLUGIN_RUNNER_START_FAILED: { httpStatus: 503, message: 'Plugin Runner 启动失败' },
+  PLUGIN_RUNNER_HANDSHAKE_FAILED: { httpStatus: 502, message: 'Plugin Runner 握手失败' },
+  PLUGIN_RUNNER_TIMEOUT: { httpStatus: 504, message: 'Plugin Runner 执行超时' },
+  PLUGIN_RUNNER_CRASHED: { httpStatus: 502, message: 'Plugin Runner 进程异常退出' },
+  PLUGIN_HOST_CALL_DENIED: { httpStatus: 403, message: 'Plugin Host API 调用被拒绝' },
+  PLUGIN_CONTRACT_INVALID: { httpStatus: 422, message: 'Plugin Runner 合同无效' },
+  PLUGIN_OPERATION_UNKNOWN_STATE: { httpStatus: 202, message: '插件外部操作状态未知' },
+  PLUGIN_RUNNER_PROTOCOL_VIOLATION: { httpStatus: 502, message: 'Plugin Runner IPC 协议违规' },
+  PLUGIN_RUNNER_BUSY: { httpStatus: 409, message: 'Plugin Runner 当前正在执行其他请求' },
+  PLUGIN_RUNNER_DRAINING: { httpStatus: 409, message: 'Plugin Runner 正在排空' },
+  PLUGIN_RUNNER_VERSION_MISMATCH: { httpStatus: 409, message: 'Plugin Runner PluginVersion 不匹配' },
   PLUGIN_DISCOVERY_SCHEMA_INVALID: { httpStatus: 422, message: '插件发现结果不符合标准 Schema' },
   AGENT_PLUGIN_MANIFEST_INVALID: { httpStatus: 422, message: 'Agent 插件定义无效' },
   AGENT_PLUGIN_MOUNT_INCOMPATIBLE: { httpStatus: 409, message: 'Agent 插件与目标 Agent 不兼容' },
   AGENT_PLUGIN_BINDING_INVALID: { httpStatus: 422, message: 'Agent 插件资产绑定无效' },
   AGENT_PLAN_SIGNATURE_INVALID: { httpStatus: 403, message: 'Agent 执行计划签名无效' },
+  AGENT_AUTHORIZATION_UNAVAILABLE: { httpStatus: 503, message: 'Agent 授权链不可用' },
   AGENT_PLAN_EXPIRED: { httpStatus: 409, message: 'Agent 执行计划已过期' },
-  AGENT_OPERATION_UNSUPPORTED: { httpStatus: 422, message: 'Agent 不支持该原子操作' },
+  AGENT_V2_ACTION_MODE_MISMATCH: { httpStatus: 422, message: 'Agent v2 Action 与执行模式不匹配' },
   AGENT_PATH_OUTSIDE_ALLOWED_ROOTS: { httpStatus: 403, message: '目标路径超出 Agent 允许范围' },
-  AGENT_COMMAND_NOT_ALLOWED: { httpStatus: 403, message: 'Agent 命令未获授权' },
-  AGENT_ATOMIC_OPERATION_FAILED: { httpStatus: 500, message: 'Agent 原子操作执行失败' },
   AGENT_ACTION_UNREGISTERED: { httpStatus: 422, message: 'Agent Action 未注册' },
   AGENT_ACTION_SCHEMA_UNSUPPORTED: { httpStatus: 422, message: 'Agent Action Schema 不支持' },
-  HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED: { httpStatus: 409, message: '历史 Agent Action 需要迁移' },
-  HISTORICAL_AGENT_ACTION_AMBIGUOUS: { httpStatus: 409, message: '历史 Agent Action 存在歧义' },
-  LEGACY_EXECUTION_RETIRED: { httpStatus: 409, message: 'Legacy 执行类型已下线' },
   LEGACY_API_REMOVED: { httpStatus: 410, message: '旧 API 已退役' },
   AGENT_ROLLBACK_FAILED: { httpStatus: 500, message: 'Agent 插件回滚失败' },
   AGENT_MANUAL_INTERVENTION_REQUIRED: { httpStatus: 409, message: 'Agent 插件执行需要人工处理' },
@@ -161,6 +144,26 @@ export const errorCodes = {
   NOTIFICATION_SECURITY_BLOCKED: { httpStatus: 403, message: '通知安全策略已阻止请求' },
   NOTIFICATION_RETRY_EXHAUSTED: { httpStatus: 409, message: '通知重试次数已耗尽' },
   ...editionLicensingErrorCodes,
-} as const;
+};
 
-export type ErrorCode = keyof typeof errorCodes;
+const genericPluginError: ErrorCodeDefinition = {
+  httpStatus: 502,
+  message: '插件操作失败',
+};
+
+/**
+ * 插件错误码属于开放合同，不由宿主维护产品错误码目录。
+ * 未注册的插件错误码保留在 AppError.errorCode 中，但 HTTP 映射统一使用通用插件错误。
+ */
+export const errorCodes: Record<string, ErrorCodeDefinition> = new Proxy(
+  registeredErrorCodes,
+  {
+    get(target, property, receiver) {
+      if (typeof property !== 'string') return Reflect.get(target, property, receiver);
+      if (Object.prototype.hasOwnProperty.call(target, property)) return Reflect.get(target, property, receiver);
+      return genericPluginError;
+    },
+  },
+);
+
+export type ErrorCode = string;

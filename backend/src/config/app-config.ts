@@ -5,7 +5,6 @@ export interface AppConfig {
   apiPrefix: string;
   openApiEnabled: boolean;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
-  agentInstallPublicBaseUrl?: string;
   webRoot?: string;
 }
 
@@ -22,7 +21,6 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     apiPrefix: env.API_PREFIX ?? '/api/v1',
     openApiEnabled: env.OPENAPI_ENABLED !== 'false',
     logLevel: (env.LOG_LEVEL as AppConfig['logLevel']) ?? 'info',
-    agentInstallPublicBaseUrl: env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL?.trim() || undefined,
     webRoot: env.GCAC_WEB_ROOT?.trim() || undefined,
   };
 }

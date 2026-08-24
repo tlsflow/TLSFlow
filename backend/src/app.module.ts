@@ -1,5 +1,7 @@
 import { App } from './common/http/app.js';
+import { AppError } from './common/errors/app-error.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
+import type { WriteAuditInput } from './modules/audits/audit.service.js';
 import type { RouteContract } from './common/openapi/route-contract.js';
 import { generateOpenApiDocument } from './common/openapi/openapi-generator.js';
 import type { DatabasePort } from './database/database-port.js';
@@ -29,26 +31,8 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
-import {
-  AcmeAccountService,
-  AcmeCertificateService,
-  AcmeChallengeService,
-  AcmeOrderService,
-  AcmeProviderAdapter,
-  AcmeRenewalPolicyService,
-  AcmeRenewalScheduler,
-  AcmeRenewalWorker,
-  AcmeRepository,
-  CaAutoSyncScheduler,
-  CaOperationsRepository,
-  CaSyncWorker,
-  getInternalCaRouteContracts,
-  InternalCaApplicationService,
-  InternalCaController,
-} from './modules/internal-ca/index.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
-import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts } from './modules/compatibility-catalog/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
 import {
@@ -71,14 +55,25 @@ import { DashboardApplicationService, DashboardController, getDashboardRouteCont
 import { getReportRouteContracts, PgReportDataPort, ReportExportService, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
+import {
+  createProductionPolicyAuthorityServicesV1,
+  requireProductionPolicyAuthorityServicesV1,
+  type ProductionPolicyAuthorityServicesV1,
+} from './modules/agents/security/policy-authority.service.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
-import { BuiltinPluginCompatibilityUpgradeService } from './modules/plugins/application/builtin-plugin-compatibility-upgrade.service.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
+import {
+  createUnifiedAgentPlanPolicyAuthorityPortV1,
+  type UnifiedAgentPlanAuthorizationDependenciesV1,
+  type UnifiedAgentPlanGrantPortV1,
+  type UnifiedAgentPlanLocalPolicyPortV1,
+} from './modules/plugins/application/unified-agent-plan-authorization.port.js';
+import { createProductionAgentLocalPolicyAdapterV1 } from './modules/agents/security/production-agent-local-policy.adapter.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
@@ -100,12 +95,9 @@ import {
 } from './persistence/core-persistence.js';
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
-import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTargetSelector, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
+import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, DeferredNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
 import { buildAutomationTaskResourceSummary } from './modules/automations/application/automation-task-progress.js';
 import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
-import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
-import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
-import { LegoDnsIssuer } from './modules/internal-ca/providers/lego-dns-issuer.js';
 import { BrowserRuntimeClient } from './modules/browser-runtime/browser-runtime.client.js';
 import { BrowserCredentialSessionRepository } from './modules/browser-runtime/browser-credential-session.repository.js';
 import { BrowserCredentialSessionService } from './modules/browser-runtime/browser-credential-session.service.js';
@@ -115,6 +107,7 @@ import {
   type DeploymentArchitecture,
 } from './config/deployment-architecture.js';
 import { HealthApplicationService } from './modules/health/application/health.application-service.js';
+import type { HealthRepository } from './modules/health/repository/health.repository.js';
 import {
   createTaskExecutorRegistry,
   getTaskRouteContracts,
@@ -126,23 +119,25 @@ import {
 } from './modules/tasks/index.js';
 import {
   CloudAccountAssetsApplicationService,
-  CloudProviderDiscoveryApplicationService,
-  ProviderOperationLedgerService,
-  ProviderCatalogApplicationService,
   ProvidersController,
-  getProvidersRouteContracts,
+  ProviderCatalogApplicationService,
+  getCloudAccountRouteContracts,
 } from './modules/providers/index.js';
-import { SecretProviderCertificateMaterialResolver } from './modules/providers/runtime/provider-runtime.js';
 import { TrustedJsPluginExecutionService } from './modules/plugins/runtime/trusted-js-plugin-execution.service.js';
+import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
+import { PluginRunnerSupervisor, type PluginRunnerHostApiHandler } from './modules/plugins/runner/index.js';
+import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
+import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest } from './modules/plugins/runner/protocol/host-api.registry.js';
+import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
   corePersistence?: CorePersistenceProfile;
-  /**
-   * 仅供旧测试入口显式开启；生产 HTTP Server 不启用请求头身份兼容。
-   */
-  allowLegacyHeaderContext?: boolean;
   security?: SecurityServices;
+  /** 测试或独立安全控制面显式注入的 Policy Authority 资源。 */
+  policyAuthority?: ProductionPolicyAuthorityServicesV1;
+  /** 仅允许非生产测试显式注入本地策略端口。 */
+  localPolicy?: UnifiedAgentPlanLocalPolicyPortV1;
   deploymentPlans?: DeploymentPlansController;
   deploymentPersistence?: DeploymentPersistenceOptions;
   gatewayPersistence?: GatewayPersistenceOptions;
@@ -150,6 +145,9 @@ export interface AppDependencies {
   bindings?: BindingsApplicationService;
   certificates?: CertificateServices;
   deploymentArchitecture?: DeploymentArchitecture;
+  pluginRuntimeAdapters?: PluginRuntimeAdapterRegistry;
+  /** 测试或受控宿主显式注入 Plugin Runner 执行依赖；生产默认仍从固定环境配置装配。 */
+  pluginRunner?: PluginRunnerExecutionDependencies;
 }
 
 export function createApp(dependencies: AppDependencies = {}): App {
@@ -160,19 +158,16 @@ export function createApp(dependencies: AppDependencies = {}): App {
     throw new Error(buildCorePersistenceErrorMessage(missingPersistence));
   }
 
-  const app = new App({ allowLegacyHeaderContext: dependencies.allowLegacyHeaderContext });
+  const app = new App();
   const appDb = dependencies.db ?? new PgliteDatabase();
   app.setResource('database', appDb);
   app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
   app.setResource('securityServices', security);
+  const policyAuthorityServices = registerPolicyAuthorityServices(app, dependencies.policyAuthority);
+  const localPolicy = resolveAgentLocalPolicy(dependencies.localPolicy);
   const taskRealtimeStream = new TaskRealtimeStreamService();
   const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit, undefined, taskRealtimeStream);
-  void tasksService.initialize().catch((error: unknown) => {
-    structuredLogger.warn('统一任务控制面初始化失败，等待数据库迁移后重试', {
-      error: error instanceof Error ? error.message : String(error),
-    }, { module: 'task-control-plane' });
-  });
   app.setResource('tasksService', tasksService);
   app.setResource('taskRealtimeStream', taskRealtimeStream);
   const credentialsService = new CredentialsApplicationService(
@@ -191,61 +186,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
     versionEvents: certificateVersionEventPublisher,
   });
-  const internalCaService = new InternalCaApplicationService({
-    db: appDb,
-    secrets: security.secrets,
-    certificates: certificateServices.certificates,
-    audit: security.audit,
-    approvals: security.approvals,
-  });
-  const acmeRepository = new AcmeRepository(appDb);
-  const acmeProvider = new AcmeProviderAdapter(security.secrets);
-  const http01Responder = new PostgresHttp01Responder(appDb);
-  app.router.get('/.well-known/acme-challenge/:token', '返回 ACME HTTP-01 Challenge', ['ACME'], async (request) => {
-    const token = request.path.split('/').filter(Boolean).at(-1) ?? '';
-    const keyAuthorization = await http01Responder.read(token);
-    return keyAuthorization
-      ? { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: keyAuthorization }
-      : { statusCode: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: 'Not Found' };
-  });
-  const acmeAccountService = new AcmeAccountService(
-    acmeRepository,
-    internalCaService.getRepository(),
-    acmeProvider,
-    security.secrets,
-  );
-  const acmeOrderService = new AcmeOrderService(
-    acmeRepository,
-    internalCaService.getRepository(),
-    acmeProvider,
-  );
-  const acmeChallengeService = new AcmeChallengeService({
-    repository: acmeRepository,
-    caRepository: internalCaService.getRepository(),
-    provider: acmeProvider,
-    adapters: {
-      'http-01': new Http01ChallengeAdapter(http01Responder),
-    },
-  });
-  const legoTimeoutMs = positiveInteger(process.env.GCAC_LEGO_TIMEOUT_MS, 600_000);
-  const acmeRenewalLeaseMs = Math.max(
-    positiveInteger(process.env.ACME_RENEWAL_JOB_LEASE_MS, 900_000),
-    legoTimeoutMs + 60_000,
-  );
-  const legoDnsIssuer = new LegoDnsIssuer({
-    credentials: credentialsService,
-    secrets: security.secrets,
-    timeoutMs: legoTimeoutMs,
-  });
-  const acmeRenewalPolicyService = new AcmeRenewalPolicyService(
-    acmeRepository,
-    internalCaService.getRepository(),
-  );
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  app.setResource('assetsService', assetsService);
   const licensingService = app.getResource<LicensingApplicationService>('licensingService');
   if (licensingService && 'setLicensingService' in assetsService && typeof assetsService.setLicensingService === 'function') {
     assetsService.setLicensingService(licensingService);
@@ -257,13 +203,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     new PgBindingsRepository(assetsService.getRepository(), appDb),
     undefined,
     assetsService,
-  );
-  const acmeRenewalScheduler = new AcmeRenewalScheduler(
-    acmeRepository,
-    certificateServices.certificates.getRepository(),
-    bindingsService.getRepository(),
-    internalCaService,
-    tasksService,
   );
   const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
@@ -277,6 +216,18 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     new PluginWorkflowBindingsRepository(appDb),
   );
+  const productionPluginRunner = resolveProductionPluginRunnerConfig(process.env);
+  const pluginResourceLockService = new PluginResourceLockService(appDb);
+  const pluginRunnerSupervisor = productionPluginRunner
+    ? new PluginRunnerSupervisor({ maxRestarts: 0 })
+    : undefined;
+  const pluginRunnerHostApiHandler = productionPluginRunner
+    ? createPluginRunnerHostApiHandler(security, pluginResourceLockService)
+    : undefined;
+  const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
+    ?? (productionPluginRunner && pluginRunnerSupervisor && pluginRunnerHostApiHandler
+      ? { runner: productionPluginRunner, supervisor: pluginRunnerSupervisor, hostApiHandler: pluginRunnerHostApiHandler }
+      : undefined);
   let cloudAccountAssetsService!: CloudAccountAssetsApplicationService;
   const trustedJsProviderRuntime = new TrustedJsPluginExecutionService({
     db: appDb,
@@ -287,28 +238,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
     credentials: new CredentialsRepository(appDb),
     secrets: security.secrets,
     audit: security.audit,
+    ...(pluginRunnerSupervisor && productionPluginRunner ? { runner: { ...productionPluginRunner, supervisor: pluginRunnerSupervisor } } : {}),
   });
   const providerCatalogService = new ProviderCatalogApplicationService(trustedJsProviderRuntime);
   cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
-  const cloudProviderDiscoveryService = new CloudProviderDiscoveryApplicationService(appDb, providerCatalogService);
-  const providerOperationLedgerService = new ProviderOperationLedgerService(
-    appDb,
-    providerCatalogService,
-    new SecretProviderCertificateMaterialResolver(security.secrets),
-  );
   new ProvidersController(
-    providerCatalogService,
     cloudAccountAssetsService,
-    cloudProviderDiscoveryService,
-    providerOperationLedgerService,
-    tasksService,
     security,
   ).register(app.router);
-  app.setResource('providerCatalogService', providerCatalogService);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
-  app.setResource('cloudProviderDiscoveryService', cloudProviderDiscoveryService);
-  app.setResource('providerOperationLedgerService', providerOperationLedgerService);
-  app.setResource('trustedJsProviderRuntime', trustedJsProviderRuntime);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector, unifiedPluginsService);
   const executionResultSync = new ExecutionResultSyncService(
@@ -371,7 +309,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     standardDeviceDiscoveryProjector,
   );
-  const agentPlanCompiler = new UnifiedAgentPlanCompilerService(unifiedPluginsService);
+  const agentPlanCompiler = new UnifiedAgentPlanCompilerService(
+    unifiedPluginsService,
+    createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy),
+  );
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
@@ -382,43 +323,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
-  app.setResource('internalCaService', internalCaService);
-  app.setResource('caSyncWorker', new CaSyncWorker(
-    new CaOperationsRepository(appDb),
-    internalCaService,
-    `ca-sync-worker-${process.pid}`,
-    ({ run, error }) => {
-      structuredLogger.warn('CA sync run failed', {
-        error: error instanceof Error ? error.message : String(error),
-        status: run.status,
-      }, {
-        module: 'ca-sync-worker',
-        tenantId: run.tenantId,
-        resourceType: 'caSyncRun',
-        resourceId: run.id,
-      });
-    },
-  ));
-  app.setResource('caAutoSyncScheduler', new CaAutoSyncScheduler(
-    new CaOperationsRepository(appDb),
-    internalCaService,
-    ({ target, error }) => {
-      structuredLogger.warn('CA automatic sync scheduling failed', {
-        error: error instanceof Error ? error.message : String(error),
-        objectType: target.objectType,
-      }, {
-        module: 'ca-auto-sync-scheduler',
-        tenantId: target.tenantId,
-        resourceType: 'certificateAuthority',
-        resourceId: target.caId,
-      });
-    },
-    tasksService,
-  ));
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
-  new HealthController(new HealthApplicationService(deploymentArchitecture)).register(app.router);
+  new HealthController(new HealthApplicationService(deploymentArchitecture, createTaskAwareHealthRepository(tasksService))).register(app.router);
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
@@ -430,7 +338,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deviceAssetsRepository,
   ));
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
-  const pluginResourceLockService = new PluginResourceLockService(appDb);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -442,7 +349,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,
     trustedJsProviderRuntime,
+    pluginRunner: pluginRunnerDependencies,
   });
+  if (pluginRunnerSupervisor && pluginRunnerHostApiHandler) {
+    app.setResource('pluginRunnerSupervisor', pluginRunnerSupervisor);
+    app.setResource('pluginRunnerHostApiHandler', pluginRunnerHostApiHandler);
+  }
 
   const deploymentPersistence = dependencies.deploymentPlans
     ? undefined
@@ -480,6 +392,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     database: appDb,
       deploymentInputSnapshots,
+      pluginRuntimeAdapters: dependencies.pluginRuntimeAdapters,
     }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
@@ -511,48 +424,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('executionDetailStream', executionDetailStream);
   new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService, security).register(app.router);
 
-  const acmeRenewalWorker = new AcmeRenewalWorker({
-    repository: acmeRepository,
-    certificates: certificateServices.certificates.getRepository(),
-    internalCa: internalCaService,
-    orders: acmeOrderService,
-    challenges: acmeChallengeService,
-    lego: legoDnsIssuer,
-    leaseOwner: `acme-renewal-worker-${process.pid}`,
-    leaseDurationMs: acmeRenewalLeaseMs,
-  });
-  const acmeServices = {
-    accounts: acmeAccountService,
-    certificates: new AcmeCertificateService(
-      certificateServices.certificates,
-      internalCaService.getRepository(),
-      acmeRepository,
-      acmeRenewalPolicyService,
-      credentialsService,
-      (tenantId, actorId) => internalCaService.ensureBuiltinAcmeProvider(tenantId, actorId),
-      acmeAccountService,
-      security.secrets,
-      internalCaService,
-    ),
-    orders: acmeOrderService,
-    policies: acmeRenewalPolicyService,
-    repository: acmeRepository,
-    scheduler: acmeRenewalScheduler,
-    worker: acmeRenewalWorker,
-  };
-  app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
-  app.setResource('acmeRenewalWorker', acmeRenewalWorker);
-  app.setResource('acmeRepository', acmeRepository);
-
   const automationsRepository = new AutomationsRepository(appDb);
   const automationTriggerRegistry = new AutomationTriggerRegistry();
   const automationFilterEvaluator = new AutomationFilterEvaluator();
   const automationResolverRegistry = new AutomationTargetResolverRegistry();
-  const automationTargetSelector = new AutomationTargetSelector(
-    certificateServices.certificates.getRepository(),
-    bindingsService.getRepository(),
-    assetsService.getRepository(),
-  );
   automationResolverRegistry.register(new CertificateVersionTargetResolver(
     certificateServices.certificates.getRepository(),
     bindingsService.getRepository(),
@@ -567,7 +442,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     automationsRepository,
     undefined,
     undefined,
-    automationTargetSelector,
     {
       triggerRegistry: automationTriggerRegistry,
       filterEvaluator: automationFilterEvaluator,
@@ -584,7 +458,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   certificateVersionEventPublisher.setDelegate(automationEventDelivery);
   const automationDeployment = new AutomationDeploymentActionService(new DeploymentPlansAutomationAdapter(deploymentPlans.getApplicationService()));
-  const automationNotifications = new AutomationNotificationActionService(new FakeNotificationPort());
+  const automationNotificationPort = new DeferredNotificationPort();
+  const automationNotifications = new AutomationNotificationActionService(automationNotificationPort);
   const automationCoordinator = new AutomationRunCoordinator(
     automationsRepository,
     new AutomationConfiguredActionExecutor(automationDeployment, automationNotifications),
@@ -651,6 +526,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     notificationAdapters,
     tasksService,
   );
+  automationNotificationPort.bind(notificationsService);
   app.setResource('notificationsService', notificationsService);
   app.setResource('notificationWorker', notificationWorker);
 
@@ -668,14 +544,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);
-  new InternalCaController(internalCaService, security, acmeServices, tasksService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
-  new CompatibilityCatalogController().register(app.router);
-  const builtinPluginCompatibilityUpgrader = new BuiltinPluginCompatibilityUpgradeService(appDb);
   const builtinPluginRefreshPromises = new Map<string, Promise<{
     refreshedAt: string;
     versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
@@ -695,8 +568,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
         const versions = await initializeBuiltinPlugins(
           unifiedPluginsService,
           pluginWorkflowPublisher,
-          appDb,
-          { compatibilityUpgrader: builtinPluginCompatibilityUpgrader },
         );
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
         return {
@@ -723,7 +594,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginBindingsService,
     new PluginPromotionService(appDb),
     new ManagedTargetPluginQueryService(appDb),
-    builtinPluginCompatibilityUpgrader,
     builtinCatalogRefresher,
     tasksService,
     security,
@@ -776,12 +646,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ReportsController(reportsService, security, reportExportService).register(app.router);
 
   const taskExecutorRegistry = createTaskExecutorRegistry({
-    acme: acmeRenewalWorker,
-    acmeJobs: acmeRepository,
     executions: executionsService,
     executionRegistry: executorRegistry,
-    caSync: app.getResource('caSyncWorker'),
-    internalCa: internalCaService,
     automation: automationScheduler,
     automationRuns: automationsService,
     automationEvents: automationEventDelivery,
@@ -790,8 +656,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     reports: reportExportService,
     agents: agentsService,
     pluginCatalog: builtinCatalogRefresher,
-    cloudAccounts: cloudAccountAssetsService,
-    providerOperations: providerOperationLedgerService,
   }, tasksService.registry.list().map((definition) => definition.executorKey));
   const taskWorkerSupervisor = new TaskWorkerSupervisor(
     tasksService,
@@ -812,13 +676,128 @@ export function createApp(dependencies: AppDependencies = {}): App {
   return app;
 }
 
+/**
+ * 生产进程必须装配由生产工厂创建的 Policy Authority；测试替身不得进入生产注册入口。
+ * 不检查 GCAC_POLICY_AUTHORITY_ENABLED，避免未设置或 false 悄然移除生产安全边界。
+ */
+export function registerPolicyAuthorityServices(
+  app: App,
+  injected?: ProductionPolicyAuthorityServicesV1,
+  environment: NodeJS.ProcessEnv = process.env,
+): ProductionPolicyAuthorityServicesV1 | undefined {
+  const policyAuthority = injected === undefined
+    ? (environment.NODE_ENV === 'production' ? createProductionPolicyAuthorityServicesV1(environment) : undefined)
+    : (environment.NODE_ENV === 'production' ? requireProductionPolicyAuthorityServicesV1(injected) : injected);
+  if (!policyAuthority) return undefined;
+  app.setResource('policyAuthorityService', policyAuthority.service);
+  app.setResource('policyAuthorityTrustRootService', policyAuthority.trustRoot);
+  app.setResource('policyAuthorityKeySetService', policyAuthority.keySet);
+  app.setResource('policyAuthoritySigningKeySource', policyAuthority.signingKeys);
+  return policyAuthority;
+}
+
+function createAgentPlanAuthorizationDependencies(
+  policyAuthorityServices: ProductionPolicyAuthorityServicesV1 | undefined,
+  security: SecurityServices,
+  localPolicy: UnifiedAgentPlanLocalPolicyPortV1 | undefined,
+): UnifiedAgentPlanAuthorizationDependenciesV1 | undefined {
+  if (!policyAuthorityServices) return undefined;
+  if (!localPolicy) return undefined;
+  const grants: UnifiedAgentPlanGrantPortV1 = {
+    validate: (input) => security.grants.validate(input),
+  };
+  return {
+    policyAuthority: createUnifiedAgentPlanPolicyAuthorityPortV1(policyAuthorityServices),
+    grants,
+    localPolicy,
+  };
+}
+
+function resolveAgentLocalPolicy(
+  injectedLocalPolicy: UnifiedAgentPlanLocalPolicyPortV1 | undefined,
+  environment: NodeJS.ProcessEnv = process.env,
+): UnifiedAgentPlanLocalPolicyPortV1 | undefined {
+  if (environment.NODE_ENV === 'production') {
+    if (injectedLocalPolicy !== undefined) {
+      throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '生产装配拒绝注入测试 localPolicy 依赖', { fallback: false });
+    }
+    return createProductionAgentLocalPolicyAdapterV1(environment);
+  }
+  return injectedLocalPolicy;
+}
+
+function createPluginRunnerHostApiHandler(
+  security: SecurityServices,
+  resourceLocks: PluginResourceLockService,
+): PluginRunnerHostApiHandler {
+  return async (context) => {
+    const definition = getHostApiMethod(context.method);
+    const input = validateHostApiRequest(context.method, context.input);
+    assertHostApiGrant(context.method, definition.requiredGrants, context.grantRefs);
+    const grants = await Promise.all(context.grantRefs.map((grantId) => security.grants.validate({
+      grantId,
+      tenantId: context.tenantId,
+      runId: context.executionId,
+      stepId: context.executionStepId,
+      executorType: 'TRUSTED_JS',
+      action: definition.permission,
+    })));
+    if (!grants.some((grant) => definition.requiredGrants.every((requiredGrant) => grant.allowedActions.includes(requiredGrant)))) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API Grant 未覆盖注册权限', { method: context.method });
+    }
+
+    if (context.method === 'audit.append') {
+      await security.audit.write({
+        eventType: String(input.eventType),
+        actorType: 'system',
+        actorId: context.pluginId,
+        action: String(input.action),
+        resourceType: String(input.resourceType),
+        resourceId: String(input.resourceId),
+        result: input.result as WriteAuditInput['result'],
+        riskLevel: 'medium',
+        context: { tenantId: context.tenantId },
+        detail: (input.detail ?? {}) as Record<string, unknown>,
+      });
+      return { ok: true };
+    }
+    if (context.method === 'resourceLock.acquire') {
+      const record = await resourceLocks.acquire({
+        tenantId: context.tenantId,
+        resourceKey: normalizePluginLockKey(context.tenantId, String(input.resourceKey)),
+        mode: 'WRITE',
+        ownerRunId: String(input.ownerRunId),
+        ownerStepId: String(input.ownerStepId),
+        ttlSeconds: Number(input.ttlSeconds),
+      });
+      return { ok: true, data: { lockId: record.id } };
+    }
+    if (context.method === 'resourceLock.release') {
+      await resourceLocks.release({
+        tenantId: context.tenantId,
+        lockId: String(input.lockId),
+        ownerRunId: String(input.ownerRunId),
+        ownerStepId: String(input.ownerStepId),
+      });
+      return { ok: true };
+    }
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', '该 Runner Host API 尚未完成生产宿主能力装配，已失败关闭', {
+      method: context.method,
+      pluginVersionId: context.pluginVersionId,
+    });
+  };
+}
+
+function normalizePluginLockKey(tenantId: string, resourceKey: string): string {
+  const normalized = resourceKey.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 160);
+  return `tenant:${tenantId}:standalone:${normalized || 'plugin_resource'}`;
+}
+
 export async function initializeBuiltinPlugins(
   unifiedPlugins: UnifiedPluginsApplicationService,
   pluginWorkflowPublisher: PluginWorkflowPublisherService,
-  database?: DatabasePort,
   options: {
     loader?: BuiltinUnifiedPluginLoader;
-    compatibilityUpgrader?: Pick<BuiltinPluginCompatibilityUpgradeService, 'upgradePatchLine'>;
     logger?: Pick<typeof structuredLogger, 'warn'>;
   } = {},
 ): Promise<UnifiedPluginVersionRecord[]> {
@@ -845,15 +824,6 @@ export async function initializeBuiltinPlugins(
     }
   }
 
-  if (!database) return installed;
-  const upgrades = options.compatibilityUpgrader ?? new BuiltinPluginCompatibilityUpgradeService(database);
-  for (const plugin of installed) {
-    try {
-      await upgrades.upgradePatchLine(plugin.tenantId, plugin.id, plugin.pluginId, plugin.version);
-    } catch (error) {
-      warnBuiltinPluginFailure(logger, 'upgradeCompatibility', plugin, plugin.id, error);
-    }
-  }
   return installed;
 }
 
@@ -867,18 +837,34 @@ export async function createAppAsync(
   if (options.registerFlushers) {
     await options.registerFlushers(app);
   }
+  const tasksService = app.getResource<TasksApplicationService>('tasksService');
+  if (!tasksService) throw new Error('任务控制面服务未完成应用装配');
+  await tasksService.initialize();
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
   if (unifiedPlugins && pluginWorkflowPublisher) {
-    const database = app.getResource<DatabasePort>('database');
-    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, database);
+    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher);
   }
   return app;
 }
 
+function createTaskAwareHealthRepository(
+  tasksService: Pick<TasksApplicationService, 'getLifecycle'>,
+): HealthRepository {
+  return {
+    async checkDependency(name: string): Promise<'OK' | 'DEGRADED' | 'UNKNOWN'> {
+      if (name !== 'database' && name !== 'queue') return 'OK';
+      const status = tasksService.getLifecycle().status;
+      if (status === 'READY') return 'OK';
+      if (status === 'FAILED') return 'DEGRADED';
+      return 'UNKNOWN';
+    },
+  };
+}
+
 function warnBuiltinPluginFailure(
   logger: Pick<typeof structuredLogger, 'warn'>,
-  phase: 'load' | 'publishWorkflow' | 'disableAfterPublishWorkflow' | 'upgradeCompatibility',
+  phase: 'load' | 'publishWorkflow' | 'disableAfterPublishWorkflow',
   plugin: { id: string; pluginId: string; version: string } | undefined,
   resourceId: string | undefined,
   error: unknown,
@@ -991,17 +977,15 @@ export function getRouteContracts(
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),
     ...getAssetsRouteContracts(),
-    ...getProvidersRouteContracts(),
+    ...getCloudAccountRouteContracts(),
     ...getDeploymentInputRouteContracts(),
     ...getDeviceAssetRouteContracts(),
     ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
     ...getCertificateRouteContracts(),
-    ...getInternalCaRouteContracts(),
     ...getCapabilitiesRouteContracts(),
     ...getAgentsRouteContracts(),
     ...getGatewayRouteContracts(),
-    ...getCompatibilityCatalogRouteContracts(),
     ...getPluginsRouteContracts(),
     ...getWorkflowTemplateRouteContracts(),
     ...getAutomationRouteContracts(),
