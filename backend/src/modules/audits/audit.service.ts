@@ -7,6 +7,7 @@ import type { ActorType, AuditResult, RequestContext, ResourceDescriptor, Securi
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 import { RedactionService } from './redaction.service.js';
+import { isSuppressedAudit } from './audit-event-types.js';
 
 export interface WriteAuditInput {
   eventType: string;
@@ -85,7 +86,7 @@ export class AuditService {
       if (!tenantId && this.defaultTenantResolver) {
         throw new Error('审计写入缺少租户上下文');
       }
-      return this.logs.create({
+      const entity: AuditLogEntity = {
         id: newId('aud'),
         tenantId,
         eventType: input.eventType,
@@ -100,7 +101,9 @@ export class AuditService {
         sourceIp: input.context?.sourceIp,
         detail: redactedDetail,
         createdAt: new Date().toISOString(),
-      });
+      };
+      if (isSuppressedAudit(entity)) return structuredClone(entity);
+      return this.logs.create(entity);
     } catch (error) {
       if (input.failClosed || input.riskLevel === 'high' || input.riskLevel === 'critical') {
         throw securityErrors.auditWriteFailed({ cause: error instanceof Error ? error.message : String(error) });
@@ -116,7 +119,8 @@ export class AuditService {
   async query(query: AuditQuery = {}): Promise<AuditLogEntity[]> {
     if (this.queryDb) return this.queryPersistedLogs(query);
     return this.logs.list((log) => {
-      return (!query.tenantId || log.tenantId === query.tenantId)
+      return !isSuppressedAudit(log)
+        && (!query.tenantId || log.tenantId === query.tenantId)
         && (!query.actorId || log.actorId === query.actorId)
         && (!query.eventType || log.eventType === query.eventType)
         && (!query.resourceType || log.resourceType === query.resourceType)
@@ -170,6 +174,7 @@ export class AuditService {
     appendAuditCondition(conditions, params, "payload->>'resourceType'", query.resourceType);
     appendAuditCondition(conditions, params, "payload->>'resourceId'", query.resourceId);
     appendAuditCondition(conditions, params, "payload->>'riskLevel'", query.riskLevel);
+    appendSuppressedAuditCondition(conditions);
     const result = await this.queryDb!.query<AuditDocumentRow>(
       `select document_id, payload
          from pg_documents
@@ -195,6 +200,24 @@ function appendAuditCondition(conditions: string[], params: unknown[], expressio
   if (!value) return;
   params.push(value);
   conditions.push(`${expression} = $${params.length}`);
+}
+
+function appendSuppressedAuditCondition(conditions: string[]): void {
+  conditions.push(`not (
+    payload->>'eventType' = 'secret.used'
+    or (
+      payload->>'eventType' = 'permission.denied'
+      and payload->'detail'->>'reason' in ('no allow policy', 'no object grant')
+    )
+    or (
+      payload->>'eventType' like 'ca.operations.sync.%'
+      and payload->>'eventType' <> 'ca.operations.sync.failed'
+    )
+    or (
+      payload->>'resourceType' = 'caSyncRun'
+      and payload->>'eventType' <> 'ca.operations.sync.failed'
+    )
+  )`);
 }
 
 function resolveContextTenantId(context: RequestContext | undefined): string | undefined {

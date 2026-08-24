@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
 import type { CertificatesRepository } from '../certificates/repository/certificates.repository.js';
-import { buildAuditPresentationContext, emptyAuditPresentationContext, presentAuditLog } from './audit-presentation.service.js';
+import { AuditPresentationService, buildAuditPresentationContext, emptyAuditPresentationContext, presentAuditLog } from './audit-presentation.service.js';
 
 function audit(input: Partial<AuditLogEntity>): AuditLogEntity {
   return {
@@ -68,6 +68,18 @@ describe('AuditPresentationService 业务摘要', () => {
     assert.doesNotMatch(result.summary ?? '', /external_ids|task_internal_id/);
   });
 
+  it('将保留的权限拒绝类型明确展示', () => {
+    const result = presentAuditLog(audit({
+      eventType: 'permission.denied',
+      action: 'certificate.delete',
+      resourceType: 'certificate',
+      result: 'denied',
+      detail: { reason: 'explicit business deny' },
+    }), emptyAuditPresentationContext());
+
+    assert.match(result.summary ?? '', /业务规则显式拒绝/);
+  });
+
   it('将 Secret purpose 翻译为凭据用途且不泄露 Secret 引用', () => {
     const result = presentAuditLog(audit({
       eventType: 'secret.used',
@@ -83,6 +95,61 @@ describe('AuditPresentationService 业务摘要', () => {
 
     assert.equal(result.summary, '身份源服务读取证书部署私钥。');
     assert.doesNotMatch(result.summary ?? '', /sec_internal_id|secret:\/\//);
+  });
+
+  it('展示层过滤 Secret、默认权限拒绝和 CA 同步过程，但保留权限阻断与同步失败', async () => {
+    const service = new AuditPresentationService({
+      deploymentPlans: { getPlan: async () => undefined, listTargetsByPlan: async () => [] } as never,
+      assets: { listServiceAssets: async () => ({ items: [], page: 1, pageSize: 1000, total: 0 }) } as never,
+      bindings: { listCertificateBindings: async () => ({ items: [], page: 1, pageSize: 1000, total: 0 }) } as never,
+    });
+    const visible = await service.present('tenant_test', [
+      audit({
+        id: 'aud_http_header',
+        eventType: 'secret.used',
+        action: 'secret.resolve.service',
+        resourceType: 'secret',
+        detail: { purpose: 'http.header' },
+      }),
+      audit({
+        id: 'aud_permission_default',
+        eventType: 'permission.denied',
+        action: 'task.read',
+        resourceType: 'task',
+        result: 'denied',
+        detail: { reason: 'no allow policy' },
+      }),
+      audit({
+        id: 'aud_permission_explicit',
+        eventType: 'permission.denied',
+        action: 'task.delete',
+        resourceType: 'task',
+        result: 'denied',
+        detail: { reason: 'explicit deny' },
+      }),
+      audit({
+        id: 'aud_ca_started',
+        eventType: 'ca.operations.sync.started',
+        action: 'ca.operations.sync',
+        resourceType: 'caSyncRun',
+        result: 'success',
+      }),
+      audit({
+        id: 'aud_ca_failed',
+        eventType: 'ca.operations.sync.failed',
+        action: 'ca.operations.sync',
+        resourceType: 'caSyncRun',
+        result: 'failure',
+      }),
+      audit({
+        id: 'aud_visible',
+        eventType: 'task.created',
+        action: 'task.create',
+        resourceType: 'task',
+      }),
+    ]);
+
+    assert.deepEqual(visible.map((item) => item.id), ['aud_permission_explicit', 'aud_ca_failed', 'aud_visible']);
   });
 
   it('将外部登录翻译为身份源登录', () => {

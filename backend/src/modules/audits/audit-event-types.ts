@@ -71,6 +71,57 @@ export const AUDIT_EVENT_TYPES = {
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
 
+/**
+ * 这些事件是高频执行细节或默认拒绝噪声，不进入长期审计列表。
+ * CA 同步失败和有明确策略阻断原因的权限拒绝必须保留，便于定位真实故障。
+ */
+export function isSuppressedAudit(input: {
+  eventType?: unknown;
+  resourceType?: unknown;
+  detail?: unknown;
+}): boolean {
+  const eventType = typeof input.eventType === 'string' ? input.eventType : '';
+  const isCaSyncFailure = eventType === AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_FAILED;
+  return eventType === AUDIT_EVENT_TYPES.SECRET_USED
+    || isSuppressedPermissionDeniedAudit(input)
+    || (eventType.startsWith('ca.operations.sync.') && !isCaSyncFailure)
+    || (input.resourceType === 'caSyncRun' && !isCaSyncFailure);
+}
+
+/** 默认拒绝表示没有命中任何允许策略，通常是列表探测产生的重复噪声。 */
+export function isSuppressedPermissionDeniedAudit(input: {
+  eventType?: unknown;
+  detail?: unknown;
+}): boolean {
+  if (input.eventType !== AUDIT_EVENT_TYPES.PERMISSION_DENIED) return false;
+  const reason = readDetailString(input.detail, 'reason');
+  return reason === 'no allow policy' || reason === 'no object grant';
+}
+
+/** Secret 读取事件全部属于执行细节，不进入长期审计列表。 */
+export function isSecretUsageAudit(input: { eventType?: unknown }): boolean {
+  return input.eventType === AUDIT_EVENT_TYPES.SECRET_USED;
+}
+
+/** HTTP 请求头中的 Secret 读取属于 Secret 使用事件的一个兼容性细分。 */
+export function isHttpHeaderSecretReadAudit(input: {
+  eventType?: unknown;
+  action?: unknown;
+  resourceType?: unknown;
+  detail?: unknown;
+}): boolean {
+  if (input.eventType !== AUDIT_EVENT_TYPES.SECRET_USED
+    || input.action !== 'secret.resolve.service'
+    || input.resourceType !== 'secret') return false;
+  return readDetailString(input.detail, 'purpose') === 'http.header';
+}
+
+function readDetailString(detail: unknown, key: string): string | undefined {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined;
+  const value = (detail as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
 export const HIGH_RISK_AUDIT_EVENTS = new Set<string>([
   AUDIT_EVENT_TYPES.SECRET_USED,
   AUDIT_EVENT_TYPES.SECRET_ROTATED,

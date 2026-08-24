@@ -7,6 +7,7 @@ import type { CertificatesRepository } from '../certificates/repository/certific
 import type { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity } from '../deployment-plans/schema/deployment-plans.schema.js';
 import type { SecretService } from '../secrets/secret.service.js';
+import { isSuppressedAudit } from './audit-event-types.js';
 
 export type PresentedAuditLog = AuditLogEntity & {
   summary?: string;
@@ -32,6 +33,7 @@ export class AuditPresentationService {
   constructor(private readonly dependencies: AuditPresentationDependencies) {}
 
   async present(tenantId: string, auditLogs: AuditLogEntity[]): Promise<PresentedAuditLog[]> {
+    const visibleAuditLogs = auditLogs.filter((log) => !isSuppressedAudit(log));
     try {
       const [applicationAssets, bindings] = await Promise.all([
         this.dependencies.assets.listServiceAssets(tenantId, allRowsQuery('updatedAt:desc')),
@@ -39,17 +41,17 @@ export class AuditPresentationService {
       ]);
       const context = await buildAuditPresentationContext({
         tenantId,
-        auditLogs,
+        auditLogs: visibleAuditLogs,
         deploymentPlans: this.dependencies.deploymentPlans,
         applicationAssets: applicationAssets.items,
         bindings: bindings.items,
         secrets: this.dependencies.secrets,
         certificates: this.dependencies.certificates,
       });
-      return auditLogs.map((log) => presentAuditLog(log, context));
+      return visibleAuditLogs.map((log) => presentAuditLog(log, context));
     } catch {
       // 展示增强不能影响审计查询本身；缺少资产表或上下文时回退到原始审计。
-      return auditLogs.map((log) => presentAuditLog(log));
+      return visibleAuditLogs.map((log) => presentAuditLog(log));
     }
   }
 }
@@ -628,6 +630,9 @@ const permissionActionLabels: Record<string, string> = {
 
 const permissionReasonLabels: Record<string, string> = {
   'no allow policy': '没有匹配的允许策略',
+  'no object grant': '没有匹配的对象授权',
+  'explicit deny': '显式拒绝',
+  'explicit business deny': '业务规则显式拒绝',
   'tenant scope denied': '租户范围不允许',
   'resource scope denied': '对象范围不允许',
 };

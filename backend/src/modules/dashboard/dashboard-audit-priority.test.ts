@@ -29,6 +29,11 @@ test('首页审计过滤健康检查成功日志，并优先展示高价值事�
       createdAt: '2026-07-06T09:05:00.000Z',
     }),
     audit({
+      id: 'http_header_secret_read',
+      detail: { purpose: 'http.header' },
+      createdAt: '2026-07-06T09:04:30.000Z',
+    }),
+    audit({
       id: 'normal_secret_read',
       detail: { purpose: 'certificate.export' },
       createdAt: '2026-07-06T09:04:00.000Z',
@@ -55,15 +60,55 @@ test('首页审计过滤健康检查成功日志，并优先展示高价值事�
       resourceId: 'plan_1',
       result: 'denied',
       riskLevel: 'high',
+      detail: { reason: 'no allow policy' },
       createdAt: '2026-07-06T09:00:00.000Z',
     }),
   ]);
 
   assert.deepEqual(result.map((item) => item.id), [
-    'normal_secret_read',
     'old_user_certificate_import',
-    'denied_permission',
   ]);
+});
+
+test('首页保留显式权限拒绝和 CA 同步失败，过滤默认拒绝与同步过程', () => {
+  const result = buildRecentDashboardAudits([
+    audit({
+      id: 'permission_default',
+      eventType: 'permission.denied',
+      actorType: 'user',
+      actorId: 'user_default',
+      action: 'task.read',
+      resourceType: 'task',
+      result: 'denied',
+      detail: { reason: 'no allow policy' },
+    }),
+    audit({
+      id: 'permission_explicit',
+      eventType: 'permission.denied',
+      actorType: 'user',
+      actorId: 'user_explicit',
+      action: 'task.delete',
+      resourceType: 'task',
+      result: 'denied',
+      detail: { reason: 'explicit deny' },
+    }),
+    audit({
+      id: 'ca_started',
+      eventType: 'ca.operations.sync.started',
+      action: 'ca.operations.sync',
+      resourceType: 'caSyncRun',
+      result: 'success',
+    }),
+    audit({
+      id: 'ca_failed',
+      eventType: 'ca.operations.sync.failed',
+      action: 'ca.operations.sync',
+      resourceType: 'caSyncRun',
+      result: 'failure',
+    }),
+  ]);
+
+  assert.deepEqual(result.map((item) => item.id), ['permission_explicit', 'ca_failed']);
 });
 
 test('首页审计避免同一类型日志霸屏，并按时间倒序展示', () => {

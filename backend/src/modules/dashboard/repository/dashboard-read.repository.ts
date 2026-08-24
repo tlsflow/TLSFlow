@@ -441,6 +441,19 @@ export class DashboardReadRepository {
         from pg_documents audit
        where audit.namespace = 'security.audit_logs'
          and audit.payload->>'tenantId' = $1
+         and audit.payload->>'eventType' <> 'secret.used'
+         and not (
+           audit.payload->>'eventType' = 'permission.denied'
+           and audit.payload->'detail'->>'reason' in ('no allow policy', 'no object grant')
+         )
+         and not (
+           audit.payload->>'eventType' like 'ca.operations.sync.%'
+           and audit.payload->>'eventType' <> 'ca.operations.sync.failed'
+         )
+         and not (
+           audit.payload->>'resourceType' = 'caSyncRun'
+           and audit.payload->>'eventType' <> 'ca.operations.sync.failed'
+         )
        order by audit.updated_at desc
        limit $2
     `, [tenantId, AUDIT_CANDIDATE_LIMIT]);

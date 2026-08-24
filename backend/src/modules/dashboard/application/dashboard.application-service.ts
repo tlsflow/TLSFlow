@@ -1,5 +1,6 @@
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { AuditService } from '../../audits/audit.service.js';
+import { isSuppressedAudit } from '../../audits/audit-event-types.js';
 import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
@@ -266,7 +267,7 @@ function dashboardAuditDiversityKey(log: AuditLogEntity): string {
 }
 
 function shouldShowOnDashboardAudits(log: AuditLogEntity): boolean {
-  return !isSuccessfulSecretHealthCheck(log);
+  return !isSuccessfulSecretHealthCheck(log) && !isSuppressedAudit(log);
 }
 
 function compareDashboardAuditPriority(left: AuditLogEntity, right: AuditLogEntity): number {
