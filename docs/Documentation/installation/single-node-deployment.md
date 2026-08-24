@@ -8,8 +8,8 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - docker/compose.yml
-  - docker/Dockerfile.small
-  - docker/build-local.mjs
+  - docker/build-tools/Dockerfile.small
+  - docker/build-tools/build-local.mjs
 testRefs: []
 lastVerified: 2026-08-22
 ---
@@ -23,7 +23,7 @@ lastVerified: 2026-08-22
 将[部署参数](./deployment-parameters.md)中的单机变量注入当前 Shell 或 CI Secret 后，在仓库根目录执行：
 
 ```bash
-node docker/build-local.mjs --architecture small
+node docker/build-tools/build-local.mjs --architecture small
 GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)" \
 docker compose --env-file docker/versions.env --profile small -f docker/compose.yml up -d
 ```

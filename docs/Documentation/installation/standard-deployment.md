@@ -8,10 +8,10 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - docker/compose.yml
-  - docker/Dockerfile.db
-  - docker/Dockerfile.backend
-  - docker/Dockerfile.web
-  - docker/Dockerfile.browser-runtime
+  - docker/build-tools/Dockerfile.db
+  - docker/build-tools/Dockerfile.backend
+  - docker/build-tools/Dockerfile.web
+  - docker/build-tools/Dockerfile.browser-runtime
 testRefs: []
 lastVerified: 2026-08-22
 ---
@@ -29,7 +29,7 @@ lastVerified: 2026-08-22
 先生成 Agent Release Bundle（Agent 发布包）：
 
 ```bash
-node docker/build-agent-release-bundle.mjs
+node docker/build-tools/build-agent-release-bundle.mjs
 ```
 
 脚本会生成 Linux/Windows Agent、Windows Compatibility Agent 安装资源、`manifest.json` 和 SHA-256（安全散列）清单。缺少 Windows Compatibility Agent 产物时构建失败；不能把源码目录直接放入镜像。
@@ -39,7 +39,7 @@ node docker/build-agent-release-bundle.mjs
 公开仓库只做本地可复现构建，不执行 `docker login` 或 `--push`：
 
 ```bash
-node docker/build-local.mjs --architecture standard
+node docker/build-tools/build-local.mjs --architecture standard
 ```
 
 跨平台构建只能使用发布矩阵中的 `linux/amd64` 和 `linux/arm64`。镜像发布属于私有发布流水线，不是本页的部署步骤。

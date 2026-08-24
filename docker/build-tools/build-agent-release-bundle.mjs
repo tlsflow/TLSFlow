@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const repositoryRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const outputRoot = resolve(process.env.GCAC_AGENT_BUNDLE_OUTPUT ?? join(repositoryRoot, 'build', 'agent-release-bundle'));
 const releaseVersion = (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
 

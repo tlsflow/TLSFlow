@@ -7,12 +7,12 @@
     "linux/arm64"
   ],
   "localBuild": {
-    "script": "docker/build-local.mjs",
+    "script": "docker/build-tools/build-local.mjs",
     "mustLoadLocally": true,
     "mustPush": false
   },
   "publish": {
-    "script": "docker/publish-images.mjs",
+    "script": "docker/publish/publish-images.mjs",
     "requiresExternalDockerLogin": true,
     "requiredEnvironment": [
       "DOCKERHUB_NAMESPACE",

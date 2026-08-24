@@ -8,8 +8,8 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - docker/compose.yml
-  - docker/Dockerfile.small
-  - docker/Dockerfile.backend
+  - docker/build-tools/Dockerfile.small
+  - docker/build-tools/Dockerfile.backend
 testRefs: []
 lastVerified: 2026-08-22
 ---

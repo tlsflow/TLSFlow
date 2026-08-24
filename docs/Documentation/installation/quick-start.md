@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - docker/build-local.mjs
+  - docker/build-tools/build-local.mjs
   - docker/compose.yml
   - version
 testRefs: []
@@ -34,13 +34,13 @@ cd tlsflow
 先按[部署参数](./deployment-parameters.md)准备当前 Shell 或 CI Secret 中的必填变量，再按部署规模执行。标准版和单机版都需要 Agent Release Bundle（Agent 发布包）；它包含 Linux/Windows Agent、Windows Compatibility Agent 安装资源及 SHA-256 清单。先在仓库根目录执行：
 
 ```bash
-node docker/build-agent-release-bundle.mjs
+node docker/build-tools/build-agent-release-bundle.mjs
 ```
 
 然后选择一种拓扑。`docker/versions.env` 只保存镜像和依赖版本，不保存业务密钥：
 
 ```bash
-node docker/build-local.mjs --architecture small
+node docker/build-tools/build-local.mjs --architecture small
 GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)" docker compose --env-file docker/versions.env --profile small -f docker/compose.yml up -d
 ```
 

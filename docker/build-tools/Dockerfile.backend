@@ -23,7 +23,7 @@ ENV NODE_ENV=production \
     GCAC_LEGO_PATH=/usr/local/bin/lego \
     BROWSER_RUNTIME_URL=http://browser-runtime:8787
 
-COPY docker/versions.json docker/install-lego.mjs /tmp/
+COPY docker/build-tools/versions.json docker/build-tools/install-lego.mjs /tmp/
 RUN apt-get update \
   && apt-get install -y --no-install-recommends dumb-init ca-certificates curl tar \
   && TARGETARCH="$TARGETARCH" node /tmp/install-lego.mjs /tmp/versions.json \
@@ -49,8 +49,8 @@ COPY build/agent-release-bundle/ /opt/gcac/agent-release-bundle/
 RUN test -f /opt/gcac/agent-release-bundle/manifest.json \
   && node -e "const m=require('./package.json'); if (m.dependencies['@electric-sql/pglite'] === undefined) process.exit(1)"
 
-COPY docker/verify-release-bundle.mjs ./docker/verify-release-bundle.mjs
-RUN node ./docker/verify-release-bundle.mjs
+COPY docker/verify/verify-release-bundle.mjs ./docker/verify/verify-release-bundle.mjs
+RUN node ./docker/verify/verify-release-bundle.mjs
 
 USER gcac
 EXPOSE 3003

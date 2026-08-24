@@ -5,7 +5,7 @@ services:
     profiles: ["small"]
     build:
       context: ..
-      dockerfile: docker/Dockerfile.small
+      dockerfile: docker/build-tools/Dockerfile.small
       args:
         VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
     image: gcac-small:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
@@ -67,7 +67,7 @@ services:
     profiles: ["standard"]
     build:
       context: ..
-      dockerfile: docker/Dockerfile.db
+      dockerfile: docker/build-tools/Dockerfile.db
     image: gcac-db:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gcac}
@@ -86,7 +86,7 @@ services:
     profiles: ["standard"]
     build:
       context: ..
-      dockerfile: docker/Dockerfile.backend
+      dockerfile: docker/build-tools/Dockerfile.backend
     image: gcac-backend:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
       GCAC_DEPLOYMENT_ARCHITECTURE: standard
@@ -157,7 +157,7 @@ services:
     profiles: ["standard"]
     build:
       context: ..
-      dockerfile: docker/Dockerfile.web
+      dockerfile: docker/build-tools/Dockerfile.web
       args:
         VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
     image: gcac-web:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
@@ -174,7 +174,7 @@ services:
     profiles: ["standard"]
     build:
       context: ..
-      dockerfile: docker/Dockerfile.browser-runtime
+      dockerfile: docker/build-tools/Dockerfile.browser-runtime
     image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
     environment:
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}

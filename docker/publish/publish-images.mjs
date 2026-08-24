@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'versions.json'), 'utf8'));
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'build-tools', 'versions.json'), 'utf8'));
 const releaseVersion = (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
 const options = parseArguments(process.argv.slice(2));
 const namespace = options.namespace ?? process.env.DOCKERHUB_NAMESPACE?.trim();
@@ -30,13 +30,13 @@ for (const platform of platforms) {
 }
 
 assertDockerLoginIsExternal();
-run(process.execPath, [join(repositoryRoot, 'docker', 'build-agent-release-bundle.mjs')], repositoryRoot);
+run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle.mjs')], repositoryRoot);
 
 const targets = architecture === 'small'
-  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }]
+  ? [{ name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true }]
   : architecture === 'standard'
     ? standardTargets()
-    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
+    : [{ name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
 
 for (const target of targets) {
   const image = `${namespace}/${target.name}`;
@@ -64,10 +64,10 @@ console.log(`Docker Hub 发布完成：${targets.map((target) => `${namespace}/$
 
 function standardTargets() {
   return [
-    { name: 'gcac-db', dockerfile: 'docker/Dockerfile.db' },
-    { name: 'gcac-backend', dockerfile: 'docker/Dockerfile.backend' },
-    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web', usesProductEdition: true },
-    { name: 'gcac-browser-runtime', dockerfile: 'docker/Dockerfile.browser-runtime' },
+    { name: 'gcac-db', dockerfile: 'docker/build-tools/Dockerfile.db' },
+    { name: 'gcac-backend', dockerfile: 'docker/build-tools/Dockerfile.backend' },
+    { name: 'gcac-web', dockerfile: 'docker/build-tools/Dockerfile.web', usesProductEdition: true },
+    { name: 'gcac-browser-runtime', dockerfile: 'docker/build-tools/Dockerfile.browser-runtime' },
   ];
 }
 

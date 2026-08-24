@@ -17,5 +17,5 @@ RUN npm run build
 
 FROM ${WEB_IMAGE}
 COPY --from=build /src/web/dist /usr/share/nginx/html
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/runtime/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80

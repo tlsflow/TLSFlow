@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'versions.json'), 'utf8'));
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'build-tools', 'versions.json'), 'utf8'));
 const releaseVersion = (await readFile(join(repositoryRoot, 'version'), 'utf8')).trim();
 const options = parseArguments(process.argv.slice(2));
 const architecture = options.architecture ?? 'all';
@@ -18,13 +18,15 @@ if (!['small', 'standard', 'all'].includes(architecture)) {
 assertProductEdition(productEdition);
 assertLinuxPlatform(platform);
 
-run(process.execPath, [join(repositoryRoot, 'docker', 'build-agent-release-bundle.mjs')], repositoryRoot);
+run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle.mjs')], repositoryRoot);
 
-const targets = architecture === 'small'
-  ? [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }]
-  : architecture === 'standard'
-    ? standardTargets()
-    : [{ name: 'gcac-small', dockerfile: 'docker/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
+const targets = options.image
+  ? [resolveTarget(options.image)]
+  : architecture === 'small'
+    ? [{ name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true }]
+    : architecture === 'standard'
+      ? standardTargets()
+      : [{ name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true }, ...standardTargets()];
 
 for (const target of targets) {
   console.log(`开始本地构建 ${target.name}:${tag} (${platform}，${productEdition} 品牌)`);
@@ -47,10 +49,10 @@ console.log(`本地 Docker 构建完成：${targets.map((target) => `${target.na
 
 function standardTargets() {
   return [
-    { name: 'gcac-db', dockerfile: 'docker/Dockerfile.db' },
-    { name: 'gcac-backend', dockerfile: 'docker/Dockerfile.backend' },
-    { name: 'gcac-web', dockerfile: 'docker/Dockerfile.web', usesProductEdition: true },
-    { name: 'gcac-browser-runtime', dockerfile: 'docker/Dockerfile.browser-runtime' },
+    { name: 'gcac-db', dockerfile: 'docker/build-tools/Dockerfile.db' },
+    { name: 'gcac-backend', dockerfile: 'docker/build-tools/Dockerfile.backend' },
+    { name: 'gcac-web', dockerfile: 'docker/build-tools/Dockerfile.web', usesProductEdition: true },
+    { name: 'gcac-browser-runtime', dockerfile: 'docker/build-tools/Dockerfile.browser-runtime' },
   ];
 }
 
@@ -63,12 +65,29 @@ function parseArguments(args) {
     const value = inlineValue ?? args[++index];
     if (!value || value.startsWith('--')) throw new Error(`参数缺少值：--${key}`);
     if (key === 'architecture') options.architecture = value;
+    else if (key === 'image') options.image = value;
     else if (key === 'platform') options.platform = value;
     else if (key === 'tag') options.tag = value;
     else if (key === 'edition') options.edition = value;
     else throw new Error(`不支持的参数：--${key}`);
   }
   return options;
+}
+
+function resolveTarget(value) {
+  const normalized = value === 'browserRuntime'
+    ? 'gcac-browser-runtime'
+    : value.startsWith('gcac-')
+      ? value
+      : `gcac-${value}`;
+  const target = [
+    { name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true },
+    ...standardTargets(),
+  ].find((candidate) => candidate.name === normalized);
+  if (!target) {
+    throw new Error(`未知镜像：${value}。可选值：gcac-small、gcac-db、gcac-backend、gcac-web、gcac-browser-runtime`);
+  }
+  return target;
 }
 
 function assertProductEdition(value) {
