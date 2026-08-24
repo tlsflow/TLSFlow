@@ -10,7 +10,7 @@
   "supportStatus": "SUPPORTED",
   "deploymentMode": "DIRECT_WORKFLOW",
   "deviceSelection": "EXISTING_OR_NEW",
-  "newDeviceOnboarding": { "kind": "AGENT_INSTALL", "platformKey": "linux" },
+  "newDeviceOnboarding": { "kind": "AGENT_INSTALL", "platformKeys": ["linux", "windows-server-2016-plus"] },
   "forms": {},
   "capabilities": {
     "connectionTest": "application.discover",
