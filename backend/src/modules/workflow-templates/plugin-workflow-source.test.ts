@@ -29,15 +29,16 @@ test('插件工作流来源过滤、派生和内部只读形成闭环', async ()
   await db.query(`update unified_plugin_workflow_bindings set workflow_content_sha256='bad' where plugin_version_id=$1`,[imported.id]); assert.equal((await service.list(tenantId)).length,0); await assert.rejects(()=>service.createWorkflow(tenantId,{pluginVersionId:imported.id,capabilityKey:'certificate.deploy',name:'bad'}),(error:any)=>error.errorCode==='PLUGIN_WORKFLOW_HASH_MISMATCH');
 });
 
-test('非内置租户可以使用官方内置工作流来源，但不能看到默认租户的用户插件', async () => {
+test('业务租户可以使用系统所有权的内置工作流来源，但不能看到其他租户的用户插件', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, 'src/database/migrations');
   const workflows = new WorkflowTemplatesApplicationService(new WorkflowTemplatesDomainService(
     new PgDocumentRepository(db, 'workflow.templates'),
     new PgDocumentRepository(db, 'workflow.template_versions'),
   ));
-  const builtinTenantId = 'builtin-tenant';
+  const systemStorageId = 'SYSTEM';
   const businessTenantId = 'tenant-business';
+  const otherTenantId = 'tenant-other';
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
   const bindings = new PluginWorkflowBindingsRepository(db);
   const content = {
@@ -49,7 +50,7 @@ test('非内置租户可以使用官方内置工作流来源，但不能看到�
   };
   const internal = await workflows.createPluginTemplate({ content });
   const published = await workflows.publishPluginVersion(internal.version.id);
-  const builtin = await plugins.importVersion(builtinTenantId, {
+  const builtin = await plugins.importVersion(systemStorageId, {
     manifest: {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
@@ -78,7 +79,7 @@ test('非内置租户可以使用官方内置工作流来源，但不能看到�
     workflowContentSha256: published.contentHash,
     createdAt: new Date().toISOString(),
   });
-  const userPlugin = await plugins.importVersion(builtinTenantId, {
+  const userPlugin = await plugins.importVersion(otherTenantId, {
     manifest: {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
@@ -108,7 +109,7 @@ test('非内置租户可以使用官方内置工作流来源，但不能看到�
     createdAt: new Date().toISOString(),
   });
 
-  const service = new PluginWorkflowSourceService(plugins, bindings, workflows, builtinTenantId);
+  const service = new PluginWorkflowSourceService(plugins, bindings, workflows);
   const candidates = await service.list(businessTenantId);
   assert.deepEqual(candidates.map((item) => item.pluginId), ['builtin.workflow.fixture']);
   const derived = await service.createWorkflow(businessTenantId, {
