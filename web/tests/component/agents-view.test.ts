@@ -415,7 +415,7 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('健康与恢复')
     expect(wrapper.text()).toContain('最近心跳')
     expect(wrapper.text()).toContain('最近上报时间')
-    expect(wrapper.text()).toContain('2026/06/21 08:29')
+    expect(wrapper.text()).toContain('2026-06-21 08:29')
     expect(wrapper.text()).toContain('异常摘要')
     expect(wrapper.text()).toContain('pending_results:2')
     expect(wrapper.text()).not.toContain('失败计数')
@@ -485,13 +485,12 @@ describe('AgentsView', () => {
 
     expect(wrapper.text()).toContain('日志概览')
     expect(wrapper.text()).toContain('上次能力上报时间')
-    expect(wrapper.text()).toContain('2026/06/21 08:25')
+    expect(wrapper.text()).toContain('2026-06-21 08:25')
     expect(wrapper.text()).toContain('运行日志')
-    expect(wrapper.text()).toContain('manual capability rescan succeeded')
-    expect(wrapper.text()).toContain('heartbeat failed')
-    expect(wrapper.text()).toContain('initial capability report failed')
-    expect(wrapper.text()).toContain('manual_rescan')
-    expect(wrapper.text()).toContain('capability_report')
+    expect(wrapper.text()).toContain('IIS dry-run preflight succeeded')
+    expect(wrapper.text()).toContain('IIS certificate binding updated')
+    expect(wrapper.text()).toContain('windows.iis.deploy_certificate')
+    expect(wrapper.text()).toContain('Default Web Site')
   })
 
   it('不可拉取任务的 Agent 禁用手动重扫按钮', async () => {
@@ -694,6 +693,421 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('Default Web Site')
     expect(wrapper.text()).toContain('C:\\inetpub\\wwwroot')
     expect(wrapper.text()).toContain('CN=portal.example.com')
+  })
+
+  it('Linux Go Agent 详情页展示 Nginx、Apache、Tomcat 独立标签页及站点信息', async () => {
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-linux-1',
+          agentKey: 'happy',
+          status: 'ONLINE',
+          role: 'full_agent',
+          zone: 'default',
+          descriptor: {
+            hostname: 'linux-web-01',
+            version: '0.1.0',
+            osType: 'LINUX',
+            arch: 'amd64',
+            ipAddress: '10.0.0.21',
+            linuxDistribution: 'Ubuntu 24.04.2 LTS',
+            osVersion: '24.04',
+          },
+        },
+        latestHeartbeat: {
+          receivedAt: '2026-06-30T13:30:00.000Z',
+        },
+        lifecycle: {
+          canPullTasks: true,
+        },
+        capabilitySnapshot: {
+          compatibilityLevel: 'L1',
+          reportedAt: '2026-06-30T13:25:00.000Z',
+          capabilities: [
+            {
+              capabilityKey: 'linux.nginx.detail',
+              value: {
+                installed: true,
+                running: true,
+                version: '1.24.0',
+                binaryPath: '/usr/sbin/nginx',
+                configPath: '/etc/nginx/nginx.conf',
+                prefix: '/etc/nginx',
+                serviceName: 'nginx',
+                sites: [
+                  {
+                    name: 'nginx-main',
+                    siteMode: 'static_root',
+                    serverNames: ['test.local'],
+                    sitePath: '/srv/www/nginx-test',
+                    proxyTargets: [],
+                    configFiles: ['/etc/nginx/sites-enabled/test.conf'],
+                    listen: [
+                      {
+                        address: '0.0.0.0',
+                        port: 443,
+                        protocol: 'https',
+                        certificateName: 'CN=test.local',
+                        certificatePath: '/etc/gcac-test/certs/test.crt',
+                        certificateKeyPath: '/etc/gcac-test/certs/test.key',
+                        certificate: {
+                          subject: 'CN=test.local',
+                          issuer: 'CN=GCAC Test CA',
+                          notBefore: '2026-06-23T06:40:46.000Z',
+                          notAfter: '2027-06-23T06:40:46.000Z',
+                          thumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+                          storeName: 'FILE_PATH',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            {
+              capabilityKey: 'linux.apache.detail',
+              value: {
+                installed: true,
+                running: true,
+                version: '2.4.58',
+                binaryPath: '/usr/sbin/apache2ctl',
+                serverRoot: '/etc/apache2',
+                configPath: '/etc/apache2/apache2.conf',
+                serviceName: 'apache2',
+                sites: [
+                  {
+                    name: 'test.local',
+                    siteMode: 'static_root',
+                    serverNames: ['test.local', 'www.test.local'],
+                    sitePath: '/var/www/apache-test',
+                    proxyTargets: [],
+                    configFiles: ['/etc/apache2/sites-available/gcac-test.conf'],
+                    listen: [
+                      {
+                        address: '*',
+                        port: 8444,
+                        protocol: 'https',
+                        certificateName: 'CN=test.local',
+                        certificatePath: '/etc/gcac-test/certs/test.crt',
+                        certificateKeyPath: '/etc/gcac-test/certs/test.key',
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            {
+              capabilityKey: 'linux.tomcat.detail',
+              value: {
+                installed: true,
+                running: true,
+                version: '9.0.89',
+                catalinaHome: '/usr/share/tomcat9',
+                catalinaBase: '/var/lib/tomcat9',
+                configPath: '/var/lib/tomcat9/conf/server.xml',
+                serviceName: 'tomcat',
+                connectors: [
+                  {
+                    address: '0.0.0.0',
+                    port: 8445,
+                    protocol: 'HTTP/1.1',
+                    tls: true,
+                    certificateName: 'CN=test.local',
+                    certificatePath: '/etc/gcac-test/certs/test.crt',
+                    certificateKeyPath: '/etc/gcac-test/certs/test.key',
+                    keystorePath: '/var/lib/tomcat9/conf/keystore.jks',
+                    certificate: {
+                      subject: 'CN=test.local',
+                      issuer: 'CN=GCAC Test CA',
+                      notBefore: '2026-06-23T06:40:46.000Z',
+                      notAfter: '2027-06-23T06:40:46.000Z',
+                      thumbprint: '00112233445566778899AABBCCDDEEFF00112233',
+                      storeName: '/var/lib/tomcat9/conf/keystore.jks',
+                    },
+                  },
+                ],
+                apps: [
+                  {
+                    contextPath: '/demo',
+                    docBase: '/var/lib/tomcat9/webapps/demo',
+                    appBase: '/var/lib/tomcat9/webapps',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      requestId: 'req_agent_detail_linux_tabs',
+      timestamp: '2026-06-30T13:00:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Nginx')).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Apache')).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Tomcat')).toBe(true)
+
+    const nginxTab = wrapper.findAll('button').find((button) => button.text() === 'Nginx')
+    expect(nginxTab).toBeTruthy()
+    await nginxTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Nginx 概况')
+    expect(wrapper.text()).toContain('Nginx 站点')
+    expect(wrapper.text()).toContain('/srv/www/nginx-test')
+    expect(wrapper.text()).toContain('/etc/nginx/sites-enabled/test.conf')
+    expect(wrapper.text()).toContain('/etc/gcac-test/certs/test.crt')
+
+    const apacheTab = wrapper.findAll('button').find((button) => button.text() === 'Apache')
+    expect(apacheTab).toBeTruthy()
+    await apacheTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Apache 概况')
+    expect(wrapper.text()).toContain('Apache 站点')
+    expect(wrapper.text()).toContain('/var/www/apache-test')
+    expect(wrapper.text()).toContain('/etc/apache2/sites-available/gcac-test.conf')
+    expect(wrapper.text()).toContain('www.test.local')
+
+    const tomcatTab = wrapper.findAll('button').find((button) => button.text() === 'Tomcat')
+    expect(tomcatTab).toBeTruthy()
+    await tomcatTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Tomcat 概况')
+    expect(wrapper.text()).toContain('Tomcat 连接器')
+    expect(wrapper.text()).toContain('Tomcat 应用')
+    expect(wrapper.text()).toContain('/var/lib/tomcat9/conf/server.xml')
+    expect(wrapper.text()).toContain('/var/lib/tomcat9/webapps/demo')
+    expect(wrapper.text()).toContain('/var/lib/tomcat9/conf/keystore.jks')
+  })
+
+  it('Linux 站点绑定证书支持点击查看详情', async () => {
+    apiMocks.listCertificateVersions.mockResolvedValueOnce({
+      data: {
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      },
+      requestId: 'req_linux_certificate_versions_empty',
+      timestamp: '2026-07-01T00:00:00.000Z',
+    })
+
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-linux-cert-1',
+          agentKey: 'happy',
+          status: 'ONLINE',
+          role: 'full_agent',
+          zone: 'default',
+          descriptor: {
+            hostname: 'linux-web-01',
+            version: '0.1.0',
+            osType: 'LINUX',
+            arch: 'amd64',
+            ipAddress: '10.0.0.21',
+            linuxDistribution: 'Ubuntu 24.04.2 LTS',
+            osVersion: '24.04',
+          },
+        },
+        latestHeartbeat: {
+          receivedAt: '2026-07-01T01:30:00.000Z',
+        },
+        lifecycle: {
+          canPullTasks: true,
+        },
+        capabilitySnapshot: {
+          compatibilityLevel: 'L1',
+          capabilities: [
+            {
+              capabilityKey: 'linux.nginx.detail',
+              value: {
+                installed: true,
+                running: true,
+                version: '1.24.0',
+                binaryPath: '/usr/sbin/nginx',
+                configPath: '/etc/nginx/nginx.conf',
+                prefix: '/etc/nginx',
+                serviceName: 'nginx',
+                sites: [
+                  {
+                    name: 'test.local',
+                    siteMode: 'static_root',
+                    serverNames: ['test.local'],
+                    sitePath: '/srv/www/nginx-test',
+                    configFiles: ['/etc/nginx/sites-enabled/test.conf'],
+                    listen: [
+                      {
+                        address: '0.0.0.0',
+                        port: 443,
+                        protocol: 'https',
+                        certificateName: 'CN=test.local',
+                        certificatePath: '/etc/gcac-test/certs/test.crt',
+                        certificateKeyPath: '/etc/gcac-test/certs/test.key',
+                        certificate: {
+                          subject: 'CN=test.local',
+                          issuer: 'CN=GCAC Test CA',
+                          notBefore: '2026-06-23T06:40:46.000Z',
+                          notAfter: '2027-06-23T06:40:46.000Z',
+                          thumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+                          storeName: 'FILE_PATH',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      requestId: 'req_linux_binding_certificate',
+      timestamp: '2026-07-01T01:00:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const nginxTab = wrapper.findAll('button').find((button) => button.text() === 'Nginx')
+    expect(nginxTab).toBeTruthy()
+    await nginxTab!.trigger('click')
+    await flushPromises()
+
+    const bindingCard = wrapper.findAll('.agent-detail-modal__binding-chip').find((item) => item.text().includes('HTTPS:443'))
+    expect(bindingCard).toBeTruthy()
+    await bindingCard!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: 'test.local',
+    })
+    expect(wrapper.text()).toContain('证书详情')
+    expect(wrapper.text()).toContain('CN=test.local')
+    expect(wrapper.text()).toContain('CN=GCAC Test CA')
+    expect(wrapper.text()).toContain('2027-06-23')
+    expect(wrapper.text()).toContain('FILE_PATH')
+  })
+
+  it('Tomcat TLS 连接器证书支持点击查看详情', async () => {
+    apiMocks.listCertificateVersions.mockResolvedValueOnce({
+      data: {
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      },
+      requestId: 'req_tomcat_certificate_versions_empty',
+      timestamp: '2026-07-01T00:00:00.000Z',
+    })
+
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-linux-tomcat-cert-1',
+          agentKey: 'happy',
+          status: 'ONLINE',
+          role: 'full_agent',
+          zone: 'default',
+          descriptor: {
+            hostname: 'linux-web-01',
+            version: '0.1.0',
+            osType: 'LINUX',
+            arch: 'amd64',
+            ipAddress: '10.0.0.21',
+            linuxDistribution: 'Ubuntu 24.04.2 LTS',
+            osVersion: '24.04',
+          },
+        },
+        latestHeartbeat: {
+          receivedAt: '2026-07-01T01:30:00.000Z',
+        },
+        lifecycle: {
+          canPullTasks: true,
+        },
+        capabilitySnapshot: {
+          compatibilityLevel: 'L1',
+          capabilities: [
+            {
+              capabilityKey: 'linux.tomcat.detail',
+              value: {
+                installed: true,
+                running: true,
+                version: '9.0.89',
+                catalinaHome: '/usr/share/tomcat9',
+                catalinaBase: '/var/lib/tomcat9',
+                configPath: '/etc/tomcat9/server.xml',
+                serviceName: 'tomcat',
+                connectors: [
+                  {
+                    address: '*',
+                    port: 8445,
+                    protocol: 'org.apache.coyote.http11.Http11NioProtocol',
+                    tls: true,
+                    certificateName: 'CN=test.local,OU=QA,O=GCAC,L=Test,ST=Test,C=CN',
+                    certificatePath: '/etc/gcac-test/certs/test.crt',
+                    certificateKeyPath: '/etc/gcac-test/certs/test.key',
+                    keystorePath: '/etc/gcac-test/certs/test.p12',
+                    certificate: {
+                      subject: 'CN=test.local,OU=QA,O=GCAC,L=Test,ST=Test,C=CN',
+                      issuer: 'CN=test.local,OU=QA,O=GCAC,L=Test,ST=Test,C=CN',
+                      notBefore: '2026-06-23T06:40:46.000Z',
+                      notAfter: '2027-06-23T06:40:46.000Z',
+                      thumbprint: 'FFEEDDCCBBAA99887766554433221100FFEEDDCC',
+                      storeName: '/etc/gcac-test/certs/test.p12',
+                    },
+                  },
+                ],
+                apps: [],
+              },
+            },
+          ],
+        },
+      },
+      requestId: 'req_tomcat_binding_certificate',
+      timestamp: '2026-07-01T01:00:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const tomcatTab = wrapper.findAll('button').find((button) => button.text() === 'Tomcat')
+    expect(tomcatTab).toBeTruthy()
+    await tomcatTab!.trigger('click')
+    await flushPromises()
+
+    const certificateButton = wrapper.findAll('button').find((button) => button.text() === '查看证书')
+    expect(certificateButton).toBeTruthy()
+    await certificateButton!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.listCertificateVersions).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: 'test.local',
+    })
+    expect(wrapper.text()).toContain('证书详情')
+    expect(wrapper.text()).toContain('2027-06-23')
+    expect(wrapper.text()).toContain('FFEEDDCCBBAA99887766554433221100FFEEDDCC')
+    expect(wrapper.text()).toContain('证书仓库')
+    expect(wrapper.text()).toContain('/etc/gcac-test/certs/test.p12')
   })
 
   it('站点证书不在本项目中时，退回显示简单证书详情', async () => {

@@ -40,7 +40,7 @@ interface DetailSection {
   readonly title: string
   readonly description: string
   readonly fields: ReadonlyArray<DetailField>
-  readonly variant?: 'default' | 'iis-sites' | 'runtime-logs'
+  readonly variant?: 'default' | 'iis-sites' | 'linux-sites' | 'tomcat-connectors' | 'tomcat-apps' | 'runtime-logs'
 }
 
 interface DetailTab {
@@ -106,6 +106,47 @@ interface IisSiteView {
   readonly bindings: ReadonlyArray<IisBindingView>
 }
 
+interface LinuxBindingView {
+  readonly protocol: string
+  readonly port: string
+  readonly address: string
+  readonly certificateName: string
+  readonly certificatePath: string
+  readonly certificateKeyPath: string
+  readonly certificate: BindingCertificateView | null
+}
+
+interface LinuxSiteView {
+  readonly name: string
+  readonly siteMode: string
+  readonly sitePath: string
+  readonly serverNames: ReadonlyArray<string>
+  readonly proxyTargets: ReadonlyArray<string>
+  readonly configFiles: ReadonlyArray<string>
+  readonly bindings: ReadonlyArray<LinuxBindingView>
+}
+
+interface TomcatConnectorView {
+  readonly protocol: string
+  readonly port: string
+  readonly address: string
+  readonly tls: boolean
+  readonly certificateName: string
+  readonly certificatePath: string
+  readonly certificateKeyPath: string
+  readonly keystorePath: string
+  readonly certificate: BindingCertificateView | null
+}
+
+interface TomcatAppView {
+  readonly contextPath: string
+  readonly docBase: string
+  readonly appBase: string
+}
+
+type TomcatCertificateBindingView = TomcatConnectorView
+type CertificateBindingView = IisBindingView | LinuxBindingView | TomcatCertificateBindingView
+
 const EMPTY_TEXT = '—'
 const CERTIFICATE_EXPIRING_DAYS = 30
 
@@ -121,7 +162,7 @@ const detailError = ref('')
 const detailActionPending = ref(false)
 const detailActionMessage = ref('')
 const certificateModalOpen = ref(false)
-const selectedCertificate = ref<{ siteName: string; binding: IisBindingView } | null>(null)
+const selectedCertificate = ref<{ siteName: string; binding: CertificateBindingView } | null>(null)
 const certificateAssetPending = ref(false)
 const certificateAssetError = ref('')
 const certificateAssetDetailOpen = ref(false)
@@ -283,6 +324,105 @@ function readObjectValue(record: Record<string, unknown>, candidates: readonly s
     }
   }
   return undefined
+}
+
+function readCapabilityRecord(data: ApiRecord, capabilityKey: string): Record<string, unknown> {
+  const raw = readCapabilityValue(data, capabilityKey)
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+}
+
+function readObjectList(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    : []
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeText(item, ''))
+      .filter((item) => item !== '')
+  }
+  const text = normalizeText(value, '')
+  return text ? [text] : []
+}
+
+function normalizePortText(value: unknown): string {
+  const text = normalizeText(value, '')
+  return text || EMPTY_TEXT
+}
+
+function formatInstallStatus(value: unknown): string {
+  return value === true ? '已安装' : '未安装'
+}
+
+function formatRunningStatus(value: unknown): string {
+  return value === true ? '运行中' : '未运行'
+}
+
+function formatSiteMode(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'static_root') return '静态站点'
+  if (normalized === 'reverse_proxy') return '反向代理'
+  if (normalized === 'unknown') return '未识别'
+  return value || EMPTY_TEXT
+}
+
+function buildLinuxBindingView(binding: Record<string, unknown>): LinuxBindingView {
+  const certificateName = normalizeText(readObjectValue(binding, ['CertificateName', 'certificateName']))
+  const certificateValue = readObjectValue(binding, ['Certificate', 'certificate'])
+  const certificateRecord = certificateValue && typeof certificateValue === 'object'
+    ? certificateValue as Record<string, unknown>
+    : null
+  return {
+    protocol: normalizeText(readObjectValue(binding, ['Protocol', 'protocol'])),
+    port: normalizePortText(readObjectValue(binding, ['Port', 'port'])),
+    address: normalizeText(readObjectValue(binding, ['Address', 'address'])),
+    certificateName,
+    certificatePath: normalizeText(readObjectValue(binding, ['CertificatePath', 'certificatePath'])),
+    certificateKeyPath: normalizeText(readObjectValue(binding, ['CertificateKeyPath', 'certificateKeyPath'])),
+    certificate: certificateRecord
+      ? {
+          subject: normalizeText(readObjectValue(certificateRecord, ['Subject', 'subject']), certificateName),
+          issuer: normalizeText(readObjectValue(certificateRecord, ['Issuer', 'issuer'])),
+          notBefore: normalizeDateTime(readObjectValue(certificateRecord, ['NotBefore', 'notBefore'])),
+          notAfter: normalizeDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
+          thumbprint: normalizeText(readObjectValue(certificateRecord, ['Thumbprint', 'thumbprint'])),
+          storeName: normalizeText(readObjectValue(certificateRecord, ['StoreName', 'storeName']), 'FILE_PATH'),
+          notAfterAt: parseDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
+        }
+      : certificateName !== EMPTY_TEXT
+      ? {
+          subject: certificateName,
+          issuer: EMPTY_TEXT,
+          notBefore: EMPTY_TEXT,
+          notAfter: EMPTY_TEXT,
+          thumbprint: EMPTY_TEXT,
+          storeName: 'FILE_PATH',
+          notAfterAt: null,
+        }
+      : null,
+  }
+}
+
+function buildLinuxSites(detail: Record<string, unknown>): LinuxSiteView[] {
+  return readObjectList(readObjectValue(detail, ['Sites', 'sites'])).map((site, index) => ({
+    name: normalizeText(readObjectValue(site, ['Name', 'name']), `站点 ${index + 1}`),
+    siteMode: normalizeText(readObjectValue(site, ['SiteMode', 'siteMode'])),
+    sitePath: normalizeText(readObjectValue(site, ['SitePath', 'sitePath'])),
+    serverNames: normalizeStringList(readObjectValue(site, ['ServerNames', 'serverNames'])),
+    proxyTargets: normalizeStringList(readObjectValue(site, ['ProxyTargets', 'proxyTargets'])),
+    configFiles: normalizeStringList(readObjectValue(site, ['ConfigFiles', 'configFiles'])),
+    bindings: readObjectList(readObjectValue(site, ['Listen', 'listen'])).map(buildLinuxBindingView),
+  }))
+}
+
+function countHttpsBindings(bindings: readonly LinuxBindingView[]): number {
+  return bindings.filter((binding) => binding.protocol.toLowerCase() === 'https').length
+}
+
+function countUniqueCertificates(bindings: readonly LinuxBindingView[]): number {
+  return new Set(bindings.map((binding) => binding.certificateName).filter((value) => value !== EMPTY_TEXT)).size
 }
 
 function readWindowsInspect(data: ApiRecord): Record<string, unknown> {
@@ -500,6 +640,162 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
   return [overview, siteSection]
 }
 
+function buildLinuxFrameworkSections(
+  titlePrefix: string,
+  detail: Record<string, unknown>,
+  options: { extraLabel?: string; extraValueKeys?: readonly string[] } = {},
+): DetailSection[] {
+  const sites = buildLinuxSites(detail)
+  const bindings = sites.flatMap((site) => site.bindings)
+  const httpsBindings = countHttpsBindings(bindings)
+  const uniqueCertificates = countUniqueCertificates(bindings)
+  const serviceName = normalizeText(readObjectValue(detail, ['Service', 'serviceName', 'service']))
+  const overview: DetailSection = {
+    title: `${titlePrefix} 概况`,
+    description: `这里展示宿主机上的 ${titlePrefix} 安装状态、运行状态和配置位置。`,
+    fields: [
+      { label: '安装状态', value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
+      { label: '运行状态', value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
+      { label: `${titlePrefix} 版本`, value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
+      { label: '服务名称', value: serviceName },
+      { label: '二进制路径', value: normalizeText(readObjectValue(detail, ['BinaryPath', 'binaryPath'])) },
+      { label: '配置路径', value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
+      { label: '站点数量', value: String(sites.length), emphasis: true },
+      { label: 'HTTPS 监听', value: String(httpsBindings) },
+      { label: '证书主题', value: String(uniqueCertificates) },
+      ...(options.extraLabel
+        ? [{ label: options.extraLabel, value: normalizeText(readObjectValue(detail, options.extraValueKeys ?? [])) }]
+        : []),
+    ],
+  }
+
+  const siteSection: DetailSection = {
+    title: `${titlePrefix} 站点`,
+    description: `这里展示 ${titlePrefix} 识别到的站点、根目录、域名、反向代理目标和证书文件路径。`,
+    variant: 'linux-sites',
+    fields: sites.length > 0
+      ? sites.map((site) => ({
+          label: site.name,
+          value: site.sitePath,
+          meta: site,
+        }))
+      : [{ label: '站点列表', value: `未发现 ${titlePrefix} 站点` }],
+  }
+
+  return [overview, siteSection]
+}
+
+function buildNginxSections(data: ApiRecord): DetailSection[] {
+  return buildLinuxFrameworkSections('Nginx', readCapabilityRecord(data, 'linux.nginx.detail'), { extraLabel: '安装前缀', extraValueKeys: ['Prefix', 'prefix'] })
+}
+
+function buildApacheSections(data: ApiRecord): DetailSection[] {
+  return buildLinuxFrameworkSections('Apache', readCapabilityRecord(data, 'linux.apache.detail'), { extraLabel: 'ServerRoot', extraValueKeys: ['ServerRoot', 'serverRoot'] })
+}
+
+function buildTomcatConnectors(data: ApiRecord): TomcatConnectorView[] {
+  const detail = readCapabilityRecord(data, 'linux.tomcat.detail')
+  return readObjectList(readObjectValue(detail, ['Connectors', 'connectors'])).map((connector) => ({
+    protocol: normalizeText(readObjectValue(connector, ['Protocol', 'protocol'])),
+    port: normalizePortText(readObjectValue(connector, ['Port', 'port'])),
+    address: normalizeText(readObjectValue(connector, ['Address', 'address'])),
+    tls: readObjectValue(connector, ['TLS', 'tls']) === true,
+    certificateName: normalizeText(readObjectValue(connector, ['CertificateName', 'certificateName'])),
+    certificatePath: normalizeText(readObjectValue(connector, ['CertificatePath', 'certificatePath'])),
+    certificateKeyPath: normalizeText(readObjectValue(connector, ['CertificateKeyPath', 'certificateKeyPath'])),
+    keystorePath: normalizeText(readObjectValue(connector, ['KeystorePath', 'keystorePath'])),
+    certificate: (() => {
+      const certificateValue = readObjectValue(connector, ['Certificate', 'certificate'])
+      const certificateRecord = certificateValue && typeof certificateValue === 'object'
+        ? certificateValue as Record<string, unknown>
+        : null
+      if (certificateRecord) {
+        return {
+          subject: normalizeText(readObjectValue(certificateRecord, ['Subject', 'subject']), normalizeText(readObjectValue(connector, ['CertificateName', 'certificateName']))),
+          issuer: normalizeText(readObjectValue(certificateRecord, ['Issuer', 'issuer'])),
+          notBefore: normalizeDateTime(readObjectValue(certificateRecord, ['NotBefore', 'notBefore'])),
+          notAfter: normalizeDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
+          thumbprint: normalizeText(readObjectValue(certificateRecord, ['Thumbprint', 'thumbprint'])),
+          storeName: normalizeText(readObjectValue(certificateRecord, ['StoreName', 'storeName']), normalizeText(readObjectValue(connector, ['KeystorePath', 'keystorePath']))),
+          notAfterAt: parseDateTime(readObjectValue(certificateRecord, ['NotAfter', 'notAfter'])),
+        }
+      }
+      return normalizeText(readObjectValue(connector, ['CertificateName', 'certificateName'])) !== EMPTY_TEXT
+      ? {
+          subject: normalizeText(readObjectValue(connector, ['CertificateName', 'certificateName'])),
+          issuer: EMPTY_TEXT,
+          notBefore: EMPTY_TEXT,
+          notAfter: EMPTY_TEXT,
+          thumbprint: EMPTY_TEXT,
+          storeName: normalizeText(readObjectValue(connector, ['KeystorePath', 'keystorePath'])),
+          notAfterAt: null,
+        }
+      : null
+    })(),
+  }))
+}
+
+function buildTomcatApps(data: ApiRecord): TomcatAppView[] {
+  const detail = readCapabilityRecord(data, 'linux.tomcat.detail')
+  return readObjectList(readObjectValue(detail, ['Apps', 'apps'])).map((app) => ({
+    contextPath: normalizeText(readObjectValue(app, ['ContextPath', 'contextPath'])),
+    docBase: normalizeText(readObjectValue(app, ['DocBase', 'docBase'])),
+    appBase: normalizeText(readObjectValue(app, ['AppBase', 'appBase'])),
+  }))
+}
+
+function buildTomcatSections(data: ApiRecord): DetailSection[] {
+  const detail = readCapabilityRecord(data, 'linux.tomcat.detail')
+  const connectors = buildTomcatConnectors(data)
+  const apps = buildTomcatApps(data)
+  const httpsConnectors = connectors.filter((connector) => connector.tls).length
+  const uniqueCertificates = new Set(connectors.map((connector) => connector.certificateName).filter((value) => value !== EMPTY_TEXT)).size
+
+  return [
+    {
+      title: 'Tomcat 概况',
+      description: '这里展示宿主机上的 Tomcat 安装状态、运行状态和 Catalina 路径。',
+      fields: [
+        { label: '安装状态', value: formatInstallStatus(readObjectValue(detail, ['Installed', 'installed'])), emphasis: true },
+        { label: '运行状态', value: formatRunningStatus(readObjectValue(detail, ['Running', 'running'])), emphasis: true },
+        { label: 'Tomcat 版本', value: normalizeText(readObjectValue(detail, ['Version', 'version'])) },
+        { label: '服务名称', value: normalizeText(readObjectValue(detail, ['Service', 'serviceName', 'service'])) },
+        { label: 'Catalina Home', value: normalizeText(readObjectValue(detail, ['CatalinaHome', 'catalinaHome'])) },
+        { label: 'Catalina Base', value: normalizeText(readObjectValue(detail, ['CatalinaBase', 'catalinaBase'])) },
+        { label: '配置路径', value: normalizeText(readObjectValue(detail, ['ConfigPath', 'configPath'])) },
+        { label: '连接器数量', value: String(connectors.length), emphasis: true },
+        { label: 'TLS 连接器', value: String(httpsConnectors) },
+        { label: '证书主题', value: String(uniqueCertificates) },
+        { label: '应用数量', value: String(apps.length), emphasis: true },
+      ],
+    },
+    {
+      title: 'Tomcat 连接器',
+      description: '这里展示 Tomcat Connector 的监听地址、协议、TLS 开关和证书路径。',
+      variant: 'tomcat-connectors',
+      fields: connectors.length > 0
+        ? connectors.map((connector, index) => ({
+            label: `${connector.protocol !== EMPTY_TEXT ? connector.protocol : 'Connector'}:${connector.port}`,
+            value: connector.address,
+            meta: { ...connector, index },
+          }))
+        : [{ label: '连接器列表', value: '未发现 Tomcat 连接器' }],
+    },
+    {
+      title: 'Tomcat 应用',
+      description: '这里展示 Tomcat Host/Context 中识别到的应用路径与部署目录。',
+      variant: 'tomcat-apps',
+      fields: apps.length > 0
+        ? apps.map((app, index) => ({
+            label: app.contextPath !== EMPTY_TEXT ? app.contextPath : `应用 ${index + 1}`,
+            value: app.docBase,
+            meta: app,
+          }))
+        : [{ label: '应用列表', value: '未发现 Tomcat 应用' }],
+    },
+  ]
+}
+
 function buildRuntimeLogs(data: ApiRecord): RuntimeLogView[] {
   const recentTaskLogs = readPath(data, 'recentTaskLogs')
   if (Array.isArray(recentTaskLogs) && recentTaskLogs.length > 0) {
@@ -594,6 +890,14 @@ function hasIisCapability(data: ApiRecord): boolean {
   return installed || buildIisSites(data).length > 0
 }
 
+function hasLinuxFrameworkCapability(data: ApiRecord, capabilityKey: string, collectionKeys: readonly string[]): boolean {
+  const detail = readCapabilityRecord(data, capabilityKey)
+  const installedValue = readObjectValue(detail, ['Installed', 'installed'])
+  const installed = installedValue === true || String(installedValue).toLowerCase() === 'true'
+  if (installed) return true
+  return collectionKeys.some((key) => readObjectList(readObjectValue(detail, [key, key.toLowerCase()])).length > 0)
+}
+
 function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailView {
   const hostname = readValue(data, ['agent.descriptor.hostname', 'descriptor.hostname', 'hostname'], fallbackRow?.name ?? EMPTY_TEXT)
   const agentId = readValue(data, ['agent.id', 'id'])
@@ -648,6 +952,30 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
       key: 'iis',
       label: 'IIS',
       sections: buildIisSections(data),
+    })
+  }
+
+  if (hasLinuxFrameworkCapability(data, 'linux.nginx.detail', ['Sites'])) {
+    tabs.push({
+      key: 'nginx',
+      label: 'Nginx',
+      sections: buildNginxSections(data),
+    })
+  }
+
+  if (hasLinuxFrameworkCapability(data, 'linux.apache.detail', ['Sites'])) {
+    tabs.push({
+      key: 'apache',
+      label: 'Apache',
+      sections: buildApacheSections(data),
+    })
+  }
+
+  if (hasLinuxFrameworkCapability(data, 'linux.tomcat.detail', ['Connectors', 'Apps'])) {
+    tabs.push({
+      key: 'tomcat',
+      label: 'Tomcat',
+      sections: buildTomcatSections(data),
     })
   }
 
@@ -732,31 +1060,42 @@ function closeCertificateModal() {
   certificateAssetError.value = ''
 }
 
-function buildCertificateContextUsage(siteName: string, binding: IisBindingView): ApiRecord {
+function buildCertificateContextUsage(siteName: string, binding: CertificateBindingView): ApiRecord {
   const endpointLabel = `${binding.protocol.toUpperCase()}:${binding.port}`
-  const hostHeader = binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : ''
+  const hostHeader = 'hostHeader' in binding && binding.hostHeader !== EMPTY_TEXT
+    ? binding.hostHeader
+    : ('address' in binding && binding.address !== EMPTY_TEXT ? binding.address : '')
   const domainName = hostHeader || binding.certificate?.subject || siteName
+  const resourceType = 'hostHeader' in binding
+    ? 'Agent IIS 站点'
+    : ('keystorePath' in binding ? 'Agent Tomcat 连接器' : 'Agent Linux 站点')
+  const bindingType = 'hostHeader' in binding
+    ? 'WINDOWS_CERT_STORE'
+    : 'FILE_PATH'
   return {
-    id: `agent-iis:${siteName}:${binding.protocol}:${binding.port}:${hostHeader || 'no-host-header'}`,
-    resourceId: `agent-iis:${siteName}`,
+    id: `agent-cert:${siteName}:${binding.protocol}:${binding.port}:${hostHeader || 'no-host-header'}`,
+    resourceId: `agent-cert:${siteName}`,
     resourceName: `${siteName} / ${endpointLabel}`,
     targetName: siteName,
     domainName,
-    bindingType: 'WINDOWS_CERT_STORE',
-    resourceType: 'Agent IIS 站点',
+    bindingType,
+    resourceType,
     status: 'ACTIVE',
     metadata: {
       source: 'agent_context',
       siteName,
       protocol: binding.protocol,
       port: binding.port,
-      hostHeader: hostHeader || '无 Host Header',
+      hostHeader: hostHeader || ('hostHeader' in binding ? '无 Host Header' : '无监听地址'),
+      certificatePath: 'certificatePath' in binding ? binding.certificatePath : EMPTY_TEXT,
+      certificateKeyPath: 'certificateKeyPath' in binding ? binding.certificateKeyPath : EMPTY_TEXT,
+      keystorePath: 'keystorePath' in binding ? binding.keystorePath : EMPTY_TEXT,
       certificateSubject: binding.certificate?.subject ?? EMPTY_TEXT,
     },
   }
 }
 
-function openCertificateAssetModal(route: { assetId: string; versionId: string }, siteName: string, binding: IisBindingView) {
+function openCertificateAssetModal(route: { assetId: string; versionId: string }, siteName: string, binding: CertificateBindingView) {
   selectedCertificateAssetRoute.value = route
   certificateContextUsages.value = [buildCertificateContextUsage(siteName, binding)]
   certificateAssetDetailOpen.value = true
@@ -831,7 +1170,7 @@ async function openCertificateAssetDetail() {
   }
 }
 
-async function openBindingCertificate(siteName: string, binding: IisBindingView) {
+async function openBindingCertificate(siteName: string, binding: CertificateBindingView) {
   if (!binding.certificate || certificateAssetPending.value) return
 
   certificateAssetPending.value = true
@@ -1169,6 +1508,168 @@ const config: BusinessPageConfig = {
                     </template>
                   </article>
                 </template>
+                <template v-else-if="section.variant === 'linux-sites'">
+                  <article
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__site-card"
+                  >
+                    <template v-if="field.meta && typeof field.meta === 'object'">
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">目录：{{ (field.meta as LinuxSiteView).sitePath }}</p>
+                        </div>
+                        <div class="agent-detail-modal__site-meta">
+                          <span>{{ formatSiteMode((field.meta as LinuxSiteView).siteMode) }}</span>
+                          <strong>{{ (field.meta as LinuxSiteView).serverNames.length }} 个域名</strong>
+                        </div>
+                      </header>
+                      <div class="agent-detail-modal__linux-meta">
+                        <p>
+                          <strong>域名</strong>
+                          <span>{{ (field.meta as LinuxSiteView).serverNames.length > 0 ? (field.meta as LinuxSiteView).serverNames.join(', ') : '未配置' }}</span>
+                        </p>
+                        <p>
+                          <strong>代理目标</strong>
+                          <span>{{ (field.meta as LinuxSiteView).proxyTargets.length > 0 ? (field.meta as LinuxSiteView).proxyTargets.join('\n') : '无' }}</span>
+                        </p>
+                        <p>
+                          <strong>配置文件</strong>
+                          <span>{{ (field.meta as LinuxSiteView).configFiles.length > 0 ? (field.meta as LinuxSiteView).configFiles.join('\n') : '未识别' }}</span>
+                        </p>
+                      </div>
+                      <div class="agent-detail-modal__site-bindings">
+                        <div
+                          v-for="binding in (field.meta as LinuxSiteView).bindings"
+                          :key="`${field.label}-${binding.protocol}-${binding.port}-${binding.address}`"
+                          class="agent-detail-modal__binding-chip"
+                          :data-clickable="binding.certificate ? 'true' : 'false'"
+                          :data-cert-status="binding.certificate ? certificateValidityStatus(binding.certificate) : 'unknown'"
+                          role="button"
+                          tabindex="0"
+                          @click="openBindingCertificate(field.label, binding)"
+                          @keydown.enter="openBindingCertificate(field.label, binding)"
+                          @keydown.space.prevent="openBindingCertificate(field.label, binding)"
+                        >
+                          <div class="agent-detail-modal__binding-topline">
+                            <strong>{{ String(binding.protocol).toUpperCase() }}:{{ binding.port }}</strong>
+                            <span
+                              v-if="binding.certificate"
+                              class="agent-detail-modal__cert-badge"
+                              :data-status="certificateValidityStatus(binding.certificate)"
+                            >
+                              {{ certificateStatusLabel(binding.certificate) }}
+                            </span>
+                          </div>
+                          <span>{{ binding.address !== EMPTY_TEXT ? binding.address : '默认地址' }}</span>
+                          <small>{{ binding.certificateName }}</small>
+                          <em>证书：{{ binding.certificatePath }}</em>
+                          <em>私钥：{{ binding.certificateKeyPath }}</em>
+                          <em v-if="binding.certificate">
+                            {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
+                          </em>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                      </header>
+                    </template>
+                  </article>
+                </template>
+                <template v-else-if="section.variant === 'tomcat-connectors'">
+                  <article
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__site-card"
+                    :data-clickable="field.meta && typeof field.meta === 'object' && (field.meta as TomcatConnectorView).certificate ? 'true' : 'false'"
+                    @click="field.meta && typeof field.meta === 'object' && (field.meta as TomcatConnectorView).certificate ? openBindingCertificate(field.label, field.meta as TomcatConnectorView) : undefined"
+                    @keydown.enter="field.meta && typeof field.meta === 'object' && (field.meta as TomcatConnectorView).certificate ? openBindingCertificate(field.label, field.meta as TomcatConnectorView) : undefined"
+                    @keydown.space.prevent="field.meta && typeof field.meta === 'object' && (field.meta as TomcatConnectorView).certificate ? openBindingCertificate(field.label, field.meta as TomcatConnectorView) : undefined"
+                    :tabindex="field.meta && typeof field.meta === 'object' && (field.meta as TomcatConnectorView).certificate ? 0 : -1"
+                  >
+                    <template v-if="field.meta && typeof field.meta === 'object'">
+                      <header class="agent-detail-modal__site-head">
+                        <div class="agent-detail-modal__site-head-main">
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">监听地址：{{ (field.meta as TomcatConnectorView).address }}</p>
+                        </div>
+                        <div class="agent-detail-modal__site-meta">
+                          <span>{{ (field.meta as TomcatConnectorView).tls ? 'TLS' : 'PLAINTEXT' }}</span>
+                          <strong>{{ (field.meta as TomcatConnectorView).port }}</strong>
+                        </div>
+                      </header>
+                      <div class="agent-detail-modal__linux-meta">
+                        <p>
+                          <strong>证书主题</strong>
+                          <span>{{ (field.meta as TomcatConnectorView).certificateName }}</span>
+                        </p>
+                        <p>
+                          <strong>证书文件</strong>
+                          <span>{{ (field.meta as TomcatConnectorView).certificatePath }}</span>
+                        </p>
+                        <p>
+                          <strong>私钥 / Keystore</strong>
+                          <span>{{
+                            [
+                              (field.meta as TomcatConnectorView).certificateKeyPath !== EMPTY_TEXT ? `私钥：${(field.meta as TomcatConnectorView).certificateKeyPath}` : '',
+                              (field.meta as TomcatConnectorView).keystorePath !== EMPTY_TEXT ? `Keystore：${(field.meta as TomcatConnectorView).keystorePath}` : '',
+                            ].filter(Boolean).join('\n') || EMPTY_TEXT
+                          }}</span>
+                        </p>
+                        <button
+                          v-if="(field.meta as TomcatConnectorView).certificate"
+                          class="agent-detail-modal__binding-link"
+                          type="button"
+                          @click.stop="openBindingCertificate(field.label, field.meta as TomcatConnectorView)"
+                        >
+                          查看证书
+                        </button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                      </header>
+                    </template>
+                  </article>
+                </template>
+                <template v-else-if="section.variant === 'tomcat-apps'">
+                  <article
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__site-card"
+                  >
+                    <template v-if="field.meta && typeof field.meta === 'object'">
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">部署目录：{{ (field.meta as TomcatAppView).docBase }}</p>
+                        </div>
+                        <div class="agent-detail-modal__site-meta">
+                          <span>AppBase</span>
+                          <strong>{{ (field.meta as TomcatAppView).appBase }}</strong>
+                        </div>
+                      </header>
+                    </template>
+                    <template v-else>
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                      </header>
+                    </template>
+                  </article>
+                </template>
                 <template v-else-if="section.variant === 'runtime-logs'">
                   <div class="agent-detail-modal__log-list" role="list" aria-label="运行日志列表">
                     <article
@@ -1251,14 +1752,14 @@ const config: BusinessPageConfig = {
     <GcModal
       v-model:open="certificateModalOpen"
       title="证书详情"
-      description="展示当前 IIS 绑定使用的证书关键信息。"
+      description="展示当前站点绑定使用的证书关键信息。"
       size="lg"
       width="56vw"
     >
       <section v-if="selectedCertificate?.binding.certificate" class="agent-certificate-modal">
         <div class="agent-certificate-modal__hero">
           <div>
-            <p class="agent-certificate-modal__eyebrow">IIS 绑定证书</p>
+            <p class="agent-certificate-modal__eyebrow">站点绑定证书</p>
             <h3>{{ selectedCertificate.binding.certificate.subject }}</h3>
             <span>{{ selectedCertificate.siteName }} / {{ selectedCertificate.binding.protocol.toUpperCase() }}:{{ selectedCertificate.binding.port }}</span>
           </div>
@@ -1307,8 +1808,12 @@ const config: BusinessPageConfig = {
               <dd>{{ selectedCertificate.binding.certificate.thumbprint }}</dd>
             </div>
             <div class="agent-detail-modal__item">
-              <dt>Host Header</dt>
-              <dd>{{ selectedCertificate.binding.hostHeader !== EMPTY_TEXT ? selectedCertificate.binding.hostHeader : '无 Host Header' }}</dd>
+              <dt>{{ 'hostHeader' in selectedCertificate.binding ? 'Host Header' : '监听地址' }}</dt>
+              <dd>{{
+                'hostHeader' in selectedCertificate.binding
+                  ? (selectedCertificate.binding.hostHeader !== EMPTY_TEXT ? selectedCertificate.binding.hostHeader : '无 Host Header')
+                  : (selectedCertificate.binding.address !== EMPTY_TEXT ? selectedCertificate.binding.address : '默认地址')
+              }}</dd>
             </div>
           </dl>
         </article>
@@ -1683,11 +2188,29 @@ const config: BusinessPageConfig = {
   background: linear-gradient(180deg, #f8fbff, #ffffff);
 }
 
+.agent-detail-modal__site-card[data-clickable='true'] {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.agent-detail-modal__site-card[data-clickable='true']:hover,
+.agent-detail-modal__site-card[data-clickable='true']:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgb(15 23 42 / 10%);
+  border-color: #93c5fd;
+  outline: none;
+}
+
 .agent-detail-modal__site-head {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   align-items: start;
+}
+
+.agent-detail-modal__site-head-main {
+  min-width: 0;
+  display: grid;
 }
 
 .agent-detail-modal__site-name,
@@ -1700,6 +2223,8 @@ const config: BusinessPageConfig = {
   font-size: 16px;
   font-weight: 900;
   letter-spacing: -0.03em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .agent-detail-modal__site-path {
@@ -1715,24 +2240,55 @@ const config: BusinessPageConfig = {
   gap: 4px;
   justify-items: end;
   text-align: right;
+  min-width: 0;
+  flex-shrink: 0;
 }
 
 .agent-detail-modal__site-meta span {
   color: #2563eb;
   font-size: 11px;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .agent-detail-modal__site-meta strong {
   color: #0f172a;
   font-size: 12px;
   overflow-wrap: anywhere;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .agent-detail-modal__site-bindings {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
+}
+
+.agent-detail-modal__linux-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-detail-modal__linux-meta p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.agent-detail-modal__linux-meta strong {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agent-detail-modal__linux-meta span {
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .agent-detail-modal__log-list {
