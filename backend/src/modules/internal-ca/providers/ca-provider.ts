@@ -9,6 +9,16 @@ import type {
 import { AcmeProviderAdapter } from './acme-provider.js';
 import { OpenSslCa } from './openssl-ca.js';
 
+export interface CaProviderValidationResult {
+  reachable: boolean;
+  capabilities: CaProviderCapabilities;
+  detail?: string;
+  /** ACME Directory 探测的最小公开摘要，不包含条款 URL、授权 URL 或响应原文。 */
+  directory?: {
+    externalAccountRequired: boolean;
+  };
+}
+
 export interface IssuedCertificateMaterial {
   certificatePem: string;
   certificateChainPem: string;
@@ -39,7 +49,7 @@ export type CaIssuanceResult =
 /** CA 执行端口。内置 CA 与 ACME 由宿主实现；外部 CA 由插件提供执行端。 */
 export interface CaProviderAdapter {
   getCapabilities(): CaProviderCapabilities;
-  validateConnection(provider: CaProviderEntity): Promise<{ reachable: boolean; capabilities: CaProviderCapabilities; detail?: string }>;
+  validateConnection(provider: CaProviderEntity): Promise<CaProviderValidationResult>;
   signCsr(command: SignCsrCommand): Promise<CaIssuanceResult>;
   queryIssuance?(input: { provider: CaProviderEntity; providerRequestId: string; actorId: string }): Promise<CaIssuanceResult>;
   revoke?(input: { provider: CaProviderEntity; authority: CertificateAuthorityEntity; serialNumber: string; reason: string; actorId: string }): Promise<{ revokedAt: string }>;

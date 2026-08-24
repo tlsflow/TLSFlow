@@ -10,6 +10,7 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import {
   CaProviderRegistry,
   createDefaultCaProviderRegistry,
+  type CaProviderValidationResult,
   type CaIssuanceResult,
 } from '../providers/ca-provider.js';
 import { listAcmeProviderPresets } from '../providers/acme-provider.catalog.js';
@@ -392,6 +393,33 @@ export class InternalCaApplicationService {
     return sanitizeProvider(await this.requireProvider(tenantId, providerId));
   }
 
+  /**
+   * 探测尚未保存的 ACME Directory。只构造内存 Provider，不写入租户配置和验证记录。
+   */
+  async probeAcmeDirectory(
+    tenantId: string,
+    input: AcmeProviderConfigurationInput,
+  ): Promise<CaProviderValidationResult> {
+    const configuration = normalizeAcmeProviderConfiguration(input);
+    const adapter = this.providers.get('acme');
+    const now = new Date().toISOString();
+    return adapter.validateConnection({
+      id: newId('acmeprobe'),
+      tenantId,
+      name: 'ACME Directory probe',
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      endpoint: configuration.directoryUrl,
+      capabilities: adapter.getCapabilities(),
+      status: 'active',
+      configuration: { ...configuration },
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   private async setDefaultAcmeProvider(tenantId: string, providerId: string): Promise<void> {
     const now = new Date().toISOString();
     for (const provider of await this.repository.listProviders(tenantId)) {
@@ -450,7 +478,7 @@ export class InternalCaApplicationService {
     return { id: provider.id, deleted: true };
   }
 
-  async testProvider(tenantId: string, providerId: string): Promise<{ reachable: boolean; capabilities: CaProviderEntity['capabilities']; detail?: string }> {
+  async testProvider(tenantId: string, providerId: string): Promise<CaProviderValidationResult> {
     const provider = await this.requireProvider(tenantId, providerId);
     assertPluginBinding(provider);
     const result = await this.providers.get(provider.type).validateConnection(provider);
@@ -469,6 +497,7 @@ export class InternalCaApplicationService {
               checkedAt: new Date().toISOString(),
               reachable: result.reachable,
               detail: result.detail,
+              externalAccountRequired: result.directory?.externalAccountRequired,
             },
           },
         },

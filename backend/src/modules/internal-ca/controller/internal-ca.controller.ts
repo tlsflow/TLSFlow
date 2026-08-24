@@ -81,6 +81,7 @@ export class InternalCaController {
     router.post('/api/v1/acme/accounts', '创建 ACME Account', tags, (request) => this.createAcmeAccount(request));
     router.get('/api/v1/acme/accounts/:id', '查询 ACME Account 详情', tags, (request) => this.getAcmeAccount(request));
     router.get('/api/v1/acme/provider-profiles', '查询 ACME Provider Profile', tags, (request) => this.listAcmeProviderProfiles(request));
+    router.post('/api/v1/acme/providers/probe-directory', '探测未保存的 ACME Directory', tags, (request) => this.probeAcmeDirectory(request));
     router.get('/api/v1/acme/providers', '查询 ACME 颁发者配置', tags, (request) => this.listAcmeProviderSettings(request));
     router.post('/api/v1/acme/providers', '创建 ACME 颁发者配置', tags, (request) => this.createAcmeProvider(request));
     router.patch('/api/v1/acme/providers/:id', '更新 ACME 颁发者配置', tags, (request) => this.updateAcmeProvider(request));
@@ -358,6 +359,14 @@ export class InternalCaController {
         request.context,
       ),
     };
+  }
+
+  private async probeAcmeDirectory(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    return this.service.probeAcmeDirectory(
+      tenantId(request),
+      objectBody(request) as unknown as AcmeProviderConfigurationInput,
+    );
   }
 
   private async updateAcmeProvider(request: HttpRequest) {
@@ -767,6 +776,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/acme/accounts', 'createAcmeAccount', '创建 ACME Account', responseSchema],
     ['GET', '/api/v1/acme/accounts/:id', 'getAcmeAccount', '查询 ACME Account 详情', responseSchema],
     ['GET', '/api/v1/acme/provider-profiles', 'listAcmeProviderProfiles', '查询 ACME Provider Profile', arraySchema],
+    ['POST', '/api/v1/acme/providers/probe-directory', 'probeAcmeDirectory', '探测未保存的 ACME Directory', responseSchema],
     ['GET', '/api/v1/acme/providers', 'listAcmeProviders', '查询 ACME 颁发者配置', arraySchema],
     ['POST', '/api/v1/acme/providers', 'createAcmeProvider', '创建 ACME 颁发者配置', responseSchema],
     ['PATCH', '/api/v1/acme/providers/:id', 'updateAcmeProvider', '更新 ACME 颁发者配置', responseSchema],

@@ -81,6 +81,7 @@ test('通用 CA 路由同时暴露宿主 ACME 生命周期和运营合同', () =
   assert.equal(paths.includes('/api/v1/ca-operations/records'), true);
   assert.equal(paths.includes('/api/v1/acme/status'), true);
   assert.equal(paths.includes('/api/v1/acme/provider-profiles'), true);
+  assert.equal(paths.includes('/api/v1/acme/providers/probe-directory'), true);
   assert.equal(paths.includes('/api/v1/acme/certificates'), true);
   assert.equal(paths.some((path) => path.includes('certificate-acme')), false);
 });

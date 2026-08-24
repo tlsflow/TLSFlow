@@ -16,6 +16,16 @@ export const acmeProviderProfileKeys = [
 export type AcmeProviderProfileKey = (typeof acmeProviderProfileKeys)[number];
 export type AcmeProviderProfileCategory = 'public' | 'enterprise' | 'private' | 'custom';
 export type AcmeProviderEabPolicy = 'required' | 'not_required' | 'discover';
+export type AcmeProviderPreconfigurationSource =
+  | 'none'
+  | 'zerossl_console'
+  | 'google_cloud'
+  | 'digicert_console'
+  | 'sectigo_console'
+  | 'sslcom_console'
+  | 'step_ca_admin'
+  | 'ejbca_admin'
+  | 'custom_ca_admin';
 export type AcmeProviderVerificationLevel =
   | 'unconfigured'
   | 'directory_reachable'
@@ -37,6 +47,10 @@ export interface AcmeProviderProfile {
   account: {
     eab: AcmeProviderEabPolicy;
     allowAutomaticAccountPreparation: boolean;
+  };
+  preconfiguration: {
+    required: boolean;
+    source: AcmeProviderPreconfigurationSource;
   };
   allowedChallenges: AcmeChallengeType[];
   form: {
@@ -81,6 +95,7 @@ const profiles: readonly AcmeProviderProfile[] = [
     defaultUrl: 'https://acme-v02.api.letsencrypt.org/directory',
     eab: 'not_required',
     automaticAccount: true,
+    preconfiguration: { required: false, source: 'none' },
   }),
   profile({
     key: 'zerossl',
@@ -88,6 +103,7 @@ const profiles: readonly AcmeProviderProfile[] = [
     displayName: 'ZeroSSL',
     defaultUrl: 'https://acme.zerossl.com/v2/DV90',
     eab: 'required',
+    preconfiguration: { required: true, source: 'zerossl_console' },
   }),
   profile({
     key: 'google-trust-services',
@@ -95,13 +111,14 @@ const profiles: readonly AcmeProviderProfile[] = [
     displayName: 'Google Trust Services',
     defaultUrl: 'https://dv.acme-v02.api.pki.goog/directory',
     eab: 'required',
+    preconfiguration: { required: true, source: 'google_cloud' },
   }),
-  profile({ key: 'digicert', category: 'enterprise', displayName: 'DigiCert', eab: 'discover' }),
-  profile({ key: 'sectigo', category: 'enterprise', displayName: 'Sectigo', eab: 'discover' }),
-  profile({ key: 'ssl-com', category: 'enterprise', displayName: 'SSL.com', eab: 'discover' }),
-  profile({ key: 'step-ca', category: 'private', displayName: 'step-ca', eab: 'discover', privateTrust: true }),
-  profile({ key: 'ejbca', category: 'private', displayName: 'EJBCA', eab: 'discover', privateTrust: true }),
-  profile({ key: 'custom', category: 'custom', displayName: '自定义 ACME CA', eab: 'discover', privateTrust: true }),
+  profile({ key: 'digicert', category: 'enterprise', displayName: 'DigiCert', eab: 'discover', preconfiguration: { required: true, source: 'digicert_console' } }),
+  profile({ key: 'sectigo', category: 'enterprise', displayName: 'Sectigo', eab: 'discover', preconfiguration: { required: true, source: 'sectigo_console' } }),
+  profile({ key: 'ssl-com', category: 'enterprise', displayName: 'SSL.com', eab: 'discover', preconfiguration: { required: true, source: 'sslcom_console' } }),
+  profile({ key: 'step-ca', category: 'private', displayName: 'step-ca', eab: 'discover', privateTrust: true, preconfiguration: { required: true, source: 'step_ca_admin' } }),
+  profile({ key: 'ejbca', category: 'private', displayName: 'EJBCA', eab: 'discover', privateTrust: true, preconfiguration: { required: true, source: 'ejbca_admin' } }),
+  profile({ key: 'custom', category: 'custom', displayName: '自定义 ACME CA', eab: 'discover', privateTrust: true, preconfiguration: { required: true, source: 'custom_ca_admin' } }),
 ];
 
 export function listAcmeProviderProfiles(): AcmeProviderProfile[] {
@@ -180,12 +197,14 @@ function profile(input: {
   eab: AcmeProviderEabPolicy;
   automaticAccount?: boolean;
   privateTrust?: boolean;
+  preconfiguration: { required: boolean; source: AcmeProviderPreconfigurationSource };
 }): AcmeProviderProfile {
   const providerFields: AcmeProviderProfile['form']['providerFields'] = ['profileKey', 'displayName'];
   if (!input.defaultUrl) providerFields.push('directoryUrl');
   providerFields.push('isDefault');
   const accountFields: AcmeProviderProfile['form']['accountFields'] = ['contactEmail'];
-  if (input.eab !== 'not_required') accountFields.push('eabSecretRef');
+  // discover 只有在 Directory 明确要求 EAB 后才显示，避免把 Profile 推测当成运行时事实。
+  if (input.eab === 'required') accountFields.push('eabSecretRef');
   if (input.privateTrust) accountFields.push('trustBundleSecretRef');
   return {
     key: input.key,
@@ -201,6 +220,7 @@ function profile(input: {
       eab: input.eab,
       allowAutomaticAccountPreparation: input.automaticAccount === true,
     },
+    preconfiguration: { ...input.preconfiguration },
     allowedChallenges: ['http-01', 'dns-01'],
     form: {
       providerFields,
@@ -231,6 +251,7 @@ function cloneProfile(profileValue: AcmeProviderProfile): AcmeProviderProfile {
     ...profileValue,
     directory: { ...profileValue.directory },
     account: { ...profileValue.account },
+    preconfiguration: { ...profileValue.preconfiguration },
     allowedChallenges: [...profileValue.allowedChallenges],
     form: {
       providerFields: [...profileValue.form.providerFields],

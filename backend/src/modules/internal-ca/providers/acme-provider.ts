@@ -24,6 +24,7 @@ import {
 import type {
   CaIssuanceResult,
   CaProviderAdapter,
+  CaProviderValidationResult,
   SignCsrCommand,
 } from './ca-provider.js';
 import { AcmeDomainService } from '../domain/acme.domain-service.js';
@@ -143,10 +144,16 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     };
   }
 
-  async validateConnection(provider: CaProviderEntity): Promise<{ reachable: boolean; capabilities: CaProviderCapabilities; detail?: string }> {
+  async validateConnection(provider: CaProviderEntity): Promise<CaProviderValidationResult> {
     try {
-      await this.getDirectory({ provider });
-      return { reachable: true, capabilities: this.getCapabilities() };
+      const directory = await this.getDirectory({ provider });
+      return {
+        reachable: true,
+        capabilities: this.getCapabilities(),
+        directory: {
+          externalAccountRequired: directory.meta?.externalAccountRequired === true,
+        },
+      };
     } catch (error) {
       return {
         reachable: false,

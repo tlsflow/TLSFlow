@@ -75,6 +75,9 @@ test('Profile EAB 策略和字段模式匹配最小账户表单', () => {
   assert.equal(getAcmeProviderProfile('zerossl')?.account.eab, 'required');
   assert.equal(getAcmeProviderProfile('google-trust-services')?.account.eab, 'required');
   assert.equal(getAcmeProviderProfile('digicert')?.account.eab, 'discover');
+  assert.equal(getAcmeProviderProfile('digicert')?.form.accountFields.includes('eabSecretRef'), false);
+  assert.equal(getAcmeProviderProfile('digicert')?.preconfiguration.source, 'digicert_console');
+  assert.equal(getAcmeProviderProfile('step-ca')?.preconfiguration.source, 'step_ca_admin');
   assert.equal(getAcmeProviderProfile('step-ca')?.form.accountFields.includes('trustBundleSecretRef'), true);
   assert.equal(getAcmeProviderProfile('custom')?.form.providerFields.includes('directoryUrl'), true);
 });

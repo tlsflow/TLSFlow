@@ -7939,6 +7939,71 @@
         }
       }
     },
+    "/api/v1/acme/provider-profiles": {
+      "get": {
+        "operationId": "listAcmeProviderProfiles",
+        "summary": "查询 ACME Provider Profile",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/acme/providers/probe-directory": {
+      "post": {
+        "operationId": "probeAcmeDirectory",
+        "summary": "探测未保存的 ACME Directory",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/acme/providers": {
       "get": {
         "operationId": "listAcmeProviders",
