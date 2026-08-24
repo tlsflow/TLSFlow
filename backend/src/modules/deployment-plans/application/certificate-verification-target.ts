@@ -11,7 +11,9 @@ export interface CertificateVerificationTargetInput {
 export function buildCertificateVerificationTarget(input: CertificateVerificationTargetInput): Record<string, unknown> {
   const verifyUrl = normalizeVerifyUrl(input.applicationAsset.verifyUrl);
   const endpoint = verifyUrl ? parseVerifyUrl(verifyUrl) : undefined;
-  const connectHost = endpoint?.host ?? usableEndpointHost(input.applicationAsset.address) ?? usableEndpointHost(input.managedTargetContext?.host.primaryIp);
+  const connectHost = endpoint?.host
+    ?? usableEndpointHost(input.managedTargetContext?.host.primaryIp)
+    ?? usableEndpointHost(input.applicationAsset.address);
   const serverName = nonEmptyString(input.applicationAsset.sniName) ?? endpoint?.serverName ?? nonEmptyString(input.applicationAsset.address);
   const port = endpoint?.port ?? input.applicationAsset.port;
   if (!connectHost || !serverName || !port) {
