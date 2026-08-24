@@ -364,6 +364,70 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.find('.business-page').exists()).toBe(false)
   })
 
+  it('多选资产绑定同一证书域名时显示批量更新证书入口', async () => {
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'deployment.plan.execute',
+    ])
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-bulk-same-1',
+        address: 'first.example.com',
+        status: 'ACTIVE',
+        currentCertificate: { commonName: 'EXAMPLE.COM.' },
+      },
+      {
+        id: 'asset-bulk-same-2',
+        address: 'second.example.com',
+        status: 'ACTIVE',
+        currentCertificate: { commonName: 'example.com' },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="asset-card-select-asset-bulk-same-1"]').setValue(true)
+    await wrapper.get('[data-testid="asset-card-select-asset-bulk-same-2"]').setValue(true)
+
+    expect(wrapper.get('[data-testid="asset-selection-actions"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="asset-bulk-update-action"]').text()).toContain('批量更新证书')
+  })
+
+  it('多选资产绑定不同证书域名时隐藏批量更新证书入口', async () => {
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'deployment.plan.execute',
+    ])
+    assetMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-bulk-different-1',
+        address: 'first.example.com',
+        status: 'ACTIVE',
+        currentCertificate: { commonName: 'first.example.com' },
+      },
+      {
+        id: 'asset-bulk-different-2',
+        address: 'second.example.com',
+        status: 'ACTIVE',
+        currentCertificate: { commonName: 'second.example.com' },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="asset-card-select-asset-bulk-different-1"]').setValue(true)
+    await wrapper.get('[data-testid="asset-card-select-asset-bulk-different-2"]').setValue(true)
+
+    expect(wrapper.get('[data-testid="asset-selection-actions"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="asset-bulk-delete-action"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="asset-bulk-update-action"]').exists()).toBe(false)
+  })
+
   it('绑定证书不是证书资产最新版本时显示可更新状态', async () => {
     usePermissionStore().setPermissions([
       'service_asset.read',

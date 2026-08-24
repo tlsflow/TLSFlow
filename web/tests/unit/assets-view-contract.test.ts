@@ -41,6 +41,16 @@ describe('应用资产卡片契约', () => {
     expect(source).not.toContain('assetCertificateLifecycleProgress')
   })
 
+  it('为多选资产提供删除和同域名证书批量更新入口', () => {
+    expect(source).toContain('data-testid="asset-selection-actions"')
+    expect(source).toContain("t('assets.selection.actions.bulkDelete')")
+    expect(source).toContain("t('assets.selection.actions.bulkUpdateCertificate')")
+    expect(source).toContain('const canBatchUpdateCertificates = computed')
+    expect(source).toContain('function assetCertificateDomain(asset: ApiRecord)')
+    expect(source).toContain('bulkCertificateUpdateAssetIds')
+    expect(source).toContain('Promise.allSettled(targetIds.map((assetId) => deleteServiceAsset(assetId)))')
+  })
+
   it('资产部署入口不复用手工草稿，并按资产打开部署上下文', () => {
     expect(source).toContain('reuseDraft: false')
     expect(source).toContain('async function loadAssetContext(row: ViewRow)')
