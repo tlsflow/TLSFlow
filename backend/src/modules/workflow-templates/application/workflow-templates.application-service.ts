@@ -99,7 +99,13 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.listTemplates();
   }
 
+  /** 正式工作流目录同时展示插件内置和用户工作流。 */
   async listWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
+    return this.domain.listTemplates();
+  }
+
+  /** 仅供“从插件生成草稿”使用，目标必须是用户工作流。 */
+  async listUserWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
     return (await this.domain.listTemplates()).filter((template) => template.origin === 'user');
   }
 

@@ -372,7 +372,7 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
-  it('通用首次创建接口退出，工作流列表保留用户来源并排除 plugin_internal', async () => {
+  it('正式工作流列表同时返回用户和插件内置来源，插件草稿目标仍只允许用户工作流', async () => {
     const app = new App();
     const currentBindings: PluginWorkflowBindingRecord[] = [];
     const service = new WorkflowTemplatesApplicationService(undefined, {}, workflowBindingsRepository(currentBindings));
@@ -411,9 +411,9 @@ describe('WorkflowTemplates', () => {
       createdAt: pluginWorkflow.template.createdAt,
     });
     const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
-    const workflowIdsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
-    assert.equal(workflowIdsWithPlugin.includes(pluginWorkflow.template.id), false);
-    assert.equal(workflowIdsWithPlugin.includes(legacyId), true);
+    const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string }> }).items;
+    assert.equal(workflowItemsWithPlugin.some((item) => item.id === pluginWorkflow.template.id && item.origin === 'plugin_internal'), true);
+    assert.equal(workflowItemsWithPlugin.some((item) => item.id === legacyId), true);
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {

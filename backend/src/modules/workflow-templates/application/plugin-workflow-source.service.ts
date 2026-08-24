@@ -61,7 +61,7 @@ export class PluginWorkflowSourceService {
   }
 
   async createDraft(tenantId: string, input: CreateWorkflowDraftFromPluginInput) {
-    const target = (await this.workflows.listWorkflows(tenantId)).find((item) => item.id === input.templateId);
+    const target = (await this.workflows.listUserWorkflows(tenantId)).find((item) => item.id === input.templateId);
     if (!target) throw new AppError('RESOURCE_NOT_FOUND', '目标工作流不存在或不可作为草稿来源', { templateId: input.templateId });
     const source = await this.requireSource(tenantId, input.pluginVersionId, input.capabilityKey);
     const content = structuredClone(source.version.content);

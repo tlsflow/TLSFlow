@@ -49,7 +49,8 @@ export class WorkflowTemplatesController {
       if (!workflowId) throw new Error('工作流插件派生路径无效');
       return { statusCode: 201, body: await this.requirePluginSources().createDraft(tenantId(request), { ...(request.body as CreateWorkflowFromPluginInput), templateId: decodeURIComponent(workflowId) }) };
     });
-    router.get('/api/v1/workflow-templates', '列出工作流模板', tag, async (request) => this.listTemplates(request));
+    // 兼容旧客户端；正式工作流列表统一使用 /api/v1/workflows。
+    router.get('/api/v1/workflow-templates', '兼容：列出工作流模板', tag, async (request) => this.listTemplates(request));
     router.post('/api/v1/workflow-templates/rename', '修改工作流名称', tag, async (request) => ({ statusCode: 200, body: await this.service.renameTemplate(request.body as RenameWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-templates/canvas/compile', '后端编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/canvas/validate', '后端校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
@@ -120,7 +121,7 @@ export function getWorkflowTemplateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/workflow-execution-bindings/:bindingId', operationId: 'getWorkflowExecutionBinding', summary: '读取工作流执行绑定', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflows/from-plugin', operationId: 'createWorkflowFromPlugin', summary: '从插件能力创建工作流', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflows/:workflowId/drafts/from-plugin', operationId: 'createWorkflowDraftFromPlugin', summary: '从插件能力生成工作流草稿', tags: tag, responseSchema: objectSchema },
-    { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '列出工作流模板', tags: tag, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '兼容：列出工作流模板', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/rename', operationId: 'renameWorkflowTemplate', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/compile', operationId: 'compileWorkflowCanvas', summary: '后端编译工作流画布', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/validate', operationId: 'validateWorkflowCanvas', summary: '后端校验工作流画布', tags: tag, responseSchema: objectSchema },
