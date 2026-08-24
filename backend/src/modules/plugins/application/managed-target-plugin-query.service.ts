@@ -9,8 +9,10 @@ import { canonicalProductFamilyForOsType } from '../../devices/domain/canonical-
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../capabilities/plugin-compatibility.evaluator.js';
 import type { PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import { emptyInputBindingsV1, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
+import type { ApplicationOnboardingDeploymentDefaultsV1 } from '../onboarding/application-onboarding-recipe.dto.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginBindingsRepository } from '../repository/plugin-bindings.repository.js';
 import { PgUnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
@@ -27,11 +29,14 @@ import { DeploymentInputContractLoader } from '../../deployment-inputs/applicati
 import { DeploymentInputProjectionService } from '../../deployment-inputs/application/deployment-input-projection.service.js';
 import type { DeploymentInputProjectionV1 } from '../../deployment-inputs/dto/deployment-input-projection.dto.js';
 import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
+import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
+import { certificateFormats } from '../../certificates/schema/certificates.schema.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
 export interface SaveManagedTargetPluginOverrideInput {
   managedTargetId: string;
+  metadata?: Record<string, unknown>;
   certificateFormatId?: string;
   executionMode?: 'PLUGIN' | 'WORKFLOW_OVERRIDE';
   expectedTargetVersion?: number;
@@ -126,7 +131,11 @@ export class ManagedTargetPluginQueryService {
       }
       const target = currentTarget
         ? await services.assets.updateApplicationAssetTarget(input.tenantId, currentTarget.id, { managedTargetId: context.managedTarget.id, status: 'ACTIVE' })
-        : await services.assets.createApplicationAssetTarget(input.tenantId, { applicationAssetId: input.applicationAssetId, managedTargetId: context.managedTarget.id });
+        : await services.assets.createApplicationAssetTarget(input.tenantId, {
+          applicationAssetId: input.applicationAssetId,
+          managedTargetId: context.managedTarget.id,
+          ...(input.value.metadata ? { metadata: input.value.metadata } : {}),
+        });
 
       const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
       const executionMode = input.value.executionMode ?? 'PLUGIN';
@@ -189,12 +198,13 @@ export class ManagedTargetPluginQueryService {
             deviceId: context.host.id,
             managedTargetId: context.managedTarget.id,
           });
-          const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
+          const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+          const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates, plugin.id, contract);
           const submitted = emptyInputBindingsV1();
           submitted.artifacts = artifacts;
           const validation = this.bindingSaves.validate({
             pluginVersionId: plugin.id,
-            contract: this.contractLoader.fromPlugin(plugin, capabilityKey),
+            contract,
             assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
             deviceDefault: layers.device,
             targetOverride: layers.target,
@@ -250,8 +260,8 @@ export class ManagedTargetPluginQueryService {
         managedTargetId: context.managedTarget.id,
         applicationAssetId: input.applicationAssetId,
       });
-      const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
       const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+      const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates, plugin.id, contract);
       const validation = this.bindingSaves.validate({
         pluginVersionId: plugin.id,
         contract,
@@ -292,6 +302,65 @@ export class ManagedTargetPluginQueryService {
         deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
       });
       return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
+    });
+  }
+
+  /**
+   * 应用接入向导使用的通用默认值入口。
+   * 宿主不解释插件变量，只把配方声明转换为标准 Binding；
+   * 证书格式通过 format + configName 定位宿主配置，避免插件资源携带环境相关 ID。
+   */
+  async applyApplicationOnboardingDefaults(input: {
+    tenantId: string;
+    applicationAssetId: string;
+    managedTargetId: string;
+    metadata?: Record<string, unknown>;
+    pluginVersionId: string;
+    defaults: ApplicationOnboardingDeploymentDefaultsV1;
+    inputBindings?: InputBindingsV1;
+  }) {
+    const prepared = await this.prepareApplicationOnboardingDefaults(input);
+    return this.saveApplicationAssetTarget({
+      tenantId: input.tenantId,
+      applicationAssetId: input.applicationAssetId,
+      value: {
+        managedTargetId: input.managedTargetId,
+        ...(input.metadata ? { metadata: input.metadata } : {}),
+        capabilityKey: input.defaults.capabilityKey,
+        ...(prepared.certificateFormatId ? { certificateFormatId: prepared.certificateFormatId } : {}),
+        pluginOverride: {
+          pluginVersionId: input.pluginVersionId,
+          inputBindings: prepared.inputBindings,
+        },
+      },
+    });
+  }
+
+  async projectApplicationOnboardingDefaults(input: {
+    tenantId: string;
+    managedTargetId: string;
+    pluginVersionId: string;
+    defaults: ApplicationOnboardingDeploymentDefaultsV1;
+    applicationAsset: {
+      id: string;
+      address: string;
+      sniName?: string;
+      verifyUrl?: string;
+      port: number;
+      protocol: string;
+      displayName?: string;
+    };
+    inputBindings?: InputBindingsV1;
+  }): Promise<DeploymentInputProjectionV1> {
+    const prepared = await this.prepareApplicationOnboardingDefaults(input);
+    return this.projectApplicationAssetPluginInputs({
+      tenantId: input.tenantId,
+      managedTargetId: input.managedTargetId,
+      capabilityKey: input.defaults.capabilityKey,
+      pluginVersionId: input.pluginVersionId,
+      ...(prepared.certificateFormatId ? { certificateFormatId: prepared.certificateFormatId } : {}),
+      applicationAsset: input.applicationAsset,
+      inputBindings: prepared.inputBindings,
     });
   }
 
@@ -350,8 +419,8 @@ export class ManagedTargetPluginQueryService {
       managedTargetId: context.managedTarget.id,
       ...(applicationAssetId ? { applicationAssetId } : {}),
     });
-    const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
     const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+    const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates, plugin.id, contract);
     const validation = this.bindingSaves.validate({
       pluginVersionId: plugin.id,
       contract,
@@ -411,16 +480,52 @@ export class ManagedTargetPluginQueryService {
     bindings: PluginBindingsApplicationService,
     tenantId: string,
     assignments: Awaited<ReturnType<PluginBindingsApplicationService['listAssignmentCandidates']>>,
+    pluginVersionId?: string,
+    contract?: DeploymentInputContractV1,
   ) {
     const layers: { device?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; target?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; asset?: { pluginVersionId: string; inputBindings: InputBindingsV1 } } = {};
     for (const assignment of assignments) {
       const binding = await bindings.getTenantBinding(tenantId, assignment.pluginBindingId);
-      const layer = { pluginVersionId: assignment.pluginVersionId, inputBindings: binding.inputBindings };
+      const shouldMigrate = Boolean(
+        pluginVersionId
+        && contract
+        && assignment.ownerType !== 'APPLICATION_ASSET'
+        && assignment.pluginVersionId !== pluginVersionId,
+      );
+      const layer = {
+        pluginVersionId: assignment.ownerType === 'APPLICATION_ASSET'
+          ? assignment.pluginVersionId
+          : pluginVersionId ?? assignment.pluginVersionId,
+        inputBindings: shouldMigrate
+          ? migrateBindingToContract(contract!, binding.inputBindings)
+          : binding.inputBindings,
+      };
       if (assignment.ownerType === 'DEVICE') layers.device = layer;
       else if (assignment.ownerType === 'MANAGED_TARGET') layers.target = layer;
       else layers.asset = layer;
     }
     return layers;
+  }
+
+  private async prepareApplicationOnboardingDefaults(input: {
+    tenantId: string;
+    pluginVersionId: string;
+    defaults: ApplicationOnboardingDeploymentDefaultsV1;
+    inputBindings?: InputBindingsV1;
+  }): Promise<{ inputBindings: InputBindingsV1; certificateFormatId?: string }> {
+    const inputBindings = emptyInputBindingsV1();
+    inputBindings.variables = structuredClone(input.defaults.variables ?? {});
+    inputBindings.connections = structuredClone(input.defaults.connections ?? {}) as never;
+    inputBindings.credentials = structuredClone(input.defaults.credentials ?? {});
+    mergeInputBindings(inputBindings, input.inputBindings);
+    const submittedCertificateFormatId = Object.values(input.inputBindings?.artifacts ?? {})
+      .map((binding) => binding.certificateFormatId?.trim())
+      .find((value): value is string => Boolean(value));
+    const certificateFormatId = submittedCertificateFormatId
+      ?? (input.defaults.certificateFormat
+        ? await this.resolveCertificateFormatId(input.tenantId, input.defaults.certificateFormat)
+        : undefined);
+    return { inputBindings, ...(certificateFormatId ? { certificateFormatId } : {}) };
   }
 
   private async createCompatibilityContext(
@@ -462,6 +567,34 @@ export class ManagedTargetPluginQueryService {
       workflowBindings: new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(db)),
     };
   }
+
+  private async resolveCertificateFormatId(
+    tenantId: string,
+    selector: NonNullable<ApplicationOnboardingDeploymentDefaultsV1['certificateFormat']>,
+  ): Promise<string> {
+    const format = selector.format.toLowerCase();
+    if (!(certificateFormats as readonly string[]).includes(format)) {
+      throw new AppError('VALIDATION_FAILED', '应用接入默认值引用了不支持的证书格式', {
+        code: 'ONBOARDING_DEFAULT_CERTIFICATE_FORMAT_INVALID',
+        format: selector.format,
+      });
+    }
+    const repository = new PgCertificatesRepository(this.db);
+    const query = { page: 1, pageSize: 5000, filter: {} };
+    const tenantFormats = (await repository.listFormats(query, tenantId)).items;
+    const globalFormats = (await repository.listFormats(query)).items.filter((item) => !item.tenantId);
+    const selected = [...tenantFormats, ...globalFormats].find((item) => !item.certificateVersionId
+      && item.format === format
+      && item.parameters?.configName === selector.configName);
+    if (!selected) {
+      throw new AppError('RESOURCE_NOT_FOUND', '应用接入默认值引用的证书格式配置不存在', {
+        code: 'ONBOARDING_DEFAULT_CERTIFICATE_FORMAT_NOT_FOUND',
+        format,
+        configName: selector.configName,
+      });
+    }
+    return selected.id;
+  }
 }
 
 function hasBindingValues(bindings: InputBindingsV1): boolean {
@@ -469,6 +602,99 @@ function hasBindingValues(bindings: InputBindingsV1): boolean {
     || Object.keys(bindings.connections).length > 0
     || Object.keys(bindings.credentials).length > 0
     || Object.keys(bindings.artifacts).length > 0;
+}
+
+function mergeInputBindings(target: InputBindingsV1, patch?: InputBindingsV1): void {
+  if (!patch) return;
+  Object.assign(target.variables, structuredClone(patch.variables));
+  Object.assign(target.credentials, structuredClone(patch.credentials));
+  Object.assign(target.artifacts, structuredClone(patch.artifacts));
+  for (const [slot, connection] of Object.entries(patch.connections)) {
+    target.connections[slot] = mergeConnectionBinding(target.connections[slot] ?? {}, connection);
+  }
+}
+
+function mergeConnectionBinding(
+  base: InputBindingsV1['connections'][string],
+  override: InputBindingsV1['connections'][string],
+): InputBindingsV1['connections'][string] {
+  const merged = structuredClone(base);
+  for (const [key, value] of Object.entries(override)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const current = (merged as Record<string, unknown>)[key];
+      (merged as Record<string, unknown>)[key] = {
+        ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}),
+        ...structuredClone(value),
+      };
+    } else {
+      (merged as Record<string, unknown>)[key] = structuredClone(value);
+    }
+  }
+  return merged;
+}
+
+function migrateBindingToContract(contract: DeploymentInputContractV1, input: InputBindingsV1): InputBindingsV1 {
+  const output = emptyInputBindingsV1();
+  for (const [slot, value] of Object.entries(input.variables)) {
+    const definition = contract.variables[slot];
+    if (definition && definition.bindingPolicy !== 'fixed' && definition.configurationMode !== 'runtime') {
+      output.variables[slot] = structuredClone(value);
+    }
+  }
+  for (const [slot, value] of Object.entries(input.connections)) {
+    const definition = contract.connections[slot];
+    if (!definition) continue;
+    const migrated: Record<string, unknown> = {};
+    for (const [path, fieldValue] of connectionEntries(value)) {
+      const field = connectionDefinitionField(definition, path);
+      if (field && field.bindingPolicy !== 'fixed' && field.configurationMode !== 'runtime') {
+        setPath(migrated, path, fieldValue);
+      }
+    }
+    if (Object.keys(migrated).length > 0) output.connections[slot] = migrated as InputBindingsV1['connections'][string];
+  }
+  for (const [slot, value] of Object.entries(input.credentials)) {
+    if (contract.credentials[slot]) output.credentials[slot] = structuredClone(value);
+  }
+  for (const [slot, value] of Object.entries(input.artifacts)) {
+    if (contract.artifacts[slot]) output.artifacts[slot] = structuredClone(value);
+  }
+  return output;
+}
+
+function connectionEntries(value: unknown, prefix = ''): Array<[string, unknown]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return prefix ? [[prefix, value]] : [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return child && typeof child === 'object' && !Array.isArray(child)
+      ? connectionEntries(child, path)
+      : [[path, child]];
+  });
+}
+
+function connectionDefinitionField(
+  definition: DeploymentInputContractV1['connections'][string],
+  path: string,
+) {
+  if (path === 'host') return definition.host;
+  if (path === 'port') return definition.port;
+  if (path === 'username') return definition.username;
+  if (path === 'tls.verifyPeer') return definition.tls?.verifyPeer;
+  if (path === 'tls.serverName') return definition.tls?.serverName;
+  if (path === 'hostKey.expectedFingerprint') return definition.hostKey?.expectedFingerprint;
+  return undefined;
+}
+
+function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split('.');
+  let current = target;
+  for (const part of parts.slice(0, -1)) {
+    current[part] = current[part] && typeof current[part] === 'object' && !Array.isArray(current[part])
+      ? current[part]
+      : {};
+    current = current[part] as Record<string, unknown>;
+  }
+  current[parts.at(-1)!] = structuredClone(value);
 }
 
 function evaluateCompatiblePlugin(

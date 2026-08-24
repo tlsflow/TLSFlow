@@ -42,6 +42,46 @@ test('受管设备接入默认创建 EXPLICIT 计划，LATEST_AUTO 输入快照�
   assert.equal(fixture.plans[0]?.targetCertificateVersionId, 'cert-version-1');
 });
 
+test('插件配方声明默认值时，向导提交通过宿主能力写入应用级 Plugin Binding', async () => {
+  const fixture = createFixture();
+  const defaults: NonNullable<LoadedApplicationOnboardingRecipe['recipe']['deploymentDefaults']> = {
+    capabilityKey: 'certificate.deploy',
+    variables: { allowInsecureTls: true },
+    certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+  };
+  const applied: Array<Record<string, unknown>> = [];
+  const service = new OnboardingCommitService(fixture.assets, fixture.deploymentPlans, undefined, undefined, {
+    projectApplicationOnboardingDefaults: async () => ({ saveable: true, issues: [] } as never),
+    applyApplicationOnboardingDefaults: async (input) => {
+      applied.push(input);
+      return undefined as never;
+    },
+  });
+
+  await service.commit('tenant-1', 'actor-1', session(), {
+    ...recipe('MANAGED_TARGET'),
+    recipe: { ...recipe('MANAGED_TARGET').recipe, deploymentDefaults: defaults },
+  });
+
+  assert.deepEqual(applied, [{
+    tenantId: 'tenant-1',
+    applicationAssetId: 'asset-1',
+    managedTargetId: 'target-1',
+    metadata: { configFingerprint: 'fingerprint-1' },
+    pluginVersionId: 'plugin-version-1',
+    defaults,
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: { manualOverride: 'from-onboarding' },
+      connections: {},
+      credentials: {},
+      artifacts: {},
+    },
+  }]);
+  assert.deepEqual(fixture.targets, []);
+  assert.deepEqual(fixture.strategies, []);
+});
+
 test('直接工作流接入固定插件发布的工作流版本，缺失发布绑定即失败关闭', async () => {
   const fixture = createFixture();
   const publisher = {
@@ -126,6 +166,13 @@ function session(): ApplicationOnboardingSessionDto {
       endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' },
       accessDomain: 'ikuai.jacksonz.cn',
       verifyUrl: 'https://ikuai.jacksonz.cn:443',
+      deploymentInputBindings: {
+        apiVersion: 'gcac.input-bindings/v1',
+        variables: { manualOverride: 'from-onboarding' },
+        connections: {},
+        credentials: {},
+        artifacts: {},
+      },
     }, targets: [], idempotencyKey: 'session-idempotency',
     createdAt: '2026-08-14T00:00:00.000Z', updatedAt: '2026-08-14T00:00:00.000Z', expiresAt: '2026-08-14T01:00:00.000Z',
   };

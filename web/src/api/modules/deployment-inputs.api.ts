@@ -12,6 +12,14 @@ export interface WorkflowDeploymentInputProjectionOverride {
   inputBindings?: unknown
 }
 
+export interface ApplicationAssetDeploymentDefaults {
+  capabilityKey: string
+  variables?: Record<string, unknown>
+  connections?: Record<string, Record<string, unknown>>
+  credentials?: Record<string, { credentialId: string }>
+  certificateFormat?: { format: string; configName: string }
+}
+
 export function projectDeploymentInputs(applicationAssetId: string, workflow?: WorkflowDeploymentInputProjectionOverride) {
   return apiClient.post<DeploymentInputProjectionV1>(toClientPath(DEPLOYMENT_INPUT_PROJECTION_PATH), {
     applicationAssetId,
@@ -23,6 +31,7 @@ export function projectApplicationAssetPluginInputs(managedTargetId: string, pay
   capabilityKey?: string
   pluginVersionId?: string
   certificateFormatId?: string
+  deploymentDefaults?: ApplicationAssetDeploymentDefaults
   applicationAsset: {
     id: string
     address: string

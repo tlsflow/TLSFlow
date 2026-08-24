@@ -243,6 +243,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
     versionEvents: certificateVersionEventPublisher,
   });
+  const managedTargetPluginQuery = new ManagedTargetPluginQueryService(appDb);
   const internalCaService = new InternalCaApplicationService({
     db: appDb,
     secrets: security.secrets,
@@ -938,7 +939,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
         }
       },
     },
-    new OnboardingCommitService(assetsService, deploymentPlans.getApplicationService(), pluginWorkflowPublisher, directWorkflowOnboarding),
+    new OnboardingCommitService(assetsService, deploymentPlans.getApplicationService(), pluginWorkflowPublisher, directWorkflowOnboarding, managedTargetPluginQuery),
   );
   new ApplicationOnboardingController(onboardingService, security).register(app.router);
   app.setResource('applicationOnboardingService', onboardingService);
@@ -1238,7 +1239,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     unifiedPluginsService,
     pluginBindingsService,
     new PluginPromotionService(appDb),
-    new ManagedTargetPluginQueryService(appDb),
+    managedTargetPluginQuery,
     builtinCatalogRefresher,
     tasksService,
     security,

@@ -3,7 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { GcSelectionCard } from '@/design-system/components'
+import {
+  DeploymentInputForm,
+  GcSelectionCard,
+  type DeploymentArtifactOption,
+  type DeploymentCredentialOption,
+  type DeploymentInputBindingsV1,
+  type DeploymentInputProjectionV1,
+} from '@/design-system/components'
 import {
   cancelOnboardingSession,
   completeOnboardingSession,
@@ -19,12 +26,17 @@ import {
   selectOnboardingTarget,
   testOnboardingConnection
 } from '@/api/modules/application-onboarding.api'
+import { projectApplicationAssetPluginInputs, type ApplicationAssetDeploymentDefaults } from '@/api/modules/deployment-inputs.api'
+import { listCredentials, type CredentialProfileSummary } from '@/api/modules/credentials.api'
+import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { cloneReactiveValue } from '@/utils/clone-reactive-value'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
+import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; displayNameKey: string; displayName?: string; logoUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[] }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; logoUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
@@ -79,6 +91,13 @@ const certificateVersionId = ref('')
 const certificateSelectionMode = ref<'EXPLICIT' | 'LATEST_AUTO'>('EXPLICIT')
 const certificateAssets = ref<CertificateOption[]>([])
 const certificateVersions = ref<Record<string, unknown>[]>([])
+const deploymentInputProjection = ref<DeploymentInputProjectionV1 | null>(null)
+const deploymentInputBindings = ref<DeploymentInputBindingsV1>(createInputBindingsV1())
+const deploymentInputLoading = ref(false)
+const deploymentInputError = ref('')
+const deploymentCredentialItems = ref<CredentialProfileSummary[]>([])
+const deploymentCertificateFormats = ref<Record<string, unknown>[]>([])
+let deploymentInputRequestSequence = 0
 const failedPlatformLogos = ref(new Set<string>())
 const currentStepOverride = ref<OnboardingStep | null>(null)
 const supportsNewDevice = computed(() => selectedPlatform.value?.deviceSelection === 'EXISTING_OR_NEW' && Boolean(selectedPlatform.value.newDeviceOnboarding))
@@ -115,7 +134,13 @@ const footerActions = computed<OnboardingFooterActions>(() => {
   } else if (step.value === 3 && session.value) {
     primaryAction = 'TARGET'
     primaryLabel = t('applicationOnboarding.actions.continue')
-    primaryDisabled = loading.value || !pendingTarget.value || !isValidTargetConfiguration(accessDomain.value, verifyUrl.value)
+    const requiresDeploymentInput = Boolean(selectedPlatform.value?.deploymentDefaults)
+    primaryDisabled = loading.value
+      || deploymentInputLoading.value
+      || Boolean(deploymentInputError.value)
+      || !pendingTarget.value
+      || !isValidTargetConfiguration(accessDomain.value, verifyUrl.value)
+      || (requiresDeploymentInput && !deploymentInputProjection.value?.saveable)
   }
 
   const showPrevious = canGoPrevious.value
@@ -145,6 +170,73 @@ const resolvedCertificateVersionId = computed(() =>
     ? certificateVersionIdOf(latestCertificateVersion.value)
     : certificateVersionId.value,
 )
+const deploymentCredentialOptions = computed<DeploymentCredentialOption[]>(() => {
+  const options: DeploymentCredentialOption[] = deploymentCredentialItems.value.map((item) => ({
+    id: item.id,
+    label: item.name,
+    kind: item.kind,
+  }))
+  const knownIds = new Set(options.map((item) => item.id))
+  for (const item of deploymentInputProjection.value?.credentials ?? []) {
+    if (!item.selectedCredentialId || knownIds.has(item.selectedCredentialId)) continue
+    options.push({
+      id: item.selectedCredentialId,
+      label: item.selectedCredentialId,
+      kind: item.allowedKinds[0],
+    })
+  }
+  return options
+})
+const deploymentArtifactOptions = computed<Record<string, DeploymentArtifactOption[]>>(() => {
+  const projection = deploymentInputProjection.value
+  if (!projection) return {}
+  const acceptedFormats = new Set((selectedPlatform.value?.acceptedCertificateFormats ?? []).map((format) => format.toLowerCase()))
+  return Object.fromEntries(projection.artifacts.map((artifact) => {
+    const options = deploymentCertificateFormats.value
+    .filter((format) => acceptedFormats.size === 0 || acceptedFormats.has(String(format.format ?? '').toLowerCase()))
+    .map((format) => {
+      const id = String(format.id ?? '')
+      return { id, label: certificateFormatLabel(format), outputs: certificateFormatOutputOptions(id) }
+    })
+    const selectedId = artifact.binding?.certificateFormatId
+    if (selectedId && !options.some((option) => option.id === selectedId)) {
+      options.unshift({
+        id: selectedId,
+        label: defaultCertificateFormatLabel(selectedId),
+        outputs: Object.keys(artifact.binding?.outputBindings ?? {}).map((key) => ({ key, label: key })),
+      })
+    }
+    return [artifact.slot, options]
+  }))
+})
+const deploymentInputFormProjection = computed<DeploymentInputProjectionV1 | null>(() => {
+  const projection = deploymentInputProjection.value
+  const defaults = selectedPlatform.value?.deploymentDefaults
+  if (!projection || !defaults) return projection
+  const variableSlots = new Set(Object.keys(defaults.variables ?? {}))
+  const credentialSlots = new Set(Object.keys(defaults.credentials ?? {}))
+  const connections = projection.connections
+    .map((connection) => {
+      const configured = defaults.connections?.[connection.slot]
+      if (!configured) return null
+      const fields = Object.fromEntries(Object.entries(connection.fields)
+        .filter(([path]) => hasConfiguredDefaultPath(configured, path)))
+      return Object.keys(fields).length > 0 ? { ...connection, fields } : null
+    })
+    .filter((connection): connection is NonNullable<typeof connection> => Boolean(connection))
+  return {
+    ...projection,
+    requiredVariables: projection.requiredVariables.filter((item) => variableSlots.has(item.slot)),
+    advancedVariables: projection.advancedVariables.filter((item) => variableSlots.has(item.slot)),
+    connections,
+    credentials: projection.credentials.filter((item) => credentialSlots.has(item.slot)),
+    artifacts: defaults.certificateFormat
+      ? projection.artifacts.filter((item) => item.kind === 'certificate')
+      : [],
+    fixedValues: [],
+    runtimeValues: [],
+  }
+})
 onMounted(restoreSession)
 watch(deviceMode, (mode) => {
   if (mode === 'EXISTING_DEVICE' && session.value && step.value === 2) void refreshDevices()
@@ -244,6 +336,75 @@ function chooseTarget(target: Target): void {
   accessDomain.value = suggestedAccessDomain(target)
   verifyUrl.value = suggestedVerifyUrl(accessDomain.value, target.endpoint?.port, target.endpoint?.protocol)
   error.value = ''
+  void loadDeploymentInputProjection(target)
+}
+async function loadDeploymentInputProjection(target: Target, options: { preserveBindings?: boolean } = {}): Promise<void> {
+  const sequence = ++deploymentInputRequestSequence
+  const platform = selectedPlatform.value
+  const defaults = platform?.deploymentDefaults
+  if (!platform?.pluginVersionId || !defaults || !session.value) {
+    deploymentInputProjection.value = null
+    deploymentInputBindings.value = createInputBindingsV1()
+    deploymentInputLoading.value = false
+    return
+  }
+  deploymentInputLoading.value = true
+  deploymentInputError.value = ''
+  try {
+    if (!options.preserveBindings) {
+      deploymentInputBindings.value = createInputBindingsV1({
+        variables: cloneReactiveValue(defaults.variables ?? {}),
+        connections: cloneReactiveValue(defaults.connections ?? {}) as DeploymentInputBindingsV1['connections'],
+        credentials: cloneReactiveValue(defaults.credentials ?? {}),
+      })
+    }
+    // 选项列表只负责补充下拉框，不能阻塞通用部署表单的主投影请求。
+    void loadDeploymentInputOptions()
+    const endpoint = target.endpoint ?? {}
+    const result = await projectApplicationAssetPluginInputs(target.managedTargetId, {
+      capabilityKey: defaults.capabilityKey,
+      pluginVersionId: platform.pluginVersionId,
+      deploymentDefaults: defaults,
+      applicationAsset: {
+        id: 'draft',
+        address: accessDomain.value.trim() || endpoint.host || target.displayName,
+        sniName: accessDomain.value.trim() || undefined,
+        verifyUrl: verifyUrl.value.trim() || undefined,
+        port: endpoint.port ?? 443,
+        protocol: endpoint.protocol ?? 'HTTPS',
+        displayName: target.displayName,
+      },
+      inputBindings: deploymentInputBindings.value,
+    })
+    if (sequence !== deploymentInputRequestSequence) return
+    deploymentInputProjection.value = result.data ?? null
+    if (deploymentInputProjection.value) {
+      deploymentInputBindings.value = mergeProjectedInputBindings(
+        deploymentInputBindings.value,
+        deploymentInputProjection.value,
+      )
+    }
+  } catch (cause) {
+    if (sequence !== deploymentInputRequestSequence) return
+    deploymentInputProjection.value = null
+    deploymentInputError.value = messageFor(cause)
+  } finally {
+    if (sequence === deploymentInputRequestSequence) deploymentInputLoading.value = false
+  }
+}
+
+async function loadDeploymentInputOptions(): Promise<void> {
+  const [formatResult, credentialResult] = await Promise.allSettled([
+    listCertificateFormats({ page: 1, pageSize: 5000, sort: 'createdAt:desc' }),
+    listCredentials(),
+  ])
+  if (formatResult.status === 'fulfilled') {
+    deploymentCertificateFormats.value = [...(formatResult.value.data?.items ?? [])]
+  }
+  if (credentialResult.status === 'fulfilled') {
+    deploymentCredentialItems.value = [...(credentialResult.value.data?.items ?? [])]
+      .filter((item) => item.status === 'active')
+  }
 }
 async function saveTarget(): Promise<void> {
   if (!session.value || !pendingTarget.value || !isValidTargetConfiguration(accessDomain.value, verifyUrl.value)) {
@@ -253,12 +414,28 @@ async function saveTarget(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
+    const selectedTarget = pendingTarget.value
+    if (selectedPlatform.value?.deploymentDefaults) {
+      await loadDeploymentInputProjection(selectedTarget, { preserveBindings: true })
+      if (deploymentInputError.value) {
+        error.value = deploymentInputError.value
+        return
+      }
+      if (!deploymentInputProjection.value?.saveable) {
+        const issue = deploymentInputProjection.value?.issues.find((item) => item.severity === 'ERROR')
+        error.value = issue
+          ? t('deploymentInputs.issues.unknown', { code: issue.code })
+          : t('deploymentInputs.issues.unknown', { code: 'DEPLOYMENT_INPUT_REQUIRED' })
+        return
+      }
+    }
     session.value = readObject<Session>((await selectOnboardingTarget(session.value.id, {
       expectedStateVersion: session.value.stateVersion,
-      managedTargetId: pendingTarget.value.managedTargetId,
-      configFingerprint: pendingTarget.value.configFingerprint,
+      managedTargetId: selectedTarget.managedTargetId,
+      configFingerprint: selectedTarget.configFingerprint,
       accessDomain: accessDomain.value.trim().toLowerCase().replace(/\.+$/, ''),
       verifyUrl: verifyUrl.value.trim(),
+      ...(deploymentInputProjection.value ? { inputBindings: deploymentInputBindings.value } : {}),
     })).data)
     pendingTarget.value = null
     currentStepOverride.value = null
@@ -307,6 +484,7 @@ async function restoreSession(): Promise<void> {
     certificateId.value = session.value.certificateId ?? certificateId.value
     certificateVersionId.value = session.value.certificateVersionId ?? certificateVersionId.value
     certificateSelectionMode.value = session.value.inputSnapshot?.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT'
+    deploymentInputBindings.value = readInputBindingsV1(session.value.inputSnapshot?.deploymentInputBindings) ?? createInputBindingsV1()
     if (!selectedPlatform.value) { resetOnboardingState(); await clearOnboardingRoute(); return }
     if (isRestartableSessionState(session.value.state)) {
       await restartSessionForSelectedPlatform()
@@ -398,6 +576,36 @@ function toCertificateOption(record: Record<string, unknown>): CertificateOption
   if (!id) return null
   return { id, label: readString(record, ['primaryDomain', 'commonName', 'name', 'displayName', 'fingerprintSha256']) || id }
 }
+function certificateFormatLabel(item: Record<string, unknown>): string {
+  const parameters = readRecord(item.parameters) ?? {}
+  return [
+    String(item.name ?? item.displayName ?? item.id ?? ''),
+    String(item.format ?? '').toUpperCase(),
+    String(parameters.configName ?? parameters.outputPreset ?? ''),
+  ].filter(Boolean).join(' / ')
+}
+function defaultCertificateFormatLabel(certificateFormatId: string): string {
+  const selector = selectedPlatform.value?.deploymentDefaults?.certificateFormat
+  return selector ? `${selector.format.toUpperCase()} / ${selector.configName}` : certificateFormatId
+}
+function certificateFormatOutputOptions(certificateFormatId: string): Array<{ key: string; label: string }> {
+  const format = deploymentCertificateFormats.value.find((item) => String(item.id ?? '') === certificateFormatId)
+  if (!format) return []
+  const parameters = readRecord(format.parameters) ?? {}
+  const formatName = String(format.format ?? '').toLowerCase()
+  const options: Array<{ key: string; label: string }> = [
+    { key: 'fingerprintSha256', label: 'fingerprintSha256' },
+  ]
+  if (formatName === 'pem') {
+    if (parameters.includeLeafCertificate !== false) options.unshift({ key: 'public', label: 'public' })
+    if (parameters.includeCertificateChain || parameters.generateChainFile) options.unshift({ key: 'chain', label: 'chain' })
+    if (format.containsPrivateKey || parameters.includePrivateKey || parameters.generatePrivateKeyFile) options.unshift({ key: 'private', label: 'private' })
+    options.unshift({ key: 'bundle', label: 'bundle' })
+  } else {
+    options.unshift({ key: 'bundle', label: 'bundle' })
+  }
+  return options
+}
 function isPreferredCertificateVersion(record: Record<string, unknown>): boolean {
   return readString(record, ['status']).toLowerCase() === 'active'
     && record.deployable === true
@@ -406,6 +614,76 @@ function isPreferredCertificateVersion(record: Record<string, unknown>): boolean
 function readString(record: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) if (typeof record[key] === 'string' && record[key].trim()) return record[key].trim()
   return ''
+}
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+function hasConfiguredDefaultPath(value: Record<string, unknown>, path: string): boolean {
+  let current: unknown = value
+  for (const segment of path.split('.')) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)
+      || !Object.prototype.hasOwnProperty.call(current, segment)) return false
+    current = (current as Record<string, unknown>)[segment]
+  }
+  return true
+}
+function mergeProjectedInputBindings(
+  bindings: DeploymentInputBindingsV1,
+  projection: DeploymentInputProjectionV1,
+): DeploymentInputBindingsV1 {
+  const merged = cloneReactiveValue(bindings)
+  for (const item of [...projection.requiredVariables, ...projection.advancedVariables]) {
+    if (!isProjectionEditable(item) || item.value === undefined || Object.prototype.hasOwnProperty.call(merged.variables, item.slot)) continue
+    merged.variables[item.slot] = cloneReactiveValue(item.value)
+  }
+  for (const connection of projection.connections) {
+    for (const [path, item] of Object.entries(connection.fields)) {
+      if (!isProjectionEditable(item) || item.value === undefined || readPath(merged.connections[connection.slot], path) !== undefined) continue
+      const current = cloneReactiveValue(merged.connections[connection.slot] ?? {}) as Record<string, unknown>
+      writePath(current, path, cloneReactiveValue(item.value))
+      merged.connections[connection.slot] = current as DeploymentInputBindingsV1['connections'][string]
+    }
+  }
+  for (const item of projection.credentials) {
+    if (!item.selectedCredentialId || merged.credentials[item.slot]) continue
+    merged.credentials[item.slot] = { credentialId: item.selectedCredentialId }
+  }
+  for (const item of projection.artifacts) {
+    if (!item.binding) continue
+    const current = merged.artifacts[item.slot]
+    if (!current) {
+      merged.artifacts[item.slot] = cloneReactiveValue(item.binding)
+      continue
+    }
+    merged.artifacts[item.slot] = {
+      certificateFormatId: current.certificateFormatId ?? item.binding.certificateFormatId,
+      outputBindings: {
+        ...cloneReactiveValue(item.binding.outputBindings),
+        ...cloneReactiveValue(current.outputBindings),
+      },
+    }
+  }
+  return merged
+}
+function isProjectionEditable(item: { configurationMode: string; bindingPolicy: string }): boolean {
+  return item.configurationMode !== 'runtime' && item.bindingPolicy !== 'fixed'
+}
+function readPath(value: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, segment) => current && typeof current === 'object'
+    ? (current as Record<string, unknown>)[segment]
+    : undefined, value)
+}
+function writePath(target: Record<string, unknown>, path: string, value: unknown): void {
+  const segments = path.split('.')
+  const leaf = segments.pop()
+  if (!leaf) return
+  let current = target
+  for (const segment of segments) {
+    const child = current[segment]
+    current[segment] = child && typeof child === 'object' && !Array.isArray(child) ? child : {}
+    current = current[segment] as Record<string, unknown>
+  }
+  current[leaf] = value
 }
 function platformLabel(platform: Platform): string {
   return platform.displayName || t(platform.displayNameKey)
@@ -485,6 +763,10 @@ function resetTargetSelection(): void {
   certificateSelectionMode.value = 'EXPLICIT'
   certificateAssets.value = []
   certificateVersions.value = []
+  deploymentInputProjection.value = null
+  deploymentInputBindings.value = createInputBindingsV1()
+  deploymentInputLoading.value = false
+  deploymentInputError.value = ''
 }
 function resetOnboardingState(): void {
   selectedPlatform.value = null
@@ -805,6 +1087,18 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             </label>
           </div>
           <p class="onboarding-hint">{{ t('applicationOnboarding.target.domainHint') }}</p>
+          <p v-if="deploymentInputError" class="onboarding-error" role="alert">{{ deploymentInputError }}</p>
+          <DeploymentInputForm
+            v-if="deploymentInputFormProjection"
+            v-model="deploymentInputBindings"
+            :projection="deploymentInputFormProjection"
+            :credential-options="deploymentCredentialOptions"
+            :artifact-options="deploymentArtifactOptions"
+            :loading="deploymentInputLoading"
+            compact
+            :show-artifact-outputs="false"
+          />
+          <p v-else-if="deploymentInputLoading" class="onboarding-empty">{{ t('common.loading') }}</p>
         </div>
       </div>
       <div v-else-if="step === 4" class="onboarding-panel">

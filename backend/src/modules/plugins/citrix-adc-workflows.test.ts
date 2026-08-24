@@ -116,6 +116,16 @@ test('Citrix ADC 所有 Workflow 只声明统一部署输入协议', async () =>
   assert.equal(JSON.stringify(deploy).includes('managementPort'), false);
 });
 
+test('Citrix ADC 应用接入配方声明 TLS 和证书产物默认值', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const recipe = JSON.parse(pluginPackage.resources['onboarding/application-asset.json']!) as Record<string, any>;
+  assert.deepEqual(recipe.deploymentDefaults, {
+    capabilityKey: 'certificate.deploy',
+    variables: { allowInsecureTls: true },
+    certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+  });
+});
+
 test('Workflow Schema 拒绝顶层旧 variables 和 connections', () => {
   const content = {
     apiVersion: 'gcac.workflow/v1',

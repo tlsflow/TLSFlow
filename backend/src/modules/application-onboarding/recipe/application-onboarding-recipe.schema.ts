@@ -4,13 +4,14 @@ import { PluginCapabilityRegistry } from '../../plugins/capabilities/plugin-capa
 import type { UnifiedPluginCapabilityDescriptor } from '../../plugins/dto/unified-plugins.dto.js';
 import {
   applicationOnboardingRecipeProtocol,
+  type ApplicationOnboardingDeploymentDefaultsV1,
   type ApplicationOnboardingRecipeV1,
   type ApplicationOnboardingRecipeValidationContext,
 } from './application-onboarding-recipe.dto.js';
 
 const recipeKeys = new Set([
   'protocol', 'platformKey', 'displayNameKey', 'supportStatus', 'deploymentMode', 'deviceResourceType', 'deviceSelection', 'newDeviceOnboarding',
-  'platformMetadata', 'forms', 'capabilities', 'targetProjection', 'certificate', 'commit',
+  'platformMetadata', 'forms', 'capabilities', 'targetProjection', 'deploymentDefaults', 'certificate', 'commit',
 ]);
 const platformMetadataKeys = new Set(['capabilityVersion', 'compatibilityKeys', 'requiredInformationKeys']);
 const newDeviceOnboardingAgentKeys = new Set(['kind', 'platformKey', 'platformKeys']);
@@ -18,6 +19,8 @@ const newDeviceOnboardingPluginKeys = new Set(['kind', 'pluginId']);
 const formKeys = new Set(['device', 'advanced']);
 const capabilityKeys = new Set(['connectionTest', 'identity', 'discovery', 'workflowExecution']);
 const targetProjectionKeys = new Set(['targetType', 'frameworkTypes', 'displayFields', 'identityFields', 'selectableWhen']);
+const deploymentDefaultsKeys = new Set(['capabilityKey', 'variables', 'connections', 'credentials', 'certificateFormat']);
+const certificateFormatDefaultKeys = new Set(['format', 'configName']);
 const certificateKeys = new Set(['acceptedFormats', 'requiredArtifacts', 'defaultVersion']);
 const commitKeys = new Set(['executionSource', 'inputContract']);
 const identifierPattern = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/;
@@ -52,6 +55,13 @@ export function validateApplicationOnboardingRecipe(
   const capabilities = validateCapabilities(value.capabilities, context.manifest.capabilities, capabilityRegistry);
   const targetProjection = validateTargetProjection(value.targetProjection);
   const certificate = validateCertificate(value.certificate);
+  const deploymentDefaults = validateDeploymentDefaults(
+    value.deploymentDefaults,
+    certificate.acceptedFormats,
+    deploymentMode,
+    context.manifest.capabilities,
+    capabilityRegistry,
+  );
   const commit = validateCommit(value.commit);
 
   if (deploymentMode === 'MANAGED_TARGET') {
@@ -87,9 +97,92 @@ export function validateApplicationOnboardingRecipe(
     forms,
     capabilities,
     targetProjection,
+    ...(deploymentDefaults ? { deploymentDefaults } : {}),
     certificate,
     commit,
   };
+}
+
+function validateDeploymentDefaults(
+  input: unknown,
+  acceptedFormats: string[],
+  deploymentMode: ApplicationOnboardingRecipeV1['deploymentMode'],
+  declaredCapabilities: UnifiedPluginCapabilityDescriptor[],
+  capabilityRegistry: PluginCapabilityRegistry,
+): ApplicationOnboardingRecipeV1['deploymentDefaults'] {
+  if (input === undefined) return undefined;
+  if (deploymentMode !== 'MANAGED_TARGET') {
+    invalid('recipe.deploymentDefaults', '当前只支持向受管设备应用资产写入部署默认值');
+  }
+  const value = record(input, 'recipe.deploymentDefaults');
+  assertKnownKeys(value, deploymentDefaultsKeys, 'recipe.deploymentDefaults');
+  const capabilityKey = identifier(value.capabilityKey, 'recipe.deploymentDefaults.capabilityKey');
+  const descriptor = declaredCapabilities.find((item) => item.key === capabilityKey);
+  if (!descriptor) {
+    invalid('recipe.deploymentDefaults.capabilityKey', '默认值能力必须由 Manifest 声明', { capabilityKey });
+  }
+  capabilityRegistry.validate(descriptor!);
+  const variables = optionalJsonRecord(value.variables, 'recipe.deploymentDefaults.variables');
+  const connections = optionalJsonRecordOfRecords(value.connections, 'recipe.deploymentDefaults.connections');
+  const credentials = validateDefaultCredentials(value.credentials);
+  const certificateFormat = validateDefaultCertificateFormat(value.certificateFormat, acceptedFormats);
+  if (!variables && !connections && !credentials && !certificateFormat) {
+    invalid('recipe.deploymentDefaults', '至少声明一项默认值');
+  }
+  return {
+    capabilityKey,
+    ...(variables ? { variables } : {}),
+    ...(connections ? { connections } : {}),
+    ...(credentials ? { credentials } : {}),
+    ...(certificateFormat ? { certificateFormat } : {}),
+  };
+}
+
+function validateDefaultCertificateFormat(
+  input: unknown,
+  acceptedFormats: string[],
+): ApplicationOnboardingDeploymentDefaultsV1['certificateFormat'] | undefined {
+  if (input === undefined) return undefined;
+  const value = record(input, 'recipe.deploymentDefaults.certificateFormat');
+  assertKnownKeys(value, certificateFormatDefaultKeys, 'recipe.deploymentDefaults.certificateFormat');
+  const format = identifier(value.format, 'recipe.deploymentDefaults.certificateFormat.format');
+  if (!acceptedFormats.includes(format)) {
+    invalid('recipe.deploymentDefaults.certificateFormat.format', '必须属于 recipe.certificate.acceptedFormats', { format, acceptedFormats });
+  }
+  return {
+    format,
+    configName: text(value.configName, 'recipe.deploymentDefaults.certificateFormat.configName'),
+  };
+}
+
+function validateDefaultCredentials(input: unknown): Record<string, { credentialId: string }> | undefined {
+  if (input === undefined) return undefined;
+  const value = record(input, 'recipe.deploymentDefaults.credentials');
+  const output: Record<string, { credentialId: string }> = {};
+  for (const [slot, binding] of Object.entries(value)) {
+    const normalizedSlot = identifier(slot, 'recipe.deploymentDefaults.credentials');
+    const item = record(binding, `recipe.deploymentDefaults.credentials.${normalizedSlot}`);
+    assertKnownKeys(item, new Set(['credentialId']), `recipe.deploymentDefaults.credentials.${normalizedSlot}`);
+    output[normalizedSlot] = { credentialId: text(item.credentialId, `recipe.deploymentDefaults.credentials.${normalizedSlot}.credentialId`) };
+  }
+  return output;
+}
+
+function optionalJsonRecord(input: unknown, path: string): Record<string, unknown> | undefined {
+  if (input === undefined) return undefined;
+  const value = record(input, path);
+  return structuredClone(value);
+}
+
+function optionalJsonRecordOfRecords(input: unknown, path: string): Record<string, Record<string, unknown>> | undefined {
+  if (input === undefined) return undefined;
+  const value = record(input, path);
+  const output: Record<string, Record<string, unknown>> = {};
+  for (const [slot, binding] of Object.entries(value)) {
+    const normalizedSlot = identifier(slot, path);
+    output[normalizedSlot] = structuredClone(record(binding, `${path}.${normalizedSlot}`));
+  }
+  return output;
 }
 
 function validateNewDeviceOnboarding(input: unknown): ApplicationOnboardingRecipeV1['newDeviceOnboarding'] {

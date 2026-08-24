@@ -26,6 +26,7 @@ import {
 import { unifiedPluginVersionOwnerType } from '../application/unified-plugins.application-service.js';
 import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
 import type { PluginRefreshResult } from '../dto/plugin-refresh-result.dto.js';
+import type { ApplicationOnboardingDeploymentDefaultsV1 } from '../onboarding/application-onboarding-recipe.dto.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<PluginRefreshResult>;
@@ -503,6 +504,7 @@ export class PluginsController {
       capabilityKey: { type: 'string' },
       pluginVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
+      deploymentDefaults: { type: 'object' },
       applicationAsset: { type: 'object', required: true },
       inputBindings: { type: 'object' },
     });
@@ -513,12 +515,10 @@ export class PluginsController {
       await this.assertObjectRead(security, 'application_asset', applicationAsset.id);
     }
     if (typeof body.pluginVersionId === 'string') await this.requirePluginVersion(security, body.pluginVersionId, 'read');
-    return service.projectApplicationAssetPluginInputs({
+    const commonInput = {
       tenantId: security.tenantId,
       managedTargetId: resolvedManagedTargetId,
-      capabilityKey: typeof body.capabilityKey === 'string' ? body.capabilityKey : undefined,
       pluginVersionId: typeof body.pluginVersionId === 'string' ? body.pluginVersionId : undefined,
-      certificateFormatId: typeof body.certificateFormatId === 'string' ? body.certificateFormatId : undefined,
       applicationAsset: {
         id: String(applicationAsset.id ?? 'draft'),
         address: String(applicationAsset.address ?? ''),
@@ -529,6 +529,21 @@ export class PluginsController {
         displayName: typeof applicationAsset.displayName === 'string' ? applicationAsset.displayName : undefined,
       },
       inputBindings: body.inputBindings as never,
+    };
+    if (body.deploymentDefaults !== undefined) {
+      if (typeof commonInput.pluginVersionId !== 'string') {
+        throw new AppError('VALIDATION_FAILED', '使用应用接入默认值投影时必须提供插件版本');
+      }
+      return service.projectApplicationOnboardingDefaults({
+        ...commonInput,
+        pluginVersionId: commonInput.pluginVersionId,
+        defaults: body.deploymentDefaults as ApplicationOnboardingDeploymentDefaultsV1,
+      });
+    }
+    return service.projectApplicationAssetPluginInputs({
+      ...commonInput,
+      capabilityKey: typeof body.capabilityKey === 'string' ? body.capabilityKey : undefined,
+      certificateFormatId: typeof body.certificateFormatId === 'string' ? body.certificateFormatId : undefined,
     });
   }
 
@@ -852,7 +867,7 @@ function effectiveCapabilitySchema(): OpenApiSchema {
     executionLocation: { type: 'string' }, compatible: { type: 'boolean' }, reasons: { type: 'array', items: jsonObjectSchema() },
   }, ['capabilityKey', 'source', 'plugin', 'binding', 'executionLocation', 'compatible', 'reasons']);
 }
-function projectionRequestSchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), certificateFormatId: idSchema(), applicationAsset: strictSchema({ id: idSchema(), address: { type: 'string' }, sniName: { type: 'string' }, verifyUrl: { type: 'string' }, port: { type: 'number' }, protocol: { type: 'string' }, displayName: { type: 'string' } }, ['id', 'address', 'port', 'protocol']), inputBindings: inputBindingsSchema() }, ['applicationAsset']); }
+function projectionRequestSchema(): OpenApiSchema { return strictSchema({ capabilityKey: { type: 'string' }, pluginVersionId: idSchema(), certificateFormatId: idSchema(), deploymentDefaults: jsonObjectSchema(), applicationAsset: strictSchema({ id: idSchema(), address: { type: 'string' }, sniName: { type: 'string' }, verifyUrl: { type: 'string' }, port: { type: 'number' }, protocol: { type: 'string' }, displayName: { type: 'string' } }, ['id', 'address', 'port', 'protocol']), inputBindings: inputBindingsSchema() }, ['applicationAsset']); }
 function projectionSchema(): OpenApiSchema { return strictSchema({ contractVersion: { type: 'string' }, requiredVariables: { type: 'array', items: jsonObjectSchema() }, advancedVariables: { type: 'array', items: jsonObjectSchema() }, connections: { type: 'array', items: jsonObjectSchema() }, credentials: { type: 'array', items: jsonObjectSchema() }, artifacts: { type: 'array', items: jsonObjectSchema() }, fixedValues: { type: 'array', items: jsonObjectSchema() }, runtimeValues: { type: 'array', items: jsonObjectSchema() }, issues: { type: 'array', items: jsonObjectSchema() }, saveable: { type: 'boolean' } }, ['contractVersion', 'requiredVariables', 'advancedVariables', 'connections', 'credentials', 'artifacts', 'fixedValues', 'runtimeValues', 'issues', 'saveable']); }
 function managedTargetSaveSchema(): OpenApiSchema { return strictSchema({ managedTargetId: idSchema(), certificateFormatId: idSchema(), executionMode: { type: 'string', enum: ['PLUGIN', 'WORKFLOW_OVERRIDE'] }, expectedTargetVersion: { type: 'number' }, capabilityKey: { type: 'string' }, pluginOverride: strictSchema({ pluginVersionId: idSchema(), pluginBindingId: idSchema(), expectedBindingVersion: { type: 'number' }, inputBindings: inputBindingsSchema() }, ['pluginVersionId']), workflowExecution: jsonObjectSchema() }, ['managedTargetId']); }
 function managedTargetSaveResultSchema(): OpenApiSchema { return strictSchema({ target: jsonObjectSchema(), executionMode: { type: 'string' }, workflowExecutionBinding: jsonObjectSchema(), effectiveCapability: effectiveCapabilitySchema() }, ['target', 'executionMode']); }

@@ -1,7 +1,9 @@
 import type {
   ApplicationOnboardingNewDeviceOnboarding,
+  ApplicationOnboardingDeploymentDefaultsV1,
   ApplicationOnboardingRecipeV1,
 } from '../recipe/application-onboarding-recipe.dto.js';
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export type OnboardingSessionState =
   | 'CREATED'
@@ -47,6 +49,8 @@ export interface OnboardingPlatformDto {
   supportStatus: 'SUPPORTED' | 'PREVIEW' | 'IN_REVIEW';
   /** 插件配方声明的平台接受的证书格式（如 PEM/PFX），向导据此过滤证书版本选项。 */
   acceptedCertificateFormats?: string[];
+  /** 插件声明的通用部署默认值，宿主只负责投影、保存和校验，不解释字段名称。 */
+  deploymentDefaults?: ApplicationOnboardingDeploymentDefaultsV1;
   /** 仅供宿主选择同一平台最新插件版本，不作为用户配置字段。 */
   updatedAt?: string;
 }
@@ -109,3 +113,5 @@ export interface StateVersionInput {
   expectedStateVersion: number;
   idempotencyKey?: string;
 }
+
+export type OnboardingInputBindings = InputBindingsV1;

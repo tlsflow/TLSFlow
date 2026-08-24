@@ -10,6 +10,21 @@ export type ApplicationOnboardingDeviceSelection = 'EXISTING_OR_NEW' | 'EXISTING
 export type ApplicationOnboardingExecutionSource = 'PLUGIN' | 'WORKFLOW';
 
 /**
+ * 应用接入完成后由宿主写入应用级 Plugin Binding 的默认值。
+ * 具体变量名称和值由插件声明，宿主只负责校验、解析宿主资源并保存。
+ */
+export interface ApplicationOnboardingDeploymentDefaultsV1 {
+  capabilityKey: string;
+  variables?: Record<string, unknown>;
+  connections?: Record<string, Record<string, unknown>>;
+  credentials?: Record<string, { credentialId: string }>;
+  certificateFormat?: {
+    format: string;
+    configName: string;
+  };
+}
+
+/**
  * 插件声明的新建设备入口。宿主只负责打开统一设备向导，不得按应用平台名称猜测设备接入方式。
  */
 export type ApplicationOnboardingAgentInstallOnboarding =
@@ -73,6 +88,8 @@ export interface ApplicationOnboardingRecipeV1 {
     identityFields: string[];
     selectableWhen: string;
   };
+  /** 可选的应用级部署默认值，由插件按平台能力自行声明。 */
+  deploymentDefaults?: ApplicationOnboardingDeploymentDefaultsV1;
   certificate: {
     /** 宿主标准证书格式码（PEM/PFX/JKS/DER/P7B，见 shared/enums CertificateFormats）；配方校验强制只能从中选择，与证书版本产物配置一一对应。 */
     acceptedFormats: string[];

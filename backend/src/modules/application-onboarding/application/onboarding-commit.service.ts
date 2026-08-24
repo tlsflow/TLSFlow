@@ -3,11 +3,13 @@ import type { AssetsApplicationService } from '../../assets/application/assets.a
 import type { CreateServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { DeploymentPlansApplicationService } from '../../deployment-plans/application/deployment-plans.application-service.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
+import type { ManagedTargetPluginQueryService } from '../../plugins/application/managed-target-plugin-query.service.js';
 import type { PluginWorkflowBindingRecord } from '../../plugins/dto/plugin-workflow-bindings.dto.js';
 import type { ApplicationOnboardingSessionDto } from '../dto/application-onboarding.dto.js';
 import type { LoadedApplicationOnboardingRecipe } from '../recipe/index.js';
 import type { OnboardingCommitPort } from './application-onboarding.service.js';
 import { defaultOnboardingVerifyUrl, validateOnboardingTargetInput } from './onboarding-target-input.js';
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 /**
  * 向导完成提交的唯一适配器。它只组合已有 Application Service，不直接写资产或计划表。
@@ -18,6 +20,8 @@ export class OnboardingCommitService implements OnboardingCommitPort {
     private readonly deploymentPlans: DeploymentPlansApplicationService,
     private readonly pluginWorkflows?: Pick<PluginWorkflowPublisherService, 'require'>,
     private readonly directWorkflows?: { requireExecutionWorkflow(recipe: LoadedApplicationOnboardingRecipe): Promise<PluginWorkflowBindingRecord> },
+    private readonly managedTargetPlugins?: Pick<ManagedTargetPluginQueryService, 'applyApplicationOnboardingDefaults'>
+      & Partial<Pick<ManagedTargetPluginQueryService, 'projectApplicationOnboardingDefaults'>>,
   ) {}
 
   async commit(tenantId: string, actorId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe): Promise<Record<string, unknown>> {
@@ -78,14 +82,54 @@ export class OnboardingCommitService implements OnboardingCommitPort {
         verifyUrl: targetInput.verifyUrl,
       },
     };
+    const deploymentInputBindings = readInputBindings(session.inputSnapshot.deploymentInputBindings);
+    if (targetId && !workflow && recipe.recipe.deploymentDefaults) {
+      if (!this.managedTargetPlugins?.projectApplicationOnboardingDefaults) {
+        throw new AppError('SYSTEM_INTERNAL_ERROR', '应用接入默认值服务未接入', { code: 'ONBOARDING_DEFAULTS_SERVICE_UNAVAILABLE' });
+      }
+      const projection = await this.managedTargetPlugins.projectApplicationOnboardingDefaults({
+        tenantId,
+        managedTargetId: targetId,
+        pluginVersionId: recipe.pluginVersionId,
+        defaults: recipe.recipe.deploymentDefaults,
+        applicationAsset: {
+          id: 'draft',
+          address: input.address,
+          sniName: input.sniName,
+          verifyUrl: input.verifyUrl,
+          port: input.port,
+          protocol: input.protocol,
+          displayName: input.displayName,
+        },
+        ...(deploymentInputBindings ? { inputBindings: deploymentInputBindings } : {}),
+      });
+      if (!projection.saveable) {
+        throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: projection.issues });
+      }
+    }
     const asset = await this.assets.createServiceAsset(tenantId, input);
     if (targetId) {
-      await this.assets.getRepository().createApplicationAssetTarget(tenantId, {
-        applicationAssetId: asset.id,
-        managedTargetId: targetId,
-        metadata: { configFingerprint: session.targetFingerprint },
-      });
-      if (!workflow) {
+      if (!workflow && recipe.recipe.deploymentDefaults) {
+        if (!this.managedTargetPlugins) {
+          throw new AppError('SYSTEM_INTERNAL_ERROR', '应用接入默认值服务未接入', { code: 'ONBOARDING_DEFAULTS_SERVICE_UNAVAILABLE' });
+        }
+        await this.managedTargetPlugins.applyApplicationOnboardingDefaults({
+          tenantId,
+          applicationAssetId: asset.id,
+          managedTargetId: targetId,
+          metadata: { configFingerprint: session.targetFingerprint },
+          pluginVersionId: recipe.pluginVersionId,
+          defaults: recipe.recipe.deploymentDefaults,
+          ...(deploymentInputBindings ? { inputBindings: deploymentInputBindings } : {}),
+        });
+      } else {
+        await this.assets.getRepository().createApplicationAssetTarget(tenantId, {
+          applicationAssetId: asset.id,
+          managedTargetId: targetId,
+          metadata: { configFingerprint: session.targetFingerprint },
+        });
+      }
+      if (!workflow && !recipe.recipe.deploymentDefaults) {
         await this.assets.updateServiceAssetDeploymentStrategy(tenantId, asset.id, {
           type: 'MANAGED_TARGET',
           managedTarget: { managedTargetId: targetId, executionMode: 'PLUGIN' },
@@ -127,4 +171,24 @@ function readEndpoint(value: unknown): { host?: string; port?: number; protocol?
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readInputBindings(value: unknown): InputBindingsV1 | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.apiVersion !== 'gcac.input-bindings/v1') return undefined;
+  if (!isRecord(record.variables) || !isRecord(record.connections) || !isRecord(record.credentials) || !isRecord(record.artifacts)) {
+    return undefined;
+  }
+  return {
+    apiVersion: 'gcac.input-bindings/v1',
+    variables: structuredClone(record.variables),
+    connections: structuredClone(record.connections) as InputBindingsV1['connections'],
+    credentials: structuredClone(record.credentials) as InputBindingsV1['credentials'],
+    artifacts: structuredClone(record.artifacts) as InputBindingsV1['artifacts'],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

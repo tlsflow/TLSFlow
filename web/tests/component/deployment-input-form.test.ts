@@ -105,4 +105,27 @@ describe('DeploymentInputForm', () => {
     expect(credentialUpdate?.[0]).toMatchObject({ credentials: { managementCredential: { credentialId: 'cred_1' } } })
     expect(JSON.stringify(credentialUpdate?.[0])).not.toMatch(/password|secretRef|token/i)
   })
+
+  it('紧凑模式隐藏证书输出分项，并在切换格式时自动生成映射', async () => {
+    const wrapper = mount(DeploymentInputForm, {
+      props: {
+        modelValue: bindings(),
+        projection: projection(),
+        compact: true,
+        showArtifactOutputs: false,
+        artifactOptions: { certificate: [{ id: 'fmt_1', label: 'PEM', outputs: [] }] },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.classes()).toContain('deployment-input-form--compact')
+    expect(wrapper.findAll('select').some((item) => item.html().includes('fmt_1'))).toBe(true)
+    expect(wrapper.findAll('select').some((item) => item.html().includes('fullchain'))).toBe(false)
+
+    await wrapper.findAll('select').find((item) => item.html().includes('fmt_1'))!.setValue('fmt_1')
+
+    expect(wrapper.emitted('update:modelValue')!.at(-1)![0]).toMatchObject({
+      artifacts: { certificate: { certificateFormatId: 'fmt_1', outputBindings: { certificate: 'certificate' } } },
+    })
+  })
 })

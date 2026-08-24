@@ -34,6 +34,77 @@ test('插件路由先校验 RBAC action，缺少 plugin.read 时拒绝', async (
   assert.equal((response.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
 });
 
+test('应用资产部署投影直接转发插件声明的默认值', async () => {
+  const pluginVersion = version('plugin-visible', 'fixture.plugin', '1.0.0', 'USER', 'tenant-1');
+  let captured: Record<string, unknown> | undefined;
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
+  const service = new UnifiedPluginsApplicationService(memoryRepository([pluginVersion]));
+  const managedTargetPlugins = {
+    projectApplicationOnboardingDefaults: async (input: Record<string, unknown>) => {
+      captured = input;
+      return {
+        contractVersion: 'gcac.deployment-input/v1',
+        requiredVariables: [],
+        advancedVariables: [],
+        connections: [],
+        credentials: [],
+        artifacts: [],
+        fixedValues: [],
+        runtimeValues: [],
+        issues: [],
+        saveable: true,
+      };
+    },
+  };
+  new PluginsController(service, undefined, undefined, managedTargetPlugins as never, undefined, undefined, routeSecurity({
+    allowedObjectIds: {
+      plugin_version: [pluginVersion.id],
+      managed_target: ['target-1'],
+    },
+  })).register(app.router);
+
+  const response = await app.inject({
+    method: 'POST',
+    path: '/api/v1/managed-targets/target-1/deployment-input-projection',
+    headers: actorHeaders(),
+    body: {
+      pluginVersionId: pluginVersion.id,
+      deploymentDefaults: {
+        capabilityKey: 'certificate.deploy',
+        variables: { allowInsecureTls: true },
+        certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+      },
+      applicationAsset: {
+        id: 'draft',
+        address: 'app.example.test',
+        port: 443,
+        protocol: 'HTTPS',
+      },
+    },
+  });
+
+  assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+  assert.equal(captured?.tenantId, 'tenant-1');
+  assert.equal(captured?.managedTargetId, 'target-1');
+  assert.equal(captured?.pluginVersionId, pluginVersion.id);
+  assert.deepEqual(captured?.defaults, {
+    capabilityKey: 'certificate.deploy',
+    variables: { allowInsecureTls: true },
+    certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+  });
+  assert.deepEqual(captured?.applicationAsset, {
+    id: 'draft',
+    address: 'app.example.test',
+    sniName: undefined,
+    verifyUrl: undefined,
+    port: 443,
+    protocol: 'HTTPS',
+    displayName: undefined,
+  });
+  assert.equal(captured?.inputBindings, undefined);
+});
+
 test('插件版本列表和分组只返回有对象权限的版本', async () => {
   const records = [
     version('plugin-visible', 'fixture.plugin', '1.0.0', 'USER', 'tenant-1'),

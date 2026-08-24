@@ -19,10 +19,22 @@ const onboardingMocks = vi.hoisted(() => ({
   selectOnboardingTarget: vi.fn(),
   testOnboardingConnection: vi.fn(),
 }))
+const deploymentInputMocks = vi.hoisted(() => ({
+  projectApplicationAssetPluginInputs: vi.fn(),
+}))
+const credentialMocks = vi.hoisted(() => ({
+  listCredentials: vi.fn(),
+}))
+const certificateFormatMocks = vi.hoisted(() => ({
+  listCertificateFormats: vi.fn(),
+}))
 const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 const routeMock = vi.hoisted(() => ({ query: {} as Record<string, string> }))
 
 vi.mock('@/api/modules/application-onboarding.api', () => onboardingMocks)
+vi.mock('@/api/modules/deployment-inputs.api', () => deploymentInputMocks)
+vi.mock('@/api/modules/credentials.api', () => credentialMocks)
+vi.mock('@/api/modules/certificates.api', () => certificateFormatMocks)
 vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMocks }))
 
 import ApplicationOnboardingView from '@/views/application-onboarding/ApplicationOnboardingView.vue'
@@ -39,6 +51,39 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({ items: [] }))
     onboardingMocks.getOnboardingSession.mockResolvedValue(response({}))
     onboardingMocks.listOnboardingCertificateOptions.mockResolvedValue(response({ assets: [], versions: [] }))
+    deploymentInputMocks.projectApplicationAssetPluginInputs.mockResolvedValue(response({
+      contractVersion: 'gcac.deployment-input/v1',
+      requiredVariables: [{ slot: 'allowInsecureTls', type: 'boolean', required: true, configurationMode: 'required', bindingPolicy: 'required_binding', source: { kind: 'binding' }, value: true }],
+      advancedVariables: [],
+      connections: [{
+        slot: 'management',
+        transport: 'http',
+        fields: {
+          host: { slot: 'host', type: 'string', required: true, configurationMode: 'required', bindingPolicy: 'required_binding', source: { kind: 'binding' }, value: '10.255.0.215' },
+        },
+      }],
+      credentials: [{ slot: 'credential', allowedKinds: ['USERNAME_PASSWORD'], required: true, configurationMode: 'required', selectedCredentialId: 'credential-1' }],
+      artifacts: [{
+        slot: 'certificate',
+        kind: 'certificate',
+        required: true,
+        configurationMode: 'required',
+        outputs: {
+          leafPemBase64: { role: 'public_certificate', required: true },
+          privateKeyPemBase64: { role: 'private_key', required: true },
+        },
+        binding: {
+          certificateFormatId: 'certfmt_default',
+          outputBindings: { leafPemBase64: 'leafPem', privateKeyPemBase64: 'privateKeyPem' },
+        },
+      }],
+      fixedValues: [],
+      runtimeValues: [],
+      issues: [],
+      saveable: true,
+    }))
+    credentialMocks.listCredentials.mockResolvedValue(response({ items: [] }))
+    certificateFormatMocks.listCertificateFormats.mockResolvedValue(response({ items: [] }))
   })
 
   it('受管设备路径列出站点并默认选择首个可部署证书版本', async () => {
@@ -180,6 +225,62 @@ describe('ApplicationOnboardingView', () => {
     expect(targetRows[0].attributes('disabled')).toBeUndefined()
     expect(wrapper.text()).not.toContain('WSUS 管理')
     expect(wrapper.text()).not.toContain('tls.binding')
+  })
+
+  it('选择站点时能解包响应式部署默认值并显示通用部署表单', async () => {
+    routeMock.query = { session: 'session-deployment-inputs' }
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [{
+        platformKey: 'citrix.netscaler-adc',
+        source: 'PLUGIN',
+        pluginVersionId: 'plugin-citrix',
+        displayName: 'Citrix ADC',
+        displayNameKey: 'plugin.citrix.adc',
+        deploymentMode: 'MANAGED_TARGET',
+        supportStatus: 'SUPPORTED',
+        acceptedCertificateFormats: ['PEM'],
+        deploymentDefaults: {
+          capabilityKey: 'certificate.deploy',
+          variables: { allowInsecureTls: true },
+          certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+        },
+      }],
+    }))
+    onboardingMocks.getOnboardingSession.mockResolvedValue(response({
+      id: 'session-deployment-inputs',
+      platformKey: 'citrix.netscaler-adc',
+      deploymentMode: 'MANAGED_TARGET',
+      state: 'TARGET_SELECTION_REQUIRED',
+      stateVersion: 4,
+      targets: [{
+        managedTargetId: 'target-citrix',
+        displayName: 'ikuai.jacksonz.cn',
+        targetType: 'tls.binding',
+        endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' },
+        configFingerprint: 'citrix-fingerprint',
+        selectable: true,
+      }],
+    }))
+
+    const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('.target-row').trigger('click')
+    await flushPromises()
+
+    expect(deploymentInputMocks.projectApplicationAssetPluginInputs).toHaveBeenCalledWith('target-citrix', expect.objectContaining({
+      pluginVersionId: 'plugin-citrix',
+      deploymentDefaults: expect.objectContaining({
+        variables: { allowInsecureTls: true },
+        certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+      }),
+    }))
+    expect(wrapper.find('.deployment-input-form').exists()).toBe(true)
+    expect(wrapper.text()).toContain('allowInsecureTls')
+    expect(wrapper.text()).toContain('产物格式')
+    expect(wrapper.text()).not.toContain('management')
+    expect(wrapper.text()).not.toContain('credential')
+    expect(wrapper.text()).not.toContain('leafPemBase64')
+    expect(wrapper.text()).not.toContain('加载中')
   })
 
   it('选择新增设备时交给统一设备向导，不向应用接入接口伪造设备输入', async () => {

@@ -54,6 +54,40 @@ test('接入配方只接受宿主标准证书格式码，拒绝宿主不提供�
   }, { manifest }), /标准格式码/);
 });
 
+test('接入配方允许插件声明应用级部署默认值，宿主只校验结构和证书格式范围', () => {
+  const manifest = manifestForRecipe();
+  const recipe = validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    deploymentDefaults: {
+      capabilityKey: 'certificate.deploy',
+      variables: { allowInsecureTls: true, vendorMode: 'adc' },
+      connections: { management: { port: 443, tls: { verifyPeer: false } } },
+      certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+    },
+  }, { manifest });
+  assert.deepEqual(recipe.deploymentDefaults, {
+    capabilityKey: 'certificate.deploy',
+    variables: { allowInsecureTls: true, vendorMode: 'adc' },
+    connections: { management: { port: 443, tls: { verifyPeer: false } } },
+    certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+  });
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    deploymentDefaults: {
+      capabilityKey: 'certificate.deploy',
+      certificateFormat: { format: 'PFX', configName: '宿主默认 PFX 容器' },
+    },
+  }, { manifest }), /必须属于 recipe\.certificate\.acceptedFormats/);
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    deploymentDefaults: { capabilityKey: 'certificate.deploy', unsupported: true },
+  }, { manifest }), /未知字段/);
+  assert.throws(() => validateApplicationOnboardingRecipe({
+    ...managedRecipe(),
+    deploymentDefaults: { capabilityKey: 'not.declared', variables: { enabled: true } },
+  }, { manifest }), /默认值能力必须由 Manifest 声明/);
+});
+
 test('新增设备入口只能由允许新建设备的配方以受限声明提供', () => {
   const manifest = manifestForRecipe();
   const pluginManaged = validateApplicationOnboardingRecipe({

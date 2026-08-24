@@ -33,6 +33,12 @@ test('插件公开合同不包含 Provider/product 执行旁路', () => {
   for (const field of legacyFields) assert.equal(encoded.includes(field), false, `公开合同不应包含 ${field}`);
 });
 
+test('应用资产部署投影允许插件声明通用部署默认值', () => {
+  const route = getPluginsRouteContracts().find((item) => item.operationId === 'projectApplicationAssetPluginInputs');
+  const properties = route?.requestSchema?.properties as Record<string, { type?: string }> | undefined;
+  assert.equal(properties?.deploymentDefaults?.type, 'object');
+});
+
 test('插件合同不使用未约束的 additionalProperties 布尔开放对象', () => {
   const openPaths: string[] = [];
   const visit = (schema: unknown, path: string): void => {

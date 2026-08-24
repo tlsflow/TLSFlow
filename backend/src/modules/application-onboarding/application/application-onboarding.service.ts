@@ -16,6 +16,7 @@ import type {
   OnboardingTargetOptionDto,
   StateVersionInput,
 } from '../dto/application-onboarding.dto.js';
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export interface OnboardingExecutionPort {
   onboardDevice?: (tenantId: string, platformKey: string, pluginVersionId: string, values: Record<string, unknown>, actorId: string) => Promise<{ deviceId: string; assetId?: string }>;
@@ -85,6 +86,7 @@ export class ApplicationOnboardingService {
               ...(bundle.recipe.newDeviceOnboarding ? { newDeviceOnboarding: bundle.recipe.newDeviceOnboarding } : {}),
               supportStatus: directSupported ? 'SUPPORTED' : 'IN_REVIEW',
               acceptedCertificateFormats: bundle.recipe.certificate.acceptedFormats,
+              ...(bundle.recipe.deploymentDefaults ? { deploymentDefaults: bundle.recipe.deploymentDefaults } : {}),
               updatedAt: version.updatedAt,
             });
           }
@@ -269,6 +271,7 @@ export class ApplicationOnboardingService {
       configFingerprint: string;
       accessDomain?: string;
       verifyUrl?: string;
+      inputBindings?: InputBindingsV1;
     },
   ): Promise<ApplicationOnboardingSessionDto> {
     const session = await this.getSession(tenantId, id);
@@ -283,6 +286,7 @@ export class ApplicationOnboardingService {
       displayName: target.displayName,
       accessDomain: targetInput.accessDomain,
       verifyUrl: targetInput.verifyUrl,
+      ...(input.inputBindings ? { deploymentInputBindings: sanitizeInputBindings(input.inputBindings) } : {}),
     };
     const updated = await this.repository.update(tenantId, id, input.expectedStateVersion, {
       state: 'CERTIFICATE_SELECTION_REQUIRED',
@@ -411,6 +415,16 @@ function sanitizeInput(input: Record<string, unknown>): Record<string, unknown> 
     else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) output[key] = value;
   }
   return output;
+}
+
+function sanitizeInputBindings(input: InputBindingsV1): InputBindingsV1 {
+  return {
+    apiVersion: 'gcac.input-bindings/v1',
+    variables: structuredClone(input.variables),
+    connections: structuredClone(input.connections),
+    credentials: structuredClone(input.credentials),
+    artifacts: structuredClone(input.artifacts),
+  };
 }
 
 function errorDetail(error: unknown): Record<string, unknown> {

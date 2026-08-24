@@ -101,6 +101,7 @@ export class ApplicationOnboardingController {
       configFingerprint: { type: 'string', required: true },
       accessDomain: { type: 'string' },
       verifyUrl: { type: 'string' },
+      inputBindings: { type: 'object' },
     });
     const input = {
       expectedStateVersion: body.expectedStateVersion,
@@ -108,6 +109,9 @@ export class ApplicationOnboardingController {
       configFingerprint: body.configFingerprint,
       ...(typeof body.accessDomain === 'string' ? { accessDomain: body.accessDomain } : {}),
       ...(typeof body.verifyUrl === 'string' ? { verifyUrl: body.verifyUrl } : {}),
+      ...(body.inputBindings && typeof body.inputBindings === 'object' && !Array.isArray(body.inputBindings)
+        ? { inputBindings: body.inputBindings }
+        : {}),
     };
     return this.service.selectTarget(requireTenantId(request), this.sessionId(request), input as never);
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { cloneReactiveValue } from '@/utils/clone-reactive-value'
 import type {
   DeploymentArtifactOption,
   DeploymentArtifactProjectionV1,
@@ -18,11 +19,15 @@ const props = withDefaults(defineProps<{
   artifactOptions?: Record<string, DeploymentArtifactOption[]>
   disabled?: boolean
   loading?: boolean
+  compact?: boolean
+  showArtifactOutputs?: boolean
 }>(), {
   credentialOptions: () => [],
   artifactOptions: () => ({}),
   disabled: false,
   loading: false,
+  compact: false,
+  showArtifactOutputs: true,
 })
 
 const { t, te } = useI18n()
@@ -105,7 +110,7 @@ function connectionValue(slot: string, path: string, item: DeploymentInputFieldP
 
 function updateConnection(slot: string, path: string, item: DeploymentInputFieldProjectionV1, value: unknown): void {
   if (!isEditable(item)) return
-  const current = structuredClone(toRaw(model.value.connections[slot] ?? {})) as Record<string, unknown>
+  const current = cloneReactiveValue(toRaw(model.value.connections[slot] ?? {})) as Record<string, unknown>
   writePath(current, path, value === '' ? undefined : normalizeFieldValue(item.type, value))
   const connections = { ...model.value.connections }
   if (hasValues(current)) connections[slot] = current
@@ -127,7 +132,7 @@ function selectedCredential(slot: string, projected?: string): string {
 function updateArtifactFormat(item: DeploymentArtifactProjectionV1, certificateFormatId: string): void {
   const artifacts = { ...model.value.artifacts }
   if (!certificateFormatId) delete artifacts[item.slot]
-  else artifacts[item.slot] = { certificateFormatId, outputBindings: {} }
+  else artifacts[item.slot] = { certificateFormatId, outputBindings: automaticArtifactOutputBindings(item) }
   model.value = { ...model.value, artifacts }
 }
 
@@ -150,6 +155,25 @@ function artifactBinding(item: DeploymentArtifactProjectionV1) {
 function availableArtifactOutputs(item: DeploymentArtifactProjectionV1): Array<{ key: string; label: string }> {
   const selectedId = artifactBinding(item)?.certificateFormatId
   return props.artifactOptions[item.slot]?.find((option) => option.id === selectedId)?.outputs ?? []
+}
+
+function automaticArtifactOutputBindings(item: DeploymentArtifactProjectionV1): Record<string, string> {
+  return Object.fromEntries(Object.entries(item.outputs).map(([outputSlot, output]) => [
+    outputSlot,
+    standardArtifactOutputKey(outputSlot, output.role),
+  ]))
+}
+
+function standardArtifactOutputKey(outputSlot: string, role: string): string {
+  switch (role.trim().toLowerCase()) {
+    case 'public_certificate': return 'leafPem'
+    case 'private_key': return 'privateKeyPem'
+    case 'certificate_chain': return 'orderedChainPem'
+    case 'fingerprint_sha256': return 'fingerprintSha256'
+    case 'pkcs12_bundle': return 'pfxBase64'
+    case 'pkcs12_password': return 'pfxPassword'
+    default: return outputSlot
+  }
 }
 
 function normalizeFieldValue(type: string, value: unknown): unknown {
@@ -186,7 +210,7 @@ function hasValues(value: Record<string, unknown>): boolean {
 </script>
 
 <template>
-  <section class="deployment-input-form" :aria-label="t('deploymentInputs.title')">
+  <section :class="['deployment-input-form', { 'deployment-input-form--compact': compact }]" :aria-label="t('deploymentInputs.title')">
     <header class="deployment-input-form__header">
       <div>
         <h3>{{ t('deploymentInputs.title') }}</h3>
@@ -256,13 +280,15 @@ function hasValues(value: Record<string, unknown>): boolean {
               <option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option>
             </select>
           </label>
-          <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field">
-            <span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}{{ output.required ? ' *' : '' }}</span>
-            <select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)">
-              <option value="">{{ t('deploymentInputs.placeholders.output') }}</option>
-              <option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option>
-            </select>
-          </label>
+          <template v-if="showArtifactOutputs">
+            <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field">
+              <span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}{{ output.required ? ' *' : '' }}</span>
+              <select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)">
+                <option value="">{{ t('deploymentInputs.placeholders.output') }}</option>
+                <option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option>
+              </select>
+            </label>
+          </template>
         </div>
       </section>
 
@@ -282,7 +308,9 @@ function hasValues(value: Record<string, unknown>): boolean {
           <label v-for="item in advancedCredentials" :key="`advanced-credential:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><select :value="selectedCredential(item.slot, item.selectedCredentialId)" :disabled="disabled" @change="updateCredential(item.slot, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.credential') }}</option><option v-for="option in credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
           <template v-for="item in advancedArtifacts" :key="`advanced-artifact:${item.slot}`">
             <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><select :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
-            <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
+            <template v-if="showArtifactOutputs">
+              <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
+            </template>
           </template>
         </div>
       </section>
@@ -311,4 +339,10 @@ function hasValues(value: Record<string, unknown>): boolean {
 .deployment-input-form__issue--warning { color: var(--gc-color-warning); border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-soft); }
 .deployment-input-form__runtime { margin: 0; color: var(--gc-color-text-muted); }
 .deployment-input-form__empty { color: var(--gc-color-text-muted); }
+.deployment-input-form--compact { gap: var(--gc-space-2); }
+.deployment-input-form--compact .deployment-input-form__header p { margin-top: var(--gc-space-compact); }
+.deployment-input-form--compact .deployment-input-form__section { gap: var(--gc-space-2); padding: var(--gc-space-2); }
+.deployment-input-form--compact .deployment-input-form__grid { gap: var(--gc-space-2); }
+.deployment-input-form--compact .deployment-input-form__field { gap: var(--gc-space-1); }
+.deployment-input-form--compact input, .deployment-input-form--compact select { min-height: var(--gc-control-height-sm); padding: var(--gc-space-1) var(--gc-space-2); }
 </style>
