@@ -8,6 +8,7 @@ import {
   type DashboardOverview,
   type DashboardQuickAction,
   type DashboardStatusBlock,
+  type DashboardStatusDetails,
   type DashboardStatusGroup,
 } from '@/api/modules/dashboard.api'
 import { usePermissionStore } from '@/stores/permission.store'
@@ -315,6 +316,37 @@ function blockTitle(group: DashboardStatusGroup, block: DashboardStatusBlock): s
   ].filter(Boolean).join(' / ')
 }
 
+function statusDetailRows(details?: DashboardStatusDetails): Array<{ label: string; value: string }> {
+  if (!details) return []
+  const rows: Array<{ label: string; value: string }> = []
+  const add = (label: string, value: string | number | undefined) => {
+    rows.push({ label, value: value === undefined || value === '' ? '--' : String(value) })
+  }
+  if (details.type === 'certificate') {
+    add(t('dashboard.statusBlock.tooltip.name'), details.name)
+    add(t('dashboard.statusBlock.tooltip.issuer'), details.issuer)
+    add(t('dashboard.statusBlock.tooltip.startTime'), details.notBefore ? formatBrowserLocalTime(details.notBefore, { includeSeconds: false }) : undefined)
+    add(t('dashboard.statusBlock.tooltip.endTime'), details.notAfter ? formatBrowserLocalTime(details.notAfter, { includeSeconds: false }) : undefined)
+    add(t('dashboard.statusBlock.tooltip.daysRemaining'), details.daysRemaining)
+  } else if (details.type === 'device') {
+    add(t('dashboard.statusBlock.tooltip.name'), details.name)
+    add(t('dashboard.statusBlock.tooltip.connectionStatus'), statusBlockStatus({ status: details.connectionStatus } as DashboardStatusBlock))
+    add(t('dashboard.statusBlock.tooltip.version'), details.version)
+    add(t('dashboard.statusBlock.tooltip.managementAddress'), details.managementAddress)
+    add(t('dashboard.statusBlock.tooltip.lastCommunicationTime'), details.lastCommunicationAt ? formatBrowserLocalTime(details.lastCommunicationAt, { includeSeconds: false }) : undefined)
+  } else if (details.type === 'applicationAsset') {
+    add(t('dashboard.statusBlock.tooltip.name'), details.name)
+    add(t('dashboard.statusBlock.tooltip.platform'), details.platform)
+    add(t('dashboard.statusBlock.tooltip.protocolPort'), details.protocolPort)
+    add(t('dashboard.statusBlock.tooltip.certificateDaysRemaining'), details.certificateDaysRemaining)
+  } else {
+    add(t('dashboard.statusBlock.tooltip.name'), details.name)
+    add(t('dashboard.statusBlock.tooltip.region'), details.region)
+    add(t('dashboard.statusBlock.tooltip.latency'), details.latencyMs === undefined ? undefined : `${details.latencyMs} ms`)
+  }
+  return rows
+}
+
 function normalizeDashboardStatus(value: string): string {
   const map: Record<string, string> = {
     正常: 'valid',
@@ -482,12 +514,14 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
             </header>
             <p class="dashboard-status-group__summary">{{ statusGroupSummary(group) }}</p>
             <div v-if="group.blocks.length" class="dashboard-heatmap__blocks">
-              <span v-for="block in group.blocks" :key="block.id" class="dashboard-heatmap__block-wrap" @mouseenter="activeTooltip = block" @mouseleave="activeTooltip = null" @focusin="activeTooltip = block" @focusout="activeTooltip = null">
+              <span v-for="block in group.blocks" :key="block.id" class="dashboard-heatmap__block-wrap" :class="{ 'dashboard-heatmap__block-wrap--tooltip-open': activeTooltip?.id === block.id }" @mouseenter="activeTooltip = block" @mouseleave="activeTooltip = null" @focusin="activeTooltip = block" @focusout="activeTooltip = null">
                 <component :is="block.targetPath ? RouterLink : 'span'" class="dashboard-heatmap__block" :class="`dashboard-heatmap__block--${block.tone}`" :to="block.targetPath || undefined" :tabindex="block.targetPath ? undefined : 0" :aria-label="blockTitle(group, block)" />
                 <span v-if="activeTooltip?.id === block.id" class="dashboard-heatmap__tooltip" role="tooltip">
                   <strong>{{ block.label }}</strong>
-                  <span>{{ statusBlockStatus(block) }}</span>
-                  <time v-if="block.updatedAt">{{ formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) }}</time>
+                  <span v-for="row in statusDetailRows(block.details)" :key="row.label" class="dashboard-heatmap__tooltip-row">
+                    <b>{{ row.label }}</b>{{ row.value }}
+                  </span>
+                  <time v-if="!block.details && block.updatedAt">{{ formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) }}</time>
                 </span>
               </span>
             </div>
@@ -900,6 +934,10 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
   overflow: hidden;
 }
 
+.dashboard-panel--asset-heatmap {
+  overflow: visible;
+}
+
 .dashboard-panel--wizard {
   display: flex;
   flex-direction: column;
@@ -991,12 +1029,12 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
   align-content: flex-start;
   gap: var(--gc-space-2);
   min-height: var(--gc-space-8);
-  max-height: calc(var(--gc-space-12) * 3);
-  overflow: auto;
+  overflow: visible;
   padding: var(--gc-space-1) 0;
 }
 
-.dashboard-heatmap__block-wrap { position: relative; display: block; min-width: 0; }
+.dashboard-heatmap__block-wrap { position: relative; z-index: 0; display: block; min-width: 0; }
+.dashboard-heatmap__block-wrap--tooltip-open { z-index: 2; }
 .dashboard-heatmap__block { display: block; width: var(--gc-space-8); height: var(--gc-space-8); border: var(--gc-border-width-default) solid var(--dashboard-block-tone, var(--gc-color-muted)); border-radius: var(--gc-radius-sm); background: var(--dashboard-block-tone, var(--gc-color-muted)); box-shadow: inset 0 var(--gc-border-width-thick) 0 var(--gc-color-border-strong), var(--gc-shadow-sm); transition: transform 160ms ease, box-shadow 160ms ease; }
 .dashboard-heatmap__block:hover { transform: translateY(calc(var(--gc-space-tight) * -1)); box-shadow: inset 0 var(--gc-border-width-thick) 0 var(--gc-color-border-strong), var(--gc-shadow-md); }
 .dashboard-heatmap__block--ok { --dashboard-block-tone: var(--gc-color-success); }
@@ -1009,7 +1047,7 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
   position: absolute;
   left: 50%;
   bottom: calc(100% + var(--gc-space-2));
-  z-index: 2;
+  z-index: 1;
   display: grid;
   gap: var(--gc-space-1);
   width: max-content;
@@ -1028,6 +1066,8 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
 .dashboard-heatmap__tooltip strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-sm); }
 .dashboard-heatmap__tooltip span,
 .dashboard-heatmap__tooltip time { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.dashboard-heatmap__tooltip-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gc-space-2); overflow-wrap: anywhere; }
+.dashboard-heatmap__tooltip-row b { color: var(--gc-color-text-soft); font-weight: var(--gc-font-weight-medium); }
 
 .dashboard-heatmap__legend {
   display: flex;

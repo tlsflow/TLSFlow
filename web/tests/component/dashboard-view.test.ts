@@ -142,6 +142,54 @@ describe('DashboardView', () => {
     expect(wrapper.find('.dashboard-panel--wizard').exists()).toBe(true)
     expect(wrapper.find('.dashboard-panel--wizard .dashboard-panel__header p').exists()).toBe(false)
     expect(wrapper.find('.dashboard-panel--recent-log').exists()).toBe(true)
+
+    const heatmapBlock = wrapper.find('.dashboard-heatmap__block-wrap')
+    await heatmapBlock.trigger('mouseenter')
+    expect(wrapper.find('.dashboard-heatmap__tooltip').exists()).toBe(true)
+    expect(heatmapBlock.classes()).toContain('dashboard-heatmap__block-wrap--tooltip-open')
+  })
+
+  it('应用资产悬浮框展示当前证书剩余天数', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-08-13T00:00:00.000Z',
+        systemResources: { cpuUsage: null, memoryUsage: 62 },
+        metrics: [],
+        quickActions: [],
+        statusGroups: [
+          {
+            key: 'applicationAssets',
+            title: '应用资产',
+            summary: '全部正常',
+            total: 1,
+            blocks: [{
+              id: 'asset-1',
+              label: 'test02.jacksonz.cn',
+              status: 'ACTIVE',
+              tone: 'ok',
+              details: {
+                type: 'applicationAsset',
+                name: 'test02.jacksonz.cn',
+                platform: 'LINUX',
+                protocolPort: 'HTTPS test02.jacksonz.cn:443',
+                certificateDaysRemaining: 83,
+              },
+            }],
+          },
+        ],
+        certificateStatuses: [],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+    await vi.waitFor(() => expect(wrapper.find('.dashboard-heatmap__block-wrap').exists()).toBe(true))
+
+    await wrapper.find('.dashboard-heatmap__block-wrap').trigger('mouseenter')
+
+    const tooltip = wrapper.find('.dashboard-heatmap__tooltip')
+    expect(tooltip.text()).toContain('剩余证书天数')
+    expect(tooltip.text()).toContain('83')
   })
 
   it('保留快速向导权限过滤，并在没有有效趋势序列时显示诚实空态', async () => {

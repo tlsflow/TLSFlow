@@ -64,7 +64,8 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       ?? stringValue(asRecord(payload.gateway).lastHeartbeatAt);
     const osType = (stringValue(descriptor.osType) ?? source.osType).toUpperCase();
     const healthStatus = mapAgentHealth(sourceStatus, lastContactAt);
-    const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['HEARTBEAT', 'MANAGEMENT_TCP']);
+    // 管理 TCP 是反向探测能力，不是 Agent 心跳。TCP 不通时 Agent 仍可在线并主动拉取任务。
+    const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['HEARTBEAT']);
     return {
       id: source.id,
       displayName: source.displayName ?? source.hostname ?? source.primaryIp ?? source.id,
