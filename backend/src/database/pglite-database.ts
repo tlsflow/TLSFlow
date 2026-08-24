@@ -3,7 +3,11 @@ import type { DatabasePort, QueryResult } from './database-port.js';
 
 // PGlite 适配只暴露 DatabasePort。业务层不应该知道底层库的具体 API。
 export class PgliteDatabase implements DatabasePort {
-  constructor(private readonly db = new PGlite()) {}
+  constructor(private readonly db = createPglite(process.env.GCAC_PGLITE_DATA_DIR)) {}
+
+  async close(): Promise<void> {
+    await this.db.close();
+  }
 
   async exec(sql: string): Promise<void> {
     await this.db.exec(sql);
@@ -17,6 +21,11 @@ export class PgliteDatabase implements DatabasePort {
   async transaction<T>(work: (tx: DatabasePort) => Promise<T>): Promise<T> {
     return this.db.transaction((tx) => work(new PgliteTransaction(tx)));
   }
+}
+
+function createPglite(dataDir: string | undefined): PGlite {
+  const normalized = dataDir?.trim();
+  return normalized ? new PGlite({ dataDir: normalized }) : new PGlite();
 }
 
 class PgliteTransaction implements DatabasePort {

@@ -1,0 +1,121 @@
+name: gcac
+
+services:
+  small:
+    profiles: ["small"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.small
+    image: gcac-small:${GCAC_RELEASE_VERSION:-0.1.0}
+    environment:
+      GCAC_RELEASE_VERSION: ${GCAC_RELEASE_VERSION:-0.1.0}
+      GCAC_DEPLOYMENT_ARCHITECTURE: small
+      GCAC_PERSISTENCE_BACKEND: pglite
+      GCAC_PGLITE_DATA_DIR: /var/lib/gcac/pglite
+      GCAC_MIGRATIONS_DIR: /app/src/database/migrations
+      GCAC_WEB_ROOT: /app/web
+      GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
+      GCAC_AGENT_RELEASE_BUNDLE_ROOT: /opt/gcac/agent-release-bundle
+    ports:
+      - "${GCAC_PORT:-3003}:3003"
+    volumes:
+      - gcac_small_pglite:/var/lib/gcac/pglite
+      - gcac_small_workflows:/app/data/workflows
+    restart: unless-stopped
+
+  db:
+    profiles: ["standard"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.db
+    image: gcac-db:${GCAC_RELEASE_VERSION:-0.1.0}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gcac}
+      POSTGRES_USER: ${POSTGRES_USER:-gcac}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+    volumes:
+      - gcac_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    profiles: ["standard"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    image: gcac-backend:${GCAC_RELEASE_VERSION:-0.1.0}
+    environment:
+      GCAC_RELEASE_VERSION: ${GCAC_RELEASE_VERSION:-0.1.0}
+      GCAC_DEPLOYMENT_ARCHITECTURE: standard
+      GCAC_PERSISTENCE_BACKEND: postgres
+      GCAC_DATABASE_HOST: db
+      GCAC_DATABASE_PORT: 5432
+      GCAC_DATABASE_NAME: ${POSTGRES_DB:-gcac}
+      GCAC_DATABASE_USER: ${POSTGRES_USER:-gcac}
+      GCAC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      GCAC_MIGRATIONS_DIR: /app/src/database/migrations
+      GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
+      GCAC_AGENT_RELEASE_BUNDLE_ROOT: /opt/gcac/agent-release-bundle
+      BROWSER_RUNTIME_URL: http://browser-runtime:8787
+      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
+      BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
+      BROWSER_RUNTIME_MAX_SESSIONS: ${BROWSER_RUNTIME_MAX_SESSIONS:-4}
+    depends_on:
+      db:
+        condition: service_healthy
+      browser-runtime:
+        condition: service_started
+    ports:
+      - "${GCAC_BACKEND_PORT:-3003}:3003"
+    volumes:
+      - gcac_standard_workflows:/app/data/workflows
+    restart: unless-stopped
+
+  web:
+    profiles: ["standard"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    image: gcac-web:${GCAC_RELEASE_VERSION:-0.1.0}
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "${GCAC_PORT:-8080}:80"
+    restart: unless-stopped
+
+  browser-runtime:
+    profiles: ["standard"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.browser-runtime
+    image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:-0.1.0}
+    environment:
+      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
+      BROWSER_SESSION_ROOT: /run/gcac-browser-sessions
+      BROWSER_SESSION_SCRIPT: /app/container/start-session.sh
+      BROWSER_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+    read_only: true
+    tmpfs:
+      - /run/gcac-browser-sessions:rw,noexec,nosuid,size=512m
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    expose:
+      - "8787"
+    restart: unless-stopped
+
+volumes:
+  gcac_small_pglite:
+  gcac_small_workflows:
+  gcac_postgres:
+  gcac_standard_workflows:

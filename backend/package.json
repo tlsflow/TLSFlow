@@ -30,16 +30,16 @@
     "start:no-migrate": "node dist/main.js"
   },
   "dependencies": {
+    "@electric-sql/pglite": "0.5.1",
     "jsonata": "^2.2.1",
     "ldapts": "^8.1.8",
+    "pg": "8.21.0",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "latest",
     "@types/node": "latest",
     "@types/pg": "latest",
     "@types/ssh2": "^1.15.5",
-    "pg": "latest",
     "tsx": "latest",
     "typescript": "latest"
   }

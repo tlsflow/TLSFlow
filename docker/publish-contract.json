@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "gcac.docker-publish-contract/v1",
+  "sourceRepository": "GCAC_PUBLIC_REPOSITORY",
+  "sourceRefRequired": true,
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "localBuild": {
+    "script": "docker/build-local.mjs",
+    "mustLoadLocally": true,
+    "mustPush": false
+  },
+  "publish": {
+    "script": "docker/publish-images.mjs",
+    "requiresExternalDockerLogin": true,
+    "requiredEnvironment": [
+      "DOCKERHUB_NAMESPACE",
+      "GCAC_DOCKER_LOGIN_CONFIRMED"
+    ],
+    "secretNames": [
+      "DOCKERHUB_USERNAME",
+      "DOCKERHUB_TOKEN"
+    ],
+    "images": [
+      "gcac-small",
+      "gcac-db",
+      "gcac-backend",
+      "gcac-web",
+      "gcac-browser-runtime"
+    ],
+    "provenance": true,
+    "sbom": true
+  }
+}

@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22-bookworm-slim
+
+FROM ${NODE_IMAGE} AS build
+WORKDIR /src/backend
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci
+COPY backend ./
+RUN npm run build
+
+FROM ${NODE_IMAGE}
+WORKDIR /app
+ENV NODE_ENV=production \
+    GCAC_RELEASE_VERSION=0.1.0 \
+    GCAC_DEPLOYMENT_ARCHITECTURE=standard \
+    GCAC_PERSISTENCE_BACKEND=postgres \
+    GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
+    GCAC_WORKFLOW_DATA_DIR=/app/data/workflows \
+    GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
+    BROWSER_RUNTIME_URL=http://browser-runtime:8787
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends dumb-init ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
+  && mkdir -p /app/data/workflows /app/src/database/migrations /app/src/modules/plugins/builtin-plugins \
+      /app/src/modules/workflow-templates/builtin-workflows /opt/gcac/agent-release-bundle \
+  && chown -R gcac:gcac /app /opt/gcac
+
+COPY --from=build /src/backend/package.json ./package.json
+COPY --from=build /src/backend/package-lock.json ./package-lock.json
+RUN npm ci --omit=dev --ignore-scripts
+COPY --from=build /src/backend/dist ./dist
+COPY --from=build /src/backend/src/database/migrations ./src/database/migrations
+COPY --from=build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
+COPY --from=build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows
+COPY build/agent-release-bundle/ /opt/gcac/agent-release-bundle/
+
+RUN test -f /opt/gcac/agent-release-bundle/manifest.json \
+  && node -e "const m=require('./package.json'); if (m.dependencies['@electric-sql/pglite'] === undefined) process.exit(1)"
+
+COPY docker/verify-release-bundle.mjs ./docker/verify-release-bundle.mjs
+RUN node ./docker/verify-release-bundle.mjs
+
+USER gcac
+EXPOSE 3003
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "start"]

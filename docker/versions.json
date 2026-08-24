@@ -1,0 +1,19 @@
+{
+  "releaseVersion": "0.1.0",
+  "node": "22",
+  "postgres": "16",
+  "nginx": "1.27",
+  "pglite": "0.5.1",
+  "pg": "8.21.0",
+  "deploymentArchitectures": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "images": {
+    "small": "gcac-small",
+    "backend": "gcac-backend",
+    "web": "gcac-web",
+    "db": "gcac-db",
+    "browserRuntime": "gcac-browser-runtime"
+  }
+}

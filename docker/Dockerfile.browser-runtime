@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22-bookworm-slim
+
+FROM ${NODE_IMAGE} AS build
+WORKDIR /src/browser-runtime
+COPY browser-runtime/package.json browser-runtime/package-lock.json ./
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN npm ci
+COPY browser-runtime/tsconfig.json ./
+COPY browser-runtime/src ./src
+RUN npm run build
+
+FROM ${NODE_IMAGE}
+WORKDIR /app
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates chromium dumb-init fluxbox fonts-noto-cjk novnc websockify x11vnc xvfb \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin browser-runtime \
+  && mkdir -p /run/gcac-browser-sessions /app/container \
+  && chown -R browser-runtime:browser-runtime /run/gcac-browser-sessions /app
+COPY --from=build /src/browser-runtime/node_modules ./node_modules
+COPY --from=build /src/browser-runtime/dist ./dist
+COPY browser-runtime/container/start-session.sh ./container/start-session.sh
+RUN chmod 0555 ./container/start-session.sh
+ENV NODE_ENV=production \
+    BROWSER_SESSION_ROOT=/run/gcac-browser-sessions \
+    BROWSER_SESSION_SCRIPT=/app/container/start-session.sh \
+    BROWSER_CHROMIUM_EXECUTABLE=/usr/bin/chromium
+USER browser-runtime
+EXPOSE 8787
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/server.js"]

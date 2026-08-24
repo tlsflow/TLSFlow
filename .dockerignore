@@ -1,0 +1,15 @@
+.git
+.playwright-mcp
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+backend/coverage
+web/coverage
+browser-runtime/coverage
+data/*
+docs
+output
+tmp
+!build/
+!build/agent-release-bundle/
+!build/agent-release-bundle/**

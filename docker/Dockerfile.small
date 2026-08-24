@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_IMAGE=node:22-bookworm-slim
+
+FROM ${NODE_IMAGE} AS web-build
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
+FROM ${NODE_IMAGE} AS backend-build
+WORKDIR /src/backend
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci
+COPY backend ./
+RUN npm run build
+
+FROM ${NODE_IMAGE} AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    GCAC_RELEASE_VERSION=0.1.0 \
+    GCAC_DEPLOYMENT_ARCHITECTURE=small \
+    GCAC_PERSISTENCE_BACKEND=pglite \
+    GCAC_PGLITE_DATA_DIR=/var/lib/gcac/pglite \
+    GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
+    GCAC_WEB_ROOT=/app/web \
+    GCAC_WORKFLOW_DATA_DIR=/app/data/workflows \
+    GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends dumb-init ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
+  && mkdir -p /var/lib/gcac/pglite /app/data/workflows /app/src/database/migrations \
+      /app/src/modules/plugins/builtin-plugins /app/src/modules/workflow-templates/builtin-workflows \
+      /app/web /opt/gcac/agent-release-bundle \
+  && chown -R gcac:gcac /var/lib/gcac /app /opt/gcac
+
+COPY --from=backend-build /src/backend/package.json ./package.json
+COPY --from=backend-build /src/backend/package-lock.json ./package-lock.json
+RUN npm ci --omit=dev --ignore-scripts
+COPY --from=backend-build /src/backend/dist ./dist
+COPY --from=backend-build /src/backend/src/database/migrations ./src/database/migrations
+COPY --from=backend-build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
+COPY --from=backend-build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows
+COPY --from=web-build /src/web/dist ./web
+COPY build/agent-release-bundle/ /opt/gcac/agent-release-bundle/
+
+COPY docker/verify-release-bundle.mjs ./docker/verify-release-bundle.mjs
+COPY docker/scan-small-image-content.mjs ./docker/scan-small-image-content.mjs
+RUN test -f /opt/gcac/agent-release-bundle/manifest.json \
+  && test -f /opt/gcac/agent-release-bundle/linux/amd64/gcac-linux-agent \
+  && test -f /opt/gcac/agent-release-bundle/linux/arm64/gcac-linux-agent \
+  && node /app/docker/verify-release-bundle.mjs \
+  && node /app/docker/scan-small-image-content.mjs /app /opt/gcac
+
+USER gcac
+EXPOSE 3003
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["npm", "start"]
