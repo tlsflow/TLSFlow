@@ -3404,6 +3404,79 @@
         }
       }
     },
+    "/api/v1/applications/:applicationAssetId/linkage-status": {
+      "get": {
+        "operationId": "getApplicationAssetLinkageStatus",
+        "summary": "查询插件 Agent 联动状态",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/applications/:applicationAssetId/linkage-repair": {
+      "post": {
+        "operationId": "repairApplicationAssetLinkage",
+        "summary": "修复插件 Agent 联动状态",
+        "tags": [
+          "Assets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/applications/delete": {
       "post": {
         "operationId": "deleteApplication",
@@ -22436,5 +22509,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-21T13:08:21.073Z"
+  "x-generatedAt": "2026-08-22T14:04:14.723Z"
 }
