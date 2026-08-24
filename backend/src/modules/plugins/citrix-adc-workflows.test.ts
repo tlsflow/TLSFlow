@@ -178,8 +178,32 @@ test('统一证书材料可从 fullchain 派生叶子证书和有序中间链', 
   });
 
   assert.equal(material.leafPem, leaf);
+  assert.equal(material.certificatePem, `${leaf}${intermediate}`);
+  assert.equal(material.pem, `${leaf}${intermediate}`);
   assert.equal(material.orderedChainPem, intermediate);
   assert.deepEqual((material.orderedIntermediates as Array<Record<string, unknown>>).map((item) => item.pem), [intermediate]);
+});
+
+test('统一证书材料保留显式 fullchain，不能被 public 叶子证书覆盖', () => {
+  const leaf = '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n';
+  const intermediate = '-----BEGIN CERTIFICATE-----\nINTERMEDIATE\n-----END CERTIFICATE-----\n';
+  const fullchain = `${leaf}${intermediate}`;
+  const material = enrichWorkflowCertificateMaterial({
+    certificateVersionId: 'cert-version-nginx',
+    certificateFormatId: 'format-nginx',
+    certificatePem: fullchain,
+    files: [
+      { key: 'public', role: 'public_certificate', content: leaf },
+      { key: 'fullchain', role: 'public_certificate', content: fullchain },
+      { key: 'chain', role: 'certificate_chain', content: intermediate },
+    ],
+  });
+
+  assert.equal(material.leafPem, leaf);
+  assert.equal(material.certificatePem, fullchain);
+  assert.equal(material.pem, fullchain);
+  assert.equal(material.pemBase64, Buffer.from(fullchain).toString('base64'));
+  assert.equal(material.orderedChainPem, intermediate);
 });
 
 test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后才保存', async () => {
