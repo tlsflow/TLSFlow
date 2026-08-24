@@ -6,7 +6,7 @@
 
 ## 构建入口
 
-Windows 原生构建必须在目标 Windows 构建机执行：
+Windows 原生正式构建必须在本地可控的 Windows 环境执行，不使用仓库外的远端 VM、SSH 上传/回传或旧 C# 构建服务：
 
 ```powershell
 Set-Location agents/windows-compat-full-agent
@@ -23,6 +23,26 @@ go version
 - 上述主 Agent、Scanner 和 IIS Plugin 的独立测试程序
 
 macOS/Linux 可以使用 `./build.sh` 做 Go 源码和 `windows/amd64` 交叉编译检查，但本地 Go 1.26 或其他版本的结果只能标记为 `交叉编译通过`，不能标记为 `Go 1.20 正式构建通过`。
+
+## 并行工具链安装与切换
+
+Go 1.26 可以继续作为系统默认版本，Go 1.20.x 只在 Compatibility 构建命令中显式放到 `PATH` 前面。两个工具链必须安装在不同目录，不得覆盖 Homebrew 或系统 Go。
+
+macOS ARM64 推荐使用 Go 1.20.14：
+
+```sh
+GO120_ROOT="$HOME/sdk/go1.20.14"
+PATH="$GO120_ROOT/bin:$PATH" go version
+PATH="$GO120_ROOT/bin:$PATH" ./build.sh
+```
+
+Windows 原生构建前也必须先确认 `go version` 输出为 `go1.20.x`，再执行 `build.ps1`。可通过 Windows 的 PATH 配置或临时环境变量选择独立的 Go 1.20 安装目录；不得依赖 Go 1.26 的自动 Toolchain 下载来替代固定工具链。
+
+构建完成后不需要恢复 PATH，单独的命令环境不会改变 Go 1.26 默认版本。验证默认版本仍为 Go 1.26：
+
+```sh
+go version
+```
 
 ## 发布包约束
 

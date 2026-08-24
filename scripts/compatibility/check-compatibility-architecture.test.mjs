@@ -54,10 +54,10 @@ test('Resolver 中按 Agent 产品线分派必须被识别', () => {
   assert.equal(findings[0]?.rule, 'platform-selector-expression');
 });
 
-test('C# Compatibility Agent 中按产品线分派必须被识别', () => {
+test('Go Compatibility Agent 中按产品线分派必须被识别', () => {
   const findings = scanSourceText(
-    'agents/windows-compat-full-agent/src/AgentRuntime.cs',
-    'if (request.productLine == "windows-compatibility") return compatibilityHandler;',
+    'agents/windows-compat-full-agent/main.go',
+    'if request.ProductLine == "windows-compatibility" { return compatibilityHandler }',
   );
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, 'platform-selector-expression');
@@ -77,16 +77,16 @@ test('合法的 Registry 注册和 Capability 约束不得被误报', () => {
 
 test('产品版本判空不得被误报为版本分派', () => {
   const findings = scanSourceText(
-    'agents/windows-compat-full-agent/src/CapabilityCollector.cs',
-    'if (!TextUtility.IsBlank(tomcatVersion)) detail["version"] = tomcatVersion;',
+    'agents/windows-compat-full-agent/agent-side-plugins/windows-runtime-discovery/windows_runtime_web_inventory.go',
+    'if !isBlank(tomcatVersion) { detail["version"] = tomcatVersion }',
   );
   assert.deepEqual(findings, []);
 });
 
 test('产品版本比较仍必须被识别', () => {
   const findings = scanSourceText(
-    'agents/windows-compat-full-agent/src/CapabilityCollector.cs',
-    'if (tomcatVersion >= "8.5") return TomcatCompatibilityMode.Modern;',
+    'agents/windows-compat-full-agent/agent-side-plugins/windows-runtime-discovery/windows_runtime_web_inventory.go',
+    'if tomcatVersion >= "8.5" { return "modern" }',
   );
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.rule, 'product-version-conditional');

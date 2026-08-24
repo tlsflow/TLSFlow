@@ -193,26 +193,26 @@ test('Go Agent 产品 Capability 目录必须被识别，原始发现详情键�
   assert.equal(findings.some((finding) => finding.excerpt.includes('linux.nginx.detail')), false);
 });
 
-test('C# Compatibility Agent 产品 Action 与直连 Handler 必须被识别', () => {
+test('Go Compatibility Agent 产品 Action 与直连 Handler 必须被识别', () => {
   const source = `
-    IisCertificateDeploymentHandler handler = new IisCertificateDeploymentHandler(dataDirectory);
-    Aliases = new string[] { "windows.iis.deploy_certificate" };
+    handler := IisActionHandler(dataDirectory)
+    aliases := map[string]string{"windows.iis.deploy_certificate": "agent.plan.execute"}
   `;
-  const findings = scanPluginArchitectureSource('agents/windows-compat-full-agent/src/AgentRuntime.cs', source);
+  const findings = scanPluginArchitectureSource('agents/windows-compat-full-agent/main.go', source);
   assert.ok(findings.some((finding) => finding.rule === 'HOST_VENDOR_DISPATCH'));
   assert.ok(findings.some((finding) => finding.rule === 'HOST_PRODUCT_ACTION_ALIAS'));
 });
 
 test('IIS Agent-side Plugin 可以承载 IIS 实现，但仍受 Agent 进程执行规则约束', () => {
   const sidePluginFindings = scanPluginArchitectureSource(
-    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/src/IisAgentSidePlugin.cs',
-    'internal static class IisAgentSidePlugin { }',
+    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/main.go',
+    'type IisAgentSidePlugin struct{}',
   );
   assert.equal(sidePluginFindings.some((finding) => finding.rule === 'AGENT_PRODUCT_IMPLEMENTATION'), false);
 
   const sidePluginExecutionFindings = scanPluginArchitectureSource(
-    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/src/IisAgentSidePlugin.cs',
-    'var process = new ProcessStartInfo(command);',
+    'agents/windows-compat-full-agent/agent-side-plugins/web-iis/main.go',
+    'process := exec.Command(command)',
   );
   assert.ok(sidePluginExecutionFindings.some((finding) => finding.rule === 'AGENT_FREE_COMMAND_EXECUTION'));
 });
@@ -623,7 +623,7 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、全部 Agent 根�
   createFile('agents/windows-go-full-agent/scripts/guard.ps1', '"command.execute"\n');
   createFile('agents/windows-go-full-agent/scripts/guard.cmd', '"command.execute"\r\n');
   createFile('agents/windows-go-full-agent/scripts/guard.bat', '"command.execute"\r\n');
-  createFile('agents/windows-compat-full-agent/src/Guard.cs', 'class IisDeploymentHandler {}\n');
+  createFile('agents/windows-compat-full-agent/Guard.go', 'type IisDeploymentHandler struct{}\n');
   createFile('agents/go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
   createFile('agents/windows-go-ca-node/scripts/guard.ps1', 'powershell -Command "$COMMAND"\n');
   createFile('agents/linux-go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
@@ -644,7 +644,7 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、全部 Agent 根�
     'agents/windows-go-full-agent/scripts/guard.ps1',
     'agents/windows-go-full-agent/scripts/guard.cmd',
     'agents/windows-go-full-agent/scripts/guard.bat',
-    'agents/windows-compat-full-agent/src/Guard.cs',
+    'agents/windows-compat-full-agent/Guard.go',
     'agents/go-ca-node/main.go',
     'agents/windows-go-ca-node/scripts/guard.ps1',
     'agents/linux-go-ca-node/main.go',
