@@ -1262,7 +1262,7 @@ func newDirectControlState(config *AgentConfig) *directControlState {
 		Enabled:          config.DirectControlEnabled,
 		Reachable:        false,
 		ProtocolVersion:  "v1",
-		SupportedActions: []string{"health", "discovery.run", "windows.iis.deploy_certificate"},
+		SupportedActions: append([]string{"health", "discovery.run"}, windowsActionHandlers.PublishedActionTypes(true)...),
 	}
 	if config.DirectControlEnabled {
 		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
@@ -1387,19 +1387,23 @@ func (s *directControlServer) shutdown(ctx context.Context) {
 
 func executeDirectControlAction(config *AgentConfig, request directActionExecuteRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
-	if !strings.EqualFold(actionType, "windows.iis.deploy_certificate") {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
-		}, http.StatusBadRequest
-	}
-
 	payload := map[string]any{}
 	for key, value := range request.Inputs {
 		payload[key] = value
 	}
-	payload["type"] = "windows.iis.deploy_certificate"
+	payload["type"] = actionType
+	resolved, resolveErr := windowsActionHandlers.Resolve(payload)
+	if resolveErr != nil || !resolved.Handler.Descriptor().DirectControl {
+		message := fmt.Sprintf("unsupported direct action: %s", actionType)
+		if resolveErr != nil {
+			message = resolveErr.Error()
+		}
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
+			"errorMessage": message,
+		}, http.StatusBadRequest
+	}
 
 	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
 	hostName, err := os.Hostname()
@@ -1449,31 +1453,35 @@ func executeDirectControlAction(config *AgentConfig, request directActionExecute
 		"detail":       detail,
 		"taskId":       taskID,
 		"requestId":    request.RequestID,
-		"actionType":   "windows.iis.deploy_certificate",
+		"actionType":   resolved.RequestedType,
 	}, statusCode
 }
 
 func startDirectControlAction(config *AgentConfig, request directActionStartRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
-	if !strings.EqualFold(actionType, "windows.iis.deploy_certificate") {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
-		}, http.StatusBadRequest
-	}
-
 	payload := map[string]any{}
 	for key, value := range request.Inputs {
 		payload[key] = value
 	}
-	payload["type"] = "windows.iis.deploy_certificate"
+	payload["type"] = actionType
+	resolved, resolveErr := windowsActionHandlers.Resolve(payload)
+	if resolveErr != nil || !resolved.Handler.Descriptor().DirectControl {
+		message := fmt.Sprintf("unsupported direct action: %s", actionType)
+		if resolveErr != nil {
+			message = resolveErr.Error()
+		}
+		return map[string]any{
+			"success":      false,
+			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
+			"errorMessage": message,
+		}, http.StatusBadRequest
+	}
 
 	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
 	startedAt := time.Now().Format(time.RFC3339)
 	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
 		ActionID:   actionID,
-		ActionType: "windows.iis.deploy_certificate",
+		ActionType: resolved.RequestedType,
 		RequestID:  request.RequestID,
 		Status:     "running",
 		StartedAt:  startedAt,
@@ -1517,7 +1525,7 @@ func startDirectControlAction(config *AgentConfig, request directActionStartRequ
 		success, errorCode, errorMessage, detail := executeTask(execution)
 		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
 			ActionID:     actionID,
-			ActionType:   "windows.iis.deploy_certificate",
+			ActionType:   resolved.RequestedType,
 			RequestID:    request.RequestID,
 			Status:       "completed",
 			StartedAt:    startedAt,
@@ -1534,7 +1542,7 @@ func startDirectControlAction(config *AgentConfig, request directActionStartRequ
 		"accepted":   true,
 		"actionId":   actionID,
 		"requestId":  request.RequestID,
-		"actionType": "windows.iis.deploy_certificate",
+		"actionType": resolved.RequestedType,
 		"status":     "running",
 	}, http.StatusAccepted
 }
@@ -2393,80 +2401,8 @@ func (e *taskExecutionContext) submitLog(level string, format string, args ...an
 }
 
 func executeTask(execution *taskExecutionContext) (bool, string, string, map[string]any) {
-	task := execution.task
-	payload := task.Payload
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	if success, code, message, detail, handled := executeGatewayTask(execution.ctx, execution.client, execution.config, task, payload); handled {
-		return success, code, message, detail
-	}
-	if isWindowsIISDeploymentTask(task) {
-		return runWindowsIISDeployment(execution)
-	}
-	if dryRun, ok := payload["dryRun"].(bool); ok && dryRun {
-		execution.submitLog("info", "任务以 dry-run 模式结束")
-		return true, "", "", map[string]any{
-			"executor":        "windows-go-agent-runtime",
-			"mode":            "dry-run",
-			"executionStepId": task.ExecutionStepID,
-			"taskId":          task.ID,
-		}
-	}
-	if taskType, ok := payload["type"].(string); ok && taskType == "agent.self_test" {
-		execution.submitLog("info", "任务以 self-test 模式结束")
-		return true, "", "", map[string]any{
-			"executor": "windows-go-agent-runtime",
-			"mode":     "self-test",
-			"taskId":   task.ID,
-		}
-	}
-	if taskType, ok := payload["type"].(string); ok && taskType == "agent.capability.rescan" {
-		execution.submitLog("info", "开始执行手动能力重扫")
-		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane)); err != nil {
-			_ = submitRuntimeLog(execution.ctx, execution.client, execution.config, submitRuntimeLogRequest{
-				AgentID:   execution.registration.AgentID,
-				Category:  "manual_rescan",
-				Level:     "error",
-				Summary:   "manual capability rescan failed",
-				Detail:    map[string]any{"error": err.Error(), "taskId": task.ID, "requestedBy": stringFromMap(payload, "requestedBy")},
-				EmittedAt: time.Now().Format(time.RFC3339),
-			})
-			execution.submitLog("error", "能力重扫失败: %v", err)
-			return false, "RESCAN_REPORT_FAILED", err.Error(), map[string]any{
-				"executor":        "windows-go-agent-runtime",
-				"mode":            "capability-rescan",
-				"executionStepId": task.ExecutionStepID,
-				"taskId":          task.ID,
-				"requestedBy":     stringFromMap(payload, "requestedBy"),
-			}
-		}
-		_ = submitRuntimeLog(execution.ctx, execution.client, execution.config, submitRuntimeLogRequest{
-			AgentID:   execution.registration.AgentID,
-			Category:  "manual_rescan",
-			Level:     "info",
-			Summary:   "manual capability rescan succeeded",
-			Detail:    map[string]any{"taskId": task.ID, "requestedBy": stringFromMap(payload, "requestedBy")},
-			EmittedAt: time.Now().Format(time.RFC3339),
-		})
-		execution.submitLog("info", "能力重扫完成")
-		return true, "", "", map[string]any{
-			"executor":        "windows-go-agent-runtime",
-			"mode":            "capability-rescan",
-			"executionStepId": task.ExecutionStepID,
-			"taskId":          task.ID,
-			"requestedBy":     stringFromMap(payload, "requestedBy"),
-		}
-	}
-	if isWindowsIISDeploymentTask(task) {
-		return runWindowsIISDeployment(execution)
-	}
-	return false, "UNSUPPORTED_TASK", "当前 Windows Go Agent 已切到 Go Runtime，但该任务类型尚未接入对应 Provider", map[string]any{
-		"executor":        "windows-go-agent-runtime",
-		"supportedModes":  []string{"dryRun", "agent.self_test", "windows.iis.deploy_certificate"},
-		"executionStepId": task.ExecutionStepID,
-		"taskId":          task.ID,
-	}
+	result := windowsActionHandlers.Execute(execution)
+	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
 func ackTask(ctx context.Context, client *http.Client, config *AgentConfig, agentID string, taskID string, leaseID string) (*agentTaskEnvelope, error) {

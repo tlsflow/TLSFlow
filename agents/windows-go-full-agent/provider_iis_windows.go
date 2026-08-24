@@ -93,23 +93,6 @@ type windowsBindingUpdateResult struct {
 	AppliedBinding windowsIISBinding `json:"appliedBinding"`
 }
 
-func isWindowsIISDeploymentTask(task agentTaskEnvelope) bool {
-	payload := task.Payload
-	if payload == nil {
-		return false
-	}
-	taskType, _ := payload["type"].(string)
-	if strings.EqualFold(strings.TrimSpace(taskType), "windows.iis.deploy_certificate") {
-		return true
-	}
-	providerType, _ := payload["providerType"].(string)
-	if strings.EqualFold(strings.TrimSpace(providerType), "IIS") {
-		return true
-	}
-	stepAction, _ := payload["action"].(string)
-	return strings.EqualFold(strings.TrimSpace(stepAction), "INSTALL_CERTIFICATE")
-}
-
 func emitIISDebugLog(execution *taskExecutionContext, level string, summary string, detail map[string]any) {
 	if execution == nil {
 		return
