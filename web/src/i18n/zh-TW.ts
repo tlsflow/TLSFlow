@@ -3388,6 +3388,7 @@ export default {
         currentCount: "目前 {count} 筆"
       },
       actions: {
+        toggleFilters: "篩選",
         clear: "清空",
         deleteRisk: "刪除會直接移除目前憑證版本；如果該版本仍被繫結或部署引用，系統會拒絕此操作。"
       },

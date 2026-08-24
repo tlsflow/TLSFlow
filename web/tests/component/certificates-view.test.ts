@@ -39,6 +39,28 @@ describe('CertificatesView', () => {
     document.body.innerHTML = ''
   })
 
+  it('资产筛选默认隐藏，并支持切换显示状态', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { items: [], page: 1, pageSize: 20, total: 0 },
+    }), { status: 200 })))
+    document.body.innerHTML = '<div id="gc-shell-hero-actions"></div>'
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(document.querySelector('.certificate-page__filter-toggle')).not.toBeNull()
+    })
+
+    expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
+
+    document.querySelector<HTMLButtonElement>('.certificate-page__filter-toggle')?.click()
+    await flushPromises()
+    expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(true)
+
+    document.querySelector<HTMLButtonElement>('.certificate-page__filter-toggle')?.click()
+    await flushPromises()
+    expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
+  })
+
   it('证书版本表格拆分开始结束日期，并在表头上排序', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       const target = String(url)

@@ -3504,6 +3504,7 @@ export default {
         currentCount: '当前 {count} 条'
       },
       actions: {
+        toggleFilters: '筛选',
         clear: '清空',
         deleteRisk: '删除会直接移除当前证书版本；如果该版本仍被绑定或部署引用，系统会拒绝此操作。'
       },

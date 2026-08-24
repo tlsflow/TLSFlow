@@ -3433,6 +3433,7 @@ export default {
         currentCount: '{count} currently'
       },
       actions: {
+        toggleFilters: 'Filtrer',
         clear: 'Clear',
         deleteRisk: 'Deleting removes the current certificate version directly. If it is still referenced by a binding or deployment, the backend will reject the operation.'
       },

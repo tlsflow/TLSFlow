@@ -3363,6 +3363,7 @@ export default {
         currentCount: '현재 {count} 개'
       },
       actions: {
+        toggleFilters: '필터',
         clear: '비우기',
         deleteRisk: '삭제는 현재 인증서 버전을 바로 삭제합니다.버전이 계속 바인딩 또는 배포되면 시스템은이 동작을 거부합니다.'
       },

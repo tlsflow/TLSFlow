@@ -3389,6 +3389,7 @@ export default {
         currentCount: '現在 {count} 件'
       },
       actions: {
+        toggleFilters: '絞り込み',
         clear: '清空',
         deleteRisk: '削除すると現在の証明書バージョンが直接削除されます。このバージョンがまだバインドまたはデプロイから参照されている場合、システムはこの操作を拒否します。'
       },

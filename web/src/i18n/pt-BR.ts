@@ -3363,6 +3363,7 @@ export default {
         currentCount: 'Atualmente {count} registro(s)'
       },
       actions: {
+        toggleFilters: 'Filtrar',
         clear: 'Limpar',
         deleteRisk: 'Excluir removerá diretamente a versão atual do certificado; se ela ainda estiver referenciada por um binding ou implantação, o sistema recusará a operação.'
       },

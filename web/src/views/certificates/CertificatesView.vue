@@ -66,6 +66,7 @@ const router = useRouter()
 const { t } = useI18n()
 const appStore = useAppStore()
 const permissionStore = usePermissionStore()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-actions')))
 const initialQuery = route.query ?? {}
 const filters = reactive<Record<string, string>>({
   keyword: typeof initialQuery.keyword === 'string' ? initialQuery.keyword : '',
@@ -82,6 +83,7 @@ const versions = ref<ApiRecord[]>([])
 const assetLifecycleMap = ref<Record<string, LifecycleStatusKey>>({})
 const assetVersionCountMap = ref<Record<string, number>>({})
 const selectedAssetId = ref('')
+const filtersVisible = ref(false)
 const versionFilterKeyword = ref('')
 const versionFilterStatus = ref('')
 const versionSortField = ref<VersionSortField>('notAfter')
@@ -416,6 +418,10 @@ function clearFilters() {
   updateFilters()
 }
 
+function toggleFilters() {
+  filtersVisible.value = !filtersVisible.value
+}
+
 function selectAsset(assetId: string) {
   if (!assetId || assetId === selectedAssetId.value) return
   selectedAssetId.value = assetId
@@ -696,7 +702,21 @@ async function removeVersion(row: CertificateVersionRow) {
     </div>
 
     <template v-if="isProfessionalView">
-      <section class="certificate-page__toolbar">
+      <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
+        <div class="certificate-page__toolbar-actions">
+          <button class="gc-button certificate-page__filter-toggle" type="button" @click="toggleFilters">
+            {{ t('certificates.list.actions.toggleFilters') }}
+          </button>
+          <GcPermissionButton class="gc-button certificate-page__trust-roots-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
+            {{ t('certificates.trustRoots.actions.open') }}
+          </GcPermissionButton>
+          <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
+            {{ t('certificates.import.title') }}
+          </GcPermissionButton>
+        </div>
+      </Teleport>
+
+      <section v-if="filtersVisible" class="certificate-page__toolbar">
         <section class="gc-card certificate-page__filters">
           <label class="certificate-page__filter">
             <span class="certificate-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
@@ -719,15 +739,6 @@ async function removeVersion(row: CertificateVersionRow) {
             <button class="gc-button" type="button" @click="clearFilters">{{ t('businessPage.clearFilters') }}</button>
           </div>
         </section>
-
-        <div class="certificate-page__toolbar-actions">
-          <GcPermissionButton class="gc-button certificate-page__trust-roots-button" permission="certificate.asset.read" @click="openTrustRootsDialog">
-            {{ t('certificates.trustRoots.actions.open') }}
-          </GcPermissionButton>
-          <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
-            {{ t('certificates.import.title') }}
-          </GcPermissionButton>
-        </div>
       </section>
 
       <section class="certificate-page__workspace">
@@ -1380,14 +1391,16 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__toolbar-actions {
   display: flex;
+  align-self: stretch;
   align-items: stretch;
-  gap: 10px;
+  gap: var(--gc-space-2);
 }
 
+.certificate-page__filter-toggle,
 .certificate-page__trust-roots-button {
-  min-height: 100%;
-  padding: 0 18px;
-  border-radius: 16px;
+  min-height: auto;
+  padding-inline: var(--gc-space-4);
+  border-radius: var(--gc-radius-md);
   white-space: nowrap;
 }
 
@@ -1395,10 +1408,10 @@ async function removeVersion(row: CertificateVersionRow) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 100%;
-  padding: 0 18px;
+  min-height: auto;
+  padding-inline: var(--gc-space-4);
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--gc-radius-md);
   color: var(--gc-color-surface-solid);
   background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
   box-shadow: 0 10px 24px var(--gc-color-primary-weak);
@@ -1755,16 +1768,8 @@ async function removeVersion(row: CertificateVersionRow) {
     overflow: visible;
   }
 
-  .certificate-page__toolbar {
-    grid-template-columns: 1fr;
-  }
-
   .certificate-page__filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .certificate-page__toolbar-actions {
-    justify-content: flex-end;
   }
 
   .certificate-page__workspace {
@@ -1818,15 +1823,6 @@ async function removeVersion(row: CertificateVersionRow) {
   .certificate-page__filter input,
   .certificate-page__filter select {
     width: 100%;
-  }
-
-  .certificate-page__toolbar-actions {
-    justify-content: stretch;
-  }
-
-  .certificate-page__import-button {
-    width: 100%;
-    min-height: 44px;
   }
 
   .certificate-page__panel-header,
