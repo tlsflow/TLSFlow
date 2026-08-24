@@ -17,8 +17,7 @@
       "titleKey": "plugin.citrixAdc.form.authentication",
       "fields": [
         { "key": "authMode", "type": "radio", "labelKey": "plugin.citrixAdc.field.authMode", "standardField": "authentication.mode", "required": true, "defaultValue": "NITRO_HEADER", "options": [{ "value": "NITRO_HEADER", "labelKey": "plugin.citrixAdc.option.nitroHeader" }] },
-        { "key": "username", "type": "text", "labelKey": "plugin.citrixAdc.field.username", "standardField": "authentication.username" },
-        { "key": "passwordSecretRef", "type": "secret_ref", "labelKey": "plugin.citrixAdc.field.passwordSecret", "standardField": "authentication.passwordSecretRef", "required": true }
+        { "key": "credential", "type": "credential_ref", "labelKey": "plugin.citrixAdc.field.credential", "standardField": "authentication.credentialId", "required": true, "acceptedCredentialKinds": ["USERNAME_PASSWORD"], "acceptedScopes": ["global", "team", "zone", "host", "plugin"], "purpose": "device-management" }
       ]
     },
     {

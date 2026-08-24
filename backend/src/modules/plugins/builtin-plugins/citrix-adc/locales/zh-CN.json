@@ -1,4 +1,5 @@
 {
+  "plugin.citrixAdc.field.credential": "设备管理凭据",
   "plugin.citrixAdc.name": "Citrix ADC",
   "plugin.citrixAdc.description": "通过 NITRO API 管理设备、发现站点并自动部署证书。",
   "plugin.citrixAdc.form.device": "设备连接",

@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
-import { builtinAgentPluginManifests } from '../builtin-agent-plugins/builtin-agent-plugins.js';
+import { builtinAgentPluginManifests } from './agent-recipes.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -14,9 +14,19 @@ export class BuiltinUnifiedPluginLoader {
     const rootDirectory = this.configuredRootDirectory ?? await resolveBuiltinRootDirectory();
     const entries = await readdir(rootDirectory, { withFileTypes: true });
     const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    const nativePackages = await Promise.all(directories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
+    const packageDirectories = [];
+    for (const directory of directories) {
+      try {
+        await access(join(rootDirectory, directory, 'manifest.json'));
+        packageDirectories.push(directory);
+      } catch {
+        // 非插件资源目录不参与包扫描。
+      }
+    }
+    const nativePackages = await Promise.all(packageDirectories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
     if (this.configuredRootDirectory) return nativePackages;
-    return [...nativePackages, ...await loadWorkflowCompatibilityPackages(), ...loadAgentCompatibilityPackages()];
+    const localeResources = await loadBuiltinLocaleResources(rootDirectory);
+    return [...nativePackages, ...await loadBuiltinWorkflowPackages(localeResources), ...loadBuiltinAgentPackages(localeResources)];
   }
 
   async installAll(tenantId: string, service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
@@ -66,7 +76,7 @@ async function resolveBuiltinRootDirectory(): Promise<string> {
   return moduleDirectory;
 }
 
-async function loadWorkflowCompatibilityPackages(): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
+async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResources): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
   const workflowDirectory = await resolveBuiltinWorkflowDirectory();
   return Promise.all([
     'apache-8444-cert-switch.json',
@@ -75,13 +85,16 @@ async function loadWorkflowCompatibilityPackages(): Promise<Array<{ manifest: un
     const content = await readFile(join(workflowDirectory, fileName), 'utf8');
     const workflow = JSON.parse(content) as { metadata: { name: string; version: string; platforms?: string[] } };
     const resourcePath = `workflows/${fileName}`;
+    const pluginId = `builtin.workflow.${workflow.metadata.name}`;
+    const localeKey = builtinLocaleKey(pluginId);
     const manifest = {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
-      pluginId: `builtin.workflow.${workflow.metadata.name}`,
-      version: workflow.metadata.version,
-      displayNameKey: `plugins.compatibility.${workflow.metadata.name}.name`,
-      descriptionKey: `plugins.compatibility.${workflow.metadata.name}.description`,
+      pluginId,
+      version: workflowPluginVersion(pluginId, workflow.metadata.version),
+      displayNameKey: `${localeKey}.name`,
+      descriptionKey: `${localeKey}.description`,
+      defaultLocale: 'zh-CN',
       publisher: 'GCAC',
       runtime: 'WORKFLOW_DSL',
       source: 'BUILTIN',
@@ -94,23 +107,29 @@ async function loadWorkflowCompatibilityPackages(): Promise<Array<{ manifest: un
       ],
       permissions: ['secret.read', 'artifact.read', 'network.connect'],
       compatibility: { products: [workflow.metadata.name], platforms: workflow.metadata.platforms ?? [] },
-      resources: { workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath } },
+      resources: {
+        workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
+        locales: localeResources.paths,
+      },
     };
-    return { manifest, resources: { [resourcePath]: content }, packageContent: JSON.stringify({ manifest, workflowSha256Source: content }) };
+    const resources = { [resourcePath]: content, ...localeResources.contents };
+    return { manifest, resources, packageContent: JSON.stringify({ manifest, resources }) };
   }));
 }
 
-function loadAgentCompatibilityPackages(): Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
+function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
   return builtinAgentPluginManifests.map((agentManifest) => {
     const resourcePath = `agent-recipes/${agentManifest.pluginId}.json`;
     const recipe = JSON.stringify(agentManifest);
+    const localeKey = builtinLocaleKey(agentManifest.pluginId);
     const manifest = {
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
       pluginId: agentManifest.pluginId,
-      version: agentManifest.version,
-      displayNameKey: `plugins.compatibility.${agentManifest.pluginId}.name`,
-      descriptionKey: `plugins.compatibility.${agentManifest.pluginId}.description`,
+      version: incrementPatchVersion(agentManifest.version),
+      displayNameKey: `${localeKey}.name`,
+      descriptionKey: `${localeKey}.description`,
+      defaultLocale: 'zh-CN',
       publisher: agentManifest.publisher,
       runtime: 'AGENT_ATOMIC',
       source: 'BUILTIN',
@@ -128,10 +147,56 @@ function loadAgentCompatibilityPackages(): Array<{ manifest: unknown; resources:
         platforms: agentManifest.compatibility.platforms,
         versions: agentManifest.compatibility.architectures,
       },
-      resources: { agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath } },
+      resources: {
+        agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
+        locales: localeResources.paths,
+      },
     };
-    return { manifest, resources: { [resourcePath]: recipe }, packageContent: JSON.stringify({ manifest, recipe }) };
+    const resources = { [resourcePath]: recipe, ...localeResources.contents };
+    return { manifest, resources, packageContent: JSON.stringify({ manifest, resources }) };
   });
+}
+
+interface BuiltinLocaleResources {
+  paths: Record<string, string>;
+  contents: Record<string, string>;
+}
+
+async function loadBuiltinLocaleResources(rootDirectory: string): Promise<BuiltinLocaleResources> {
+  const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'fr-FR', 'ru-RU', 'pt-BR'];
+  const paths = Object.fromEntries(locales.map((locale) => [locale, `locales/${locale}.json`]));
+  const contents = Object.fromEntries(await Promise.all(locales.map(async (locale) => [
+    `locales/${locale}.json`,
+    await readFile(join(rootDirectory, 'locales', `${locale}.json`), 'utf8'),
+  ])));
+  return { paths, contents };
+}
+
+function builtinLocaleKey(pluginId: string): string {
+  const keys: Record<string, string> = {
+    'builtin.workflow.apache-8444-cert-switch': 'plugin.builtin.apache',
+    'builtin.workflow.synology-dsm-cert-import': 'plugin.builtin.synology',
+    'builtin.linux.nginx.pem': 'plugin.builtin.nginx',
+    'builtin.windows.iis.pfx': 'plugin.builtin.iis',
+    'builtin.rabbitmq.pem': 'plugin.builtin.rabbitmq',
+    'builtin.java.pkcs12': 'plugin.builtin.java',
+    'builtin.windows-service.certificate-file': 'plugin.builtin.windowsService',
+  };
+  const key = keys[pluginId];
+  if (!key) throw new Error(`内置插件缺少 Locale key 映射: ${pluginId}`);
+  return key;
+}
+
+function workflowPluginVersion(pluginId: string, sourceVersion: string): string {
+  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.3';
+  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.2';
+  return incrementPatchVersion(sourceVersion);
+}
+
+function incrementPatchVersion(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) throw new Error(`内置插件版本不是标准 SemVer: ${version}`);
+  return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
 }
 
 function capability(key: string, actionContractId: string, riskLevel: 'HIGH', executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>) {

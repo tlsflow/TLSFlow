@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-rollback",
     "displayName": "Citrix ADC certificate rollback",
     "category": "certificate",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -32,7 +32,7 @@
       "request": {
         "method": "GET",
         "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion",
-        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
         "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
@@ -61,7 +61,7 @@
             "request": {
               "method": "POST",
               "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
-              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslvserver_sslcertkey_binding": "{{oldBinding}}" },
               "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
@@ -79,7 +79,7 @@
         "method": "GET",
         "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
-        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
         "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
@@ -122,7 +122,7 @@
             "request": {
               "method": "DELETE",
               "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}?args=certkeyname:{{recoverySnapshot.newCertificateKeyName}}",
-              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
               "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
             }
@@ -138,7 +138,7 @@
         "method": "GET",
         "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
-        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
         "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
@@ -175,7 +175,7 @@
         "method": "POST",
         "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsconfig",
         "query": { "action": "save" },
-        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "nsconfig": {} },
         "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },

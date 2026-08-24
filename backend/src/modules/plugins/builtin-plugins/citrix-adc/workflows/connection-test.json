@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "citrix-adc-connection-test", "displayName": "Citrix ADC connection test", "category": "device", "version": "1.0.0", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "citrix-adc-connection-test", "displayName": "Citrix ADC connection test", "category": "device", "version": "1.0.1", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "variables": {
     "deviceHost": { "type": "string", "required": true },
     "managementPort": { "type": "number", "required": true, "default": 443 },
@@ -16,7 +16,7 @@
       "request": {
         "method": "GET",
         "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion",
-        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.secretRefs.password}}" },
         "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,

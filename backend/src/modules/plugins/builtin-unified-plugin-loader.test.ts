@@ -19,6 +19,7 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
   assert.equal(citrix?.status, 'ENABLED');
+  assert.equal(citrix?.version, '1.1.1');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
   assert.equal(apache?.runtime, 'WORKFLOW_DSL');

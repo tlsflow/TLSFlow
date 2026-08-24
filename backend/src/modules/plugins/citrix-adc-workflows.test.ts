@@ -7,6 +7,15 @@ import type { WorkflowMockStepOutput } from '../workflow-templates/dto/workflow-
 import { enrichWorkflowCertificateMaterial } from '../certificates/artifacts/workflow-certificate-material.js';
 import { createHash } from 'node:crypto';
 
+function fixtureCredential() {
+  return {
+    credentialId: 'cred_fixture',
+    kind: 'USERNAME_PASSWORD',
+    username: 'fixture',
+    secretRefs: { password: 'secret://password/fixture-secret#v1' },
+  };
+}
+
 test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
   const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
@@ -17,7 +26,7 @@ test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
     mode: 'mock',
     userVariables: {
       deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-      credential: { id: 'fixture-secret', kind: 'username_password', type: 'password', username: 'fixture', password: 'fixture-only' },
+      credential: fixtureCredential(),
     },
     mockResponses: { readVersion: { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } } },
   });
@@ -39,7 +48,7 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
       deviceHost: '10.0.0.1',
       managementPort: 443,
       tlsVerify: true,
-      credential: { id: 'fixture-secret', kind: 'username_password', type: 'password', username: 'fixture', password: 'fixture-only' },
+      credential: fixtureCredential(),
     },
     mockResponses: fixture.mockResponses,
   });
@@ -70,6 +79,23 @@ test('统一证书材料生成 Base64 和有序中间证书数组', () => {
   ]);
   assert.equal(material.fingerprintSha256, 'aabb');
   assert.equal(Object.hasOwn(material.deploymentMetadata as object, 'password'), false);
+});
+
+test('统一证书材料可从 fullchain 派生叶子证书和有序中间链', () => {
+  const leaf = '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n';
+  const intermediate = '-----BEGIN CERTIFICATE-----\nINTERMEDIATE\n-----END CERTIFICATE-----\n';
+  const material = enrichWorkflowCertificateMaterial({
+    certificateVersionId: 'cert-version-fullchain',
+    certificateFormatId: 'format-fullchain',
+    files: [
+      { key: 'fullchain', role: 'public_certificate', content: `${leaf}${intermediate}` },
+      { key: 'private', role: 'private_key', content: 'PRIVATE\n' },
+    ],
+  });
+
+  assert.equal(material.leafPem, leaf);
+  assert.equal(material.orderedChainPem, intermediate);
+  assert.deepEqual((material.orderedIntermediates as Array<Record<string, unknown>>).map((item) => item.pem), [intermediate]);
 });
 
 test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后才保存', async () => {
@@ -187,7 +213,7 @@ test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async 
 function deploymentVariables(): Record<string, unknown> {
   return {
     deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-    credential: { id: 'fixture-secret', kind: 'username_password', type: 'password', username: 'fixture', password: 'fixture-only' },
+    credential: fixtureCredential(),
     certificateKeyName: 'gcac-leaf-20260724',
     certificate: {
       leafPemBase64: Buffer.from('leaf').toString('base64'),
@@ -237,7 +263,7 @@ function recoverySnapshot(): Record<string, unknown> {
 function recoveryVariables(snapshot: Record<string, unknown>): Record<string, unknown> {
   return {
     deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
-    credential: { id: 'fixture-secret', kind: 'username_password', type: 'password', username: 'fixture', password: 'fixture-only' },
+    credential: fixtureCredential(),
     recoverySnapshot: snapshot,
     recoverySnapshotHash: createHash('sha256').update(stableJson(snapshot)).digest('hex'),
   };
