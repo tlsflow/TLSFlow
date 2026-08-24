@@ -13,6 +13,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { ObjectPermissionService } from '../../security/object-permission.service.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
 import { readDashboardSystemResources } from '../system-resources.js';
+import type { DashboardReadRepository } from '../repository/dashboard-read.repository.js';
 
 export interface DashboardApplicationDependencies {
   assets: Pick<AssetsApplicationService, 'listServiceAssets'>;
@@ -24,6 +25,7 @@ export interface DashboardApplicationDependencies {
   deploymentPlans: DeploymentPlansRepository;
   objectPermissions: ObjectPermissionService;
   canReadAudit: (subject: SecuritySubject, tenantId: string) => Promise<boolean>;
+  readRepository?: DashboardReadRepository;
 }
 
 const DASHBOARD_AUDIT_LIMIT = 8;
@@ -42,6 +44,21 @@ export class DashboardApplicationService {
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'agent', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'gateway', 'read'),
     ]);
+    if (this.dependencies.readRepository) {
+      return this.getOverviewFromReadModel({
+        input,
+        generatedAt,
+        canReadAudit,
+        authorizations: {
+          applicationAssets: applicationAuthorization,
+          certificateAssets: certificateAuthorization,
+          certificateVersions: certificateVersionAuthorization,
+          bindings: bindingAuthorization,
+          agents: agentAuthorization,
+          gateways: gatewayAuthorization,
+        },
+      });
+    }
     const [
       applicationAssets,
       certificateAssets,
@@ -91,7 +108,7 @@ export class DashboardApplicationService {
 
     return {
       generatedAt,
-      systemResources: readDashboardSystemResources(),
+      systemResources: this.getSystemResources(),
       metrics: buildMetrics({
         applicationCount: applicationAssets.total,
         validCertificateCount,
@@ -110,6 +127,66 @@ export class DashboardApplicationService {
         gatewayZones,
         gatewayReachability,
         nowIso: generatedAt,
+      }),
+      recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
+    };
+  }
+
+  getSystemResources(): DashboardOverview['systemResources'] {
+    return readDashboardSystemResources();
+  }
+
+  private async getOverviewFromReadModel(input: {
+    input: { tenantId: string; subject: SecuritySubject };
+    generatedAt: string;
+    canReadAudit: boolean;
+    authorizations: Parameters<DashboardReadRepository['load']>[0]['authorizations'];
+  }): Promise<DashboardOverview> {
+    await this.dependencies.gateways.ensureSchema();
+    const model = await this.dependencies.readRepository!.load({
+      tenantId: input.input.tenantId,
+      nowIso: input.generatedAt,
+      authorizations: input.authorizations,
+      includeAudits: input.canReadAudit,
+    });
+    const authorizedAuditLogs = input.canReadAudit
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, model.auditCandidates)
+      : [];
+    const certificateStatuses = buildCertificateStatuses({
+      assets: model.certificateAssets,
+      versions: model.certificateVersions,
+      bindingCountByVersionId: model.bindingCountsByVersionId,
+      nowIso: input.generatedAt,
+    });
+    const auditContext = await buildAuditPresentationContext({
+      tenantId: input.input.tenantId,
+      auditLogs: authorizedAuditLogs,
+      deploymentPlans: this.dependencies.deploymentPlans,
+      applicationAssets: model.applicationAssets,
+      bindings: model.bindings,
+    });
+
+    return {
+      generatedAt: input.generatedAt,
+      systemResources: this.getSystemResources(),
+      metrics: buildMetrics({
+        applicationCount: model.applicationCount,
+        validCertificateCount: model.validCertificateCount,
+        expiringCertificateCount: model.expiringCertificateCount,
+        activeAgentCount: model.activeAgentCount,
+        activeGatewayCount: model.activeGatewayCount,
+        managedBindingCount: model.managedBindingCount,
+      }),
+      quickActions: quickActions(),
+      certificateStatuses,
+      statusGroups: buildStatusGroups({
+        applicationAssets: model.applicationAssets,
+        certificateStatuses,
+        agents: model.agents,
+        gateways: model.gateways,
+        gatewayZones: model.gatewayZones,
+        gatewayReachability: model.gatewayReachability,
+        nowIso: input.generatedAt,
       }),
       recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
     };
@@ -444,7 +521,7 @@ function quickActions(): DashboardQuickAction[] {
 function buildCertificateStatuses(input: {
   assets: CertificateAssetEntity[];
   versions: CertificateVersionEntity[];
-  bindingCountByVersionId: Map<string, number>;
+  bindingCountByVersionId: ReadonlyMap<string, number>;
   nowIso: string;
 }): DashboardCertificateStatusItem[] {
   const latestVersionByAssetId = new Map<string, CertificateVersionEntity>();

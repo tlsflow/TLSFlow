@@ -16,6 +16,7 @@ export interface PageResult<T> {
 
 export interface GatewaysRepository {
   readonly moduleName: 'gateways';
+  ensureSchema(): Promise<void>;
   ensureDefaultZones(tenantId: string): Promise<GatewayZoneDto[]>;
   upsertZone(tenantId: string, input: Omit<Zone, 'id'> & { id?: string }): Promise<GatewayZoneDto>;
   listZones(tenantId: string): Promise<GatewayZoneDto[]>;
@@ -269,7 +270,7 @@ export class PgGatewaysRepository implements GatewaysRepository {
     return (await this.db.query<GatewayReachabilityRow>(`select * from pg_gateway_reachability where tenant_id = $1 and gateway_id = $2 and target_id = $3 and protocol = $4`, [tenantId, gatewayId, targetId, protocol])).rows[0];
   }
 
-  private async ensureSchema(): Promise<void> {
+  async ensureSchema(): Promise<void> {
     if (this.schemaReady) return;
     await this.db.exec(`
       create table if not exists pg_gateway_zones (

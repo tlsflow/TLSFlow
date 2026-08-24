@@ -73,6 +73,7 @@ import {
   WebhookNotificationAdapter,
 } from './modules/notifications/index.js';
 import { DashboardApplicationService, DashboardController, getDashboardRouteContracts } from './modules/dashboard/index.js';
+import { DashboardReadRepository } from './modules/dashboard/repository/dashboard-read.repository.js';
 import { getReportRouteContracts, PgReportDataPort, ReportExportService, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
@@ -820,6 +821,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     deploymentPlans: deploymentPlans.getRepository(),
     objectPermissions: security.objectPermissions,
+    readRepository: new DashboardReadRepository(appDb),
     canReadAudit: async (subject, tenantId) => (
       await security.rbac.can(subject, 'audit.read', {
         type: 'auditLog',

@@ -12,6 +12,7 @@ export class DashboardController {
 
   register(router: Router): void {
     router.get('/api/v1/dashboard/overview', '查询总览聚合', tags, (request) => this.getOverview(request));
+    router.get('/api/v1/dashboard/resources', '查询仪表盘主机资源', tags, (request) => this.getResources(request));
   }
 
   private async getOverview(request: HttpRequest) {
@@ -22,6 +23,11 @@ export class DashboardController {
       subject: security.subject,
     });
   }
+
+  private getResources(request: HttpRequest) {
+    requireRouteSecurity(request, this.security);
+    return this.service.getSystemResources();
+  }
 }
 
 export function getDashboardRouteContracts(): RouteContract[] {
@@ -31,6 +37,14 @@ export function getDashboardRouteContracts(): RouteContract[] {
       path: '/api/v1/dashboard/overview',
       operationId: 'getDashboardOverview',
       summary: '查询总览聚合',
+      tags,
+      responseSchema: { type: 'object', additionalProperties: true },
+    },
+    {
+      method: 'GET',
+      path: '/api/v1/dashboard/resources',
+      operationId: 'getDashboardResources',
+      summary: '查询仪表盘主机资源',
       tags,
       responseSchema: { type: 'object', additionalProperties: true },
     },

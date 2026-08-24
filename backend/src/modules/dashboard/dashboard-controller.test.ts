@@ -61,3 +61,30 @@ test('未认证用户仍不能访问仪表盘接口', async () => {
     { errorCode: 'AUTH_UNAUTHENTICATED' },
   );
 });
+
+test('已认证用户可以单独刷新仪表盘主机资源', async () => {
+  const service = {
+    getOverview: async () => ({}),
+    getSystemResources: () => ({ cpuUsage: 12, memoryUsage: 34 }),
+  };
+  const router = new Router();
+
+  new DashboardController(service as never, {} as SecurityServices).register(router);
+  const route = router.match('GET', '/api/v1/dashboard/resources');
+  assert.ok(route);
+
+  const response = await route.handler({
+    method: 'GET',
+    path: '/api/v1/dashboard/resources',
+    query: {},
+    headers: {},
+    context: {
+      requestId: 'req_dashboard_resources',
+      traceId: 'trace_dashboard_resources',
+      tenantId: 'tenant_dashboard',
+      actorId: 'user_dashboard_viewer',
+    },
+  });
+
+  assert.deepEqual(response, { cpuUsage: 12, memoryUsage: 34 });
+});
