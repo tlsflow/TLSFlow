@@ -3,12 +3,11 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { GcConfirmAction, GcDataTable, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcConfirmAction, GcDataTable, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
-const activeTab = ref('trustDomains')
 const loading = ref(false)
 const actionPending = ref(false)
 const error = ref('')
@@ -39,6 +38,8 @@ const adcsWizardMode = ref<'install' | 'update'>('install')
 const adcsUpdateProvider = ref<InternalCaRecord | null>(null)
 const deletingProviderId = ref('')
 const trustDomainModalOpen = ref(false)
+const requestModalOpen = ref(false)
+const profileModalOpen = ref(false)
 
 const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
 const adcsDraft = reactive({ name: '' })
@@ -48,15 +49,6 @@ const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'pr
 const requestDraft = reactive({ applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret' })
 const revocationDraft = reactive({ certificateVersionId: '', reason: 'keyCompromise' })
 const trustDraft = reactive({ caId: '', targetIds: '', platform: 'linux' })
-
-const tabs = computed(() => [
-  { value: 'trustDomains', label: t('internalCa.tabs.trustDomains') },
-  { value: 'authorities', label: t('internalCa.tabs.authorities') },
-  { value: 'profiles', label: t('internalCa.tabs.profiles') },
-  { value: 'requests', label: t('internalCa.tabs.requests') },
-  { value: 'operations', label: t('internalCa.tabs.operations') },
-  { value: 'risks', label: t('internalCa.tabs.risks') },
-])
 
 const selectedProvider = computed(() => providers.value.find((item) => text(item.id) === authorityDraft.providerId))
 const adcsProviders = computed(() => providers.value.filter((item) => text(item.type) === 'microsoft_adcs' && nodes.value.some((node) => text(node.providerId) === text(item.id))))
@@ -83,6 +75,7 @@ const topologyInput = computed(() => ({
 const wizardStepCount = computed(() => authorityCreationKind.value === 'intermediate' ? 3 : 4)
 const wizardProgress = computed(() => `${(authorityWizardStep.value / wizardStepCount.value) * 100}%`)
 const builtinProvider = computed(() => providers.value.find((item) => text(item.type) === 'gcac_builtin'))
+const recentRequests = computed(() => requests.value.slice(0, 20))
 const selectedCreationMode = computed(() => {
   if (authorityCreationKind.value === 'intermediate') {
     const provider = providers.value.find((item) => text(item.id) === authorityDraft.providerId)
@@ -98,6 +91,19 @@ const trustDomainColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '14%' },
   { key: 'isDefault', title: t('internalCa.trustDomains.columns.default'), width: '14%' },
   { key: 'createdAt', title: t('internalCa.trustDomains.columns.createdAt') },
+])
+const requestColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
+  { key: 'subjectCommonName', title: t('internalCa.requests.columns.commonName'), width: '24%' },
+  { key: 'applicationAssetId', title: t('internalCa.requests.columns.applicationAssetId'), width: '24%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '16%' },
+  { key: 'updatedAt', title: t('internalCa.requests.columns.updatedAt'), width: '20%' },
+  { key: 'actions', title: t('internalCa.requests.columns.actions'), width: '16%' },
+])
+const profileColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
+  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '28%' },
+  { key: 'securityDomain', title: t('internalCa.profiles.columns.securityDomain'), width: '24%' },
+  { key: 'versionCount', title: t('internalCa.profiles.columns.versionCount'), width: '24%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '24%' },
 ])
 
 onMounted(loadAll)
@@ -437,7 +443,7 @@ function isEligibleParentRoot(root: InternalCaRecord): boolean {
 }
 
 async function createProfile() {
-  await runAction(() => internalCaApi.createProfile({
+  const ok = await runAction(() => internalCaApi.createProfile({
     name: profileDraft.name,
     trustDomainId: profileDraft.trustDomainId,
     securityDomain: profileDraft.securityDomain,
@@ -446,12 +452,14 @@ async function createProfile() {
       renewalWindowDays: profileDraft.renewalWindowDays, rotateKeyOnRenewal: true, requireApproval: profileDraft.requireApproval,
     },
   }), 'internalCa.messages.profileCreated')
+  if (ok) profileModalOpen.value = false
 }
 
 async function createRequest() {
-  await runAction(() => internalCaApi.createRequest({
+  const ok = await runAction(() => internalCaApi.createRequest({
     ...requestDraft, sans: splitList(requestDraft.sans), requestedValidityDays: 90,
   }), 'internalCa.messages.requestCreated')
+  if (ok) requestModalOpen.value = false
 }
 
 async function createRevocation() {
@@ -499,93 +507,169 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
 <template>
   <section class="internal-ca-page">
-    <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')" />
-    <GcPageToolbar class="internal-ca-page__toolbar">
-      <template #actions>
-        <button v-if="activeTab === 'trustDomains'" class="gc-button gc-button--primary" type="button" @click="openTrustDomainModal">{{ t('internalCa.actions.addTrustDomain') }}</button>
-        <button v-if="activeTab === 'authorities'" class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button>
-        <button v-if="activeTab === 'operations'" class="gc-button gc-button--primary" type="button" @click="runAction(() => internalCaApi.scanRenewals(), 'internalCa.messages.renewalScanned')">{{ t('internalCa.actions.scanRenewals') }}</button>
-        <button class="gc-button" type="button" :disabled="loading" @click="loadAll">{{ t('internalCa.actions.refresh') }}</button>
-      </template>
-      <template #tabs>
-        <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('internalCa.aria.tabs')" />
-      </template>
-    </GcPageToolbar>
     <div v-if="error" class="notice notice--danger">{{ error }}</div>
 
-    <template v-if="activeTab === 'trustDomains'">
-      <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense>
-        <template #toolbar>
-          <div class="trust-domain-page__table-toolbar">
-            <strong>{{ t('internalCa.trustDomains.recordsTitle') }}</strong>
-            <span>{{ t('businessPage.total', { count: trustDomains.length }) }}</span>
-          </div>
-        </template>
-        <template #cell-name="{ row }">
-          <div class="trust-domain-page__cell-main">
-            <strong>{{ text(row.name) }}</strong>
-          </div>
-        </template>
-        <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
-        <template #cell-isDefault="{ row }">{{ row.isDefault ? t('internalCa.labels.defaultTrustDomain') : t('internalCa.trustDomains.notDefault') }}</template>
-        <template #cell-createdAt="{ row }">{{ localTime(row.createdAt) }}</template>
-      </GcDataTable>
-    </template>
-
-    <template v-else-if="activeTab === 'authorities'">
-      <div class="authority-toolbar">
-        <div><h2>{{ t('internalCa.sections.authorityOverview') }}</h2><p>{{ t('internalCa.sections.authorityOverviewDescription') }}</p></div>
-      </div>
-      <div v-if="rootAuthorities.length" class="root-ca-grid">
-        <button v-for="root in rootAuthorities" :key="text(root.id)" type="button" class="root-ca-card gc-card" :class="{ 'is-selected': text(root.id) === text(selectedRoot?.id) }" @click="selectRoot(root)">
-          <span class="root-ca-card__icon">CA</span>
-          <span class="root-ca-card__body"><span class="root-ca-card__title"><strong>{{ text(root.name) }}</strong><GcStatusTag :status="text(root.status)" /></span><span>{{ text(root.subjectCommonName) }}</span><small>{{ trustDomainName(root.trustDomainId) }} · {{ text(root.securityDomain) }}</small></span>
-          <span class="root-ca-card__metrics"><span>{{ t('internalCa.labels.intermediateCount', { count: authorities.filter((item) => text(item.parentCaId) === text(root.id)).length }) }}</span><small>{{ t('internalCa.labels.expiresAt', { time: localTime(root.notAfter) }) }}</small></span>
-        </button>
-      </div>
-      <article v-if="selectedRoot" class="gc-card ca-architecture">
-        <header class="ca-architecture__header"><div><span class="ca-architecture__eyebrow">{{ t('internalCa.sections.caArchitecture') }}</span><h2>{{ text(selectedRoot.name) }}</h2></div><button v-if="isEligibleParentRoot(selectedRoot)" class="gc-button" type="button" @click="openAuthorityWizard('intermediate', selectedRoot)">{{ t('internalCa.actions.addIntermediate') }}</button></header>
-        <div class="ca-tree">
-          <article class="ca-node ca-node--root"><span class="ca-node__role">{{ t('internalCa.labels.rootAuthority') }}</span><strong>{{ text(selectedRoot.name) }}</strong><span>{{ text(selectedRoot.subjectCommonName) }}</span><small>{{ text(selectedRoot.providerId) }} · {{ localTime(selectedRoot.notAfter) }}</small></article>
-          <div v-if="selectedIntermediates.length" class="ca-tree__connector"><span></span></div>
-          <div v-if="selectedIntermediates.length" class="ca-tree__children">
-            <article v-for="item in selectedIntermediates" :key="text(item.id)" class="ca-node ca-node--intermediate"><span class="ca-node__role">{{ t('internalCa.labels.intermediateAuthority') }}</span><strong>{{ text(item.name) }}</strong><span>{{ text(item.subjectCommonName) }}</span><small>{{ text(item.securityDomain) }} · {{ localTime(item.notAfter) }}</small><GcStatusTag :status="text(item.status)" /></article>
-          </div>
-          <div v-else class="ca-tree__empty"><p>{{ t('internalCa.messages.noIntermediate') }}</p><button v-if="isEligibleParentRoot(selectedRoot)" class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('intermediate', selectedRoot)">{{ t('internalCa.actions.addIntermediate') }}</button></div>
+    <!-- Section: 证书机构 -->
+    <details class="ca-section gc-card" open>
+      <summary class="ca-section__header">
+        <span class="ca-section__title">{{ t('internalCa.tabs.authorities') }}</span>
+        <span class="ca-section__actions" @click.stop>
+          <button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button>
+        </span>
+      </summary>
+      <div class="ca-section__body">
+        <div v-if="rootAuthorities.length" class="root-ca-grid">
+          <button v-for="root in rootAuthorities" :key="text(root.id)" type="button" class="root-ca-card gc-card" :class="{ 'is-selected': text(root.id) === text(selectedRoot?.id) }" @click="selectRoot(root)">
+            <span class="root-ca-card__accent"></span>
+            <span class="root-ca-card__body">
+              <span class="root-ca-card__title">
+                <strong>{{ text(root.name) }}</strong>
+                <GcStatusTag :status="text(root.status)" />
+              </span>
+              <span class="root-ca-card__cn">{{ text(root.subjectCommonName) }}</span>
+              <span class="root-ca-card__meta">{{ trustDomainName(root.trustDomainId) }} · {{ text(root.securityDomain) }}</span>
+              <span class="root-ca-card__expiry">{{ t('internalCa.labels.expiresAt', { time: localTime(root.notAfter) }) }}</span>
+            </span>
+            <span class="root-ca-card__badge">{{ t('internalCa.labels.intermediateCount', { count: authorities.filter((item) => text(item.parentCaId) === text(root.id)).length }) }}</span>
+          </button>
         </div>
-      </article>
-      <article v-else class="gc-card ca-empty"><h2>{{ t('internalCa.messages.noRootAuthority') }}</h2><p>{{ t('internalCa.messages.noRootAuthorityDescription') }}</p><button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button></article>
-      <details class="gc-card provider-settings">
-        <summary>{{ t('internalCa.sections.issuingBackends') }}</summary>
-        <section class="adcs-agent-install">
-          <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p><small>{{ t('internalCa.adcsAgent.providerCount', { count: adcsProviders.length }) }}</small></div>
-          <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="openAdcsWizard">{{ t('internalCa.adcsAgent.addProvider') }}</button>
-        </section>
-        <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small><button v-if="text(provider.type) === 'microsoft_adcs'" class="gc-button" type="button" :disabled="actionPending" @click="openAdcsUpdateWizard(provider)">{{ t('internalCa.adcsAgent.updateAgent') }}</button><GcConfirmAction v-if="text(provider.type) === 'microsoft_adcs'" :action-name="deletingProviderId === text(provider.id) ? t('internalCa.adcsAgent.deletingProvider') : t('internalCa.adcsAgent.deleteProvider')" :impact-count="nodes.filter((item) => text(item.providerId) === text(provider.id)).length" :risk-text="t('internalCa.adcsAgent.deleteProviderRisk')" :confirm-text="t('internalCa.adcsAgent.deleteConfirmText')" :disabled="authorities.some((item) => text(item.providerId) === text(provider.id)) || Boolean(deletingProviderId)" :disabled-reason="authorities.some((item) => text(item.providerId) === text(provider.id)) ? t('internalCa.adcsAgent.deleteProviderBlocked') : ''" @confirm="deleteProvider(provider)" /></article></div>
-      </details>
-    </template>
+        <article v-if="selectedRoot" class="ca-architecture">
+          <header class="ca-architecture__header">
+            <div>
+              <span class="ca-architecture__eyebrow">{{ text(selectedRoot.name) }}</span>
+              <p class="ca-architecture__desc">{{ t('internalCa.sections.caArchitecture') }}</p>
+            </div>
+            <button v-if="isEligibleParentRoot(selectedRoot)" class="gc-button gc-button--sm" type="button" @click="openAuthorityWizard('intermediate', selectedRoot)">{{ t('internalCa.actions.addIntermediate') }}</button>
+          </header>
+          <div class="ca-tree">
+            <article class="ca-node ca-node--root">
+              <span class="ca-node__badge">{{ t('internalCa.labels.rootAuthority') }}</span>
+              <strong>{{ text(selectedRoot.name) }}</strong>
+              <span class="ca-node__cn">{{ text(selectedRoot.subjectCommonName) }}</span>
+              <span class="ca-node__meta">{{ text(selectedRoot.providerId) }} · {{ localTime(selectedRoot.notAfter) }}</span>
+            </article>
+            <div v-if="selectedIntermediates.length" class="ca-tree__connector"></div>
+            <div v-if="selectedIntermediates.length" class="ca-tree__children">
+              <article v-for="item in selectedIntermediates" :key="text(item.id)" class="ca-node ca-node--intermediate">
+                <span class="ca-node__badge">{{ t('internalCa.labels.intermediateAuthority') }}</span>
+                <strong>{{ text(item.name) }}</strong>
+                <span class="ca-node__cn">{{ text(item.subjectCommonName) }}</span>
+                <span class="ca-node__meta">{{ text(item.securityDomain) }} · {{ localTime(item.notAfter) }}</span>
+                <GcStatusTag :status="text(item.status)" />
+              </article>
+            </div>
+            <div v-else class="ca-tree__empty">
+              <p>{{ t('internalCa.messages.noIntermediate') }}</p>
+              <button v-if="isEligibleParentRoot(selectedRoot)" class="gc-button gc-button--primary gc-button--sm" type="button" @click="openAuthorityWizard('intermediate', selectedRoot)">{{ t('internalCa.actions.addIntermediate') }}</button>
+            </div>
+          </div>
+        </article>
+        <article v-else class="ca-empty">
+          <h2>{{ t('internalCa.messages.noRootAuthority') }}</h2>
+          <p>{{ t('internalCa.messages.noRootAuthorityDescription') }}</p>
+          <button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button>
+        </article>
 
-    <template v-else-if="activeTab === 'profiles'">
-      <form class="gc-card form-card wide-form" @submit.prevent="createProfile"><h2>{{ t('internalCa.sections.profile') }}</h2><label>{{ t('internalCa.fields.name') }}<input v-model="profileDraft.name" required /></label><label>{{ t('internalCa.fields.trustDomain') }}<select v-model="profileDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label><label>{{ t('internalCa.fields.securityDomain') }}<input v-model="profileDraft.securityDomain" /></label><label>{{ t('internalCa.fields.dnsSuffixes') }}<input v-model="profileDraft.allowedDnsSuffix" :placeholder="t('internalCa.placeholders.dnsSuffixes')" /></label><label>{{ t('internalCa.fields.validityDays') }}<input v-model.number="profileDraft.maximumValidityDays" type="number" min="1" /></label><label>{{ t('internalCa.fields.renewalDays') }}<input v-model.number="profileDraft.renewalWindowDays" type="number" min="1" /></label><label class="check"><input v-model="profileDraft.requireApproval" type="checkbox" />{{ t('internalCa.fields.requireApproval') }}</label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createProfile') }}</button></form>
-      <div class="record-grid"><article v-for="item in profiles" :key="text(item.profile && (item.profile as InternalCaRecord).id)" class="gc-card record-card"><strong>{{ text(item.profile && (item.profile as InternalCaRecord).name) }}</strong><p>{{ text(item.profile && (item.profile as InternalCaRecord).securityDomain) }}</p><small>{{ t('internalCa.labels.versionCount', { count: asRecords(item.versions).length }) }}</small></article></div>
-    </template>
+        <details class="gc-card provider-settings">
+          <summary>{{ t('internalCa.sections.issuingBackends') }}</summary>
+          <section class="adcs-agent-install">
+            <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p><small>{{ t('internalCa.adcsAgent.providerCount', { count: adcsProviders.length }) }}</small></div>
+            <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="openAdcsWizard">{{ t('internalCa.adcsAgent.addProvider') }}</button>
+          </section>
+          <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small><button v-if="text(provider.type) === 'microsoft_adcs'" class="gc-button" type="button" :disabled="actionPending" @click="openAdcsUpdateWizard(provider)">{{ t('internalCa.adcsAgent.updateAgent') }}</button><GcConfirmAction v-if="text(provider.type) === 'microsoft_adcs'" :action-name="deletingProviderId === text(provider.id) ? t('internalCa.adcsAgent.deletingProvider') : t('internalCa.adcsAgent.deleteProvider')" :impact-count="nodes.filter((item) => text(item.providerId) === text(provider.id)).length" :risk-text="t('internalCa.adcsAgent.deleteProviderRisk')" :confirm-text="t('internalCa.adcsAgent.deleteConfirmText')" :disabled="authorities.some((item) => text(item.providerId) === text(provider.id)) || Boolean(deletingProviderId)" :disabled-reason="authorities.some((item) => text(item.providerId) === text(provider.id)) ? t('internalCa.adcsAgent.deleteProviderBlocked') : ''" @confirm="deleteProvider(provider)" /></article></div>
+        </details>
+      </div>
+    </details>
 
-    <template v-else-if="activeTab === 'requests'">
-      <form class="gc-card form-card wide-form" @submit.prevent="createRequest"><h2>{{ t('internalCa.sections.request') }}</h2><label>{{ t('internalCa.fields.applicationAssetId') }}<input v-model="requestDraft.applicationAssetId" required /></label><label>{{ t('internalCa.fields.trustDomain') }}<select v-model="requestDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label><label>{{ t('internalCa.fields.authority') }}<select v-model="requestDraft.caId"><option v-for="item in requestAuthorities" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label><label>{{ t('internalCa.fields.profileVersionId') }}<select v-model="requestDraft.profileVersionId" required><option v-for="item in requestProfileVersions" :key="text(item.id)" :value="text(item.id)">{{ text(item.profileName) }} · v{{ number(item.versionNo) }}</option></select></label><label>{{ t('internalCa.fields.commonName') }}<input v-model="requestDraft.commonName" required /></label><label>{{ t('internalCa.fields.sans') }}<input v-model="requestDraft.sans" :placeholder="t('internalCa.placeholders.sans')" /></label><label>{{ t('internalCa.fields.custodyMode') }}<select v-model="requestDraft.custodyMode"><option value="managed_secret">managed_secret</option><option value="local_agent">local_agent</option><option value="device_local">device_local</option><option value="external_key">external_key</option></select></label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createRequest') }}</button></form>
-      <div class="record-grid"><article v-for="item in requests" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.subjectCommonName) }}</strong><GcStatusTag :status="text(item.status)" /></div><p>{{ text(item.applicationAssetId) }}</p><small>{{ localTime(item.updatedAt) }}</small><div class="button-row"><button v-if="text(item.status) === 'pending_approval' && text(item.approvalId)" class="gc-button" @click="approveRequest(item)">{{ t('internalCa.actions.approve') }}</button><button v-if="text(item.status) === 'issue_failed'" class="gc-button" @click="retryRequest(item)">{{ t('internalCa.actions.retry') }}</button><button v-if="text(item.status) === 'issuing' && text(item.providerRequestId)" class="gc-button" @click="queryRequest(item)">{{ t('internalCa.actions.queryResult') }}</button></div></article></div>
-    </template>
+    <!-- Section: CA信任域 -->
+    <details class="ca-section gc-card" open>
+      <summary class="ca-section__header">
+        <span class="ca-section__title">{{ t('internalCa.tabs.trustDomains') }}</span>
+        <span class="ca-section__actions" @click.stop>
+          <button class="gc-button gc-button--primary" type="button" @click="openTrustDomainModal">{{ t('internalCa.actions.addTrustDomain') }}</button>
+        </span>
+      </summary>
+      <div class="ca-section__body">
+        <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense>
+          <template #toolbar>
+            <div class="trust-domain-page__table-toolbar">
+              <strong>{{ t('internalCa.trustDomains.recordsTitle') }}</strong>
+              <span>{{ t('businessPage.total', { count: trustDomains.length }) }}</span>
+            </div>
+          </template>
+          <template #cell-name="{ row }">
+            <div class="trust-domain-page__cell-main">
+              <strong>{{ text(row.name) }}</strong>
+            </div>
+          </template>
+          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
+          <template #cell-isDefault="{ row }">{{ row.isDefault ? t('internalCa.labels.defaultTrustDomain') : t('internalCa.trustDomains.notDefault') }}</template>
+          <template #cell-createdAt="{ row }">{{ localTime(row.createdAt) }}</template>
+        </GcDataTable>
+      </div>
+    </details>
 
-    <template v-else-if="activeTab === 'operations'">
-      <div class="metrics"><article class="gc-card metric"><span>{{ t('internalCa.metrics.nodes') }}</span><strong>{{ nodes.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.renewals') }}</span><strong>{{ renewals.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.revocations') }}</span><strong>{{ revocations.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.trust') }}</span><strong>{{ trustDistributions.length }}</strong></article></div>
-      <div class="content-grid"><form class="gc-card form-card" @submit.prevent="createRevocation"><h2>{{ t('internalCa.sections.revocation') }}</h2><label>{{ t('internalCa.fields.certificateVersionId') }}<input v-model="revocationDraft.certificateVersionId" required /></label><label>{{ t('internalCa.fields.reason') }}<input v-model="revocationDraft.reason" required /></label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createRevocation') }}</button></form><form class="gc-card form-card" @submit.prevent="createTrustDistribution"><h2>{{ t('internalCa.sections.trust') }}</h2><label>{{ t('internalCa.fields.authority') }}<select v-model="trustDraft.caId"><option v-for="item in authorities" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label><label>{{ t('internalCa.fields.targetIds') }}<input v-model="trustDraft.targetIds" /></label><label>{{ t('internalCa.fields.platform') }}<select v-model="trustDraft.platform"><option value="windows">windows</option><option value="linux">linux</option></select></label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createTrust') }}</button></form></div>
-      <div class="record-grid"><article v-for="item in revocations" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.certificateVersionId) }}</strong><GcStatusTag :status="text(item.status)" /></div><small>{{ localTime(item.updatedAt) }}</small><button v-if="text(item.status) === 'pending_approval' && text(item.approvalId)" class="gc-button" @click="approveRevocation(item)">{{ t('internalCa.actions.approve') }}</button></article><article v-for="item in trustDistributions" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.caId) }}</strong><GcStatusTag :status="text(item.status)" /></div><small>{{ localTime(item.updatedAt) }}</small><button v-if="text(item.status) === 'pending_approval' && text(item.approvalId)" class="gc-button" @click="approveTrustDistribution(item)">{{ t('internalCa.actions.approve') }}</button></article></div>
-    </template>
+    <!-- Section: 证书Profile -->
+    <details class="ca-section gc-card" open>
+      <summary class="ca-section__header">
+        <span class="ca-section__title">{{ t('internalCa.tabs.profiles') }}</span>
+        <span class="ca-section__actions" @click.stop>
+          <button class="gc-button gc-button--primary" type="button" @click="profileModalOpen = true">{{ t('internalCa.actions.createProfile') }}</button>
+        </span>
+      </summary>
+      <div class="ca-section__body">
+        <GcDataTable :columns="profileColumns" :rows="profiles" :loading="loading" row-key="id" :empty-text="t('internalCa.profiles.empty')" dense>
+          <template #toolbar>
+            <div class="trust-domain-page__table-toolbar">
+              <strong>{{ t('internalCa.profiles.recordsTitle') }}</strong>
+              <span>{{ t('businessPage.total', { count: profiles.length }) }}</span>
+            </div>
+          </template>
+          <template #cell-name="{ row }">
+            <div class="trust-domain-page__cell-main">
+              <strong>{{ text(row.profile && (row.profile as InternalCaRecord).name) }}</strong>
+            </div>
+          </template>
+          <template #cell-securityDomain="{ row }">{{ text(row.profile && (row.profile as InternalCaRecord).securityDomain) }}</template>
+          <template #cell-versionCount="{ row }">{{ t('internalCa.labels.versionCount', { count: asRecords(row.versions).length }) }}</template>
+          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
+        </GcDataTable>
+      </div>
+    </details>
 
-    <template v-else>
-      <div class="metrics"><article class="gc-card metric"><span>{{ t('internalCa.metrics.totalRisks') }}</span><strong>{{ number(riskOverview.total) }}</strong></article><article class="gc-card metric metric--danger"><span>{{ t('internalCa.metrics.critical') }}</span><strong>{{ number(riskOverview.critical) }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.affectedAssets') }}</span><strong>{{ number(riskOverview.affectedApplicationAssets) }}</strong></article></div>
-      <div class="record-grid"><article v-for="item in reuseRisks" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ t(`internalCa.riskTypes.${text(item.riskType)}`) }}</strong><GcStatusTag :status="text(item.severity)" /></div><p>{{ text(item.explanation) }}</p><small>{{ t('internalCa.labels.assetCount', { count: asRecords(item.applicationAssets).length }) }} · {{ t('internalCa.labels.trustDomainCount', { count: asRecords(item.trustDomainIds).length }) }} · {{ text(item.fingerprintSha256).slice(0, 16) }}</small><small v-if="asRecords(item.trustDomainNames).length">{{ asRecords(item.trustDomainNames).join(' · ') }}</small><button class="gc-button" @click="previewRemediation(text(item.id))">{{ t('internalCa.actions.previewRemediation') }}</button></article></div>
-      <article v-if="remediationPreview" class="gc-card"><h2>{{ t('internalCa.sections.remediation') }}</h2><p>{{ t('internalCa.labels.requestCount', { count: asRecords(remediationPreview.requests).length }) }}</p><pre>{{ JSON.stringify(remediationPreview, null, 2) }}</pre></article>
-    </template>
+    <!-- Section: 证书申请 -->
+    <details class="ca-section gc-card" open>
+      <summary class="ca-section__header">
+        <span class="ca-section__title">{{ t('internalCa.tabs.requests') }}</span>
+        <span class="ca-section__actions" @click.stop>
+          <button class="gc-button gc-button--primary" type="button" @click="requestModalOpen = true">{{ t('internalCa.actions.createRequest') }}</button>
+        </span>
+      </summary>
+      <div class="ca-section__body">
+        <GcDataTable :columns="requestColumns" :rows="recentRequests" :loading="loading" row-key="id" :empty-text="t('internalCa.requests.empty')" dense>
+          <template #toolbar>
+            <div class="trust-domain-page__table-toolbar">
+              <strong>{{ t('internalCa.requests.recordsTitle') }}</strong>
+              <span>{{ t('businessPage.total', { count: requests.length }) }}</span>
+            </div>
+          </template>
+          <template #cell-subjectCommonName="{ row }">
+            <div class="trust-domain-page__cell-main">
+              <strong>{{ text(row.subjectCommonName) }}</strong>
+            </div>
+          </template>
+          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
+          <template #cell-updatedAt="{ row }">{{ localTime(row.updatedAt) }}</template>
+          <template #cell-actions="{ row }">
+            <div class="button-row">
+              <button v-if="text(row.status) === 'pending_approval' && text(row.approvalId)" class="gc-button gc-button--sm" @click="approveRequest(row)">{{ t('internalCa.actions.approve') }}</button>
+              <button v-if="text(row.status) === 'issue_failed'" class="gc-button gc-button--sm" @click="retryRequest(row)">{{ t('internalCa.actions.retry') }}</button>
+              <button v-if="text(row.status) === 'issuing' && text(row.providerRequestId)" class="gc-button gc-button--sm" @click="queryRequest(row)">{{ t('internalCa.actions.queryResult') }}</button>
+            </div>
+          </template>
+        </GcDataTable>
+      </div>
+    </details>
 
     <GcModal v-model:open="trustDomainModalOpen" size="lg" :title="t('internalCa.trustDomains.modalTitle')" :description="t('internalCa.trustDomains.modalDescription')">
       <form id="trust-domain-form" class="trust-domain-form" @submit.prevent="createTrustDomain">
@@ -599,6 +683,40 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <template #actions>
         <button class="gc-button" type="button" :disabled="actionPending" @click="trustDomainModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" form="trust-domain-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.createTrustDomain') }}</button>
+      </template>
+    </GcModal>
+
+    <GcModal v-model:open="requestModalOpen" size="lg" :title="t('internalCa.requests.modalTitle')" :description="t('internalCa.requests.modalDescription')">
+      <form id="request-form" class="trust-domain-form" @submit.prevent="createRequest">
+        <label>{{ t('internalCa.fields.applicationAssetId') }}<input v-model="requestDraft.applicationAssetId" required /></label>
+        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="requestDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+        <label>{{ t('internalCa.fields.authority') }}<select v-model="requestDraft.caId"><option v-for="item in requestAuthorities" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+        <label>{{ t('internalCa.fields.profileVersionId') }}<select v-model="requestDraft.profileVersionId" required><option v-for="item in requestProfileVersions" :key="text(item.id)" :value="text(item.id)">{{ text(item.profileName) }} · v{{ number(item.versionNo) }}</option></select></label>
+        <label>{{ t('internalCa.fields.commonName') }}<input v-model="requestDraft.commonName" required /></label>
+        <label>{{ t('internalCa.fields.sans') }}<input v-model="requestDraft.sans" :placeholder="t('internalCa.placeholders.sans')" /></label>
+        <label>{{ t('internalCa.fields.custodyMode') }}<select v-model="requestDraft.custodyMode"><option value="managed_secret">managed_secret</option><option value="local_agent">local_agent</option><option value="device_local">device_local</option><option value="external_key">external_key</option></select></label>
+        <p v-if="error" class="notice notice--danger">{{ error }}</p>
+      </form>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="requestModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" form="request-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.createRequest') }}</button>
+      </template>
+    </GcModal>
+
+    <GcModal v-model:open="profileModalOpen" size="lg" :title="t('internalCa.profiles.modalTitle')" :description="t('internalCa.profiles.modalDescription')">
+      <form id="profile-form" class="trust-domain-form" @submit.prevent="createProfile">
+        <label>{{ t('internalCa.fields.name') }}<input v-model="profileDraft.name" required /></label>
+        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="profileDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+        <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="profileDraft.securityDomain" /></label>
+        <label>{{ t('internalCa.fields.dnsSuffixes') }}<input v-model="profileDraft.allowedDnsSuffix" :placeholder="t('internalCa.placeholders.dnsSuffixes')" /></label>
+        <label>{{ t('internalCa.fields.validityDays') }}<input v-model.number="profileDraft.maximumValidityDays" type="number" min="1" /></label>
+        <label>{{ t('internalCa.fields.renewalDays') }}<input v-model.number="profileDraft.renewalWindowDays" type="number" min="1" /></label>
+        <label class="check"><input v-model="profileDraft.requireApproval" type="checkbox" />{{ t('internalCa.fields.requireApproval') }}</label>
+        <p v-if="error" class="notice notice--danger">{{ error }}</p>
+      </form>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="profileModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" form="profile-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.createProfile') }}</button>
       </template>
     </GcModal>
 
@@ -727,30 +845,36 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .authority-toolbar, .ca-architecture__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
 .authority-toolbar h2, .authority-toolbar p, .ca-architecture__header h2 { margin: 0; }
 .authority-toolbar p { margin-top: var(--gc-space-1); color: var(--gc-color-text-muted); }
-.root-ca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-4); }
-.root-ca-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gc-space-3); padding: var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
-.root-ca-card:hover { transform: translateY(calc(var(--gc-space-hairline) * -1)); border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-hover); }
-.root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); box-shadow: var(--gc-shadow-focus); }
-.root-ca-card__icon { display: grid; place-items: center; width: var(--gc-control-height-md); aspect-ratio: 1; border-radius: var(--gc-radius-lg); color: var(--gc-color-text-inverse); background: var(--gc-gradient-primary); font-weight: 700; }
-.root-ca-card__body, .root-ca-card__metrics { display: grid; gap: var(--gc-space-1); min-width: 0; }
-.root-ca-card__title { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-2); }
-.root-ca-card__body > span, .root-ca-card__body small, .root-ca-card__metrics { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.root-ca-card__body small, .root-ca-card__metrics small, .ca-node small { color: var(--gc-color-text-soft); }
-.root-ca-card__metrics { grid-column: 2; padding-top: var(--gc-space-2); border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
-.ca-architecture { padding: var(--gc-space-5); overflow: hidden; }
-.ca-architecture__eyebrow { color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 700; text-transform: uppercase; }
-.ca-tree { display: grid; justify-items: center; margin-top: var(--gc-space-6); }
-.ca-node { display: grid; gap: var(--gc-space-1); width: min(100%, calc(var(--gc-size-card-min) * 1.35)); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); box-shadow: var(--gc-shadow-sm); text-align: center; }
+.root-ca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--gc-space-3); }
+.root-ca-card { display: grid; grid-template-columns: 3px minmax(0, 1fr) auto; gap: 0 var(--gc-space-3); padding: var(--gc-space-3) var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); transition: border-color 140ms ease, box-shadow 140ms ease; align-items: start; }
+.root-ca-card:hover { border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-hover); }
+.root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); }
+.root-ca-card__accent { width: 3px; height: 100%; border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); grid-row: 1 / 3; }
+.root-ca-card.is-selected .root-ca-card__accent { background: var(--gc-color-primary); box-shadow: 0 0 8px var(--gc-color-primary-weak); }
+.root-ca-card__body { display: grid; gap: var(--gc-space-hairline); min-width: 0; }
+.root-ca-card__title { display: flex; align-items: center; gap: var(--gc-space-2); font-size: var(--gc-font-size-sm); }
+.root-ca-card__title strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.root-ca-card__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.root-ca-card__meta { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.root-ca-card__expiry { font-size: 11px; color: var(--gc-color-text-soft); }
+.root-ca-card__badge { grid-row: 1; padding: 1px var(--gc-space-2); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary-soft); color: var(--gc-color-primary); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.ca-architecture { margin-top: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); overflow: hidden; }
+.ca-architecture__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); margin-bottom: var(--gc-space-3); }
+.ca-architecture__eyebrow { font-size: var(--gc-font-size-sm); font-weight: 600; color: var(--gc-color-text-strong); }
+.ca-architecture__desc { margin: 2px 0 0; font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); }
+.ca-tree { display: grid; justify-items: center; gap: 0; }
+.ca-node { display: grid; gap: 2px; width: min(100%, 280px); padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); text-align: left; }
+.ca-node strong { font-size: var(--gc-font-size-sm); font-weight: 600; }
+.ca-node__badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gc-color-primary); }
+.ca-node__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-node__meta { font-size: 11px; color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-node--root { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); }
-.ca-node--intermediate { position: relative; border-color: var(--gc-color-info-border); }
-.ca-node__role { color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: 700; }
-.ca-tree__connector { display: grid; justify-items: center; width: 100%; min-height: var(--gc-space-8); }
-.ca-tree__connector::before { content: ''; width: var(--gc-border-width-default); height: var(--gc-space-4); background: var(--gc-color-border-strong); }
-.ca-tree__connector span { align-self: end; width: min(72%, calc(var(--gc-size-card-min) * 2)); height: var(--gc-border-width-default); background: var(--gc-color-border-strong); }
-.ca-tree__children { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-4); width: 100%; }
-.ca-tree__children .ca-node::before { content: ''; position: absolute; inset-inline-start: 50%; bottom: 100%; width: var(--gc-border-width-default); height: var(--gc-space-4); background: var(--gc-color-border-strong); }
-.ca-tree__empty, .ca-empty { display: grid; justify-items: center; gap: var(--gc-space-3); padding: var(--gc-space-6); text-align: center; color: var(--gc-color-text-muted); }
-.ca-empty h2, .ca-empty p, .ca-tree__empty p { margin: 0; }
+.ca-node--intermediate { position: relative; border-color: var(--gc-color-border); }
+.ca-tree__connector { width: var(--gc-border-width-default); height: var(--gc-space-4); margin: 0 auto; background: var(--gc-color-border-strong); }
+.ca-tree__children { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gc-space-3); width: 100%; padding-top: var(--gc-space-4); border-top: var(--gc-border-width-default) solid var(--gc-color-border-strong); position: relative; }
+.ca-tree__empty, .ca-empty { display: grid; justify-items: center; gap: var(--gc-space-2); padding: var(--gc-space-5); text-align: center; color: var(--gc-color-text-muted); border: 1px dashed var(--gc-color-border); border-radius: var(--gc-radius-md); }
+.ca-empty h2, .ca-empty p, .ca-tree__empty p { margin: 0; font-size: var(--gc-font-size-sm); }
+.ca-empty { margin-top: var(--gc-space-3); }
 .provider-settings { padding: var(--gc-space-4); }
 .provider-settings summary { cursor: pointer; color: var(--gc-color-text-strong); font-weight: 700; }
 .provider-settings__list { display: grid; gap: var(--gc-space-3); margin-top: var(--gc-space-4); }
@@ -808,12 +932,30 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .ca-wizard__enrollment code { overflow-wrap: anywhere; padding: var(--gc-space-3); border-radius: var(--gc-radius-md); color: var(--gc-color-text-strong); background: var(--gc-color-surface-field); }
 .ca-wizard__risk { padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-warning-bg); }
 .ca-wizard__risk p { color: var(--gc-color-text-muted); }
+/* Collapsible sections */
+.ca-section { padding: 0; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); overflow: hidden; }
+.ca-section[open] { border-color: var(--gc-color-primary-border); }
+.ca-section__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); padding: var(--gc-space-4) var(--gc-space-5); cursor: pointer; list-style: none; user-select: none; transition: background 120ms ease; }
+.ca-section__header::-webkit-details-marker { display: none; }
+.ca-section__header::marker { display: none; content: ''; }
+.ca-section__header:hover { background: var(--gc-color-surface-muted); }
+.ca-section__header::before { content: ''; flex: 0 0 auto; width: var(--gc-space-5); height: var(--gc-space-5); background: var(--gc-color-text-muted); mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M9 18l6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat; transition: transform 200ms ease; }
+.ca-section[open] > .ca-section__header::before { transform: rotate(90deg); }
+.ca-section__title { font-size: var(--gc-font-size-lg); font-weight: 700; color: var(--gc-color-text-strong); flex: 1 1 auto; }
+.ca-section__actions { display: flex; align-items: center; gap: var(--gc-space-2); flex: 0 0 auto; }
+.ca-section__body { display: grid; gap: var(--gc-space-5); padding: 0 var(--gc-space-5) var(--gc-space-5); }
+.ca-subsection { margin-top: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
+.ca-subsection__header { cursor: pointer; color: var(--gc-color-text-strong); font-weight: 700; font-size: var(--gc-font-size-sm); list-style: none; padding: var(--gc-space-2); border-radius: var(--gc-radius-sm); transition: background 120ms ease; display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
+.ca-subsection__header::-webkit-details-marker { display: none; }
+.ca-subsection__header:hover { background: var(--gc-color-surface-hover); }
+.ca-subsection__actions { display: flex; align-items: center; gap: var(--gc-space-2); flex: 0 0 auto; }
+.ca-subsection__body { display: grid; gap: var(--gc-space-4); padding-top: var(--gc-space-3); }
 @media (max-width: 48rem) {
-  .authority-toolbar, .ca-architecture__header { align-items: stretch; flex-direction: column; }
+  .authority-toolbar, .ca-architecture__header, .ca-section__header { align-items: stretch; flex-direction: column; }
+  .ca-section__actions { justify-content: flex-start; }
   .ca-wizard__entry-grid, .ca-wizard__form, .ca-tree__children { grid-template-columns: 1fr; }
   .ca-wizard__progress ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .provider-summary { grid-template-columns: minmax(0, 1fr) auto; }
   .provider-summary small { grid-column: 1 / -1; }
-  .ca-tree__connector span { width: var(--gc-border-width-default); height: var(--gc-space-4); }
 }
 </style>
