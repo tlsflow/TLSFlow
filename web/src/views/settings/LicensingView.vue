@@ -17,6 +17,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 const { t, locale } = useI18n()
 const status = ref<LicenseStatus | null>(null)
 const licenseFileInput = ref<HTMLInputElement | null>(null)
+const licenseText = ref('')
 const loading = ref(false)
 const importing = ref(false)
 const upgradeModalOpen = ref(false)
@@ -244,6 +245,13 @@ async function importLicensePayload(payload: string): Promise<void> {
   }
 }
 
+async function importPastedLicense(): Promise<void> {
+  const payload = licenseText.value.trim()
+  if (!payload) return
+  await importLicensePayload(payload)
+  if (!errorMessage.value) licenseText.value = ''
+}
+
 function isActivationResponsePayload(value: unknown): value is ActivationResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const response = value as Partial<ActivationResponse>
@@ -392,6 +400,13 @@ onMounted(loadStatus)
             @change="handleLicenseFileChange"
           >
         </div>
+        <label class="licensing-page__input">
+          <span>{{ t('settings.licensing.actions.importLabel') }}</span>
+          <textarea v-model="licenseText" rows="4" :placeholder="t('settings.licensing.actions.importPlaceholder')" />
+        </label>
+        <button class="gc-button gc-button--primary" type="button" :disabled="importing || !licenseText.trim()" @click="importPastedLicense">
+          {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
+        </button>
       </section>
     </section>
 
@@ -804,6 +819,25 @@ onMounted(loadStatus)
   display: flex;
   flex-wrap: wrap;
   gap: var(--gc-space-2);
+}
+
+.licensing-page__input {
+  display: grid;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.licensing-page textarea {
+  width: 100%;
+  resize: vertical;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface);
+  font-family: var(--gc-font-family-mono);
+  font-size: var(--gc-font-size-sm);
 }
 
 /* ---- 提示消息 ---- */
