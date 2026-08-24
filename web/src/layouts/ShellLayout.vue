@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
 import { listTasks, type TaskStatus } from '@/api/modules/tasks.api'
 import { GcModal } from '@/design-system/components'
+import { productBrand } from '@/brand/product-brand'
 import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
 import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
@@ -517,7 +518,7 @@ async function refreshTaskEntryCount(): Promise<void> {
       <div class="gc-workbench__sidebar-header">
         <RouterLink class="gc-workbench__brand" :to="brandTarget" :aria-label="t('shell.backDashboard')" @click="closeMobileNav(false)">
           <span class="gc-workbench__brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z" /></svg>
+            <img :src="productBrand.markAssetUrl" alt="">
           </span>
           <span class="gc-workbench__brand-text">{{ t('app.brand') }}</span>
         </RouterLink>

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcModal } from '@/design-system/components'
 import { ApiClientError } from '@/api/client'
+import { productBrand } from '@/brand/product-brand'
 import {
   createActivationRequest,
   exportLicense,
@@ -138,7 +139,7 @@ async function exportCurrentLicense(): Promise<void> {
   try {
     const response = await exportLicense()
     if (!response.data) throw new Error('license export data missing')
-    await downloadJson('gcac-license-export.json', response.data)
+    await downloadJson(`${productBrand.slug}-license-export.json`, response.data)
     message.value = t('settings.licensing.messages.exported')
   } catch {
     errorMessage.value = t('settings.licensing.messages.operationFailed')
@@ -150,7 +151,7 @@ async function createRequest(kind: 'online' | 'offline'): Promise<void> {
   try {
     const response = await createActivationRequest(kind)
     if (!response.data) throw new Error('activation request data missing')
-    await downloadJson(`gcac-activation-request-${kind}.json`, response.data.request)
+    await downloadJson(`${productBrand.slug}-activation-request-${kind}.json`, response.data.request)
     message.value = t('settings.licensing.messages.requestExported')
   } catch {
     errorMessage.value = t('settings.licensing.messages.operationFailed')

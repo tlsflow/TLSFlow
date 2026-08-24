@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" role="img" aria-labelledby="title desc">
+  <title id="title">TlsFlow 品牌标识</title>
+  <desc id="desc">TlsFlow 的安全流图形标和横向英文名称</desc>
+  <defs>
+    <clipPath id="tlsflow-shield-clip">
+      <path d="M128 13 218 53v66c0 56.4-34.7 102.8-90 124.7C72.7 221.8 38 175.4 38 119V53z"/>
+    </clipPath>
+  </defs>
+  <path fill="#0B1F33" d="M128 13 218 53v66c0 56.4-34.7 102.8-90 124.7C72.7 221.8 38 175.4 38 119V53z"/>
+  <g clip-path="url(#tlsflow-shield-clip)" fill="none" stroke-linecap="round">
+    <path d="M27 90c32-31 70-31 101 0l12 12c21 22 52 22 84-9" stroke="#1478E5" stroke-width="31"/>
+    <path d="M30 170c31 29 67 29 98 0l15-15c19-19 48-19 81 9" stroke="#00B8A9" stroke-width="25"/>
+    <path d="M42 83c28-24 58-23 84 3l16 16c22 22 52 22 77 2" stroke="#8ED4FF" stroke-opacity=".82" stroke-width="4"/>
+    <path d="M45 177c26 18 55 16 79-8l19-19c17-17 43-17 66 2" stroke="#8FF1E7" stroke-opacity=".84" stroke-width="4"/>
+  </g>
+  <path fill="#F1FEFC" d="m128 103 24 23-24 27-24-27z"/>
+  <path fill="#0B1F33" d="m128 113 14 13-14 16-14-16z"/>
+  <text x="276" y="154" fill="#0B1F33" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="104" font-weight="700" letter-spacing="0">Tls<tspan fill="#1478E5">Flow</tspan></text>
+</svg>

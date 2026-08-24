@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
+import { productBrand } from '@/brand/product-brand'
 import { GcLocaleSelect, GcThemeToggle } from '@/design-system/components'
 import { normalizeInternalRedirectPath } from '@/router/redirect'
 import { useAuthStore } from '@/stores/auth.store'
@@ -46,7 +47,7 @@ async function submit(): Promise<void> {
   <main class="login-page">
     <header class="login-page__topbar">
       <div class="login-page__brand">
-        <span class="login-page__mark" aria-hidden="true">G</span>
+        <span class="login-page__mark" aria-hidden="true"><img :src="productBrand.markAssetUrl" alt=""></span>
         <span class="login-page__brand-text">
           <strong>{{ t('app.brand') }}</strong>
           <small>{{ t('login.brandSecondary') }}</small>
@@ -144,6 +145,11 @@ async function submit(): Promise<void> {
   background: var(--gc-color-primary);
   box-shadow: var(--gc-shadow-primary);
   font-weight: 900;
+}
+
+.login-page__mark img {
+  width: var(--gc-space-5);
+  height: var(--gc-space-5);
 }
 
 .login-page__brand-text {

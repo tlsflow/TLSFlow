@@ -1,5 +1,6 @@
 import { createI18n } from 'vue-i18n'
 import type { LocaleMessage } from '@intlify/core-base'
+import { applyProductBranding } from '@/brand/product-brand'
 import { defaultLocale, supportedLocales, normalizeLocale, type SupportedLocale } from './locales'
 
 // 静态导入默认语言，确保应用启动后立即可用。
@@ -14,7 +15,7 @@ export const i18n = createI18n({
   missingWarn: import.meta.env.DEV,
   fallbackWarn: import.meta.env.DEV,
   messages: {
-    [defaultLocale]: zhCN
+    [defaultLocale]: applyProductBranding(zhCN)
   }
 })
 
@@ -69,7 +70,7 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
     }
 
     const mod = await loader()
-    i18n.global.setLocaleMessage(locale, mod.default)
+    i18n.global.setLocaleMessage(locale, applyProductBranding(mod.default))
     loadedLocales.add(locale)
 
     if (requestedLocale !== locale) return
