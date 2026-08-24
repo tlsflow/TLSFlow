@@ -19,6 +19,7 @@ import type {
   DeleteAgentInput,
   DisableAgentInput,
   EnableAgentInput,
+  EnqueueAgentCapabilityRescanInput,
   EnqueueAgentTaskInput,
   PublishAgentVersionInput,
   RegisterAgentInput,
@@ -48,13 +49,14 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks', '查询 Agent 任务队列', tags, (request) => this.listTaskQueue(request));
     router.get('/api/v1/agents/tasks/log-cursor', '查询 Agent 日志 ack cursor', tags, (request) => this.getLogCursor(request));
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
+    router.post('/api/v1/agents/:agentId/rescan', '创建 Agent 手动能力重扫任务', tags, (request) => this.enqueueCapabilityRescan(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
-    router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows PowerShell Agent 安装会话', tags, (request) => this.createWindowsPowerShellInstallSession(request));
+    router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, (request) => this.createWindowsPowerShellInstallSession(request));
     router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
-    router.get('/agent-install.ps1', '获取 Windows PowerShell Agent 短安装入口', tags, (request) => this.getWindowsPowerShellBootstrap(request));
+    router.get('/agent-install.ps1', '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
     router.get('/agent-install', '获取 Linux Go Agent 短安装入口', tags, (request) => this.getLinuxGoBootstrap(request));
-    router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows PowerShell Agent bootstrap 脚本', tags, (request) => this.getWindowsPowerShellBootstrap(request));
-    router.get('/api/v1/agents/install/windows/manifest', '获取 Windows PowerShell Agent 安装清单', tags, (request) => this.getWindowsPowerShellManifest(request));
+    router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellBootstrap(request));
+    router.get('/api/v1/agents/install/windows/manifest', '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, (request) => this.getWindowsPowerShellManifest(request));
     router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
     router.get('/api/v1/agents/install/linux/manifest', '获取 Linux Go Agent 安装清单', tags, (request) => this.getLinuxGoManifest(request));
     router.get('/api/v1/agents/install/linux/bundle.tar.gz', '下载 Linux Go Agent 安装 bundle', tags, (request) => this.getLinuxBundle(request));
@@ -392,6 +394,17 @@ export class AgentsController {
     return { statusCode: 201, body: this.service.enqueueTask(tenantId(request), body as unknown as EnqueueAgentTaskInput, requestId(request)) };
   }
 
+  private enqueueCapabilityRescan(request: HttpRequest) {
+    const agentId = readPathParam(request, 'agentId');
+    return {
+      statusCode: 201,
+      body: this.service.enqueueCapabilityRescanTask(tenantId(request), {
+        agentId,
+        requestedBy: actorId(request),
+      } as EnqueueAgentCapabilityRescanInput, requestId(request)),
+    };
+  }
+
   private pullTasks(request: HttpRequest) {
     const agentId = readQuery(request, 'agentId');
     const limit = Number(readQuery(request, 'limit', '10'));
@@ -489,12 +502,13 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/tasks', operationId: 'listAgentTaskQueue', summary: '查询 Agent 任务队列', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/tasks/log-cursor', operationId: 'getAgentTaskLogCursor', summary: '查询 Agent 日志 ack cursor', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'enqueueAgentCapabilityRescanTask', summary: '创建 Agent 手动能力重扫任务', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows PowerShell Agent 安装会话', tags, responseSchema: schema },
-    { method: 'GET', path: '/agent-install.ps1', operationId: 'getWindowsPowerShellAgentShortInstall', summary: '获取 Windows PowerShell Agent 短安装入口', tags, responseSchema: { type: 'string' } },
+    { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）', tags, responseSchema: schema },
+    { method: 'GET', path: '/agent-install.ps1', operationId: 'getWindowsPowerShellAgentShortInstall', summary: '获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/agent-install', operationId: 'getLinuxGoAgentShortInstall', summary: '获取 Linux Go Agent 短安装入口', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows PowerShell Agent bootstrap 脚本', tags, responseSchema: { type: 'string' } },
-    { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows PowerShell Agent 安装清单', tags, responseSchema: schema },
+    { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）', tags, responseSchema: { type: 'string' } },
+    { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/register', operationId: 'registerAgent', summary: '注册 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/sessions', operationId: 'createAgentMtlsSession', summary: '创建 Agent mTLS 会话', tags, responseSchema: schema },
@@ -535,6 +549,14 @@ function readQuery(request: HttpRequest, key: string, fallback?: string): string
   if (!normalized && fallback !== undefined) return fallback;
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${key} 不能为空`, { key });
   return normalized;
+}
+
+function readPathParam(request: HttpRequest, key: string): string {
+  const value = key === 'agentId'
+    ? request.path.match(/^\/api\/v1\/agents\/([^/]+)\/rescan$/)?.[1]
+    : undefined;
+  if (!value) throw new AppError('VALIDATION_FAILED', `${key} 不能为空`, { key });
+  return value;
 }
 
 function readOptionalCsv(request: HttpRequest, key: string): string[] | undefined {
@@ -585,7 +607,7 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     manifestJson,
     '\'@ | ConvertFrom-Json',
     '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
-    "$root = Join-Path $env:TEMP ('gcac-winps-agent-' + $manifest.sessionId)",
+    "$root = Join-Path $env:TEMP ('gcac-win-go-agent-' + $manifest.sessionId)",
     'New-Item -ItemType Directory -Force -Path $root | Out-Null',
     'foreach ($artifact in $manifest.artifacts) {',
     '  $path = Join-Path $root $artifact.path',
@@ -601,6 +623,7 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
     '$config.tenantId = [string]$manifest.tenantId',
     '$config.agentKey = [string]$manifest.agentKey',
+    '$config.controlPlaneUrl = [string]$manifest.controlPlaneUrl',
     '$config.service.name = [string]$manifest.serviceName',
     '$config.service.displayName = [string]$manifest.displayName',
     "$actualConfigPath = Join-Path $manifest.configDir 'agent.config.json'",
@@ -622,20 +645,34 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '[System.IO.File]::WriteAllText($actualConfigPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
     'New-Item -ItemType Directory -Force -Path $manifest.dataDir | Out-Null',
     "$installScript = Join-Path $root 'install-service.ps1'",
-    "$entryScript = Join-Path $root 'Start-GcacFullAgent.ps1'",
+    "$binaryPath = Join-Path $manifest.installRoot 'gcac-agent.exe'",
+    "if (-not (Test-Path -LiteralPath $binaryPath)) {",
+    "  $binaryPath = Join-Path $root 'gcac-agent.exe'",
+    "}",
+    "if (-not (Test-Path -LiteralPath $binaryPath)) {",
+    "  $binaryPath = Join-Path $root 'windows-go-full-agent.exe'",
+    "}",
     "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
     "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
-    '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; LogDir = [string]$manifest.logDir }',
+    '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; DataDir = [string]$manifest.dataDir; LogDir = [string]$manifest.logDir }',
     'if ([bool]$manifest.startAfterInstall) {',
     '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params -StartAfterInstall',
     '} else {',
     '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
     '}',
     "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
-    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -SelfCheck -ConfigPath $actualConfigPath -LogDir $manifest.logDir -OutputPath $selfCheckPath",
-    "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap self-check failed after service installation.' }",
-    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -RunOnce -ConfigPath $actualConfigPath -LogDir $manifest.logDir -OutputPath $runOncePath",
-    'if ($LASTEXITCODE -ne 0) {',
+    "$selfCheckOutput = & $binaryPath self-check --config=$actualConfigPath 2>&1 | Out-String",
+    "$selfCheckExitCode = $LASTEXITCODE",
+    "[System.IO.File]::WriteAllText($selfCheckPath, $selfCheckOutput, $utf8Bom)",
+    'if ($selfCheckExitCode -ne 0) {',
+    '  Write-Host "Bootstrap self-check output:"',
+    '  Write-Host $selfCheckOutput',
+    "  throw 'Bootstrap self-check failed after service installation.'",
+    '}',
+    "$registerOutput = & $binaryPath register-once --config=$actualConfigPath 2>&1 | Out-String",
+    "$registerExitCode = $LASTEXITCODE",
+    "[System.IO.File]::WriteAllText($runOncePath, $registerOutput, $utf8Bom)",
+    'if ($registerExitCode -ne 0) {',
     '  Write-Warning "Bootstrap first registration run failed."',
     '  if (Test-Path -LiteralPath $runOncePath) {',
     '    Write-Host "Bootstrap register result:"',
@@ -653,11 +690,19 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '  }',
     "  throw 'Bootstrap first registration run failed.'",
     '}',
-    "$installMetadataPath = Join-Path $manifest.configDir 'service.install.json'",
+    "$installMetadataPath = Join-Path (Split-Path -Parent $manifest.configDir) 'service.install.json'",
     'if (Test-Path -LiteralPath $installMetadataPath) {',
     '  $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
-    '  $installMetadata.LastBootstrapSelfCheckPath = $selfCheckPath',
-    '  $installMetadata.LastBootstrapRunOncePath = $runOncePath',
+    "  if ($null -eq $installMetadata.PSObject.Properties['LastBootstrapSelfCheckPath']) {",
+    '    $installMetadata | Add-Member -NotePropertyName LastBootstrapSelfCheckPath -NotePropertyValue $selfCheckPath',
+    '  } else {',
+    '    $installMetadata.LastBootstrapSelfCheckPath = $selfCheckPath',
+    '  }',
+    "  if ($null -eq $installMetadata.PSObject.Properties['LastBootstrapRunOncePath']) {",
+    '    $installMetadata | Add-Member -NotePropertyName LastBootstrapRunOncePath -NotePropertyValue $runOncePath',
+    '  } else {',
+    '    $installMetadata.LastBootstrapRunOncePath = $runOncePath',
+    '  }',
     '  [System.IO.File]::WriteAllText($installMetadataPath, ($installMetadata | ConvertTo-Json -Depth 10), $utf8Bom)',
     '}',
     'if ([bool]$manifest.startAfterInstall) {',
@@ -677,14 +722,6 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) AppDirectory | Write-Host',
     '        }',
     '      } catch { }',
-    '    }',
-    '    if (Test-Path -LiteralPath $stdoutLog) {',
-    '      Write-Host "Service stdout log:"',
-    '      Get-Content -LiteralPath $stdoutLog -Raw | Write-Host',
-    '    }',
-    '    if (Test-Path -LiteralPath $stderrLog) {',
-    '      Write-Host "Service stderr log:"',
-    '      Get-Content -LiteralPath $stderrLog -Raw | Write-Host',
     '    }',
     '    throw',
     '  }',

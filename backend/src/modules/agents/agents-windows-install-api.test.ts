@@ -31,9 +31,10 @@ describe('Agent 安装会话安全约束', () => {
     };
 
     assert.equal(createdBody.zone, 'default');
-    assert.match(createdBody.serviceName, /^gcac-full-agent-ps/);
+    assert.match(createdBody.serviceName, /^gcac-windows-go-agent-/);
     assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=/);
     assert.match(createdBody.installCommand, /^irm https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=.* \| iex$/);
+    assert.match(String((created.body as { configDir?: string }).configDir ?? ''), /FullAgentGo\\config$/);
     assert.ok(createdBody.enrollmentToken);
     assert.match(createdBody.bootstrapTokenPreview, /^[A-HJ-NP-Za-km-z2-9]{8}$/);
 
@@ -57,13 +58,17 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /install-service\.ps1/);
     assert.match(bootstrapBody, /\.env/);
     assert.match(bootstrapBody, /GCAC_CONTROL_PLANE_URL=/);
+    assert.match(bootstrapBody, /\.controlPlaneUrl = \[string\]\$manifest\.controlPlaneUrl/);
     assert.match(bootstrapBody, /bootstrap-selfcheck\.json/);
     assert.match(bootstrapBody, /bootstrap-register\.json/);
     assert.match(bootstrapBody, /WriteAllBytes/);
     assert.match(bootstrapBody, /FromBase64String/);
-    assert.match(bootstrapBody, /-SelfCheck/);
-    assert.match(bootstrapBody, /-RunOnce/);
+    assert.match(bootstrapBody, /self-check --config=/);
+    assert.match(bootstrapBody, /register-once --config=/);
     assert.match(bootstrapBody, /Start-Service -Name/);
+    assert.match(bootstrapBody, /Join-Path \$manifest\.installRoot 'gcac-agent\.exe'/);
+    assert.match(bootstrapBody, /WriteAllText\(\$selfCheckPath, \$selfCheckOutput, \$utf8Bom\)/);
+    assert.doesNotMatch(bootstrapBody, /Start-GcacFullAgent\.ps1/);
     assert.doesNotMatch(bootstrapBody, /Invoke-RestMethod -Method Get -Uri/);
     assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
 

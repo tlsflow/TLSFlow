@@ -127,6 +127,26 @@ describe('spec011 Agent 控制面协议', () => {
     assert.equal(detailBody.lifecycle.canPullTasks, true);
     assert.equal(detailBody.upgradeSuggestion.suggestion.status, 'not_required');
 
+    const rescanTask = await app.inject({
+      method: 'POST',
+      path: `/api/v1/agents/${agent.id}/rescan`,
+      headers: { ...headers, 'x-actor-id': 'ops_rescan' },
+    });
+    assert.equal(rescanTask.statusCode, 201);
+    const rescanBody = rescanTask.body as { id: string; status: string; payload: { type: string; requestedBy: string }; idempotencyKey: string };
+    assert.equal(rescanBody.status, 'queued');
+    assert.equal(rescanBody.payload.type, 'agent.capability.rescan');
+    assert.equal(rescanBody.payload.requestedBy, 'ops_rescan');
+    assert.equal(rescanBody.idempotencyKey, `agent.capability.rescan:${agent.id}`);
+
+    const duplicatedRescan = await app.inject({
+      method: 'POST',
+      path: `/api/v1/agents/${agent.id}/rescan`,
+      headers: { ...headers, 'x-actor-id': 'ops_rescan_2', 'x-request-id': 'req_agent_rescan_duplicate' },
+    });
+    assert.equal(duplicatedRescan.statusCode, 409);
+    assert.equal((duplicatedRescan.body as { errorCode: string }).errorCode, 'RESOURCE_ALREADY_EXISTS');
+
     const capabilityQuery = await app.inject({ method: 'GET', path: `/api/v1/agents/capabilities?agentId=${agent.id}`, headers });
     assert.equal(capabilityQuery.statusCode, 200);
     assert.equal((capabilityQuery.body as { declarations: unknown[] }).declarations.length, 1);
@@ -655,6 +675,7 @@ describe('spec011 Agent 控制面协议', () => {
     assert.ok(paths['/api/v1/agents/enrollment-tokens']);
     assert.ok(paths['/api/v1/agents/detail']);
     assert.ok(paths['/api/v1/agents/capabilities']);
+    assert.ok(paths['/api/v1/agents/:agentId/rescan']);
     assert.ok(paths['/api/v1/agents/tasks']);
     assert.ok(paths['/api/v1/agents/upgrades/suggestion']);
     assert.ok(paths['/api/v1/agents/disable']);

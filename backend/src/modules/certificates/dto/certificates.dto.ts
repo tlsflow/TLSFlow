@@ -177,6 +177,7 @@ export interface DeleteCertificateVersionFormatInput {
 export interface CertificateFormatExportPlanDto extends CertificateVersionFormatDto {
   exportMode: 'planned' | 'generated';
   warnings: string[];
+  persisted?: boolean;
 }
 
 export interface CertificateSourceSyncInput {

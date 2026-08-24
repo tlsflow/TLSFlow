@@ -49,6 +49,64 @@ describe('证书模块共享数据库回归', () => {
     assert.equal((listed.body as any).total, 1);
     assert.equal((listed.body as any).items[0].primaryDomain, 'leaf.example.test');
   });
+
+  it('宸插垹闄ょ殑璇佷功鐗堟湰涓嶅簲缁х画鍗犵敤 fingerprint锛屽簲鍏佽閲嶆柊瀵煎叆', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const chain = createPemChainFixture();
+    const security = createSecurityServices();
+    for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
+      security.rbac.createPolicy({
+        subjectType: 'user',
+        subjectId: 'user_reimport_deleted',
+        effect: 'allow',
+        actions: [action],
+        resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+        scope: { tenantId: 'tenant_1' },
+      });
+    }
+
+    const app = createApp({
+      db,
+      corePersistence: { mode: 'memory' },
+      security,
+    });
+
+    const firstImport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_reimport_deleted' },
+      body: { certificatePem: chain.pem, privateKeyPem: chain.privateKeyPem },
+    });
+    assert.equal(firstImport.statusCode, 201);
+    const firstVersionId = (firstImport.body as any).version.id;
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      path: `/api/v1/certificate-versions/delete?id=${firstVersionId}`,
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_reimport_deleted' },
+    });
+    assert.equal(deleted.statusCode, 200);
+    assert.equal((deleted.body as any).status, 'deleted');
+
+    const reimported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_reimport_deleted' },
+      body: { certificatePem: chain.pem, privateKeyPem: chain.privateKeyPem },
+    });
+    assert.equal(reimported.statusCode, 201);
+    assert.notEqual((reimported.body as any).version.id, firstVersionId);
+    assert.equal((reimported.body as any).version.fingerprintSha256, (firstImport.body as any).version.fingerprintSha256);
+
+    const listed = await app.inject({
+      method: 'GET',
+      path: '/api/v1/certificate-versions',
+      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_reimport_deleted' },
+    });
+    assert.equal(listed.statusCode, 200);
+    assert.equal((listed.body as any).total, 1);
+  });
 });
 
 function createPemChainFixture(): { pem: string; privateKeyPem: string } {

@@ -42,11 +42,12 @@ export class CertificatesController {
     router.get('/api/v1/certificate-versions/:id/formats', '查询证书版本格式产物', ['Certificates'], (request) => this.getVersionFormats(request));
     router.post('/api/v1/certificate-versions/archive', '归档证书版本', ['Certificates'], (request) => this.archiveVersion(request));
     router.post('/api/v1/certificate-versions/revoke', '吊销证书版本', ['Certificates'], (request) => this.revokeVersion(request));
+    router.delete('/api/v1/certificate-versions/delete', '删除证书版本', ['Certificates'], (request) => this.deleteVersion(request));
     router.post('/api/v1/certificate-versions/import', 'Import certificate material', ['Certificates'], (request) => this.importVersion(request));
     router.post('/api/v1/certificate-versions/validate-import', '校验证书导入材料', ['Certificates'], (request) => this.validateImportVersion(request));
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
+    router.get('/api/v1/certificate-version-formats/artifact', '下载证书格式产物', ['Certificates'], (request) => this.downloadFormatArtifact(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
-    router.get('/api/v1/certificate-version-formats/artifact', '????????', ['Certificates'], (request) => this.downloadFormatArtifact(request));
     router.patch('/api/v1/certificate-version-formats', '更新证书格式产物记录', ['Certificates'], (request) => this.updateFormat(request));
     router.post('/api/v1/certificate-version-formats/delete', '删除证书格式产物记录', ['Certificates'], (request) => this.deleteFormat(request));
     router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.requestFormatExport(request));
@@ -242,13 +243,12 @@ export class CertificatesController {
     }));
   }
 
-  private async createFormat(request: HttpRequest) {
   private async downloadFormatArtifact(request: HttpRequest) {
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
     const artifactRef = request.query.artifactRef;
     if (Array.isArray(artifactRef) || typeof artifactRef !== 'string' || artifactRef.trim() === '') {
-      throw new AppError('VALIDATION_FAILED', 'artifactRef ????', { field: 'artifactRef' });
+      throw new AppError('VALIDATION_FAILED', 'artifactRef 不能为空', { field: 'artifactRef' });
     }
     const artifact = await this.services.certificates.getFormatArtifact(artifactRef);
     return {
@@ -261,6 +261,7 @@ export class CertificatesController {
     };
   }
 
+  private async createFormat(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string' },
       format: { type: 'string', required: true, enum: certificateFormats },
@@ -515,8 +516,8 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/certificate-versions/detail', operationId: 'getCertificateVersionDetail', summary: '查询证书版本详情', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'GET', path: '/api/v1/certificate-versions/usage', operationId: 'getCertificateVersionUsage', summary: '查询证书版本使用位置', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-versions/:id/formats', operationId: 'listCertificateVersionFormatsByVersionId', summary: 'List certificate version formats by version id', tags: ['Certificates'], responseSchema: pageSchema },
+    { method: 'GET', path: '/api/v1/certificate-version-formats/artifact', operationId: 'downloadCertificateVersionFormatArtifact', summary: '下载证书格式产物', tags: ['Certificates'], responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-versions/import', operationId: 'importCertificateVersion', summary: 'Import certificate material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: certificateVersionSchema },
-    { method: 'GET', path: '/api/v1/certificate-version-formats/artifact', operationId: 'downloadCertificateVersionFormatArtifact', summary: '????????', tags: ['Certificates'], responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-versions/archive', operationId: 'archiveCertificateVersion', summary: '归档证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/revoke', operationId: 'revokeCertificateVersion', summary: '吊销证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'DELETE', path: '/api/v1/certificate-versions/delete', operationId: 'deleteCertificateVersion', summary: '删除证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },

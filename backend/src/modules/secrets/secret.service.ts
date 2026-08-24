@@ -34,6 +34,8 @@ export interface SecretMetadataOutput {
   updatedAt: string;
 }
 
+export interface SecretMetadataDiagnosticOutput extends SecretMetadataOutput {}
+
 export interface ResolveSecretInput {
   secretRef: string;
   grantId: string;
@@ -263,6 +265,16 @@ export class SecretService {
 
   async listSecretVersions(secretId: string): Promise<SecretVersionEntity[]> {
     return (await this.versions.list((version) => version.secretId === secretId)).map(({ dekIv: _dekIv, dekAuthTag: _dekAuthTag, ...safe }) => safe);
+  }
+
+  async listAllMetadataForDiagnostics(): Promise<SecretMetadataDiagnosticOutput[]> {
+    const rows = await this.secrets.list();
+    const output: SecretMetadataDiagnosticOutput[] = [];
+    for (const row of rows) {
+      if (row.status === 'deleted') continue;
+      output.push(await this.toMetadata(row));
+    }
+    return output;
   }
 
   private async resolveVersion(secret: SecretEntity, version: string): Promise<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> {

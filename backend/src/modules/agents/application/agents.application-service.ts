@@ -8,7 +8,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
@@ -258,6 +258,29 @@ export class AgentsApplicationService {
       updatedAt: now,
       requestId,
     });
+  }
+
+  async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
+    await this.requireAgent(tenantId, input.agentId);
+    const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
+    if (existingQueuedTask) {
+      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Agent 已存在进行中的能力重扫任务', {
+        agentId: input.agentId,
+        taskId: existingQueuedTask.id,
+        status: existingQueuedTask.status,
+      });
+    }
+    return this.enqueueTask(tenantId, {
+      agentId: input.agentId,
+      executionRunId: `agent_rescan:${input.agentId}`,
+      executionStepId: `capability_rescan:${input.agentId}`,
+      idempotencyKey: `agent.capability.rescan:${input.agentId}`,
+      payload: {
+        type: 'agent.capability.rescan',
+        requestedBy: input.requestedBy,
+        requestedAt: new Date().toISOString(),
+      },
+    }, requestId);
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
@@ -574,7 +597,7 @@ export class AgentsApplicationService {
   }
 
   async buildWindowsPowerShellInstallManifest(session: AgentInstallSession) {
-    const artifacts = await loadWindowsPowerShellAgentArtifacts();
+    const artifacts = await loadWindowsGoAgentArtifacts();
     return {
       sessionId: session.id,
       platform: session.platform,
@@ -794,6 +817,11 @@ export class AgentsApplicationService {
       canPullTasks: !disabled && !revoked && agent.status !== 'OFFLINE',
     };
   }
+
+  private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
+    const tasks = await this.repository.listTasks(tenantId, agentId, ['queued', 'leased', 'acked']);
+    return tasks.find((task) => task.payload?.type === 'agent.capability.rescan');
+  }
 }
 
 function countTasks(tasks: AgentTaskEnvelope[]): Record<AgentTaskEnvelope['status'], number> {
@@ -809,38 +837,34 @@ function sha256(value: string): string {
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
-const windowsPowerShellAgentRoot = resolveWindowsPowerShellAgentRoot();
-const ignoredWindowsPowerShellAgentPaths = new Set([
+const windowsGoAgentRoot = resolveWindowsGoAgentRoot();
+const ignoredWindowsGoAgentPaths = new Set([
   'README.md',
-  'runonce-result.json',
-  'service-host',
-  'vendor/nssm/nssm-2.24.zip',
-  'vendor/nssm/_extract',
 ]);
 
-async function loadWindowsPowerShellAgentArtifacts() {
-  const artifacts = await walkWindowsPowerShellAgentArtifacts(windowsPowerShellAgentRoot);
+async function loadWindowsGoAgentArtifacts() {
+  const artifacts = await walkWindowsGoAgentArtifacts(windowsGoAgentRoot);
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function walkWindowsPowerShellAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }>> {
+async function walkWindowsGoAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }>> {
   const entries = await readdir(currentDir, { withFileTypes: true });
   const artifacts: Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
   for (const entry of entries) {
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
     if (relativePath === 'tmp' || relativePath.startsWith('tmp/')) continue;
-    if (ignoredWindowsPowerShellAgentPaths.has(relativePath)) continue;
-    if ([...ignoredWindowsPowerShellAgentPaths].some((ignoredPath) => relativePath.startsWith(`${ignoredPath}/`))) continue;
+    if (ignoredWindowsGoAgentPaths.has(relativePath)) continue;
+    if ([...ignoredWindowsGoAgentPaths].some((ignoredPath) => relativePath.startsWith(`${ignoredPath}/`))) continue;
     const absolutePath = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
-      artifacts.push(...await walkWindowsPowerShellAgentArtifacts(absolutePath, relativePath));
+      artifacts.push(...await walkWindowsGoAgentArtifacts(absolutePath, relativePath));
       continue;
     }
     const extension = path.extname(entry.name).toLowerCase();
     const isBinaryArtifact = extension === '.exe' || extension === '.dll' || extension === '.pfx';
     artifacts.push({
       path: relativePath.replace(/\\/gu, '/'),
-      description: `Windows PowerShell Agent 文件: ${relativePath}`,
+      description: `Windows Go Agent 兼容入口文件: ${relativePath}`,
       content: isBinaryArtifact ? (await readFile(absolutePath)).toString('base64') : stripUtf8Bom(await readFile(absolutePath, 'utf8')),
       encoding: isBinaryArtifact ? 'base64' : 'utf8',
     });
@@ -852,16 +876,16 @@ function stripUtf8Bom(value: string): string {
   return value.replace(/^\uFEFF/u, '');
 }
 
-function resolveWindowsPowerShellAgentRoot(): string {
+function resolveWindowsGoAgentRoot(): string {
   const backendMarker = `${path.sep}backend${path.sep}`;
   const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
   if (backendMarkerIndex >= 0) {
     const repositoryRoot = currentDirPath.slice(0, backendMarkerIndex);
-    const candidate = path.join(repositoryRoot, 'agents', 'windows-powershell-full-agent');
+    const candidate = path.join(repositoryRoot, 'agents', 'windows-go-full-agent');
     if (existsSync(candidate)) return candidate;
   }
 
-  const relativeAgentPath = path.join('agents', 'windows-powershell-full-agent');
+  const relativeAgentPath = path.join('agents', 'windows-go-full-agent');
   const searchRoots = [currentDirPath, process.cwd()];
   for (const searchRoot of searchRoots) {
     let cursor = searchRoot;

@@ -356,6 +356,27 @@ describe('证书资产 API', () => {
     assert.equal((revoked.body as any).status, 'revoked');
     assert.equal((revoked.body as any).deployable, false);
 
+    const deletedVersion = await app.inject({ method: 'DELETE', path: `/api/v1/certificate-versions/delete?id=${versionId}`, headers: headers('user_lifecycle') });
+    assert.equal(deletedVersion.statusCode, 200);
+    assert.equal((deletedVersion.body as any).status, 'deleted');
+
+    const versionsAfterDelete = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions?filter[certificateAssetId]=${assetId}`,
+      headers: headers('user_lifecycle'),
+    });
+    assert.equal(versionsAfterDelete.statusCode, 200);
+    assert.equal((versionsAfterDelete.body as any).total, 0);
+
+    const assetDetailAfterDelete = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-assets/detail?id=${assetId}`,
+      headers: headers('user_lifecycle'),
+    });
+    assert.equal(assetDetailAfterDelete.statusCode, 200);
+    assert.equal((assetDetailAfterDelete.body as any).versions.length, 0);
+    assert.equal((assetDetailAfterDelete.body as any).currentVersion, undefined);
+
     const deletedAsset = await app.inject({ method: 'DELETE', path: '/api/v1/certificate-assets/delete', headers: headers('user_lifecycle'), body: { id: assetId } });
     assert.equal(deletedAsset.statusCode, 200);
     assert.equal((deletedAsset.body as any).status, 'deleted');

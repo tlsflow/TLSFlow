@@ -107,7 +107,10 @@ export class PgCertificatesRepository implements CertificatesRepository {
 
   async listVersionsByAsset(certificateAssetId: string): Promise<CertificateVersionEntity[]> {
     const result = await this.db.query<CertificateVersionRow>(
-      `select * from pg_certificate_versions where certificate_asset_id = $1 order by version_no asc, created_at asc`,
+      `select * from pg_certificate_versions
+        where certificate_asset_id = $1
+          and status <> 'deleted'
+        order by version_no asc, created_at asc`,
       [certificateAssetId],
     );
     return result.rows.map(toVersionEntity);
@@ -185,7 +188,11 @@ export class PgCertificatesRepository implements CertificatesRepository {
   }
 
   async listAssets(query: PageQuery): Promise<PageResponse<CertificateAssetEntity>> {
-    const rows = (await this.db.query<CertificateAssetRow>(`select * from pg_certificate_assets order by created_at desc`)).rows.map(toAssetEntity);
+    const rows = (await this.db.query<CertificateAssetRow>(
+      `select * from pg_certificate_assets
+        where status <> 'deleted'
+        order by created_at desc`,
+    )).rows.map(toAssetEntity);
     return page(filterRows(rows, query.filter), query);
   }
 
@@ -237,7 +244,10 @@ export class PgCertificatesRepository implements CertificatesRepository {
 
   async getVersionByFingerprint(fingerprintSha256: string): Promise<CertificateVersionEntity | undefined> {
     const result = await this.db.query<CertificateVersionRow>(
-      `select * from pg_certificate_versions where lower(fingerprint_sha256) = lower($1) limit 1`,
+      `select * from pg_certificate_versions
+        where lower(fingerprint_sha256) = lower($1)
+          and status <> 'deleted'
+        limit 1`,
       [fingerprintSha256],
     );
     return result.rows[0] ? toVersionEntity(result.rows[0]) : undefined;
@@ -252,9 +262,17 @@ export class PgCertificatesRepository implements CertificatesRepository {
   }
 
   async listVersions(query: PageQuery): Promise<PageResponse<CertificateVersionEntity>> {
-    const versions = (await this.db.query<CertificateVersionRow>(`select * from pg_certificate_versions order by created_at desc`)).rows.map(toVersionEntity);
-    const assets = new Map((await this.db.query<CertificateAssetRow>(`select * from pg_certificate_assets`)).rows.map((row) => [row.id, toAssetEntity(row)] as const));
-    return page(filterVersionRows(versions, assets, query.filter), query);
+    const versions = (await this.db.query<CertificateVersionRow>(
+      `select * from pg_certificate_versions
+        where status <> 'deleted'
+        order by created_at desc`,
+    )).rows.map(toVersionEntity);
+    const assets = new Map((await this.db.query<CertificateAssetRow>(
+      `select * from pg_certificate_assets
+        where status <> 'deleted'`,
+    )).rows.map((row) => [row.id, toAssetEntity(row)] as const));
+    const visibleVersions = versions.filter((version) => assets.has(version.certificateAssetId));
+    return page(filterVersionRows(visibleVersions, assets, query.filter), query);
   }
 
   async createFormat(entity: CertificateVersionFormatEntity): Promise<CertificateVersionFormatEntity> {

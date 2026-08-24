@@ -50,14 +50,14 @@ export class AgentsDomainService {
     const bootstrapToken = createInstallBootstrapToken();
     const now = new Date();
     const id = newId('aginst');
-    const serviceName = normalizeServiceName(input.serviceName ?? `gcac-full-agent-ps-${id.slice(-6)}`);
-    const displayName = normalizeOptionalDisplayName(input.displayName) ?? 'GCAC PowerShell Full Agent';
-    const installRoot = normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\FullAgentPS', 'installRoot');
-    const configDir = normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\FullAgent', 'configDir');
-    const dataDir = normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\FullAgent\\data', 'dataDir');
-    const logDir = normalizeWindowsPath(input.logDir ?? 'C:\\ProgramData\\GCAC\\FullAgent\\logs', 'logDir');
+    const serviceName = normalizeServiceName(input.serviceName ?? `gcac-windows-go-agent-${id.slice(-6)}`);
+    const displayName = normalizeOptionalDisplayName(input.displayName) ?? 'GCAC Windows Go Full Agent';
+    const installRoot = normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsGoAgent', 'installRoot');
+    const configDir = normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\config', 'configDir');
+    const dataDir = normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\data', 'dataDir');
+    const logDir = normalizeWindowsPath(input.logDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs', 'logDir');
     const zone = input.zone?.trim() || 'default';
-    const agentKey = `winps.${id.toLowerCase()}`;
+    const agentKey = `wingo.${id.toLowerCase()}`;
     return {
       id,
       tenantId,
