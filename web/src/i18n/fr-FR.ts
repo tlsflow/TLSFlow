@@ -3526,6 +3526,12 @@ export default {
     policy: 'Protection des droits RBAC',
     audit: 'Audit complet des opérations'
   },
+  compatibility: {
+    title: 'Catalogue de compatibilité', description: 'Les niveaux, limites et preuves proviennent des profils de compatibilité.', generatedAt: 'Généré le : {time}', loading: 'Chargement du catalogue…', loadFailed: 'Échec du chargement du catalogue', none: 'Aucun',
+    columns: { profile: 'Profil', version: 'Version', status: 'État', automation: 'Automatisation', evidence: 'Preuve', verifiedAt: 'Dernière vérification', limitations: 'Limites' },
+    status: { certified: 'Certifié', supported: 'Pris en charge', compatible: 'Compatible', experimental: 'Expérimental', legacy: 'Ancien', unsupported: 'Non pris en charge' },
+    evidence: { current: 'Valide', expired: 'Expirée', failed: 'Échec' }
+  },
   errors: {
     forbiddenTitle: '403 Accès refusé',
     forbiddenMessage: 'Vous ne disposez pas des droits nécessaires pour accéder à cette page.',

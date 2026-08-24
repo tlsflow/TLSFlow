@@ -3552,6 +3552,12 @@ export default {
     policy: 'RBAC 权限保护',
     audit: '操作全程审计'
   },
+  compatibility: {
+    title: '兼容性目录', description: '支持范围、限制和证据均来自 Compatibility Profile。', generatedAt: '目录生成时间：{time}', loading: '正在加载兼容性目录…', loadFailed: '兼容性目录加载失败', none: '无',
+    columns: { profile: 'Profile', version: '版本', status: '支持状态', automation: '自动化', evidence: '证据', verifiedAt: '最近验证', limitations: '限制' },
+    status: { certified: '已认证', supported: '支持', compatible: '兼容', experimental: '实验性', legacy: '旧版支持', unsupported: '不支持' },
+    evidence: { current: '有效', expired: '已过期', failed: '失败' }
+  },
   errors: {
     forbiddenTitle: '403 无权限',
     forbiddenMessage: '你没有访问该页面所需的权限。',

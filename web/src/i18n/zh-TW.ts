@@ -3552,6 +3552,12 @@ export default {
     policy: "RBAC 權限保護",
     audit: "操作全程審計"
   },
+  compatibility: {
+    title: '相容性目錄', description: '支援範圍、限制與證據均來自 Compatibility Profile。', generatedAt: '目錄產生時間：{time}', loading: '正在載入相容性目錄…', loadFailed: '相容性目錄載入失敗', none: '無',
+    columns: { profile: 'Profile', version: '版本', status: '支援狀態', automation: '自動化', evidence: '證據', verifiedAt: '最近驗證', limitations: '限制' },
+    status: { certified: '已認證', supported: '支援', compatible: '相容', experimental: '實驗性', legacy: '舊版支援', unsupported: '不支援' },
+    evidence: { current: '有效', expired: '已過期', failed: '失敗' }
+  },
   errors: {
     forbiddenTitle: "403 無權限",
     forbiddenMessage: "你沒有存取該頁面所需的權限。",

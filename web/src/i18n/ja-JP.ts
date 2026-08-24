@@ -3552,6 +3552,12 @@ export default {
     policy: 'RBAC 権限保護',
     audit: '操作の全過程を監査'
   },
+  compatibility: {
+    title: '互換性カタログ', description: '対応範囲、制限、証拠は Compatibility Profile から取得します。', generatedAt: '生成日時: {time}', loading: '互換性カタログを読み込み中…', loadFailed: '互換性カタログの読み込みに失敗しました', none: 'なし',
+    columns: { profile: 'Profile', version: 'バージョン', status: '状態', automation: '自動化', evidence: '証拠', verifiedAt: '最終確認', limitations: '制限' },
+    status: { certified: '認証済み', supported: 'サポート', compatible: '互換', experimental: '実験的', legacy: 'レガシー', unsupported: '非対応' },
+    evidence: { current: '有効', expired: '期限切れ', failed: '失敗' }
+  },
   errors: {
     forbiddenTitle: '403 権限がありません',
     forbiddenMessage: 'このページにアクセスするために必要な権限がありません。',

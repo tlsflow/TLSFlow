@@ -3526,6 +3526,12 @@ export default {
     policy: 'Proteção por permissões RBAC',
     audit: 'Auditoria completa das operações'
   },
+  compatibility: {
+    title: 'Catálogo de compatibilidade', description: 'Suporte, limitações e evidências vêm dos Perfis de Compatibilidade.', generatedAt: 'Gerado em: {time}', loading: 'Carregando catálogo…', loadFailed: 'Falha ao carregar o catálogo', none: 'Nenhum',
+    columns: { profile: 'Perfil', version: 'Versão', status: 'Status', automation: 'Automação', evidence: 'Evidência', verifiedAt: 'Última verificação', limitations: 'Limitações' },
+    status: { certified: 'Certificado', supported: 'Suportado', compatible: 'Compatível', experimental: 'Experimental', legacy: 'Legado', unsupported: 'Não suportado' },
+    evidence: { current: 'Atual', expired: 'Expirada', failed: 'Falhou' }
+  },
   errors: {
     forbiddenTitle: '403 Sem permissão',
     forbiddenMessage: 'Você não tem a permissão necessária para acessar esta página.',

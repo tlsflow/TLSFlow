@@ -2,6 +2,22 @@ import type { GcRouteRecord } from '@/types/router'
 
 export const businessRoutes: GcRouteRecord[] = [
   {
+    path: '/compatibility',
+    name: 'compatibility.catalog',
+    component: () => import('@/views/compatibility/CompatibilityCatalogView.vue'),
+    meta: {
+      title: 'Compatibility Catalog',
+      titleKey: 'compatibility.title',
+      module: 'compatibility',
+      requiresAuth: true,
+      permission: 'dashboard.read',
+      resourceType: 'dashboard',
+      riskLevel: 'low',
+      breadcrumbKeys: ['compatibility.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/certificates',
     name: 'certificate.list',
     component: () => import('@/views/certificates/CertificatesView.vue'),

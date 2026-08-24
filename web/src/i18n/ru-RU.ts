@@ -3526,6 +3526,12 @@ export default {
     policy: 'Защита прав RBAC',
     audit: 'Полный аудит операций'
   },
+  compatibility: {
+    title: 'Каталог совместимости', description: 'Поддержка, ограничения и доказательства берутся из профилей совместимости.', generatedAt: 'Сформировано: {time}', loading: 'Загрузка каталога…', loadFailed: 'Не удалось загрузить каталог', none: 'Нет',
+    columns: { profile: 'Профиль', version: 'Версия', status: 'Статус', automation: 'Автоматизация', evidence: 'Доказательство', verifiedAt: 'Последняя проверка', limitations: 'Ограничения' },
+    status: { certified: 'Сертифицировано', supported: 'Поддерживается', compatible: 'Совместимо', experimental: 'Экспериментально', legacy: 'Устаревшее', unsupported: 'Не поддерживается' },
+    evidence: { current: 'Актуально', expired: 'Просрочено', failed: 'Ошибка' }
+  },
   errors: {
     forbiddenTitle: '403 Нет прав',
     forbiddenMessage: 'У вас нет прав, необходимых для доступа к этой странице.',

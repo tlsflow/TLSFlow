@@ -3526,6 +3526,12 @@ export default {
     policy: 'RBAC 권한 보호',
     audit: '전체 작업 감사'
   },
+  compatibility: {
+    title: '호환성 카탈로그', description: '지원 범위, 제한 및 증거는 Compatibility Profile에서 가져옵니다.', generatedAt: '생성 시간: {time}', loading: '호환성 카탈로그를 불러오는 중…', loadFailed: '호환성 카탈로그를 불러오지 못했습니다', none: '없음',
+    columns: { profile: 'Profile', version: '버전', status: '상태', automation: '자동화', evidence: '증거', verifiedAt: '최근 검증', limitations: '제한' },
+    status: { certified: '인증됨', supported: '지원됨', compatible: '호환됨', experimental: '실험적', legacy: '레거시', unsupported: '지원 안 함' },
+    evidence: { current: '유효', expired: '만료됨', failed: '실패' }
+  },
   errors: {
     forbiddenTitle: '403권한 없음',
     forbiddenMessage: '이 페이지에 접근할 수 있는 권한이 없습니다.',

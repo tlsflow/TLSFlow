@@ -3552,6 +3552,12 @@ export default {
     policy: 'RBAC protected',
     audit: 'Full audit trail'
   },
+  compatibility: {
+    title: 'Compatibility Catalog', description: 'Support levels, limitations, and evidence come from Compatibility Profiles.', generatedAt: 'Generated at: {time}', loading: 'Loading compatibility catalog…', loadFailed: 'Failed to load compatibility catalog', none: 'None',
+    columns: { profile: 'Profile', version: 'Version', status: 'Status', automation: 'Automation', evidence: 'Evidence', verifiedAt: 'Last verified', limitations: 'Limitations' },
+    status: { certified: 'Certified', supported: 'Supported', compatible: 'Compatible', experimental: 'Experimental', legacy: 'Legacy', unsupported: 'Unsupported' },
+    evidence: { current: 'Current', expired: 'Expired', failed: 'Failed' }
+  },
   errors: {
     forbiddenTitle: '403 Forbidden',
     forbiddenMessage: 'You do not have permission to access this page.',

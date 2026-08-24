@@ -23,6 +23,7 @@ import { CertificatesController, createCertificateServices, getCertificateRouteC
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
 import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
+import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts } from './modules/compatibility-catalog/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
 import { DashboardApplicationService, DashboardController, getDashboardRouteContracts } from './modules/dashboard/index.js';
@@ -196,6 +197,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
+  new CompatibilityCatalogController().register(app.router);
   new PluginsController(pluginsService).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new DashboardController(new DashboardApplicationService({
@@ -243,6 +245,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getAgentsRouteContracts(),
     ...getGatewayRouteContracts(),
     ...getProvidersRouteContracts(),
+    ...getCompatibilityCatalogRouteContracts(),
     ...getPluginsRouteContracts(),
     ...getWorkflowTemplateRouteContracts(),
     ...getDashboardRouteContracts(),
