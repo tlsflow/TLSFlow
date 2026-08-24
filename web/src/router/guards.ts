@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router'
+import { i18n } from '@/i18n'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 
@@ -38,7 +39,7 @@ export function registerRouterGuards(router: Router): void {
   })
 
   router.afterEach((to) => {
-    const title = typeof to.meta.title === 'string' ? to.meta.title : '控制台'
-    document.title = `${title} - 企业 SSL 证书生命周期管理平台`
+    const title = typeof to.meta.title === 'string' ? to.meta.title : i18n.global.t('app.defaultBreadcrumb')
+    document.title = `${title} - ${i18n.global.t('app.platform')}`
   })
 }

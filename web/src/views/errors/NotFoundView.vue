@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
+const { t } = useI18n()
 </script>
 
 <template>
   <section class="gc-error-page">
-    <h1>404 页面不存在</h1>
-    <p>这个路由没有注册。别在页面里硬跳未定义路径。</p>
-    <RouterLink to="/dashboard">返回仪表盘</RouterLink>
+    <h1>{{ t('errors.notFoundTitle') }}</h1>
+    <p>{{ t('errors.notFoundMessage') }}</p>
+    <RouterLink to="/dashboard">{{ t('errors.backDashboard') }}</RouterLink>
   </section>
 </template>

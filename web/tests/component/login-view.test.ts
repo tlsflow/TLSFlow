@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { i18n } from '@/i18n'
 import LoginView from '@/views/auth/LoginView.vue'
 import { setAuthProvider } from '@/providers/auth.provider'
 
@@ -30,7 +31,7 @@ describe('LoginView', () => {
       ]
     })
     await router.push('/login')
-    const wrapper = mount(LoginView, { global: { plugins: [router] } })
+    const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
 
     expect(wrapper.text()).toContain('欢迎回来')
     await wrapper.find('form').trigger('submit')
@@ -46,7 +47,7 @@ describe('LoginView', () => {
       async logout() {}
     })
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/login', name: 'login', component: LoginView, meta: { title: '登录', module: 'auth' } }] })
-    const wrapper = mount(LoginView, { global: { plugins: [router] } })
+    const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(wrapper.text()).toContain('用户名或密码错误'))
   })
