@@ -32,3 +32,15 @@ export interface ManagedDevicePageDto {
   pageSize: number;
   total: number;
 }
+
+export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
+  statusReason?: string;
+  allowedActions: string[];
+  publicSummary: {
+    hostname?: string;
+    osType: string;
+    managementMode: string;
+    updatedAt: string;
+  };
+  extensionSummary: Record<string, unknown>;
+}

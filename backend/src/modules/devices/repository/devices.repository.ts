@@ -2,6 +2,7 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type {
   ManagedDeviceHealth,
+  ManagedDeviceDetailDto,
   ManagedDeviceListQuery,
   ManagedDevicePageDto,
   ManagedDeviceSummaryDto,
@@ -9,6 +10,7 @@ import type {
 
 export interface DevicesRepository {
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto>;
+  get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined>;
 }
 
 export class PgDevicesRepository implements DevicesRepository {
@@ -27,6 +29,33 @@ export class PgDevicesRepository implements DevicesRepository {
       page: query.page,
       pageSize: query.pageSize,
       total: sorted.length,
+    };
+  }
+
+  async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined> {
+    const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and host.id = $2`, [tenantId, deviceId])).rows[0];
+    if (!row) return undefined;
+    const summary = toSummary(row);
+    return {
+      ...summary,
+      statusReason: row.last_error_code ?? undefined,
+      allowedActions: summary.extensionType === 'AGENT'
+        ? ['VIEW_APPLICATIONS', 'VIEW_RUNTIME', 'UPGRADE_AGENT', 'DISABLE_DEVICE']
+        : ['VIEW_APPLICATIONS', 'TEST_CONNECTION', 'REFRESH_DISCOVERY', 'EDIT_CONNECTION', 'DISABLE_DEVICE'],
+      publicSummary: {
+        hostname: row.hostname ?? undefined,
+        osType: row.os_type,
+        managementMode: row.management_mode,
+        updatedAt: String(row.updated_at),
+      },
+      extensionSummary: summary.extensionType === 'AGENT'
+        ? { agentId: row.agent_id, descriptor: asRecord(asRecord(row.agent_payload).descriptor) }
+        : {
+            deviceFamily: row.device_family,
+            supportTier: row.support_tier,
+            softwareBuild: row.software_build,
+            capabilityProfile: asRecord(row.capability_profile),
+          },
     };
   }
 }
@@ -125,7 +154,7 @@ function toNetworkDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
     productFamily: row.product_name ?? (row.device_family === 'NETSCALER_ADC' ? 'Citrix ADC' : row.device_family!),
     managementMethod: row.device_family === 'NETSCALER_ADC' ? 'NITRO_API' : 'API',
     managementAddress: row.device_address ?? row.primary_ip ?? row.hostname ?? undefined,
-    health: networkHealth(row),
+    health: mapNetworkDeviceHealth(row.host_status, row.last_error_code, row.support_tier, row.device_last_discovered_at),
     sourceStatus,
     softwareVersion: [row.software_version, row.software_build].filter(Boolean).join(' ') || undefined,
     lastContactAt: row.device_last_discovered_at ?? row.last_discovered_at ?? undefined,
@@ -147,7 +176,7 @@ function toAgentDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
     productFamily: osType === 'WINDOWS' ? 'Windows Server' : osType === 'LINUX' ? 'Linux Server' : row.os_name ?? osType,
     managementMethod: row.management_mode,
     managementAddress: row.primary_ip ?? row.hostname ?? undefined,
-    health: agentHealth(sourceStatus),
+    health: mapAgentHealth(sourceStatus),
     sourceStatus,
     softwareVersion: stringValue(descriptor.agentVersion) ?? row.os_version ?? undefined,
     lastContactAt: stringValue(payload.updatedAt) ?? row.last_discovered_at ?? undefined,
@@ -157,15 +186,15 @@ function toAgentDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
   };
 }
 
-function networkHealth(row: ManagedDeviceRow): ManagedDeviceHealth {
-  if (row.host_status === 'DISABLED') return 'DISABLED';
-  if (row.last_error_code) return 'UNREACHABLE';
-  if (row.support_tier === 'UNSUPPORTED') return 'DEGRADED';
-  if (row.device_last_discovered_at) return 'HEALTHY';
+export function mapNetworkDeviceHealth(hostStatus: string, lastErrorCode?: string | null, supportTier?: string | null, lastDiscoveredAt?: string | null): ManagedDeviceHealth {
+  if (hostStatus === 'DISABLED') return 'DISABLED';
+  if (lastErrorCode) return 'UNREACHABLE';
+  if (supportTier === 'UNSUPPORTED') return 'DEGRADED';
+  if (lastDiscoveredAt) return 'HEALTHY';
   return 'UNKNOWN';
 }
 
-function agentHealth(status: string): ManagedDeviceHealth {
+export function mapAgentHealth(status: string): ManagedDeviceHealth {
   if (status === 'online' || status === 'active' || status === 'ACTIVE') return 'HEALTHY';
   if (status === 'disabled' || status === 'revoked' || status === 'DISABLED') return 'DISABLED';
   if (status === 'offline' || status === 'UNREACHABLE') return 'UNREACHABLE';

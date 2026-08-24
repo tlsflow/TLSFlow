@@ -7,6 +7,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { PgDevicesRepository } from './repository/devices.repository.js';
+import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.repository.js';
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
   const database = new CountingDatabase(new PgliteDatabase());
@@ -92,6 +93,28 @@ test('Spec033 统一设备列表支持筛选、分页和 Host 权限范围', asy
 
   assert.equal(result.total, 1);
   assert.equal(result.items[0]?.id, first.hostId);
+});
+
+test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边界', async () => {
+  assert.equal(mapAgentHealth('online'), 'HEALTHY');
+  assert.equal(mapAgentHealth('upgrading'), 'DEGRADED');
+  assert.equal(mapAgentHealth('offline'), 'UNREACHABLE');
+  assert.equal(mapAgentHealth('disabled'), 'DISABLED');
+  assert.equal(mapAgentHealth('missing'), 'UNKNOWN');
+  assert.equal(mapNetworkDeviceHealth('ACTIVE', 'NITRO_TIMEOUT', 'FULL', undefined), 'UNREACHABLE');
+
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const device = await new PgDeviceAssetsRepository(database).create('tenant_spec033_device_detail', {
+    displayName: 'ADC Detail', managementAddress: '10.33.4.49', managementPort: 443,
+    deviceFamily: 'NETSCALER_ADC', credentialId: 'secret_detail', authMode: 'AUTO', tlsVerify: true,
+  });
+  const detail = await new PgDevicesRepository(database).get('tenant_spec033_device_detail', device.hostId);
+
+  assert.equal(detail?.extensionType, 'NETWORK_APPLIANCE');
+  assert.ok(detail?.allowedActions.includes('TEST_CONNECTION'));
+  assert.ok(!detail?.allowedActions.includes('UPGRADE_AGENT'));
+  assert.equal(detail?.publicSummary.managementMode, 'AGENTLESS');
 });
 
 class CountingDatabase implements DatabasePort {

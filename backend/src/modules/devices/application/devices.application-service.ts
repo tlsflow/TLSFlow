@@ -1,4 +1,5 @@
-import type { ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
+import { AppError } from '../../../common/errors/app-error.js';
+import type { ManagedDeviceDetailDto, ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
 
 export class DevicesApplicationService {
@@ -6,5 +7,11 @@ export class DevicesApplicationService {
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
     return this.repository.list(tenantId, query);
+  }
+
+  async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto> {
+    const device = await this.repository.get(tenantId, deviceId);
+    if (!device) throw new AppError('RESOURCE_NOT_FOUND', '设备不存在', { deviceId });
+    return device;
   }
 }
