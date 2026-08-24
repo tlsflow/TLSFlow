@@ -17,6 +17,10 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 
 ## 构建
 
+完整的固定构建规则、Windows VM 连接方式、.NET 3.5 引用程序集、产物回传和 Release Bundle 验收流程见：
+
+[`docs/项目规范/20260812-WindowsCompatibilityAgent构建规则.md`](../../docs/项目规范/20260812-WindowsCompatibilityAgent构建规则.md)
+
 ```powershell
 .\build.ps1
 ```
