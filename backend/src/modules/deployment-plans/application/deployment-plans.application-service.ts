@@ -27,6 +27,7 @@ import type { AgentsRepository } from '../../agents/repository/agents.repository
 import { PgAgentsRepository } from '../../agents/repository/agents.repository.js';
 import { DeployableArtifactResolver } from './deployable-artifact-resolver.js';
 import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
+import { ExecutionSourceResolver } from './execution-source.resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.js';
@@ -40,6 +41,9 @@ import type { PluginWorkflowPublisherService } from '../../plugins/application/p
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
 import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
 import type { SecretService } from '../../secrets/secret.service.js';
+import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
+import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
+import type { WorkflowExecutionBinding } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import {
   getDeploymentStrategyPluginBindingId,
   validateDeploymentStrategyPluginBinding,
@@ -104,6 +108,7 @@ export class DeploymentPlansApplicationService {
   private readonly certificatesApp: CertificatesApplicationService;
   private readonly artifacts: DeployableArtifactResolver;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
+  private readonly executionSourceResolver: ExecutionSourceResolver;
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
   private readonly workflows?: WorkflowTemplatesApplicationService;
   private readonly pluginBindings?: PluginBindingsApplicationService;
@@ -111,6 +116,7 @@ export class DeploymentPlansApplicationService {
   private readonly pluginWorkflows?: PluginWorkflowPublisherService;
   private readonly credentials?: RuntimeCredentialResolver;
   private readonly pluginRuntimeAdapters: PluginRuntimeAdapterRegistry;
+  private readonly workflowExecutionBindings?: WorkflowExecutionBindingsService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -129,6 +135,7 @@ export class DeploymentPlansApplicationService {
     });
     this.artifacts = new DeployableArtifactResolver(this.certificates);
     this.deploymentStrategyResolver = dependencies.deploymentStrategyResolver ?? new DeploymentStrategyResolver();
+    this.executionSourceResolver = new ExecutionSourceResolver();
     this.managedTargetContextResolver = dependencies.managedTargetContextResolver
       ?? (dependencies.deviceAssets ? new ManagedTargetContextResolver(this.assets, this.agents, dependencies.deviceAssets) : undefined);
     this.workflows = dependencies.workflows;
@@ -141,6 +148,9 @@ export class DeploymentPlansApplicationService {
       ? new RuntimeCredentialResolver(new CredentialsRepository(dependencies.database), dependencies.secrets)
       : undefined);
     this.pluginRuntimeAdapters = dependencies.pluginRuntimeAdapters ?? createDefaultPluginRuntimeAdapterRegistry();
+    this.workflowExecutionBindings = dependencies.database
+      ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
+      : undefined;
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -490,20 +500,10 @@ export class DeploymentPlansApplicationService {
     );
     const certificateFormatId = input.certificateFormatId
       ?? (deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.certificateFormatId : undefined);
-    const baseStrategy = this.deploymentStrategyResolver.resolve({
-      applicationAsset: strategyAsset,
-      bindingTarget,
-      certificateBinding: readyBinding,
-      managedTargetContext,
-    });
-    const managedPluginStrategy = await this.compileManagedPluginRuntime(
-      input.tenantId,
-      strategyAsset,
-      managedTargetContext,
-      baseStrategy,
-    );
-    const identifiedStrategy = await this.attachPluginExecutionIdentity(strategyAsset, managedPluginStrategy);
-    const resolvedStrategy = await this.attachWorkflowCredentialSnapshots(input.tenantId, identifiedStrategy);
+    const executionMode = deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.executionMode ?? 'PLUGIN' : 'PLUGIN';
+    const resolvedStrategy = executionMode === 'WORKFLOW_OVERRIDE'
+      ? await this.compileWorkflowExecutionBinding(input.tenantId, strategyAsset, deploymentStrategy?.managedTarget?.workflowExecutionBindingId, 'WORKFLOW_OVERRIDE', bindingTarget, managedTargetContext, readyBinding)
+      : await this.compileManagedPluginExecution(input.tenantId, strategyAsset, bindingTarget, managedTargetContext, readyBinding);
 
     return {
       name: planName,
@@ -595,6 +595,89 @@ export class DeploymentPlansApplicationService {
     };
   }
 
+  private async compileManagedPluginExecution(
+    tenantId: string,
+    asset: ServiceAssetDto,
+    bindingTarget: Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>,
+    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
+    certificateBinding?: CertificateBindingDto,
+  ) {
+    const base = this.deploymentStrategyResolver.resolve({ applicationAsset: asset, bindingTarget, certificateBinding, managedTargetContext: context });
+    const runtime = await this.compileManagedPluginRuntime(tenantId, asset, context, base);
+    return this.attachWorkflowCredentialSnapshots(tenantId, await this.attachPluginExecutionIdentity(asset, runtime));
+  }
+
+  private async compileWorkflowExecutionBinding(
+    tenantId: string,
+    asset: ServiceAssetDto,
+    bindingId: string | undefined,
+    mode: 'WORKFLOW_OVERRIDE' | 'WORKFLOW',
+    bindingTarget?: Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>,
+    context?: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
+    certificateBinding?: CertificateBindingDto,
+  ) {
+    if (!bindingId || !this.workflowExecutionBindings) {
+      throw new AppError('VALIDATION_FAILED', '工作流执行模式缺少 WorkflowExecutionBinding', { bindingId, mode });
+    }
+    const binding = await this.workflowExecutionBindings.get(tenantId, bindingId);
+    if (binding.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding 已停用', { bindingId });
+    const expectedLocation = binding.runner === 'GATEWAY' ? 'GATEWAY' : 'CONTROL_PLANE';
+    if (mode === 'WORKFLOW_OVERRIDE' && context && !context.availableExecutionLocations.includes(expectedLocation)) {
+      throw new AppError('WORKFLOW_RUNNER_INCOMPATIBLE', '工作流 Runner 与 ManagedTarget 可执行位置不兼容', { expectedLocation, availableExecutionLocations: context.availableExecutionLocations });
+    }
+    const workflowVersionId = await this.resolveWorkflowExecutionVersion(binding);
+    const executionSource = this.executionSourceResolver.resolveWorkflow({ mode, binding, workflowVersionId });
+    const materializedAsset: ServiceAssetDto = {
+      ...asset,
+      deploymentStrategy: {
+        type: 'WORKFLOW',
+        workflow: {
+          workflowId: binding.workflowTemplateId,
+          workflowVersionSelection: 'PINNED',
+          workflowVersionId,
+          runner: binding.runner,
+          gatewayId: binding.gatewayId,
+          connectionBindings: binding.connectionBindings as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
+          variableBindings: binding.variableBindings,
+          credentialBindings: binding.credentialBindings,
+          certificateArtifactBindings: binding.certificateArtifactBindings as NonNullable<WorkflowDeploymentStrategyDto['certificateArtifactBindings']>,
+        },
+      },
+    };
+    const resolved = await this.attachWorkflowCredentialSnapshots(tenantId, this.deploymentStrategyResolver.resolve({
+      applicationAsset: materializedAsset,
+      bindingTarget,
+      managedTargetContext: context,
+      certificateBinding,
+    }));
+    return {
+      ...resolved,
+      payload: {
+        ...resolved.payload,
+        executionSource: {
+          type: executionSource.type,
+          mode: executionSource.mode,
+          workflowExecutionBindingId: executionSource.binding.id,
+          bindingVersion: executionSource.binding.version,
+          workflowTemplateId: executionSource.binding.workflowTemplateId,
+          workflowVersionId: executionSource.workflowVersionId,
+          runner: executionSource.binding.runner,
+          gatewayId: executionSource.binding.gatewayId,
+        },
+        managedTargetId: mode === 'WORKFLOW_OVERRIDE' ? context?.managedTarget.id : undefined,
+        targetSnapshot: mode === 'WORKFLOW_OVERRIDE' && context ? { managedTarget: context.managedTarget, host: context.host, siteAsset: context.siteAsset, frameworkInstance: context.serviceInstance } : undefined,
+      },
+    };
+  }
+
+  private async resolveWorkflowExecutionVersion(binding: WorkflowExecutionBinding): Promise<string> {
+    if (binding.workflowVersionSelection === 'PINNED') return binding.workflowVersionId!;
+    if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
+    const latest = await this.workflows.getRuntimePublishedVersion(binding.workflowTemplateId);
+    if (!latest) throw new AppError('VALIDATION_FAILED', 'LATEST_PUBLISHED 找不到已发布工作流版本', { workflowTemplateId: binding.workflowTemplateId });
+    return latest.id;
+  }
+
   private async compileManagedPluginRuntime(
     tenantId: string,
     asset: ServiceAssetDto,
@@ -629,6 +712,10 @@ export class DeploymentPlansApplicationService {
     const workflow = capability.pluginRuntime === 'WORKFLOW_DSL'
       ? await this.requirePluginWorkflow(capability.pluginVersionId, capability.assignment.capabilityKey)
       : undefined;
+    const executionSource = this.executionSourceResolver.resolvePlugin({
+      capability,
+      internalWorkflowVersionId: workflow?.workflowVersionId,
+    });
     const credentials = workflow ? await this.snapshotCredentials(tenantId, capability.binding.credentialBindings) : {};
     const runtime = await this.pluginRuntimeAdapters.compile({
       capability,
@@ -648,6 +735,16 @@ export class DeploymentPlansApplicationService {
       payload: {
         ...resolved.payload,
         ...runtime.payload,
+        executionSource: {
+          type: executionSource.type,
+          mode: 'PLUGIN',
+          assignmentId: executionSource.capability.assignment.id,
+          pluginVersionId: executionSource.capability.pluginVersionId,
+          pluginBindingId: executionSource.capability.binding.id,
+          runtime: executionSource.capability.pluginRuntime,
+          internalWorkflowVersionId: executionSource.internalWorkflowVersionId,
+          atomicRecipeId: executionSource.atomicRecipeId,
+        },
       },
     };
   }
@@ -708,25 +805,10 @@ export class DeploymentPlansApplicationService {
     if (strategy?.type !== 'WORKFLOW' || !workflow) {
       throw new AppError('VALIDATION_FAILED', '应用资产不是 WORKFLOW 部署策略', { applicationAssetId: applicationAsset.id });
     }
-    if (!workflow.workflowId) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: applicationAsset.id,
-      });
-    }
-    const certificateArtifactBindings = readWorkflowCertificateArtifactBindings(workflow.certificateArtifactBindings);
-    if (Object.keys(certificateArtifactBindings).length === 0) {
-      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少证书产物绑定', {
-        code: 'DEPLOYMENT_STRATEGY_INVALID',
-        applicationAssetId: applicationAsset.id,
-      });
-    }
-    const baseStrategy = this.deploymentStrategyResolver.resolve({
-      applicationAsset,
-    });
-    const identifiedStrategy = await this.attachPluginExecutionIdentity(applicationAsset, baseStrategy);
     if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
-    const resolvedStrategy = await this.attachWorkflowCredentialSnapshots(input.tenantId, identifiedStrategy);
+    const resolvedStrategy = workflow.workflowExecutionBindingId
+      ? await this.compileWorkflowExecutionBinding(input.tenantId, applicationAsset, workflow.workflowExecutionBindingId, 'WORKFLOW')
+      : await this.attachWorkflowCredentialSnapshots(input.tenantId, await this.attachPluginExecutionIdentity(applicationAsset, this.deploymentStrategyResolver.resolve({ applicationAsset })));
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
     return {
@@ -1308,6 +1390,7 @@ export class DeploymentPlansApplicationService {
 
   private async resolveLiveWorkflowStrategyPayloadForTarget(target: DeploymentPlanTargetEntity): Promise<Record<string, unknown>> {
     const snapshotPayload = target.strategyPayload ?? {};
+    if (readRecord(snapshotPayload.executionSource)?.type === 'WORKFLOW') return snapshotPayload;
     if (target.executorType !== 'WORKFLOW') return snapshotPayload;
     const workflowSnapshot = readRecord(snapshotPayload.workflowRequest);
     if (readOptionalString(workflowSnapshot?.pluginBindingId)) return snapshotPayload;

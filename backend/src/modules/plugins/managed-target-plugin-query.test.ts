@@ -5,7 +5,9 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { ManagedTargetPluginQueryService } from './application/managed-target-plugin-query.service.js';
+import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
+import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
 import { PgUnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 
 test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assignment', async () => {
@@ -29,6 +31,10 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   });
   const applicationAsset = await assets.createServiceAsset(tenantId, {
     address: 'managed-plugin.example.com', port: 443, protocol: 'HTTPS', discoverySource: 'MANUAL', status: 'ACTIVE',
+    deploymentStrategy: {
+      type: 'MANAGED_TARGET',
+      managedTarget: { managedTargetId: target.id, certificateFormatId: 'format-existing' },
+    },
   });
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
   const imported = await plugins.importVersion(tenantId, {
@@ -88,22 +94,78 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(saved.effectiveCapability?.source.ownerType, 'APPLICATION_ASSET');
   assert.equal(saved.effectiveCapability?.plugin.pluginId, 'fixture.managed');
   assert.equal(saved.effectiveCapability?.binding.hostId, device.hostId);
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-existing');
 
   const effective = await service.getEffectiveCapability({ tenantId, managedTargetId: target.id, applicationAssetId: applicationAsset.id, capabilityKey: 'certificate.deploy' });
   assert.equal(effective.executionLocation, 'CONTROL_PLANE');
   assert.equal(effective.binding.pluginBindingId, saved.effectiveCapability?.binding.pluginBindingId);
 
-  await service.saveApplicationAssetTarget({
+  const sourceWorkflow = { workflow_template_id: 'workflow_user_override', workflow_version_id: 'workflow_user_override_v1' };
+  const overridden = await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: {
+      managedTargetId: target.id,
+      executionMode: 'WORKFLOW_OVERRIDE',
+      workflowExecution: {
+        tenantId,
+        workflowTemplateId: sourceWorkflow.workflow_template_id,
+        workflowVersionSelection: 'PINNED',
+        workflowVersionId: sourceWorkflow.workflow_version_id,
+        runner: 'CONTROL_PLANE',
+        connectionBindings: {}, variableBindings: {}, credentialBindings: {}, certificateArtifactBindings: {},
+      },
+    },
+  });
+  assert.equal(overridden.executionMode, 'WORKFLOW_OVERRIDE');
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.executionMode, 'WORKFLOW_OVERRIDE');
+  assert.equal(Number((await db.query<{ count: string | number }>(`select count(*) from plugin_capability_assignments where tenant_id=$1 and owner_type='APPLICATION_ASSET' and owner_id=$2 and status='ACTIVE'`, [tenantId, applicationAsset.id])).rows[0]?.count), 0);
+
+  await assert.rejects(() => service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: { managedTargetId: target.id },
+  }), (error: unknown) => Boolean(error && typeof error === 'object' && 'errorCode' in error && error.errorCode === 'CAPABILITY_MISSING'));
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.executionMode, 'WORKFLOW_OVERRIDE');
+  assert.ok(overridden.workflowExecutionBinding);
+  assert.equal((await db.query<{ status: string }>('select status from workflow_execution_bindings where id=$1', [overridden.workflowExecutionBinding.id])).rows[0]?.status, 'ACTIVE');
+
+  const defaultBindingId = saved.effectiveCapability?.binding.pluginBindingId;
+  assert.ok(defaultBindingId);
+  await new PluginBindingsApplicationService(new PluginBindingsRepository(db)).assignCapability(tenantId, {
+    ownerType: 'MANAGED_TARGET',
+    ownerId: target.id,
+    capabilityKey: 'certificate.deploy',
+    pluginVersionId: imported.id,
+    pluginBindingId: defaultBindingId,
+    precedence: 'TARGET_OVERRIDE',
+  });
+  const restored = await service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,
     value: { managedTargetId: target.id },
   });
+  assert.equal(restored.effectiveCapability?.source.ownerType, 'MANAGED_TARGET');
   const disabledAssignment = await db.query<{ status: string }>(
     `select status from plugin_capability_assignments
      where tenant_id=$1 and owner_type='APPLICATION_ASSET' and owner_id=$2 and capability_key='certificate.deploy'`,
     [tenantId, applicationAsset.id],
   );
   assert.equal(disabledAssignment.rows[0]?.status, 'DISABLED');
+  assert.equal((await db.query<{ status: string }>('select status from workflow_execution_bindings where id=$1', [overridden.workflowExecutionBinding.id])).rows[0]?.status, 'DISABLED');
+
+  await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: { managedTargetId: target.id, certificateFormatId: 'format-updated' },
+  });
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-updated');
+  await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: { managedTargetId: target.id },
+  });
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-updated');
 
   await assert.rejects(() => service.saveApplicationAssetTarget({
     tenantId,

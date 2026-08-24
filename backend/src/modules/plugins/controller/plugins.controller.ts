@@ -315,9 +315,12 @@ export class PluginsController {
     if (!applicationAssetId) throw new Error('应用资产受管目标路径无效');
     const body = validateObject(request.body, {
       managedTargetId: { type: 'string', required: true },
+      certificateFormatId: { type: 'string' },
+      executionMode: { type: 'string' },
       expectedTargetVersion: { type: 'number' },
       capabilityKey: { type: 'string' },
       pluginOverride: { type: 'object' },
+      workflowExecution: { type: 'object' },
     }) as unknown as SaveManagedTargetPluginOverrideInput;
     return service.saveApplicationAssetTarget({
       tenantId: tenantId(request),

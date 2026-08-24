@@ -15,11 +15,16 @@ import { PgUnifiedPluginsRepository } from '../repository/unified-plugins.reposi
 import { DeploymentCapabilityResolver, type ResolvedDeploymentCapability } from './deployment-capability.resolver.js';
 import { PluginBindingsApplicationService } from './plugin-bindings.application-service.js';
 import { compareSemanticVersions, UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
+import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
+import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
+import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
 export interface SaveManagedTargetPluginOverrideInput {
   managedTargetId: string;
+  certificateFormatId?: string;
+  executionMode?: 'PLUGIN' | 'WORKFLOW_OVERRIDE';
   expectedTargetVersion?: number;
   capabilityKey?: string;
   pluginOverride?: {
@@ -32,6 +37,7 @@ export interface SaveManagedTargetPluginOverrideInput {
     certificateArtifactBindings?: Record<string, CertificateArtifactBindingV1>;
     connectionBindings?: Record<string, unknown>;
   };
+  workflowExecution?: CreateWorkflowExecutionBindingInput & { bindingId?: string; expectedVersion?: number };
 }
 
 export class ManagedTargetPluginQueryService {
@@ -97,6 +103,11 @@ export class ManagedTargetPluginQueryService {
       const applicationAsset = await services.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
       if (!applicationAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
 
+      const certificateFormatId = input.value.certificateFormatId !== undefined
+        ? input.value.certificateFormatId
+        : applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+          ? applicationAsset.deploymentStrategy.managedTarget?.certificateFormatId
+          : undefined;
       const currentTarget = await services.assets.getApplicationAssetTargetByApplicationAssetId(input.tenantId, input.applicationAssetId);
       if (input.value.expectedTargetVersion !== undefined && currentTarget?.version !== input.value.expectedTargetVersion) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', 'ApplicationAssetTarget 版本冲突', {
@@ -110,15 +121,55 @@ export class ManagedTargetPluginQueryService {
         : await services.assets.createApplicationAssetTarget(input.tenantId, { applicationAssetId: input.applicationAssetId, managedTargetId: context.managedTarget.id });
 
       const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
+      const executionMode = input.value.executionMode ?? 'PLUGIN';
+      if (executionMode === 'WORKFLOW_OVERRIDE') {
+        if (input.value.pluginOverride) throw new AppError('EXECUTION_SOURCE_CONFLICT', '工作流覆盖模式不得同时提交插件覆盖');
+        const workflowInput = input.value.workflowExecution;
+        if (!workflowInput) throw new AppError('VALIDATION_FAILED', '工作流覆盖模式必须提交工作流执行配置');
+        const executionLocation = workflowInput.runner === 'GATEWAY' ? 'GATEWAY' : 'CONTROL_PLANE';
+        if (!context.availableExecutionLocations.includes(executionLocation)) {
+          throw new AppError('WORKFLOW_RUNNER_INCOMPATIBLE', '工作流 Runner 与 ManagedTarget 可执行位置不兼容', { executionLocation, availableExecutionLocations: context.availableExecutionLocations });
+        }
+        const { bindingId, expectedVersion, ...createInput } = workflowInput;
+        if (createInput.tenantId !== input.tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
+        const binding = bindingId
+          ? await services.workflowBindings.update(input.tenantId, bindingId, { ...createInput, expectedVersion: expectedVersion ?? 0 })
+          : await services.workflowBindings.create(createInput);
+        await services.bindings.disableOwnerAssignment(input.tenantId, { ownerType: 'APPLICATION_ASSET', ownerId: input.applicationAssetId, capabilityKey });
+        await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
+          deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode, workflowExecutionBindingId: binding.id } },
+        });
+        return { target, executionMode, workflowExecutionBinding: binding, effectiveCapability: undefined };
+      }
+      if (input.value.workflowExecution) throw new AppError('EXECUTION_SOURCE_CONFLICT', '插件模式不得提交工作流执行配置');
+      const previousWorkflowBindingId = applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+        ? applicationAsset.deploymentStrategy.managedTarget?.workflowExecutionBindingId
+        : undefined;
+      if (previousWorkflowBindingId) {
+        const previous = await services.workflowBindings.get(input.tenantId, previousWorkflowBindingId);
+        if (previous.status === 'ACTIVE') await services.workflowBindings.disable(input.tenantId, previous.id, previous.version);
+      }
+      const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
       if (!input.value.pluginOverride) {
         await services.bindings.disableOwnerAssignment(input.tenantId, {
           ownerType: 'APPLICATION_ASSET',
           ownerId: input.applicationAssetId,
           capabilityKey,
         });
-        return { target, effectiveCapability: undefined };
+        const resolved = await services.capabilities.resolve({
+          tenantId: input.tenantId,
+          capabilityKey,
+          hostId: context.host.id,
+          managedTargetId: context.managedTarget.id,
+          applicationAssetId: input.applicationAssetId,
+          executionLocations: context.availableExecutionLocations,
+          compatibility,
+        });
+        await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
+          deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
+        });
+        return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
-      const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
       const plugin = await services.plugins.getVersion(input.value.pluginOverride.pluginVersionId);
       const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);
       if (!evaluated.compatible) {
@@ -146,7 +197,10 @@ export class ManagedTargetPluginQueryService {
         executionLocations: context.availableExecutionLocations,
         compatibility,
       });
-      return { target, effectiveCapability: summarizeCapability(resolved) };
+      await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
+        deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
+      });
+      return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
     });
   }
 
@@ -222,6 +276,7 @@ export class ManagedTargetPluginQueryService {
       devices: new PgDevicesRepository(db),
       contexts: new ManagedTargetContextResolver(assets, new PgAgentsRepository(db), new PgDeviceAssetsRepository(db)),
       capabilities: new DeploymentCapabilityResolver(bindings, plugins),
+      workflowBindings: new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(db)),
     };
   }
 }

@@ -30,6 +30,12 @@ export class DeploymentPlansDomainService {
     for (const [index, target] of input.targets.entries()) {
       const isWorkflowTarget = target.executorType === 'WORKFLOW';
       const workflowPayload = target.strategyPayload?.workflowRequest;
+      const executionSource = target.strategyPayload?.executionSource as Record<string, unknown> | undefined;
+      if (executionSource) {
+        if (executionSource.type !== 'PLUGIN' && executionSource.type !== 'WORKFLOW') throw new AppError('VALIDATION_FAILED', '执行来源快照类型无效', { index });
+        if (executionSource.type === 'PLUGIN' && executionSource.workflowExecutionBindingId) throw new AppError('EXECUTION_SOURCE_CONFLICT', '插件计划不能包含工作流执行绑定快照', { index });
+        if (executionSource.type === 'WORKFLOW' && (executionSource.pluginBindingId || executionSource.assignmentId)) throw new AppError('EXECUTION_SOURCE_CONFLICT', '工作流计划不能包含插件执行快照', { index });
+      }
       if (isWorkflowTarget && !workflowPayload) {
         throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署目标必须提供 workflowRequest', { index });
       }
