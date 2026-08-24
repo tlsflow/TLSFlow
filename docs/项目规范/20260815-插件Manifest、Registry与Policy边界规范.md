@@ -26,7 +26,7 @@ P2 发布清单属于历史开发证据，不是当前运行时、数据库切�
 
 使用 `scripts/plugins/update-plugin-version.mjs` 只修改包内 Manifest 顶层 `version`。脚本会校验当前版本、目标版本、资源映射和版本递进关系，并运行内置版本门禁；它不备份、同步或修改任何历史 P2 发布台账。包内容摘要由 Loader/Registry 在加载时重新计算。
 
-插件包内 Workflow 的 `metadata.version` 仍须由 Workflow Schema 校验为合法 SemVer，但它不是插件版本事实源，也不需要相对历史 Workflow 内容递进。插件内容变化由 Manifest `pluginId@version`、包/资源摘要和数据库 WorkflowVersion 整数记录；旧用户 Workflow DSL 的独立版本规则仍由 Workflow 模板服务负责。
+插件包内 Workflow 的 `metadata.version` 仍须由 Workflow Schema 校验为合法 SemVer，并且必须与同一包 Manifest 的 `version` 相等。插件内容变化由 Manifest `pluginId@version`、包/资源摘要和数据库 WorkflowVersion 整数记录；旧用户 Workflow DSL 的独立版本规则仍由 Workflow 模板服务负责。
 
 ## 禁止事项
 
