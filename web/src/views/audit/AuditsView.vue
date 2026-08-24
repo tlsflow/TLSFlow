@@ -6,7 +6,7 @@ import { exportAuditEvidence, listAudits } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { ApiClientError } from '@/api/client'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel, type AuditDisplayItem } from '@/utils/audit-format'
+import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel, isSuppressedAudit, type AuditDisplayItem } from '@/utils/audit-format'
 
 interface AuditRow extends AuditDisplayItem {
   readonly id: string
@@ -41,7 +41,12 @@ async function loadAudits() {
   try {
     const result = await listAudits({ page: 1, pageSize: 50, sort: 'createdAt:desc' })
     const page = result.data ?? { items: [], page: 1, pageSize: 50, total: 0 }
-    rows.value = page.items.map(toAuditRow).sort(compareAuditRowsDesc)
+    const visibleItems = page.items.filter((record) => !isSuppressedAudit({
+      eventType: readString(record, ['eventType'], 'audit.event'),
+      resourceType: readString(record, ['resourceType'], 'auditLog'),
+      detail: readPath(record, 'detail'),
+    }))
+    rows.value = visibleItems.map(toAuditRow).sort(compareAuditRowsDesc)
     total.value = page.total ?? rows.value.length
   } catch (cause) {
     error.value = cause instanceof ApiClientError ? t('audit.errors.withRequestId', { message: cause.message, requestId: cause.requestId }) : cause instanceof Error ? cause.message : t('audit.errors.loadFailed')

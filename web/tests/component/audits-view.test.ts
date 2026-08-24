@@ -111,4 +111,81 @@ describe('AuditsView', () => {
     expect(items[0]).toContain('创建 Secret')
     expect(items[1]).toContain('用户登录')
   })
+
+  it('防御性隐藏 Secret、默认权限拒绝和 CA 同步过程，但保留权限阻断与同步失败', async () => {
+    apiMocks.listAudits.mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'secret-used',
+            eventType: 'secret.used',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'secret.resolve.service',
+            resourceType: 'secret',
+            resourceId: 'sec_http',
+            result: 'success',
+            riskLevel: 'high',
+            detail: { purpose: 'http.header' },
+            createdAt: '2026-08-18T03:00:00.000Z',
+          },
+          {
+            id: 'permission-default',
+            eventType: 'permission.denied',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'task.read',
+            resourceType: 'task',
+            result: 'denied',
+            detail: { reason: 'no allow policy' },
+            createdAt: '2026-08-18T02:00:00.000Z',
+          },
+          {
+            id: 'permission-explicit',
+            eventType: 'permission.denied',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'task.delete',
+            resourceType: 'task',
+            result: 'denied',
+            detail: { reason: 'explicit deny' },
+            createdAt: '2026-08-18T01:30:00.000Z',
+          },
+          {
+            id: 'ca-sync-started',
+            eventType: 'ca.operations.sync.started',
+            actorType: 'system',
+            actorId: 'system_ca_auto_sync',
+            action: 'ca.operations.sync',
+            resourceType: 'caSyncRun',
+            result: 'success',
+            createdAt: '2026-08-18T01:15:00.000Z',
+          },
+          {
+            id: 'ca-sync-failed',
+            eventType: 'ca.operations.sync.failed',
+            actorType: 'system',
+            actorId: 'system_ca_auto_sync',
+            action: 'ca.operations.sync',
+            resourceType: 'caSyncRun',
+            result: 'failure',
+            createdAt: '2026-08-18T01:00:00.000Z',
+          },
+        ],
+        page: 1,
+        pageSize: 50,
+        total: 3,
+      },
+      requestId: 'req_audits',
+      timestamp: '2026-08-18T03:00:00.000Z',
+    })
+
+    const wrapper = mount(AuditsView)
+
+    await vi.waitFor(() => expect(wrapper.findAll('.audit-list__items li')).toHaveLength(2))
+    expect(wrapper.text()).not.toContain('服务读取 Secret')
+    expect(wrapper.text()).not.toContain('HTTP 请求头凭据')
+    expect(wrapper.text()).toContain('权限拒绝')
+    expect(wrapper.text()).toContain('失败')
+  })
 })

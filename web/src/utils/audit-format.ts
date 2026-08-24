@@ -12,6 +12,27 @@ export interface AuditDisplayItem {
   readonly summary?: string
 }
 
+export function isSuppressedAudit(item: Pick<AuditDisplayItem, 'eventType' | 'resourceType' | 'detail'>): boolean {
+  const isCaSyncFailure = item.eventType === 'ca.operations.sync.failed'
+  const permissionReason = readDetailString(item.detail, 'reason')
+  return item.eventType === 'secret.used'
+    || (item.eventType === 'permission.denied' && (permissionReason === 'no allow policy' || permissionReason === 'no object grant'))
+    || (item.eventType.startsWith('ca.operations.sync.') && !isCaSyncFailure)
+    || (item.resourceType === 'caSyncRun' && !isCaSyncFailure)
+}
+
+function readDetailString(detail: unknown, key: string): string | undefined {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return undefined
+  const value = (detail as Record<string, unknown>)[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+export function isHttpHeaderSecretReadAudit(item: Pick<AuditDisplayItem, 'eventType' | 'action' | 'resourceType' | 'detail'>): boolean {
+  if (item.eventType !== 'secret.used' || item.action !== 'secret.resolve.service' || item.resourceType !== 'secret') return false
+  if (!item.detail || typeof item.detail !== 'object' || Array.isArray(item.detail)) return false
+  return (item.detail as Record<string, unknown>).purpose === 'http.header'
+}
+
 type Translate = (key: string, named?: Record<string, unknown>) => string
 
 const defaultT: Translate = (key) => key
