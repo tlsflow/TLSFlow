@@ -17,10 +17,10 @@ func successfulHandler(actionType string) HandlerFunc {
 
 func TestRegistryRejectsDuplicateHandler(t *testing.T) {
 	registry := New()
-	if err := registry.Register(successfulHandler("linux.nginx.deploy_certificate")); err != nil {
+	if err := registry.Register(successfulHandler("legacy.deploy_certificate")); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Register(successfulHandler("LINUX.NGINX.DEPLOY_CERTIFICATE")); err == nil {
+	if err := registry.Register(successfulHandler("LEGACY.DEPLOY_CERTIFICATE")); err == nil {
 		t.Fatal("重复 Action ID 必须失败")
 	}
 }
@@ -45,17 +45,17 @@ func TestRegistryResolvesAliasAndMiddleware(t *testing.T) {
 		}
 	}
 	registry := New(middleware)
-	if err := registry.Register(successfulHandler("linux.nginx.deploy_certificate")); err != nil {
+	if err := registry.Register(successfulHandler("legacy.deploy_certificate")); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.RegisterAlias("linux.nginx.deploy", "linux.nginx.deploy_certificate", "v1"); err != nil {
+	if err := registry.RegisterAlias("legacy.deploy", "legacy.deploy_certificate", "v1"); err != nil {
 		t.Fatal(err)
 	}
-	result := registry.Execute(context.Background(), Request{ActionType: "linux.nginx.deploy"})
+	result := registry.Execute(context.Background(), Request{ActionType: "legacy.deploy"})
 	if !result.Success {
 		t.Fatal("Alias 应解析到目标 Handler")
 	}
-	if !reflect.DeepEqual(called, []string{"linux.nginx.deploy"}) {
+	if !reflect.DeepEqual(called, []string{"legacy.deploy"}) {
 		t.Fatalf("中间件未按预期执行: %#v", called)
 	}
 }
@@ -72,12 +72,12 @@ func TestRegistrySupportsCrossVersionAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := registry.RegisterAliasDescriptor(
-		Descriptor{ActionType: "linux.nginx.deploy_certificate", SchemaVersion: "v1"},
+		Descriptor{ActionType: "legacy.deploy_certificate", SchemaVersion: "v1"},
 		Descriptor{ActionType: "certificate.deploy", SchemaVersion: "1.0"},
 	); err != nil {
 		t.Fatal(err)
 	}
-	result := registry.Execute(context.Background(), Request{ActionType: "linux.nginx.deploy_certificate"})
+	result := registry.Execute(context.Background(), Request{ActionType: "legacy.deploy_certificate"})
 	if !result.Success {
 		t.Fatalf("跨版本别名未路由到规范动作: %#v", result)
 	}

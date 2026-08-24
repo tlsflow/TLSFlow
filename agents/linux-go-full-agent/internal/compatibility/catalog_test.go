@@ -21,3 +21,14 @@ func TestResolveProductFailsClosedOnMissingCapabilities(t *testing.T) {
 		t.Fatal("能力不足时必须失败关闭")
 	}
 }
+
+func TestNormalizeLegacyActionKeepsPayloadAndAddsProductAdapter(t *testing.T) {
+	payload, err := NormalizeLegacyAction("linux.nginx.deploy_certificate", "task-1", map[string]any{"operation": "install"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := payload["input"].(map[string]any)
+	if input["productAdapterId"] != ProductNginx || input["operation"] != "install" {
+		t.Fatalf("旧动作归一化错误: %#v", payload)
+	}
+}

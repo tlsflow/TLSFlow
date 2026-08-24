@@ -38,6 +38,7 @@ import (
 	"gcac/linux-go-full-agent/internal/core/controlplane"
 	"gcac/linux-go-full-agent/internal/core/recovery"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
+	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
@@ -791,21 +792,17 @@ func handleRun(args []string) error {
 	status.State = "running"
 	saveRuntimeStatusSnapshot(statusPath, status)
 
-	heartbeatTicker := time.NewTicker(time.Duration(heartbeatSeconds) * time.Second)
-	defer heartbeatTicker.Stop()
-	taskTicker := time.NewTicker(time.Duration(taskPollSeconds) * time.Second)
-	defer taskTicker.Stop()
-	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
-	defer healthTicker.Stop()
-	var rescanTicker *time.Ticker
+	rescanInterval := time.Duration(0)
 	if rescanEnabled {
-		rescanTicker = time.NewTicker(time.Duration(rescanSeconds) * time.Second)
-		defer rescanTicker.Stop()
+		rescanInterval = time.Duration(rescanSeconds) * time.Second
 	}
-
-	for {
-		select {
-		case <-ctx.Done():
+	return coreRuntime.Run(ctx, coreRuntime.Schedule{
+		Heartbeat: time.Duration(heartbeatSeconds) * time.Second,
+		TaskPoll:  time.Duration(taskPollSeconds) * time.Second,
+		Health:    time.Duration(healthCheckSeconds) * time.Second,
+		Rescan:    rescanInterval,
+	}, coreRuntime.Hooks{
+		Stop: func(context.Context) {
 			status.State = "stopped"
 			status.StoppedAt = time.Now().Format(time.RFC3339)
 			saveRuntimeStatusSnapshot(statusPath, status)
@@ -818,8 +815,8 @@ func handleRun(args []string) error {
 				EmittedAt: time.Now().Format(time.RFC3339),
 			})
 			fmt.Fprintln(os.Stderr, "received stop signal, Linux Agent exiting")
-			return nil
-		case now := <-heartbeatTicker.C:
+		},
+		Heartbeat: func(ctx context.Context, now time.Time) {
 			if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
 				status.LastError = err.Error()
 				status.ConsecutiveHeartbeatFailures++
@@ -839,7 +836,8 @@ func handleRun(args []string) error {
 			}
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		case <-taskTicker.C:
+		},
+		TaskPoll: func(ctx context.Context, _ time.Time) {
 			if err := recoverPendingResults(ctx, client, config, state, counters, ledger); err != nil {
 				status.LastError = err.Error()
 				status.ConsecutiveRecoveryFailures++
@@ -859,16 +857,18 @@ func handleRun(args []string) error {
 			}
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		case <-healthTicker.C:
+		},
+		Health: func(context.Context, time.Time) {
 			status.LastSelfCheckAt = time.Now().Format(time.RFC3339)
 			refreshRuntimeStatus(&status, counters, ledger)
 			saveRuntimeStatusSnapshot(statusPath, status)
-		case <-rescanTickerChannel(rescanTicker):
+		},
+		Rescan: func(ctx context.Context, _ time.Time) {
 			if _, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "scheduled", nil); err != nil {
 				fmt.Fprintf(os.Stderr, "[rescan] scheduled failed agent=%s error=%v\n", config.AgentKey, err)
 			}
-		}
-	}
+		},
+	})
 }
 
 func handleServiceInfo(args []string) error {
@@ -2382,8 +2382,8 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		rescan:   rescan,
 	})
 	schemaVersion := coreRegistry.DefaultSchemaVersion
-	if taskType == compatibility.CanonicalDeployAction {
-		schemaVersion = compatibility.ActionSchemaVersion
+	if taskType == actioncontract.DeployAction {
+		schemaVersion = actioncontract.DeployVersion
 	}
 	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: schemaVersion, Payload: payload})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
@@ -2516,8 +2516,8 @@ var (
 func executeLinuxTaskPayload(taskID string, payload map[string]any) (bool, string, string, map[string]any) {
 	taskType := firstNonEmpty(stringFromMap(payload, "actionType"), stringFromMap(payload, "type"))
 	schemaVersion := coreRegistry.DefaultSchemaVersion
-	if taskType == compatibility.CanonicalDeployAction {
-		schemaVersion = compatibility.ActionSchemaVersion
+	if taskType == actioncontract.DeployAction {
+		schemaVersion = actioncontract.DeployVersion
 	}
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
 		TaskID:        taskID,
@@ -2549,46 +2549,27 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		},
 	})
 	mustRegisterAction(registry, coreRegistry.HandlerFunc{
-		ActionType:    compatibility.CanonicalDeployAction,
-		SchemaVersion: compatibility.ActionSchemaVersion,
-		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
-			action, err := actioncontract.Parse(request.Payload)
-			if err != nil {
-				return actionContractFailure(request.TaskID, err)
-			}
-			capabilities := currentLinuxCapabilityMap()
-			if action.LegacyActionType != "" {
-				capabilities[compatibility.CapabilityServiceReload] = true
-				capabilities[compatibility.CapabilityServiceRestart] = true
-			}
-			resolution, err := compatibility.ResolveProduct(action.ProductAdapterID, action.LegacyActionType, action.ArtifactFormat, capabilities)
-			if err != nil {
-				return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": request.TaskID}}
-			}
-			if resolution.ProductAdapterID != compatibility.ProductNginx {
-				return coreRegistry.Result{ErrorCode: "PRODUCT_HANDLER_NOT_REGISTERED", ErrorMessage: "product handler not registered", Detail: adapterResolutionDetail(request.TaskID, resolution)}
-			}
-			input, err := parseLinuxNginxDeployInput(action.Input)
-			if err != nil {
-				return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: adapterResolutionDetail(request.TaskID, resolution)}
-			}
-			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
-			if detail == nil {
-				detail = map[string]any{}
-			}
-			for key, value := range adapterResolutionDetail(request.TaskID, resolution) {
-				detail[key] = value
-			}
-			return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
+		ActionType:    actioncontract.DeployAction,
+		SchemaVersion: actioncontract.DeployVersion,
+		Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
+			return executeCanonicalDeploy(ctx, request.TaskID, request.Payload, currentLinuxCapabilityMap())
 		},
 	})
 	for _, alias := range []string{"linux.nginx.deploy_certificate", "linux.apache.deploy_certificate", "linux.tomcat.deploy_certificate"} {
-		if err := registry.RegisterAliasDescriptor(
-			coreRegistry.Descriptor{ActionType: alias, SchemaVersion: coreRegistry.DefaultSchemaVersion},
-			coreRegistry.Descriptor{ActionType: compatibility.CanonicalDeployAction, SchemaVersion: compatibility.ActionSchemaVersion},
-		); err != nil {
-			panic(err)
-		}
+		aliasAction := alias
+		mustRegisterAction(registry, coreRegistry.HandlerFunc{
+			ActionType: aliasAction,
+			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
+				payload, err := compatibility.NormalizeLegacyAction(aliasAction, request.TaskID, request.Payload)
+				if err != nil {
+					return coreRegistry.Result{ErrorCode: "ACTION_HANDLER_NOT_REGISTERED", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": request.TaskID}}
+				}
+				capabilities := currentLinuxCapabilityMap()
+				capabilities[compatibility.CapabilityServiceReload] = true
+				capabilities[compatibility.CapabilityServiceRestart] = true
+				return executeCanonicalDeploy(ctx, request.TaskID, payload, capabilities)
+			},
+		})
 	}
 	if runtime != nil {
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
@@ -2603,6 +2584,32 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		})
 	}
 	return registry
+}
+
+func executeCanonicalDeploy(_ context.Context, taskID string, payload map[string]any, capabilities map[string]bool) coreRegistry.Result {
+	action, err := actioncontract.Parse(payload)
+	if err != nil {
+		return actionContractFailure(taskID, err)
+	}
+	resolution, err := compatibility.ResolveProduct(action.ProductAdapterID, "", action.ArtifactFormat, capabilities)
+	if err != nil {
+		return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
+	}
+	if resolution.ProductAdapterID != compatibility.ProductNginx {
+		return coreRegistry.Result{ErrorCode: "PRODUCT_HANDLER_NOT_REGISTERED", ErrorMessage: "product handler not registered", Detail: adapterResolutionDetail(taskID, resolution)}
+	}
+	input, err := parseLinuxNginxDeployInput(action.Input)
+	if err != nil {
+		return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: adapterResolutionDetail(taskID, resolution)}
+	}
+	success, code, message, detail := runLinuxNginxDeployment(taskID, input)
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	for key, value := range adapterResolutionDetail(taskID, resolution) {
+		detail[key] = value
+	}
+	return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
 }
 
 func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Handler) {

@@ -1,28 +1,23 @@
 package actioncontract
 
-import (
-	"testing"
-
-	"gcac/linux-go-full-agent/internal/compatibility"
-)
+import "testing"
 
 func TestParseCanonicalActionContract(t *testing.T) {
 	request, err := Parse(map[string]any{
-		"schemaVersion":       compatibility.ActionContractVersion,
-		"actionType":          compatibility.CanonicalDeployAction,
-		"actionSchemaVersion": compatibility.ActionSchemaVersion,
+		"schemaVersion":       ContractVersion,
+		"actionType":          DeployAction,
+		"actionSchemaVersion": DeployVersion,
 		"requestId":           "request-1",
 		"idempotencyKey":      "deploy-1",
-		"input":               map[string]any{"productAdapterId": compatibility.ProductApache, "artifactFormat": "pem"},
+		"input":               map[string]any{"productAdapterId": "product.example", "artifactFormat": "pem"},
 	})
-	if err != nil || request.ProductAdapterID != compatibility.ProductApache {
+	if err != nil || request.ProductAdapterID != "product.example" {
 		t.Fatalf("规范动作解析失败: request=%#v err=%v", request, err)
 	}
 }
 
-func TestParseLegacyAlias(t *testing.T) {
-	request, err := Parse(map[string]any{"type": "linux.nginx.deploy_certificate"})
-	if err != nil || request.ActionType != compatibility.CanonicalDeployAction || request.ProductAdapterID != compatibility.ProductNginx {
-		t.Fatalf("旧动作 Alias 解析失败: request=%#v err=%v", request, err)
+func TestParseRejectsMissingContractVersion(t *testing.T) {
+	if _, err := Parse(map[string]any{"actionType": DeployAction}); err == nil {
+		t.Fatal("缺少合同版本时必须失败关闭")
 	}
 }

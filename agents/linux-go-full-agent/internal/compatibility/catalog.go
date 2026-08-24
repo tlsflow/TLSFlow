@@ -8,10 +8,6 @@ import (
 )
 
 const (
-	ActionContractVersion = "gcac.action/v1"
-	ActionSchemaVersion   = "1.0"
-	CanonicalDeployAction = "certificate.deploy"
-
 	ProductNginx  = "product.nginx"
 	ProductApache = "product.apache"
 	ProductTomcat = "product.tomcat"
@@ -27,6 +23,25 @@ const (
 	ServiceSysV          = "service-controller.sysv"
 	ServiceOpenRC        = "service-controller.openrc"
 )
+
+func NormalizeLegacyAction(actionType, taskID string, payload map[string]any) (map[string]any, error) {
+	product, err := findProduct("", actionType)
+	if err != nil {
+		return nil, err
+	}
+	input := cloneMap(payload)
+	input["productAdapterId"] = product.AdapterID
+	return map[string]any{
+		"schemaVersion":       "gcac.action/v1",
+		"actionType":          "certificate.deploy",
+		"actionSchemaVersion": "1.0",
+		"requestId":           firstNonEmptyString(stringValue(payload["requestId"]), taskID),
+		"idempotencyKey":      firstNonEmptyString(stringValue(payload["idempotencyKey"]), taskID),
+		"input":               input,
+		"dryRun":              boolValue(payload["dryRun"]),
+		"audit":               map[string]any{},
+	}, nil
+}
 
 const (
 	CapabilityAgentOnline       = "agent.full.online"
@@ -212,4 +227,31 @@ func contains(items []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	result := make(map[string]any, len(source)+1)
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func stringValue(value any) string {
+	result, _ := value.(string)
+	return strings.TrimSpace(result)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func boolValue(value any) bool {
+	result, _ := value.(bool)
+	return result
 }
