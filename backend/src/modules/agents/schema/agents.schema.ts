@@ -3,6 +3,8 @@ import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core
 export type AgentTaskStatus = 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
 export type EnrollmentTokenStatus = 'active' | 'expired' | 'exhausted' | 'revoked';
 export type AgentUpgradeStatus = 'planned' | 'accepted' | 'succeeded' | 'failed' | 'rolled_back' | 'manual_required';
+export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejected' | 'superseded';
+export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
 
 export interface EnrollmentToken {
   id: string;
@@ -80,6 +82,55 @@ export interface AgentSession {
   requestId: string;
 }
 
+export interface AgentCertificateSigningRequest {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  csrPem: string;
+  csrSha256: string;
+  subjectCommonName: string;
+  publicKeyPem: string;
+  requestedTtlDays: number;
+  status: AgentCertificateSigningRequestStatus;
+  createdAt: string;
+  createdBy: string;
+  signedCertificateId?: string;
+  signedAt?: string;
+  requestId: string;
+}
+
+export interface AgentCertificateAuthority {
+  id: string;
+  subjectCommonName: string;
+  certificatePem: string;
+  fingerprintSha256: string;
+  notBefore: string;
+  notAfter: string;
+}
+
+export interface AgentCertificate {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  csrId: string;
+  serialNumber: string;
+  certificatePem: string;
+  certificateChainPem: string;
+  issuerCertificatePem: string;
+  fingerprintSha256: string;
+  subjectCommonName: string;
+  issuerCommonName: string;
+  notBefore: string;
+  notAfter: string;
+  status: AgentCertificateStatus;
+  issuedAt: string;
+  issuedBy: string;
+  rotatedFromCertificateId?: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+}
+
 export interface AgentHeartbeat {
   tenantId: string;
   agentId: string;
@@ -121,6 +172,15 @@ export interface AgentTaskLogEntry {
   message: string;
   redacted: boolean;
   emittedAt: string;
+  requestId: string;
+}
+
+export interface AgentTaskLogCursor {
+  tenantId: string;
+  agentId: string;
+  taskId: string;
+  lastAckedSequence: number;
+  updatedAt: string;
   requestId: string;
 }
 

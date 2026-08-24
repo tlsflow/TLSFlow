@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { PageResponse } from '../../../shared/dto/page-response.js';
 import { createPageResponse } from '../../../shared/dto/page-response.js';
-import type { AgentCapabilitySnapshot, AgentHeartbeat, AgentRegistration, AgentSession, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentHeartbeat, AgentRegistration, AgentSession, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 export interface AgentsRepository {
   readonly moduleName: 'agents';
@@ -16,6 +16,16 @@ export interface AgentsRepository {
   listRegistrations(tenantId: string, query: PageQuery): PageResponse<AgentRegistration>;
   createSession(session: AgentSession): AgentSession;
   getSession(tenantId: string, sessionId: string): AgentSession | undefined;
+  saveCertificateAuthority(ca: AgentCertificateAuthority): AgentCertificateAuthority;
+  getCertificateAuthority(): AgentCertificateAuthority | undefined;
+  createCertificateSigningRequest(csr: AgentCertificateSigningRequest): AgentCertificateSigningRequest;
+  updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): AgentCertificateSigningRequest;
+  getCertificateSigningRequest(tenantId: string, csrId: string): AgentCertificateSigningRequest | undefined;
+  createCertificate(certificate: AgentCertificate): AgentCertificate;
+  updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): AgentCertificate;
+  getCertificate(tenantId: string, certificateId: string): AgentCertificate | undefined;
+  findActiveCertificate(tenantId: string, agentId: string): AgentCertificate | undefined;
+  listCertificates(tenantId: string, agentId: string): AgentCertificate[];
   saveHeartbeat(heartbeat: AgentHeartbeat): AgentHeartbeat;
   getLatestHeartbeat(tenantId: string, agentId: string): AgentHeartbeat | undefined;
   saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): AgentCapabilitySnapshot;
@@ -26,6 +36,8 @@ export interface AgentsRepository {
   findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): AgentTaskEnvelope | undefined;
   listTasks(tenantId: string, agentId: string, statuses?: string[]): AgentTaskEnvelope[];
   saveTaskLog(entry: AgentTaskLogEntry): AgentTaskLogEntry;
+  saveTaskLogCursor(cursor: AgentTaskLogCursor): AgentTaskLogCursor;
+  getTaskLogCursor(tenantId: string, agentId: string, taskId: string): AgentTaskLogCursor | undefined;
   listTaskLogs(tenantId: string, taskId: string): AgentTaskLogEntry[];
   listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): AgentTaskLogEntry[];
   publishVersion(release: AgentVersionRelease): AgentVersionRelease;
@@ -42,10 +54,14 @@ export class InMemoryAgentsRepository implements AgentsRepository {
   private readonly enrollmentTokens = new Map<string, EnrollmentToken>();
   private readonly registrations = new Map<string, AgentRegistration>();
   private readonly sessions = new Map<string, AgentSession>();
+  private certificateAuthority?: AgentCertificateAuthority;
+  private readonly certificateSigningRequests = new Map<string, AgentCertificateSigningRequest>();
+  private readonly certificates = new Map<string, AgentCertificate>();
   private readonly heartbeats: AgentHeartbeat[] = [];
   private readonly snapshots = new Map<string, AgentCapabilitySnapshot>();
   private readonly tasks = new Map<string, AgentTaskEnvelope>();
   private readonly taskLogs: AgentTaskLogEntry[] = [];
+  private readonly taskLogCursors = new Map<string, AgentTaskLogCursor>();
   private readonly releases = new Map<string, AgentVersionRelease>();
   private readonly upgradePlans = new Map<string, AgentUpgradePlan>();
 
@@ -107,6 +123,61 @@ export class InMemoryAgentsRepository implements AgentsRepository {
     return session?.tenantId === tenantId ? session : undefined;
   }
 
+  saveCertificateAuthority(ca: AgentCertificateAuthority): AgentCertificateAuthority {
+    this.certificateAuthority = ca;
+    return ca;
+  }
+
+  getCertificateAuthority(): AgentCertificateAuthority | undefined {
+    return this.certificateAuthority;
+  }
+
+  createCertificateSigningRequest(csr: AgentCertificateSigningRequest): AgentCertificateSigningRequest {
+    this.certificateSigningRequests.set(csr.id, csr);
+    return csr;
+  }
+
+  updateCertificateSigningRequest(csrId: string, patch: Partial<AgentCertificateSigningRequest>): AgentCertificateSigningRequest {
+    const current = this.certificateSigningRequests.get(csrId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent CSR 不存在', { csrId });
+    const updated = { ...current, ...patch };
+    this.certificateSigningRequests.set(updated.id, updated);
+    return updated;
+  }
+
+  getCertificateSigningRequest(tenantId: string, csrId: string): AgentCertificateSigningRequest | undefined {
+    const csr = this.certificateSigningRequests.get(csrId);
+    return csr?.tenantId === tenantId ? csr : undefined;
+  }
+
+  createCertificate(certificate: AgentCertificate): AgentCertificate {
+    this.certificates.set(certificate.id, certificate);
+    return certificate;
+  }
+
+  updateCertificate(certificateId: string, patch: Partial<AgentCertificate>): AgentCertificate {
+    const current = this.certificates.get(certificateId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 证书不存在', { certificateId });
+    const updated = { ...current, ...patch };
+    this.certificates.set(updated.id, updated);
+    return updated;
+  }
+
+  getCertificate(tenantId: string, certificateId: string): AgentCertificate | undefined {
+    const certificate = this.certificates.get(certificateId);
+    return certificate?.tenantId === tenantId ? certificate : undefined;
+  }
+
+  findActiveCertificate(tenantId: string, agentId: string): AgentCertificate | undefined {
+    return this.listCertificates(tenantId, agentId).find((item) => item.status === 'active');
+  }
+
+  listCertificates(tenantId: string, agentId: string): AgentCertificate[] {
+    return [...this.certificates.values()]
+      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
+      .sort((left, right) => right.issuedAt.localeCompare(left.issuedAt));
+  }
+
   saveHeartbeat(heartbeat: AgentHeartbeat): AgentHeartbeat {
     this.heartbeats.push(heartbeat);
     return heartbeat;
@@ -164,6 +235,15 @@ export class InMemoryAgentsRepository implements AgentsRepository {
     return entry;
   }
 
+  saveTaskLogCursor(cursor: AgentTaskLogCursor): AgentTaskLogCursor {
+    this.taskLogCursors.set(logCursorKey(cursor.tenantId, cursor.agentId, cursor.taskId), cursor);
+    return cursor;
+  }
+
+  getTaskLogCursor(tenantId: string, agentId: string, taskId: string): AgentTaskLogCursor | undefined {
+    return this.taskLogCursors.get(logCursorKey(tenantId, agentId, taskId));
+  }
+
   listTaskLogs(tenantId: string, taskId: string): AgentTaskLogEntry[] {
     return this.taskLogs
       .filter((item) => item.tenantId === tenantId && item.taskId === taskId)
@@ -214,6 +294,10 @@ export class InMemoryAgentsRepository implements AgentsRepository {
       .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
+}
+
+function logCursorKey(tenantId: string, agentId: string, taskId: string): string {
+  return `${tenantId}:${agentId}:${taskId}`;
 }
 
 function compareVersions(left: string, right: string): number {

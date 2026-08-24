@@ -1,8 +1,11 @@
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
 import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentDescriptor, AgentGatewayExtension, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+
+const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -122,6 +125,103 @@ export class AgentsDomainService {
     }
   }
 
+  createCertificateAuthority(now = new Date()): AgentCertificateAuthority {
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const notBefore = now.toISOString();
+    const notAfter = new Date(now.getTime() + 3650 * 24 * 60 * 60 * 1000).toISOString();
+    const certificatePem = createMockSafeCertificatePem({
+      subjectCommonName: MOCK_SAFE_CA_COMMON_NAME,
+      issuerCommonName: MOCK_SAFE_CA_COMMON_NAME,
+      publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+      serialNumber: 'ca-' + randomBytes(8).toString('hex'),
+      notBefore,
+      notAfter,
+      ca: true,
+    });
+    return {
+      id: newId('agca'),
+      subjectCommonName: MOCK_SAFE_CA_COMMON_NAME,
+      certificatePem,
+      fingerprintSha256: sha256Hex(certificatePem),
+      notBefore,
+      notAfter,
+    };
+  }
+
+  normalizeCertificateSigningRequest(tenantId: string, agent: AgentRegistration, input: { csrPem: string; requestedTtlDays?: number }, createdBy: string, requestId: string): AgentCertificateSigningRequest {
+    const parsed = parseMockSafeCsr(input.csrPem);
+    const requestedTtlDays = normalizeTtlDays(input.requestedTtlDays ?? 90);
+    return {
+      id: newId('agcsr'),
+      tenantId,
+      agentId: agent.id,
+      csrPem: parsed.csrPem,
+      csrSha256: sha256Hex(parsed.csrPem),
+      subjectCommonName: parsed.subjectCommonName,
+      publicKeyPem: parsed.publicKeyPem,
+      requestedTtlDays,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      createdBy,
+      requestId,
+    };
+  }
+
+  issueCertificate(input: {
+    tenantId: string;
+    agent: AgentRegistration;
+    csr: AgentCertificateSigningRequest;
+    ca: AgentCertificateAuthority;
+    ttlDays?: number;
+    issuedBy: string;
+    rotatedFromCertificateId?: string;
+  }): AgentCertificate {
+    if (input.csr.status !== 'pending') throw new AppError('RESOURCE_VERSION_CONFLICT', 'CSR 已经处理过，不能重复签发', { csrId: input.csr.id, status: input.csr.status });
+    if (input.csr.agentId !== input.agent.id || input.csr.tenantId !== input.tenantId) throw new AppError('VALIDATION_FAILED', 'CSR 与 Agent 不匹配', { csrId: input.csr.id, agentId: input.agent.id });
+    const ttlDays = normalizeTtlDays(input.ttlDays ?? input.csr.requestedTtlDays);
+    const now = new Date();
+    const notBefore = now.toISOString();
+    const notAfter = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+    const serialNumber = randomBytes(16).toString('hex');
+    const certificatePem = createMockSafeCertificatePem({
+      subjectCommonName: input.csr.subjectCommonName,
+      issuerCommonName: input.ca.subjectCommonName,
+      publicKeyPem: input.csr.publicKeyPem,
+      serialNumber,
+      notBefore,
+      notAfter,
+      ca: false,
+    });
+    return {
+      id: newId('agcert'),
+      tenantId: input.tenantId,
+      agentId: input.agent.id,
+      csrId: input.csr.id,
+      serialNumber,
+      certificatePem,
+      certificateChainPem: `${certificatePem}\n${input.ca.certificatePem}`.trim(),
+      issuerCertificatePem: input.ca.certificatePem,
+      fingerprintSha256: sha256Hex(certificatePem),
+      subjectCommonName: input.csr.subjectCommonName,
+      issuerCommonName: input.ca.subjectCommonName,
+      notBefore,
+      notAfter,
+      status: 'active',
+      issuedAt: now.toISOString(),
+      issuedBy: input.issuedBy,
+      rotatedFromCertificateId: input.rotatedFromCertificateId,
+    };
+  }
+
+  assertCertificateUsable(certificate: AgentCertificate): void {
+    if (certificate.status !== 'active') throw new AppError('AUTH_FORBIDDEN', 'Agent 证书不可用', { certificateId: certificate.id, status: certificate.status });
+    if (new Date(certificate.notAfter).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', 'Agent 证书已过期', { certificateId: certificate.id });
+    const parsed = parseMockSafeCertificate(certificate.certificatePem);
+    if (parsed.fingerprintSha256 !== certificate.fingerprintSha256) {
+      throw new AppError('VALIDATION_FAILED', 'Agent 证书指纹与证书材料不一致', { certificateId: certificate.id });
+    }
+  }
+
   assertStatusTransition(current: string, next: string): void {
     if (current === 'DISABLED' && next !== 'DISABLED') {
       throw new AppError('VALIDATION_FAILED', 'DISABLED Agent 不能通过心跳自动恢复', { current, next });
@@ -191,6 +291,13 @@ export class AgentsDomainService {
       emittedAt: input.emittedAt ?? new Date().toISOString(),
       requestId,
     };
+  }
+
+  nextContiguousAckedSequence(existingSequences: number[], lastAckedSequence: number): number {
+    const sequences = new Set(existingSequences.filter((sequence) => sequence > lastAckedSequence));
+    let cursor = lastAckedSequence;
+    while (sequences.has(cursor + 1)) cursor += 1;
+    return cursor;
   }
 
   normalizeRelease(tenantId: string, input: PublishAgentVersionInput): AgentVersionRelease {
@@ -307,6 +414,11 @@ function normalizeRate(value: number, field: string): number {
   return value;
 }
 
+function normalizeTtlDays(value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 397) throw new AppError('VALIDATION_FAILED', '证书 ttlDays 必须在 1-397 天之间');
+  return value;
+}
+
 function normalizeRequired(value: string | undefined, field: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
@@ -327,4 +439,100 @@ function normalizeCapabilityKey(value: string, field: string): string {
     throw new AppError('VALIDATION_FAILED', '能力键格式不合法', { field, value });
   }
   return normalized;
+}
+
+interface MockSafeCertificatePayload {
+  kind: 'GCAC_AGENT_MOCK_SAFE_CERTIFICATE_V1';
+  subjectCommonName: string;
+  issuerCommonName: string;
+  publicKeyPem: string;
+  serialNumber: string;
+  notBefore: string;
+  notAfter: string;
+  ca: boolean;
+}
+
+interface MockSafeCsrPayload {
+  kind: 'GCAC_AGENT_MOCK_SAFE_CSR_V1';
+  subjectCommonName: string;
+  publicKeyPem: string;
+}
+
+function parseMockSafeCsr(csrPem: string): { csrPem: string; subjectCommonName: string; publicKeyPem: string } {
+  const normalized = normalizePem(csrPem, 'CERTIFICATE REQUEST');
+  const payload = parsePemJson<MockSafeCsrPayload>(normalized, 'CERTIFICATE REQUEST');
+  if (payload.kind !== 'GCAC_AGENT_MOCK_SAFE_CSR_V1') throw new AppError('CERT_PARSE_FAILED', 'CSR 不是 GCAC Agent mock-safe 格式');
+  const subjectCommonName = normalizeRequired(payload.subjectCommonName, 'subjectCommonName').toLowerCase();
+  const publicKeyPem = normalizePublicKeyPem(payload.publicKeyPem);
+  return { csrPem: normalized, subjectCommonName, publicKeyPem };
+}
+
+function createMockSafeCertificatePem(payload: Omit<MockSafeCertificatePayload, 'kind'>): string {
+  return wrapPem('CERTIFICATE', JSON.stringify({ kind: 'GCAC_AGENT_MOCK_SAFE_CERTIFICATE_V1', ...payload }));
+}
+
+function parseMockSafeCertificate(certificatePem: string): MockSafeCertificatePayload & { fingerprintSha256: string } {
+  const normalized = normalizePem(certificatePem, 'CERTIFICATE');
+  const payload = parsePemJson<MockSafeCertificatePayload>(normalized, 'CERTIFICATE');
+  if (payload.kind !== 'GCAC_AGENT_MOCK_SAFE_CERTIFICATE_V1') throw new AppError('CERT_PARSE_FAILED', '证书不是 GCAC Agent mock-safe 格式');
+  return { ...payload, fingerprintSha256: sha256Hex(normalized) };
+}
+
+function parsePemJson<T>(pem: string, label: string): T {
+  const body = pem
+    .replace(`-----BEGIN ${label}-----`, '')
+    .replace(`-----END ${label}-----`, '')
+    .replace(/\s+/g, '');
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as T;
+  } catch (error) {
+    throw new AppError('CERT_PARSE_FAILED', `${label} PEM 内容不能解析`, { reason: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function normalizePem(value: string, label: string): string {
+  const trimmed = normalizeRequired(value, label);
+  const pattern = new RegExp(`^-----BEGIN ${label}-----\\n?[A-Za-z0-9_-]+\\n?-----END ${label}-----$`);
+  if (!pattern.test(trimmed)) throw new AppError('CERT_PARSE_FAILED', `${label} PEM 格式不合法`);
+  const body = trimmed
+    .replace(`-----BEGIN ${label}-----`, '')
+    .replace(`-----END ${label}-----`, '')
+    .replace(/\s+/g, '');
+  return wrapPem(label, Buffer.from(body, 'base64url').toString('utf8'));
+}
+
+function wrapPem(label: string, json: string): string {
+  const body = Buffer.from(json, 'utf8').toString('base64url');
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----`;
+}
+
+function normalizePublicKeyPem(value: string): string {
+  const trimmed = normalizeRequired(value, 'publicKeyPem');
+  try {
+    return createPublicKey(trimmed).export({ type: 'spki', format: 'pem' }).toString();
+  } catch {
+    try {
+      return createPublicKey(createPrivateKey(trimmed)).export({ type: 'spki', format: 'pem' }).toString();
+    } catch (error) {
+      throw new AppError('CERT_PARSE_FAILED', 'CSR publicKeyPem 不合法', { reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+}
+
+export function createMockSafeAgentCsrPem(subjectCommonName: string): { csrPem: string; privateKeyPem: string; publicKeyPem: string } {
+  const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  return {
+    csrPem: wrapPem('CERTIFICATE REQUEST', JSON.stringify({
+      kind: 'GCAC_AGENT_MOCK_SAFE_CSR_V1',
+      subjectCommonName: normalizeRequired(subjectCommonName, 'subjectCommonName').toLowerCase(),
+      publicKeyPem,
+    } satisfies MockSafeCsrPayload)),
+    privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    publicKeyPem,
+  };
+}
+
+function sha256Hex(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
 }

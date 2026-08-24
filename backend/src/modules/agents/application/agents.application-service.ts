@@ -3,14 +3,16 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentDetailProjection, AgentHeartbeatInput, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DisableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentRegistration, AgentTaskEnvelope, AgentUpgradePlan } from '../schema/agents.schema.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DisableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { InMemoryAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
+import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 
 export class AgentsApplicationService {
   constructor(
     private readonly repository: AgentsRepository = new InMemoryAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
+    private readonly gateways?: GatewaysRepository,
   ) {}
 
   getModuleMetadata() {
@@ -45,7 +47,7 @@ export class AgentsApplicationService {
     }
     const now = new Date().toISOString();
     if (existing) {
-      return this.repository.updateRegistration(existing.id, {
+      const updated = this.repository.updateRegistration(existing.id, {
         descriptor,
         status: existing.status === 'DISABLED' ? 'DISABLED' : 'ONLINE',
         role: input.role ?? existing.role,
@@ -57,8 +59,10 @@ export class AgentsApplicationService {
         updatedAt: now,
         lastRequestId: requestId,
       });
+      this.syncGatewayRegistry(tenantId, updated);
+      return updated;
     }
-    return this.repository.upsertRegistration({
+    const registered = this.repository.upsertRegistration({
       id: newId('agt'),
       tenantId,
       agentKey: descriptor.agentKey,
@@ -75,6 +79,8 @@ export class AgentsApplicationService {
       lastRequestId: requestId,
       version: 1,
     });
+    this.syncGatewayRegistry(tenantId, registered);
+    return registered;
   }
 
   heartbeat(tenantId: string, input: AgentHeartbeatInput, requestId: string) {
@@ -90,6 +96,7 @@ export class AgentsApplicationService {
       updatedAt: now,
       lastRequestId: requestId,
     });
+    this.syncGatewayRegistry(tenantId, updated);
     const heartbeat = this.repository.saveHeartbeat({
       tenantId,
       agentId: agent.id,
@@ -128,6 +135,93 @@ export class AgentsApplicationService {
     return this.createSession(tenantId, input.agentId, requestId);
   }
 
+  createCertificateSigningRequest(tenantId: string, input: CreateAgentCertificateSigningRequestInput, actorId: string, requestId: string) {
+    const agent = this.requireAgent(tenantId, input.agentId);
+    return this.repository.createCertificateSigningRequest(this.domain.normalizeCertificateSigningRequest(tenantId, agent, input, actorId, requestId));
+  }
+
+  signCertificate(tenantId: string, input: SignAgentCertificateInput): AgentCertificateIssueResult {
+    const agent = this.requireAgent(tenantId, input.agentId);
+    if (agent.status === 'DISABLED') throw new AppError('VALIDATION_FAILED', 'DISABLED Agent 不能签发新证书', { agentId: agent.id });
+    const csr = this.repository.getCertificateSigningRequest(tenantId, input.csrId);
+    if (!csr) throw new AppError('RESOURCE_NOT_FOUND', 'Agent CSR 不存在', { csrId: input.csrId });
+    const ca = this.ensureCertificateAuthority();
+    const certificate = this.repository.createCertificate(this.domain.issueCertificate({ tenantId, agent, csr, ca, ttlDays: input.ttlDays, issuedBy: input.issuedBy }));
+    const signedCsr = this.repository.updateCertificateSigningRequest(csr.id, {
+      status: 'signed',
+      signedCertificateId: certificate.id,
+      signedAt: certificate.issuedAt,
+    });
+    this.repository.updateRegistration(agent.id, {
+      certificateFingerprint: certificate.fingerprintSha256,
+      certificateExpiresAt: certificate.notAfter,
+      certificateRevoked: false,
+      updatedAt: new Date().toISOString(),
+    });
+    return { csr: signedCsr, certificate, ca };
+  }
+
+  rotateCertificate(tenantId: string, input: RotateAgentCertificateInput, requestId: string): AgentCertificateRotateResult {
+    const agent = this.requireAgent(tenantId, input.agentId);
+    const previousCertificate = this.repository.findActiveCertificate(tenantId, agent.id);
+    const csr = this.repository.createCertificateSigningRequest(this.domain.normalizeCertificateSigningRequest(tenantId, agent, {
+      csrPem: input.csrPem,
+      requestedTtlDays: input.ttlDays,
+    }, input.issuedBy, requestId));
+    const ca = this.ensureCertificateAuthority();
+    const certificate = this.repository.createCertificate(this.domain.issueCertificate({
+      tenantId,
+      agent,
+      csr,
+      ca,
+      ttlDays: input.ttlDays,
+      issuedBy: input.issuedBy,
+      rotatedFromCertificateId: previousCertificate?.id,
+    }));
+    const signedCsr = this.repository.updateCertificateSigningRequest(csr.id, {
+      status: 'signed',
+      signedCertificateId: certificate.id,
+      signedAt: certificate.issuedAt,
+    });
+    const rotatedPrevious = previousCertificate ? this.repository.updateCertificate(previousCertificate.id, { status: 'rotated' }) : undefined;
+    this.repository.updateRegistration(agent.id, {
+      certificateFingerprint: certificate.fingerprintSha256,
+      certificateExpiresAt: certificate.notAfter,
+      certificateRevoked: false,
+      updatedAt: new Date().toISOString(),
+    });
+    return { csr: signedCsr, certificate, ca, previousCertificate: rotatedPrevious };
+  }
+
+  revokeCertificate(tenantId: string, input: RevokeAgentCertificateInput) {
+    const agent = this.requireAgent(tenantId, input.agentId);
+    const certificate = this.repository.getCertificate(tenantId, input.certificateId);
+    if (!certificate || certificate.agentId !== agent.id) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 证书不存在', { certificateId: input.certificateId });
+    if (certificate.status === 'revoked') return certificate;
+    const now = new Date().toISOString();
+    const revoked = this.repository.updateCertificate(certificate.id, {
+      status: 'revoked',
+      revokedAt: now,
+      revokedBy: input.revokedBy,
+      revokedReason: input.reason,
+    });
+    if (agent.certificateFingerprint === certificate.fingerprintSha256) {
+      this.repository.updateRegistration(agent.id, {
+        certificateRevoked: true,
+        revokedAt: agent.revokedAt ?? now,
+        revokedBy: input.revokedBy,
+        revokedReason: input.reason ?? 'Agent 证书被吊销',
+        updatedAt: now,
+      });
+    }
+    return revoked;
+  }
+
+  listCertificates(tenantId: string, agentId: string) {
+    this.requireAgent(tenantId, agentId);
+    return this.repository.listCertificates(tenantId, agentId);
+  }
+
   reportCapabilities(tenantId: string, input: AgentCapabilitySnapshotInput, requestId: string): AgentCapabilityProjection {
     const agent = this.requireAgent(tenantId, input.agentId);
     const snapshot = this.repository.saveCapabilitySnapshot(this.domain.normalizeCapabilitySnapshot(tenantId, agent.id, input, requestId));
@@ -137,6 +231,7 @@ export class AgentsApplicationService {
       updatedAt: new Date().toISOString(),
       lastRequestId: requestId,
     }) : agent;
+    this.syncGatewayRegistry(tenantId, updated);
     return { agentId: agent.id, declarations: this.domain.toCapabilityDeclarations(updated, snapshot) };
   }
 
@@ -197,15 +292,74 @@ export class AgentsApplicationService {
     });
   }
 
-  submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string) {
+  submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number } {
+    const result = this.submitLogs(tenantId, { agentId: input.agentId, taskId: input.taskId, logs: [input] }, requestId);
+    const entry = this.repository.listTaskLogs(tenantId, input.taskId).find((item) => item.agentId === input.agentId && item.sequence === input.sequence);
+    if (!entry) throw new AppError('RESOURCE_VERSION_CONFLICT', '日志 sequence 已落后于 ack cursor，不能补写', { sequence: input.sequence, ackedSequence: result.ackedSequence });
+    return { ...entry, ackedSequence: result.ackedSequence, lastAckedSequence: result.lastAckedSequence };
+  }
+
+  submitLogs(tenantId: string, input: SubmitAgentTaskLogsInput, requestId: string): AgentTaskLogAckResult {
     this.requireTask(tenantId, input.agentId, input.taskId);
-    return this.repository.saveTaskLog(this.domain.normalizeTaskLog(tenantId, input, requestId));
+    const previousCursor = this.repository.getTaskLogCursor(tenantId, input.agentId, input.taskId);
+    const previousAck = previousCursor?.lastAckedSequence ?? 0;
+    const acceptedSequences: number[] = [];
+    const duplicateSequences: number[] = [];
+    const rejectedSequences: number[] = [];
+
+    for (const log of input.logs) {
+      const existing = this.repository.listTaskLogs(tenantId, input.taskId)
+        .find((item) => item.agentId === input.agentId && item.sequence === log.sequence);
+      if (existing) {
+        duplicateSequences.push(log.sequence);
+        continue;
+      }
+      if (log.sequence <= previousAck) {
+        rejectedSequences.push(log.sequence);
+        continue;
+      }
+      const saved = this.repository.saveTaskLog(this.domain.normalizeTaskLog(tenantId, { ...log, agentId: input.agentId, taskId: input.taskId }, requestId));
+      acceptedSequences.push(saved.sequence);
+    }
+
+    const allSequences = this.repository.listTaskLogs(tenantId, input.taskId)
+      .filter((item) => item.agentId === input.agentId)
+      .map((item) => item.sequence);
+    const ackedSequence = this.domain.nextContiguousAckedSequence(allSequences, previousAck);
+    this.repository.saveTaskLogCursor({
+      tenantId,
+      agentId: input.agentId,
+      taskId: input.taskId,
+      lastAckedSequence: ackedSequence,
+      updatedAt: new Date().toISOString(),
+      requestId,
+    });
+    return {
+      agentId: input.agentId,
+      taskId: input.taskId,
+      acceptedSequences,
+      duplicateSequences,
+      rejectedSequences,
+      ackedSequence,
+      lastAckedSequence: ackedSequence,
+    };
   }
 
   listTaskLogs(tenantId: string, taskId: string) {
     const task = this.repository.getTask(tenantId, taskId);
     if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
     return this.repository.listTaskLogs(tenantId, taskId);
+  }
+
+  getLogCursor(tenantId: string, agentId: string, taskId: string) {
+    this.requireTask(tenantId, agentId, taskId);
+    return this.repository.getTaskLogCursor(tenantId, agentId, taskId) ?? {
+      tenantId,
+      agentId,
+      taskId,
+      lastAckedSequence: 0,
+      updatedAt: undefined,
+    };
   }
 
   publishVersion(tenantId: string, input: PublishAgentVersionInput) {
@@ -252,7 +406,7 @@ export class AgentsApplicationService {
   disableAgent(tenantId: string, input: DisableAgentInput, requestId: string) {
     const agent = this.requireAgent(tenantId, input.agentId);
     const now = new Date().toISOString();
-    return this.repository.updateRegistration(agent.id, {
+    const updated = this.repository.updateRegistration(agent.id, {
       status: 'DISABLED',
       gateway: agent.gateway ? { ...agent.gateway, status: input.revokeCertificate ? 'revoked' : 'disabled' } : undefined,
       updatedAt: now,
@@ -265,6 +419,8 @@ export class AgentsApplicationService {
       revokedReason: input.revokeCertificate ? (input.reason ?? 'Agent 被禁用时吊销证书') : agent.revokedReason,
       certificateRevoked: input.revokeCertificate ? true : agent.certificateRevoked,
     });
+    this.syncGatewayRegistry(tenantId, updated);
+    return updated;
   }
 
   listAgents(tenantId: string, query: PageQuery) {
@@ -332,6 +488,10 @@ export class AgentsApplicationService {
     return this.repository;
   }
 
+  private ensureCertificateAuthority() {
+    return this.repository.getCertificateAuthority() ?? this.repository.saveCertificateAuthority(this.domain.createCertificateAuthority());
+  }
+
   private requireAgent(tenantId: string, agentId: string) {
     const agent = this.repository.getRegistration(tenantId, agentId);
     if (!agent) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
@@ -342,6 +502,40 @@ export class AgentsApplicationService {
     const task = this.repository.getTask(tenantId, taskId);
     if (!task || task.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
     return task;
+  }
+
+  private syncGatewayRegistry(tenantId: string, agent: AgentRegistration): void {
+    if (!this.gateways || agent.role !== 'gateway' || !agent.gateway) return;
+    const gateway = this.gateways.findGatewayByAgentId(tenantId, agent.id);
+    if (agent.gateway.zoneIds.length === 0) return;
+    if (gateway) {
+      this.gateways.updateGatewayStatus(tenantId, gateway.id, {
+        agentId: agent.id,
+        version: agent.descriptor.version,
+        zoneIds: agent.gateway.zoneIds,
+        adapters: agent.gateway.adapters,
+        capabilities: agent.gateway.capabilities,
+        capabilitySetId: agent.gateway.capabilitySetId,
+        currentLoad: agent.gateway.currentLoad,
+        maxConcurrentTasks: agent.gateway.maxConcurrentTasks,
+        successRate: agent.gateway.successRate,
+        status: agent.gateway.status,
+        lastHeartbeatAt: agent.gateway.lastHeartbeatAt,
+      });
+      return;
+    }
+    this.gateways.registerGateway(tenantId, {
+      id: agent.id,
+      agentId: agent.id,
+      zoneIds: agent.gateway.zoneIds,
+      version: agent.descriptor.version,
+      adapters: agent.gateway.adapters,
+      capabilities: agent.gateway.capabilities,
+      capabilitySetId: agent.gateway.capabilitySetId,
+      currentLoad: agent.gateway.currentLoad,
+      maxConcurrentTasks: agent.gateway.maxConcurrentTasks,
+      successRate: agent.gateway.successRate,
+    });
   }
 
   private toLifecycle(agent: AgentRegistration) {

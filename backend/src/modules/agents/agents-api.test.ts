@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { createMockSafeAgentCsrPem } from './domain/agents.domain-service.js';
 
 describe('spec011 Agent 控制面协议', () => {
   it('Agent 注册幂等、心跳、能力快照、任务 ack/result 主链路可用', async () => {
@@ -238,6 +239,18 @@ describe('spec011 Agent 控制面协议', () => {
     assert.equal(heartbeatBody.heartbeat.gateway.currentLoad, 3);
     assert.ok(heartbeatBody.agent.gateway.lastHeartbeatAt);
 
+    const gatewayList = await app.inject({
+      method: 'GET',
+      path: '/api/v1/gateways?status=online',
+      headers,
+    });
+    assert.equal(gatewayList.statusCode, 200);
+    const gatewayItems = (gatewayList.body as { items: Array<{ id: string; agentId: string; zoneIds: string[]; currentLoad: number }> }).items;
+    const registryGateway = gatewayItems.find((item) => item.agentId === gateway.id);
+    assert.ok(registryGateway, 'Gateway Agent 注册后必须同步进入 Gateway Registry，不能维护两份事实源');
+    assert.deepEqual(registryGateway.zoneIds, ['zone_prod']);
+    assert.equal(registryGateway.currentLoad, 3);
+
     const capabilities = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/capabilities',
@@ -455,6 +468,133 @@ describe('spec011 Agent 控制面协议', () => {
     assert.equal((result.body as { status: string }).status, 'rolled_back');
   });
 
+  it('CSR 签发、证书轮换/吊销和日志断点续传 cursor 可用', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_agent_cert', 'x-actor-id': 'cert_admin', 'x-request-id': 'req_agent_cert' };
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: { agentKey: 'agent.cert.01', hostname: 'agent-cert-01', version: '1.0.0', osType: 'linux', role: 'full_agent' },
+    });
+    assert.equal(registered.statusCode, 201);
+    const agent = registered.body as { id: string };
+
+    const firstCsrPem = createMockSafeAgentCsrPem('agent.cert.01').csrPem;
+    const csr = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/certificate-requests',
+      headers,
+      body: { agentId: agent.id, csrPem: firstCsrPem, requestedTtlDays: 30 },
+    });
+    assert.equal(csr.statusCode, 201);
+    const csrBody = csr.body as { id: string; status: string; csrSha256: string };
+    assert.equal(csrBody.status, 'pending');
+    assert.match(csrBody.csrSha256, /^[a-f0-9]{64}$/);
+
+    const signed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/certificates/sign',
+      headers,
+      body: { agentId: agent.id, csrId: csrBody.id, ttlDays: 30 },
+    });
+    assert.equal(signed.statusCode, 201);
+    const cert = signed.body as { certificate: { id: string; fingerprintSha256: string; certificatePem: string; certificateChainPem: string; status: string } };
+    assert.equal(cert.certificate.status, 'active');
+    assert.match(cert.certificate.fingerprintSha256, /^[a-f0-9]{64}$/);
+    assert.match(cert.certificate.certificatePem, /BEGIN CERTIFICATE/);
+    assert.equal((cert.certificate.certificateChainPem.match(/-----BEGIN CERTIFICATE-----/g) ?? []).length, 2);
+
+    const session = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/sessions',
+      headers,
+      body: { agentId: agent.id, certificateFingerprint: cert.certificate.fingerprintSha256 },
+    });
+    assert.equal(session.statusCode, 201);
+
+    const rotated = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/certificates/rotate',
+      headers,
+      body: { agentId: agent.id, csrPem: createMockSafeAgentCsrPem('agent.cert.01.rotate').csrPem, ttlDays: 45 },
+    });
+    assert.equal(rotated.statusCode, 201);
+    const rotatedBody = rotated.body as { previousCertificate: { id: string; status: string }; certificate: { id: string; fingerprintSha256: string } };
+    assert.equal(rotatedBody.previousCertificate.id, cert.certificate.id);
+    assert.equal(rotatedBody.previousCertificate.status, 'rotated');
+    assert.notEqual(rotatedBody.certificate.fingerprintSha256, cert.certificate.fingerprintSha256);
+
+    const revoked = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/certificates/revoke',
+      headers,
+      body: { agentId: agent.id, certificateId: rotatedBody.certificate.id, reason: 'key rotation compromised' },
+    });
+    assert.equal(revoked.statusCode, 200);
+    assert.equal((revoked.body as { status: string; revokedBy: string }).status, 'revoked');
+    assert.equal((revoked.body as { status: string; revokedBy: string }).revokedBy, 'cert_admin');
+
+    const listed = await app.inject({ method: 'GET', path: `/api/v1/agents/certificates?agentId=${agent.id}`, headers });
+    assert.equal(listed.statusCode, 200);
+    assert.equal((listed.body as unknown[]).length, 2);
+
+    const task = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/tasks',
+      headers,
+      body: { agentId: agent.id, executionRunId: 'run_cursor', executionStepId: 'step_cursor', idempotencyKey: 'idem_cursor' },
+    });
+    const taskId = (task.body as { id: string }).id;
+    const firstBatch = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/tasks/log-batches',
+      headers,
+      body: {
+        agentId: agent.id,
+        taskId,
+        logs: [
+          { sequence: 1, message: 'first' },
+          { sequence: 3, message: 'third' },
+        ],
+      },
+    });
+    assert.equal(firstBatch.statusCode, 200);
+    assert.equal((firstBatch.body as { lastAckedSequence: number }).lastAckedSequence, 1);
+
+    const secondBatch = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/tasks/log-batches',
+      headers,
+      body: {
+        agentId: agent.id,
+        taskId,
+        logs: [
+          { sequence: 1, message: 'duplicate' },
+          { sequence: 2, message: 'second token=secret' },
+        ],
+      },
+    });
+    assert.equal(secondBatch.statusCode, 200);
+    const ack = secondBatch.body as { duplicateSequences: number[]; lastAckedSequence: number };
+    assert.deepEqual(ack.duplicateSequences, [1]);
+    assert.equal(ack.lastAckedSequence, 3);
+
+    const cursor = await app.inject({ method: 'GET', path: `/api/v1/agents/tasks/log-cursor?agentId=${agent.id}&taskId=${taskId}`, headers });
+    assert.equal(cursor.statusCode, 200);
+    assert.equal((cursor.body as { lastAckedSequence: number }).lastAckedSequence, 3);
+
+    const tooOldReplay = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/tasks/log-batches',
+      headers,
+      body: { agentId: agent.id, taskId, logs: [{ sequence: 0, message: 'too old replay' }] },
+    });
+    assert.equal(tooOldReplay.statusCode, 200);
+    assert.deepEqual((tooOldReplay.body as { rejectedSequences: number[] }).rejectedSequences, [0]);
+    assert.equal((tooOldReplay.body as { lastAckedSequence: number }).lastAckedSequence, 3);
+  });
+
   it('OpenAPI 包含 Agent 控制面路由', async () => {
     const app = createApp();
     const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: { 'x-tenant-id': 'tenant_agent' } });
@@ -468,8 +608,14 @@ describe('spec011 Agent 控制面协议', () => {
     assert.ok(paths['/api/v1/agents/upgrades/suggestion']);
     assert.ok(paths['/api/v1/agents/disable']);
     assert.ok(paths['/api/v1/agents/sessions']);
+    assert.ok(paths['/api/v1/agents/certificate-requests']);
+    assert.ok(paths['/api/v1/agents/certificates/sign']);
+    assert.ok(paths['/api/v1/agents/certificates/rotate']);
+    assert.ok(paths['/api/v1/agents/certificates/revoke']);
     assert.ok(paths['/api/v1/agents/heartbeat']);
     assert.ok(paths['/api/v1/agents/tasks/logs']);
+    assert.ok(paths['/api/v1/agents/tasks/log-batches']);
+    assert.ok(paths['/api/v1/agents/tasks/log-cursor']);
     assert.ok(paths['/api/v1/agents/tasks/result']);
     assert.ok(paths['/api/v1/agents/upgrades/check']);
   });

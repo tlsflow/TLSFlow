@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 
 export interface CreateEnrollmentTokenInput {
@@ -84,6 +84,33 @@ export interface CreateAgentSessionInput {
   certificateFingerprint: string;
 }
 
+export interface CreateAgentCertificateSigningRequestInput {
+  agentId: string;
+  csrPem: string;
+  requestedTtlDays?: number;
+}
+
+export interface SignAgentCertificateInput {
+  agentId: string;
+  csrId: string;
+  ttlDays?: number;
+  issuedBy: string;
+}
+
+export interface RotateAgentCertificateInput {
+  agentId: string;
+  csrPem: string;
+  ttlDays?: number;
+  issuedBy: string;
+}
+
+export interface RevokeAgentCertificateInput {
+  agentId: string;
+  certificateId: string;
+  reason?: string;
+  revokedBy: string;
+}
+
 export interface SubmitAgentTaskLogInput {
   agentId: string;
   taskId: string;
@@ -91,6 +118,12 @@ export interface SubmitAgentTaskLogInput {
   level?: AgentTaskLogEntry['level'];
   message: string;
   emittedAt?: string;
+}
+
+export interface SubmitAgentTaskLogsInput {
+  agentId: string;
+  taskId: string;
+  logs: Array<Omit<SubmitAgentTaskLogInput, 'agentId' | 'taskId'>>;
 }
 
 export interface PublishAgentVersionInput {
@@ -133,10 +166,34 @@ export interface AgentRegistrationDto extends AgentRegistration {}
 export interface AgentDescriptorDto extends AgentDescriptor {}
 export interface AgentGatewayExtensionDto extends AgentGatewayExtension {}
 export interface AgentCapabilitySnapshotDto extends AgentCapabilitySnapshot {}
+export interface AgentCertificateSigningRequestDto extends AgentCertificateSigningRequest {}
+export interface AgentCertificateAuthorityDto extends AgentCertificateAuthority {}
+export interface AgentCertificateDto extends AgentCertificate {}
 export interface AgentTaskEnvelopeDto extends AgentTaskEnvelope {}
 export interface AgentTaskLogEntryDto extends AgentTaskLogEntry {}
+export interface AgentTaskLogCursorDto extends AgentTaskLogCursor {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
+
+export interface AgentCertificateIssueResult {
+  csr: AgentCertificateSigningRequest;
+  certificate: AgentCertificate;
+  ca: AgentCertificateAuthority;
+}
+
+export interface AgentCertificateRotateResult extends AgentCertificateIssueResult {
+  previousCertificate?: AgentCertificate;
+}
+
+export interface AgentTaskLogAckResult {
+  agentId: string;
+  taskId: string;
+  acceptedSequences: number[];
+  duplicateSequences: number[];
+  rejectedSequences: number[];
+  ackedSequence: number;
+  lastAckedSequence: number;
+}
 
 export interface AgentLifecycleProjection {
   status: AgentStatus;
