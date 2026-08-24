@@ -18,7 +18,7 @@ export const mainMenuItems: MenuItem[] = [
     description: '证书库、绑定关系和到期风险',
     children: [
       { title: '证书资产', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', description: '证书、私钥引用、指纹和到期时间' },
-      { title: '证书绑定', path: '/bindings', module: 'binding', permission: 'binding.read', description: '证书、域名、服务实例和端口绑定' }
+      { title: '证书产物', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等导出规则配置' }
     ]
   },
   {
@@ -72,7 +72,7 @@ export const mainMenuItems: MenuItem[] = [
       { title: '用户管理', path: '/settings/users', module: 'settings', permission: 'security.user.read', description: '控制台用户、状态和角色' },
       { title: '角色管理', path: '/settings/roles', module: 'settings', permission: 'security.role.read', description: '角色定义和权限数量' },
       { title: '权限策略', path: '/settings/permissions', module: 'settings', permission: 'security.permission.read', description: 'RBAC allow/deny 策略' },
-      { title: '身份源', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', description: 'AD/LDAP 服务器配置' },
+      { title: '身份源', path: '/settings/identity-sources', module: 'settings', permission: 'security.identity_source.read', description: 'AD/LDAP 服务配置' },
       { title: '组角色映射', path: '/settings/group-role-mappings', module: 'settings', permission: 'security.identity_source.read', description: '外部目录组映射本地角色' }
     ]
   }

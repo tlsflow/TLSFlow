@@ -27,8 +27,11 @@ export interface CertificatesRepository {
   countVersionsByAsset(certificateAssetId: string): Promise<number>;
   listVersions(query: PageQuery): Promise<PageResponse<CertificateVersionEntity>>;
   createFormat(entity: CertificateVersionFormatEntity): Promise<CertificateVersionFormatEntity>;
+  updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>): Promise<CertificateVersionFormatEntity>;
+  deleteFormat(id: string): Promise<CertificateVersionFormatEntity>;
   listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatEntity>>;
-  getFormatByNaturalKey(certificateVersionId: string, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined>;
+  getFormat(id: string): Promise<CertificateVersionFormatEntity | undefined>;
+  getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined>;
 }
 
 export class PgCertificatesRepository implements CertificatesRepository {
@@ -257,15 +260,16 @@ export class PgCertificatesRepository implements CertificatesRepository {
   async createFormat(entity: CertificateVersionFormatEntity): Promise<CertificateVersionFormatEntity> {
     await this.db.query(
       `insert into pg_certificate_version_formats (
-         id, certificate_version_id, format, artifact_ref, parameter_hash,
+         id, certificate_version_id, format, artifact_ref, parameter_hash, parameters,
          contains_private_key, password_secret_ref, created_by, created_at, expires_at
-       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz)`,
+       ) values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10::timestamptz, $11::timestamptz)`,
       [
         entity.id,
-        entity.certificateVersionId,
+        entity.certificateVersionId ?? null,
         entity.format,
         entity.artifactRef,
         entity.parameterHash,
+        JSON.stringify(entity.parameters ?? {}),
         entity.containsPrivateKey,
         entity.passwordSecretRef ?? null,
         entity.createdBy,
@@ -276,18 +280,72 @@ export class PgCertificatesRepository implements CertificatesRepository {
     return structuredClone(entity);
   }
 
+  async updateFormat(id: string, patch: Partial<CertificateVersionFormatEntity>): Promise<CertificateVersionFormatEntity> {
+    const current = await this.getFormatOrThrow(id);
+    const next = { ...current, ...patch, id };
+    await this.db.query(
+      `update pg_certificate_version_formats
+          set certificate_version_id = $2,
+              format = $3,
+              artifact_ref = $4,
+              parameter_hash = $5,
+              parameters = $6::jsonb,
+              contains_private_key = $7,
+              password_secret_ref = $8,
+              created_by = $9,
+              created_at = $10::timestamptz,
+              expires_at = $11::timestamptz
+        where id = $1`,
+      [
+        id,
+        next.certificateVersionId ?? null,
+        next.format,
+        next.artifactRef,
+        next.parameterHash,
+        JSON.stringify(next.parameters ?? {}),
+        next.containsPrivateKey,
+        next.passwordSecretRef ?? null,
+        next.createdBy,
+        next.createdAt,
+        next.expiresAt ?? null,
+      ],
+    );
+    return next;
+  }
+
+  async deleteFormat(id: string): Promise<CertificateVersionFormatEntity> {
+    const current = await this.getFormatOrThrow(id);
+    await this.db.query(`delete from pg_certificate_version_formats where id = $1`, [id]);
+    return current;
+  }
+
   async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatEntity>> {
     const rows = (await this.db.query<CertificateVersionFormatRow>(`select * from pg_certificate_version_formats order by created_at desc`)).rows.map(toFormatEntity);
     return page(filterRows(rows, query.filter), query);
   }
 
-  async getFormatByNaturalKey(certificateVersionId: string, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined> {
+  async getFormat(id: string): Promise<CertificateVersionFormatEntity | undefined> {
     const result = await this.db.query<CertificateVersionFormatRow>(
-      `select * from pg_certificate_version_formats
-        where certificate_version_id = $1 and format = $2 and parameter_hash = $3
-        limit 1`,
-      [certificateVersionId, format, parameterHash],
+      `select * from pg_certificate_version_formats where id = $1 limit 1`,
+      [id],
     );
+    return result.rows[0] ? toFormatEntity(result.rows[0]) : undefined;
+  }
+
+  async getFormatByNaturalKey(certificateVersionId: string | undefined, format: string, parameterHash: string): Promise<CertificateVersionFormatEntity | undefined> {
+    const result = certificateVersionId
+      ? await this.db.query<CertificateVersionFormatRow>(
+        `select * from pg_certificate_version_formats
+          where certificate_version_id = $1 and format = $2 and parameter_hash = $3
+          limit 1`,
+        [certificateVersionId, format, parameterHash],
+      )
+      : await this.db.query<CertificateVersionFormatRow>(
+        `select * from pg_certificate_version_formats
+          where certificate_version_id is null and format = $1 and parameter_hash = $2
+          limit 1`,
+        [format, parameterHash],
+      );
     return result.rows[0] ? toFormatEntity(result.rows[0]) : undefined;
   }
 
@@ -301,6 +359,12 @@ export class PgCertificatesRepository implements CertificatesRepository {
     const version = await this.getVersion(id);
     if (!version) throw new Error(`certificate version not found: ${id}`);
     return version;
+  }
+
+  private async getFormatOrThrow(id: string): Promise<CertificateVersionFormatEntity> {
+    const format = await this.getFormat(id);
+    if (!format) throw new Error(`certificate version format not found: ${id}`);
+    return format;
   }
 }
 
@@ -347,10 +411,11 @@ type CertificateVersionRow = {
 
 type CertificateVersionFormatRow = {
   id: string;
-  certificate_version_id: string;
+  certificate_version_id?: string | null;
   format: CertificateVersionFormatEntity['format'];
   artifact_ref: string;
   parameter_hash: string;
+  parameters: unknown;
   contains_private_key: boolean;
   password_secret_ref?: string | null;
   created_by: string;
@@ -406,10 +471,11 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
 function toFormatEntity(row: CertificateVersionFormatRow): CertificateVersionFormatEntity {
   return {
     id: row.id,
-    certificateVersionId: row.certificate_version_id,
+    certificateVersionId: row.certificate_version_id ?? undefined,
     format: row.format,
     artifactRef: row.artifact_ref,
     parameterHash: row.parameter_hash,
+    parameters: asRecord(row.parameters),
     containsPrivateKey: row.contains_private_key,
     passwordSecretRef: row.password_secret_ref ?? undefined,
     createdBy: row.created_by,
@@ -421,6 +487,13 @@ function toFormatEntity(row: CertificateVersionFormatRow): CertificateVersionFor
 function asStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
   return [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
 }
 
 function filterRows<T extends object>(rows: T[], filter: Record<string, string>): T[] {

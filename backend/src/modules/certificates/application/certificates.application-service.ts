@@ -35,6 +35,8 @@ import {
   type ImportCertificateVersionResult,
   type ValidateCertificateImportResult,
   type RequestCertificateFormatExportInput,
+  type UpdateCertificateVersionFormatInput,
+  type DeleteCertificateVersionFormatInput,
   type ChangeCertificateAssetStatusInput,
   type ChangeCertificateVersionStatusInput,
   toCertificateAssetDto,
@@ -329,7 +331,7 @@ export class CertificatesApplicationService {
     if (!input.artifactRef || !/^[a-z][a-z0-9+.-]*:\/\/.+/i.test(input.artifactRef)) {
       throw new AppError('VALIDATION_FAILED', 'artifactRef 必须是外部产物引用', { field: 'artifactRef' });
     }
-    if (!await this.repository.getVersion(input.certificateVersionId)) {
+    if (input.certificateVersionId && !await this.repository.getVersion(input.certificateVersionId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
 
@@ -340,8 +342,10 @@ export class CertificatesApplicationService {
       passwordSecretRef: input.passwordSecretRef,
       parameters,
     });
-    const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash);
-    if (existing) return toCertificateVersionFormatDto(existing);
+    if (input.certificateVersionId) {
+      const existing = await this.repository.getFormatByNaturalKey(input.certificateVersionId, input.format, parameterHash);
+      if (existing) return toCertificateVersionFormatDto(existing);
+    }
 
     const format = await this.repository.createFormat({
       id: newId('certfmt'),
@@ -349,6 +353,7 @@ export class CertificatesApplicationService {
       format: input.format,
       artifactRef: input.artifactRef,
       parameterHash,
+      parameters,
       containsPrivateKey: Boolean(input.containsPrivateKey),
       passwordSecretRef: input.passwordSecretRef,
       createdBy: input.createdBy,
@@ -356,6 +361,90 @@ export class CertificatesApplicationService {
       expiresAt: input.expiresAt,
     });
     return toCertificateVersionFormatDto(format);
+  }
+
+  async updateFormat(input: UpdateCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto> {
+    const current = await this.repository.getFormat(input.id);
+    if (!current) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书产物配置不存在', { certificateVersionFormatId: input.id });
+    }
+    const certificateVersionId = input.certificateVersionId ?? current.certificateVersionId;
+    const formatName = input.format ?? current.format;
+    const artifactRef = input.artifactRef ?? current.artifactRef;
+    const containsPrivateKey = input.containsPrivateKey ?? current.containsPrivateKey;
+    const passwordSecretRef = input.passwordSecretRef ?? current.passwordSecretRef;
+    const parameters = input.parameters ?? current.parameters ?? {};
+    const expiresAt = input.expiresAt ?? current.expiresAt;
+    if (!certificateFormats.includes(formatName)) {
+      throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: formatName });
+    }
+    if (!artifactRef || !/^[a-z][a-z0-9+.-]*:\/\/.+/i.test(artifactRef)) {
+      throw new AppError('VALIDATION_FAILED', 'artifactRef 必须是外部产物引用', { field: 'artifactRef' });
+    }
+    if (certificateVersionId && !await this.repository.getVersion(certificateVersionId)) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    }
+    const parameterHash = buildCertificateFormatParameterHash({
+      format: formatName,
+      containsPrivateKey: Boolean(containsPrivateKey),
+      passwordSecretRef,
+      parameters,
+    });
+    const duplicated = certificateVersionId
+      ? await this.repository.getFormatByNaturalKey(certificateVersionId, formatName, parameterHash)
+      : undefined;
+    if (duplicated && duplicated.id !== current.id) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '已存在相同规则的证书产物配置', {
+        duplicatedId: duplicated.id,
+        certificateVersionId,
+        format: formatName,
+      });
+    }
+    const updated = await this.repository.updateFormat(current.id, {
+      certificateVersionId,
+      format: formatName,
+      artifactRef,
+      parameterHash,
+      parameters,
+      containsPrivateKey: Boolean(containsPrivateKey),
+      passwordSecretRef,
+      createdBy: input.createdBy,
+      expiresAt,
+    });
+    void this.dependencies.audit?.write({
+      eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
+      actorType: 'user',
+      actorId: input.createdBy,
+      action: 'certificate.format.update',
+      resourceType: 'certificate_version_format',
+      resourceId: updated.id,
+      result: 'success',
+      riskLevel: updated.containsPrivateKey ? 'high' : 'medium',
+      context,
+      detail: { certificateVersionId: updated.certificateVersionId, format: updated.format },
+    });
+    return toCertificateVersionFormatDto(updated);
+  }
+
+  async deleteFormat(input: DeleteCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto> {
+    const current = await this.repository.getFormat(input.id);
+    if (!current) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书产物配置不存在', { certificateVersionFormatId: input.id });
+    }
+    const deleted = await this.repository.deleteFormat(input.id);
+    void this.dependencies.audit?.write({
+      eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
+      actorType: 'user',
+      actorId: input.deletedBy,
+      action: 'certificate.format.delete',
+      resourceType: 'certificate_version_format',
+      resourceId: deleted.id,
+      result: 'success',
+      riskLevel: deleted.containsPrivateKey ? 'high' : 'medium',
+      context,
+      detail: { certificateVersionId: deleted.certificateVersionId, format: deleted.format },
+    });
+    return toCertificateVersionFormatDto(deleted);
   }
 
   async requestFormatExport(input: RequestCertificateFormatExportInput, context?: RequestContext): Promise<CertificateFormatExportPlanDto> {

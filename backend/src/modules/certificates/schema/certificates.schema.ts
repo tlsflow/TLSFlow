@@ -63,10 +63,11 @@ export interface CertificateVersionEntity {
 
 export interface CertificateVersionFormatEntity {
   id: string;
-  certificateVersionId: string;
+  certificateVersionId?: string;
   format: CertificateFormat;
   artifactRef: string;
   parameterHash: string;
+  parameters: Record<string, unknown>;
   containsPrivateKey: boolean;
   passwordSecretRef?: string;
   createdBy: string;

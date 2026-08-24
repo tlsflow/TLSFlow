@@ -92,13 +92,13 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'binding.list',
     component: () => import('@/views/bindings/BindingsView.vue'),
     meta: {
-      title: '证书绑定',
+      title: '证书产物',
       module: 'binding',
       requiresAuth: true,
       permission: 'binding.read',
       resourceType: 'binding',
       riskLevel: 'medium',
-      breadcrumb: ['证书绑定'],
+      breadcrumb: ['证书产物'],
       keepAlive: true
     }
   },
@@ -237,8 +237,7 @@ export const businessRoutes: GcRouteRecord[] = [
       breadcrumb: ['系统设置'],
       keepAlive: true
     }
-  }
-  ,
+  },
   {
     path: '/settings/users',
     name: 'settings.users',

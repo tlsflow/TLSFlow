@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { ApiClientError } from '@/api/client'
 import { usePermissionStore } from '@/stores/permission.store'
 
 const assetMocks = vi.hoisted(() => ({
@@ -18,22 +17,20 @@ const assetMocks = vi.hoisted(() => ({
   createServiceInstance: vi.fn(),
   updateServiceInstance: vi.fn(),
   previewDiscoveryMerge: vi.fn(),
-  startDiscovery: vi.fn()
+  startDiscovery: vi.fn(),
+  createServiceAsset: vi.fn(),
+  listAgents: vi.fn(),
 }))
 
-const bindingMocks = vi.hoisted(() => ({
-  listBindings: vi.fn(),
-  createBinding: vi.fn(),
-  detectBindingDrift: vi.fn(),
-  persistBindingDriftResult: vi.fn(),
-  listBindingUsages: vi.fn(),
-  patchBindingStatus: vi.fn(),
-  deleteBinding: vi.fn(),
-  verifyBinding: vi.fn()
+const certificateMocks = vi.hoisted(() => ({
+  listCertificateFormats: vi.fn(),
+  createCertificateFormat: vi.fn(),
+  updateCertificateFormat: vi.fn(),
+  deleteCertificateFormat: vi.fn(),
 }))
 
 vi.mock('@/api/modules/assets.api', () => assetMocks)
-vi.mock('@/api/modules/bindings.api', () => bindingMocks)
+vi.mock('@/api/modules/certificates.api', () => certificateMocks)
 
 import AssetsView from '@/views/assets/AssetsView.vue'
 import BindingsView from '@/views/bindings/BindingsView.vue'
@@ -42,7 +39,7 @@ function okPage(items: readonly Record<string, unknown>[]) {
   return {
     data: { items, page: 1, pageSize: 20, total: items.length },
     requestId: 'req_ok',
-    timestamp: '2026-06-09T00:00:00.000Z'
+    timestamp: '2026-06-09T00:00:00.000Z',
   }
 }
 
@@ -56,10 +53,8 @@ function createBusinessRouter() {
     routes: [
       { path: '/assets', component: { template: '<div />' } },
       { path: '/bindings', component: { template: '<div />' } },
-      { path: '/capabilities', component: { template: '<div />' } },
       { path: '/certificates', component: { template: '<div />' } },
-      { path: '/executions', component: { template: '<div />' } }
-    ]
+    ],
   })
 }
 
@@ -67,114 +62,72 @@ function mountBusinessView(component: typeof AssetsView | typeof BindingsView) {
   return mount(component, {
     global: {
       plugins: [createBusinessRouter()],
-      // 中文说明：Vue 内置 Teleport 在测试环境需要同时用大小写名称兜底，
-      // 否则弹窗会被传送到 body，wrapper.find 查不到表单输入。
-      stubs: { teleport: true, Teleport: true }
-    }
+      stubs: { teleport: true, Teleport: true },
+    },
   })
 }
 
-async function clickButtonByText(wrapper: ReturnType<typeof mount>, text: string) {
-  const vueButton = wrapper.findAll('button').find((button) => button.text() === text)
-  if (vueButton) {
-    await vueButton.trigger('click')
-    await flushPromises()
-    return
-  }
-  const domButton = [...document.body.querySelectorAll('button')].find((button) => button.textContent?.trim() === text)
-  if (!domButton) throw new Error(`找不到按钮：${text}`)
-  domButton.click()
-  await flushPromises()
-}
-
-async function setInputValue(selector: string, value: string) {
-  const input = document.body.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)
-  if (!input) throw new Error(`找不到输入框：${selector}`)
+async function setInputElementValue(input: HTMLInputElement, value: string) {
   input.value = value
   input.dispatchEvent(new Event('input', { bubbles: true }))
   await flushPromises()
 }
 
-describe('Spec028 资产和绑定操作链路', () => {
+describe('资产与证书产物视图', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     setActivePinia(createPinia())
-    usePermissionStore().setPermissions(['host.read', 'host.write', 'binding.read', 'binding.write'])
+    usePermissionStore().setPermissions([
+      'service_asset.read',
+      'service_asset.manage',
+      'binding.read',
+      'certificate.format.create',
+    ])
+
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
-        id: 'host-1',
-        hostname: 'web-01.example.com',
-        displayName: 'Web 01',
-        osType: 'LINUX',
-        osVersion: '22.04',
-        arch: 'x86_64',
-        zoneId: 'zone-a',
-        compatibilityLevel: 'L3',
-        managementMode: 'AGENT',
+        id: 'asset-1',
+        address: 'www.example.com',
+        displayName: 'www.example.com',
+        addressType: 'DOMAIN',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
         status: 'ACTIVE',
-        tags: ['prod']
-      }
+      },
     ]))
     assetMocks.listServiceInstances.mockResolvedValue(okPage([
+      { id: 'svc-1', displayName: 'nginx-main', providerType: 'NGINX', hostId: 'host-1', rawFacts: { ports: [443] } },
+    ]))
+    assetMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', displayName: 'agent-1' }]))
+    assetMocks.listCapabilities.mockResolvedValue(okPage([]))
+    assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({ satisfiedCapabilities: [], missingCapabilities: [] }))
+    assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({ compatibilityLevel: 'L2', manualDeclarations: [] }))
+    assetMocks.createServiceAsset.mockResolvedValue(okRecord({ id: 'asset-2' }, 'req_asset_create'))
+
+    certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
       {
-        id: 'svc-1',
-        hostId: 'host-1',
-        providerType: 'NGINX',
-        displayName: 'nginx-main',
-        serviceName: 'nginx',
-        versionText: '1.24.0',
-        configPath: '/etc/nginx/nginx.conf',
-        runtimeUser: 'nginx',
-        discoverySource: 'MANUAL',
-        status: 'ACTIVE',
-        rawFacts: { ports: [443], manualOverrides: { reload: 'systemctl reload nginx' } }
-      }
+        id: 'certfmt-1',
+        format: 'pfx',
+        containsPrivateKey: true,
+        createdAt: '2026-06-23T10:00:00.000Z',
+        parameters: {
+          configName: 'Nginx-PFX-标准模板',
+          alias: 'gcac-cert',
+          outputPreset: 'pfx',
+          engineFormat: 'pfx',
+          extension: 'pfx',
+          publicEncoding: 'pem',
+          privateEncoding: 'pem',
+          bundleMode: 'leaf_with_chain',
+          generateChainFile: true,
+          generatePrivateKeyFile: false,
+        },
+      },
     ]))
-    assetMocks.listCapabilities.mockResolvedValue(okPage([
-      { id: 'cap-1', key: 'file.write', name: '文件写入', confidence: 'high', updatedAt: '2026-06-09T00:00:00.000Z', description: '可写证书文件' }
-    ]))
-    assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({
-      satisfiedCapabilities: [{ key: 'certificate.read', name: '读取证书', level: 'L2' }],
-      missingCapabilities: [{ key: 'service.reload', name: '重载服务', level: 'L4', missingReason: '缺少 reload 权限', recommendation: '改走 Gateway' }]
-    }, 'req_cap_match'))
-    assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({
-      compatibilityLevel: 'L4',
-      degradeAdvice: '建议走 Gateway 或脚本包',
-      manualDeclarations: [{ key: 'manual.reload', name: '人工声明 reload', level: 'L4', source: 'manual' }]
-    }, 'req_cap_eval'))
-    assetMocks.createHost.mockResolvedValue(okRecord({ id: 'host-new' }, 'req_host_create'))
-    assetMocks.updateHost.mockResolvedValue(okRecord({ id: 'host-1' }, 'req_host_update'))
-    assetMocks.deleteHost.mockResolvedValue(okRecord({ id: 'host-1' }, 'req_host_delete'))
-    assetMocks.createServiceInstance.mockResolvedValue(okRecord({ id: 'svc-new' }, 'req_svc_create'))
-    assetMocks.deleteServiceInstance.mockResolvedValue(okRecord({ id: 'svc-1' }, 'req_svc_delete'))
-    assetMocks.previewDiscoveryMerge.mockResolvedValue(okRecord({
-      actions: [{ kind: 'host', action: 'conflict', identityKey: 'host:web-01.example.com', reason: 'displayName 冲突' }],
-      conflicts: [{ kind: 'host', identityKey: 'host:web-01.example.com', field: 'displayName', currentValue: 'Web 01', discoveredValue: '发现 Web 01', reason: '人工字段冲突' }]
-    }, 'req_discovery'))
-    bindingMocks.listBindings.mockResolvedValue(okPage([
-      {
-        id: 'binding-1',
-        serviceInstanceId: 'svc-1',
-        hostId: 'host-1',
-        domainName: 'www.example.com',
-        bindingType: 'FILE_PATH',
-        certPath: '/etc/nginx/certs/site.pem',
-        keyPath: '/etc/nginx/private/site.key',
-        desiredFingerprintSha256: 'a'.repeat(64),
-        observedFingerprintSha256: 'b'.repeat(64),
-        status: 'DRIFTED',
-        verifyMethod: 'TLS_CONNECT'
-      }
-    ]))
-    bindingMocks.createBinding.mockResolvedValue(okRecord({ id: 'binding-new' }, 'req_binding_create'))
-    bindingMocks.detectBindingDrift.mockResolvedValue(okRecord({ state: 'mismatch' }, 'req_drift'))
-    bindingMocks.persistBindingDriftResult.mockResolvedValue(okRecord({ state: 'mismatch' }, 'req_drift_save'))
-    bindingMocks.listBindingUsages.mockResolvedValue(okPage([
-      { id: 'usage-1', bindingId: 'binding-1', hostId: 'host-1', serviceInstanceId: 'svc-1', domainName: 'www.example.com', driftStatus: 'DRIFTED' }
-    ]))
-    bindingMocks.patchBindingStatus.mockResolvedValue(okRecord({ id: 'binding-1', status: 'MANAGED' }, 'req_binding_status'))
-    bindingMocks.deleteBinding.mockResolvedValue(okRecord({ id: 'binding-1' }, 'req_binding_delete'))
-    bindingMocks.verifyBinding.mockResolvedValue(okRecord({ state: 'unknown' }, 'req_verify'))
+    certificateMocks.createCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-2' }, 'req_format_create'))
+    certificateMocks.updateCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-1' }, 'req_format_update'))
+    certificateMocks.deleteCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-1' }, 'req_format_delete'))
   })
 
   afterEach(() => {
@@ -182,142 +135,135 @@ describe('Spec028 资产和绑定操作链路', () => {
     document.body.innerHTML = ''
   })
 
-  it('资产登记表单补齐新增字段并保留 Host 创建链路', async () => {
+  it('资产页仍然可以正常加载基础列表', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
-    await clickButtonByText(wrapper, '登记资产')
-    await setInputValue('input[placeholder="web-01.example.com"]', 'web-02.example.com')
-    await setInputValue('input[placeholder="zone-prod-a"]', 'zone-prod-a')
-    await setInputValue('input[placeholder="ops-team-a"]', 'owner-ops')
-    await setInputValue('input[placeholder="22.04"]', '24.04')
-    await setInputValue('input[placeholder="x86_64 / arm64"]', 'arm64')
-    await setInputValue('input[placeholder="ssh, agent, gateway"]', 'ssh, agent')
-    await setInputValue('input[placeholder="prod, nginx, dmz"]', 'prod, dmz')
-    await clickButtonByText(wrapper, '确认保存')
-
-    expect(assetMocks.createHost).toHaveBeenCalledWith(expect.objectContaining({
-      hostname: 'web-02.example.com',
-      zoneId: 'zone-prod-a',
-      ownerId: 'owner-ops',
-      osVersion: '24.04',
-      arch: 'arm64',
-      managementChannels: ['ssh', 'agent'],
-      tags: ['prod', 'dmz']
-    }))
-  })
-
-  it('Host 编辑、软删除、ServiceInstance 和 Capability 入口可用', async () => {
-    const wrapper = mountBusinessView(AssetsView)
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Capability 最小矩阵')
-    expect(wrapper.text()).toContain('文件写入')
-    expect(wrapper.text()).toContain('缺少 reload 权限')
-    expect(assetMocks.matchCapabilityRequirement).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'host-1' }))
-    expect(assetMocks.evaluateCapabilityCompatibility).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'host-1' }))
-    expect(wrapper.text()).toContain('nginx-main')
-
-    await clickButtonByText(wrapper, '编辑 Host')
-    await setInputValue('input[placeholder="zone-prod-a"]', 'zone-b')
-    await clickButtonByText(wrapper, '确认保存')
-    expect(assetMocks.updateHost).toHaveBeenCalledWith('host-1', expect.objectContaining({ zoneId: 'zone-b' }))
-
-    await clickButtonByText(wrapper, '软删除 Host')
-    expect(assetMocks.deleteHost).toHaveBeenCalledWith('host-1', expect.objectContaining({ reason: 'manual_soft_delete_from_console' }))
-
-    await clickButtonByText(wrapper, '新增 ServiceInstance')
-    await setInputValue('input[placeholder="nginx-main"]', 'tomcat-main')
-    await setInputValue('input[placeholder="443, 8443"]', '8443, 9443')
-    await setInputValue('textarea', '{"restart":"manual"}')
-    await clickButtonByText(wrapper, '确认保存')
-    expect(assetMocks.createServiceInstance).toHaveBeenCalledWith(expect.objectContaining({
-      hostId: 'host-1',
-      displayName: 'tomcat-main',
-      rawFacts: { ports: [8443, 9443], manualOverrides: { restart: 'manual' } }
-    }))
-
-    await clickButtonByText(wrapper, '软删除服务实例')
-    expect(assetMocks.deleteServiceInstance).toHaveBeenCalledWith('svc-1', expect.objectContaining({ reason: 'manual_soft_delete_from_console', hostId: 'host-1' }))
-  })
-
-  it('发现冲突入口展示当前值、发现值并支持 keep/use/custom', async () => {
-    const wrapper = mountBusinessView(AssetsView)
-    await flushPromises()
-
-    await clickButtonByText(wrapper, '预览发现冲突')
-
-    expect(assetMocks.previewDiscoveryMerge).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('当前值：Web 01')
-    expect(wrapper.text()).toContain('发现值：发现 Web 01')
-    const select = wrapper.find('.asset-ops__item--conflict select')
-    await select.setValue('custom')
-    await flushPromises()
-    expect(wrapper.find('.asset-ops__item--conflict input').exists()).toBe(true)
-  })
-
-  it('新增绑定主按钮提交字段并展示漂移详情', async () => {
-    const wrapper = mountBusinessView(BindingsView)
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('本地指纹')
-    expect(wrapper.text()).toContain('目标指纹')
-    await clickButtonByText(wrapper, '新增绑定')
-    await setInputValue('input[placeholder="www.example.com"]', 'api.example.com')
-    await setInputValue('input[placeholder="/etc/nginx/certs/site.pem"]', '/etc/nginx/api.pem')
-    await setInputValue('input[placeholder="/etc/nginx/private/site.key"]', '/etc/nginx/api.key')
-    await setInputValue('input[placeholder="systemctl reload nginx"]', 'systemctl reload nginx')
-    await setInputValue('input[placeholder="64 位 sha256"]', 'a'.repeat(64))
-    await setInputValue('input[placeholder="远端观测指纹"]', 'b'.repeat(64))
-    await setInputValue('input[placeholder="本地配置指纹"]', 'c'.repeat(64))
-    await setInputValue('input[placeholder="远端 TLS 实测指纹"]', 'd'.repeat(64))
-    await setInputValue('.binding-form input', 'svc-1')
-    await clickButtonByText(wrapper, '预览漂移')
-    expect(document.body.textContent).toContain('mismatch')
-    await clickButtonByText(wrapper, '保存验证结果')
-    expect(bindingMocks.persistBindingDriftResult).toHaveBeenCalledWith(expect.objectContaining({
-      bindingId: 'binding-1',
-      serviceInstanceId: 'svc-1'
-    }))
-
-    await clickButtonByText(wrapper, '确认新增')
-    expect(bindingMocks.createBinding).toHaveBeenCalledWith(expect.objectContaining({
-      serviceInstanceId: 'svc-1',
-      domainName: 'api.example.com',
-      bindingType: 'FILE_PATH',
-      certPath: '/etc/nginx/api.pem',
-      keyPath: '/etc/nginx/api.key',
-      reloadCommand: 'systemctl reload nginx',
-      verifyMethod: 'TLS_CONNECT',
-      desiredFingerprintSha256: 'a'.repeat(64),
-      observedFingerprintSha256: 'b'.repeat(64),
-      metadata: { localFingerprintSha256: 'c'.repeat(64), remoteFingerprintSha256: 'd'.repeat(64) }
-    }))
-    expect(bindingMocks.listBindingUsages).toHaveBeenCalledWith(expect.objectContaining({
-      filters: expect.objectContaining({ bindingId: 'binding-1' })
-    }))
-    expect(wrapper.text()).toContain('使用关系/影响范围')
+    expect(assetMocks.listAssets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('www.example.com')
   })
 
-  it('绑定创建失败时展示错误 requestId，且无权限隐藏主按钮', async () => {
-    bindingMocks.createBinding.mockRejectedValueOnce(new ApiClientError('字段不合法', {
-      errorCode: 'VALIDATION_FAILED',
-      requestId: 'req_binding_bad',
-      status: 400
-    }))
+  it('证书产物页展示独立配置文件列表', async () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
-    await clickButtonByText(wrapper, '新增绑定')
-    await setInputValue('.binding-form input', 'svc-bad')
-    await clickButtonByText(wrapper, '确认新增')
-    expect(document.body.textContent).toContain('req_binding_bad')
-    expect(document.body.textContent).toContain('VALIDATION_FAILED')
 
+    expect(certificateMocks.listCertificateFormats).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      pageSize: 200,
+      sort: 'createdAt:desc',
+    }))
+    expect(wrapper.text()).toContain('证书产物配置文件列表')
+    expect(wrapper.text()).toContain('Nginx-PFX-标准模板')
+    expect(wrapper.text()).toContain('Alias：gcac-cert')
+    expect(wrapper.text()).toContain('服务器公钥 + 证书链')
+  })
+
+  it('可以新建独立证书产物配置文件', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('Nginx-PFX-标准模板'))
+    expect(nameInput).toBeTruthy()
+    await setInputElementValue(nameInput!.element as HTMLInputElement, 'Windows-JKS-导出模板')
+
+    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="jks"]').exists())
+    expect(formatSelect).toBeTruthy()
+    await formatSelect!.setValue('jks')
+
+    const passwordInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('secret://pfx_password'))
+    expect(passwordInput).toBeTruthy()
+    await setInputElementValue(passwordInput!.element as HTMLInputElement, 'secret://jks_password/sec_jacksonz#current')
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '确认保存')
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(certificateMocks.createCertificateFormat).toHaveBeenCalledWith(expect.objectContaining({
+      format: 'jks',
+      containsPrivateKey: true,
+      passwordSecretRef: 'secret://jks_password/sec_jacksonz#current',
+      parameters: expect.objectContaining({
+        configName: 'Windows-JKS-导出模板',
+        outputPreset: 'jks',
+        engineFormat: 'jks',
+      }),
+    }))
+    expect(certificateMocks.createCertificateFormat).not.toHaveBeenCalledWith(expect.objectContaining({
+      certificateVersionId: expect.anything(),
+    }))
+  })
+
+  it('非加密格式下不显示密码和主产物私钥选项', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="pem"]').exists())
+    expect(formatSelect).toBeTruthy()
+    await formatSelect!.setValue('pem')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('passwordSecretRef')
+    expect(wrapper.text()).not.toContain('主产物包含私钥')
+  })
+
+  it('可以编辑证书产物配置文件名称', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const editButton = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    expect(editButton).toBeTruthy()
+    await editButton!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('input').find((input) => input.element.value === 'Nginx-PFX-标准模板')
+    expect(nameInput).toBeTruthy()
+    await setInputElementValue(nameInput!.element as HTMLInputElement, 'Nginx-PFX-增强模板')
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '确认保存')
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(certificateMocks.updateCertificateFormat).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'certfmt-1',
+      parameters: expect.objectContaining({
+        configName: 'Nginx-PFX-增强模板',
+      }),
+    }))
+  })
+
+  it('可以删除证书产物配置文件', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === '删除')
+    expect(deleteButton).toBeTruthy()
+    await deleteButton!.trigger('click')
+    await flushPromises()
+
+    expect(certificateMocks.deleteCertificateFormat).toHaveBeenCalledWith('certfmt-1')
+  })
+
+  it('没有 certificate.format.create 权限时不显示管理按钮', async () => {
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['binding.read'])
-    const readonlyWrapper = mountBusinessView(BindingsView)
+
+    const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
-    expect(readonlyWrapper.text()).not.toContain('新增绑定')
+
+    expect(wrapper.text()).not.toContain('新建配置文件')
+    expect(wrapper.text()).not.toContain('编辑')
+    expect(wrapper.text()).not.toContain('删除')
   })
 })

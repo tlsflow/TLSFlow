@@ -49,10 +49,11 @@ export interface CertificateVersionDto {
 
 export interface CertificateVersionFormatDto {
   id: string;
-  certificateVersionId: string;
+  certificateVersionId?: string;
   format: CertificateFormat;
   artifactRef: string;
   parameterHash: string;
+  parameters: Record<string, unknown>;
   containsPrivateKey: boolean;
   passwordSecretRef?: string;
   createdBy: string;
@@ -136,7 +137,7 @@ export interface ImportCertificateVersionInput {
 }
 
 export interface CreateCertificateVersionFormatInput {
-  certificateVersionId: string;
+  certificateVersionId?: string;
   format: CertificateFormat;
   artifactRef: string;
   containsPrivateKey?: boolean;
@@ -154,6 +155,23 @@ export interface RequestCertificateFormatExportInput {
   parameters?: Record<string, unknown>;
   createdBy: string;
   expiresAt?: string;
+}
+
+export interface UpdateCertificateVersionFormatInput {
+  id: string;
+  certificateVersionId?: string;
+  format?: CertificateFormat;
+  artifactRef?: string;
+  containsPrivateKey?: boolean;
+  passwordSecretRef?: string;
+  parameters?: Record<string, unknown>;
+  createdBy: string;
+  expiresAt?: string;
+}
+
+export interface DeleteCertificateVersionFormatInput {
+  id: string;
+  deletedBy: string;
 }
 
 export interface CertificateFormatExportPlanDto extends CertificateVersionFormatDto {

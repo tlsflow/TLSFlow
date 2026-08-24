@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/client'
+import { apiClient, createIdempotencyKey } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQuery, type ApiRecord, type ApiRecordResult } from './common'
 
 const CERTIFICATE_ASSETS_PATH = '/api/v1/certificate-assets'
@@ -53,6 +53,18 @@ export function validateCertificateImport(payload: ApiBody) {
 
 export function createCertificateFormat(payload: ApiBody) {
   return postAction(CERTIFICATE_FORMATS_PATH, payload, 'certificate_format_create')
+}
+
+export function updateCertificateFormat(payload: ApiBody) {
+  return apiClient.request<ApiRecord>(toClientPath(CERTIFICATE_FORMATS_PATH), {
+    method: 'PATCH',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('certificate_format_update'),
+  })
+}
+
+export function deleteCertificateFormat(id: string) {
+  return postAction(`${CERTIFICATE_FORMATS_PATH}/delete`, { id }, 'certificate_format_delete')
 }
 
 export function requestCertificateFormatExport(payload: ApiBody) {

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  createCertificateFormat,
+  deleteCertificateFormat,
   importCertificate,
   listCertificateFormats,
   listCertificateVersions,
   listCertificates,
-  requestCertificateFormatExport
+  requestCertificateFormatExport,
+  updateCertificateFormat,
 } from '@/api/modules/certificates.api'
 import { createHost, createServiceInstance, deleteHost, deleteServiceInstance, evaluateCapabilityCompatibility, listAssets, matchCapabilityRequirement, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
 import { createBinding, deleteBinding, detectBindingDrift, listBindingUsages, listBindings, patchBindingStatus, persistBindingDriftResult } from '@/api/modules/bindings.api'
@@ -97,6 +100,47 @@ describe('业务 API modules', () => {
     expect(importHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_import_/)
     const exportHeaders = exportFormatCall?.[1]?.headers as Headers
     expect(exportHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_format_export_/)
+  })
+
+  it('证书产物配置文件的新增、更新、删除使用真实 CRUD 路径', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { id: 'certfmt-1' },
+      requestId: 'req_certificate_format_crud',
+      timestamp: '2026-06-23T00:00:00.000Z',
+    }), { status: 200 })))
+
+    await createCertificateFormat({
+      format: 'pfx',
+      artifactRef: 'artifact://certificate-format-config/nginx-pfx-standard/pfx/1',
+      parameters: { configName: 'Nginx-PFX-标准模板' },
+    })
+    await updateCertificateFormat({
+      id: 'certfmt-1',
+      alias: 'ignored-by-backend',
+      parameters: { alias: 'gcac-cert' },
+    })
+    await deleteCertificateFormat('certfmt-1')
+
+    const calls = vi.mocked(fetch).mock.calls
+    expect(calls[0]?.[0]).toBe('/api/v1/certificate-version-formats')
+    expect(calls[1]?.[0]).toBe('/api/v1/certificate-version-formats')
+    expect(calls[2]?.[0]).toBe('/api/v1/certificate-version-formats/delete')
+    expect(calls[0]?.[1]?.method).toBe('POST')
+    expect(calls[1]?.[1]?.method).toBe('PATCH')
+    expect(calls[2]?.[1]?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({
+      format: 'pfx',
+      artifactRef: 'artifact://certificate-format-config/nginx-pfx-standard/pfx/1',
+      parameters: { configName: 'Nginx-PFX-标准模板' },
+    })
+    expect(JSON.parse(String(calls[1]?.[1]?.body))).toMatchObject({
+      id: 'certfmt-1',
+      parameters: { alias: 'gcac-cert' },
+    })
+    expect(JSON.parse(String(calls[2]?.[1]?.body))).toMatchObject({ id: 'certfmt-1' })
+    expect((calls[0]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^certificate_format_create_/)
+    expect((calls[1]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^certificate_format_update_/)
+    expect((calls[2]?.[1]?.headers as Headers).get('X-Idempotency-Key')).toMatch(/^certificate_format_delete_/)
   })
 
   it('资产登记调用 Host 创建接口并携带幂等键', async () => {
