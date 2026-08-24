@@ -10,4 +10,10 @@ describe('deployment-plan.config', () => {
     expect(Boolean(dryRunAction?.danger)).toBe(false)
     expect(dryRunAction?.confirmText).toBeUndefined()
   })
+
+  it('删除动作只对未提交草稿可见', () => {
+    const deleteAction = deploymentPlanUiActions.find((action) => action.key === 'delete')
+
+    expect(deleteAction?.visibleWhen).toEqual(['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'])
+  })
 })

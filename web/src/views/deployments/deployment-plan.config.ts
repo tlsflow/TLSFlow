@@ -110,7 +110,7 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     danger: true,
     confirmText: 'DELETE',
     riskText: t('deploymentPlans.actions.deleteRisk'),
-    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED', 'PENDING_APPROVAL', 'APPROVED', 'READY', 'RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED', 'CANCELED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'],
     run: (row) => deleteDraftDeploymentPlan(requirePlanId(row)),
   },
   ]

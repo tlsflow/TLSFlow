@@ -382,6 +382,57 @@ async function completeAgentDryRun(app: ReturnType<typeof createApp>, input: {
 
 
 describe('部署计划与执行编排 API', () => {
+  it('同一应用资产重复创建时复用人工草稿，提交后允许创建新周期', async () => {
+    const { app, fixture } = await createMigratedTestApp();
+    const create = (idempotencyKey: string) => app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId: fixture.target_1.applicationAssetId,
+        targetCertificateVersionId: fixture.certificateVersionId,
+        certificateFormatId: fixture.certificateFormatId,
+        selectionMode: 'EXPLICIT',
+        idempotencyKey,
+        policy: { riskLevel: 'low', approvalRequired: false, failurePolicy: 'rollback' },
+      },
+    });
+
+    const first = await create('idem_asset_draft_first');
+    const second = await create('idem_asset_draft_second');
+    assert.equal(first.statusCode, 201, JSON.stringify(first.body));
+    assert.equal(second.statusCode, 201, JSON.stringify(second.body));
+    assert.equal((second.body as { id: string }).id, (first.body as { id: string }).id);
+
+    const planId = (first.body as { id: string }).id;
+    const submitted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/submit',
+      headers: userHeaders,
+      body: { planId },
+    });
+    assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
+    assert.equal((submitted.body as { status: string }).status, 'READY');
+
+    const nextCycle = await create('idem_asset_draft_next_cycle');
+    assert.equal(nextCycle.statusCode, 201, JSON.stringify(nextCycle.body));
+    assert.notEqual((nextCycle.body as { id: string }).id, planId);
+  });
+
+  it('非草稿部署计划不能通过删除接口移除真实执行历史', async () => {
+    const { app, fixture } = await createMigratedTestApp();
+    const ready = await createReadyLowRiskPlan(app, fixture, 'idem_protected_ready_plan');
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/delete',
+      headers: userHeaders,
+      body: { planId: ready.id },
+    });
+
+    assert.equal(response.statusCode, 409, JSON.stringify(response.body));
+    assert.equal((response.body as { errorCode?: string }).errorCode, 'DEPLOYMENT_INVALID_STATE');
+  });
+
   it('创建部署计划成功，并展开 certificateBindingId 目标', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const response = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans', headers: userHeaders, body: createPlanBody(fixture) });

@@ -57,6 +57,19 @@ export class DeploymentPlansRepository {
     return (await this.plans.list((plan) => sameTenant(plan.tenantId, tenantId) && plan.createdBy === actorId && plan.idempotencyKey === idempotencyKey))[0];
   }
 
+  async findLatestManualDraftByApplicationAsset(
+    tenantId: string | undefined,
+    applicationAssetId: string,
+  ): Promise<DeploymentPlanEntity | undefined> {
+    const targetPlanIds = new Set((await this.targets.list((target) => sameTenantOrLegacyMissing(target.tenantId, tenantId)
+      && target.applicationAssetId === applicationAssetId)).map((target) => target.deploymentPlanId));
+    return (await this.plans.list((plan) => sameTenant(plan.tenantId, tenantId)
+      && plan.status === 'DRAFT'
+      && plan.createdReason === 'MANUAL'
+      && targetPlanIds.has(plan.id)))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  }
+
   async createTarget(target: DeploymentPlanTargetEntity): Promise<DeploymentPlanTargetEntity> {
     if (target.certificateBindingId) {
       const duplicated = (await this.targets.list((item) => sameTenant(item.tenantId, target.tenantId)
