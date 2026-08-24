@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
@@ -11,11 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +241,65 @@ C3viH2HINICyGHzVyA==
 	}
 	if detail.Subject == "" || detail.Issuer == "" || detail.NotBefore == "" || detail.NotAfter == "" || detail.Thumbprint == "" {
 		t.Fatalf("expected complete certificate metadata, got %+v", detail)
+	}
+	if detail.FingerprintSHA256 == "" {
+		t.Fatalf("expected SHA-256 fingerprint, got %+v", detail)
+	}
+}
+
+func TestEnrichNginxSiteCertificatesPrefersLiveTLSCertificate(t *testing.T) {
+	tempDir := t.TempDir()
+	now := time.Now().UTC()
+	fileCertPEM, _, _, _ := generateTestPEMMaterialForHostWithValidity(t, "test.local", now.Add(-time.Hour), now.Add(24*time.Hour))
+	liveCertPEM, liveKeyPEM, _, liveCert := generateTestPEMMaterialForHostWithValidity(t, "test.local", now.Add(-time.Hour), now.Add(72*time.Hour))
+
+	certPath := filepath.Join(tempDir, "site.crt")
+	if err := os.WriteFile(certPath, []byte(fileCertPEM), 0o644); err != nil {
+		t.Fatalf("write file certificate failed: %v", err)
+	}
+
+	tlsCertificate, err := tls.X509KeyPair([]byte(liveCertPEM), []byte(liveKeyPEM))
+	if err != nil {
+		t.Fatalf("load live TLS certificate failed: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{tlsCertificate}}
+	server.StartTLS()
+	defer server.Close()
+
+	_, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "https://"))
+	if err != nil {
+		t.Fatalf("split TLS server address failed: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse TLS server port failed: %v", err)
+	}
+
+	site := nginxSiteDetail{
+		Name:        "test.local",
+		ServerNames: []string{"test.local"},
+		Listen: []nginxBindingDetail{{
+			Address:         "127.0.0.1",
+			Port:            port,
+			Protocol:        "https",
+			CertificatePath: certPath,
+		}},
+	}
+
+	enrichNginxSiteCertificates(&site, "", "")
+
+	if site.Listen[0].Certificate == nil {
+		t.Fatalf("expected certificate detail")
+	}
+	if site.Listen[0].Certificate.StoreName != "TLS_CONNECT" {
+		t.Fatalf("expected live TLS certificate source, got %+v", site.Listen[0].Certificate)
+	}
+	expectedNotAfter := liveCert.NotAfter.UTC().Format(time.RFC3339)
+	if site.Listen[0].Certificate.NotAfter != expectedNotAfter {
+		t.Fatalf("expected live TLS NotAfter %s, got %s", expectedNotAfter, site.Listen[0].Certificate.NotAfter)
 	}
 }
 
@@ -1425,6 +1487,11 @@ func generateTestPEMMaterial(t *testing.T) (string, string, string) {
 }
 
 func generateTestPEMMaterialForHost(t *testing.T, host string) (string, string, string) {
+	certPEM, keyPEM, fingerprint, _ := generateTestPEMMaterialForHostWithValidity(t, host, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour))
+	return certPEM, keyPEM, fingerprint
+}
+
+func generateTestPEMMaterialForHostWithValidity(t *testing.T, host string, notBefore time.Time, notAfter time.Time) (string, string, string, *x509.Certificate) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -1436,8 +1503,8 @@ func generateTestPEMMaterialForHost(t *testing.T, host string) (string, string, 
 			CommonName:   host,
 			Organization: []string{"GCAC"},
 		},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
@@ -1454,5 +1521,5 @@ func generateTestPEMMaterialForHost(t *testing.T, host string) (string, string, 
 		t.Fatalf("parse certificate failed: %v", err)
 	}
 	sum := sha256.Sum256(cert.Raw)
-	return certPEM, keyPEM, fmt.Sprintf("%x", sum[:])
+	return certPEM, keyPEM, fmt.Sprintf("%x", sum[:]), cert
 }

@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -465,12 +466,13 @@ type tomcatConnectorDetail struct {
 }
 
 type linuxCertificateDetail struct {
-	Subject    string `json:"subject,omitempty"`
-	Issuer     string `json:"issuer,omitempty"`
-	NotBefore  string `json:"notBefore,omitempty"`
-	NotAfter   string `json:"notAfter,omitempty"`
-	Thumbprint string `json:"thumbprint,omitempty"`
-	StoreName  string `json:"storeName,omitempty"`
+	Subject           string `json:"subject,omitempty"`
+	Issuer            string `json:"issuer,omitempty"`
+	NotBefore         string `json:"notBefore,omitempty"`
+	NotAfter          string `json:"notAfter,omitempty"`
+	Thumbprint        string `json:"thumbprint,omitempty"`
+	FingerprintSHA256 string `json:"fingerprintSha256,omitempty"`
+	StoreName         string `json:"storeName,omitempty"`
 }
 
 type tomcatAppDetail struct {
@@ -5901,10 +5903,13 @@ func applyNginxServerCertificate(site *nginxSiteDetail) {
 
 func enrichNginxSiteCertificates(site *nginxSiteDetail, binaryPath string, serviceName string) {
 	for index := range site.Listen {
-		if site.Listen[index].CertificatePath == "" {
+		if site.Listen[index].CertificatePath == "" && site.Listen[index].Protocol != "https" {
 			continue
 		}
-		site.Listen[index].Certificate = readCertificateDetail(site.Listen[index].CertificatePath)
+		site.Listen[index].Certificate = readNginxLiveCertificateDetail(site.Listen[index], site.ServerNames)
+		if site.Listen[index].Certificate == nil && site.Listen[index].CertificatePath != "" {
+			site.Listen[index].Certificate = readCertificateDetail(site.Listen[index].CertificatePath)
+		}
 		if site.Listen[index].Certificate != nil {
 			site.Listen[index].CertificateName = site.Listen[index].Certificate.Subject
 		}
@@ -5942,6 +5947,66 @@ func readCertificateDetail(path string) *linuxCertificateDetail {
 	return readCertificateDetailFromPEMBytes(content, "FILE_PATH")
 }
 
+func readNginxLiveCertificateDetail(binding nginxBindingDetail, serverNames []string) *linuxCertificateDetail {
+	if binding.Port <= 0 {
+		return nil
+	}
+	if binding.Protocol != "https" && binding.Port != 443 && binding.Port != 8443 {
+		return nil
+	}
+	address := nginxTLSProbeAddress(binding)
+	if address == "" {
+		return nil
+	}
+	for _, serverName := range nginxTLSProbeServerNames(binding, serverNames) {
+		dialer := &net.Dialer{Timeout: 2 * time.Second}
+		config := &tls.Config{InsecureSkipVerify: true}
+		if serverName != "" {
+			config.ServerName = serverName
+		}
+		conn, err := tls.DialWithDialer(dialer, "tcp", address, config)
+		if err != nil {
+			continue
+		}
+		state := conn.ConnectionState()
+		_ = conn.Close()
+		if len(state.PeerCertificates) == 0 {
+			continue
+		}
+		return buildLinuxCertificateDetail(state.PeerCertificates[0], "TLS_CONNECT")
+	}
+	return nil
+}
+
+func nginxTLSProbeAddress(binding nginxBindingDetail) string {
+	host := strings.TrimSpace(binding.Address)
+	if host == "" || host == "*" || host == "0.0.0.0" || host == "::" || host == "[::]" || strings.EqualFold(host, "default_server") {
+		host = "127.0.0.1"
+	}
+	host = strings.Trim(host, "[]")
+	if strings.HasPrefix(host, "unix:") || strings.Contains(host, "$") {
+		return ""
+	}
+	return net.JoinHostPort(host, fmt.Sprintf("%d", binding.Port))
+}
+
+func nginxTLSProbeServerNames(binding nginxBindingDetail, serverNames []string) []string {
+	candidates := make([]string, 0, len(serverNames)+2)
+	for _, name := range serverNames {
+		trimmed := strings.TrimSpace(strings.Trim(name, "\"'"))
+		if trimmed == "" || trimmed == "_" || strings.Contains(trimmed, "$") || strings.Contains(trimmed, "*") {
+			continue
+		}
+		candidates = append(candidates, trimmed)
+	}
+	address := strings.Trim(strings.TrimSpace(binding.Address), "[]")
+	if address != "" && address != "*" && address != "0.0.0.0" && address != "::" && net.ParseIP(address) == nil && !strings.Contains(address, "$") {
+		candidates = append(candidates, address)
+	}
+	candidates = append(candidates, "")
+	return uniqueStrings(candidates)
+}
+
 func readCertificateSubject(path string) string {
 	detail := readCertificateDetail(path)
 	if detail == nil {
@@ -5972,13 +6037,15 @@ func buildLinuxCertificateDetail(certificate *x509.Certificate, storeName string
 	}
 	sum := sha1.Sum(certificate.Raw)
 	thumbprint := strings.ToUpper(hex.EncodeToString(sum[:]))
+	sha256Sum := sha256.Sum256(certificate.Raw)
 	return &linuxCertificateDetail{
-		Subject:    certificate.Subject.String(),
-		Issuer:     certificate.Issuer.String(),
-		NotBefore:  certificate.NotBefore.UTC().Format(time.RFC3339),
-		NotAfter:   certificate.NotAfter.UTC().Format(time.RFC3339),
-		Thumbprint: thumbprint,
-		StoreName:  storeName,
+		Subject:           certificate.Subject.String(),
+		Issuer:            certificate.Issuer.String(),
+		NotBefore:         certificate.NotBefore.UTC().Format(time.RFC3339),
+		NotAfter:          certificate.NotAfter.UTC().Format(time.RFC3339),
+		Thumbprint:        thumbprint,
+		FingerprintSHA256: strings.ToLower(hex.EncodeToString(sha256Sum[:])),
+		StoreName:         storeName,
 	}
 }
 
