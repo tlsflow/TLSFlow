@@ -2,6 +2,20 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import { toClientPath, type ApiBody } from './common'
 
 export type InternalCaRecord = Record<string, unknown>
+export type AcmeProviderPresetKey = 'letsencrypt' | 'zerossl' | 'google-trust-services' | 'digicert' | 'sectigo' | 'ssl-com' | 'step-ca' | 'ejbca' | 'custom'
+
+export interface AcmeProviderPreset {
+  key: AcmeProviderPresetKey
+  category: 'public' | 'enterprise' | 'private'
+  defaultDirectoryUrl?: string
+  defaultAllowedChallenges: string[]
+  requiresEab: boolean
+}
+
+export interface AcmeProviderSettings {
+  items: InternalCaRecord[]
+  presets: AcmeProviderPreset[]
+}
 
 function getList(path: string) {
   return apiClient.get<InternalCaRecord[]>(toClientPath(path))
@@ -54,6 +68,12 @@ export const internalCaApi = {
   listAcmeAccounts: (providerId?: string) => getList(`/api/v1/acme/accounts${providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''}`),
   createAcmeAccount: (body: ApiBody) => post('/api/v1/acme/accounts', body),
   getAcmeAccount: (accountId: string) => apiClient.get<InternalCaRecord>(toClientPath(`/api/v1/acme/accounts/${encodeURIComponent(accountId)}`)),
+  listAcmeProviderSettings: () => apiClient.get<AcmeProviderSettings>(toClientPath('/api/v1/acme/providers')),
+  createAcmeProvider: (body: ApiBody) => post('/api/v1/acme/providers', body),
+  updateAcmeProvider: (providerId: string, body: ApiBody) => patch(`/api/v1/acme/providers/${encodeURIComponent(providerId)}`, body),
+  testAcmeProvider: (providerId: string) => post(`/api/v1/acme/providers/${encodeURIComponent(providerId)}/test`),
+  listAcmeDnsProviders: () => getList('/api/v1/acme/dns-providers'),
+  createAcmeCertificate: (body: ApiBody) => post('/api/v1/acme/certificates', body),
   listAcmeOrders: () => getList('/api/v1/acme/orders'),
   createAcmeOrder: (body: ApiBody) => post('/api/v1/acme/orders', body),
   getAcmeOrder: (orderId: string) => apiClient.get<InternalCaRecord>(toClientPath(`/api/v1/acme/orders/${encodeURIComponent(orderId)}`)),

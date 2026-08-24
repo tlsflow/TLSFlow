@@ -15,6 +15,10 @@ export function listCertificates(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_ASSETS_PATH, query)
 }
 
+export function createCertificateAsset(payload: ApiBody) {
+  return postAction(CERTIFICATE_ASSETS_PATH, payload, 'certificate_asset_create')
+}
+
 export function getCertificateAssetDetail(assetId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(`${toClientPath(CERTIFICATE_ASSET_DETAIL_PATH)}?id=${encodeURIComponent(assetId)}`)
 }
