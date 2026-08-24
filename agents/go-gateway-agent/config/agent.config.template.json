@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "gcac.gateway-agent.v1",
+  "tenantId": "CHANGE_ME_TENANT_ID",
+  "agentKey": "",
+  "zone": "default",
+  "controlPlaneUrl": "https://gcac.example.invalid",
+  "heartbeatIntervalSeconds": 10,
+  "taskPollIntervalSeconds": 60,
+  "healthCheckIntervalSeconds": 30,
+  "offlineTimeoutSeconds": 180,
+  "managementListenAddress": "0.0.0.0",
+  "managementPort": 18935,
+  "relayEnabled": false,
+  "relayListenAddress": "0.0.0.0",
+  "relayPort": 18934,
+  "relayClientPublicKeys": [],
+  "relayIdleTimeoutSeconds": 300,
+  "paths": {
+    "linux": {
+      "configPath": "/etc/gcac/gateway/agent.config.json",
+      "dataDir": "/var/lib/gcac/gateway",
+      "logDir": "/var/log/gcac/gateway"
+    },
+    "windows": {
+      "configPath": "C:\\ProgramData\\GCAC\\Gateway\\config\\agent.config.json",
+      "dataDir": "C:\\ProgramData\\GCAC\\Gateway\\data",
+      "logDir": "C:\\ProgramData\\GCAC\\Gateway\\logs"
+    }
+  },
+  "service": {
+    "name": "gcac-gateway-agent",
+    "displayName": "GCAC Gateway Agent"
+  }
+}

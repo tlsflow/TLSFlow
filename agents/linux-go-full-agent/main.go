@@ -35,24 +35,29 @@ const (
 var agentVersion = buildinfo.Version
 
 type AgentConfig struct {
-	SchemaVersion              string            `json:"schemaVersion"`
-	TenantID                   string            `json:"tenantId"`
-	AgentKey                   string            `json:"agentKey"`
-	EnrollmentToken            string            `json:"enrollmentToken"`
-	Role                       string            `json:"role"`
-	GatewayEnabled             bool              `json:"gatewayEnabled"`
-	Zone                       string            `json:"zone"`
-	ControlPlane               string            `json:"controlPlaneUrl"`
-	Heartbeat                  int               `json:"heartbeatIntervalSeconds"`
-	TaskPollIntervalSeconds    int               `json:"taskPollIntervalSeconds"`
-	HealthCheckIntervalSeconds int               `json:"healthCheckIntervalSeconds"`
-	OfflineTimeoutSeconds      int               `json:"offlineTimeoutSeconds"`
-	ManagementListenAddress    string            `json:"managementListenAddress"`
-	ManagementPort             int               `json:"managementPort"`
-	CapabilityRescanInterval   int               `json:"capabilityRescanIntervalSeconds"`
-	CapabilityRescanEnabled    *bool             `json:"capabilityRescanEnabled"`
-	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
-	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
+	SchemaVersion              string                   `json:"schemaVersion"`
+	TenantID                   string                   `json:"tenantId"`
+	AgentKey                   string                   `json:"agentKey"`
+	EnrollmentToken            string                   `json:"enrollmentToken"`
+	Role                       string                   `json:"role"`
+	GatewayEnabled             bool                     `json:"gatewayEnabled"`
+	Zone                       string                   `json:"zone"`
+	ControlPlane               string                   `json:"controlPlaneUrl"`
+	Heartbeat                  int                      `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int                      `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int                      `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int                      `json:"offlineTimeoutSeconds"`
+	ManagementListenAddress    string                   `json:"managementListenAddress"`
+	ManagementPort             int                      `json:"managementPort"`
+	RelayEnabled               bool                     `json:"relayEnabled"`
+	RelayListenAddress         string                   `json:"relayListenAddress"`
+	RelayPort                  int                      `json:"relayPort"`
+	RelayClientPublicKeys      relayClientPublicKeyList `json:"relayClientPublicKeys"`
+	RelayIdleTimeoutSeconds    int                      `json:"relayIdleTimeoutSeconds"`
+	CapabilityRescanInterval   int                      `json:"capabilityRescanIntervalSeconds"`
+	CapabilityRescanEnabled    *bool                    `json:"capabilityRescanEnabled"`
+	AuthorizationMaterialPath  string                   `json:"authorizationMaterialPath"`
+	AuthorizationTrustKeySet   map[string]string        `json:"authorizationTrustKeySet"`
 	Paths                      struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`
@@ -348,6 +353,8 @@ func buildLinuxHealthChecks(config *AgentConfig, configPath string) []map[string
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
 		checkItem("management.listen", managementListenAddressAvailable(config), map[string]any{"address": effectiveManagementListenAddress(config), "port": effectiveManagementPort(config)}),
+		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
+		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
 	}
 	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
 	checks = append(checks, checkItem("linux.systemd.available", systemdAvailable, map[string]any{

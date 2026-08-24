@@ -391,6 +391,13 @@ func handleRun(args []string) error {
 		return err
 	}
 	defer managementServer.Shutdown(context.Background())
+	relayServer, err := startRelayServer(config)
+	if err != nil {
+		return err
+	}
+	if relayServer != nil {
+		defer relayServer.Close()
+	}
 	ledger := loadResultLedger(resolveResultLedgerPath(config))
 	statusPath := resolveAgentRuntimeStatusPath(config)
 	status := loadRuntimeStatusSnapshot(statusPath)

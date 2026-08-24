@@ -25,6 +25,7 @@ import {
   type AgentV2ContractType,
 } from '../security/agent-security.contract.js';
 import { AGENT_RELEASE_SIGNING_KEY_ID, buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest, getLinuxAgentInstallMaterials, LINUX_AGENT_RELEASE_VERSION, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
+import { buildGatewayAgentBundleTarGz, getGatewayAgentBundleManifest, getGatewayAgentInstallMaterials, loadGatewayWindowsAgentArtifacts } from './gateway-agent-bundle.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
@@ -33,6 +34,7 @@ import type { LivenessApplicationService } from '../../liveness/application/live
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
+import { GATEWAY_RELAY_DEFAULT_PORT, loadOrCreateGatewayRelayIdentity } from '../../gateway-agents/gateway-relay.js';
 import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { AgentDiscoveryRequestFactory } from './agent-discovery-task-factory.js';
@@ -129,8 +131,14 @@ interface AgentInstallSessionManifest {
   zone: string;
   bundleUrl?: string;
   bundleManifest?: ReturnType<typeof getLinuxAgentBundleManifest>;
+  /** gateway 角色时的独立 Gateway Agent bundle。 */
+  gatewayBundleUrl?: string;
+  gatewayBundleManifest?: ReturnType<typeof getGatewayAgentBundleManifest>;
 	artifacts?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
 	authorizationTrustKeySet?: Record<string, string>;
+	/** gateway 角色时注入的控制面中继公钥（hex ed25519）。 */
+	relayClientPublicKeys?: string[];
+	relayPort?: number;
 }
 
 const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
@@ -1051,15 +1059,27 @@ export class AgentsApplicationService {
     requireInstallPlatform(session.platform, WINDOWS_INSTALL_PLATFORMS, '安装会话不是 Windows 平台');
     return {
       ...this.baseInstallManifest(session, baseUrl),
-      artifacts: await WINDOWS_ARTIFACT_LOADERS[session.platform](),
+      artifacts: session.role === 'gateway'
+        ? await loadGatewayWindowsAgentArtifacts()
+        : await WINDOWS_ARTIFACT_LOADERS[session.platform](),
       ...(isWindowsGoInstallPlatform(session.platform) && this.trustMaterialIssuer
         ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() }
         : {}),
+      ...(session.role === 'gateway' ? await this.relayInstallManifest() : {}),
     };
   }
 
-  buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): AgentInstallSessionManifest {
+  async buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
     requireInstallPlatform(session.platform, ['linux_go_systemd'], '安装会话不是 Linux Go 平台');
+    if (session.role === 'gateway') {
+      return {
+        ...this.baseInstallManifest(session, baseUrl),
+        gatewayBundleUrl: `${baseUrl}/api/v1/agents/install/gateway/bundle.tar.gz`,
+        gatewayBundleManifest: getGatewayAgentBundleManifest(),
+        ...(this.trustMaterialIssuer ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() } : {}),
+        ...(await this.relayInstallManifest()),
+      };
+    }
     return {
       ...this.baseInstallManifest(session, baseUrl),
       bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
@@ -1068,8 +1088,18 @@ export class AgentsApplicationService {
     };
   }
 
+  /** gateway 角色安装时附带控制面中继身份：公钥注入 Agent 配置，私钥只留在控制面。 */
+  private async relayInstallManifest(): Promise<{ relayClientPublicKeys: string[]; relayPort: number }> {
+    const identity = await loadOrCreateGatewayRelayIdentity();
+    return { relayClientPublicKeys: [identity.publicKeyHex], relayPort: GATEWAY_RELAY_DEFAULT_PORT };
+  }
+
   buildLinuxBundleTarGz(): Buffer {
     return buildLinuxAgentBundleTarGz();
+  }
+
+  buildGatewayLinuxBundleTarGz(): Buffer {
+    return buildGatewayAgentBundleTarGz();
   }
 
   async createAgentInstallMaterials(
@@ -1081,7 +1111,8 @@ export class AgentsApplicationService {
     const { token: enrollmentToken, ...enrollmentTokenRecord } = descriptor.enrollmentTokenRecord;
     await this.repository.createEnrollmentToken(enrollmentTokenRecord);
 
-    const material = this.getPinnedInstallArtifact(input.platform);
+    const material = this.getPinnedInstallArtifact(input.platform, descriptor.role);
+    const relayManifest = descriptor.role === 'gateway' ? await this.relayInstallManifest() : undefined;
     const unsignedTask = {
       type: 'agent.plan.execute' as const,
       contractVersion: 'gcac.agent-security/v1' as const,
@@ -1098,6 +1129,13 @@ export class AgentsApplicationService {
         configDir: descriptor.configDir,
         dataDir: descriptor.dataDir,
         logDir: descriptor.logDir,
+        ...(relayManifest ? {
+          relayEnabled: true,
+          relayListenAddress: '0.0.0.0',
+          relayPort: relayManifest.relayPort,
+          relayClientPublicKeys: relayManifest.relayClientPublicKeys,
+          relayIdleTimeoutSeconds: 300,
+        } : {}),
       },
       expiresAt: descriptor.expiresAt,
     };
@@ -1175,7 +1213,13 @@ export class AgentsApplicationService {
     };
   }
 
-  private getPinnedInstallArtifact(platform: AgentInstallMaterialPlatform): AgentInstallArtifactMaterial {
+  private getPinnedInstallArtifact(platform: AgentInstallMaterialPlatform, role: 'full_agent' | 'gateway'): AgentInstallArtifactMaterial {
+    if (role === 'gateway') {
+      if (platform === 'windows_compatibility') {
+        throw new AppError('VALIDATION_FAILED', 'Windows Compatibility Agent 只允许 full_agent 角色');
+      }
+      return getGatewayAgentInstallMaterials(platform === 'linux_go' ? 'linux_go' : 'windows_go', 'amd64');
+    }
     if (platform === 'linux_go') {
       const artifact = getLinuxAgentInstallMaterials()[0];
       if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', 'Linux Agent 安装 Artifact 未登记');
@@ -2025,7 +2069,7 @@ function installMaterialProfile(platform: AgentInstallMaterialPlatform, role: 'f
   }
   return role === 'gateway'
     ? {
-      serviceName: 'gcac-linux-gateway-agent',
+      serviceName: 'gcac-gateway-agent',
       displayName: 'GCAC Linux Gateway Agent',
       installRoot: '/opt/gcac/gateway',
       configDir: '/etc/gcac/gateway',

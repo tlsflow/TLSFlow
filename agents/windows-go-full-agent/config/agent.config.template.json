@@ -12,6 +12,11 @@
   "offlineTimeoutSeconds": 180,
   "managementListenAddress": "0.0.0.0",
   "managementPort": 18930,
+  "relayEnabled": false,
+  "relayListenAddress": "0.0.0.0",
+  "relayPort": 18934,
+  "relayClientPublicKeys": [],
+  "relayIdleTimeoutSeconds": 300,
   "authorizationMaterialPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\data\\policy\\agent-trust-material.json",
   "authorizationTrustKeySet": {},
   "paths": {

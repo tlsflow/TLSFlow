@@ -1,0 +1,19 @@
+[Unit]
+Description=__DISPLAY_NAME__
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+SupplementaryGroups=__SUPPLEMENTARY_GROUPS__
+WorkingDirectory=__INSTALL_ROOT__
+ExecStart=__INSTALL_ROOT__/gcac-gateway-agent run --config __CONFIG_DIR__/agent.config.json
+ExecStartPre=__INSTALL_ROOT__/gcac-gateway-agent self-check --config __CONFIG_DIR__/agent.config.json
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

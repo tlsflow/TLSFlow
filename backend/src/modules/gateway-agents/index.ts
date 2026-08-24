@@ -2,6 +2,7 @@ export * from './failover.service.js';
 export * from './forwarding-grant.service.js';
 export * from './gateway-agent-process.js';
 export * from './gateway-agent.types.js';
+export * from './gateway-relay.js';
 export * from './gateway-target-history.service.js';
 export * from './gateway-task.service.js';
 export * from './gateway-task.repository.js';

@@ -65,6 +65,7 @@ export class AgentsController {
     router.get('/api/v1/agents/install/windows-compatibility/bootstrap.ps1', '获取 Windows Compatibility Agent bootstrap 脚本', tags, (request) => this.getWindowsBootstrap(request));
     router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
     router.get('/api/v1/agents/install/linux/bundle.tar.gz', '下载 Linux Go Agent 安装包', tags, () => this.getLinuxBundle());
+    router.get('/api/v1/agents/install/gateway/bundle.tar.gz', '下载独立 Gateway Agent 安装包', tags, () => this.getGatewayLinuxBundle());
     router.post('/api/v1/agents/disable', '禁用 Agent', tags, (request) => this.disableAgent(request));
     router.post('/api/v1/agents/register', '注册 Agent', tags, (request) => this.registerAgent(request));
     router.post('/api/v1/agents/sessions', '创建 Agent mTLS 会话', tags, (request) => this.createSession(request));
@@ -179,7 +180,7 @@ export class AgentsController {
   private async getLinuxGoBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.getInstallSessionByToken(token);
-    const manifest = this.service.buildLinuxGoInstallManifest(session, resolveInstallPublicBaseUrl(request));
+    const manifest = await this.service.buildLinuxGoInstallManifest(session, resolveInstallPublicBaseUrl(request));
     await this.service.consumeInstallSessionByToken(token, request.context.ip);
     return {
       statusCode: 200,
@@ -200,6 +201,17 @@ export class AgentsController {
         'content-disposition': 'attachment; filename="gcac-linux-agent-bundle.tar.gz"',
       },
       body: this.service.buildLinuxBundleTarGz(),
+    };
+  }
+
+  private getGatewayLinuxBundle() {
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'application/gzip',
+        'content-disposition': 'attachment; filename="gcac-gateway-agent-bundle.tar.gz"',
+      },
+      body: this.service.buildGatewayLinuxBundleTarGz(),
     };
   }
 
@@ -921,7 +933,9 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  if ($null -ne (Get-Service -Name $Name -ErrorAction SilentlyContinue)) { throw "Go Agent service deletion timed out: $Name" }',
     '  Wait-GoAgentProcessReleased -BinaryPath $BinaryPath',
     '}',
-    '$agentTarget = Join-Path $manifest.installRoot "gcac-agent.exe"',
+    '$isGateway = ([string]$manifest.role -eq "gateway")',
+    '$binaryName = if ($isGateway) { "gcac-gateway-agent.exe" } else { "gcac-agent.exe" }',
+    '$agentTarget = Join-Path $manifest.installRoot $binaryName',
     '$serviceNames = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)',
     '[void]$serviceNames.Add([string]$manifest.serviceName)',
     'if (Test-Path -LiteralPath $metadataPath) {',
@@ -962,17 +976,22 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  & netsh.exe advfirewall firewall add rule name=$ruleName dir=in action=allow protocol=TCP localport=$Port program=$ProgramPath profile=any | Out-Null',
     '  if ($LASTEXITCODE -ne 0) { throw "Go Agent firewall rule creation failed: $ruleName" }',
     '}',
-    'Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930',
+    'if ($isGateway) {',
+    '  Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18935',
+    '  Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18934',
+    '} else {',
+    '  Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930',
+    '}',
     "$configPath = Join-Path $manifest.configDir 'agent.config.json'",
     "$policyDir = Join-Path ([string]$manifest.dataDir) 'policy'",
     '$authorizationTrustKeySet = if ($null -eq $manifest.authorizationTrustKeySet) { @{} } else { $manifest.authorizationTrustKeySet }',
     '$config = [ordered]@{',
-    "  schemaVersion = 'full-agent.go.windows.config.v1'",
+    '  schemaVersion = if ($isGateway) { "gcac.gateway-agent.v1" } else { "full-agent.go.windows.config.v1" }',
     '  tenantId = [string]$manifest.tenantId',
     '  agentKey = [string]$manifest.agentKey',
     '  enrollmentToken = [string]$manifest.enrollmentToken',
     '  role = [string]$manifest.role',
-    '  gatewayEnabled = ([string]$manifest.role -eq "gateway")',
+    '  gatewayEnabled = $isGateway',
     '  zone = [string]$manifest.zone',
     '  controlPlaneUrl = [string]$manifest.controlPlaneUrl',
     '  heartbeatIntervalSeconds = 10',
@@ -980,29 +999,45 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  healthCheckIntervalSeconds = 30',
     '  offlineTimeoutSeconds = 180',
     '  managementListenAddress = "0.0.0.0"',
-    '  managementPort = 18930',
+    '  managementPort = if ($isGateway) { 18935 } else { 18930 }',
+    '  relayEnabled = $isGateway',
+    '  relayListenAddress = "0.0.0.0"',
+    '  relayPort = 18934',
+    '  relayClientPublicKeys = @(if ($null -eq $manifest.relayClientPublicKeys) { @() } else { $manifest.relayClientPublicKeys })',
+    '  relayIdleTimeoutSeconds = 300',
     '  authorizationMaterialPath = [string](Join-Path $policyDir "agent-trust-material.json")',
     '  authorizationTrustKeySet = $authorizationTrustKeySet',
     '  paths = @{ windows = @{ configPath = [string]$configPath; dataDir = [string]$manifest.dataDir; logDir = [string]$manifest.logDir } }',
     '  service = @{ name = [string]$manifest.serviceName; displayName = [string]$manifest.displayName }',
     '}',
+    'if ($isGateway) {',
+    '  # 独立 Gateway Agent 不使用 Full Agent 的 role/gatewayEnabled 与本地授权材料字段。',
+    '  $config.Remove("role")',
+    '  $config.Remove("gatewayEnabled")',
+    '  $config.Remove("authorizationMaterialPath")',
+    '  $config.Remove("authorizationTrustKeySet")',
+    '}',
     'New-Item -ItemType Directory -Force -Path $manifest.configDir, $manifest.dataDir, $manifest.logDir, $policyDir | Out-Null',
     '& icacls.exe $policyDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)(F)" "*S-1-5-32-544:(OI)(CI)(F)" | Out-Null',
     'if ($LASTEXITCODE -ne 0) { throw "Go Agent policy directory ACL configuration failed: $policyDir" }',
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
-    "$agentSource = Join-Path $root 'gcac-agent.exe'",
+    '$agentSource = Join-Path $root $binaryName',
     'New-Item -ItemType Directory -Force -Path $manifest.installRoot | Out-Null',
     'Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force',
-    '$serviceCommand = "`"" + $agentTarget + "`" service run --config=`"" + $configPath + "`""',
-    'New-Service -Name ([string]$manifest.serviceName) -BinaryPathName $serviceCommand -DisplayName ([string]$manifest.displayName) -Description "GCAC Windows Go Full Agent service" -StartupType Automatic | Out-Null',
+    '$serviceRunVerb = if ($isGateway) { "run" } else { "service run" }',
+    '$serviceCommand = "`"" + $agentTarget + "`" " + $serviceRunVerb + " --config=`"" + $configPath + "`""',
+    '$serviceDescription = if ($isGateway) { "GCAC Gateway Agent service" } else { "GCAC Windows Go Full Agent service" }',
+    'New-Service -Name ([string]$manifest.serviceName) -BinaryPathName $serviceCommand -DisplayName ([string]$manifest.displayName) -Description $serviceDescription -StartupType Automatic | Out-Null',
     'sc.exe failure ([string]$manifest.serviceName) reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null',
     'sc.exe failureflag ([string]$manifest.serviceName) 1 | Out-Null',
     '$metadata = [ordered]@{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigPath = [string]$configPath; DataDir = [string]$manifest.dataDir; LogDir = [string]$manifest.logDir; BinaryPath = [string]$agentTarget; InstalledAt = (Get-Date).ToString("o"); Mode = "windows-service-go-bootstrap" }',
     'New-Item -ItemType Directory -Force -Path (Split-Path -Parent $manifest.configDir) | Out-Null',
     '[System.IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 5), $utf8Bom)',
-    "$agentExe = Join-Path $manifest.installRoot 'gcac-agent.exe'",
-    '& $agentExe register-once --config=$configPath',
-    "if ($LASTEXITCODE -ne 0) { throw 'Agent registration or initial capability report failed. See the preceding Agent error.' }",
+    '$agentExe = Join-Path $manifest.installRoot $binaryName',
+    'if (-not $isGateway) {',
+    '  & $agentExe register-once --config=$configPath',
+    '  if ($LASTEXITCODE -ne 0) { throw "Agent registration or initial capability report failed. See the preceding Agent error." }',
+    '}',
     'if ([bool]$manifest.startAfterInstall) {',
     '  try {',
     '    Start-Service -Name ([string]$manifest.serviceName) -ErrorAction Stop',
@@ -1013,7 +1048,7 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '    throw "GCAC Windows Go Agent service failed to start: $([string]$manifest.serviceName)`n$serviceState`nAgent log tail:`n$agentLogTail"',
     '  }',
     '}',
-    "Write-Host 'GCAC Windows Go Agent bootstrap completed.'",
+    "Write-Host 'GCAC Windows Agent bootstrap completed: ' + $binaryName",
   ].join('\r\n');
 }
 
@@ -1138,7 +1173,8 @@ function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
 
 function renderLinuxBootstrapScript(manifest: unknown): string {
   const manifestJson = JSON.stringify(manifest, null, 2);
-  const installManifest = manifest as { bundleUrl?: string; serviceName?: string; displayName?: string; installRoot?: string; configDir?: string; dataDir?: string; logDir?: string; startAfterInstall?: boolean };
+  const installManifest = manifest as { role?: string; gatewayBundleUrl?: string; bundleUrl?: string; serviceName?: string; displayName?: string; installRoot?: string; configDir?: string; dataDir?: string; logDir?: string; startAfterInstall?: boolean };
+  const isGateway = installManifest.role === 'gateway';
   return [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
@@ -1159,13 +1195,12 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     'const fs = require("node:fs");',
     'const path = process.env.MANIFEST_PATH;',
     'const manifest = JSON.parse(fs.readFileSync(path, "utf8"));',
+    'const isGateway = manifest.role === "gateway";',
     'const config = {',
-    '  schemaVersion: "full-agent.linux-go.config.v1",',
+    '  schemaVersion: isGateway ? "gcac.gateway-agent.v1" : "full-agent.linux-go.config.v1",',
     '  tenantId: manifest.tenantId,',
     '  agentKey: manifest.agentKey,',
     '  enrollmentToken: manifest.enrollmentToken,',
-    '  role: manifest.role,',
-    '  gatewayEnabled: manifest.role === "gateway",',
     '  zone: manifest.zone,',
     '  controlPlaneUrl: manifest.controlPlaneUrl,',
     '  heartbeatIntervalSeconds: 10,',
@@ -1173,25 +1208,35 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  healthCheckIntervalSeconds: 30,',
     '  offlineTimeoutSeconds: 180,',
     '  managementListenAddress: "0.0.0.0",',
-    '  managementPort: 18931,',
-    '  capabilityRescanIntervalSeconds: 300,',
-    '  capabilityRescanEnabled: true,',
-    '  authorizationMaterialPath: `${manifest.dataDir}/policy/agent-trust-material.json`,',
+    '  managementPort: isGateway ? 18935 : 18931,',
     '  authorizationTrustKeySet: manifest.authorizationTrustKeySet || {},',
     '  paths: { linux: { configPath: `${manifest.configDir}/agent.config.json`, dataDir: manifest.dataDir, logDir: manifest.logDir } },',
     '  service: { name: manifest.serviceName, displayName: manifest.displayName },',
     '};',
+    'if (isGateway) {',
+    '  // 独立 Gateway Agent：独立中继端口 18934 + 控制面中继公钥，无 Full Agent 字段。',
+    '  config.relayEnabled = true;',
+    '  config.relayListenAddress = "0.0.0.0";',
+    '  config.relayPort = 18934;',
+    '  config.relayClientPublicKeys = manifest.relayClientPublicKeys || [];',
+    '  config.relayIdleTimeoutSeconds = 300;',
+    '} else {',
+    '  config.capabilityRescanIntervalSeconds = 300;',
+    '  config.capabilityRescanEnabled = true;',
+    '  config.authorizationMaterialPath = `${manifest.dataDir}/policy/agent-trust-material.json`;',
+    '}',
     'fs.writeFileSync(path, JSON.stringify(config, null, 2) + "\\n");',
     'NODE',
     '',
-    `BUNDLE_URL=${toBashSingleQuoted(installManifest.bundleUrl ?? '')}`,
-    `SERVICE_NAME=${toBashSingleQuoted(installManifest.serviceName ?? 'gcac-linux-agent')}`,
-    `DISPLAY_NAME=${toBashSingleQuoted(installManifest.displayName ?? 'GCAC Linux Go Full Agent')}`,
-    `INSTALL_ROOT=${toBashSingleQuoted(installManifest.installRoot ?? '/opt/gcac/linux-agent')}`,
-    `CONFIG_DIR=${toBashSingleQuoted(installManifest.configDir ?? '/etc/gcac/linux-agent')}`,
-    `DATA_DIR=${toBashSingleQuoted(installManifest.dataDir ?? '/var/lib/gcac/linux-agent')}`,
-    `LOG_DIR=${toBashSingleQuoted(installManifest.logDir ?? '/var/log/gcac/linux-agent')}`,
+    `BUNDLE_URL=${toBashSingleQuoted(isGateway ? installManifest.gatewayBundleUrl ?? '' : installManifest.bundleUrl ?? '')}`,
+    `SERVICE_NAME=${toBashSingleQuoted(installManifest.serviceName ?? (isGateway ? 'gcac-gateway-agent' : 'gcac-linux-agent'))}`,
+    `DISPLAY_NAME=${toBashSingleQuoted(installManifest.displayName ?? (isGateway ? 'GCAC Gateway Agent' : 'GCAC Linux Go Full Agent'))}`,
+    `INSTALL_ROOT=${toBashSingleQuoted(installManifest.installRoot ?? (isGateway ? '/opt/gcac/gateway' : '/opt/gcac/linux-agent'))}`,
+    `CONFIG_DIR=${toBashSingleQuoted(installManifest.configDir ?? (isGateway ? '/etc/gcac/gateway' : '/etc/gcac/linux-agent'))}`,
+    `DATA_DIR=${toBashSingleQuoted(installManifest.dataDir ?? (isGateway ? '/var/lib/gcac/gateway' : '/var/lib/gcac/linux-agent'))}`,
+    `LOG_DIR=${toBashSingleQuoted(installManifest.logDir ?? (isGateway ? '/var/log/gcac/gateway' : '/var/log/gcac/linux-agent'))}`,
     `START_AFTER_INSTALL=${toBashSingleQuoted(installManifest.startAfterInstall === true ? 'true' : 'false')}`,
+    `BINARY_NAME=${toBashSingleQuoted(isGateway ? 'gcac-gateway-agent' : 'gcac-linux-agent')}`,
     '',
     'curl -fsSL "$BUNDLE_URL" -o "$WORKDIR/bundle.tar.gz"',
     'tar -xzf "$WORKDIR/bundle.tar.gz" -C "$WORKDIR"',
@@ -1199,8 +1244,8 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     'install -m 0644 "$WORKDIR/manifest.json" "$WORKDIR/config/agent.config.template.json"',
     'chmod +x "$WORKDIR/linux/install-systemd.sh"',
     'GCAC_SKIP_RELEASE_SIGNATURE_VERIFY=bootstrap-fixed-bundle SERVICE_NAME="$SERVICE_NAME" DISPLAY_NAME="$DISPLAY_NAME" INSTALL_ROOT="$INSTALL_ROOT" CONFIG_DIR="$CONFIG_DIR" DATA_DIR="$DATA_DIR" LOG_DIR="$LOG_DIR" START_AFTER_INSTALL="$START_AFTER_INSTALL" bash "$WORKDIR/linux/install-systemd.sh"',
-    '"$INSTALL_ROOT/gcac-linux-agent" self-check --config "$CONFIG_DIR/agent.config.json"',
-    'echo "GCAC Linux Agent bootstrap completed."',
+    '"$INSTALL_ROOT/$BINARY_NAME" self-check --config "$CONFIG_DIR/agent.config.json"',
+    'echo "GCAC Agent bootstrap completed: $BINARY_NAME"',
   ].join('\n');
 }
 

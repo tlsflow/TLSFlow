@@ -48,22 +48,27 @@ const (
 )
 
 type AgentConfig struct {
-	SchemaVersion              string            `json:"schemaVersion"`
-	TenantID                   string            `json:"tenantId"`
-	AgentKey                   string            `json:"agentKey"`
-	EnrollmentToken            string            `json:"enrollmentToken"`
-	Role                       string            `json:"role"`
-	GatewayEnabled             bool              `json:"gatewayEnabled"`
-	Zone                       string            `json:"zone"`
-	ControlPlane               string            `json:"controlPlaneUrl"`
-	Heartbeat                  int               `json:"heartbeatIntervalSeconds"`
-	TaskPollIntervalSeconds    int               `json:"taskPollIntervalSeconds"`
-	HealthCheckIntervalSeconds int               `json:"healthCheckIntervalSeconds"`
-	OfflineTimeoutSeconds      int               `json:"offlineTimeoutSeconds"`
-	ManagementListenAddress    string            `json:"managementListenAddress"`
-	ManagementPort             int               `json:"managementPort"`
-	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
-	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
+	SchemaVersion              string                   `json:"schemaVersion"`
+	TenantID                   string                   `json:"tenantId"`
+	AgentKey                   string                   `json:"agentKey"`
+	EnrollmentToken            string                   `json:"enrollmentToken"`
+	Role                       string                   `json:"role"`
+	GatewayEnabled             bool                     `json:"gatewayEnabled"`
+	Zone                       string                   `json:"zone"`
+	ControlPlane               string                   `json:"controlPlaneUrl"`
+	Heartbeat                  int                      `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int                      `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int                      `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int                      `json:"offlineTimeoutSeconds"`
+	ManagementListenAddress    string                   `json:"managementListenAddress"`
+	ManagementPort             int                      `json:"managementPort"`
+	RelayEnabled               bool                     `json:"relayEnabled"`
+	RelayListenAddress         string                   `json:"relayListenAddress"`
+	RelayPort                  int                      `json:"relayPort"`
+	RelayClientPublicKeys      relayClientPublicKeyList `json:"relayClientPublicKeys"`
+	RelayIdleTimeoutSeconds    int                      `json:"relayIdleTimeoutSeconds"`
+	AuthorizationMaterialPath  string                   `json:"authorizationMaterialPath"`
+	AuthorizationTrustKeySet   map[string]string        `json:"authorizationTrustKeySet"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -543,6 +548,8 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
+		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
 	}
 
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
@@ -732,6 +739,13 @@ func runForeground(ctx context.Context, configPath string) error {
 		return err
 	}
 	defer managementServer.Shutdown(context.Background())
+	relayServer, err := startRelayServer(config)
+	if err != nil {
+		return err
+	}
+	if relayServer != nil {
+		defer relayServer.Close()
+	}
 
 	deps, err := loadRuntimeDependencies(config)
 	if err != nil {
@@ -1246,6 +1260,8 @@ func buildWindowsHealthChecks(config *AgentConfig, configPath string) []map[stri
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
+		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
 	}
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
 		if strings.TrimSpace(dir) == "" {
