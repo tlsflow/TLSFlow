@@ -285,8 +285,26 @@ export class ExecutionResultSyncService {
     await this.captureSnapshots(input, binding, assetBinding, siteAsset, managedTarget, detail, resultState);
     await this.writeBindingState(input, step, binding, detail, resultState);
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
-    await this.writePluginCertificateResult(input, binding, resultState);
+    await this.tryWritePluginCertificateResult(input, binding, resultState);
     return resultState;
+  }
+
+  private async tryWritePluginCertificateResult(
+    input: { tenantId: string; executionRunId: string; executionStepId: string },
+    binding: CertificateBindingDto,
+    resultState: ResultState,
+  ): Promise<void> {
+    try {
+      await this.writePluginCertificateResult(input, binding, resultState);
+    } catch (error) {
+      console.warn('[execution-result-sync.plugin-certificate-result]', JSON.stringify({
+        tenantId: input.tenantId,
+        executionRunId: input.executionRunId,
+        executionStepId: input.executionStepId,
+        bindingId: binding.id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
   }
 
   private async writePluginCertificateResult(

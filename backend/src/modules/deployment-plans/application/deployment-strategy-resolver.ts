@@ -6,6 +6,7 @@ import type { DeploymentStrategyDto, ServiceAssetDto, ApplicationAssetTargetSumm
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { RuntimeExecutionRequest } from './plugin-runtime-adapter.registry.js';
 import { emptyInputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
+import { buildCertificateVerificationTarget } from './certificate-verification-target.js';
 
 export interface DeploymentStrategyResolutionInput {
   applicationAsset: ServiceAssetDto;
@@ -130,24 +131,9 @@ export class DeploymentStrategyResolver {
 }
 
 function workflowCertificateVerification(input: DeploymentStrategyResolutionInput): Record<string, unknown> {
-  const connectHost = input.managedTargetContext?.host.primaryIp ?? input.applicationAsset.address;
-  const serverName = input.applicationAsset.sniName ?? input.applicationAsset.address;
-  const port = input.applicationAsset.port;
-  if (!connectHost || !serverName || !port) {
-    throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署策略缺少证书验证目标', {
-      applicationAssetId: input.applicationAsset.id,
-      connectHost,
-      serverName,
-      port,
-    });
-  }
-  return {
-    capabilityKey: 'certificate.verify',
-    schemaVersion: '1.0',
-    connectHost,
-    serverName,
-    port,
-    expectedDomains: [serverName],
-    source: input.managedTargetContext ? 'MANAGED_HOST' : 'APPLICATION_ASSET',
-  };
+  return buildCertificateVerificationTarget({
+    applicationAsset: input.applicationAsset,
+    managedTargetContext: input.managedTargetContext,
+    sourceLabel: 'MANAGED_HOST',
+  });
 }

@@ -715,7 +715,8 @@ describe('部署计划与执行编排 API', () => {
       serverName: 'workflow-only.example.com',
       port: 8443,
       expectedDomains: ['workflow-only.example.com'],
-      source: 'APPLICATION_ASSET',
+      verifyUrl: 'https://workflow-only.example.com:8443',
+      source: 'APPLICATION_VERIFY_URL',
     });
 
     const dryRun = await app.inject({

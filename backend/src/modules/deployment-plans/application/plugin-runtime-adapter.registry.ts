@@ -3,11 +3,12 @@ import type { ResolvedManagedTargetContext } from '../../assets/application/mana
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
+import { buildCertificateVerificationTarget } from './certificate-verification-target.js';
 
 export interface RuntimeCompileInput {
   capability: ResolvedDeploymentCapability;
   context: ResolvedManagedTargetContext;
-  applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName'>;
+  applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName' | 'verifyUrl'>;
   resolvedInput: ResolvedDeploymentInputV1;
   certificateBindingId?: string;
   workflow?: {
@@ -29,25 +30,11 @@ export interface RuntimeExecutionRequest {
 }
 
 function hostCertificateVerification(input: RuntimeCompileInput): Record<string, unknown> {
-  const connectHost = input.context.host.primaryIp;
-  const serverName = input.applicationAsset.sniName ?? input.applicationAsset.address;
-  const port = input.applicationAsset.port;
-  if (!connectHost || !serverName || !port) {
-    throw new AppError('VALIDATION_FAILED', '部署 Runtime 缺少宿主证书验证目标', {
-      managedTargetId: input.context.managedTarget.id,
-      connectHost,
-      serverName,
-      port,
-    });
-  }
-  return {
-    capabilityKey: 'certificate.verify',
-    schemaVersion: '1.0',
-    connectHost,
-    serverName,
-    port,
-    expectedDomains: [serverName],
-  };
+  return buildCertificateVerificationTarget({
+    applicationAsset: input.applicationAsset,
+    managedTargetContext: input.context,
+    sourceLabel: 'MANAGED_HOST',
+  });
 }
 
 export interface PluginRuntimeAdapter {

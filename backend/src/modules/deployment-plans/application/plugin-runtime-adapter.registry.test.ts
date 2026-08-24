@@ -22,7 +22,14 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
   assert.equal(result.executionTargetId, 'agent-1');
   assert.equal((result.payload.pluginRuntimeCapability as { pluginBindingId: string }).pluginBindingId, 'binding-1');
   assert.deepEqual(result.payload.certificateVerification, {
-    capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, expectedDomains: ['test02.jacksonz.cn'],
+    capabilityKey: 'certificate.verify',
+    schemaVersion: '1.0',
+    connectHost: 'test02.jacksonz.cn',
+    serverName: 'test02.jacksonz.cn',
+    port: 443,
+    expectedDomains: ['test02.jacksonz.cn'],
+    verifyUrl: 'https://test02.jacksonz.cn',
+    source: 'APPLICATION_VERIFY_URL',
   });
   const runtimeInput = result.payload.resolvedDeploymentInput as ResolvedDeploymentInputV1;
   const assetContext = runtimeInput.assetContext as unknown as Record<string, Record<string, unknown>>;
@@ -48,6 +55,32 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async
   assert.deepEqual(Object.keys(result.payload.workflowRequest as Record<string, unknown>).filter((key) => key.endsWith('Bindings')), []);
 });
 
+test('PluginRuntimeAdapterRegistry 使用应用资产 verifyUrl 作为最终 TLS VERIFY 入口', async () => {
+  const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
+    capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
+    context: context('CONTROL_PLANE', { hostIp: '10.255.0.49' }),
+    applicationAsset: {
+      ...applicationAsset(),
+      address: 'lb-test01.jacksonz.cn',
+      sniName: 'lb-test01.jacksonz.cn',
+      verifyUrl: 'https://lb-test01.jacksonz.cn',
+    },
+    resolvedInput: resolvedInput(),
+    workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1' },
+  });
+
+  assert.deepEqual(result.payload.certificateVerification, {
+    capabilityKey: 'certificate.verify',
+    schemaVersion: '1.0',
+    connectHost: 'lb-test01.jacksonz.cn',
+    serverName: 'lb-test01.jacksonz.cn',
+    port: 443,
+    expectedDomains: ['lb-test01.jacksonz.cn'],
+    verifyUrl: 'https://lb-test01.jacksonz.cn',
+    source: 'APPLICATION_VERIFY_URL',
+  });
+});
+
 test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置', async () => {
   assert.throws(() => new PluginRuntimeAdapterRegistry().register(new AgentAtomicRuntimeAdapter()).register(new AgentAtomicRuntimeAdapter()), /重复注册/);
   await assert.rejects(() => new PluginRuntimeAdapterRegistry().register(new WorkflowDslRuntimeAdapter()).compile({
@@ -67,6 +100,7 @@ function applicationAsset() {
     port: 443,
     protocol: 'HTTPS' as const,
     displayName: 'TEST02',
+    verifyUrl: 'https://test02.jacksonz.cn',
   };
 }
 
@@ -119,14 +153,14 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
   };
 }
 
-function context(executionLocation: ExecutionLocation): ResolvedManagedTargetContext {
+function context(executionLocation: ExecutionLocation, options: { hostIp?: string } = {}): ResolvedManagedTargetContext {
   return {
     managedTarget: {
       id: 'target-1', tenantId: 'tenant-1', deviceId: 'host-1', discoveryProviderKey: 'fixture', targetType: 'tls.binding', targetKey: 'target-1',
       supportedCapabilities: ['certificate.deploy'], executionLocations: [executionLocation], status: 'ACTIVE', metadata: {}, createdAt: '', updatedAt: '', version: 1,
     },
     host: {
-      id: 'host-1', tenantId: 'tenant-1', primaryIp: '10.255.0.127', ipAddresses: ['10.255.0.127'], osType: 'LINUX', managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1',
+      id: 'host-1', tenantId: 'tenant-1', primaryIp: options.hostIp ?? '10.255.0.127', ipAddresses: [options.hostIp ?? '10.255.0.127'], osType: 'LINUX', managementChannels: [], discoverySource: 'AGENT', compatibilityLevel: 'L1',
       managementMode: 'AGENT', status: 'ACTIVE', tags: [], agentId: 'agent-1', createdAt: '', updatedAt: '', version: 1,
     },
     agent: { id: 'agent-1' } as never,

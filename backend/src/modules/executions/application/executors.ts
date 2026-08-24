@@ -14,7 +14,7 @@ import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from 
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import type { DeploymentAssetContextV1 } from '../../deployment-inputs/dto/deployment-asset-context.dto.js';
-import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
+import { buildTlsVerifyTargetFromUrl, evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
@@ -931,6 +931,12 @@ function readNumberValue(value: unknown): number | undefined {
 function buildControlPlaneTlsTarget(snapshot: Record<string, unknown>): TlsVerifyTarget | undefined {
   const verification = readRecord(snapshot.certificateVerification);
   if (stringFromSnapshot(verification?.capabilityKey) !== 'certificate.verify' || stringFromSnapshot(verification?.schemaVersion) !== '1.0') return undefined;
+  const verifyUrl = stringFromSnapshot(verification?.verifyUrl);
+  if (verifyUrl) {
+    const target = buildTlsVerifyTargetFromUrl(verifyUrl);
+    const serverName = stringFromSnapshot(verification?.serverName);
+    return serverName ? { ...target, serverName } : target;
+  }
   const connectHost = stringFromSnapshot(verification?.connectHost);
   const serverName = stringFromSnapshot(verification?.serverName);
   const port = readNumberValue(verification?.port);
