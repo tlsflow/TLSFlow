@@ -152,15 +152,35 @@ export class PgAgentsRepository implements AgentsRepository {
   }
 
   async upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration> {
-    return this.registrations.upsert(agent);
+    await this.db.transaction(async (tx) => {
+      await upsertDocument(tx, 'agents:registrations', agent);
+      await syncAgentHost(tx, agent);
+    });
+    return structuredClone(agent);
   }
 
   async updateRegistration(agentId: string, patch: Partial<AgentRegistration>): Promise<AgentRegistration> {
-    return this.registrations.update(agentId, patch);
+    const current = await this.registrations.getOrThrow(agentId);
+    const updated = { ...current, ...structuredClone(patch), id: agentId };
+    return this.upsertRegistration(updated);
   }
 
   async deleteRegistration(agentId: string): Promise<void> {
-    await this.registrations.delete(agentId);
+    const current = await this.registrations.get(agentId);
+    await this.db.transaction(async (tx) => {
+      await tx.query(
+        `delete from pg_documents where namespace = $1 and document_id = $2`,
+        ['agents:registrations', agentId],
+      );
+      if (current) {
+        await tx.query(
+          `update pg_hosts
+           set status = 'DELETED', deleted_at = now(), updated_at = now(), version = version + 1
+           where tenant_id = $1 and agent_id = $2 and deleted_at is null`,
+          [current.tenantId, agentId],
+        );
+      }
+    });
   }
 
   async getRegistration(tenantId: string, agentId: string): Promise<AgentRegistration | undefined> {
@@ -396,4 +416,139 @@ export class PgAgentsRepository implements AgentsRepository {
     if (!row) return undefined;
     return structuredClone({ ...row.payload, id: row.document_id });
   }
+}
+
+async function upsertDocument<T extends IdentifiedEntity>(db: DatabasePort, namespace: string, entity: T): Promise<void> {
+  await db.query(
+    `insert into pg_documents (namespace, document_id, payload, updated_at)
+     values ($1, $2, $3::jsonb, now())
+     on conflict (namespace, document_id)
+     do update set payload = excluded.payload, updated_at = excluded.updated_at`,
+    [namespace, entity.id, JSON.stringify(entity)],
+  );
+}
+
+async function syncAgentHost(db: DatabasePort, agent: AgentRegistration): Promise<void> {
+  const descriptor = agent.descriptor;
+  const hostId = `host_${agent.id}`;
+  const candidate = (await db.query<{ id: string }>(
+    `select id
+     from pg_hosts
+     where tenant_id = $1
+       and (
+         id = $2
+         or (
+           deleted_at is null
+           and (
+             agent_id = $3
+             or ($4::text is not null and asset_fingerprint = $4)
+             or ($5::text is not null and lower(hostname) = lower($5))
+             or ($6::text is not null and primary_ip = $6)
+           )
+         )
+       )
+     order by
+       case
+         when id = $2 then 0
+         when agent_id = $3 then 1
+         when $4::text is not null and asset_fingerprint = $4 then 2
+         when $5::text is not null and lower(hostname) = lower($5) then 3
+         else 4
+       end
+     limit 1`,
+    [agent.tenantId, hostId, agent.id, descriptor.machineId ?? null, descriptor.hostname || null, descriptor.ipAddress ?? null],
+  )).rows[0];
+  const osName = resolveAgentOsName(descriptor.osType, descriptor.linuxDistribution);
+  const status = mapAgentHostStatus(agent.status);
+  const ipAddresses = descriptor.ipAddress ? [descriptor.ipAddress] : [];
+
+  if (candidate) {
+    await db.query(
+      `update pg_hosts
+       set hostname = coalesce(hostname, $1),
+           display_name = coalesce(display_name, $1),
+           primary_ip = coalesce(primary_ip, $2),
+           ip_addresses = case when jsonb_array_length(ip_addresses) = 0 then $3::jsonb else ip_addresses end,
+           os_type = $4,
+           os_name = $5,
+           os_version = $6,
+           arch = $7,
+           zone_id = coalesce($8, zone_id),
+           management_channels = '["AGENT"]'::jsonb,
+           discovery_source = 'AGENT',
+           last_discovered_at = $9::timestamptz,
+           agent_id = $10,
+           asset_fingerprint = coalesce(asset_fingerprint, $11),
+           management_mode = 'AGENT',
+           status = $12,
+           tags = $13::jsonb,
+           updated_at = $9::timestamptz,
+           deleted_at = null,
+           version = version + 1
+       where id = $14 and tenant_id = $15`,
+      [
+        descriptor.hostname,
+        descriptor.ipAddress ?? null,
+        JSON.stringify(ipAddresses),
+        descriptor.osType,
+        osName,
+        descriptor.osVersion ?? null,
+        descriptor.arch ?? null,
+        agent.zone ?? null,
+        agent.updatedAt,
+        agent.id,
+        descriptor.machineId ?? null,
+        status,
+        JSON.stringify(descriptor.labels),
+        candidate.id,
+        agent.tenantId,
+      ],
+    );
+    return;
+  }
+
+  await db.query(
+    `insert into pg_hosts (
+       id, tenant_id, hostname, display_name, primary_ip, ip_addresses, os_type, os_name, os_version, arch,
+       zone_id, management_channels, discovery_source, last_discovered_at, agent_id, asset_fingerprint,
+       compatibility_level, management_mode, status, tags, created_at, updated_at, version
+     ) values (
+       $1, $2, $3, $3, $4, $5::jsonb, $6, $7, $8, $9,
+       $10, '["AGENT"]'::jsonb, 'AGENT', $11::timestamptz, $12, $13,
+       'L1', 'AGENT', $14, $15::jsonb, $16::timestamptz, $11::timestamptz, 1
+     )`,
+    [
+      hostId,
+      agent.tenantId,
+      descriptor.hostname,
+      descriptor.ipAddress ?? null,
+      JSON.stringify(ipAddresses),
+      descriptor.osType,
+      osName,
+      descriptor.osVersion ?? null,
+      descriptor.arch ?? null,
+      agent.zone ?? null,
+      agent.updatedAt,
+      agent.id,
+      descriptor.machineId ?? null,
+      status,
+      JSON.stringify(descriptor.labels),
+      agent.registeredAt,
+    ],
+  );
+}
+
+function resolveAgentOsName(osType: string, linuxDistribution?: string): string {
+  const names: Readonly<Record<string, string>> = {
+    WINDOWS: 'Windows Server',
+    LINUX: linuxDistribution ?? 'Linux Server',
+  };
+  return names[osType] ?? osType;
+}
+
+function mapAgentHostStatus(status: AgentRegistration['status']): 'ACTIVE' | 'INACTIVE' | 'DISABLED' | 'UNKNOWN' {
+  if (status === 'ONLINE' || status === 'UPGRADING') return 'ACTIVE';
+  if (status === 'OFFLINE') return 'INACTIVE';
+  if (status === 'DISABLED') return 'DISABLED';
+  return 'UNKNOWN';
 }
