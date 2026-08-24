@@ -546,6 +546,14 @@ test('真实 Manifest 和未知 Plugin ID 都必须使用 Canonical ID', () => {
   assert.equal(unknownCanonicalFindings.some((finding) => finding.rule === 'NON_CANONICAL_PLUGIN_BINDING'), true);
 });
 
+test('未完成的 Canvas 插件动作绑定允许为空值，避免把编辑草稿当成生产绑定', () => {
+  const draftFindings = scanPluginArchitectureSource(
+    'web/src/views/workflows/workflow-canvas.model.ts',
+    "const config = { pluginId: '', capability: '', actionId: '' };",
+  );
+  assert.equal(draftFindings.some((finding) => finding.rule === 'NON_CANONICAL_PLUGIN_BINDING'), false);
+});
+
 test('Host API 禁止方法清单只在合同定义文件中声明，不应被业务动作守卫误报', () => {
   const registryPath = resolve(dirname(fileURLToPath(import.meta.url)), '../..', 'backend/src/modules/plugins/runner/protocol/host-api.registry.ts');
   const findings = scanPluginArchitectureSource(

@@ -87,6 +87,33 @@ export function findBuiltinPluginVersionViolations({
       });
     }
 
+    const workflowPaths = new Set([
+      ...Object.values(currentManifest.resources?.workflows ?? {}),
+      ...Object.values(baseManifest.resources?.workflows ?? {}),
+    ]);
+    for (const workflowPath of workflowPaths) {
+      const resourcePath = `${builtinPluginRoot}/${pluginDirectory}/${workflowPath}`;
+      const resourceChanged = normalizedChangedPaths.has(resourcePath);
+      const manifestChanged = normalizedChangedPaths.has(manifestPath);
+      if (!manifestChanged && !resourceChanged) continue;
+      const currentWorkflow = readCurrentResource(resourcePath);
+      const baseWorkflow = readBaseResource(resourcePath);
+      if (!currentWorkflow) continue;
+      if (currentWorkflow.metadata?.version !== currentManifest.version) {
+        violations.push({
+          kind: 'workflow',
+          pluginId,
+          pluginDirectory,
+          workflowName: currentWorkflow.metadata?.name ?? baseWorkflow?.metadata?.name ?? workflowPath,
+          previousVersion: baseWorkflow?.metadata?.version ?? '(未声明)',
+          nextVersion: currentWorkflow.metadata?.version ?? '(未声明)',
+          expectedPluginVersion: currentManifest.version ?? '(未声明)',
+          resourcePath,
+          reason: 'PLUGIN_VERSION_MISMATCH',
+        });
+      }
+    }
+
   }
 
   return violations;
@@ -279,6 +306,10 @@ function parseCliArguments(arguments_) {
 function printViolations(violations) {
   console.error('内置插件或其 Workflow 内容已变化，但插件版本未正确递进：');
   for (const violation of violations) {
+    if (violation.kind === 'workflow' && violation.reason === 'PLUGIN_VERSION_MISMATCH') {
+      console.error(`- Workflow ${violation.workflowName}：metadata.version 必须镜像插件版本 ${violation.expectedPluginVersion}，文件 ${violation.resourcePath}`);
+      continue;
+    }
     if (violation.kind === 'plugin') {
       console.error(`- 插件 ${violation.pluginId} 或其内置 Workflow 内容已变化：Manifest.version 必须从 ${violation.previousVersion} 递进，文件 ${violation.manifestPath}`);
     }

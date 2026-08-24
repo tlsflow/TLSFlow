@@ -199,7 +199,10 @@ function isProductionContractPath(path) {
 }
 function isCanonicalPluginId(value) { return canonicalPluginIds.has(value); }
 function isFixturePluginId(value) { return fixturePluginIdPattern.test(value); }
-function shouldReportNonCanonicalPluginBinding(value) { return !isCanonicalPluginId(value) && !isFixturePluginId(value); }
+// 空值表示尚未完成绑定的编辑草稿，不是一个可执行的插件身份；真正提交的绑定仍必须使用 Canonical ID。
+function shouldReportNonCanonicalPluginBinding(value) {
+  return value.trim() !== '' && !isCanonicalPluginId(value) && !isFixturePluginId(value);
+}
 function isProductionHostPath(path) {
   const normalizedPath = normalizePath(path);
   return normalizedPath.startsWith('backend/src/') || normalizedPath.startsWith('web/src/');

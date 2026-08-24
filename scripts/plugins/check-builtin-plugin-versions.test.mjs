@@ -23,7 +23,7 @@ test('内置插件资源变化但 Manifest 版本不变时报告违规', () => {
   }]);
 });
 
-test('资源变化且 Manifest 版本递进时允许通过，不检查 Workflow 自身版本', () => {
+test('资源变化且 Manifest 版本递进时要求 Workflow 镜像插件版本', () => {
   const manifest = {
     pluginId: 'example.plugin',
     version: '1.0.1',
@@ -37,10 +37,12 @@ test('资源变化且 Manifest 版本递进时允许通过，不检查 Workflow 
     readBaseResource: () => ({ metadata: { name: 'example-discover', version: '1.0.0' } }),
   });
 
-  assert.deepEqual(violations, []);
+  assert.equal(violations[0]?.kind, 'workflow');
+  assert.equal(violations[0]?.reason, 'PLUGIN_VERSION_MISMATCH');
+  assert.equal(violations[0]?.expectedPluginVersion, '1.0.1');
 });
 
-test('新增内置 Workflow 只要求递进 Manifest 版本', () => {
+test('新增内置 Workflow 只要镜像当前 Manifest 版本即可', () => {
   const violations = findBuiltinPluginVersionViolations({
     changedPaths: [
       'backend/src/modules/plugins/builtin-plugins/example/manifest.json',
@@ -56,6 +58,7 @@ test('新增内置 Workflow 只要求递进 Manifest 版本', () => {
       version: '1.0.0',
       resources: { workflows: {} },
     }),
+    readCurrentResource: () => ({ metadata: { name: 'deploy', version: '1.0.1' } }),
   });
 
   assert.deepEqual(violations, []);
@@ -76,9 +79,10 @@ test('Git 工作区资源变化必须同步升级 Manifest 版本', () => {
   try {
     const pluginDirectory = join(root, 'backend/src/modules/plugins/builtin-plugins/example');
     writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify({ ...createWorkflow('9.0.0'), changed: true }), 'utf8');
-    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.kind), ['plugin']);
+    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.kind), ['plugin', 'workflow']);
 
     writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.1')), 'utf8');
+    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify({ ...createWorkflow('1.0.1'), changed: true }), 'utf8');
     assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
