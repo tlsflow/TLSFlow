@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 
-test('内置插件装载器只收集映射资源，不装载字符串入口', async () => {
+test('内置插件装载器读取 Runner 入口但不在宿主进程装载模块', async () => {
   const root = await mkdtemp(join(tmpdir(), 'gcac-plugin-loader-'));
   const pluginDirectory = join(root, 'workflow-fixture');
   await mkdir(join(pluginDirectory, 'workflows'), { recursive: true });
@@ -35,5 +35,7 @@ test('内置插件装载器只收集映射资源，不装载字符串入口', as
   const [pluginPackage] = await new BuiltinUnifiedPluginLoader(root).loadPackages();
 
   assert.equal(pluginPackage?.resources['workflows/deploy.json'], '{}\n');
-  assert.equal(pluginPackage?.resources['runtime/index.js'], undefined);
+  assert.equal(pluginPackage?.resources['runtime/index.js'], 'export default true;\n');
+  assert.equal(pluginPackage?.runtimeEntrypoint, 'runtime/index.js');
+  assert.equal(pluginPackage?.runtimeEntrypointPath?.endsWith('runtime\\index.js') || pluginPackage?.runtimeEntrypointPath?.endsWith('runtime/index.js'), true);
 });

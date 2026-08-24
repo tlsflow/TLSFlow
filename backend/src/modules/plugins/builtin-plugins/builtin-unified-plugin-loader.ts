@@ -7,13 +7,22 @@ import type { UnifiedPluginsApplicationService } from '../application/unified-pl
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
+export interface BuiltinPluginPackage {
+  packageDirectory: string;
+  manifest: unknown;
+  resources: Record<string, string>;
+  packageContent: string;
+  runtimeEntrypoint?: string;
+  runtimeEntrypointPath?: string;
+}
+
 export class BuiltinUnifiedPluginLoader {
   constructor(
     private readonly configuredRootDirectory?: string,
     private readonly logger: Pick<StructuredLogger, 'warn'> = structuredLogger,
   ) {}
 
-  async loadPackages(): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
+  async loadPackages(): Promise<BuiltinPluginPackage[]> {
     const rootDirectory = this.configuredRootDirectory ?? await resolveBuiltinRootDirectory();
     const entries = await readdir(rootDirectory, { withFileTypes: true });
     const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -83,19 +92,28 @@ export class BuiltinUnifiedPluginLoader {
     });
   }
 
-  private async loadPackage(directory: string): Promise<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
+  private async loadPackage(directory: string): Promise<BuiltinPluginPackage> {
     const manifestPath = join(directory, 'manifest.json');
     const manifestContent = await readFile(manifestPath, 'utf8');
     const manifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string> | string> };
     const resourcePaths = collectManifestResourcePaths(manifest).sort();
-    const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => [
-      resourcePath,
-      await readFile(resolve(directory, resourcePath), 'utf8'),
-    ])));
+    const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => {
+      const absolutePath = resolvePackageResource(directory, resourcePath);
+      return [resourcePath, await readFile(absolutePath, 'utf8')] as const;
+    })));
+    const runtimeEntrypoint = typeof manifest.resources?.runtimeEntrypoint === 'string'
+      ? manifest.resources.runtimeEntrypoint.replaceAll('\\', '/')
+      : undefined;
+    const runtimeEntrypointPath = runtimeEntrypoint === undefined
+      ? undefined
+      : resolvePackageResource(directory, runtimeEntrypoint);
     return {
+      packageDirectory: directory,
       manifest,
       resources,
       packageContent: JSON.stringify({ directory: basename(directory), manifest, resources }),
+      ...(runtimeEntrypoint ? { runtimeEntrypoint } : {}),
+      ...(runtimeEntrypointPath ? { runtimeEntrypointPath } : {}),
     };
   }
 }
@@ -104,9 +122,27 @@ function collectManifestResourcePaths(manifest: { resources?: Record<string, Rec
   const paths: string[] = [];
   for (const [key, value] of Object.entries(manifest.resources ?? {})) {
     if (!value) continue;
+    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+      paths.push(value);
+      continue;
+    }
     if (typeof value === 'object') paths.push(...Object.values(value));
   }
   return [...new Set(paths)];
+}
+
+function resolvePackageResource(packageDirectory: string, resourcePath: string): string {
+  const normalized = resourcePath.replaceAll('\\', '/');
+  if (!normalized || normalized.startsWith('/') || normalized.includes('\0') || normalized.split('/').includes('..')) {
+    throw new Error(`插件资源路径不安全：${resourcePath}`);
+  }
+  const root = resolve(packageDirectory);
+  const absolute = resolve(root, normalized);
+  const relative = absolute.slice(root.length).replaceAll('\\', '/');
+  if (relative.startsWith('/../') || relative === '/..' || absolute === resolve(root, '..')) {
+    throw new Error(`插件资源路径越出包目录：${resourcePath}`);
+  }
+  return absolute;
 }
 
 function pluginIdentity(manifest: unknown): { pluginId?: string; version?: string } {

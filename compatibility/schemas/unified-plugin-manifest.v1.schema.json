@@ -17,7 +17,7 @@
     "defaultLocale": { "type": "string", "minLength": 2 },
     "descriptionKey": { "type": "string", "minLength": 1 },
     "publisher": { "type": "string", "minLength": 1 },
-    "runtime": { "enum": ["AGENT_PLAN", "WORKFLOW_DSL", "TRUSTED_JS"] },
+    "runtime": { "enum": ["AGENT_PLAN", "WORKFLOW_DSL"] },
     "source": { "enum": ["BUILTIN", "USER"] },
     "scope": { "enum": ["MANAGED", "STANDALONE", "BOTH"] },
     "trust": { "enum": ["OFFICIAL_SIGNED", "USER_SIGNED", "UNSIGNED"] },
@@ -26,6 +26,19 @@
     "capabilities": { "type": "array", "minItems": 1, "items": { "type": "object" } },
     "permissions": { "type": "array", "items": { "type": "string" } },
     "compatibility": { "type": "object" },
-    "resources": { "type": "object" }
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeEntrypoint": { "const": "runtime/index.js" },
+        "agentPlans": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "workflows": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "forms": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "presentations": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "locales": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "discoveryMappings": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } },
+        "agentDiscoveryMappings": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
+      }
+    }
   }
 }

@@ -8,6 +8,11 @@ export interface BuiltinPluginPackageSnapshot {
   pluginId: string;
   version: string;
   packageSha256: string;
+  /** P2 Runner 装配所需的不可变摘要；历史账本条目允许暂缺。 */
+  manifestSha256?: string;
+  resourceSha256?: Record<string, string>;
+  resourceHash?: string;
+  runtimeEntrypoint?: string;
 }
 
 export interface BuiltinPluginPackageLedger {
@@ -27,10 +32,17 @@ export async function loadBuiltinPluginPackageSnapshots(
     if (typeof manifest.pluginId !== 'string' || typeof manifest.version !== 'string') {
       throw new Error('内置插件包缺少有效的 pluginId 或 version');
     }
+    const resourceSha256 = Object.fromEntries(Object.entries(pluginPackage.resources).sort(([left], [right]) => left.localeCompare(right)).map(
+      ([path, content]) => [path, sha256(content)],
+    ));
     return {
       pluginId: manifest.pluginId,
       version: manifest.version,
       packageSha256: sha256(pluginPackage.packageContent),
+      manifestSha256: sha256(JSON.stringify(pluginPackage.manifest)),
+      resourceSha256,
+      resourceHash: sha256(JSON.stringify(resourceSha256)),
+      ...(pluginPackage.runtimeEntrypoint ? { runtimeEntrypoint: pluginPackage.runtimeEntrypoint } : {}),
     };
   }).sort(compareSnapshots);
 }

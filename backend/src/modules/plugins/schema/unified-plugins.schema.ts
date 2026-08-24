@@ -69,6 +69,9 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     permissions,
     compatibility: readCompatibility(manifest.compatibility),
     resources: {
+      ...(resources.runtimeEntrypoint === undefined
+        ? {}
+        : { runtimeEntrypoint: readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint') }),
       agentPlans: readStringMap(resources.agentPlans),
       workflows: readStringMap(resources.workflows),
       forms: readStringMap(resources.forms),
@@ -138,12 +141,13 @@ export function assertUnifiedPluginResources(manifest: UnifiedPluginManifestV1, 
   const totalBytes = entries.reduce((total, [, content]) => total + Buffer.byteLength(content, 'utf8'), 0);
   if (totalBytes > maximumResourceBytes) fail('resources', '资源总大小超限', { maximumResourceBytes });
   const declared = collectDeclaredResourcePaths(manifest);
+  const runtimeEntrypoint = manifest.resources.runtimeEntrypoint;
   const missing = declared.filter((path) => !(path in resources));
   if (missing.length > 0) fail('resources', '插件资源缺失', { missing });
   for (const path of Object.keys(resources)) {
     const normalized = path.replaceAll('\\', '/');
     if (normalized.startsWith('/') || normalized.includes('../')) fail(`resources.${path}`, '资源路径不安全');
-    assertResourceExtensionAllowed(manifest.runtime, normalized, path);
+    assertResourceExtensionAllowed(manifest.runtime, normalized, path, runtimeEntrypoint);
   }
 }
 
@@ -170,9 +174,14 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  const resourceKeys = ['agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings'];
+  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings'];
   assertKnownKeys(resources, new Set(resourceKeys), 'resources');
+  if (resources.runtimeEntrypoint !== undefined) {
+    const runtimeEntrypoint = readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint');
+    if (runtimeEntrypoint !== 'runtime/index.js') fail('resources.runtimeEntrypoint', 'Runner 入口必须固定为 runtime/index.js');
+  }
   for (const key of resourceKeys) {
+    if (key === 'runtimeEntrypoint') continue;
     readStringMap(resources[key], `resources.${key}`);
   }
 }
@@ -199,17 +208,28 @@ function readStringMap(input: unknown, path = 'resources'): Record<string, strin
   return result;
 }
 
+function readResourcePath(input: unknown, path: string): string {
+  const value = requireString(input, path).replaceAll('\\', '/');
+  if (value.startsWith('/') || value.includes('../') || value.includes('\0')) fail(path, '资源路径不安全');
+  return value;
+}
+
 function collectDeclaredResourcePaths(manifest: UnifiedPluginManifestV1): string[] {
   const paths: string[] = [];
   for (const [key, value] of Object.entries(manifest.resources)) {
     if (!value) continue;
+    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+      paths.push(value);
+      continue;
+    }
     if (typeof value === 'object') paths.push(...Object.values(value));
   }
   return [...new Set(paths)];
 }
 
-function assertResourceExtensionAllowed(_runtime: UnifiedPluginRuntime, normalizedPath: string, originalPath: string): void {
+function assertResourceExtensionAllowed(_runtime: UnifiedPluginRuntime, normalizedPath: string, originalPath: string, runtimeEntrypoint?: string): void {
   const lower = normalizedPath.toLowerCase();
+  if (runtimeEntrypoint !== undefined && normalizedPath === runtimeEntrypoint && lower === 'runtime/index.js') return;
   if ([...executableCodeExtensions, ...forbiddenExecutableExtensions].some((extension) => lower.endsWith(extension))) {
     fail(`resources.${originalPath}`, '普通插件不得携带可执行代码');
   }
