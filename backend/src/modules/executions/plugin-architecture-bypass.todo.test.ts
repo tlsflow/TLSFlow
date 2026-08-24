@@ -11,6 +11,7 @@ import type { PluginBindingsApplicationService } from '../plugins/application/pl
 import type { UnifiedPluginVersionRecord } from '../plugins/dto/unified-plugins.dto.js';
 import { AgentExecutorAdapter, createDefaultExecutorRegistry } from './application/executors.js';
 import { AppError } from '../../common/errors/app-error.js';
+import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 const now = '2026-07-30T00:00:00.000Z';
 
@@ -147,6 +148,7 @@ test('T10 未知 Framework 通过 Assignment、Binding、兼容性和 Runtime Ad
     capability,
     context,
     applicationAsset: unknownFrameworkApplicationAsset(),
+    resolvedInput: unknownFrameworkResolvedInput(),
   });
   const strategy = new DeploymentStrategyResolver().resolve({
     applicationAsset: unknownFrameworkApplicationAsset(),
@@ -188,7 +190,7 @@ function createAgentQueueProbe(onEnqueue?: (payload: Record<string, unknown>) =>
 
 function resolvedInput() {
   return {
-    apiVersion: 'gcac.resolved-deployment-input/v1', contractVersion: 'gcac.deployment-input-contract/v1',
+    apiVersion: 'gcac.resolved-deployment-input/v1', contractVersion: 'gcac.deployment-input/v1',
     assetContext: {
       apiVersion: 'gcac.deployment-asset-context/v1',
       application: { id: 'asset_fixture', address: 'fixture.example.com', serverName: 'fixture.example.com', port: 443, protocol: 'HTTPS' },
@@ -260,6 +262,22 @@ function unknownFrameworkApplicationAsset(): ServiceAssetDto {
     status: 'ACTIVE', tags: [], metadata: {},
     deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target_fixture' } },
     createdAt: now, updatedAt: now, version: 1,
+  };
+}
+
+function unknownFrameworkResolvedInput(): ResolvedDeploymentInputV1 {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_fixture', address: 'fixture.example.com', serverName: 'fixture.example.com', port: 443, protocol: 'HTTPS' },
+      target: { id: 'target_fixture', type: 'tls.binding', key: 'fixture', metadata: {} },
+      deployment: { targets: [], certificateResourceName: 'certificate-fixture' },
+    },
+    variables: {}, connections: {}, credentials: {}, artifacts: {}, provenance: {}, sensitivePaths: [], issues: [],
+    executable: true,
+    resolvedSha256: 'resolved-input-fixture',
   };
 }
 

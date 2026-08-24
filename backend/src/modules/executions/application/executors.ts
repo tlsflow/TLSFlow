@@ -14,8 +14,8 @@ import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { canonicalAgentPlanJson } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { readHistoricalResolvedDeploymentInput, type HistoricalAgentActionResolver } from '../../plugins/application/historical-agent-action-resolver.js';
-import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import type { HistoricalAgentActionResolver } from '../../plugins/application/historical-agent-action-resolver.js';
+import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import type { DeploymentAssetContextV1 } from '../../deployment-inputs/dto/deployment-asset-context.dto.js';
 import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
@@ -293,7 +293,7 @@ export class AgentExecutorAdapter implements Executor {
     if (!this.agentPlanCompiler || !this.historicalAgentActions) {
       return { error: this.historicalMigrationError(actionType) };
     }
-    const resolvedInput = readHistoricalResolvedDeploymentInput(input.step.inputSnapshot.resolvedDeploymentInput);
+    const resolvedInput = readResolvedDeploymentInputV1(input.step.inputSnapshot.resolvedDeploymentInput);
     if (!resolvedInput) return { error: this.historicalMigrationError(actionType) };
     try {
       const migration = await this.historicalAgentActions.resolve({
@@ -303,7 +303,7 @@ export class AgentExecutorAdapter implements Executor {
         frameworkType: stringFromSnapshot(input.step.inputSnapshot.frameworkType),
         productFamily: stringFromSnapshot(input.step.inputSnapshot.productFamily),
       });
-      const plan = await (this.agentPlanCompiler.compile as unknown as (compilerInput: unknown) => Promise<Record<string, unknown>>)({
+      const plan = await this.agentPlanCompiler.compile({
         tenantId: input.step.tenantId ?? '',
         agentId,
         executionRunId: input.step.executionRunId,
@@ -359,7 +359,7 @@ export class AgentExecutorAdapter implements Executor {
     if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
     const pluginVersionId = stringFromSnapshot(readRecord(snapshot.pluginRuntimeCapability)?.pluginVersionId);
     if (!pluginVersionId) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 插件执行缺少固定 PluginVersion' } };
-    const resolvedInput = readResolvedDeploymentInput(snapshot.resolvedDeploymentInput);
+    const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
     if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
     const plan = await this.agentPlanCompiler.compile({
       tenantId: input.step.tenantId ?? '',
@@ -386,16 +386,6 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
   payload.runType = input.runType;
   payload.dryRun = input.dryRun;
   return payload;
-}
-
-function readResolvedDeploymentInput(value: unknown): ResolvedDeploymentInputV1 | undefined {
-  const input = readRecord(value);
-  if (input?.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
-  if (!readRecord(input.assetContext) || !readRecord(input.variables) || !readRecord(input.connections)
-    || !readRecord(input.credentials) || !readRecord(input.artifacts) || !readRecord(input.provenance)
-    || !Array.isArray(input.sensitivePaths) || !Array.isArray(input.issues)
-    || typeof input.executable !== 'boolean' || typeof input.resolvedSha256 !== 'string') return undefined;
-  return input as unknown as ResolvedDeploymentInputV1;
 }
 
 function isSuccessfulAtomicDryRun(detail: Record<string, unknown> | undefined): boolean {
@@ -452,7 +442,7 @@ export class WorkflowExecutorAdapter implements Executor {
     if (!workflowVersionId) {
       return { success: false, errorCode: 'WORKFLOW_VERSION_REQUIRED', errorMessage: 'WORKFLOW 执行器缺少 workflowVersionId' };
     }
-    const resolvedInput = readResolvedDeploymentInput(input.step.inputSnapshot.resolvedDeploymentInput);
+    const resolvedInput = readResolvedDeploymentInputV1(input.step.inputSnapshot.resolvedDeploymentInput);
     if (!resolvedInput) {
       return { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'WORKFLOW 执行缺少统一部署输入快照' };
     }

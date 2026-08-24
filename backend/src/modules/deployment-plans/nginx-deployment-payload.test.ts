@@ -574,9 +574,18 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
     },
   });
   assert.equal(created.statusCode, 201, JSON.stringify(created.body));
-  const plan = created.body as { id: string; certificateVersionId: string; certificateFormatId?: string };
+  const plan = created.body as {
+    id: string;
+    certificateVersionId: string;
+    certificateFormatId?: string;
+    targets: Array<{ strategyPayload?: Record<string, any> }>;
+  };
   assert.equal(plan.certificateVersionId, certificateVersionId);
   assert.equal(plan.certificateFormatId, certificateFormatId);
+  const preflight = plan.targets[0]?.strategyPayload?.deploymentInputPreflight;
+  assert.equal(preflight?.apiVersion, 'gcac.resolved-deployment-input/v1');
+  assert.match(String(preflight?.resolvedSha256), /^[a-f0-9]{64}$/);
+  assert.equal(plan.targets[0]?.strategyPayload?.resolvedDeploymentInput, undefined);
 
   const submitted = await app.inject({
     method: 'POST',
@@ -602,6 +611,10 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.apiVersion, 'gcac.resolved-deployment-input/v1');
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.executable, true);
+  assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.resolvedSha256, preflight.resolvedSha256);
+  assert.equal(atomicStep!.inputSnapshot.pluginExecutionContext, undefined);
 });
 
 test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async () => {

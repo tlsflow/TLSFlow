@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ExecutionLocation, ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
+import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import {
   AgentAtomicRuntimeAdapter,
@@ -14,6 +15,7 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
     capability: capability('AGENT_ATOMIC', 'AGENT'),
     context: context('AGENT'),
     applicationAsset: applicationAsset(),
+    resolvedInput: resolvedInput(),
     certificateBindingId: 'certificate-binding-1',
   });
   assert.equal(result.executorType, 'AGENT');
@@ -22,7 +24,8 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
   assert.deepEqual(result.payload.certificateVerification, {
     capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, expectedDomains: ['test02.jacksonz.cn'],
   });
-  const assetContext = result.payload.pluginExecutionContext as Record<string, Record<string, unknown>>;
+  const runtimeInput = result.payload.resolvedDeploymentInput as ResolvedDeploymentInputV1;
+  const assetContext = runtimeInput.assetContext as unknown as Record<string, Record<string, unknown>>;
   assert.equal(assetContext.apiVersion, 'gcac.deployment-asset-context/v1');
   assert.equal(assetContext.application.serverName, 'test02.jacksonz.cn');
   assert.equal(assetContext.target.key, 'target-1');
@@ -35,11 +38,14 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async
     capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
     context: context('CONTROL_PLANE'),
     applicationAsset: applicationAsset(),
-    workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
+    resolvedInput: resolvedInput(),
+    workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1' },
   });
   assert.equal(result.executorType, 'WORKFLOW');
   assert.equal((result.payload.workflowRequest as { workflowVersionId: string }).workflowVersionId, 'workflow-version-1');
   assert.equal((result.payload.certificateVerification as { capabilityKey: string }).capabilityKey, 'certificate.verify');
+  assert.equal(result.payload.resolvedDeploymentInput, resolvedInputFixture);
+  assert.deepEqual(Object.keys(result.payload.workflowRequest as Record<string, unknown>).filter((key) => key.endsWith('Bindings')), []);
 });
 
 test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置', async () => {
@@ -48,7 +54,8 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
     capability: capability('WORKFLOW_DSL', 'AGENT'),
     context: context('AGENT'),
     applicationAsset: applicationAsset(),
-    workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
+    resolvedInput: resolvedInput(),
+    workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1' },
   }), /没有可用/);
 });
 
@@ -61,6 +68,31 @@ function applicationAsset() {
     protocol: 'HTTPS' as const,
     displayName: 'TEST02',
   };
+}
+
+const resolvedInputFixture: ResolvedDeploymentInputV1 = {
+  apiVersion: 'gcac.resolved-deployment-input/v1',
+  contractVersion: 'gcac.deployment-input/v1',
+  assetContext: {
+    apiVersion: 'gcac.deployment-asset-context/v1',
+    application: { id: 'asset-1', address: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, protocol: 'HTTPS' },
+    site: { id: 'site-1', name: 'TEST02', bindingInformation: '*:443:test02.jacksonz.cn', metadata: {} },
+    target: { id: 'target-1', type: 'tls.binding', key: 'target-1', metadata: {} },
+    deployment: { targets: [], certificateResourceName: 'certificate-test02' },
+  },
+  variables: {},
+  connections: {},
+  credentials: {},
+  artifacts: {},
+  provenance: {},
+  sensitivePaths: [],
+  issues: [],
+  executable: true,
+  resolvedSha256: 'resolved-input-fixture',
+};
+
+function resolvedInput(): ResolvedDeploymentInputV1 {
+  return resolvedInputFixture;
 }
 
 function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], executionLocation: ResolvedDeploymentCapability['executionLocation']): ResolvedDeploymentCapability {

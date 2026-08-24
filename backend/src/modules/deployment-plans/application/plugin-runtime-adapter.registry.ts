@@ -1,18 +1,18 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
-import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
+import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 
 export interface RuntimeCompileInput {
   capability: ResolvedDeploymentCapability;
   context: ResolvedManagedTargetContext;
   applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName'>;
+  resolvedInput: ResolvedDeploymentInputV1;
   certificateBindingId?: string;
   workflow?: {
     workflowId: string;
     workflowVersionId: string;
-    credentials: Record<string, unknown>;
   };
 }
 
@@ -84,7 +84,6 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
   async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
     const agentId = input.context.agent?.id;
     if (!agentId) throw new AppError('CAPABILITY_MISSING', 'Agent Atomic Runtime 缺少可用 Agent 连接', { managedTargetId: input.context.managedTarget.id });
-    const deploymentAssetContext = deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.context });
     return {
       executorType: 'AGENT',
       executionTargetId: agentId,
@@ -99,7 +98,7 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
         certificateBindingId: input.certificateBindingId,
         managedTargetId: input.context.managedTarget.id,
         certificateVerification: hostCertificateVerification(input),
-        pluginExecutionContext: deploymentAssetContext,
+        resolvedDeploymentInput: input.resolvedInput,
         siteAssetId: input.context.siteAsset?.id,
         frameworkType: input.context.frameworkType,
         siteName: input.context.siteAsset?.siteName,
@@ -136,7 +135,6 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
     if (input.capability.executionLocation === 'GATEWAY' && !gatewayId) {
       throw new AppError('CAPABILITY_MISSING', 'Workflow DSL Runtime 缺少 Gateway 连接', { managedTargetId: input.context.managedTarget.id });
     }
-    const deploymentAssetContext = deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.context });
     return {
       executorType: 'WORKFLOW',
       executionTargetId: input.context.managedTarget.id,
@@ -145,7 +143,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
       payload: {
         pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
         certificateVerification: hostCertificateVerification(input),
-        deploymentAssetContext,
+        resolvedDeploymentInput: input.resolvedInput,
         workflowRequest: {
           workflowId: input.workflow.workflowId,
           workflowVersionSelection: 'PINNED',
@@ -155,19 +153,6 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
           pluginVersionId: input.capability.pluginVersionId,
           pluginBindingId: input.capability.binding.id,
           capabilityKey: input.capability.assignment.capabilityKey,
-          target: {
-            frameworkType: input.context.frameworkType,
-            siteName: input.context.siteAsset?.siteName,
-            bindingInformation: input.context.siteAsset?.bindingInformation ?? input.context.managedTarget.bindingKey,
-            hostHeader: input.context.siteAsset?.hostHeader,
-            port: input.context.siteAsset?.port,
-            protocol: input.context.siteAsset?.protocol,
-          },
-          connectionBindings: input.capability.binding.inputBindings.connections,
-          variableBindings: input.capability.binding.inputBindings.variables,
-          credentials: input.workflow.credentials,
-          parameterBindings: {},
-          certificateArtifactBindings: input.capability.binding.inputBindings.artifacts,
           applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBindingId,
           managedTargetId: input.context.managedTarget.id,

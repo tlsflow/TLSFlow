@@ -2,29 +2,12 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { PluginActionAliasDescriptorV1, UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { validatePluginActionAliases } from '../schema/plugin-action-aliases.schema.js';
 import type { DeploymentCapabilityResolver, ResolvedDeploymentCapability } from './deployment-capability.resolver.js';
+import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 export interface HistoricalAgentActionResolution {
   originalActionType: string;
   alias: PluginActionAliasDescriptorV1;
   capability: ResolvedDeploymentCapability;
-}
-
-export interface HistoricalResolvedDeploymentInputV1 {
-  apiVersion: 'gcac.resolved-deployment-input/v1';
-  assetContext: {
-    application: { id: string };
-    host?: { id: string; osType?: string };
-    target?: { id: string; type: string; metadata: Record<string, unknown> };
-  };
-  variables: Record<string, unknown>;
-  connections: Record<string, unknown>;
-  credentials: Record<string, unknown>;
-  artifacts: Record<string, unknown>;
-  provenance: Record<string, unknown>;
-  sensitivePaths: string[];
-  issues: unknown[];
-  executable: boolean;
-  resolvedSha256: string;
 }
 
 export interface EnabledPluginVersionReader {
@@ -40,7 +23,7 @@ export class HistoricalAgentActionResolver {
   async resolve(input: {
     tenantId: string;
     actionType: string;
-    resolvedInput: HistoricalResolvedDeploymentInputV1;
+    resolvedInput: ResolvedDeploymentInputV1;
     frameworkType?: string;
     productFamily?: string;
   }): Promise<HistoricalAgentActionResolution> {
@@ -94,17 +77,6 @@ export class HistoricalAgentActionResolver {
   }
 }
 
-export function readHistoricalResolvedDeploymentInput(value: unknown): HistoricalResolvedDeploymentInputV1 | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const input = value as Record<string, unknown>;
-  if (input.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
-  if (!isRecord(input.assetContext) || !isRecord(input.variables) || !isRecord(input.connections)
-    || !isRecord(input.credentials) || !isRecord(input.artifacts) || !isRecord(input.provenance)
-    || !Array.isArray(input.sensitivePaths) || !Array.isArray(input.issues)
-    || typeof input.executable !== 'boolean' || typeof input.resolvedSha256 !== 'string') return undefined;
-  return input as unknown as HistoricalResolvedDeploymentInputV1;
-}
-
 function aliasesForPlugin(plugin: UnifiedPluginVersionRecord): PluginActionAliasDescriptorV1[] {
   return Object.values(plugin.manifest.resources.actionAliases ?? {}).flatMap((path) => {
     const content = plugin.resources[path];
@@ -128,8 +100,4 @@ function stringField(value: Record<string, unknown> | undefined, key: string): s
 
 function migrationRequired(actionType: string, reason: string): never {
   throw new AppError('HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED', '历史 Agent Action 无法通过当前标准插件上下文转换，请重新生成部署计划', { actionType, reason });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
