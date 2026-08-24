@@ -48,7 +48,16 @@ export class DevicesApplicationService {
     private readonly deploymentInputResolver = new ProductionDeploymentInputResolverService(),
   ) {}
 
-  list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
+  async list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
+    // 列表升级摘要来自数据库；只同步一次本地制品 Release，不再逐条读取 Agent 详情。
+    try {
+      await this.agents?.prepareUpgradeSummary?.(tenantId);
+    } catch (error) {
+      // 本地制品同步失败不应阻断设备列表；没有摘要时前端只隐藏升级入口。
+      structuredLogger.warn('设备列表 Agent 升级摘要同步失败', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }, { module: 'devices', tenantId });
+    }
     return this.repository.list(tenantId, query);
   }
 

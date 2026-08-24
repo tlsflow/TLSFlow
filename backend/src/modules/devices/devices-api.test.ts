@@ -328,6 +328,85 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.controlVersion, '7.4.2');
 });
 
+test('统一设备列表直接返回 Agent 升级摘要而不读取详情', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_device_upgrade_summary';
+  const agents = new AgentsApplicationService(new PgAgentsRepository(database));
+  const registered = await agents.register(tenantId, {
+    agentKey: 'upgrade-summary-agent',
+    machineId: 'upgrade-summary-machine',
+    hostname: 'upgrade-summary-host',
+    version: '1.0.0',
+    osType: 'windows',
+    osVersion: 'Windows Server 2022',
+    arch: 'amd64',
+    ipAddress: '10.33.2.61',
+  }, 'request_upgrade_summary_register');
+  await agents.publishVersion(tenantId, {
+    version: '1.2.0',
+    platform: 'WINDOWS',
+    arch: 'amd64',
+    productLine: 'windows-go-full',
+    signatureKeyId: 'test-key',
+    artifactSize: 1,
+    downloadUrl: 'https://example.invalid/upgrade-summary',
+    checksumSha256: 'a'.repeat(64),
+    signature: 'unsigned',
+    createdBy: 'test',
+  });
+
+  const result = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+  const item = result.items.find((candidate) => candidate.agentId === registered.id);
+  assert.equal(item?.agentRole, 'full_agent');
+  assert.equal(item?.upgradeAvailable, true);
+  assert.equal(item?.targetVersion, '1.2.0');
+});
+
+test('统一设备列表以最新匹配 Release 判断升级，当前版本优先于旧版本', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_device_upgrade_current_release';
+  const agents = new AgentsApplicationService(new PgAgentsRepository(database));
+  const registered = await agents.register(tenantId, {
+    agentKey: 'upgrade-current-agent',
+    machineId: 'upgrade-current-machine',
+    hostname: 'upgrade-current-host',
+    version: '1.2.0',
+    osType: 'windows',
+    osVersion: 'Windows Server 2022',
+    arch: 'amd64',
+    ipAddress: '10.33.2.62',
+  }, 'request_upgrade_current_register');
+  for (const version of ['1.1.0', '1.2.0']) {
+    await agents.publishVersion(tenantId, {
+      version,
+      platform: 'WINDOWS',
+      arch: 'amd64',
+      productLine: 'windows-go-full',
+      signatureKeyId: 'test-key',
+      artifactSize: 1,
+      downloadUrl: `https://example.invalid/${version}`,
+      checksumSha256: 'b'.repeat(64),
+      signature: 'unsigned',
+      createdBy: 'test',
+    });
+  }
+
+  const result = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+  });
+  const item = result.items.find((candidate) => candidate.agentId === registered.id);
+  assert.equal(item?.upgradeAvailable, false);
+  assert.equal(item?.targetVersion, undefined);
+});
+
 test('统一设备列表应用数量只统计当前发现的站点', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');

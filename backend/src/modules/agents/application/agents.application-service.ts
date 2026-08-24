@@ -1929,6 +1929,11 @@ export class AgentsApplicationService {
     return this.repository;
   }
 
+  /** 列表只需要升级摘要；先同步本地制品 Release，避免移除详情循环后丢失本地升级入口。 */
+  async prepareUpgradeSummary(tenantId: string): Promise<void> {
+    await this.ensureLocalGoFullReleases(tenantId);
+  }
+
   private async listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]> {
     await this.ensureLocalGoFullReleases(tenantId);
     return this.repository.listActiveVersions(tenantId);

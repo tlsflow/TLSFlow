@@ -23,6 +23,10 @@ export interface ManagedDeviceProjectionSource {
     payload: Record<string, unknown>;
     capabilitySnapshot: Record<string, unknown>;
     lastHeartbeatAt?: string;
+    agentId?: string;
+    role?: string;
+    upgradeAvailable?: boolean;
+    targetVersion?: string;
   };
   networkAppliance?: {
     deviceFamily: string;
@@ -84,6 +88,10 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       applicationAssetCount: source.applicationAssetCount,
       capabilities: stringArray(descriptor.capabilities),
       extensionType: 'AGENT',
+      agentId: source.agent?.agentId,
+      agentRole: source.agent?.role,
+      upgradeAvailable: source.agent?.upgradeAvailable,
+      targetVersion: source.agent?.targetVersion,
     };
   }
 }

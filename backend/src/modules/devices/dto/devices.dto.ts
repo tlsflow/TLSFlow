@@ -23,6 +23,11 @@ export interface ManagedDeviceSummaryDto {
   applicationAssetCount: number;
   capabilities: string[];
   extensionType: ManagedDeviceExtensionType;
+  /** Agent 列表升级摘要字段；非 Agent 设备不返回这些字段。 */
+  agentId?: string;
+  agentRole?: string;
+  upgradeAvailable?: boolean;
+  targetVersion?: string;
 }
 
 export interface ManagedDeviceListQuery {

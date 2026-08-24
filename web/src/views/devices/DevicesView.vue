@@ -6,7 +6,6 @@ import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '@/api/modules/devices.api'
 import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade } from '@/api/modules/assets.api'
-import type { ApiRecord } from '@/api/modules/common'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
@@ -34,48 +33,8 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function readAgentDetailField(detail: Record<string, unknown>, fieldKey: string): unknown {
-  const sections = Array.isArray(detail.informationSections) ? detail.informationSections : []
-  for (const section of sections) {
-    const fields = asRecord(section).fields
-    if (!Array.isArray(fields)) continue
-    const field = fields.find((candidate) => asRecord(candidate).key === fieldKey)
-    if (field) return asRecord(field).value
-  }
-  return undefined
-}
-
-async function enrichAgentUpgradeState(record: ApiRecord): Promise<ApiRecord> {
-  if (String(record.extensionType ?? '').toUpperCase() !== 'AGENT') return record
-  const deviceId = String(record.id ?? '').trim()
-  if (!deviceId) return record
-  try {
-    const response = await getManagedDevice(deviceId, undefined, [])
-    const detail = asRecord(response.data)
-    const extension = asRecord(detail.extension)
-    const extensionSummary = asRecord(detail.extensionSummary)
-    const agentId = String(extension.agentId ?? extensionSummary.agentId ?? '').trim()
-    const agentRole = String(readAgentDetailField(detail, 'agentRole') ?? '').toLowerCase()
-    const upgradeStatus = String(readAgentDetailField(detail, 'upgradeStatus') ?? '').toLowerCase()
-    const targetVersion = readAgentDetailField(detail, 'targetVersion')
-    return {
-      ...record,
-      agentId: agentId || undefined,
-      // 产品线和平台由后端升级建议决定，前端只排除独立 Gateway 角色。
-      agentUpgradeAvailable: agentRole !== 'gateway' && upgradeStatus === 'available',
-      agentUpgradeTargetVersion: typeof targetVersion === 'string' ? targetVersion : undefined,
-    }
-  } catch {
-    // 单个 Agent 详情读取失败不应阻塞整页设备列表，升级入口保持隐藏。
-    return record
-  }
-}
-
 async function loadDevices() {
-  const response = await listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value })
-  if (!response.data?.items?.length) return response
-  const items = await Promise.all(response.data.items.map((item) => enrichAgentUpgradeState(item)))
-  return { ...response, data: { ...response.data, items } }
+  return listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value })
 }
 
 async function openDetail(row: ViewRow) {
@@ -233,7 +192,7 @@ const config = computed<BusinessPageConfig>(() => ({
     riskText: t('devices.detail.deleteImpact'), run: deleteDevice,
   }, {
     label: t('devices.actions.upgrade'), permission: 'host.update', reloadAfterRun: true,
-    hidden: (row) => row.raw.agentUpgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
+    hidden: (row) => row.raw.upgradeAvailable !== true || !String(row.raw.agentId ?? '').trim(),
     run: upgradeAgent,
   }],
 }))
@@ -246,7 +205,7 @@ const config = computed<BusinessPageConfig>(() => ({
         <span class="devices-page__control-version">
           <span>{{ row.controlVersion }}</span>
           <GcStatusTag
-            v-if="row.raw.agentUpgradeAvailable"
+            v-if="row.raw.upgradeAvailable"
             status="available"
             :label="t('devices.actions.upgradeNew')"
             tone="success"
