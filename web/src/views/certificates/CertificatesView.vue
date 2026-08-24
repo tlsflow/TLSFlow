@@ -156,7 +156,6 @@ const selectedAssetMemberIds = computed(() => {
     .filter(Boolean)
 })
 const assetCount = computed(() => displayedAssets.value.length)
-const visibleAssetCount = computed(() => visibleAssets.value.length)
 const isProfessionalView = computed(() => appStore.viewMode === 'professional')
 const canReadApplicationAssets = computed(() => permissionStore.hasPermission('service_asset.read'))
 const canReadAutomationPlans = computed(() => permissionStore.hasPermission('automation.read'))
@@ -941,7 +940,6 @@ async function removeVersion(row: CertificateVersionRow) {
               {{ t('certificates.list.lifecycle.expired') }}
             </button>
           </div>
-          <span class="certificate-page__asset-count">{{ t('businessPage.total', { count: visibleAssetCount }) }}</span>
         </div>
 
         <GcPageToolbar class="certificate-page__toolbar-actions">
@@ -992,9 +990,6 @@ async function removeVersion(row: CertificateVersionRow) {
             <div>
               <h2>{{ t('certificates.list.assets.title') }}</h2>
               <p>{{ t('certificates.userView.simple.sections.certificates.help') }}</p>
-            </div>
-            <div class="certificate-page__panel-controls">
-              <span>{{ t('businessPage.total', { count: visibleAssetCount }) }}</span>
             </div>
           </header>
 
@@ -1855,14 +1850,6 @@ async function removeVersion(row: CertificateVersionRow) {
   box-shadow: var(--gc-shadow-sm);
 }
 
-.certificate-page__asset-count {
-  flex: 0 0 auto;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-  white-space: nowrap;
-}
-
 .certificate-page__filters {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(var(--gc-size-card-min), calc(var(--gc-size-card-min) + var(--gc-space-10))) auto;
@@ -1953,14 +1940,6 @@ async function removeVersion(row: CertificateVersionRow) {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   line-height: 1.5;
-}
-
-.certificate-page__panel-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--gc-space-2);
-  min-width: 0;
 }
 
 .certificate-page__asset-card-list {
