@@ -1,8 +1,11 @@
-import { resolve } from 'node:path';
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAppAsync } from './app.module.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
 import { loadEnvFile } from './config/load-env.js';
+import { loadAppConfig } from './config/app-config.js';
 import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
 import type { LivenessApplicationService } from './modules/liveness/application/liveness.application-service.js';
@@ -35,6 +38,27 @@ if (entryFilePath !== '' && currentFilePath === entryFilePath) {
 }
 
 async function start(): Promise<void> {
+  const startupConfig = loadAppConfig();
+  const releasePortLock = startupConfig.env === 'development'
+    ? acquirePortLock(startupConfig.port)
+    : () => {};
+  if (!releasePortLock) {
+    structuredLogger.warn('后端端口已有 GCAC 热重载实例占用，跳过重复启动', {
+      host: startupConfig.host,
+      port: startupConfig.port,
+    }, { module: 'bootstrap' });
+    return;
+  }
+
+  try {
+    await startWithPortLock(releasePortLock);
+  } catch (error) {
+    releasePortLock();
+    throw error;
+  }
+}
+
+async function startWithPortLock(releasePortLock: () => void): Promise<void> {
   const database = await bootstrapDatabase();
   const securityBundle = database.config.backend === 'postgres'
     ? await createPersistedSecurityServices(database.db)
@@ -231,12 +255,78 @@ async function start(): Promise<void> {
     const taskRealtimeGateway = new TaskRealtimeGateway(taskRealtimeStream, tasksService, securityServices);
     app.registerUpgradeHandler((request, socket, head) => taskRealtimeGateway.handleUpgrade(request, socket, head));
   }
+  server.once('error', (error: unknown) => {
+    releasePortLock();
+    structuredLogger.error('后端监听失败', {
+      error: error instanceof Error ? error.message : String(error),
+      code: error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined,
+      host: app.config.host,
+      port: app.config.port,
+    }, { module: 'bootstrap' });
+    process.exit(1);
+  });
   server.listen(app.config.port, app.config.host, () => {
     structuredLogger.info('后端服务已启动', {
       host: app.config.host,
       port: app.config.port,
     }, { module: 'bootstrap' });
   });
+}
+
+function acquirePortLock(port: number): (() => void) | undefined {
+  // 端口锁用于收敛重复的本地热重载进程。
+  const lockPath = join(tmpdir(), `gcac-backend-${port}.lock`);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = openSync(lockPath, 'wx', 0o600);
+      try {
+        writeSync(handle, `${process.pid}\n`, undefined, 'utf8');
+      } finally {
+        closeSync(handle);
+      }
+
+      let released = false;
+      const release = () => {
+        if (released) return;
+        released = true;
+        try {
+          const ownerPid = Number(readFileSync(lockPath, 'utf8').trim());
+          if (ownerPid === process.pid) unlinkSync(lockPath);
+        } catch {
+          // 锁文件已经被旧进程清理时无需重复处理。
+        }
+      };
+      process.once('exit', release);
+      return release;
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+      if (code !== 'EEXIST') throw error;
+
+      let ownerPid: number;
+      try {
+        ownerPid = Number(readFileSync(lockPath, 'utf8').trim());
+      } catch {
+        return undefined;
+      }
+      if (Number.isInteger(ownerPid) && ownerPid > 0 && isProcessAlive(ownerPid)) return undefined;
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 function positiveNumber(value: string | undefined, fallback: number): number {
