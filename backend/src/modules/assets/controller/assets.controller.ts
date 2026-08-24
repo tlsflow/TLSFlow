@@ -32,7 +32,6 @@ import type {
   UpdateServiceEndpointDto,
   UpdateFrameworkInstanceDto,
   DeploymentStrategyDto,
-  WorkflowBindingProjectionRequestDto,
 } from '../dto/assets.dto.js';
 
 const tags = ['Assets'];
@@ -56,7 +55,6 @@ export class AssetsController {
     router.patch('/api/v1/service-assets', '更新 ServiceAsset', tags, (request) => this.updateServiceAsset(request));
     router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
-    router.post('/api/v1/service-assets/workflow-binding-projection', '生成工作流绑定配置投影', tags, (request) => this.projectWorkflowBinding(request));
     router.put('/api/v1/application-assets/:applicationAssetId/standalone-workflow', '保存非受管工作流执行配置', tags, (request) => this.saveStandaloneWorkflowExecution(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
@@ -357,13 +355,6 @@ export class AssetsController {
     if (!applicationAssetId) throw new AppError('VALIDATION_FAILED', '非受管工作流路径无效');
     const body = validateObject(request.body, { workflowExecution: { type: 'object', required: true }, expectedAssetVersion: { type: 'number' } }) as unknown as SaveStandaloneWorkflowExecutionInput;
     return this.executionService.saveStandaloneWorkflowExecution(tenantId(request), decodeURIComponent(applicationAssetId), body);
-  }
-
-  private async projectWorkflowBinding(request: HttpRequest) {
-    const body = validateObject(request.body, { workflowId: { type: 'string', required: true }, workflowVersionId: { type: 'string' }, serviceAssetId: { type: 'string' }, asset: { type: 'object' }, target: { type: 'object' }, connectionBindings: { type: 'object' }, parameterBindings: { type: 'object' }, credentialBindings: { type: 'object' } }) as unknown as WorkflowBindingProjectionRequestDto;
-    const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, body.serviceAssetId);
-    return this.service.projectWorkflowBinding(tenantId(request), body);
   }
 
   private async deleteServiceAsset(request: HttpRequest) {
@@ -818,7 +809,6 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-assets', operationId: 'updateServiceAsset', summary: '更新 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/service-assets/workflow-binding-projection', operationId: 'projectWorkflowBinding', summary: '生成工作流绑定配置投影', tags, responseSchema: objectSchema() },
     { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/standalone-workflow', operationId: 'saveStandaloneWorkflowExecution', summary: '保存非受管工作流执行配置', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },

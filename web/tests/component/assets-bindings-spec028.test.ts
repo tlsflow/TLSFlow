@@ -34,7 +34,6 @@ const assetMocks = vi.hoisted(() => ({
   saveApplicationAssetStandaloneWorkflow: vi.fn(),
   createManagedTarget: vi.fn(),
   listManagedTargetSnapshots: vi.fn(),
-  projectWorkflowBinding: vi.fn(),
 }))
 
 const certificateMocks = vi.hoisted(() => ({
@@ -173,17 +172,6 @@ describe('资产与证书产物视图', () => {
     assetMocks.deleteServiceAsset.mockResolvedValue(okRecord({ id: 'asset-1' }, 'req_asset_delete'))
     assetMocks.createSiteAsset.mockResolvedValue(okRecord({ id: 'site-1' }, 'req_site_create'))
     assetMocks.createManagedTarget.mockResolvedValue(okRecord({ id: 'target-1' }, 'req_target_create'))
-    assetMocks.projectWorkflowBinding.mockResolvedValue(okRecord({
-      projection: {
-        required: [{ name: 'deviceHost', type: 'string', status: 'resolved', value: 'app.example.com', source: { kind: 'asset_ssl' } }],
-        advanced: [],
-        runtime: [{ name: 'serverCert', type: 'certificate', source: 'certificate' }],
-        basicConnections: [],
-        advancedConnections: [],
-        diagnostics: [],
-      },
-    }))
-
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
       { id: 'workflow-1', name: 'Apache 证书替换', origin: 'legacy' },
     ]))
@@ -195,21 +183,28 @@ describe('资产与证书产物视图', () => {
           status: 'published',
           templateId: 'workflow-1',
           content: {
-            variables: {
-              deviceHost: { type: 'string', required: true, description: '目标主机' },
-              serverCert: {
-                type: 'certificate',
-                required: true,
-                sensitive: true,
-                description: '服务端证书产物',
-                artifactContract: {
-                  outputs: {
-                    certFile: { role: 'public_certificate', required: true, description: '服务端证书文件' },
-                    keyFile: { role: 'private_key', required: true, description: '服务端私钥文件' },
+            inputContract: {
+              apiVersion: 'gcac.deployment-input/v1',
+              variables: {
+                deviceHost: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'asset', path: 'asset.address' }, lifecycle: 'pre_execution', bindingPolicy: 'fixed', description: '目标主机' },
+                verifyUrl: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'asset', path: 'target.verifyUrl' }, lifecycle: 'pre_execution', bindingPolicy: 'fixed', description: '验证 URL' },
+              },
+              connections: {},
+              credentials: {},
+              artifacts: {
+                serverCert: {
+                  kind: 'certificate',
+                  required: true,
+                  configurationMode: 'required',
+                  lifecycle: 'pre_execution',
+                  artifactContract: {
+                    outputs: {
+                      certFile: { role: 'public_certificate', required: true, description: '服务端证书文件' },
+                      keyFile: { role: 'private_key', required: true, description: '服务端私钥文件' },
+                    },
                   },
                 },
               },
-              verifyUrl: { type: 'string', required: true, default: 'https://nas.example.com:5001/', description: '验证 URL' },
             },
           },
         }],
@@ -544,7 +539,16 @@ describe('资产与证书产物视图', () => {
 
     expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-2', expect.objectContaining({
       managedTargetId: 'target-iis-1',
-      pluginOverride: expect.objectContaining({ pluginVersionId: 'plugin-version-iis' }),
+      pluginOverride: expect.objectContaining({
+        pluginVersionId: 'plugin-version-iis',
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          variables: {},
+          connections: {},
+          credentials: {},
+          artifacts: {},
+        },
+      }),
     }))
   })
 
@@ -705,8 +709,7 @@ describe('资产与证书产物视图', () => {
 
     expect(wrapper.text()).toContain('工作流变量')
     expect(wrapper.text()).not.toContain('运行变量 JSON')
-    expect(wrapper.text()).toContain('deviceHost')
-    expect(wrapper.findAll('input').some((input) => input.element.value === 'app.example.com')).toBe(true)
+    expect(wrapper.text()).not.toContain('deviceHost')
     expect(wrapper.text()).toContain('证书变量绑定')
 
     const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
@@ -736,36 +739,51 @@ describe('资产与证书产物视图', () => {
           target: expect.objectContaining({
             verifyUrl: 'https://app.example.com:443',
           }),
-          variableBindings: expect.objectContaining({
-            verifyUrl: 'https://app.example.com:443',
-          }),
-          certificateArtifactBindings: expect.objectContaining({
-            serverCert: {
-              certificateFormatId: 'certfmt-1',
-              outputBindings: {
-                certFile: 'fullchain',
-                keyFile: 'private',
+          inputBindings: {
+            apiVersion: 'gcac.input-bindings/v1',
+            variables: {},
+            connections: {},
+            credentials: {},
+            artifacts: expect.objectContaining({
+              serverCert: {
+                certificateFormatId: 'certfmt-1',
+                outputBindings: {
+                  certFile: 'fullchain',
+                  keyFile: 'private',
+                },
               },
-            },
-          }),
+            }),
+          },
         }),
       }),
     }))
-    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('deviceHost')
-    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('serverCert')
+    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.inputBindings.variables).not.toHaveProperty('deviceHost')
+    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.inputBindings.variables).not.toHaveProperty('serverCert')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('targetBinding')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
   })
 
   it('工作流投影中的 credential 必须渲染为凭据选择器', async () => {
     workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
-      data: { items: [{ id: 'workflow-version-1', version: 'v1', status: 'published', templateId: 'workflow-1', content: { variables: { synologyCredential: { type: 'credential', required: true }, serverCert: { type: 'certificate', required: true } } } }] },
+      data: {
+        items: [{
+          id: 'workflow-version-1',
+          version: 'v1',
+          status: 'published',
+          templateId: 'workflow-1',
+          content: {
+            inputContract: {
+              apiVersion: 'gcac.deployment-input/v1',
+              variables: {},
+              connections: {},
+              credentials: { synologyCredential: { required: true, configurationMode: 'required', lifecycle: 'pre_execution', allowedKinds: ['USERNAME_PASSWORD'] } },
+              artifacts: { serverCert: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: {} } } },
+            },
+          },
+        }],
+      },
       requestId: 'req_workflow_versions', timestamp: '2026-07-22T00:00:00.000Z',
     })
-    assetMocks.projectWorkflowBinding.mockResolvedValue(okRecord({ projection: {
-      required: [{ name: 'synologyCredential', type: 'credential', status: 'resolved', source: { kind: 'credential' } }],
-      advanced: [], runtime: [{ name: 'serverCert', type: 'certificate', source: 'certificate' }], basicConnections: [], advancedConnections: [], diagnostics: [],
-    } }))
     securityMocks.listSecrets.mockResolvedValue(okPage([{ id: 'sec_synology', name: 'DSM 管理凭据', type: 'password', metadata: { workflowCredential: true, workflowCredentialKind: 'username_password', username: 'admin' } }]))
     credentialMocks.listCredentials.mockResolvedValue(okPage([{ id: 'sec_synology', status: 'active' }]))
     credentialMocks.getCredential.mockResolvedValue(okRecord({
@@ -828,16 +846,21 @@ describe('资产与证书产物视图', () => {
             workflowId: 'workflow-1',
             workflowVersionId: 'workflow-version-1',
             runner: 'CONTROL_PLANE',
-            variableBindings: {
-              deviceHost: 'app.example.com',
-              verifyUrl: 'https://app.example.com/custom-health',
-            },
-            certificateArtifactBindings: {
-              serverCert: {
-                certificateFormatId: 'certfmt-1',
-                outputBindings: {
-                  certFile: 'fullchain',
-                  keyFile: 'private',
+            inputBindings: {
+              apiVersion: 'gcac.input-bindings/v1',
+              variables: {
+                deviceHost: 'app.example.com',
+                verifyUrl: 'https://app.example.com/custom-health',
+              },
+              connections: {},
+              credentials: {},
+              artifacts: {
+                serverCert: {
+                  certificateFormatId: 'certfmt-1',
+                  outputBindings: {
+                    certFile: 'fullchain',
+                    keyFile: 'private',
+                  },
                 },
               },
             },
@@ -853,20 +876,11 @@ describe('资产与证书产物视图', () => {
     await editButton!.trigger('click')
     await flushPromises()
 
-    expect(assetMocks.projectWorkflowBinding).toHaveBeenCalledWith(expect.objectContaining({
-      workflowId: 'workflow-1',
-      workflowVersionId: 'workflow-version-1',
-      serviceAssetId: 'asset-1',
-    }))
-
     const firstNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
     expect(firstNextButton).toBeTruthy()
     await firstNextButton!.trigger('click')
     await flushPromises()
 
-    expect(assetMocks.projectWorkflowBinding).toHaveBeenCalledWith(expect.objectContaining({
-      target: expect.objectContaining({ verifyUrl: 'https://app.example.com/custom-health' }),
-    }))
     expect(wrapper.text()).not.toContain('https://app.example.com/custom-health')
     expect(wrapper.text()).not.toContain('https://nas.example.com:5001/')
 
@@ -897,15 +911,18 @@ describe('资产与证书产物视图', () => {
       workflowExecution: expect.objectContaining({
         workflowTemplateId: 'workflow-1',
         workflowVersionSelection: 'LATEST_PUBLISHED',
-        variableBindings: expect.objectContaining({
-          verifyUrl: 'https://app.example.com/custom-health',
-        }),
-        certificateArtifactBindings: {
-          serverCert: {
-            certificateFormatId: 'certfmt-1',
-            outputBindings: {
-              certFile: 'fullchain',
-              keyFile: 'private',
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          variables: {},
+          connections: {},
+          credentials: {},
+          artifacts: {
+            serverCert: {
+              certificateFormatId: 'certfmt-1',
+              outputBindings: {
+                certFile: 'fullchain',
+                keyFile: 'private',
+              },
             },
           },
         },

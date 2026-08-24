@@ -34,6 +34,7 @@ export class DeploymentPlansController {
 
   register(router: Router): void {
     router.get('/api/v1/deployment-plans', '查询部署计划', ['DeploymentPlans'], (request) => this.list(request));
+    router.get('/api/v1/deployment-plans/input-snapshots', '查询部署输入快照', ['DeploymentPlans'], (request) => this.listInputSnapshots(request));
     router.post('/api/v1/deployment-plans', '创建部署计划', ['DeploymentPlans'], (request) => this.create(request));
     router.post('/api/v1/deployment-plans/from-application-asset', '按应用资产创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/update-from-application-asset', '编辑应用资产部署计划草稿', ['DeploymentPlans'], (request) => this.updateFromApplicationAsset(request));
@@ -49,6 +50,14 @@ export class DeploymentPlansController {
     const items = await this.service.list({ tenantId: request.context.tenantId });
     const filtered = await this.authorizedItems(this.subjectFromRequest(request), 'deployment_plan', items);
     return { items: filtered, page: 1, pageSize: 200, total: filtered.length };
+  }
+
+  private async listInputSnapshots(request: HttpRequest) {
+    const rawPlanId = request.query.planId;
+    const planId = Array.isArray(rawPlanId) ? rawPlanId[0] : rawPlanId;
+    if (!planId) throw new AppError('VALIDATION_FAILED', 'planId 不能为空');
+    const items = await this.service.listInputSnapshots(planId, request.context.tenantId);
+    return { items, page: 1, pageSize: items.length, total: items.length };
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
@@ -350,6 +359,7 @@ export function getDeploymentPlanRouteContracts(): RouteContract[] {
   const schema = { type: 'object', additionalProperties: true } as const;
   return [
     { method: 'GET', path: '/api/v1/deployment-plans', operationId: 'listDeploymentPlans', summary: '查询部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
+    { method: 'GET', path: '/api/v1/deployment-plans/input-snapshots', operationId: 'listDeploymentInputSnapshots', summary: '查询部署输入快照', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans', operationId: 'createDeploymentPlan', summary: '创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/from-application-asset', operationId: 'createDeploymentPlanFromApplicationAsset', summary: '按应用资产创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/update-from-application-asset', operationId: 'updateDeploymentPlanFromApplicationAsset', summary: '编辑应用资产部署计划草稿', tags: ['DeploymentPlans'], responseSchema: schema },

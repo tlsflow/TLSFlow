@@ -131,7 +131,7 @@ export interface UnifiedPluginCatalogItem {
   rollbackCount: number;
   configuration?: {
     variables: Record<string, unknown>;
-    artifactInputs: Record<string, unknown>;
+    artifacts: Record<string, unknown>;
     compatibility: Record<string, unknown>;
   };
   source: UnifiedPluginSource;

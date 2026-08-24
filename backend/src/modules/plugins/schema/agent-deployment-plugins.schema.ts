@@ -25,9 +25,25 @@ const operationTypes = [
   'windows.iis.binding.restore_certificate',
 ] as const;
 const stageOrder = new Map(stages.map((stage, index) => [stage, index]));
+const manifestKeys = new Set([
+  'apiVersion',
+  'kind',
+  'pluginId',
+  'name',
+  'publisher',
+  'version',
+  'minGcacVersion',
+  'metadata',
+  'compatibility',
+  'inputContract',
+  'permissions',
+  'operations',
+  'rollback',
+]);
 
 export function validateAgentDeploymentPluginManifest(input: unknown): AgentDeploymentPluginManifestV1 {
   const manifest = record(input, 'manifest');
+  rejectUnknown(manifest, manifestKeys, 'manifest');
   requireExact(manifest.apiVersion, 'gcac.agent-plugin/v1', 'apiVersion');
   requireExact(manifest.kind, 'AgentDeploymentPlugin', 'kind');
   const pluginId = nonEmptyString(manifest.pluginId, 'pluginId');
@@ -35,9 +51,6 @@ export function validateAgentDeploymentPluginManifest(input: unknown): AgentDepl
   const publisher = nonEmptyString(manifest.publisher, 'publisher');
   const version = nonEmptyString(manifest.version, 'version');
   const compatibility = validateCompatibility(manifest.compatibility);
-  if (manifest.variables !== undefined || manifest.artifactInputs !== undefined) {
-    throw validationError('Agent Recipe 只允许使用 inputContract 声明部署输入');
-  }
   const inputContract = validateDeploymentInputContractV1(manifest.inputContract);
   const permissions = validatePermissions(manifest.permissions);
   const operations = validateOperations(manifest.operations, false);
@@ -259,6 +272,13 @@ function optionalPositiveNumber(value: unknown, field: string): number | undefin
 
 function requireExact(value: unknown, expected: string, field: string): void {
   if (value !== expected) throw validationError(`${field} 不支持`, { field, expected });
+}
+
+function rejectUnknown(value: Record<string, unknown>, allowed: ReadonlySet<string>, path: string): void {
+  const unknownFields = Object.keys(value).filter((field) => !allowed.has(field));
+  if (unknownFields.length > 0) {
+    throw validationError(`${path} 包含未知字段`, { path, fields: unknownFields });
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

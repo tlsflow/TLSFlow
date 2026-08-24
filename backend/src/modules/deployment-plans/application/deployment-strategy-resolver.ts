@@ -5,6 +5,7 @@ import type { DeploymentGatewayRouteDto } from '../dto/deployment-plans.dto.js';
 import type { DeploymentStrategyDto, ServiceAssetDto, ApplicationAssetTargetSummaryDto } from '../../assets/dto/assets.dto.js';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { RuntimeExecutionRequest } from './plugin-runtime-adapter.registry.js';
+import { emptyInputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export interface DeploymentStrategyResolutionInput {
   applicationAsset: ServiceAssetDto;
@@ -114,12 +115,8 @@ export class DeploymentStrategyResolver {
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,
           target: workflow.target,
-          credentialBindings: workflow.credentialBindings ?? {},
+          inputBindings: workflow.inputBindings ?? emptyInputBindingsV1(),
           credentials: workflow.credentials ?? {},
-          connectionBindings: workflow.connectionBindings ?? {},
-          parameterBindings: workflow.parameterBindings ?? {},
-          variableBindings: workflow.variableBindings ?? {},
-          certificateArtifactBindings: workflow.certificateArtifactBindings ?? {},
           rollbackWorkflowVersionId: workflow.rollbackWorkflowVersionId,
           applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBinding?.id,

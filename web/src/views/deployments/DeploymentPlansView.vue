@@ -842,9 +842,9 @@ async function loadWorkflowTemplatesForTargets(): Promise<ApiRecord[]> {
 }
 
 function workflowCertificateFormatId(binding: ApiRecord | undefined): string {
-  const artifactBindings = readRecord(binding, ['certificateArtifactBindings'])
-  if (!artifactBindings) return ''
-  for (const artifactBinding of Object.values(artifactBindings)) {
+  const artifacts = readRecord(binding, ['inputBindings.artifacts'])
+  if (!artifacts) return ''
+  for (const artifactBinding of Object.values(artifacts)) {
     if (!artifactBinding || typeof artifactBinding !== 'object' || Array.isArray(artifactBinding)) continue
     const certificateFormatId = readString(artifactBinding as ApiRecord, ['certificateFormatId'])
     if (certificateFormatId) return certificateFormatId

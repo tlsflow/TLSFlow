@@ -102,20 +102,21 @@ test('Spec033.4 ManagedTarget 意图只保留目标 ID', () => {
   assert.deepEqual(normalizeManagedDeploymentIntent(strategy, context), { type: 'MANAGED_TARGET', managedTargetId: 'target_spec033_strategy' });
 });
 
-test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
+test('Spec033.2 Workflow 只从统一 InputBindingsV1 投影', () => {
+  assert.throws(() => normalizeDeploymentStrategy({
+    type: 'WORKFLOW',
+    workflow: {
+      pluginBindingId: 'plgb_spec033_strategy',
+      runner: 'CONTROL_PLANE',
+      variableBindings: { legacyVariable: 'legacy' },
+    },
+  } as never, context), /包含未知字段: variableBindings/);
+
   const strategy = normalizeDeploymentStrategy({
     type: 'WORKFLOW',
     workflow: {
       pluginBindingId: 'plgb_spec033_strategy',
       runner: 'CONTROL_PLANE',
-      parameterBindings: { legacyParameter: 'legacy' },
-      variableBindings: { legacyVariable: 'legacy' },
-      certificateArtifactBindings: {
-        legacyCertificate: {
-          certificateFormatId: 'format_legacy',
-          outputBindings: { certificatePem: 'legacy' },
-        },
-      },
     },
   }, context);
   const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
@@ -132,15 +133,12 @@ test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
   }));
 
   assert.equal(validated.compatibilityMode, 'UNIFIED');
-  assert.equal(validated.workflow?.parameterBindings, undefined);
-  assert.deepEqual(validated.workflow?.variableBindings, { bindingVariable: 'binding' });
-  assert.deepEqual(validated.workflow?.credentialBindings, { credential: { credentialId: 'cred_spec033' } });
-  assert.deepEqual(validated.workflow?.connectionBindings, { target: { host: '192.0.2.10' } });
-  assert.deepEqual(validated.workflow?.certificateArtifactBindings, {
-    certificate: {
-      certificateFormatId: 'format_unified',
-      outputBindings: { certificatePem: 'certificatePem' },
-    },
+  assert.deepEqual(validated.workflow?.inputBindings, {
+    apiVersion: 'gcac.input-bindings/v1',
+    variables: { bindingVariable: 'binding' },
+    credentials: { credential: { credentialId: 'cred_spec033' } },
+    connections: { target: { host: '192.0.2.10' } },
+    artifacts: { certificate: { certificateFormatId: 'format_unified', outputBindings: { certificatePem: 'certificatePem' } } },
   });
 });
 

@@ -173,7 +173,7 @@ describe('DeploymentStrategyResolver', () => {
     );
   });
 
-  it('工作流策略会把结构化连接和参数绑定传给执行请求', () => {
+  it('工作流策略只把 InputBindingsV1 传给执行请求', () => {
     const resolver = new DeploymentStrategyResolver();
     const resolved = resolver.resolve({
       applicationAsset: serviceAsset({
@@ -183,20 +183,15 @@ describe('DeploymentStrategyResolver', () => {
             workflowId: 'workflow_apache',
             workflowVersionId: 'wfver_apache_7',
             runner: 'CONTROL_PLANE',
-            connectionBindings: {
-              targetSsh: {
-                host: '10.255.0.127',
-                port: 22,
-                username: 'root',
-                credentialRef: 'sec_ssh',
-                credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
+            inputBindings: {
+              apiVersion: 'gcac.input-bindings/v1',
+              connections: { targetSsh: { host: '10.255.0.127', port: 22, username: 'root' } },
+              variables: {
+                certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt',
+                deviceHost: '10.255.0.127',
               },
-            },
-            parameterBindings: {
-              certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt',
-            },
-            variableBindings: {
-              deviceHost: '10.255.0.127',
+              credentials: { targetSsh: { credentialId: 'cred_ssh' } },
+              artifacts: {},
             },
           },
         },
@@ -204,19 +199,13 @@ describe('DeploymentStrategyResolver', () => {
       certificateBinding: certificateBinding(),
     });
     const workflowRequest = resolved.payload.workflowRequest as Record<string, unknown>;
-    assert.deepEqual(workflowRequest.connectionBindings, {
-      targetSsh: {
-        host: '10.255.0.127',
-        port: 22,
-        username: 'root',
-        credentialRef: 'sec_ssh',
-        credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
-      },
+    assert.deepEqual(workflowRequest.inputBindings, {
+      apiVersion: 'gcac.input-bindings/v1',
+      connections: { targetSsh: { host: '10.255.0.127', port: 22, username: 'root' } },
+      variables: { certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt', deviceHost: '10.255.0.127' },
+      credentials: { targetSsh: { credentialId: 'cred_ssh' } },
+      artifacts: {},
     });
-    assert.deepEqual(workflowRequest.parameterBindings, {
-      certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt',
-    });
-    assert.deepEqual(workflowRequest.variableBindings, { deviceHost: '10.255.0.127' });
   });
 });
 

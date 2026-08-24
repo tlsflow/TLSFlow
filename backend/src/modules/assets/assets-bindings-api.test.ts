@@ -180,7 +180,6 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
     metadata: { name, category: 'certificate_deployment' },
     variables: {
       host: { type: 'string', required: true },
-      sshCredential: { type: 'credential', required: false },
     },
     steps: [
       {

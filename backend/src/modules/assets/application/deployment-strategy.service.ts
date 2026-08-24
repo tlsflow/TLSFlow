@@ -6,6 +6,28 @@ import type {
   ServiceAssetDto,
 } from '../dto/assets.dto.js';
 import type { PluginBindingV1 } from '../../plugins/dto/plugin-bindings.dto.js';
+import {
+  INPUT_BINDINGS_API_VERSION,
+  type DeploymentConnectionBindingV1,
+  type InputBindingsV1,
+} from '../../deployment-inputs/dto/input-bindings.dto.js';
+
+const deploymentStrategyKeys = new Set(['type', 'managedTarget', 'workflow', 'compatibilityMode', 'updatedAt', 'updatedBy']);
+const managedTargetStrategyKeys = new Set(['managedTargetId', 'certificateFormatId', 'executionMode', 'workflowExecutionBindingId']);
+const workflowStrategyKeys = new Set([
+  'workflowExecutionBindingId',
+  'pluginBindingId',
+  'workflowId',
+  'workflowVersionSelection',
+  'workflowVersionId',
+  'runner',
+  'gatewayId',
+  'target',
+  'credentials',
+  'inputBindings',
+  'rollbackWorkflowVersionId',
+]);
+const workflowTargetKeys = new Set(['frameworkType', 'siteName', 'bindingInformation', 'hostHeader', 'port', 'protocol', 'verifyUrl', 'sniName']);
 
 export interface DeploymentStrategyContext {
   asset: Pick<ServiceAssetDto, 'id' | 'metadata'>;
@@ -16,10 +38,12 @@ export interface DeploymentStrategyContext {
 
 export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, context: DeploymentStrategyContext): DeploymentStrategyDto {
   if (!input || typeof input !== 'object') throw new AppError('VALIDATION_FAILED', 'deploymentStrategy 必须是对象');
+  rejectUnknown(input as unknown as Record<string, unknown>, deploymentStrategyKeys, 'deploymentStrategy');
   const now = context.now ?? new Date().toISOString();
   if (input.type === 'MANAGED_TARGET') {
     const managedTarget = input.managedTarget;
     if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
+    rejectUnknown(managedTarget as unknown as Record<string, unknown>, managedTargetStrategyKeys, 'managedTarget');
     const managedTargetId = requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId');
     const certificateFormatId = optionalNonEmpty(managedTarget.certificateFormatId);
     const executionMode = managedTarget.executionMode ?? 'PLUGIN';
@@ -38,6 +62,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'WORKFLOW') {
     const workflow = input.workflow;
     if (!workflow) throw strategyError('WORKFLOW 策略必须提供 workflow 配置');
+    rejectUnknown(workflow as unknown as Record<string, unknown>, workflowStrategyKeys, 'workflow');
     const workflowExecutionBindingId = optionalNonEmpty(workflow.workflowExecutionBindingId);
     if (workflowExecutionBindingId && workflow.pluginBindingId) throw strategyError('WORKFLOW 策略不得同时引用 WorkflowExecutionBinding 和 PluginBinding');
     if (workflowExecutionBindingId) {
@@ -53,7 +78,6 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     const runner = workflow.runner;
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
-    const credentialBindings = pluginBindingId ? undefined : normalizeCredentialBindings(workflow.credentialBindings);
     const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId);
     return {
       type: 'WORKFLOW',
@@ -67,11 +91,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),
-        credentialBindings,
-        connectionBindings: pluginBindingId ? undefined : normalizeWorkflowConnectionBindings(workflow.connectionBindings),
-        parameterBindings: pluginBindingId ? undefined : isRecord(workflow.parameterBindings) ? workflow.parameterBindings : workflow.parameterBindings === undefined ? undefined : strategyError('workflow.parameterBindings 必须是对象'),
-        certificateArtifactBindings: pluginBindingId ? undefined : normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
-        variableBindings: pluginBindingId ? undefined : isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
+        inputBindings: pluginBindingId ? undefined : normalizeInputBindingsV1(workflow.inputBindings),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
       compatibilityMode: 'UNIFIED',
@@ -109,11 +129,7 @@ export function validateDeploymentStrategyPluginBinding(
     ...strategy,
     workflow: {
       ...strategy.workflow!,
-      parameterBindings: undefined,
-      variableBindings: binding.inputBindings.variables,
-      credentialBindings: binding.inputBindings.credentials,
-      connectionBindings: binding.inputBindings.connections as NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'],
-      certificateArtifactBindings: binding.inputBindings.artifacts as NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'],
+      inputBindings: binding.inputBindings,
     },
     compatibilityMode: 'UNIFIED',
   };
@@ -141,51 +157,53 @@ export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto
   return undefined;
 }
 
-function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'] | undefined {
+function normalizeInputBindingsV1(value: unknown): InputBindingsV1 | undefined {
   if (value === undefined) return undefined;
-  if (!isRecord(value)) return strategyError('workflow.connectionBindings 必须是对象');
+  if (!isRecord(value)) return strategyError('workflow.inputBindings 必须是对象');
+  rejectUnknown(value, new Set(['apiVersion', 'variables', 'connections', 'credentials', 'artifacts']), 'workflow.inputBindings');
+  if (value.apiVersion !== INPUT_BINDINGS_API_VERSION) {
+    return strategyError(`workflow.inputBindings.apiVersion 只支持 ${INPUT_BINDINGS_API_VERSION}`);
+  }
+  const variables = requireRecord(value.variables, 'workflow.inputBindings.variables');
+  const connections = normalizeInputConnections(requireRecord(value.connections, 'workflow.inputBindings.connections'));
+  const credentials = normalizeInputCredentials(requireRecord(value.credentials, 'workflow.inputBindings.credentials'));
+  const artifacts = normalizeInputArtifacts(requireRecord(value.artifacts, 'workflow.inputBindings.artifacts'));
+  return { apiVersion: INPUT_BINDINGS_API_VERSION, variables, connections, credentials, artifacts };
+}
+
+function normalizeInputConnections(value: Record<string, unknown>): Record<string, DeploymentConnectionBindingV1> {
   return Object.fromEntries(Object.entries(value).map(([name, rawBinding]) => {
-    if (!isRecord(rawBinding)) return strategyError(`workflow.connectionBindings.${name} 必须是对象`);
+    const path = `workflow.inputBindings.connections.${name}`;
+    if (!isRecord(rawBinding)) return strategyError(`${path} 必须是对象`);
+    rejectUnknown(rawBinding, new Set(['host', 'port', 'username', 'tls', 'hostKey']), path);
     const port = rawBinding.port === undefined ? undefined : Number(rawBinding.port);
     if (port !== undefined && (!Number.isInteger(port) || port <= 0 || port > 65535)) {
-      return strategyError(`workflow.connectionBindings.${name}.port 必须是有效端口`);
+      return strategyError(`${path}.port 必须是有效端口`);
     }
-    const credential = normalizeWorkflowCredentialBinding(rawBinding.credential, `workflow.connectionBindings.${name}.credential`);
     const binding = {
       host: optionalNonEmpty(rawBinding.host),
       port,
       username: optionalNonEmpty(rawBinding.username),
-      credentialRef: optionalNonEmpty(rawBinding.credentialRef) ?? credential?.credentialId,
-      credential,
-      expectedHostKeyFingerprint: optionalNonEmpty(rawBinding.expectedHostKeyFingerprint),
+      tls: normalizeConnectionTls(rawBinding.tls, `${path}.tls`),
+      hostKey: normalizeConnectionHostKey(rawBinding.hostKey, `${path}.hostKey`),
     };
     return [name, Object.fromEntries(Object.entries(binding).filter(([, item]) => item !== undefined))];
   }));
 }
 
-function normalizeWorkflowCredentialBinding(value: unknown, path: string): NonNullable<NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings']>[string]['credential'] | undefined {
+function normalizeConnectionTls(value: unknown, path: string): DeploymentConnectionBindingV1['tls'] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return strategyError(`${path} 必须是对象`);
-  const credentialId = requireNonEmpty(value.credentialId, `${path}.credentialId`);
-  const kind = value.kind;
-  if (!['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'].includes(String(kind))) return strategyError(`${path}.kind 不支持`);
-  if (!isRecord(value.secretRefs)) return strategyError(`${path}.secretRefs 必须是对象`);
-  const secretRefs = Object.fromEntries(Object.entries(value.secretRefs).map(([slot, secretRef]) => [slot, requireSecretRef(secretRef, `${path}.secretRefs.${slot}`)]));
-  const delivery = value.delivery === undefined ? undefined : normalizeCredentialDelivery(value.delivery, `${path}.delivery`);
-  return {
-    credentialId,
-    kind: kind as 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE',
-    username: optionalNonEmpty(value.username),
-    delivery,
-    secretRefs,
-  };
+  rejectUnknown(value, new Set(['verifyPeer', 'serverName']), path);
+  if (value.verifyPeer !== undefined && typeof value.verifyPeer !== 'boolean') return strategyError(`${path}.verifyPeer 必须是布尔值`);
+  return { verifyPeer: value.verifyPeer as boolean | undefined, serverName: optionalNonEmpty(value.serverName) };
 }
 
-function normalizeCredentialDelivery(value: unknown, path: string) {
+function normalizeConnectionHostKey(value: unknown, path: string): DeploymentConnectionBindingV1['hostKey'] | undefined {
+  if (value === undefined) return undefined;
   if (!isRecord(value)) return strategyError(`${path} 必须是对象`);
-  const location = value.location;
-  if (location !== undefined && !['header', 'query', 'cookie'].includes(String(location))) return strategyError(`${path}.location 不支持`);
-  return { location: location as 'header' | 'query' | 'cookie' | undefined, name: optionalNonEmpty(value.name) };
+  rejectUnknown(value, new Set(['expectedFingerprint']), path);
+  return { expectedFingerprint: optionalNonEmpty(value.expectedFingerprint) };
 }
 
 function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
@@ -215,45 +233,34 @@ export function readStoredDeploymentStrategy(metadata: Record<string, unknown>):
   return value as unknown as DeploymentStrategyDto;
 }
 
-function normalizeSecretRefRecord(value: unknown, path: string): Record<string, string> | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) throw strategyError(`${path} 必须是对象`);
-  const output: Record<string, string> = {};
-  for (const [key, ref] of Object.entries(value)) {
-    if (!isSecretRef(ref)) throw strategyError(`${path}.${key} 必须是 SecretRef`);
-    output[key] = ref;
-  }
-  return output;
-}
-
-function normalizeCredentialBindings(value: unknown): Record<string, { credentialId: string }> | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) strategyError('workflow.credentialBindings 必须是对象');
+function normalizeInputCredentials(value: Record<string, unknown>): InputBindingsV1['credentials'] {
   return Object.fromEntries(Object.entries(value).map(([slot, binding]) => {
+    const path = `workflow.inputBindings.credentials.${slot}`;
     if (!isRecord(binding) || typeof binding.credentialId !== 'string' || !binding.credentialId.trim()) {
-      throw strategyError(`workflow.credentialBindings.${slot}.credentialId 不能为空`);
+      throw strategyError(`${path}.credentialId 不能为空`);
     }
+    rejectUnknown(binding, new Set(['credentialId']), path);
     return [slot, { credentialId: binding.credentialId.trim() }];
   }));
 }
 
-function normalizeCertificateArtifactBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'] | undefined {
-  if (value === undefined) return undefined;
-  if (!isRecord(value)) throw strategyError('workflow.certificateArtifactBindings 必须是对象');
-  const output: NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'] = {};
-  for (const [variableName, binding] of Object.entries(value)) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(variableName)) throw strategyError(`workflow.certificateArtifactBindings.${variableName} 变量名不合法`);
-    if (!isRecord(binding)) throw strategyError(`workflow.certificateArtifactBindings.${variableName} 必须是对象`);
-    const certificateFormatId = requireNonEmpty(binding.certificateFormatId, `workflow.certificateArtifactBindings.${variableName}.certificateFormatId`);
-    if (!isRecord(binding.outputBindings)) throw strategyError(`workflow.certificateArtifactBindings.${variableName}.outputBindings 必须是对象`);
+function normalizeInputArtifacts(value: Record<string, unknown>): InputBindingsV1['artifacts'] {
+  const output: InputBindingsV1['artifacts'] = {};
+  for (const [slot, binding] of Object.entries(value)) {
+    const path = `workflow.inputBindings.artifacts.${slot}`;
+    if (!isRecord(binding)) throw strategyError(`${path} 必须是对象`);
+    rejectUnknown(binding, new Set(['certificateFormatId', 'outputBindings']), path);
+    if (!isRecord(binding.outputBindings)) throw strategyError(`${path}.outputBindings 必须是对象`);
     const outputBindings: Record<string, string> = {};
-    for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
-      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(slotName)) throw strategyError(`workflow.certificateArtifactBindings.${variableName}.outputBindings.${slotName} 名称不合法`);
-      outputBindings[slotName] = requireNonEmpty(outputKey, `workflow.certificateArtifactBindings.${variableName}.outputBindings.${slotName}`);
+    for (const [outputName, outputKey] of Object.entries(binding.outputBindings)) {
+      outputBindings[outputName] = requireNonEmpty(outputKey, `${path}.outputBindings.${outputName}`);
     }
-    output[variableName] = { certificateFormatId, outputBindings };
+    output[slot] = {
+      certificateFormatId: optionalNonEmpty(binding.certificateFormatId),
+      outputBindings,
+    };
   }
-  return Object.keys(output).length > 0 ? output : undefined;
+  return output;
 }
 
 function requireNonEmpty(value: unknown, field: string): string {
@@ -262,14 +269,10 @@ function requireNonEmpty(value: unknown, field: string): string {
   return normalized;
 }
 
-function requireSecretRef(value: unknown, field: string): string {
-  if (!isSecretRef(value)) throw strategyError(`${field} 必须是 SecretRef`);
-  return value;
-}
-
 function normalizeWorkflowTarget(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['target'] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw strategyError('workflow.target 必须是对象');
+  rejectUnknown(value, workflowTargetKeys, 'workflow.target');
   const port = typeof value.port === 'number'
     ? value.port
     : typeof value.port === 'string'
@@ -294,12 +297,18 @@ function optionalNonEmpty(value: unknown): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-function isSecretRef(value: unknown): value is string {
-  return typeof value === 'string' && /^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!isRecord(value)) throw strategyError(`${path} 必须是对象`);
+  return value;
+}
+
+function rejectUnknown(value: Record<string, unknown>, allowed: ReadonlySet<string>, path: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw strategyError(`${path} 包含未知字段: ${unknown.join(', ')}`);
 }
 
 function strategyError(message: string): never {

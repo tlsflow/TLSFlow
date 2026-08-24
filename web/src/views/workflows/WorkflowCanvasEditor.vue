@@ -510,7 +510,7 @@ function updateRuntimeCredentialBinding(key: string, event: Event) {
 function addVariable() {
   let index = Object.keys(canvas.value.variables).length + 1
   while (canvas.value.variables[`variable${index}`]) index += 1
-  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', bindingPolicy: 'default_overridable', source: { kind: 'dsl', value: '' }, description: t('workflows.canvasEditor.variables.customRuntimeDescription') }))
+  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, default: '', configurationMode: 'advanced', lifecycle: 'pre_execution', bindingPolicy: 'default_overridable', source: { kind: 'default' }, description: t('workflows.canvasEditor.variables.customRuntimeDescription') }))
 }
 
 function updateVariableName(oldName: string, event: Event) {

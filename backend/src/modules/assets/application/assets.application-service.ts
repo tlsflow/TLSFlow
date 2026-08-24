@@ -37,13 +37,11 @@ import type {
   ServiceAssetDto,
   ServiceAssetDetailDto,
   DeploymentStrategyDto,
-  WorkflowBindingProjectionRequestDto,
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
-import { buildWorkflowAssetContext, buildWorkflowBindingProjection } from '../../workflow-templates/domain/workflow-variable-resolver.js';
 import {
   getDeploymentStrategyPluginBindingId,
   normalizeDeploymentStrategy,
@@ -191,16 +189,6 @@ export class AssetsApplicationService {
       deploymentStrategy: normalized,
     });
     return this.hydrateServiceAssetStrategy(tenantId, updated);
-  }
-
-  async projectWorkflowBinding(tenantId: string, input: WorkflowBindingProjectionRequestDto) {
-    if (!this.workflowTemplates) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流服务未初始化');
-    const version = input.workflowVersionId ? await this.workflowTemplates.getVersion(input.workflowVersionId) : await this.workflowTemplates.getRuntimePublishedVersion(input.workflowId);
-    if (!version || version.templateId !== input.workflowId) throw new AppError('RESOURCE_NOT_FOUND', '工作流版本不存在或不匹配');
-    const asset = input.serviceAssetId ? await this.repository.getServiceAsset(tenantId, input.serviceAssetId) : undefined;
-    if (input.serviceAssetId && !asset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在');
-    const context = buildWorkflowAssetContext({ ...(asset ?? {}), ...(input.asset ?? {}), target: input.target });
-    return { workflowVersionId: version.id, workflowVersion: version.version, projection: buildWorkflowBindingProjection({ content: version.content, assetContext: context, connectionBindings: input.connectionBindings, parameterBindings: input.parameterBindings, phase: 'configure' }) };
   }
 
   async createSiteAsset(tenantId: string, input: CreateSiteAssetDto) {

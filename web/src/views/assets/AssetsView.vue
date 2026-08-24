@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, projectWorkflowBinding, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -27,11 +27,21 @@ import {
 } from './asset-deployment-strategy.model'
 import {
   loadCredentialProfiles,
-  credentialProfileBinding,
   credentialProfileLabel,
   credentialProfileSummary,
   type CredentialProfileOption,
 } from '@/views/workflows/credential-profiles'
+import {
+  createInputBindingsV1,
+  projectInputBindingsV1,
+  readInputBindingsV1,
+  type InputArtifactBindingV1,
+  type InputBindingProjectionV1,
+  type InputConnectionBindingV1,
+  type InputConnectionProjectionV1,
+  type InputCredentialBindingV1,
+  type InputVariableProjectionV1,
+} from './asset-input-bindings.model'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -85,11 +95,11 @@ interface WorkflowVariableRow {
 }
 
 interface WorkflowBindingProjection {
-  required: ApiRecord[]
-  advanced: ApiRecord[]
+  required: InputVariableProjectionV1[]
+  advanced: InputVariableProjectionV1[]
   runtime: ApiRecord[]
-  basicConnections: WorkflowConnectionProjection[]
-  advancedConnections: WorkflowConnectionProjection[]
+  basicConnections: InputConnectionProjectionV1[]
+  advancedConnections: InputConnectionProjectionV1[]
   diagnostics: ApiRecord[]
 }
 
@@ -99,8 +109,10 @@ interface WorkflowConnectionProjection extends ApiRecord {
   host?: string
   port?: number
   username?: string
-  credentialRef?: string
-  expectedHostKeyFingerprint?: string
+  credentialSlot?: string
+  hostKey?: {
+    expectedFingerprint?: string
+  }
   fieldModes?: {
     host?: 'required' | 'advanced'
     port?: 'required' | 'advanced'
@@ -116,10 +128,7 @@ interface WorkflowVariablePreset {
   readonly descriptionKey: string
 }
 
-interface WorkflowCertificateArtifactBinding {
-  certificateFormatId: string
-  outputBindings: Record<string, string>
-}
+type WorkflowCertificateArtifactBinding = InputArtifactBindingV1
 
 interface WorkflowTargetInfo {
   frameworkType: string
@@ -179,10 +188,10 @@ const workflowVariableRows = ref<WorkflowVariableRow[]>([])
 const workflowBindingProjection = ref<WorkflowBindingProjection | null>(null)
 const workflowProjectionLoading = ref(false)
 const workflowProjectionError = ref('')
-let workflowProjectionRequestSequence = 0
 const workflowAdvancedExpanded = ref(false)
 const workflowTargetAdvancedExpanded = ref(false)
-const workflowConnectionBindings = ref<Record<string, Record<string, unknown>>>({})
+const workflowConnectionBindings = ref<Record<string, InputConnectionBindingV1>>({})
+const workflowCredentialBindings = ref<Record<string, InputCredentialBindingV1>>({})
 const workflowVariablePresetName = ref('')
 const credentialProfileItems = ref<CredentialProfileOption[]>([])
 const credentialProfileLoading = ref(false)
@@ -199,7 +208,9 @@ const pluginFormMessages = ref<Record<string, string>>({})
 const pluginFormValues = ref<Record<string, unknown>>({})
 const pluginBindingId = ref('')
 const pluginBindingVersion = ref(0)
-const pluginBindingSecrets = ref<Record<string, string>>({})
+const pluginBindingCredentials = ref<Record<string, InputCredentialBindingV1>>({})
+const pluginBindingConnections = ref<Record<string, InputConnectionBindingV1>>({})
+const pluginBindingArtifacts = ref<Record<string, InputArtifactBindingV1>>({})
 const pluginFormLoading = ref(false)
 const pluginFormError = ref('')
 const effectiveCapability = ref<ApiRecord | null>(null)
@@ -527,11 +538,19 @@ const selectedWorkflowVariableDefinitions = computed(() =>
   readWorkflowVariableDefinitions(selectedWorkflowVersion.value),
 )
 
+const selectedWorkflowCredentialDefinitions = computed(() =>
+  readWorkflowInputContractSection(selectedWorkflowVersion.value, 'credentials'),
+)
+
 const selectedWorkflowCertificateVariables = computed(() =>
-  Object.entries(selectedWorkflowVariableDefinitions.value)
-    .filter(([, definition]) => workflowVariableType(definition) === 'certificate')
+  Object.entries(readWorkflowInputContractSection(selectedWorkflowVersion.value, 'artifacts'))
     .map(([name, definition]) => ({ name, definition, outputs: workflowCertificateOutputSlots(definition) })),
 )
+
+const selectedWorkflowEditableDefinitions = computed<Record<string, ApiRecord>>(() => ({
+  ...Object.fromEntries(Object.entries(selectedWorkflowVariableDefinitions.value).filter(([, definition]) => workflowVariableAcceptsBinding(definition))),
+  ...Object.fromEntries(Object.entries(selectedWorkflowCredentialDefinitions.value).map(([name, definition]) => [name, { ...definition, type: 'credential' } as ApiRecord])),
+}))
 
 const workflowCertificateArtifactError = computed(() => validateWorkflowCertificateArtifactBindings())
 
@@ -569,10 +588,12 @@ const workflowProjectionReady = computed(() => {
   })
   const unresolvedConnection = projection.basicConnections.some((item) => {
     if (String(item.status ?? '') === 'resolved') return false
-    const binding = workflowConnectionBindings.value[String(item.name ?? '')]
+    const connectionName = String(item.name ?? '')
+    const binding = workflowConnectionBindings.value[connectionName]
+    const credentialId = workflowCredentialBindings.value[workflowConnectionCredentialSlot(item)]?.credentialId
     return !String(binding?.host ?? item.host ?? '').trim()
       || !String(binding?.username ?? item.username ?? '').trim()
-      || !String(binding?.credentialRef ?? item.credentialRef ?? '').trim()
+      || !String(credentialId ?? '').trim()
   })
   return !unresolvedVariable && !unresolvedConnection && !workflowProjectionError.value
 })
@@ -724,9 +745,8 @@ async function openEditDialog(row: ViewRow) {
       ?? '',
   )
   if (assetDraft.managementMode === 'WORKFLOW') {
-    const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'parameterBindings']))
-      ?? readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings']))
-      ?? {}
+    const inputBindings = readInputBindingsV1(readNested(deploymentStrategy, ['workflow', 'inputBindings']))
+      ?? createInputBindingsV1()
     const workflowTarget = readWorkflowTargetFromAsset(source, deploymentStrategy)
     if (workflowTarget) {
       assetDraft.frameworkType = workflowTarget.frameworkType
@@ -744,11 +764,12 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
     assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
-    workflowConnectionBindings.value = (readRecord(readNested(deploymentStrategy, ['workflow', 'connectionBindings'])) ?? {}) as Record<string, Record<string, unknown>>
-    const bindingVerifyUrl = readWorkflowBindingText(variableBindings, 'verifyUrl')
+    workflowConnectionBindings.value = inputBindings.connections
+    workflowCredentialBindings.value = inputBindings.credentials
+    const bindingVerifyUrl = readWorkflowBindingText(inputBindings.variables, 'verifyUrl')
     if (!assetDraft.verifyUrl.trim() && bindingVerifyUrl) assetDraft.verifyUrl = bindingVerifyUrl
-    workflowVariableRows.value = variableRowsFromBindings(variableBindings)
-    workflowCertificateArtifactBindings.value = readWorkflowCertificateArtifactBindingsFromAsset(source, deploymentStrategy)
+    workflowVariableRows.value = variableRowsFromInputBindings(inputBindings.variables, inputBindings.credentials)
+    workflowCertificateArtifactBindings.value = inputBindings.artifacts
   } else {
     assetDraft.managementMode = 'MANAGED_TARGET'
     assetDraft.agentCertificateFormatId = String(
@@ -856,10 +877,16 @@ async function loadPluginForm(pluginVersionId: string) {
 async function loadExistingPluginBinding(bindingId: string) {
   const result = await getPluginBinding(bindingId)
   const binding = readRecord(result.data) ?? {}
+  const inputBindings = readInputBindingsV1(binding.inputBindings) ?? createInputBindingsV1()
   assetDraft.pluginOverrideVersionId = String(binding.pluginVersionId ?? '')
   pluginBindingVersion.value = Number(binding.version ?? 0)
-  pluginBindingSecrets.value = (readRecord(binding.secretBindings) ?? {}) as Record<string, string>
-  pluginFormValues.value = { ...(readRecord(binding.variableBindings) ?? {}) }
+  pluginBindingCredentials.value = inputBindings.credentials
+  pluginBindingConnections.value = inputBindings.connections
+  pluginBindingArtifacts.value = inputBindings.artifacts
+  pluginFormValues.value = {
+    ...inputBindings.variables,
+    ...Object.fromEntries(Object.entries(inputBindings.credentials).map(([name, value]) => [name, value.credentialId])),
+  }
   await loadPluginForm(assetDraft.pluginOverrideVersionId)
 }
 
@@ -873,9 +900,11 @@ async function loadExistingWorkflowExecutionBinding(bindingId: string) {
   assetDraft.workflowVersionId = String(binding.workflowVersionId ?? '')
   assetDraft.workflowRunner = String(binding.runner ?? 'CONTROL_PLANE') as WorkflowRunnerType
   assetDraft.workflowGatewayId = String(binding.gatewayId ?? '')
-  workflowConnectionBindings.value = (readRecord(binding.connectionBindings) ?? {}) as Record<string, Record<string, unknown>>
-  workflowVariableRows.value = variableRowsFromBindings(readRecord(binding.variableBindings) ?? {})
-  workflowCertificateArtifactBindings.value = (readRecord(binding.certificateArtifactBindings) ?? {}) as Record<string, WorkflowCertificateArtifactBinding>
+  const inputBindings = readInputBindingsV1(binding.inputBindings) ?? createInputBindingsV1()
+  workflowConnectionBindings.value = inputBindings.connections
+  workflowCredentialBindings.value = inputBindings.credentials
+  workflowVariableRows.value = variableRowsFromInputBindings(inputBindings.variables, inputBindings.credentials)
+  workflowCertificateArtifactBindings.value = inputBindings.artifacts
 }
 
 async function loadDevices() {
@@ -914,7 +943,6 @@ async function loadServiceInstances(hostId: string) {
 }
 
 async function refreshWorkflowBindingProjection() {
-  const requestSequence = ++workflowProjectionRequestSequence
   workflowBindingProjection.value = null
   workflowProjectionError.value = ''
   const version = selectedWorkflowVersion.value
@@ -924,22 +952,14 @@ async function refreshWorkflowBindingProjection() {
   }
   workflowProjectionLoading.value = true
   try {
-    const result = await projectWorkflowBinding({
-      workflowId: assetDraft.workflowId,
-      workflowVersionId: String(version.id ?? ''),
-      serviceAssetId: editingServiceAssetId.value || undefined,
-      asset: { address: assetDraft.address, port: Number(assetDraft.port), protocol: assetDraft.protocol, verifyUrl: assetDraft.verifyUrl },
-      target: buildWorkflowTargetInfo(),
-      connectionBindings: workflowConnectionBindings.value,
-      parameterBindings: buildWorkflowVariableBindings(),
-    })
-    if (requestSequence !== workflowProjectionRequestSequence) return
-    workflowBindingProjection.value = (result.data?.projection ?? null) as WorkflowBindingProjection | null
+    workflowBindingProjection.value = projectInputBindingsV1(
+      readNested(version, ['content', 'inputContract']),
+      buildWorkflowInputBindings(),
+    ) as unknown as WorkflowBindingProjection
   } catch (cause) {
-    if (requestSequence !== workflowProjectionRequestSequence) return
     workflowProjectionError.value = cause instanceof ApiClientError ? cause.message : cause instanceof Error ? cause.message : String(cause)
   } finally {
-    if (requestSequence === workflowProjectionRequestSequence) workflowProjectionLoading.value = false
+    workflowProjectionLoading.value = false
   }
 }
 
@@ -953,6 +973,10 @@ function projectionItemType(item: ApiRecord): WorkflowVariableType {
   return workflowVariableType(item)
 }
 
+function workflowConnectionCredentialSlot(item: WorkflowConnectionProjection | ApiRecord): string {
+  return String(item.credentialSlot ?? item.name ?? '').trim()
+}
+
 function updateProjectionVariable(item: ApiRecord, value: string) {
   const name = String(item.name ?? '')
   const row = workflowVariableRows.value.find((candidate) => candidate.name === name)
@@ -961,19 +985,18 @@ function updateProjectionVariable(item: ApiRecord, value: string) {
 }
 
 function updateProjectionConnection(name: string, field: string, value: string) {
-  workflowConnectionBindings.value = { ...workflowConnectionBindings.value, [name]: { ...(workflowConnectionBindings.value[name] ?? {}), [field]: field === 'port' ? Number(value) : value } }
+  const current = workflowConnectionBindings.value[name] ?? {}
+  const next = field === 'expectedFingerprint'
+    ? { ...current, hostKey: { ...current.hostKey, expectedFingerprint: value } }
+    : { ...current, [field]: field === 'port' ? Number(value) : value }
+  workflowConnectionBindings.value = { ...workflowConnectionBindings.value, [name]: next }
 }
 
-function updateProjectionConnectionCredential(name: string, credentialId: string) {
-  const credential = credentialProfileItems.value.find((item) => item.id === credentialId)
-  workflowConnectionBindings.value = {
-    ...workflowConnectionBindings.value,
-    [name]: {
-      ...(workflowConnectionBindings.value[name] ?? {}),
-      credentialRef: credentialId,
-      credential: credential ? credentialProfileBinding(credential) : undefined,
-    },
-  }
+function updateProjectionConnectionCredential(slot: string, credentialId: string) {
+  const next = { ...workflowCredentialBindings.value }
+  if (credentialId) next[slot] = { credentialId }
+  else delete next[slot]
+  workflowCredentialBindings.value = next
 }
 
 async function loadGateways() {
@@ -1239,12 +1262,16 @@ async function submitCreate() {
 }
 
 async function saveManagedTargetConfiguration(applicationAssetId: string): Promise<void> {
-  const secretKeys = new Set((pluginFormSchema.value?.sections ?? []).flatMap((section) =>
-    section.fields.filter((field) => field.type === 'secret_ref').map((field) => field.key)))
-  const variableBindings = Object.fromEntries(Object.entries(pluginFormValues.value).filter(([key]) => !secretKeys.has(key)))
-  const enteredSecrets = Object.fromEntries(Object.entries(pluginFormValues.value)
-    .filter(([key, value]) => secretKeys.has(key) && String(value ?? '').trim())
-    .map(([key, value]) => [key, String(value)]))
+  const credentialKeys = new Set((pluginFormSchema.value?.sections ?? []).flatMap((section) =>
+    section.fields.filter((field) => field.type === 'secret_ref' || field.type === 'credential_ref').map((field) => field.key)))
+  const variables = Object.fromEntries(Object.entries(pluginFormValues.value).filter(([key]) => !credentialKeys.has(key)))
+  const credentials = { ...pluginBindingCredentials.value }
+  for (const [key, value] of Object.entries(pluginFormValues.value)) {
+    if (!credentialKeys.has(key)) continue
+    const credentialId = String(value ?? '').trim()
+    if (credentialId) credentials[key] = { credentialId }
+    else delete credentials[key]
+  }
   await saveApplicationAssetManagedTarget(applicationAssetId, {
     managedTargetId: assetDraft.managedTargetId,
     certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
@@ -1258,10 +1285,12 @@ async function saveManagedTargetConfiguration(applicationAssetId: string): Promi
         pluginVersionId: assetDraft.pluginOverrideVersionId,
         pluginBindingId: pluginBindingId.value || undefined,
         expectedBindingVersion: pluginBindingId.value ? pluginBindingVersion.value : undefined,
-        variableBindings,
-        secretBindings: { ...pluginBindingSecrets.value, ...enteredSecrets },
-        certificateArtifactBindings: buildWorkflowCertificateArtifactBindings() ?? {},
-        connectionBindings: {},
+        inputBindings: createInputBindingsV1({
+          variables,
+          credentials,
+          connections: pluginBindingConnections.value,
+          artifacts: pluginBindingArtifacts.value,
+        }),
       },
     } : {}),
   })
@@ -1281,10 +1310,7 @@ function buildWorkflowExecutionInput(): Record<string, unknown> {
     ...(assetDraft.workflowVersionSelection === 'PINNED' ? { workflowVersionId: assetDraft.workflowVersionId.trim() } : {}),
     runner: assetDraft.workflowRunner,
     ...(assetDraft.workflowRunner === 'GATEWAY' ? { gatewayId: assetDraft.workflowGatewayId.trim() } : {}),
-    connectionBindings: workflowConnectionBindings.value,
-    variableBindings: buildWorkflowVariableBindings() ?? {},
-    credentialBindings: {},
-    certificateArtifactBindings: buildWorkflowCertificateArtifactBindings() ?? {},
+    inputBindings: buildWorkflowInputBindings(),
     ...(assetDraft.workflowExecutionBindingId ? {
       bindingId: assetDraft.workflowExecutionBindingId,
       expectedVersion: assetDraft.workflowExecutionBindingVersion,
@@ -1327,12 +1353,15 @@ function resetDraft() {
   workflowVariableRows.value = []
   workflowBindingProjection.value = null
   workflowConnectionBindings.value = {}
+  workflowCredentialBindings.value = {}
   pluginFormSchema.value = null
   pluginFormMessages.value = {}
   pluginFormValues.value = {}
   pluginBindingId.value = ''
   pluginBindingVersion.value = 0
-  pluginBindingSecrets.value = {}
+  pluginBindingCredentials.value = {}
+  pluginBindingConnections.value = {}
+  pluginBindingArtifacts.value = {}
   pluginFormError.value = ''
   effectiveCapability.value = null
   inheritedEffectiveCapability.value = null
@@ -1420,10 +1449,7 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
         runner: assetDraft.workflowRunner,
         gatewayId,
         target: workflowTarget,
-        connectionBindings: Object.keys(workflowConnectionBindings.value).length ? workflowConnectionBindings.value : undefined,
-        parameterBindings: buildWorkflowVariableBindings(),
-        variableBindings: buildWorkflowVariableBindings(),
-        certificateArtifactBindings: buildWorkflowCertificateArtifactBindings(),
+        inputBindings: buildWorkflowInputBindings(),
       },
     }
   }
@@ -1520,19 +1546,26 @@ function normalizeWorkflowTargetPort(value: string): number {
 }
 
 function readWorkflowVariableDefinitions(version: ApiRecord | null): Record<string, ApiRecord> {
-  const variables = readNested(version, ['content', 'variables'])
-  if (!variables || typeof variables !== 'object' || Array.isArray(variables)) return {}
-  return variables as Record<string, ApiRecord>
+  return readWorkflowInputContractSection(version, 'variables')
+}
+
+function readWorkflowInputContractSection(version: ApiRecord | null, section: 'variables' | 'connections' | 'credentials' | 'artifacts'): Record<string, ApiRecord> {
+  const value = readNested(version, ['content', 'inputContract', section])
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value as Record<string, ApiRecord>
 }
 
 function syncWorkflowVariableRowsFromVersion() {
   const definitions = Object.fromEntries(
-    Object.entries(selectedWorkflowVariableDefinitions.value).filter(([name, definition]) => {
-      const mode = String(definition.configurationMode ?? (definition.type === 'certificate' ? 'runtime' : definition.required || definition.type === 'credential' ? 'required' : 'advanced'))
+    Object.entries(selectedWorkflowEditableDefinitions.value).filter(([name, definition]) => {
+      const mode = String(definition.configurationMode ?? (definition.required ? 'required' : 'advanced'))
       return name !== 'verifyUrl' && mode !== 'runtime'
     }),
   )
-  if (Object.keys(definitions).length === 0) return
+  if (Object.keys(definitions).length === 0) {
+    workflowVariableRows.value = []
+    return
+  }
   const existing = new Map(workflowVariableRows.value.map((row) => [row.name, row]))
   const nextRows = Object.entries(definitions).map(([name, definition]) => {
     const current = existing.get(name)
@@ -1541,15 +1574,14 @@ function syncWorkflowVariableRowsFromVersion() {
       id: current?.id ?? nextWorkflowVariableRowId(),
       name,
       type,
-      value: current?.value ?? '',
+      value: current?.value ?? valueToWorkflowVariableText(definition.default),
       required: Boolean(definition.required),
       description: String(definition.description ?? ''),
       enumValues: readStringArray(definition.enum),
       fromDefinition: true,
     }
   })
-  const extraRows = workflowVariableRows.value.filter((row) => !definitions[row.name])
-  workflowVariableRows.value = [...nextRows, ...extraRows]
+  workflowVariableRows.value = nextRows
   syncWorkflowTargetDraftFromRows()
 }
 
@@ -1575,9 +1607,16 @@ function removeWorkflowVariableRow(rowId: string) {
   workflowVariableRows.value = workflowVariableRows.value.filter((row) => row.id !== rowId)
 }
 
-function variableRowsFromBindings(bindings: Record<string, unknown>): WorkflowVariableRow[] {
-  return Object.entries(bindings).filter(([name]) => name !== 'verifyUrl').map(([name, value]) => {
-    const definition = selectedWorkflowVariableDefinitions.value[name]
+function variableRowsFromInputBindings(
+  variables: Record<string, unknown>,
+  credentials: Record<string, InputCredentialBindingV1>,
+): WorkflowVariableRow[] {
+  const values = {
+    ...variables,
+    ...Object.fromEntries(Object.entries(credentials).map(([name, binding]) => [name, binding.credentialId])),
+  }
+  return Object.entries(values).filter(([name]) => name !== 'verifyUrl').map(([name, value]) => {
+    const definition = selectedWorkflowEditableDefinitions.value[name]
     const type = workflowVariableType(definition) || workflowVariableTypeFromValue(value)
     return {
       id: nextWorkflowVariableRowId(),
@@ -1596,14 +1635,50 @@ function buildWorkflowVariableBindings(): Record<string, unknown> | undefined {
   const bindings: Record<string, unknown> = {}
   for (const row of workflowVariableRows.value) {
     const name = row.name.trim()
-    if (row.type === 'certificate') continue
+    if (row.type === 'certificate' || row.type === 'credential') continue
     if (!name || !rowValueHasContent(row)) continue
     bindings[name] = workflowVariableValue(row)
   }
-  if (effectiveVerifyUrl.value && bindings.verifyUrl === undefined) {
-    bindings.verifyUrl = effectiveVerifyUrl.value
-  }
   return Object.keys(bindings).length > 0 ? bindings : undefined
+}
+
+function buildWorkflowCredentialBindings(): Record<string, InputCredentialBindingV1> {
+  const bindings: Record<string, InputCredentialBindingV1> = {}
+  for (const row of workflowVariableRows.value) {
+    if (row.type !== 'credential') continue
+    const name = row.name.trim()
+    const credentialId = row.value.trim()
+    if (name && credentialId) bindings[name] = { credentialId }
+    else if (name) delete bindings[name]
+  }
+  return bindings
+}
+
+function buildWorkflowConnectionBindings(): Record<string, InputConnectionBindingV1> {
+  const definitions = readWorkflowInputContractSection(selectedWorkflowVersion.value, 'connections')
+  return Object.fromEntries(
+    Object.keys(definitions)
+      .filter((name) => workflowConnectionBindings.value[name] !== undefined)
+      .map((name) => [name, workflowConnectionBindings.value[name]]),
+  )
+}
+
+function buildWorkflowInputBindings() {
+  return createInputBindingsV1({
+    variables: buildWorkflowVariableBindings() ?? {},
+    connections: buildWorkflowConnectionBindings(),
+    credentials: buildWorkflowCredentialBindings(),
+    artifacts: buildWorkflowCertificateArtifactBindings() ?? {},
+  })
+}
+
+function workflowVariableAcceptsBinding(definition: ApiRecord): boolean {
+  const source = readRecord(definition.source)
+  return source?.kind === 'binding'
+    && definition.bindingPolicy !== 'fixed'
+    && definition.lifecycle !== 'runtime_injected'
+    && definition.lifecycle !== 'step_output'
+    && definition.configurationMode !== 'runtime'
 }
 
 function buildWorkflowCertificateArtifactBindings(): Record<string, WorkflowCertificateArtifactBinding> | undefined {
@@ -1629,10 +1704,6 @@ function workflowVariableValue(row: WorkflowVariableRow): unknown {
   if (row.type === 'number') return Number(raw)
   if (row.type === 'boolean') return raw === 'true'
   if (row.type === 'object') return JSON.parse(raw)
-  if (row.type === 'credential') {
-    const credential = credentialProfileItems.value.find((item) => item.id === raw)
-    return credential ? credentialProfileBinding(credential) : raw
-  }
   return raw
 }
 
@@ -1668,7 +1739,7 @@ function validateWorkflowCertificateArtifactBindings(): string {
     if (item.outputs.length === 0) continue
     const current = workflowCertificateArtifactBindings.value[item.name]
     if (!current?.certificateFormatId) return t('assets.validation.certificateFormatRequired', { name: item.name })
-    const available = workflowCertificateOutputOptions(current.certificateFormatId)
+    const available = workflowCertificateOutputOptions(current.certificateFormatId ?? '')
     for (const slot of item.outputs) {
       const outputKey = current.outputBindings?.[slot.name]
       if (slot.required !== false && !outputKey) return t('assets.validation.certificateOutputRequired', { name: item.name, slot: slot.name })
@@ -1778,44 +1849,6 @@ function certificateArtifactRoleLabel(role: string): string {
   return role
 }
 
-function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
-  const record = readRecord(value)
-  if (!record) return {}
-  const output: Record<string, WorkflowCertificateArtifactBinding> = {}
-  for (const [variableName, binding] of Object.entries(record)) {
-    const bindingRecord = readRecord(binding)
-    const certificateFormatId = String(bindingRecord?.certificateFormatId ?? '').trim()
-    const outputBindingsRecord = readRecord(bindingRecord?.outputBindings)
-    if (!certificateFormatId || !outputBindingsRecord) continue
-    output[variableName] = {
-      certificateFormatId,
-      outputBindings: Object.fromEntries(
-        Object.entries(outputBindingsRecord)
-          .map(([slotName, outputKey]) => [slotName, String(outputKey ?? '').trim()] as const)
-          .filter(([, outputKey]) => Boolean(outputKey)),
-      ),
-    }
-  }
-  return output
-}
-
-function readWorkflowCertificateArtifactBindingsFromAsset(source: unknown, deploymentStrategy: ApiRecord | null): Record<string, WorkflowCertificateArtifactBinding> {
-  const candidates = [
-    readNested(deploymentStrategy, ['workflow', 'certificateArtifactBindings']),
-    readNested(source, ['deploymentStrategy', 'workflow', 'certificateArtifactBindings']),
-    readNested(source, ['metadata', 'deploymentStrategy', 'workflow', 'certificateArtifactBindings']),
-    readNested(source, ['deploymentStrategy', 'workflowRequest', 'certificateArtifactBindings']),
-    readNested(source, ['metadata', 'deploymentStrategy', 'workflowRequest', 'certificateArtifactBindings']),
-    readNested(source, ['workflowRequest', 'certificateArtifactBindings']),
-    readNested(source, ['strategyPayload', 'workflowRequest', 'certificateArtifactBindings']),
-  ]
-  for (const candidate of candidates) {
-    const bindings = readWorkflowCertificateArtifactBindings(candidate)
-    if (Object.keys(bindings).length > 0) return bindings
-  }
-  return {}
-}
-
 function ensureWorkflowCertificateArtifactBindings() {
   const certificateVariables = selectedWorkflowCertificateVariables.value
   if (certificateVariables.length === 0) {
@@ -1827,7 +1860,7 @@ function ensureWorkflowCertificateArtifactBindings() {
   const next: Record<string, WorkflowCertificateArtifactBinding> = { ...workflowCertificateArtifactBindings.value }
   for (const item of certificateVariables) {
     const current = next[item.name] ?? { certificateFormatId: '', outputBindings: {} }
-    const available = workflowCertificateOutputOptions(current.certificateFormatId)
+    const available = workflowCertificateOutputOptions(current.certificateFormatId ?? '')
     const outputBindings: Record<string, string> = {}
     for (const slot of item.outputs) {
       const existing = current.outputBindings?.[slot.name]
@@ -2129,7 +2162,12 @@ watch(
 watch(
   () => assetDraft.pluginOverrideVersionId,
   async (pluginVersionId, previousPluginVersionId) => {
-    if (pluginVersionId !== previousPluginVersionId && !pluginBindingId.value) pluginFormValues.value = {}
+    if (pluginVersionId !== previousPluginVersionId && !pluginBindingId.value) {
+      pluginFormValues.value = {}
+      pluginBindingCredentials.value = {}
+      pluginBindingConnections.value = {}
+      pluginBindingArtifacts.value = {}
+    }
     await loadPluginForm(pluginVersionId)
   },
 )
@@ -2253,6 +2291,9 @@ watch(
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
     pluginFormValues.value = {}
+    pluginBindingCredentials.value = {}
+    pluginBindingConnections.value = {}
+    pluginBindingArtifacts.value = {}
     await loadManagedTargetPluginResolution(managedTargetId)
   },
 )
@@ -2271,6 +2312,9 @@ watch(
     pluginBindingId.value = ''
     pluginBindingVersion.value = 0
     pluginFormValues.value = {}
+    pluginBindingCredentials.value = {}
+    pluginBindingConnections.value = {}
+    pluginBindingArtifacts.value = {}
     await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   },
 )
@@ -2821,17 +2865,17 @@ function managedTargetLabel(target: ApiRecord): string {
                   </ul>
                   <div v-if="workflowBindingProjection.basicConnections.length" class="workflow-variable-form__rows">
                     <div v-for="item in workflowBindingProjection.basicConnections" :key="`connection:${item.name}`" class="workflow-variable-form__row">
-                      <label class="workflow-variable-form__value">
+                      <label v-if="item.fieldModes?.host" class="workflow-variable-form__value">
                         <span>{{ t('assets.workflowVariables.presets.deviceHost') }} *</span>
                         <input :value="workflowConnectionBindings[String(item.name)]?.host ?? item.host ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'host', ($event.target as HTMLInputElement).value)" />
                       </label>
-                      <label class="workflow-variable-form__value">
+                      <label v-if="item.fieldModes?.username" class="workflow-variable-form__value">
                         <span>{{ t('assets.workflowVariables.presets.sshUsername') }} *</span>
                         <input :value="workflowConnectionBindings[String(item.name)]?.username ?? item.username ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'username', ($event.target as HTMLInputElement).value)" />
                       </label>
-                      <label class="workflow-variable-form__value">
+                      <label v-if="item.fieldModes?.credential" class="workflow-variable-form__value">
                         <span>{{ t('assets.workflowVariables.presets.credential') }} *</span>
-                        <select :value="workflowConnectionBindings[String(item.name)]?.credentialRef ?? item.credentialRef ?? ''" :disabled="credentialProfileLoading" @change="updateProjectionConnectionCredential(String(item.name), ($event.target as HTMLSelectElement).value)">
+                        <select :value="workflowCredentialBindings[workflowConnectionCredentialSlot(item)]?.credentialId ?? ''" :disabled="credentialProfileLoading" @change="updateProjectionConnectionCredential(workflowConnectionCredentialSlot(item), ($event.target as HTMLSelectElement).value)">
                           <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
                           <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
                             {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
@@ -2851,7 +2895,34 @@ function managedTargetLabel(target: ApiRecord): string {
                       </label>
                       <label v-if="item.fieldModes?.hostKey === 'advanced'" class="workflow-variable-form__value">
                         <span>{{ t('workflows.canvasModel.fields.expectedHostKeyFingerprint') }}</span>
-                        <input :value="workflowConnectionBindings[String(item.name)]?.expectedHostKeyFingerprint ?? item.expectedHostKeyFingerprint ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'expectedHostKeyFingerprint', ($event.target as HTMLInputElement).value)" />
+                        <input :value="workflowConnectionBindings[String(item.name)]?.hostKey?.expectedFingerprint ?? item.hostKey?.expectedFingerprint ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'expectedFingerprint', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                    </div>
+                    <div v-for="item in workflowBindingProjection.advancedConnections" :key="`connection-advanced-only:${item.name}`" class="workflow-variable-form__row workflow-variable-form__row--connection-advanced">
+                      <label v-if="item.fieldModes?.host" class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.deviceHost') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.host ?? item.host ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'host', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label v-if="item.fieldModes?.username" class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.sshUsername') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.username ?? item.username ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'username', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label v-if="item.fieldModes?.credential" class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.credential') }}</span>
+                        <select :value="workflowCredentialBindings[workflowConnectionCredentialSlot(item)]?.credentialId ?? ''" :disabled="credentialProfileLoading" @change="updateProjectionConnectionCredential(workflowConnectionCredentialSlot(item), ($event.target as HTMLSelectElement).value)">
+                          <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                          <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
+                            {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
+                          </option>
+                        </select>
+                      </label>
+                      <label v-if="item.fieldModes?.port" class="workflow-variable-form__value">
+                        <span>{{ t('assets.fields.port') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.port ?? item.port ?? ''" inputmode="numeric" @input="updateProjectionConnection(String(item.name), 'port', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label v-if="item.fieldModes?.hostKey" class="workflow-variable-form__value">
+                        <span>{{ t('workflows.canvasModel.fields.expectedHostKeyFingerprint') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.hostKey?.expectedFingerprint ?? item.hostKey?.expectedFingerprint ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'expectedFingerprint', ($event.target as HTMLInputElement).value)" />
                       </label>
                     </div>
                     <div v-for="item in workflowBindingProjection.advanced" :key="`advanced:${item.name}`" class="workflow-variable-form__row workflow-variable-form__row--variable">

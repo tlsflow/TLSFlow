@@ -15,8 +15,6 @@ function workflowFixture(): WorkflowDslV1 {
     metadata: { name: 'workflow-executor-adapter-test' },
     variables: {
       deviceHost: { type: 'string', required: true },
-      cert: { type: 'certificate', required: true },
-      credential: { type: 'credential', required: true },
     },
     steps: [
       {
@@ -89,8 +87,6 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
     metadata: { name: 'workflow-file-transfer-adapter-test' },
     variables: {
       deviceHost: { type: 'string', required: true },
-      cert: { type: 'certificate', required: true, sensitive: true },
-      credential: { type: 'credential', required: true },
     },
     steps: [
       {
@@ -131,8 +127,6 @@ function certificateAliasWorkflowFixture(): WorkflowDslV1 {
     metadata: { name: 'workflow-certificate-alias-test' },
     variables: {
       deviceHost: { type: 'string', required: true },
-      certificate: { type: 'certificate', required: true, sensitive: true },
-      credential: { type: 'credential', required: true },
     },
     steps: [
       {
@@ -159,18 +153,6 @@ function certificateOutputsWorkflowFixture(): WorkflowDslV1 {
     metadata: { name: 'workflow-certificate-outputs-test' },
     variables: {
       deviceHost: { type: 'string', required: true },
-      serverCert: {
-        type: 'certificate',
-        required: true,
-        sensitive: true,
-        artifactContract: {
-          outputs: {
-            certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8' },
-            keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8' },
-          },
-        },
-      },
-      credential: { type: 'credential', required: true },
     },
     steps: [
       {

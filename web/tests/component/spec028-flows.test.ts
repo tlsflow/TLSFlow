@@ -228,6 +228,8 @@ describe('spec028 前端闭环', () => {
       {
         id: 'certver-1',
         certificateAssetId: 'cert-1',
+        status: 'active',
+        deployable: true,
         notBefore: '2026-06-01T00:00:00.000Z',
         notAfter: '2026-12-01T00:00:00.000Z',
       },
@@ -393,8 +395,14 @@ describe('spec028 前端闭环', () => {
         id: 'wfeb-1',
         workflowTemplateId: 'tpl-workflow',
         runner: 'CONTROL_PLANE',
-        certificateArtifactBindings: {
-          serverCert: { certificateFormatId: 'fmt-1', outputBindings: { certFile: 'fullchain', keyFile: 'private' } },
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          variables: {},
+          connections: {},
+          credentials: {},
+          artifacts: {
+            serverCert: { certificateFormatId: 'fmt-1', outputBindings: { certFile: 'fullchain', keyFile: 'private' } },
+          },
         },
       },
     })

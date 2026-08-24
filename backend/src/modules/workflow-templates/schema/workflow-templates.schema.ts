@@ -12,7 +12,7 @@ const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'va
 const metadataKeys = new Set(['name', 'displayName', 'description', 'category', 'tags', 'version', 'logoUrl', 'platforms', 'updateMethods', 'maintainer', 'homepage']);
 const updateMethodValues = new Set(['ssh', 'curl']);
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const variableKeys = new Set(['type', 'configurationMode', 'required', 'default', 'enum', 'sensitive', 'description', 'artifactContract', 'source', 'lifecycle', 'bindingPolicy', 'ui']);
+const variableKeys = new Set(['type', 'configurationMode', 'required', 'default', 'enum', 'sensitive', 'description', 'source', 'lifecycle', 'bindingPolicy', 'ui']);
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
@@ -25,7 +25,7 @@ const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
 const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
-const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file', 'credential', 'certificate']);
+const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file']);
 const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'variables', 'connections', 'credentials', 'artifacts', 'steps', 'system']);
@@ -106,20 +106,18 @@ function validateVariables(value: unknown): void {
     if (typed.ui !== undefined && !isRecord(typed.ui)) throw validationError(`variables.${name}.ui 必须是对象`);
     if (typed.configurationMode === 'runtime' && typed.lifecycle === 'pre_execution') throw validationError('runtime 变量不能使用 pre_execution 生命周期', { name });
     if (typed.configurationMode === 'advanced' && typed.bindingPolicy === 'required_binding') throw validationError('advanced 变量不能使用 required_binding', { name });
-    if (typed.artifactContract !== undefined) validateArtifactContract(typed, name);
     if (typed.default !== undefined) validateVariableValue(typed, typed.default, `variables.${name}.default`);
   }
 }
 
 function validateVariableSource(source: unknown, path: string): void {
   if (!isRecord(source) || typeof source.kind !== 'string') throw validationError(`${path} 必须声明 kind`);
-  if (source.kind === 'asset_ssl' && typeof source.path !== 'string') throw validationError(`${path}.path 必填`);
-  if (source.kind === 'dsl' && !Object.prototype.hasOwnProperty.call(source, 'value')) throw validationError(`${path}.value 必填`);
+  if (source.kind === 'asset' && typeof source.path !== 'string') throw validationError(`${path}.path 必填`);
+  if (source.kind === 'default' && Object.keys(source).some((key) => key !== 'kind')) throw validationError(`${path} 使用 default 时不得携带额外字段`);
   if (source.kind === 'derived' && !['endpoint_url', 'authority', 'binding_information'].includes(String(source.resolver))) throw validationError(`${path}.resolver 不支持`);
   if (source.kind === 'system' && typeof source.key !== 'string') throw validationError(`${path}.key 必填`);
-  if (source.kind === 'credential' && source.slot !== undefined && typeof source.slot !== 'string') throw validationError(`${path}.slot 必须是字符串`);
   if (source.kind === 'step_output' && (typeof source.step !== 'string' || typeof source.output !== 'string')) throw validationError(`${path}.step/output 必填`);
-  if (!['asset_ssl', 'dsl', 'derived', 'system', 'credential', 'certificate', 'step_output'].includes(source.kind)) throw validationError(`${path}.kind 不支持`);
+  if (!['asset', 'default', 'derived', 'system', 'step_output'].includes(source.kind)) throw validationError(`${path}.kind 不支持`);
 }
 
 function validateConnections(value: unknown): void {
@@ -143,26 +141,6 @@ function validateExplicitConfigurationContract(content: WorkflowDslV1): void {
   if (!explicit) return;
   for (const [name, definition] of Object.entries(content.variables)) {
     if (!definition.configurationMode || !definition.source || !definition.lifecycle) throw validationError('新 DSL 变量必须显式声明 configurationMode/source/lifecycle', { name });
-  }
-}
-
-function validateArtifactContract(definition: WorkflowVariableDefinition, name: string): void {
-  if (definition.type !== 'certificate') throw validationError('artifactContract 只能用于 certificate 变量', { name });
-  const contract = definition.artifactContract;
-  if (!isRecord(contract)) throw validationError('artifactContract 必须是对象', { name });
-  rejectUnknown(contract, new Set(['outputs']), `variables.${name}.artifactContract`);
-  if (!isRecord(contract.outputs) || Object.keys(contract.outputs).length === 0) {
-    throw validationError('artifactContract.outputs 必须是非空对象', { name });
-  }
-  for (const [outputName, output] of Object.entries(contract.outputs)) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(outputName)) throw validationError('artifactContract output 名称不合法', { name, outputName });
-    if (!isRecord(output)) throw validationError('artifactContract output 必须是对象', { name, outputName });
-    rejectUnknown(output, new Set(['role', 'required', 'format', 'encoding', 'description']), `variables.${name}.artifactContract.outputs.${outputName}`);
-    if (!isNonEmptyString(output.role)) throw validationError('artifactContract output.role 必填', { name, outputName });
-    if (output.required !== undefined && typeof output.required !== 'boolean') throw validationError('artifactContract output.required 必须是布尔值', { name, outputName });
-    if (output.format !== undefined && typeof output.format !== 'string') throw validationError('artifactContract output.format 必须是字符串', { name, outputName });
-    if (output.encoding !== undefined && typeof output.encoding !== 'string') throw validationError('artifactContract output.encoding 必须是字符串', { name, outputName });
-    if (output.description !== undefined && typeof output.description !== 'string') throw validationError('artifactContract output.description 必须是字符串', { name, outputName });
   }
 }
 
@@ -515,12 +493,10 @@ export function validateVariableValue(definition: WorkflowVariableDefinition, va
     if (typeof value !== 'boolean') throw validationError(`${path} 必须是布尔值`);
   } else if (definition.type === 'enum') {
     if (!definition.enum?.some((item) => Object.is(item, value))) throw validationError(`${path} 不在枚举范围内`);
-  } else if (definition.type === 'object' || definition.type === 'certificate') {
+  } else if (definition.type === 'object') {
     if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
   } else if (definition.type === 'array') {
     if (!Array.isArray(value)) throw validationError(`${path} 必须是数组`);
-  } else if (definition.type === 'credential') {
-    if (!isCredentialValue(value)) throw validationError(`${path} 必须是凭据对象或 credential 变量引用`);
   }
 }
 

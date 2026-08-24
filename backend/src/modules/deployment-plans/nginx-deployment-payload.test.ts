@@ -318,7 +318,7 @@ async function configureApplicationAssetManagedTarget(
     body: {
       deploymentStrategy: {
         type: 'MANAGED_TARGET',
-        managedTarget: { managedTargetId, capabilityKey: 'certificate.deploy' },
+        managedTarget: { managedTargetId },
       },
     },
   });
@@ -352,6 +352,19 @@ function createPemChainFixture(commonName: string): { pem: string; privateKeyPem
 
 function runOpenSsl(cwd: string, ...args: string[]): void {
   execFileSync('openssl', args, { cwd, stdio: 'ignore' });
+}
+
+async function waitForDeploymentPlanAudits(
+  security: ReturnType<typeof createSecurityServices>,
+  planId: string,
+  expectedCount: number,
+): Promise<Array<{ action: string; detail?: unknown }>> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const audits = await security.audit.query({ resourceType: 'deploymentPlan', resourceId: planId });
+    if (audits.length >= expectedCount) return audits;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return security.audit.query({ resourceType: 'deploymentPlan', resourceId: planId });
 }
 
 test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certificateFormatId', async () => {
@@ -586,6 +599,60 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(preflight?.apiVersion, 'gcac.resolved-deployment-input/v1');
   assert.match(String(preflight?.resolvedSha256), /^[a-f0-9]{64}$/);
   assert.equal(plan.targets[0]?.strategyPayload?.resolvedDeploymentInput, undefined);
+  const snapshotRef = plan.targets[0]?.strategyPayload?.deploymentInputSnapshotRef;
+  assert.equal(snapshotRef?.apiVersion, 'gcac.deployment-input-snapshot/v1');
+  assert.equal(snapshotRef?.revision, 1);
+  assert.equal(snapshotRef?.resolvedSha256, preflight.resolvedSha256);
+
+  const snapshotsResponse = await app.inject({
+    method: 'GET',
+    path: `/api/v1/deployment-plans/input-snapshots?planId=${plan.id}`,
+    headers,
+  });
+  assert.equal(snapshotsResponse.statusCode, 200, JSON.stringify(snapshotsResponse.body));
+  const snapshots = snapshotsResponse.body as { items: Array<any>; total: number };
+  assert.equal(snapshots.total, 1);
+  assert.equal(snapshots.items[0]?.id, snapshotRef?.snapshotId);
+  assert.equal(snapshots.items[0]?.snapshot.resolvedSha256, preflight.resolvedSha256);
+  assert.equal(snapshots.items[0]?.snapshot.identity.pluginVersionId, plan.targets[0]?.strategyPayload?.pluginRuntimeCapability?.pluginVersionId);
+  assert.equal(JSON.stringify(snapshots.items).includes(chain.privateKeyPem), false);
+
+  const updatedResponse = await app.inject({
+    method: 'POST',
+    path: '/api/v1/deployment-plans/update-from-application-asset',
+    headers,
+    body: {
+      planId: plan.id,
+      applicationAssetId,
+      selectionMode: 'EXPLICIT',
+      targetCertificateVersionId: certificateVersionId,
+      certificateFormatId,
+      idempotencyKey: 'idem_nginx_asset_plan_with_format_update',
+    },
+  });
+  assert.equal(updatedResponse.statusCode, 200, JSON.stringify(updatedResponse.body));
+  const updatedPlan = updatedResponse.body as typeof plan;
+  const latestSnapshotRef = updatedPlan.targets[0]?.strategyPayload?.deploymentInputSnapshotRef;
+  assert.equal(latestSnapshotRef?.revision, 2);
+  assert.notEqual(latestSnapshotRef?.snapshotId, snapshotRef?.snapshotId);
+
+  const snapshotsAfterUpdateResponse = await app.inject({
+    method: 'GET',
+    path: `/api/v1/deployment-plans/input-snapshots?planId=${plan.id}`,
+    headers,
+  });
+  assert.equal(snapshotsAfterUpdateResponse.statusCode, 200, JSON.stringify(snapshotsAfterUpdateResponse.body));
+  const snapshotsAfterUpdate = snapshotsAfterUpdateResponse.body as { items: Array<any>; total: number };
+  assert.equal(snapshotsAfterUpdate.total, 2);
+  assert.deepEqual(snapshotsAfterUpdate.items.map((item) => item.revision), [1, 2]);
+  assert.equal(snapshotsAfterUpdate.items[0]?.id, snapshotRef?.snapshotId);
+  assert.equal(JSON.stringify(snapshotsAfterUpdate.items).includes(chain.privateKeyPem), false);
+  const planAudits = await waitForDeploymentPlanAudits(security, plan.id, 2);
+  const createAudit = planAudits.find((item) => item.action === 'deployment_plan.create');
+  const updateAudit = planAudits.find((item) => item.action === 'deployment_plan.update');
+  assert.equal((createAudit?.detail as any)?.deploymentInputSnapshots?.[0]?.snapshotId, snapshotRef?.snapshotId);
+  assert.equal((updateAudit?.detail as any)?.deploymentInputSnapshots?.[0]?.snapshotId, latestSnapshotRef?.snapshotId);
+  assert.equal(JSON.stringify(planAudits).includes(chain.privateKeyPem), false);
 
   const submitted = await app.inject({
     method: 'POST',
@@ -614,6 +681,7 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.apiVersion, 'gcac.resolved-deployment-input/v1');
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.executable, true);
   assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput.resolvedSha256, preflight.resolvedSha256);
+  assert.deepEqual(atomicStep!.inputSnapshot.deploymentInputSnapshotRef, latestSnapshotRef);
   assert.equal(atomicStep!.inputSnapshot.pluginExecutionContext, undefined);
 });
 

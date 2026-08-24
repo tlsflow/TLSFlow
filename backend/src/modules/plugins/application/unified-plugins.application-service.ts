@@ -251,7 +251,7 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
         const inputContract = readRecordField(parsed.inputContract);
         configuration ??= {
           variables: readRecordField(inputContract.variables),
-          artifactInputs: readRecordField(inputContract.artifacts),
+          artifacts: readRecordField(inputContract.artifacts),
           compatibility: readRecordField(parsed.compatibility),
         };
       } else {

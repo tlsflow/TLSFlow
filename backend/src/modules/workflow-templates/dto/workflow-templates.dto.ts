@@ -4,28 +4,25 @@ import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/reso
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual';
-export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file' | 'credential' | 'certificate';
+export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
 export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE';
-export type WorkflowCertificateArtifactRole = 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle';
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
 export type WorkflowVariableSource =
-  | { kind: 'asset_ssl'; path: string }
-  | { kind: 'dsl'; value: unknown }
+  | { kind: 'asset'; path: string }
+  | { kind: 'default' }
   | { kind: 'derived'; resolver: 'endpoint_url' | 'authority' | 'binding_information' }
   | { kind: 'system'; key: string }
-  | { kind: 'credential'; slot?: string }
-  | { kind: 'certificate' }
   | { kind: 'step_output'; step: string; output: string };
 
 export interface WorkflowConnectionFieldDefinition {
   configurationMode?: Exclude<WorkflowConfigurationMode, 'runtime'>;
-  source?: 'binding' | 'asset_ssl' | 'credential' | 'dsl_default';
+  source?: 'binding' | 'asset' | 'credential' | 'dsl_default';
   assetPath?: string;
   default?: string | number;
 }
@@ -58,18 +55,6 @@ export interface WorkflowCredentialBinding {
 
 export type WorkflowCredentialValue = WorkflowCredentialBinding | string;
 
-export interface WorkflowCertificateArtifactOutputContract {
-  role: WorkflowCertificateArtifactRole | string;
-  required?: boolean;
-  format?: string;
-  encoding?: WorkflowFileTransferContentEncoding | string;
-  description?: string;
-}
-
-export interface WorkflowCertificateArtifactContract {
-  outputs: Record<string, WorkflowCertificateArtifactOutputContract>;
-}
-
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
   configurationMode?: WorkflowConfigurationMode;
@@ -82,7 +67,6 @@ export interface WorkflowVariableDefinition {
   lifecycle?: WorkflowVariableLifecycle;
   bindingPolicy?: WorkflowBindingPolicy;
   ui?: { label?: string; group?: string; order?: number; help?: string };
-  artifactContract?: WorkflowCertificateArtifactContract;
 }
 
 export interface WorkflowMetadata {

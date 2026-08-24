@@ -282,7 +282,7 @@ export class WorkflowTemplatesDomainService {
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const step = content.steps.find((item) => item.name === input.stepName) ?? content.rollback?.find((item) => item.name === input.stepName);
     if (!step) throw new AppError('RESOURCE_NOT_FOUND', 'workflow step not found', { stepName: input.stepName });
-    const context = resolveRuntimeContext(content, input);
+    const context = buildRuntimeContextFromResolvedInput(input);
     const runId = `wfstep_${randomUUID()}`;
     const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false, runId, dispatcher);
     return {
@@ -298,7 +298,7 @@ export class WorkflowTemplatesDomainService {
 
   private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
-    const context = resolveRuntimeContext(version.content, input);
+    const context = buildRuntimeContextFromResolvedInput(input);
     const runId = `wfrun_${randomUUID()}`;
     const orderedSteps = orderStepsByStage(version.content.steps);
     const renderedSteps: WorkflowRenderedStep[] = [];
@@ -683,8 +683,7 @@ async function reportWorkflowProgress(
   });
 }
 
-function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput | WorkflowStepRuntimeInput): RuntimeContext {
-  void content;
+function buildRuntimeContextFromResolvedInput(input: WorkflowRuntimeInput | WorkflowStepRuntimeInput): RuntimeContext {
   if (!input.resolvedInput.executable) {
     throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
   }
@@ -735,15 +734,6 @@ function resolveRuntimeConnections(
       expectedHostKeyFingerprint: resolved.hostKey?.expectedFingerprint,
     } satisfies WorkflowSshConnection]];
   }));
-}
-
-function markSensitive(name: string, definition: WorkflowVariableDefinition, value: unknown, secretPaths: Set<string>): void {
-  if (definition.sensitive || definition.type === 'credential') collectValuePaths(name, value, secretPaths);
-  if (definition.type === 'certificate' && isRecord(value)) {
-    for (const key of ['privateKey', 'privateKeyPem', 'pfx', 'pfxBase64', 'pfxPassword', 'jks', 'files', 'outputs']) {
-      if (value[key] !== undefined) collectValuePaths(`${name}.${key}`, value[key], secretPaths);
-    }
-  }
 }
 
 function collectValuePaths(path: string, value: unknown, paths: Set<string>): void {

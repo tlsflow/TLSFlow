@@ -7,7 +7,7 @@ import type {
 } from '../../../shared/enums/core.enums.js';
 import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindingDto, DriftState } from '../../bindings/dto/bindings.dto.js';
 import type { RuntimeCredentialV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
-import type { WorkflowCredentialBinding } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export type HostStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
 export type FrameworkInstanceStatus = 'ACTIVE' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'RETIRED' | 'DELETED';
@@ -62,34 +62,9 @@ export interface WorkflowDeploymentStrategyDto {
     verifyUrl?: string;
     sniName?: string;
   };
-  credentialBindings?: Record<string, { credentialId: string }>;
   credentials?: Record<string, RuntimeCredentialV1 & { credentialVersionId: string; snapshotSha256: string }>;
-  connectionBindings?: Record<string, {
-    host?: string;
-    port?: number;
-    username?: string;
-    credentialRef?: string;
-    credential?: WorkflowCredentialBinding;
-    expectedHostKeyFingerprint?: string;
-  }>;
-  parameterBindings?: Record<string, unknown>;
-  variableBindings?: Record<string, unknown>;
-  certificateArtifactBindings?: Record<string, {
-    certificateFormatId: string;
-    outputBindings: Record<string, string>;
-  }>;
+  inputBindings?: InputBindingsV1;
   rollbackWorkflowVersionId?: string;
-}
-
-export interface WorkflowBindingProjectionRequestDto {
-  serviceAssetId?: string;
-  workflowId: string;
-  workflowVersionId?: string;
-  asset?: Record<string, unknown>;
-  target?: Record<string, unknown>;
-  connectionBindings?: WorkflowDeploymentStrategyDto['connectionBindings'];
-  parameterBindings?: Record<string, unknown>;
-  credentialBindings?: Record<string, { credentialId: string }>;
 }
 
 export interface DeploymentStrategyDto {

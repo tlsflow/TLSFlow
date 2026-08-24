@@ -51,7 +51,7 @@ paths:
   /api/v1/auth/login:
     post:
       operationId: "login"
-      summary: "鐧诲綍"
+      summary: "登录"
       tags:
         - "Auth"
       responses:
@@ -71,7 +71,7 @@ paths:
   /api/v1/auth/external-login:
     post:
       operationId: "externalLogin"
-      summary: "澶栭儴韬唤婧愮櫥褰?"
+      summary: "外部身份源登录"
       tags:
         - "Auth"
       responses:
@@ -91,7 +91,7 @@ paths:
   /api/v1/auth/identity-sources/public:
     get:
       operationId: "listPublicIdentitySources"
-      summary: "鑾峰彇鍙敤韬唤婧?"
+      summary: "获取可用身份源"
       tags:
         - "Auth"
       responses:
@@ -111,7 +111,7 @@ paths:
   /api/v1/auth/logout:
     post:
       operationId: "logout"
-      summary: "閫€鍑虹櫥褰?"
+      summary: "退出登录"
       tags:
         - "Auth"
       responses:
@@ -131,7 +131,7 @@ paths:
   /api/v1/auth/me:
     get:
       operationId: "getCurrentUser"
-      summary: "鑾峰彇褰撳墠鐢ㄦ埛"
+      summary: "获取当前用户"
       tags:
         - "Auth"
       responses:
@@ -151,7 +151,7 @@ paths:
   /api/v1/auth/permissions:
     get:
       operationId: "getCurrentPermissions"
-      summary: "鑾峰彇褰撳墠鏉冮檺"
+      summary: "获取当前权限"
       tags:
         - "Auth"
       responses:
@@ -269,7 +269,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createSecret"
-      summary: "鍒涘缓 Secret"
+      summary: "创建 Secret"
       tags:
         - "Security"
       responses:
@@ -289,7 +289,7 @@ paths:
   /api/v1/secrets/metadata:
     get:
       operationId: "getSecretMetadata"
-      summary: "鏌ヨ Secret 鍏冩暟鎹?"
+      summary: "查询 Secret 元数据"
       tags:
         - "Security"
       responses:
@@ -309,7 +309,7 @@ paths:
   /api/v1/approvals:
     post:
       operationId: "createApproval"
-      summary: "鍒涘缓瀹℃壒鍗?"
+      summary: "创建审批单"
       tags:
         - "Security"
       responses:
@@ -329,7 +329,7 @@ paths:
   /api/v1/approvals/decide:
     post:
       operationId: "decideApproval"
-      summary: "瀹℃壒鍐崇瓥"
+      summary: "审批决策"
       tags:
         - "Security"
       responses:
@@ -349,7 +349,7 @@ paths:
   /api/v1/audit-events:
     get:
       operationId: "queryAuditEvents"
-      summary: "鏌ヨ瀹¤浜嬩欢"
+      summary: "查询审计事件"
       tags:
         - "Security"
       responses:
@@ -369,7 +369,7 @@ paths:
   /api/v1/security/users:
     get:
       operationId: "listSecurityUsers"
-      summary: "鏌ヨ鐢ㄦ埛鍒楄〃"
+      summary: "查询用户列表"
       tags:
         - "Security"
       responses:
@@ -388,7 +388,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createSecurityUser"
-      summary: "鍒涘缓鐢ㄦ埛"
+      summary: "创建用户"
       tags:
         - "Security"
       responses:
@@ -546,7 +546,7 @@ paths:
   /api/v1/security/users/status:
     patch:
       operationId: "updateSecurityUserStatus"
-      summary: "淇敼鐢ㄦ埛鐘舵€?"
+      summary: "修改用户状态"
       tags:
         - "Security"
       responses:
@@ -566,7 +566,7 @@ paths:
   /api/v1/security/users/roles:
     post:
       operationId: "assignSecurityUserRole"
-      summary: "鍒嗛厤鐢ㄦ埛瑙掕壊"
+      summary: "分配用户角色"
       tags:
         - "Security"
       responses:
@@ -606,7 +606,7 @@ paths:
   /api/v1/security/roles:
     get:
       operationId: "listSecurityRoles"
-      summary: "鏌ヨ瑙掕壊鍒楄〃"
+      summary: "查询角色列表"
       tags:
         - "Security"
       responses:
@@ -625,7 +625,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createSecurityRole"
-      summary: "鍒涘缓瑙掕壊"
+      summary: "创建角色"
       tags:
         - "Security"
       responses:
@@ -665,7 +665,7 @@ paths:
   /api/v1/security/permission-policies:
     get:
       operationId: "listSecurityPermissionPolicies"
-      summary: "鏌ヨ鏉冮檺绛栫暐"
+      summary: "查询权限策略"
       tags:
         - "Security"
       responses:
@@ -684,7 +684,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createSecurityPermissionPolicy"
-      summary: "鍒涘缓鏉冮檺绛栫暐"
+      summary: "创建权限策略"
       tags:
         - "Security"
       responses:
@@ -881,7 +881,7 @@ paths:
   /api/v1/security/identity-sources:
     get:
       operationId: "listIdentitySources"
-      summary: "鏌ヨ韬唤婧?"
+      summary: "查询身份源"
       tags:
         - "Security"
       responses:
@@ -900,7 +900,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createIdentitySource"
-      summary: "鍒涘缓韬唤婧?"
+      summary: "创建身份源"
       tags:
         - "Security"
       responses:
@@ -959,7 +959,7 @@ paths:
   /api/v1/security/identity-sources/test:
     post:
       operationId: "testIdentitySource"
-      summary: "娴嬭瘯韬唤婧愯繛鎺?"
+      summary: "测试身份源连接"
       tags:
         - "Security"
       responses:
@@ -979,7 +979,7 @@ paths:
   /api/v1/security/identity-sources/sync-users:
     post:
       operationId: "syncIdentitySourceUsers"
-      summary: "鍚屾 LDAP 鐢ㄦ埛"
+      summary: "同步 LDAP 用户"
       tags:
         - "Security"
       responses:
@@ -999,7 +999,7 @@ paths:
   /api/v1/security/group-role-mappings:
     get:
       operationId: "listGroupRoleMappings"
-      summary: "鏌ヨ澶栭儴缁勮鑹叉槧灏?"
+      summary: "查询外部组角色映射"
       tags:
         - "Security"
       responses:
@@ -1018,7 +1018,7 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
     post:
       operationId: "createGroupRoleMapping"
-      summary: "鍒涘缓澶栭儴缁勮鑹叉槧灏?"
+      summary: "创建外部组角色映射"
       tags:
         - "Security"
       responses:
@@ -1058,6 +1058,26 @@ paths:
     post:
       operationId: "createDeploymentPlan"
       summary: "创建部署计划"
+      tags:
+        - "DeploymentPlans"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/deployment-plans/input-snapshots:
+    get:
+      operationId: "listDeploymentInputSnapshots"
+      summary: "查询部署输入快照"
       tags:
         - "DeploymentPlans"
       responses:
@@ -1676,26 +1696,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/service-assets/workflow-binding-projection:
-    post:
-      operationId: "projectWorkflowBinding"
-      summary: "生成工作流绑定配置投影"
-      tags:
-        - "Assets"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/application-assets/:applicationAssetId/standalone-workflow:
     put:
       operationId: "saveStandaloneWorkflowExecution"
@@ -2203,26 +2203,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/discovery-snapshots/ingest:
-    post:
-      operationId: "ingestDiscovery"
-      summary: "入库发现结果"
-      tags:
-        - "Assets"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/discovery-snapshots/merge-preview:
     post:
       operationId: "previewDiscoveryMerge"
@@ -2305,6 +2285,26 @@ paths:
       summary: "解决资产冲突"
       tags:
         - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/deployment-inputs/projection:
+    post:
+      operationId: "projectDeploymentInputs"
+      summary: "生成统一部署输入投影"
+      tags:
+        - "Deployment Inputs"
       responses:
         200:
           description: "成功"
@@ -2779,14 +2779,7 @@ paths:
                           type: "string"
                         kind:
                           type: "string"
-                          enum:
-                            - "IIS"
-                            - "NGINX"
-                            - "APACHE"
-                            - "TOMCAT"
-                            - "LB"
-                            - "VPN"
-                            - "CUSTOM"
+                          pattern: "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
                         name:
                           type: "string"
                         status:
@@ -8308,4 +8301,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-29T09:20:56.155Z"
+x-generatedAt: "2026-07-30T12:06:22.007Z"

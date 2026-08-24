@@ -33,10 +33,6 @@ export function getAssetDetail(serviceAssetId: string): Promise<ApiRecordResult>
   return apiClient.get<ApiRecord>(`${toClientPath(SERVICE_ASSETS_PATH)}/detail?serviceAssetId=${encodeURIComponent(serviceAssetId)}`)
 }
 
-export function projectWorkflowBinding(payload: ApiBody): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${SERVICE_ASSETS_PATH}/workflow-binding-projection`), payload)
-}
-
 export function createHost(payload: ApiBody) {
   return postAction(HOSTS_PATH, payload, 'host_create')
 }

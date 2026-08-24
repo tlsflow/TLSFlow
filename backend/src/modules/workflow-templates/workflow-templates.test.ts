@@ -91,8 +91,6 @@ function templateFixture(): WorkflowDslV1 {
     metadata: { name: 'edge-cert-update', category: 'load_balancer' },
     variables: {
       deviceHost: { type: 'string', required: true },
-      cert: { type: 'certificate', required: true },
-      credential: { type: 'credential', required: true },
       shouldUpload: { type: 'boolean', default: true },
     },
     steps: [
@@ -237,38 +235,63 @@ describe('WorkflowTemplates', () => {
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFirstOf), /paths/);
   });
 
-  it('校验 certificate 变量的证书产物合同', () => {
-    const valid = templateFixture();
-    valid.variables.serverCert = {
-      type: 'certificate',
-      required: true,
-      sensitive: true,
-      artifactContract: {
-        outputs: {
-          certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8' },
-          keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8' },
-        },
-      },
+  it('拒绝把 Credential 和 Certificate 继续声明为普通变量', () => {
+    for (const legacyType of ['credential', 'certificate']) {
+      const content = templateFixture();
+      content.variables.legacyInput = { type: legacyType, required: true } as never;
+      assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /变量类型不支持/);
+    }
+  });
+
+  it('Workflow 变量固定默认值使用 standard default Source，拒绝旧 dsl Source', () => {
+    const content = templateFixture();
+    content.variables.deviceHost = {
+      ...content.variables.deviceHost,
+      configurationMode: 'required',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'required_binding',
     };
-    workflowTemplatesSchemaRegistry.validate(valid);
-
-    const onStringVariable = templateFixture();
-    onStringVariable.variables.deviceHost = {
+    content.variables.shouldUpload = {
+      ...content.variables.shouldUpload,
+      configurationMode: 'advanced',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'default_overridable',
+    };
+    content.variables.fixed = {
       type: 'string',
-      artifactContract: { outputs: { certFile: { role: 'public_certificate' } } },
-    } as never;
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(onStringVariable), /artifactContract 只能用于 certificate/);
+      required: true,
+      default: 'fixed-value',
+      source: { kind: 'default' },
+      configurationMode: 'advanced',
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'default_overridable',
+    };
+    assert.doesNotThrow(() => workflowTemplatesSchemaRegistry.validate(content));
 
-    const emptyOutputs = templateFixture();
-    emptyOutputs.variables.cert = { type: 'certificate', artifactContract: { outputs: {} } } as never;
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(emptyOutputs), /artifactContract\.outputs/);
-
-    const missingRole = templateFixture();
-    missingRole.variables.cert = {
-      type: 'certificate',
-      artifactContract: { outputs: { certFile: { required: true } } },
-    } as never;
-    assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingRole), /output\.role/);
+    const legacy = templateFixture() as unknown as Record<string, unknown>;
+    const variables = legacy.variables as Record<string, Record<string, unknown>>;
+    variables.deviceHost = {
+      ...variables.deviceHost,
+      configurationMode: 'required',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'required_binding',
+    };
+    variables.shouldUpload = {
+      ...variables.shouldUpload,
+      configurationMode: 'advanced',
+      source: { kind: 'default' },
+      lifecycle: 'pre_execution',
+      bindingPolicy: 'default_overridable',
+    };
+    variables.fixed = {
+      type: 'string',
+      default: 'fixed-value',
+      source: { kind: 'dsl', value: 'fixed-value' },
+    };
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(legacy), /变量类型不支持|kind 不支持/);
   });
 
   it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
@@ -567,7 +590,6 @@ describe('WorkflowTemplates', () => {
       metadata: { name: 'runtime_output_flow', displayName: '运行时输出传递' },
       variables: {
         deviceHost: { type: 'string', required: true },
-        credential: { type: 'credential', required: true, sensitive: true },
       },
       steps: [
         {
@@ -655,7 +677,6 @@ describe('WorkflowTemplates', () => {
       metadata: { name: 'flexible_auth_fields_flow', displayName: '灵活认证字段提取' },
       variables: {
         deviceHost: { type: 'string', required: true },
-        credential: { type: 'credential', required: true, sensitive: true },
       },
       steps: [
         {
@@ -994,12 +1015,6 @@ describe('WorkflowTemplates', () => {
   it('condition 判断节点按变量结果决定成功或失败', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
-    content.variables.apiCredential = {
-      type: 'credential',
-      required: true,
-      default: { credentialId: 'cred_device_api', kind: 'BEARER_TOKEN', secretRefs: { token: 'secret://api_token/sec_device_api#current' } },
-      sensitive: true,
-    };
     content.steps = [
       {
         name: 'isLinux',
@@ -1205,12 +1220,6 @@ describe('WorkflowTemplates', () => {
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
-    content.variables.apiCredential = {
-      type: 'credential',
-      required: true,
-      default: { credentialId: 'cred_device_api', kind: 'BEARER_TOKEN', secretRefs: { token: 'secret://api_token/sec_device_api#current' } },
-      sensitive: true,
-    };
     content.steps = [
       {
         name: 'submit',
@@ -1276,12 +1285,6 @@ describe('WorkflowTemplates', () => {
   it('HTTP formCredentialRefs 会转换成内部 formSecretRefs 并在计划中脱敏', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
-    content.variables.apiCredential = {
-      type: 'credential',
-      required: true,
-      default: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
-      sensitive: true,
-    };
     content.steps = [
       {
         name: 'login_form',

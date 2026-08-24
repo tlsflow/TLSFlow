@@ -5,7 +5,7 @@
     "name": "synology-dsm-cert-import",
     "displayName": "更新Synology DSM 证书",
     "description": "通过 Synology DSM WebAPI 导入证书并迁移现有服务绑定。",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "logoUrl": "/plugin-logos/synology.svg",
     "platforms": ["synology-dsm"],
     "updateMethods": ["curl"],
@@ -18,13 +18,61 @@
       "curl"
     ]
   },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "frameworkType": { "type": "enum", "required": true, "configurationMode": "required", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "CUSTOM", "enum": ["NGINX", "APACHE", "TOMCAT", "IIS", "CUSTOM"] },
+      "siteName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "site.name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "bindingInformation": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "site.bindingInformation" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "hostHeader": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "port": { "type": "number", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.port" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "protocol": { "type": "enum", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.protocol" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed", "enum": ["HTTP", "HTTPS", "TLS", "CUSTOM"] },
+      "verifyUrl": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "derived", "resolver": "endpoint_url" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "sniName": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "deviceBaseUrl": { "type": "string", "required": true, "configurationMode": "advanced", "source": { "kind": "derived", "resolver": "endpoint_url" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "previousCertificateId": { "type": "string", "required": false, "configurationMode": "runtime", "source": { "kind": "step_output", "step": "build_previous_synology_certificate_context", "output": "previousCertificateId" }, "lifecycle": "step_output", "bindingPolicy": "fixed" },
+      "newCertificateId": { "type": "string", "required": false, "configurationMode": "runtime", "source": { "kind": "step_output", "step": "build_synology_service_bindings", "output": "newCertificateId" }, "lifecycle": "step_output", "bindingPolicy": "fixed" },
+      "certificateDescription": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "GCAC active certificate" },
+      "serviceBindingsJson": { "type": "string", "required": false, "configurationMode": "runtime", "source": { "kind": "step_output", "step": "build_synology_service_bindings", "output": "serviceBindingsJson" }, "lifecycle": "step_output", "bindingPolicy": "fixed" }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+        "port": { "type": "number", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.port" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+        "credentialSlot": "synologyCredential",
+        "tls": {
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": false },
+          "serverName": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
+        }
+      }
+    },
+    "credentials": {
+      "synologyCredential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" }
+    },
+    "artifacts": {
+      "serverCert": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "runtime_injected",
+        "artifactContract": {
+          "outputs": {
+            "certFile": { "role": "public_certificate", "required": true, "format": "pem", "encoding": "utf8" },
+            "keyFile": { "role": "private_key", "required": true, "format": "pem", "encoding": "utf8", "sensitive": true },
+            "chainFile": { "role": "certificate_chain", "required": false, "format": "pem", "encoding": "utf8" }
+          }
+        }
+      }
+    }
+  },
   "variables": {
     "frameworkType": {
       "type": "enum",
       "configurationMode": "required",
       "required": true,
       "default": "CUSTOM",
-      "source": { "kind": "asset_ssl", "path": "target.frameworkType" },
+      "source": { "kind": "asset", "path": "target.frameworkType" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "enum": [
@@ -41,7 +89,7 @@
       "configurationMode": "required",
       "required": true,
       "default": "Synology DSM",
-      "source": { "kind": "asset_ssl", "path": "target.siteName" },
+      "source": { "kind": "asset", "path": "target.siteName" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "应用资产站点显示名称。"
@@ -51,7 +99,7 @@
       "configurationMode": "advanced",
       "required": false,
       "default": "*:5001:nas.example.com",
-      "source": { "kind": "asset_ssl", "path": "target.bindingInformation" },
+      "source": { "kind": "asset", "path": "target.bindingInformation" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "DSM HTTPS 入口绑定信息。"
@@ -61,7 +109,7 @@
       "configurationMode": "advanced",
       "required": false,
       "default": "nas.example.com",
-      "source": { "kind": "asset_ssl", "path": "target.hostHeader" },
+      "source": { "kind": "asset", "path": "target.hostHeader" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "验证请求使用的 Host 头。"
@@ -71,7 +119,7 @@
       "configurationMode": "required",
       "required": true,
       "default": 5001,
-      "source": { "kind": "asset_ssl", "path": "target.port" },
+      "source": { "kind": "asset", "path": "target.port" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "DSM HTTPS 管理端口。"
@@ -81,7 +129,7 @@
       "configurationMode": "required",
       "required": true,
       "default": "HTTPS",
-      "source": { "kind": "asset_ssl", "path": "target.protocol" },
+      "source": { "kind": "asset", "path": "target.protocol" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "enum": [
@@ -97,7 +145,7 @@
       "configurationMode": "required",
       "required": true,
       "default": "https://nas.example.com:5001/",
-      "source": { "kind": "asset_ssl", "path": "target.verifyUrl" },
+      "source": { "kind": "asset", "path": "target.verifyUrl" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "证书导入后用于验证 DSM HTTPS 入口的 URL。"
@@ -107,7 +155,7 @@
       "configurationMode": "advanced",
       "required": false,
       "default": "nas.example.com",
-      "source": { "kind": "asset_ssl", "path": "target.sniName" },
+      "source": { "kind": "asset", "path": "target.sniName" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "TLS SNI 名称。"
@@ -121,16 +169,6 @@
       "lifecycle": "pre_execution",
       "bindingPolicy": "fixed",
       "description": "DSM WebAPI 基础地址，不包含末尾斜杠。"
-    },
-    "synologyCredential": {
-      "type": "credential",
-      "configurationMode": "required",
-      "required": true,
-      "sensitive": true,
-      "source": { "kind": "credential", "slot": "synologyCredential" },
-      "lifecycle": "pre_execution",
-      "bindingPolicy": "required_binding",
-      "description": "DSM 登录凭据，使用 username_password 类型，账号写在凭据 username 中，密码只通过 SecretRef 注入登录表单。"
     },
     "previousCertificateId": {
       "type": "string",
@@ -157,7 +195,7 @@
       "configurationMode": "advanced",
       "required": false,
       "default": "GCAC active certificate",
-      "source": { "kind": "dsl", "value": "GCAC active certificate" },
+      "source": { "kind": "default" },
       "lifecycle": "pre_execution",
       "bindingPolicy": "default_overridable",
       "description": "新增证书描述，用于 DSM 列表中区分当前目标证书。"
@@ -171,41 +209,6 @@
       "lifecycle": "step_output",
       "bindingPolicy": "fixed",
       "description": "SYNO.Core.Certificate.Service set 的 settings JSON 字符串。运行时应由证书列表实时转换生成，创建应用资产时不能手工必填。"
-    },
-    "serverCert": {
-      "type": "certificate",
-      "configurationMode": "runtime",
-      "required": true,
-      "sensitive": true,
-      "source": { "kind": "certificate" },
-      "lifecycle": "runtime_injected",
-      "bindingPolicy": "fixed",
-      "description": "要新增到 Synology DSM 的证书产物。",
-      "artifactContract": {
-        "outputs": {
-          "certFile": {
-            "role": "public_certificate",
-            "required": true,
-            "format": "pem",
-            "encoding": "utf8",
-            "description": "提交给 DSM cert 字段的 fullchain PEM 内容。"
-          },
-          "keyFile": {
-            "role": "private_key",
-            "required": true,
-            "format": "pem",
-            "encoding": "utf8",
-            "description": "提交给 DSM key 字段的私钥 PEM 内容。"
-          },
-          "chainFile": {
-            "role": "certificate_chain",
-            "required": false,
-            "format": "pem",
-            "encoding": "utf8",
-            "description": "提交给 DSM inter_cert 字段的证书链 PEM 内容。"
-          }
-        }
-      }
     }
   },
   "steps": [
