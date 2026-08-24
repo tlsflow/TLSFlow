@@ -127,7 +127,7 @@ test('DeploymentCapabilityResolver 拒绝插件不支持的执行位置', async 
   );
 });
 
-test('DeploymentCapabilityResolver 对产品族分隔符和大小写差异使用统一规范化比较', async () => {
+test('DeploymentCapabilityResolver 只接受精确产品族标识', async () => {
   const resolvedPlugin = plugin();
   resolvedPlugin.manifest.compatibility = { productFamilies: ['WINDOWS_SERVER'] };
   const bindings = {
@@ -136,7 +136,7 @@ test('DeploymentCapabilityResolver 对产品族分隔符和大小写差异使用
   } as unknown as PluginBindingsApplicationService;
   const resolved = await new DeploymentCapabilityResolver(bindings, { getVersion: async () => resolvedPlugin }).resolve({
     tenantId: 'tenant-1', capabilityKey: 'certificate.deploy', hostId: 'host-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1',
-    executionLocations: ['CONTROL_PLANE'], compatibility: { productFamily: 'Windows Server' },
+    executionLocations: ['CONTROL_PLANE'], compatibility: { productFamily: 'WINDOWS_SERVER' },
   });
   assert.equal(resolved.compatibility.compatible, true);
 });

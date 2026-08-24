@@ -10,9 +10,9 @@ const citrixManifest = {
   },
 } as UnifiedPluginManifestV1;
 
-test('产品族只按标准标识执行通用规范化匹配', () => {
+test('产品族匹配只接受精确 Canonical 标识', () => {
   const result = evaluatePluginCompatibility(citrixManifest, {
-    productFamily: 'Citrix NetScaler ADC',
+    productFamily: 'citrix.netscaler-adc',
     executionLocation: 'CONTROL_PLANE',
   });
 
@@ -20,8 +20,8 @@ test('产品族只按标准标识执行通用规范化匹配', () => {
   assert.deepEqual(result.reasons, []);
 });
 
-test('迁移完成后不再接受核心厂商历史别名', () => {
-  for (const productFamily of ['NETSCALER_ADC', 'CITRIX_ADC']) {
+test('运行期拒绝产品族显示名、大小写变体和历史别名', () => {
+  for (const productFamily of ['Citrix NetScaler ADC', 'CITRIX.NETSCALER-ADC', 'NETSCALER_ADC', 'CITRIX_ADC']) {
     const result = evaluatePluginCompatibility(citrixManifest, {
       productFamily,
       executionLocation: 'CONTROL_PLANE',
@@ -30,7 +30,7 @@ test('迁移完成后不再接受核心厂商历史别名', () => {
   }
 });
 
-test('产品族标准化不会把无关 ADC 设备误判为 Citrix ADC', () => {
+test('产品族严格匹配不会把无关 ADC 设备误判为 Citrix ADC', () => {
   const result = evaluatePluginCompatibility(citrixManifest, {
     productFamily: 'F5_BIG_IP',
     executionLocation: 'CONTROL_PLANE',
@@ -44,13 +44,13 @@ test('产品族标准化不会把无关 ADC 设备误判为 Citrix ADC', () => {
   }]);
 });
 
-test('未知厂商使用相同标准键时不需要宿主别名表', () => {
+test('未知产品族使用精确 Canonical 标识时可以匹配', () => {
   const manifest = {
     scope: 'MANAGED',
     compatibility: { productFamilies: ['example.vendor-appliance'] },
   } as UnifiedPluginManifestV1;
   const result = evaluatePluginCompatibility(manifest, {
-    productFamily: 'EXAMPLE_VENDOR_APPLIANCE',
+    productFamily: 'example.vendor-appliance',
     executionLocation: 'AGENT',
   });
   assert.equal(result.compatible, true);

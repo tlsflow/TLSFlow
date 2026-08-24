@@ -50,13 +50,6 @@ function check(
   reasons: PluginCompatibilityResult['reasons'],
 ): void {
   if (!expected || expected.length === 0) return;
-  const matches = actual && (dimension === 'productFamily'
-    ? expected.some((item) => normalizeProductFamily(item) === normalizeProductFamily(actual))
-    : expected.includes(actual));
-  if (matches) return;
+  if (actual && expected.includes(actual)) return;
   reasons.push({ dimension, expected: [...expected], actual });
-}
-
-function normalizeProductFamily(value: string): string {
-  return value.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
