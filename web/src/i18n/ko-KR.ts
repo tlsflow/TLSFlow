@@ -2029,7 +2029,7 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['ko-KR'] ?? {}),
-    securityLabel: '출입구 안전 설치',
+    securityLabel: '시스템 설정 입구',
     version: {
       title: '버전 정보',
       description: '현재 실행 중인 GCAC 버전을 확인합니다.',

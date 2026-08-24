@@ -2055,7 +2055,7 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['ja-JP'] ?? {}),
-    securityLabel: 'セキュリティ設定への導線',
+    securityLabel: 'システム設定入口',
     version: {
       title: 'バージョン情報',
       description: '現在実行中の GCAC バージョンを表示します。',

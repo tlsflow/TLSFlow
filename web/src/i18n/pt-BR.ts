@@ -2029,7 +2029,7 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['pt-BR'] ?? {}),
-    securityLabel: 'Entrada de configurações de segurança',
+    securityLabel: 'Entrada de configurações do sistema',
     version: {
       title: 'Informações da versão',
       description: 'Visualize a versão do GCAC em execução.',

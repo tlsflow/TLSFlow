@@ -2054,7 +2054,7 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['zh-TW'] ?? {}),
-    securityLabel: "安全設定入口",
+    securityLabel: "系統設定入口",
     version: {
       title: "版本資訊",
       description: "查看目前執行中的 GCAC 版本。",

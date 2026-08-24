@@ -1,22 +1,37 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { usePermissionStore } from '@/stores/permission.store'
 
 const { t } = useI18n()
+const permissionStore = usePermissionStore()
 
-const cards = [
-  { titleKey: 'settings.version.title', path: '/settings/version', descriptionKey: 'settings.version.description' },
-  { titleKey: 'notifications.title', path: '/settings/notifications', descriptionKey: 'notifications.description' },
-  { titleKey: 'nav.users', path: '/settings/users', descriptionKey: 'nav.usersDesc' },
-  { titleKey: 'nav.roles', path: '/settings/roles', descriptionKey: 'nav.rolesDesc' },
-  { titleKey: 'nav.identitySources', path: '/settings/identity-sources', descriptionKey: 'nav.identitySourcesDesc' }
+interface SettingsCard {
+  titleKey: string
+  descriptionKey: string
+  path: string
+  permission: string
+}
+
+const cards: SettingsCard[] = [
+  { titleKey: 'tenantArchitecture.nav', path: '/settings/tenant-architecture', descriptionKey: 'tenantArchitecture.description', permission: 'settings.read' },
+  { titleKey: 'nav.users', path: '/settings/users', descriptionKey: 'nav.usersDesc', permission: 'security.user.read' },
+  { titleKey: 'nav.roles', path: '/settings/roles', descriptionKey: 'nav.rolesDesc', permission: 'security.role.read' },
+  { titleKey: 'credentials.title', path: '/settings/credentials', descriptionKey: 'credentials.description', permission: 'credential.read' },
+  { titleKey: 'notifications.title', path: '/settings/notifications', descriptionKey: 'notifications.description', permission: 'notification.channel.read' },
+  { titleKey: 'settings.licensing.title', path: '/settings/licensing', descriptionKey: 'settings.licensing.description', permission: 'settings.read' },
+  { titleKey: 'nav.identitySources', path: '/settings/identity-sources', descriptionKey: 'nav.identitySourcesDesc', permission: 'security.identity_source.read' },
+  { titleKey: 'settings.version.title', path: '/settings/version', descriptionKey: 'settings.version.description', permission: 'settings.read' }
 ]
+
+const visibleCards = computed(() => cards.filter((card) => permissionStore.hasPermission(card.permission)))
 </script>
 
 <template>
   <section class="gc-page settings-overview">
     <section class="settings-overview__cards" :aria-label="t('settings.securityLabel')">
-      <RouterLink v-for="card in cards" :key="card.path" class="gc-card settings-overview__card" :to="card.path">
+      <RouterLink v-for="card in visibleCards" :key="card.path" class="gc-card settings-overview__card" :to="card.path">
         <h2>{{ t(card.titleKey) }}</h2>
         <span>{{ t(card.descriptionKey) }}</span>
         <strong>{{ t('common.enter') }}</strong>

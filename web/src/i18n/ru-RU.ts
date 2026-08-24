@@ -2029,7 +2029,7 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['ru-RU'] ?? {}),
-    securityLabel: 'Вход в настройки безопасности',
+    securityLabel: 'Вход в настройки системы',
     version: {
       title: 'Информация о версии',
       description: 'Просмотр текущей запущенной версии GCAC.',
