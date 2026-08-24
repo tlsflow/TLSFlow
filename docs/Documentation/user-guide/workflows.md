@@ -32,4 +32,4 @@ lastVerified: 2026-08-02
 4. 运行校验和预检。
 5. 把工作流绑定到应用资产或 Standalone 目标。
 
-插件内部工作流是只读的 `plugin_internal`；复制后归用户所有的版本是 `plugin_derived`，必须保留完整 Provenance。
+插件内部工作流是只读的 `plugin_internal`；复制后直接形成归用户所有的 `user` 版本，必须保留完整 Provenance。历史 `plugin_derived` 只允许进入删除或作废审计，运行期不读取。

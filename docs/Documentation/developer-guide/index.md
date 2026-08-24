@@ -27,7 +27,7 @@ GCAC 扩展优先使用现有平台合同。新增厂商不能通过宿主增加
 
 1. 先确定对象、能力和事实所有者。
 2. 复用统一输入、Secret、Artifact、权限和审计合同。
-3. 根据能力选择 `AGENT_ATOMIC`、`WORKFLOW_DSL` 或 `TRUSTED_JS` Runtime；普通插件默认不执行代码，未知代码执行必须单独授权。
+3. 根据能力选择 `agent_plan`、`declarative` 或 `isolated_process`；代码型插件必须进入同 Docker 独立 Plugin Runner，不能在宿主进程动态加载。
 4. 为发现、部署、验证和回滚补齐资源和测试。
 5. 记录实现状态，不能把模拟测试当成真实外部验收。
 

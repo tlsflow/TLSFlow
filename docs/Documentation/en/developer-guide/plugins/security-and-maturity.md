@@ -24,8 +24,8 @@ lastVerified: 2026-08-06
 - Permissions, network access, Secrets, Artifacts, and device writes require approval.
 - Logs, audit records, snapshots, and errors must be redacted.
 - The host must not add Driver, Executor, Projector, or page branches based on a vendor string.
-- Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins require separate unknown-code execution authorization before runtime entry.
-- `TRUSTED_JS` plugins may access credentials, artifacts, locks, audit, and checkpoints only through explicit Host API gates; they must not access the database or arbitrary host filesystems directly.
+- Declarative and Agent Plan plugins do not execute arbitrary code. Code-bearing plugins run only as signed `isolated_process` packages in a separate Plugin Runner process and require explicit code-execution authorization.
+- Plugin Runner is not an OS sandbox. Plugin code cannot access the database, repositories, host files, environment variables, or Agent directly; credentials, artifacts, locks, audit, network, and Agent capabilities are available only through registered Host API methods.
 
 ## Maturity status
 
@@ -33,7 +33,7 @@ lastVerified: 2026-08-06
 | --- | --- |
 | Manifest Schema and resource validation | `implemented` |
 | Normalized content hash for workflow publication | `implemented` |
-| Unknown-code execution authorization gate | `in_review` |
+| Code-bearing plugin execution authorization gate | `in_review` |
 | Cryptographic verification of trusted user-plugin publishers | `todo` |
 | Explicit dual-mode Promotion aggregation | `todo` |
 | Execution-time `configFingerprint` comparison | `todo` |

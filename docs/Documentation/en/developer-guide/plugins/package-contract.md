@@ -25,7 +25,7 @@ A plugin package is an immutable capability declaration. Its manifest, resources
 
 - Use the current manifest Schema and stable plugin identity.
 - Declare resources, capabilities, input slots, permissions, network access, and compatibility explicitly.
-- Keep `AGENT_ATOMIC`, `WORKFLOW_DSL`, and `TRUSTED_JS` as distinct runtime kinds. Ordinary plugins do not execute code by default. Trusted `TRUSTED_JS` packages may carry a controlled JavaScript entrypoint and vendor SDK dependencies, but runtime entry still requires separate unknown-code execution authorization.
+- Use only `agent_plan`, `declarative`, and `isolated_process` as plugin execution locations. Code-bearing packages must declare a fixed Plugin Runner entry, IPC version, and resource digest; the host must not dynamically load plugin code.
 - Do not encode vendor selection as a host-side Driver, Executor, Projector, or page branch.
 - Treat package and workflow hashes as content identity, not as a display label.
 

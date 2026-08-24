@@ -30,7 +30,7 @@ Recommended order:
 Core boundaries:
 
 - Resolve plugin identity through `CapabilityAssignment -> PluginBinding -> PluginVersion`, not a vendor string.
-- `AGENT_ATOMIC`, `WORKFLOW_DSL`, and `TRUSTED_JS` are separate runtimes. Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins require separate unknown-code execution authorization. Agent atomic plugins and Trusted JS plugins are not workflow Steps.
+- Plugin execution locations are `agent_plan`, `declarative`, and `isolated_process`. Code-bearing plugins run in a separate Plugin Runner process inside the same Docker container and must not be dynamically loaded by the host. Agent and code-bearing plugins are not workflow Steps.
 - Model agentless `DeviceAsset`, `ManagedTarget + Plugin`, `ManagedTarget + Workflow Override`, and `Standalone + Workflow` separately.
 - Discovered certificate locations use `source.kind=asset`; precise discovery takes precedence over plugin defaults.
-- The host governs Secrets, Artifacts, permissions, audit, snapshots, verification, and rollback. A `TRUSTED_JS` plugin consumes controlled Grants only after unknown-code execution authorization.
+- The host governs Secrets, Artifacts, permissions, audit, snapshots, verification, and rollback. Code-bearing plugins consume controlled Grants only through an isolated Plugin Runner and after explicit code-execution authorization.

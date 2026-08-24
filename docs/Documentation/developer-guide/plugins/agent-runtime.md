@@ -1,6 +1,6 @@
 ---
 title: Agent 插件运行时
-description: Agent Atomic Runtime、权限和签名计划
+description: Agent v2 通用执行、权限和签名计划
 docStatus: in_review
 productVersion: current
 sourceLocale: zh-CN
@@ -17,8 +17,8 @@ lastVerified: 2026-08-06
 
 # Agent 插件运行时
 
-Agent 插件使用 `gcac.agent-plan/v1` 和受控原子操作。`AGENT_ATOMIC` 插件只声明动作、变量、权限、Artifact、回滚和兼容条件，不能携带脚本、解释器或二进制；这条约束只适用于 Agent 原子运行时，不覆盖受信任的 `TRUSTED_JS` 官方插件。普通插件仍默认不执行代码，未知代码执行必须单独授权。
+控制面 Plugin 使用 `gcac.agent-plan/v2` 和受控通用原语生成 Agent 计划；产品识别、配置解析和部署语义属于控制面 Plugin，不属于 Agent Core。代码型插件统一使用 `isolated_process`，由同一 Docker 内独立 Plugin Runner 执行，不能通过宿主进程动态加载。Agent-side Plugin 仅在必须调用本机专有 API 时使用独立进程窄接口。
 
 未知 Action、未审批权限、目标不匹配、计划过期、签名无效或路径越界必须在入队前失败关闭。Agent 不根据操作系统名称猜测能力。
 
-用户插件发布者密码学验签当前尚未完成，不能把 `USER_SIGNED` 当作可信发布者证明。
+Agent 必须只接受四个 v2 方法、类型化原语、Capability Token、Policy Authority 决策和本地策略允许的计划；旧 `agent.atomic_plan.execute`、自由命令和脚本入口运行期拒绝。用户插件发布者密码学验签当前尚未完成，不能把 `USER_SIGNED` 当作可信发布者证明。

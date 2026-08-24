@@ -24,8 +24,8 @@ lastVerified: 2026-08-06
 - 权限、网络、Secret、Artifact 和设备写入必须审批。
 - 日志、审计、快照和错误必须脱敏。
 - 不允许宿主按厂商字符串增加 Driver、Executor、Projector 或页面分支。
-- 普通插件默认不执行代码；携带代码的 `TRUSTED_JS` 插件在进入运行时之前，还必须单独通过“未知代码执行”授权。
-- `TRUSTED_JS` 只允许受信任签名插件进入装配候选；插件代码只能通过宿主显式开放的 Host API 访问凭据、制品、锁、审计和检查点，不得直接访问数据库或宿主文件系统。
+- 声明式插件和 Agent Plan 插件不执行任意代码；代码型插件只能以 `isolated_process` 模式由同一 Docker 内独立 Plugin Runner 执行，并且必须通过代码执行授权、签名、Policy Authority、Grant 和 Host API 门禁。
+- Plugin Runner 不是 OS 沙箱。插件代码不得直接访问数据库、Repository、宿主文件、环境变量或 Agent；所有对象、凭据、制品、锁、审计、网络和 Agent 能力都必须通过登记的 Host API 请求。
 
 ## 成熟度标记
 
@@ -33,8 +33,8 @@ lastVerified: 2026-08-06
 | --- | --- |
 | Manifest Schema 和资源校验 | `implemented` |
 | Workflow 发布规范化内容哈希 | `implemented` |
-| 未知代码执行授权门禁 | `in_review` |
-| Trusted JS Runtime 门禁与 Host API 白名单 | `in_review` |
+| 代码型插件执行授权门禁 | `in_review` |
+| Plugin Runner 生命周期与 Host API 白名单 | `in_review` |
 | 用户插件可信发布者密码学验签 | `todo` |
 | Promotion 显式双模式归集 | `todo` |
 | 执行前 `configFingerprint` 复核 | `todo` |

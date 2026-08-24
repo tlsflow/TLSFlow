@@ -30,7 +30,7 @@ lastVerified: 2026-08-06
 核心边界：
 
 - 插件身份由 `CapabilityAssignment -> PluginBinding -> PluginVersion` 解析，不按厂商字符串选择实现。
-- `AGENT_ATOMIC`、`WORKFLOW_DSL` 与 `TRUSTED_JS` 是三种独立运行时；普通插件默认不允许执行代码，Trusted JS 代码执行还必须单独通过未知代码执行授权。Agent 原子插件和 Trusted JS 插件都不能伪装成普通工作流 Step。
+- 插件执行位置只有 `agent_plan`、`declarative` 和 `isolated_process`；代码型插件统一由同一 Docker 内独立 Plugin Runner 执行。Agent 插件和代码型插件都不能伪装成普通工作流 Step，宿主不得使用动态 `import()` 执行插件。
 - 无 Agent `DeviceAsset`、`ManagedTarget + Plugin`、`ManagedTarget + Workflow Override` 和 `Standalone + Workflow` 必须分开建模。
 - 发现得到的证书路径等事实使用 `source.kind=asset`，精确发现优先于插件默认值。
-- Secret、Artifact、权限、审计、快照、验证和回滚由宿主统一治理；`TRUSTED_JS` 插件也只能在获得未知代码执行授权后消费受控 Grant 和受限 Host API。
+- Secret、Artifact、权限、审计、快照、验证和回滚由宿主统一治理；独立 Runner 只能消费已签发 Grant 和登记 Host API，不能直连数据库、Repository、宿主文件或环境变量。

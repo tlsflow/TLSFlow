@@ -1,6 +1,6 @@
 ---
 title: Agent runtime
-description: Agent Atomic Runtime, permissions, and signed plans
+description: Agent Plan runtime, permissions, and signed plans
 docStatus: in_review
 productVersion: current
 sourceLocale: zh-CN
@@ -17,7 +17,7 @@ lastVerified: 2026-08-06
 
 # Agent runtime
 
-Agent plugins use `gcac.agent-plan/v1` and controlled atomic operations. An `AGENT_ATOMIC` plugin declares actions, variables, permissions, Artifacts, rollback, and compatibility conditions, and cannot carry scripts, interpreters, or binaries. This restriction applies to the Agent atomic runtime only; ordinary plugins still do not execute code by default, and unknown-code execution must be authorized separately.
+Agent plugins use `gcac.agent-plan/v2` and controlled atomic operations. An `executionMode=agent_plan` plugin declares actions, variables, permissions, Artifacts, rollback, and platform Profiles, and cannot carry scripts, interpreters, or binaries. Code-bearing plugins use the separate `isolated_process` mode and Plugin Runner; they do not execute inside Agent Core or the host process.
 
 Unknown Actions, unapproved permissions, target mismatches, expired plans, invalid signatures, and path traversal must fail closed before queueing. The Agent must not infer capabilities from an operating-system name.
 

@@ -31,4 +31,4 @@ GCAC addresses scattered certificate assets, unclear device targets, unauditable
 
 ## What GCAC is not
 
-GCAC is not an arbitrary remote Shell platform or a sandbox for plugins to carry scripts and binaries. Ordinary plugins do not execute code by default; code-bearing `TRUSTED_JS` plugins still require separate unknown-code execution authorization. The host governs permissions, credentials, artifacts, execution locks, and audit records.
+GCAC is not an arbitrary remote Shell platform or a sandbox for plugins to carry unrestricted scripts and binaries. Declarative and Agent Plan plugins do not execute arbitrary code; code-bearing plugins run only as signed `isolated_process` packages in a separate Plugin Runner process and require explicit code-execution authorization. The host governs permissions, credentials, artifacts, execution locks, and audit records through the approved Host API.

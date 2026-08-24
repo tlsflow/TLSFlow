@@ -22,7 +22,7 @@ The workflow DSL is GCAC's private domain protocol, not a script container. Read
 Development rules:
 
 - New DSL must use `gcac.workflow/v1` and `CurlSshWorkflow`.
-- Template files come only from the built-in template directory or the user-import directory; runtime selection must pass through an enabled `WORKFLOW_DSL` PluginVersion.
+- Template files come only from the built-in template directory or the user-import directory; runtime selection must pass through an enabled `executionMode=declarative` PluginVersion.
 - Connections, Credentials, Artifacts, and variables must be declared in `DeploymentInputContractV1`.
 - Executors consume `ResolvedDeploymentInputV1` and controlled Grants; they must not infer Secrets from template scope or host objects.
 - Deployment, change, and rollback fail closed by default. Only read-only discovery may use contract-approved `foreach.continueOnError`.

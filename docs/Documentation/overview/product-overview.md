@@ -31,4 +31,4 @@ GCAC 解决的是证书资产分散、设备目标不清、部署过程不可审
 
 ## 不解决的问题
 
-GCAC 不是任意远程 Shell 平台，也不是对外开放的任意脚本执行沙箱。普通插件默认不允许执行代码；只有受信任的官方 `TRUSTED_JS` 插件允许携带受控 JavaScript 代码和厂商 SDK，而且还必须单独通过未知代码执行授权。宿主始终掌握权限、凭据、制品、执行锁、审计和恢复控制权。
+GCAC 不是任意远程 Shell 平台，也不是对外开放的任意脚本执行沙箱。代码型插件只能在同 Docker 独立 Plugin Runner 中执行，并受签名、PluginVersion、Capability Token、Policy Authority、Host API、执行锁、审计和恢复控制；宿主始终掌握权限、凭据、制品和调度控制权。
