@@ -20,7 +20,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.linux.nginx.pem',
     name: 'linux-nginx-pem-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.5',
+    version: '1.0.8',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'NGINX PEM 证书部署', description: '备份并原子替换 NGINX PEM 证书和私钥，执行配置检查和 reload；TLS 验证由平台或指定 Gateway 执行。', logoUrl: '/plugin-logos/nginx.svg', category: 'web-server', tags: ['nginx', 'pem', 'linux'] },
     compatibility: {
@@ -53,7 +53,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.windows.iis.pfx',
     name: 'windows-iis-pfx-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.6',
+    version: '1.0.9',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'IIS PFX 证书部署', description: '检查并导入 PFX、授权应用池私钥、更新 IIS HTTPS Binding 并验证 TLS。', logoUrl: '/plugin-logos/iis.svg', category: 'web-server', tags: ['iis', 'pfx', 'windows'] },
     compatibility: {

@@ -32,6 +32,11 @@
       "packageSha256": "sha256:11cfdefc8b200aed20398c4ffccffb93a8feb79ac4de9bf91541aa8044e43023"
     },
     {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.10",
+      "packageSha256": "sha256:e89f205658fd99d6a0d46abaebf95e021dd158feeba0481eed065b3dca6e7369"
+    },
+    {
       "pluginId": "builtin.rabbitmq.pem",
       "version": "1.0.4",
       "packageSha256": "sha256:e67b20417fd09793128bacb94c294a74a620315883dfb7978800c919cc81c006"
@@ -80,6 +85,11 @@
       "pluginId": "builtin.windows.iis.pfx",
       "version": "1.0.8",
       "packageSha256": "sha256:6efc7dfcdcfab3b42a147aad9b042aab04aa1df838a29ad0668bbafe0d08435f"
+    },
+    {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.11",
+      "packageSha256": "sha256:e14e6b3c863eeca1930092ae27d2ad0f6378ffae3bc18ba4b1aac4c49167377d"
     },
     {
       "pluginId": "builtin.workflow.apache-8444-cert-switch",

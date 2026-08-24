@@ -3,7 +3,10 @@ import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
-import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import { ProductionDeploymentInputResolverService } from '../deployment-inputs/application/production-deployment-input-resolver.service.js';
+import type { DeploymentAssetContextV1 } from '../deployment-inputs/dto/deployment-asset-context.dto.js';
+import { emptyInputBindingsV1, type InputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
+import type { ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { canonicalAgentPlanJson, UnifiedAgentPlanCompilerService } from './application/unified-agent-plan-compiler.service.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { builtinAgentPluginManifests } from './builtin-plugins/agent-recipes.js';
@@ -85,6 +88,126 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   assert.equal(preflightPlan.operations.some((item) => item.operationType === 'file.atomic_replace'), true);
   assert.equal(preflightPlan.operations.some((item) => item.operationType === 'service.control'), true);
 });
+
+test('IIS 与 NGINX 仅通过统一 Contract、Asset Context 和 Binding 编译 Agent 计划', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const compiler = new UnifiedAgentPlanCompilerService(plugins);
+  const resolver = new ProductionDeploymentInputResolverService();
+
+  for (const fixture of agentContractFixtures()) {
+    const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === fixture.pluginId)!;
+    const imported = await importAgentRecipe(plugins, fixture.tenantId, recipe);
+    const resolvedInput = resolver.resolve({
+      phase: 'preflight',
+      contract: recipe.inputContract,
+      assetContext: fixture.assetContext,
+      bindingLayers: {
+        deviceDefault: { pluginVersionId: recipe.version, inputBindings: emptyInputBindingsV1() },
+        assetOverride: { pluginVersionId: recipe.version, inputBindings: fixture.assetBinding },
+      },
+      artifactSnapshots: fixture.artifactSnapshots,
+    });
+    const plan = await compiler.compile({
+      tenantId: fixture.tenantId,
+      agentId: fixture.agentId,
+      executionRunId: `${fixture.pluginId}-run`,
+      executionStepId: `${fixture.pluginId}-step`,
+      pluginVersionId: imported.id,
+      pluginBindingId: `${fixture.pluginId}-binding`,
+      resolvedInput,
+      executionMode: 'PREFLIGHT',
+    });
+
+    assert.equal(resolvedInput.executable, true);
+    assert.equal(resolvedInput.contractVersion, 'gcac.deployment-input/v1');
+    assert.equal(plan.executionMode, 'PREFLIGHT');
+    fixture.assertPlan(plan);
+  }
+});
+
+async function importAgentRecipe(
+  plugins: UnifiedPluginsApplicationService,
+  tenantId: string,
+  recipe: (typeof builtinAgentPluginManifests)[number],
+) {
+  const resourcePath = `agent-recipes/${recipe.pluginId}.json`;
+  const imported = await plugins.importVersion(tenantId, {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: recipe.pluginId, version: recipe.version,
+      displayNameKey: `plugin.${recipe.pluginId}.name`, publisher: recipe.publisher, runtime: 'AGENT_ATOMIC', source: 'BUILTIN',
+      scope: 'MANAGED', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL', minGcacVersion: recipe.minGcacVersion,
+      capabilities: [
+        { key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['AGENT'] },
+        { key: 'certificate.rollback', contractVersion: 'v1', actionContractId: 'certificate.rollback.v1', riskLevel: 'HIGH', executionLocations: ['AGENT'] },
+      ],
+      permissions: recipe.permissions.map((item) => item.name),
+      resources: { agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath } },
+    },
+    resources: { [resourcePath]: JSON.stringify(recipe) },
+  }, 'BUILTIN');
+  await plugins.approvePermissions(imported.id, imported.manifest.permissions);
+  await plugins.enableVersion(imported.id);
+  return imported;
+}
+
+function agentContractFixtures(): Array<{
+  pluginId: string;
+  tenantId: string;
+  agentId: string;
+  assetContext: DeploymentAssetContextV1;
+  assetBinding: InputBindingsV1;
+  artifactSnapshots: Record<string, ResolvedArtifactV1>;
+  assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => void;
+}> {
+  const nginxBinding = emptyInputBindingsV1();
+  nginxBinding.artifacts = {
+    certificate: { outputBindings: { certificate: 'certificatePem' } },
+    privateKey: { outputBindings: { privateKey: 'privateKeyPem' } },
+  };
+  const iisBinding = emptyInputBindingsV1();
+  iisBinding.artifacts = { certificate: { outputBindings: { certificate: 'pfx' } } };
+  const nginxArtifacts: Record<string, ResolvedArtifactV1> = {
+    certificate: { outputs: { certificate: { artifactRef: 'memory://nginx/certificate.pem' } } },
+    privateKey: { outputs: { privateKey: { artifactRef: 'memory://nginx/private-key.pem' } } },
+  };
+  const iisArtifacts: Record<string, ResolvedArtifactV1> = {
+    certificate: { outputs: { certificate: { artifactRef: 'memory://iis/certificate.pfx' } } },
+  };
+  return [
+    {
+      pluginId: 'builtin.linux.nginx.pem', tenantId: 'tenant-nginx-unified-contract', agentId: 'agent-nginx',
+      assetContext: assetContext('LINUX'), assetBinding: nginxBinding,
+      artifactSnapshots: nginxArtifacts,
+      assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => {
+        assert.equal(plan.operations.find((item) => item.id === 'nginx-cert-install')?.input.path, '/etc/nginx/tls/server.crt');
+        assert.deepEqual(plan.operations.find((item) => item.id === 'nginx-key-install')?.input.artifact, { artifactRef: 'memory://nginx/private-key.pem' });
+      },
+    },
+    {
+      pluginId: 'builtin.windows.iis.pfx', tenantId: 'tenant-iis-unified-contract', agentId: 'agent-iis',
+      assetContext: assetContext('WINDOWS'), assetBinding: iisBinding,
+      artifactSnapshots: iisArtifacts,
+      assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => {
+        assert.equal(plan.operations.find((item) => item.id === 'iis-binding-capture')?.input.siteName, 'GCAC Site');
+        assert.deepEqual(plan.operations.find((item) => item.id === 'iis-binding-update')?.input.bindingSelector, { bindingInformation: '*:443:gcac.example.com' });
+        assert.deepEqual(plan.operations.find((item) => item.id === 'iis-pfx-import')?.input.artifact, { artifactRef: 'memory://iis/certificate.pfx' });
+      },
+    },
+  ];
+}
+
+function assetContext(osType: string): DeploymentAssetContextV1 {
+  return {
+    apiVersion: 'gcac.deployment-asset-context/v1',
+    application: { id: `asset-${osType}`, address: 'gcac.example.com', serverName: 'gcac.example.com', port: 443, protocol: 'HTTPS' },
+    host: { id: `host-${osType}`, hostname: 'gcac-host', primaryIp: '192.0.2.20', osType },
+    site: { id: 'site-gcac', type: 'web.site', name: 'GCAC Site', bindingInformation: '*:443:gcac.example.com', metadata: {} },
+    target: { id: 'target-gcac', type: 'tls.binding', key: 'gcac-target', bindingKey: '*:443:gcac.example.com', metadata: {} },
+    deployment: { targets: [{ id: 'target-gcac', name: 'GCAC Site', serverName: 'gcac.example.com', port: 443, sni: true, metadata: {} }], certificateResourceName: 'gcac-example-com' },
+  };
+}
 
 function resolvedAgentInput(): ResolvedDeploymentInputV1 {
   return {
