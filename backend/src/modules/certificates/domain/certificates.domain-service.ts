@@ -44,8 +44,8 @@ export class CertificatesDomainService {
         { format: 'pem', importSupported: true, exportSupported: true, containsPrivateKey: 'optional', implementation: 'node_crypto', limitations: [] },
         { format: 'der', importSupported: true, exportSupported: true, containsPrivateKey: 'never', implementation: 'node_crypto', limitations: ['DER 只表示单张证书，不包含私钥或链'] },
         { format: 'pfx', importSupported: true, exportSupported: true, containsPrivateKey: 'required', implementation: 'openssl', limitations: ['PFX 解析/导出依赖运行时 openssl；导出包含私钥必须提供 passwordSecretRef'] },
-        { format: 'jks', importSupported: false, exportSupported: false, containsPrivateKey: 'required', implementation: 'controlled_error', limitations: ['Node 原生不能安全解析 JKS；当前只提供受控错误，不创建半成品版本'] },
-        { format: 'p7b', importSupported: false, exportSupported: true, containsPrivateKey: 'never', implementation: 'controlled_error', limitations: ['当前运行时未接入 PKCS7 解析器；P7B 不包含私钥'] },
+        { format: 'jks', importSupported: true, exportSupported: true, containsPrivateKey: 'required', implementation: 'keytool', limitations: ['JKS 导入/导出依赖运行时 keytool；导入必须提供 jksPassword，导出必须提供 passwordSecretRef'] },
+        { format: 'p7b', importSupported: true, exportSupported: true, containsPrivateKey: 'never', implementation: 'openssl', limitations: ['P7B 不包含私钥；导出产物只包含 leaf 和 chain'] },
       ],
     } as const;
   }

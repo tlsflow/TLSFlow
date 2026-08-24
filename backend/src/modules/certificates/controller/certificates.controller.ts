@@ -42,6 +42,7 @@ export class CertificatesController {
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
     router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.requestFormatExport(request));
+    router.post('/api/v1/certificate-version-formats/export', '生成证书格式产物', ['Certificates'], (request) => this.generateFormatExport(request));
     router.post('/api/v1/certificate-sources/mock-sync', 'Mock 来源同步证书', ['Certificates'], (request) => this.syncFromSource(request));
   }
 
@@ -168,6 +169,9 @@ export class CertificatesController {
       pfxBase64: { type: 'string' },
       pfxPassword: { type: 'string' },
       jksBase64: { type: 'string' },
+      jksPassword: { type: 'string' },
+      jksKeyPassword: { type: 'string' },
+      jksAlias: { type: 'string' },
       p7bBase64: { type: 'string' },
       declaredFormat: { type: 'string', enum: certificateFormats },
       sourceType: { type: 'string', enum: certificateSourceTypes },
@@ -186,6 +190,9 @@ export class CertificatesController {
         pfxBase64: body.pfxBase64 === undefined ? undefined : String(body.pfxBase64),
         pfxPassword: body.pfxPassword === undefined ? undefined : String(body.pfxPassword),
         jksBase64: body.jksBase64 === undefined ? undefined : String(body.jksBase64),
+        jksPassword: body.jksPassword === undefined ? undefined : String(body.jksPassword),
+        jksKeyPassword: body.jksKeyPassword === undefined ? undefined : String(body.jksKeyPassword),
+        jksAlias: body.jksAlias === undefined ? undefined : String(body.jksAlias),
         p7bBase64: body.p7bBase64 === undefined ? undefined : String(body.p7bBase64),
         declaredFormat: body.declaredFormat as any,
         sourceType: body.sourceType as any,
@@ -257,6 +264,31 @@ export class CertificatesController {
     };
   }
 
+  private generateFormatExport(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      certificateVersionId: { type: 'string', required: true },
+      format: { type: 'string', required: true, enum: certificateFormats },
+      containsPrivateKey: { type: 'boolean' },
+      passwordSecretRef: { type: 'string' },
+      parameters: { type: 'object' },
+      expiresAt: { type: 'string' },
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    return {
+      statusCode: 201,
+      body: this.services.certificates.generateFormatExport({
+        certificateVersionId: String(body.certificateVersionId),
+        format: body.format as any,
+        containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
+        passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
+        parameters: body.parameters as Record<string, unknown> | undefined,
+        createdBy: subject.id,
+        expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
+      }, this.securityContext(request, subject)),
+    };
+  }
+
   private syncFromSource(request: HttpRequest) {
     const body = validateObject(request.body, {
       sourceType: { type: 'string', required: true, enum: certificateSourceTypes },
@@ -267,6 +299,9 @@ export class CertificatesController {
       pfxBase64: { type: 'string' },
       pfxPassword: { type: 'string' },
       jksBase64: { type: 'string' },
+      jksPassword: { type: 'string' },
+      jksKeyPassword: { type: 'string' },
+      jksAlias: { type: 'string' },
       p7bBase64: { type: 'string' },
       declaredFormat: { type: 'string', enum: certificateFormats },
       name: { type: 'string' },
@@ -285,6 +320,9 @@ export class CertificatesController {
         pfxBase64: body.pfxBase64 === undefined ? undefined : String(body.pfxBase64),
         pfxPassword: body.pfxPassword === undefined ? undefined : String(body.pfxPassword),
         jksBase64: body.jksBase64 === undefined ? undefined : String(body.jksBase64),
+        jksPassword: body.jksPassword === undefined ? undefined : String(body.jksPassword),
+        jksKeyPassword: body.jksKeyPassword === undefined ? undefined : String(body.jksKeyPassword),
+        jksAlias: body.jksAlias === undefined ? undefined : String(body.jksAlias),
         p7bBase64: body.p7bBase64 === undefined ? undefined : String(body.p7bBase64),
         declaredFormat: body.declaredFormat as any,
         name: body.name === undefined ? undefined : String(body.name),
@@ -384,7 +422,10 @@ const importCertificateVersionRequestSchema = {
     pfxBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
     pfxPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
     jksBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
-    p7bBase64: { type: 'string' },
+    jksPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
+    jksKeyPassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
+    jksAlias: { type: 'string' },
+    p7bBase64: { type: 'string', writeOnly: true, 'x-sensitive': true },
     declaredFormat: { type: 'string', enum: [...certificateFormats] },
     sourceType: { type: 'string', enum: [...certificateSourceTypes] },
     name: { type: 'string' },
@@ -413,6 +454,7 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/certificate-version-formats', operationId: 'listCertificateVersionFormats', summary: '查询证书格式产物列表', tags: ['Certificates'], responseSchema: pageSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats', operationId: 'createCertificateVersionFormat', summary: '创建证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/export-plan', operationId: 'requestCertificateFormatExport', summary: '规划证书格式导出', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
+    { method: 'POST', path: '/api/v1/certificate-version-formats/export', operationId: 'generateCertificateFormatExport', summary: '生成证书格式产物', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-sources/mock-sync', operationId: 'mockSyncCertificateSource', summary: 'Mock 来源同步证书', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }

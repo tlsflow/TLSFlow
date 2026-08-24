@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import { CertificatesApplicationService } from './application/certificates.application-service.js';
+import { InMemoryCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
+import { generateJksKeystore } from './codecs/jks-keystore.js';
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
 MIIDVDCCAjygAwIBAgIUG5ildtPXNPyfiDQ1eus6hH5dRFowDQYJKoZIhvcNAQEL
@@ -243,21 +246,69 @@ describe('证书资产 API', () => {
 
 
 
-  it('格式能力明确区分真实支持和受控错误，JKS/P7B 不假装导入成功', async () => {
+  it('格式能力声明五种格式真实接入，不再用受控错误冒充能力', async () => {
     const { app } = createAuthorizedApp('user_formats');
     const capabilities = await app.inject({ method: 'GET', path: '/api/v1/certificate-formats/capabilities', headers: headers('user_formats') });
     assert.equal(capabilities.statusCode, 200);
     const formats = new Map((capabilities.body as any).formats.map((item: any) => [item.format, item]));
     assert.equal((formats.get('pem') as any).importSupported, true);
     assert.equal((formats.get('pfx') as any).implementation, 'openssl');
-    assert.equal((formats.get('jks') as any).importSupported, false);
+    assert.equal((formats.get('jks') as any).importSupported, true);
+    assert.equal((formats.get('jks') as any).exportSupported, true);
+    assert.equal((formats.get('jks') as any).implementation, 'keytool');
+    assert.equal((formats.get('p7b') as any).importSupported, true);
+    assert.equal((formats.get('p7b') as any).implementation, 'openssl');
     assert.equal((formats.get('p7b') as any).containsPrivateKey, 'never');
 
     for (const body of [{ jksBase64: Buffer.from('not-a-jks').toString('base64') }, { p7bBase64: Buffer.from('not-a-p7b').toString('base64') }]) {
       const response = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/import', headers: headers('user_formats'), body });
-      assert.equal(response.statusCode, 422);
-      assert.equal((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+      assert.ok([400, 422].includes(response.statusCode));
+      assert.notEqual((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
     }
+  });
+
+  it('P7B 能通过 openssl 导入证书链且不包含私钥', async () => {
+    const fixture = createP7bFixture();
+    const { app } = createAuthorizedApp('user_p7b');
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b'),
+      body: { p7bBase64: fixture.p7bBase64 },
+    });
+    assert.equal(imported.statusCode, 201);
+    const body = imported.body as any;
+    assert.equal(body.diagnostics.sourceFormat, 'p7b');
+    assert.equal(body.version.hasPrivateKey, false);
+    assert.equal(body.version.deployable, false);
+    assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+  });
+
+  it('JKS 能通过 keytool 导入证书和私钥，密码或 alias 错误不会创建半成品', async () => {
+    const fixture = createJksFixture();
+    const { app } = createAuthorizedApp('user_jks');
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_jks'),
+      body: { jksBase64: fixture.jksBase64, jksPassword: fixture.password, jksAlias: fixture.alias },
+    });
+    assert.equal(imported.statusCode, 201);
+    const body = imported.body as any;
+    assert.equal(body.diagnostics.sourceFormat, 'jks');
+    assert.equal(body.version.hasPrivateKey, true);
+    assert.equal(body.version.privateKeySecretRef, undefined);
+    assert.equal(JSON.stringify(body).includes(fixture.password), false);
+    assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+
+    const badAlias = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_jks'),
+      body: { jksBase64: fixture.jksBase64, jksPassword: fixture.password, jksAlias: 'missing-alias' },
+    });
+    assert.equal(badAlias.statusCode, 422);
+    assert.equal((badAlias.body as any).errorCode, 'CERT_PARSE_FAILED');
   });
 
   it('PFX 能通过 openssl 导入证书和私钥，响应仍不泄露私钥', async () => {
@@ -318,6 +369,7 @@ describe('证书资产 API', () => {
     assert.ok(paths['/api/v1/certificate-versions/import']);
     assert.ok(paths['/api/v1/certificate-version-formats']);
     assert.ok(paths['/api/v1/certificate-version-formats/export-plan']);
+    assert.ok(paths['/api/v1/certificate-version-formats/export']);
     assert.ok(paths['/api/v1/certificate-sources/mock-sync']);
   });
 
@@ -401,6 +453,50 @@ describe('证书资产 API', () => {
     assert.equal(format.statusCode, 201);
   });
 
+  it('真实格式导出会生成 PEM/DER/P7B/PFX/JKS 产物 bytes，并且不泄露密码和私钥', async () => {
+    const { app, security, artifacts } = createAuthorizedApp('user_export_real', true);
+    const chain = createPemChainFixture();
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_export_real'),
+      body: { certificatePem: chain.pem, privateKeyPem: chain.privateKeyPem },
+    });
+    assert.equal(imported.statusCode, 201);
+    const versionId = (imported.body as any).version.id;
+    const password = security.secrets.create({
+      name: '导出密码',
+      type: 'pfx_password',
+      scopeType: 'global',
+      plainText: 'export-password-123',
+      createdBy: 'user_export_real',
+    }).secretRef;
+
+    const exportCases = [
+      { format: 'pem', containsPrivateKey: true, passwordSecretRef: undefined },
+      { format: 'der', containsPrivateKey: false, passwordSecretRef: undefined },
+      { format: 'p7b', containsPrivateKey: false, passwordSecretRef: undefined },
+      { format: 'pfx', containsPrivateKey: true, passwordSecretRef: password },
+      { format: 'jks', containsPrivateKey: true, passwordSecretRef: password },
+    ];
+    for (const item of exportCases) {
+      const response = await app.inject({
+        method: 'POST',
+        path: '/api/v1/certificate-version-formats/export',
+        headers: headers('user_export_real'),
+        body: { certificateVersionId: versionId, ...item, parameters: { alias: 'gcac-test' } },
+      });
+      assert.equal(response.statusCode, 201, `${item.format} 应导出成功：${JSON.stringify(response.body)}`);
+      const body = response.body as any;
+      assert.equal(body.exportMode, 'generated');
+      const artifact = artifacts.get(body.artifactRef);
+      assert.ok(artifact, `${item.format} 必须写入真实 artifact`);
+      assert.ok(artifact!.content.length > 0, `${item.format} artifact 不能是空文件`);
+      assert.equal(JSON.stringify(body).includes('export-password-123'), false);
+      assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+    }
+  });
+
   it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {
     const { app } = createAuthorizedApp('user_openapi_redaction');
     const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi_redaction') });
@@ -416,7 +512,7 @@ describe('证书资产 API', () => {
   });
 });
 
-function createAuthorizedApp(actorId: string) {
+function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   const security = createSecurityServices();
   for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
     security.rbac.createPolicy({
@@ -428,7 +524,10 @@ function createAuthorizedApp(actorId: string) {
       scope: { tenantId: 'tenant_1' },
     });
   }
-  return { app: createApp({ security }), security };
+  if (!exposeArtifacts) return { app: createApp({ security }), security, artifacts: undefined as unknown as InMemoryCertificateArtifactStore };
+  const artifacts = new InMemoryCertificateArtifactStore();
+  const certificates = new CertificatesApplicationService({ secrets: security.secrets, audit: security.audit, artifacts });
+  return { app: createApp({ security, certificates: { certificates } }), security, artifacts };
 }
 
 function headers(actorId: string) {
@@ -476,4 +575,26 @@ function createPfxFixture(): { pfxBase64: string; password: string } {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function createP7bFixture(): { p7bBase64: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-p7b-'));
+  try {
+    const chain = createPemChainFixture();
+    writeFileSync(join(dir, 'certs.pem'), chain.pem);
+    runOpenSsl(dir, 'crl2pkcs7', '-nocrl', '-certfile', 'certs.pem', '-out', 'bundle.p7b', '-outform', 'DER');
+    return { p7bBase64: readFileSync(join(dir, 'bundle.p7b')).toString('base64') };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function createJksFixture(): { jksBase64: string; password: string; alias: string } {
+  const chain = createPemChainFixture();
+  const password = 'jks-test-password';
+  const alias = 'gcac-jks';
+  const certificateDers = [...chain.pem.matchAll(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g)]
+    .map((match) => Buffer.from(match[0].replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, ''), 'base64'));
+  const jks = generateJksKeystore({ alias, password, privateKeyPem: chain.privateKeyPem, certificateDers });
+  return { jksBase64: jks.toString('base64'), password, alias };
 }

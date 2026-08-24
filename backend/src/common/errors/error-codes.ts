@@ -13,6 +13,7 @@ export const errorCodes = {
   CERT_FORMAT_UNSUPPORTED: { httpStatus: 422, message: '证书格式不支持' },
   CERT_DUPLICATE_VERSION: { httpStatus: 409, message: '重复证书版本' },
   CERT_EXPORT_FORMAT_INVALID: { httpStatus: 422, message: '证书导出格式无效' },
+  CERT_EXPORT_FAILED: { httpStatus: 422, message: '证书导出失败' },
   CERT_PRIVATE_KEY_REQUIRED: { httpStatus: 422, message: '目标格式需要私钥' },
   ASSET_UNREACHABLE: { httpStatus: 422, message: '资产不可达' },
   BINDING_NOT_MANAGED: { httpStatus: 422, message: '绑定未纳管' },

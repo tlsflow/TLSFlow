@@ -8,6 +8,9 @@ export interface CertificateImportMaterial {
   pfxBase64?: string;
   pfxPassword?: string;
   jksBase64?: string;
+  jksPassword?: string;
+  jksKeyPassword?: string;
+  jksAlias?: string;
   p7bBase64?: string;
   declaredFormat?: CertificateFormat;
 }

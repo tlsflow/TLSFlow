@@ -94,7 +94,7 @@ export interface CertificateFormatCapabilityDto {
   importSupported: boolean;
   exportSupported: boolean;
   containsPrivateKey: 'never' | 'optional' | 'required';
-  implementation: 'node_crypto' | 'openssl' | 'controlled_error';
+  implementation: 'node_crypto' | 'openssl' | 'keytool' | 'controlled_error';
   limitations: string[];
 }
 
@@ -121,6 +121,9 @@ export interface ImportCertificateVersionInput {
   pfxBase64?: string;
   pfxPassword?: string;
   jksBase64?: string;
+  jksPassword?: string;
+  jksKeyPassword?: string;
+  jksAlias?: string;
   p7bBase64?: string;
   declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
@@ -152,7 +155,7 @@ export interface RequestCertificateFormatExportInput {
 }
 
 export interface CertificateFormatExportPlanDto extends CertificateVersionFormatDto {
-  exportMode: 'planned';
+  exportMode: 'planned' | 'generated';
   warnings: string[];
 }
 
@@ -164,6 +167,9 @@ export interface CertificateSourceSyncInput {
   pfxBase64?: string;
   pfxPassword?: string;
   jksBase64?: string;
+  jksPassword?: string;
+  jksKeyPassword?: string;
+  jksAlias?: string;
   p7bBase64?: string;
   declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
