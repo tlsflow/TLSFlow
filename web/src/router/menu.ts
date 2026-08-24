@@ -7,7 +7,7 @@ export const mainMenuItems: MenuItem[] = [
     module: 'dashboard',
     permission: 'dashboard.read',
     icon: 'dashboard',
-    description: '风险、到期、漂移和执行状态总览'
+    description: '应用、证书、Agent、网关和审计状态总览'
   },
   {
     title: '证书',
@@ -15,7 +15,7 @@ export const mainMenuItems: MenuItem[] = [
     module: 'certificate',
     permission: 'certificate.asset.read',
     icon: 'shield',
-    description: '证书库、绑定关系和到期风险',
+    description: '证书库、绑定关系和到期状态',
     children: [
       { title: '证书资产', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', description: '证书、私钥引用、指纹和到期时间' },
       { title: '证书格式配置', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则配置' }
@@ -54,9 +54,9 @@ export const mainMenuItems: MenuItem[] = [
     module: 'monitoring',
     permission: 'monitor.read',
     icon: 'pulse',
-    description: '告警、审计和风险事件',
+    description: '告警、审计和证书状态',
     children: [
-      { title: '监控告警', path: '/monitors', module: 'monitoring', permission: 'monitor.read', description: '到期、漂移和执行失败风险' },
+      { title: '监控告警', path: '/monitors', module: 'monitoring', permission: 'monitor.read', description: '到期、漂移和执行失败事件' },
       { title: '审计日志', path: '/audits', module: 'audit', permission: 'audit.read', description: '操作证据与合规导出' }
     ]
   },

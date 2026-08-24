@@ -8,7 +8,7 @@ const meta = computed(() => resolveRiskMeta(props.risk))
 
 <template>
   <span class="gc-risk" :class="`gc-risk--${meta.tone}`" :title="meta.description">
-    风险：{{ meta.label }}
+    级别：{{ meta.label }}
   </span>
 </template>
 

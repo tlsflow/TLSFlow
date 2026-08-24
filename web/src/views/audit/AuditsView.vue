@@ -16,15 +16,14 @@ const config: BusinessPageConfig = {
   columns: [
     { key: 'name', title: '操作/资源', candidates: ['action', 'operation', 'resourceName'] },
     { key: 'status', title: '结果', candidates: ['result', 'status', 'state'] },
-    { key: 'risk', title: '风险', candidates: ['risk', 'riskLevel'] },
     { key: 'createdAt', title: '时间', candidates: ['createdAt', 'timestamp'], kind: 'date' }
   ],
   metrics: [
     { title: '审计总数', description: '可追踪操作、审批和执行证据。', status: 'SUCCESS', risk: 'LOW' },
-    { title: '高危待处理', description: '高危操作失败或缺少证据链事件。', status: 'FAILED', risk: 'HIGH' }
+    { title: '失败事件', description: '执行失败或证据链缺失的操作记录。', status: 'FAILED', risk: 'HIGH' }
   ],
   emptyTitle: '暂无审计事件',
-  emptyDescription: '所有危险操作都应能回溯到对应的操作记录和任务记录。',
+  emptyDescription: '关键操作应能回溯到对应的操作记录和任务记录。',
   load: () => listAudits({ page: 1, pageSize: 20, sort: 'createdAt:desc' }),
   actions: [
     { label: '导出证据包', permission: 'audit.export', danger: true, confirmText: 'EXPORT', riskText: '导出包含操作证据和审计元数据，请确认合规用途。', run: () => exportAuditEvidence({ scope: 'current-filter', dryRun: true }) }
