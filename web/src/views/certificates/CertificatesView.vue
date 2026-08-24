@@ -903,6 +903,44 @@ async function removeVersion(row: CertificateVersionRow) {
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2v2H5V6Zm4 0h10v2H9V6ZM5 11h2v2H5v-2Zm4 0h10v2H9v-2ZM5 16h2v2H5v-2Zm4 0h10v2H9v-2Z" /></svg>
             </GcButton>
           </div>
+          <div class="certificate-page__category-tabs" role="group" :aria-label="t('certificates.list.filters.status')">
+            <button
+              class="certificate-page__category-tab"
+              :class="{ 'certificate-page__category-tab--active': certificateCategory === 'all' }"
+              type="button"
+              :aria-pressed="certificateCategory === 'all'"
+              @click="selectCertificateCategory('all')"
+            >
+              {{ t('businessPage.all') }}
+            </button>
+            <button
+              class="certificate-page__category-tab"
+              :class="{ 'certificate-page__category-tab--active': certificateCategory === 'valid' }"
+              type="button"
+              :aria-pressed="certificateCategory === 'valid'"
+              @click="selectCertificateCategory('valid')"
+            >
+              {{ t('certificates.list.lifecycle.valid') }}
+            </button>
+            <button
+              class="certificate-page__category-tab"
+              :class="{ 'certificate-page__category-tab--active': certificateCategory === 'expiringSoon' }"
+              type="button"
+              :aria-pressed="certificateCategory === 'expiringSoon'"
+              @click="selectCertificateCategory('expiringSoon')"
+            >
+              {{ t('certificates.list.lifecycle.expiringSoon') }}
+            </button>
+            <button
+              class="certificate-page__category-tab"
+              :class="{ 'certificate-page__category-tab--active': certificateCategory === 'expired' }"
+              type="button"
+              :aria-pressed="certificateCategory === 'expired'"
+              @click="selectCertificateCategory('expired')"
+            >
+              {{ t('certificates.list.lifecycle.expired') }}
+            </button>
+          </div>
           <span class="certificate-page__asset-count">{{ t('businessPage.total', { count: visibleAssetCount }) }}</span>
         </div>
 
@@ -921,54 +959,6 @@ async function removeVersion(row: CertificateVersionRow) {
             </GcPermissionButton>
           </template>
         </GcPageToolbar>
-      </section>
-
-      <section class="certificate-page__control-bar" :aria-label="t('certificates.list.filters.status')">
-        <div class="certificate-page__category-tabs" role="group" :aria-label="t('certificates.list.filters.status')">
-          <button
-            class="certificate-page__category-tab"
-            :class="{ 'certificate-page__category-tab--active': certificateCategory === 'all' }"
-            type="button"
-            :aria-pressed="certificateCategory === 'all'"
-            @click="selectCertificateCategory('all')"
-          >
-            {{ t('businessPage.all') }}
-          </button>
-          <button
-            class="certificate-page__category-tab"
-            :class="{ 'certificate-page__category-tab--active': certificateCategory === 'valid' }"
-            type="button"
-            :aria-pressed="certificateCategory === 'valid'"
-            @click="selectCertificateCategory('valid')"
-          >
-            {{ t('certificates.list.lifecycle.valid') }}
-          </button>
-          <button
-            class="certificate-page__category-tab"
-            :class="{ 'certificate-page__category-tab--active': certificateCategory === 'expiringSoon' }"
-            type="button"
-            :aria-pressed="certificateCategory === 'expiringSoon'"
-            @click="selectCertificateCategory('expiringSoon')"
-          >
-            {{ t('certificates.list.lifecycle.expiringSoon') }}
-          </button>
-          <button
-            class="certificate-page__category-tab"
-            :class="{ 'certificate-page__category-tab--active': certificateCategory === 'expired' }"
-            type="button"
-            :aria-pressed="certificateCategory === 'expired'"
-            @click="selectCertificateCategory('expired')"
-          >
-            {{ t('certificates.list.lifecycle.expired') }}
-          </button>
-        </div>
-
-        <div class="certificate-page__control-actions">
-          <label class="certificate-page__search-field">
-            <span>{{ t('certificates.list.filters.keyword') }}</span>
-            <input v-model="filters.keyword" type="search" :placeholder="t('certificates.list.placeholders.assetKeyword')" @change="updateFilters" />
-          </label>
-        </div>
       </section>
 
       <section v-if="filtersVisible" class="certificate-page__toolbar">
@@ -1799,19 +1789,6 @@ async function removeVersion(row: CertificateVersionRow) {
   flex: 0 1 auto;
 }
 
-.certificate-page__control-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-  flex-wrap: wrap;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
-  border-radius: var(--gc-radius-control);
-  background: var(--gc-color-surface-glass);
-  box-shadow: var(--gc-shadow-sm);
-}
-
 .certificate-page__category-tabs,
 .certificate-page__presentation-toggle {
   display: flex;
@@ -1850,42 +1827,6 @@ async function removeVersion(row: CertificateVersionRow) {
 .certificate-page__category-tab:focus-visible,
 .certificate-page__asset-record-trigger:focus-visible {
   outline: none;
-  box-shadow: var(--gc-shadow-focus);
-}
-
-.certificate-page__control-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--gc-space-2);
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.certificate-page__search-field {
-  display: flex;
-  align-items: center;
-  gap: var(--gc-space-2);
-  min-width: min(100%, calc(var(--gc-size-card-min) + var(--gc-space-10) + var(--gc-space-4)));
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.certificate-page__search-field input {
-  width: 100%;
-  min-height: var(--gc-control-height-sm);
-  min-width: 0;
-  padding: 0 var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-control);
-  color: var(--gc-color-text);
-  background: var(--gc-color-surface-field);
-}
-
-.certificate-page__search-field input:focus {
-  outline: none;
-  border-color: var(--gc-color-primary);
   box-shadow: var(--gc-shadow-focus);
 }
 
