@@ -432,7 +432,6 @@ export default {
   },
   tasks: {
       title: '전역 작업',
-      description: '현재 테넌트의 대기, 실행, 모니터링 및 시스템 작업을 확인합니다.',
       quick: { active: '활성 작업', recent: '최근 완료 작업' },
       tabs: { all: '전체 작업', execution: '실행 작업', monitoring: '모니터링 작업', system: '시스템 작업', other: '기타 작업' },
     aria: { openDrawer: '전역 작업 열기', tabs: '작업 분류' },
@@ -454,6 +453,18 @@ export default {
     actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지', forceCancel: '강제 종료', forceCancelConfirm: '이 작업을 강제 종료할까요? 진행 중인 원격 작업은 수동 확인이 필요할 수 있습니다.', forceCancelReason: '전체 작업에서 운영자가 강제 종료' },
     messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.', forceCancelFailed: '작업을 강제 종료하지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
+    pluginRefresh: {
+      subtitle: '플러그인 카탈로그 유지 관리 작업',
+      overview: { kicker: '새로 고침 결과', description: '{scope}을(를) 새로 고치고 최신 플러그인 참조를 사용 가능한 실행 노드에 동기화했습니다.' },
+      metrics: { catalogVersions: '카탈로그 버전', enabledVersions: '활성 버전', agentsProjected: '동기화된 노드', agentsFailed: '동기화 실패' },
+      sections: { timeline: '처리 과정', catalogVersions: '현재 플러그인 버전', failures: '동기화 문제' },
+      actions: { showTechnicalDetails: '기술 세부 정보 보기' },
+      fields: { taskId: '작업 ID' },
+      values: { unavailable: '없음', noVersions: '반환된 플러그인 버전이 없습니다', triggerSource: '플러그인 카탈로그 새로 고침' },
+      summary: { succeeded: '새로 고침 완료: 플러그인 버전 {versions}개를 갱신하고 실행 노드 {projected}개에 동기화했습니다.', failed: '플러그인 카탈로그 새로 고침에 실패했습니다.', cancelled: '플러그인 카탈로그 새로 고침이 취소되었습니다.', retryWaiting: '나중에 자동으로 다시 시도합니다.', waitingResult: '새로 고침 결과를 기다리는 중입니다.', awaitingConfirmation: '새로 고침 결과 확인이 필요합니다.', cancelling: '새로 고침을 취소하는 중입니다.', queued: '새로 고침이 대기열에 추가되었습니다.', running: '플러그인 카탈로그를 새로 고치는 중입니다.' },
+      events: { created: '새로 고침 작업이 생성되어 처리를 기다리고 있습니다.', claimed: '백그라운드 처리기에 작업을 할당했습니다.', started: '내장 플러그인 카탈로그 읽기를 시작했습니다.', progress: '플러그인 버전을 정리하고 실행 노드에 동기화하는 중입니다.', retryScheduled: '처리가 완료되지 않아 자동 재시도를 예약했습니다.', waitingResult: '실행 노드 결과를 기다리는 중입니다.', awaitingConfirmation: '새로 고침 결과를 확인해야 합니다.', cancelRequested: '취소 요청을 받았습니다.', expired: '작업 시간이 초과되었습니다.', cancelled: '새로 고침 작업이 취소되었습니다.', succeeded: '새로 고침 완료: 버전 {versions}개, 노드 {projected}개를 동기화했습니다.', failed: '새로 고침 실패: {reason}' },
+      versionStatus: { enabled: '활성', disabled: '비활성', other: '기타 상태' }
+    },
     approval: {
       title: '승인 작업 세부 정보',
       description: '승인 내용, 상태 이력 및 가능한 작업을 확인합니다.',

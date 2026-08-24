@@ -432,7 +432,6 @@ export default {
   },
   tasks: {
       title: 'グローバルタスク',
-      description: '現在のテナントのキュー、実行、監視、システムタスクを確認します。',
       quick: { active: '進行中のタスク', recent: '最近完了したタスク' },
       tabs: { all: 'すべて', execution: '実行タスク', monitoring: '監視タスク', system: 'システムタスク', other: 'その他のタスク' },
     aria: { openDrawer: 'グローバルタスクを開く', tabs: 'タスク分類' },
@@ -454,6 +453,18 @@ export default {
     actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ', forceCancel: '強制終了', forceCancelConfirm: 'このタスクを強制終了しますか？ 実行中のリモート処理は手動確認が必要になる場合があります。', forceCancelReason: 'グローバルタスクからオペレーターが強制終了' },
     messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。', forceCancelFailed: 'タスクの強制終了に失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
+    pluginRefresh: {
+      subtitle: 'プラグインカタログ保守タスク',
+      overview: { kicker: '更新結果', description: '{scope} を更新し、最新のプラグイン参照を利用可能な実行ノードへ同期しました。' },
+      metrics: { catalogVersions: 'カタログバージョン', enabledVersions: '有効なバージョン', agentsProjected: '同期済みノード', agentsFailed: '同期失敗' },
+      sections: { timeline: '処理履歴', catalogVersions: '現在のプラグインバージョン', failures: '同期エラー' },
+      actions: { showTechnicalDetails: '技術詳細を表示' },
+      fields: { taskId: 'タスク ID' },
+      values: { unavailable: '未取得', noVersions: 'プラグインバージョンは返されませんでした', triggerSource: 'プラグインカタログ更新' },
+      summary: { succeeded: '更新完了：{versions} 件のプラグインバージョンを更新し、{projected} 台の実行ノードへ同期しました。', failed: 'プラグインカタログの更新に失敗しました。', cancelled: 'プラグインカタログの更新をキャンセルしました。', retryWaiting: '後で自動的に再試行します。', waitingResult: '更新結果を待っています。', awaitingConfirmation: '更新結果の確認が必要です。', cancelling: '更新をキャンセルしています。', queued: '更新をキューに追加しました。', running: 'プラグインカタログを更新しています。' },
+      events: { created: '更新タスクを作成しました。処理を待っています。', claimed: 'バックグラウンド処理へ割り当てました。', started: '組み込みプラグインカタログの読み取りを開始しました。', progress: 'バージョンを整理し、実行ノードへ同期しています。', retryScheduled: '処理が完了せず、自動再試行を予約しました。', waitingResult: '実行ノードの結果を待っています。', awaitingConfirmation: '更新結果を確認してください。', cancelRequested: 'キャンセル要求を受け付けました。', expired: 'タスクがタイムアウトしました。', cancelled: '更新タスクをキャンセルしました。', succeeded: '更新完了：{versions} 件、{projected} 台のノードを同期しました。', failed: '更新失敗：{reason}' },
+      versionStatus: { enabled: '有効', disabled: '無効', other: 'その他' }
+    },
     approval: {
       title: '承認タスクの詳細',
       description: '承認内容、状態の履歴、実行できる操作を確認します。',

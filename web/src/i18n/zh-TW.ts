@@ -431,7 +431,6 @@ export default {
   },
   tasks: {
       title: "全域任務",
-      description: "查看目前租戶中的排隊、執行、監控與系統任務。",
       quick: { active: "活動任務", recent: "最近完成" },
       tabs: { all: "全部任務", execution: "執行任務", monitoring: "監控任務", system: "系統任務", other: "其他任務" },
     aria: { openDrawer: "開啟全域任務", tabs: "任務分類" },
@@ -453,6 +452,18 @@ export default {
     actions: { backToList: "返回任務列表", viewAll: "查看所有任務", viewRawLogs: "查看原始日誌", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁", forceCancel: "強制結束", forceCancelConfirm: "確定要強制結束此任務嗎？正在進行的遠端動作可能仍需人工確認。", forceCancelReason: "由操作員從全域任務強制結束" },
     messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。", forceCancelFailed: "強制結束任務失敗。" },
     values: { system: "系統", empty: "暫無記錄", none: "無" },
+    pluginRefresh: {
+      subtitle: "外掛目錄維護任務",
+      overview: { kicker: "刷新結果", description: "本次操作刷新了 {scope}，並將最新外掛引用同步至可用執行節點。" },
+      metrics: { catalogVersions: "目錄版本", enabledVersions: "已啟用版本", agentsProjected: "已同步節點", agentsFailed: "同步失敗" },
+      sections: { timeline: "處理過程", catalogVersions: "目前外掛版本", failures: "同步異常" },
+      actions: { showTechnicalDetails: "查看技術詳情" },
+      fields: { taskId: "任務編號" },
+      values: { unavailable: "暫無", noVersions: "本次沒有返回外掛版本", triggerSource: "外掛目錄刷新" },
+      summary: { succeeded: "刷新完成，共更新 {versions} 個外掛版本，並同步 {projected} 個執行節點。", failed: "外掛目錄刷新失敗。", cancelled: "外掛目錄刷新已取消。", retryWaiting: "外掛目錄刷新將稍後自動重試。", waitingResult: "正在等待外掛目錄刷新結果。", awaitingConfirmation: "外掛目錄刷新結果待確認。", cancelling: "正在取消外掛目錄刷新。", queued: "外掛目錄刷新已排隊。", running: "正在刷新外掛目錄。" },
+      events: { created: "已建立刷新任務，等待系統處理。", claimed: "任務已分配給背景處理器。", started: "開始讀取內建外掛目錄。", progress: "正在整理外掛版本並同步執行節點。", retryScheduled: "本次處理未完成，系統已安排自動重試。", waitingResult: "正在等待執行節點返回結果。", awaitingConfirmation: "刷新結果已產生，等待確認。", cancelRequested: "已收到取消請求。", expired: "任務已逾時。", cancelled: "刷新任務已取消。", succeeded: "刷新完成：{versions} 個外掛版本，已同步 {projected} 個執行節點。", failed: "刷新失敗：{reason}" },
+      versionStatus: { enabled: "已啟用", disabled: "未啟用", other: "其他狀態" }
+    },
     approval: {
       title: "審批任務詳情",
       description: "查看審批內容、處理狀態與後續操作。",

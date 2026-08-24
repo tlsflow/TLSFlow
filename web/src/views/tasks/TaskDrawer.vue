@@ -20,6 +20,18 @@ const { t, te } = useI18n()
 const router = useRouter()
 
 const PAGE_SIZE = 100
+const TASK_FALLBACK_REFRESH_INTERVAL_MS = 15_000
+const QUICK_ACTIVE_STATUSES: readonly TaskStatus[] = [
+  'QUEUED',
+  'RUNNING',
+  'RETRY_WAITING',
+  'WAITING_RESULT',
+  'AWAITING_CONFIRMATION',
+  'CANCELLING',
+]
+const QUICK_COMPLETED_STATUSES: readonly TaskStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED']
+const QUICK_ACTIVE_STATUS_SET: ReadonlySet<TaskStatus> = new Set(QUICK_ACTIVE_STATUSES)
+const QUICK_COMPLETED_STATUS_SET: ReadonlySet<TaskStatus> = new Set(QUICK_COMPLETED_STATUSES)
 const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
   'MONITORING_BATCH',
   'MONITORING_PROBE',
@@ -36,10 +48,63 @@ const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
   'REPORT_EXPORT',
   'NOTIFICATION_DELIVERY',
 ])
+const PLUGIN_REFRESH_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'CREATED',
+  'CLAIMED',
+  'STARTED',
+  'PROGRESS',
+  'RETRY_SCHEDULED',
+  'WAITING_RESULT',
+  'AWAITING_CONFIRMATION',
+  'CANCEL_REQUESTED',
+  'SUCCEEDED',
+  'FAILED',
+  'EXPIRED',
+  'CANCELLED',
+])
 type TaskTabCategory = TaskCategory | 'OTHER'
 interface AcmeRenewalTaskPresentation {
   readonly providerName: string
   readonly certificateName: string
+}
+
+interface PluginRefreshVersion {
+  readonly id?: string
+  readonly pluginId?: string
+  readonly version?: string
+  readonly status?: string
+}
+
+type PluginRefreshChangeType = 'ADDED' | 'UPDATED' | 'REMOVED' | 'UNCHANGED'
+
+interface PluginRefreshChange {
+  readonly pluginId: string
+  readonly before?: PluginRefreshVersion
+  readonly after?: PluginRefreshVersion
+  readonly changeType: PluginRefreshChangeType
+}
+
+interface PluginRefreshProjection {
+  readonly attempted?: number
+  readonly projected?: number
+  readonly skipped?: number
+  readonly failed: readonly Record<string, unknown>[]
+}
+
+interface PluginRefreshResult {
+  readonly available: boolean
+  readonly refreshedAt?: string
+  readonly versions: readonly PluginRefreshVersion[]
+  readonly beforeVersions: readonly PluginRefreshVersion[]
+  readonly changes: readonly PluginRefreshChange[]
+  readonly projection: PluginRefreshProjection
+}
+
+interface PluginRefreshTimelineItem {
+  readonly id: string
+  readonly createdAt: string
+  readonly description: string
+  readonly tone: 'success' | 'warning' | 'danger' | 'info' | 'muted'
 }
 
 interface ApprovalTimelineItem {
@@ -52,8 +117,13 @@ interface ApprovalTimelineItem {
 
 const detailLoading = ref(false)
 const detailError = ref('')
+const quickLoading = ref(false)
+const quickRefreshQueued = ref(false)
+const realtimeConnected = ref(false)
 const quickActiveTasks = ref<TaskRun[]>([])
 const quickRecentCompleted = ref<TaskRun[]>([])
+const fallbackActiveTasks = ref<TaskRun[]>([])
+const fallbackRecentCompleted = ref<TaskRun[]>([])
 const detail = ref<TaskDetail | null>(null)
 const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
 const automationRun = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
@@ -90,6 +160,7 @@ const acmeRenewalTaskPresentationRequests = new Set<string>()
 const acmeRenewalTaskPresentationMisses = new Set<string>()
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
+let taskRefreshTimer: number | undefined
 const detailTask = computed(() => detail.value?.task ?? null)
 const acmeAttemptHistory = computed(() => detailTask.value?.taskType === 'ACME_CERTIFICATE_RENEWAL'
   ? buildAcmeTaskAttemptHistory(detail.value?.attempts ?? [])
@@ -106,6 +177,9 @@ const visibleDetailEvents = computed(() => {
     ? events.filter((event) => event.eventType !== 'LOG')
     : events
 })
+const pluginRefreshResult = computed(() => buildPluginRefreshResult(detail.value?.events ?? []))
+const pluginRefreshEnabledCount = computed(() => pluginRefreshResult.value.versions.filter((version) => version.status?.toUpperCase() === 'ENABLED').length)
+const pluginRefreshTimeline = computed(() => buildPluginRefreshTimeline(detail.value?.events ?? [], detailTask.value))
 const approvalTimeline = computed<ApprovalTimelineItem[]>(() => {
   const task = approvalTask.value
   if (!task) return []
@@ -128,12 +202,21 @@ const approvalTimeline = computed<ApprovalTimelineItem[]>(() => {
 watch(() => props.open, (open) => {
   if (open) {
     window.addEventListener('keydown', handleKeydown)
+    void nextTick(() => {
+      // 中文说明：实时首帧可能尚未到达，先用接口补齐历史记录；有实时数据时不重复请求。
+      if (!realtimeConnected.value || (quickActiveTasks.value.length === 0 && quickRecentCompleted.value.length === 0)) {
+        void refreshQuickTasks()
+      }
+    })
   } else {
     window.removeEventListener('keydown', handleKeydown)
     if (!switchingToAllTasks.value) allTasksModalOpen.value = false
     detail.value = null
     resetAutomationDetail()
   }
+}, { immediate: true })
+watch([() => props.open, realtimeConnected], ([open, connected]) => {
+  updateTaskRefreshTimer(Boolean(open) && !connected)
 }, { immediate: true })
 watch(allTasksCategory, () => {
   if (!allTasksModalOpen.value) return
@@ -164,6 +247,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  stopTaskRefreshTimer()
   disposeTaskActivity?.()
   disposeTaskRealtime?.()
   disposeTaskActivity = undefined
@@ -171,7 +255,10 @@ onBeforeUnmount(() => {
 })
 
 onMounted(() => {
-  disposeTaskActivity = subscribeTaskActivity(applyQuickTaskActivity)
+  disposeTaskActivity = subscribeTaskActivity((state) => {
+    realtimeConnected.value = state.connected
+    applyQuickTaskActivity(state)
+  })
   disposeTaskRealtime = subscribeTaskRealtime((message) => {
     handleRealtimeMessage(message)
   })
@@ -207,10 +294,71 @@ function applyQuickTasksState(next: { active: TaskRun[]; recent: TaskRun[] }): v
 function applyQuickTaskActivity(state: TaskActivityState): void {
   appliedQuickKeyword.value = keyword.value.trim()
   const keywordValue = appliedQuickKeyword.value
+  const activeTasks = mergeTasks(fallbackActiveTasks.value, state.activeTasks)
+  const recentTasks = mergeTasks(fallbackRecentCompleted.value, state.recentTasks)
   applyQuickTasksState({
-    active: sortTasks(state.activeTasks.filter((task) => matchesTaskKeyword(task, keywordValue))),
-    recent: sortTasks(state.recentTasks.filter((task) => matchesTaskKeyword(task, keywordValue))).slice(0, RECENT_TASK_LIMIT),
+    active: sortTasks(activeTasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, keywordValue))),
+    recent: sortTasks(recentTasks.filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, keywordValue))).slice(0, RECENT_TASK_LIMIT),
   })
+}
+
+async function requestQuickTasks(status: TaskStatus): Promise<TaskRun[]> {
+  const result = await listTasks({
+    page: 1,
+    pageSize: PAGE_SIZE,
+    keyword: keyword.value.trim() || undefined,
+    filters: { status },
+    includeAll: true,
+  })
+  return [...(result.data?.items ?? [])]
+}
+
+async function refreshQuickTasks(): Promise<void> {
+  if (quickLoading.value) {
+    quickRefreshQueued.value = true
+    return
+  }
+  quickLoading.value = true
+  try {
+    const batches = await Promise.all([
+      ...QUICK_ACTIVE_STATUSES.map((status) => requestQuickTasks(status)),
+      ...QUICK_COMPLETED_STATUSES.map((status) => requestQuickTasks(status)),
+    ])
+    const tasks = batches.flat().filter(isQuickTask)
+    const active = tasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status))
+    const recent = tasks.filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status))
+    // 中文说明：接口结果只作为兜底；实时状态已存在时由实时任务覆盖同一 ID，避免旧响应回写旧状态。
+    fallbackActiveTasks.value = mergeTasks(active, fallbackActiveTasks.value).filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task))
+    fallbackRecentCompleted.value = mergeTasks(recent, fallbackRecentCompleted.value).filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task)).slice(0, 50)
+    applyQuickTaskActivity(currentTaskActivity())
+  } catch {
+    // 中文说明：实时流仍会继续工作，兜底请求失败时不清空已经展示的任务。
+  } finally {
+    quickLoading.value = false
+    if (quickRefreshQueued.value && props.open && !realtimeConnected.value) {
+      quickRefreshQueued.value = false
+      void refreshQuickTasks()
+    } else {
+      quickRefreshQueued.value = false
+    }
+  }
+}
+
+function updateTaskRefreshTimer(shouldRun: boolean): void {
+  if (!shouldRun) {
+    stopTaskRefreshTimer()
+    return
+  }
+  if (taskRefreshTimer !== undefined) return
+  taskRefreshTimer = window.setInterval(() => {
+    if (props.open && !realtimeConnected.value) void refreshQuickTasks()
+  }, TASK_FALLBACK_REFRESH_INTERVAL_MS)
+}
+
+function stopTaskRefreshTimer(): void {
+  if (taskRefreshTimer === undefined) return
+  window.clearInterval(taskRefreshTimer)
+  taskRefreshTimer = undefined
 }
 
 async function openAllTasks(): Promise<void> {
@@ -400,6 +548,13 @@ function submitAllTasksSearch(): void {
 
 function applyRealtimeTaskSnapshot(message: TaskRealtimeMessage): void {
   if (message.type === 'snapshot') {
+    const active = message.activeTasks.filter((task) => QUICK_ACTIVE_STATUS_SET.has(task.status) && isQuickTask(task))
+    const recent = (message.recentTasks ?? []).filter((task) => QUICK_COMPLETED_STATUS_SET.has(task.status) && isQuickTask(task))
+    // 中文说明：空首帧不能抹掉 REST 兜底结果，避免代理或服务端暂时没有推送历史记录时面板变空。
+    if (active.length > 0 || recent.length > 0 || (fallbackActiveTasks.value.length === 0 && fallbackRecentCompleted.value.length === 0)) {
+      fallbackActiveTasks.value = active
+      fallbackRecentCompleted.value = recent.slice(0, 50)
+    }
     message.activeTasks.forEach((task) => applyRealtimeTaskToAllTasks(task))
     message.recentTasks?.forEach((task) => applyRealtimeTaskToAllTasks(task))
     return
@@ -414,6 +569,7 @@ function handleRealtimeMessage(message: TaskRealtimeMessage): void {
 }
 
 function applyRealtimeTaskChange(task: TaskRun): void {
+  updateFallbackTask(task)
   applyRealtimeTaskToAllTasks(task)
   if (detailTask.value?.id === task.id && detail.value) {
     detail.value = { ...detail.value, task }
@@ -423,6 +579,20 @@ function applyRealtimeTaskChange(task: TaskRun): void {
     forceCancelTarget.value = task
     if (!canForceCancel(task) && !forceCancelLoading.value) forceCancelConfirmOpen.value = false
   }
+}
+
+function updateFallbackTask(task: TaskRun): void {
+  const active = fallbackActiveTasks.value.filter((item) => item.id !== task.id)
+  const recent = fallbackRecentCompleted.value.filter((item) => item.id !== task.id)
+  if (!isQuickTask(task)) {
+    fallbackActiveTasks.value = active
+    fallbackRecentCompleted.value = recent
+    return
+  }
+  if (QUICK_ACTIVE_STATUS_SET.has(task.status)) active.push(task)
+  if (QUICK_COMPLETED_STATUS_SET.has(task.status)) recent.unshift(task)
+  fallbackActiveTasks.value = sortTasks(active)
+  fallbackRecentCompleted.value = sortTasks(recent).slice(0, 50)
 }
 
 function applyLocalTaskChange(task: TaskRun): void {
@@ -472,6 +642,322 @@ function localTime(value?: string): string {
 function recordValue(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   return value === undefined || value === null ? t('common.notAvailable') : typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function eventTypeOf(event: Record<string, unknown>): string {
+  return String(event.eventType ?? event.type ?? '').toUpperCase()
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+function eventDataRecord(event: Record<string, unknown>): Record<string, unknown> | undefined {
+  const value = event.eventData
+  const record = recordFromUnknown(value)
+  if (record) return record
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  try {
+    return recordFromUnknown(JSON.parse(value))
+  } catch {
+    return undefined
+  }
+}
+
+function buildPluginRefreshResult(events: readonly Record<string, unknown>[]): PluginRefreshResult {
+  const terminalEvent = [...events].reverse().find((event) => ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(eventTypeOf(event)))
+  const eventData = terminalEvent ? eventDataRecord(terminalEvent) : undefined
+  const result = recordFromUnknown(eventData?.result) ?? recordFromUnknown(eventData?.detail) ?? eventData
+  const versions = Array.isArray(result?.versions)
+    ? result.versions.flatMap((item) => pluginRefreshVersionFromUnknown(item))
+    : []
+  const explicitBeforeVersions = firstArrayFromRecord(result, ['beforeVersions', 'previousVersions', 'before'])
+    .flatMap((item) => pluginRefreshVersionFromUnknown(item))
+  const beforeVersions = explicitBeforeVersions.length > 0
+    ? explicitBeforeVersions
+    : (Array.isArray(result?.versions) ? result.versions.flatMap((item) => pluginRefreshPreviousVersionFromUnknown(item)) : [])
+  const changes = buildPluginRefreshChanges(
+    Array.isArray(result?.changes) ? result.changes : [],
+    beforeVersions,
+    versions,
+  )
+  const projection = recordFromUnknown(result?.projection)
+  const failed = Array.isArray(projection?.failed)
+    ? projection.failed.flatMap((item) => {
+      const record = recordFromUnknown(item)
+      return record ? [record] : []
+    })
+    : []
+  return {
+    available: Boolean(result && (
+      Array.isArray(result.versions)
+      || Array.isArray(result.changes)
+      || Array.isArray(result.beforeVersions)
+      || recordFromUnknown(result.projection)
+      || stringFromRecord(result, 'refreshedAt')
+    )),
+    refreshedAt: stringFromRecord(result, 'refreshedAt'),
+    versions,
+    beforeVersions,
+    changes,
+    projection: {
+      attempted: numberFromRecord(projection, 'attempted'),
+      projected: numberFromRecord(projection, 'projected'),
+      skipped: numberFromRecord(projection, 'skipped'),
+      failed,
+    },
+  }
+}
+
+function firstArrayFromRecord(record: Record<string, unknown> | undefined, keys: readonly string[]): unknown[] {
+  for (const key of keys) {
+    if (Array.isArray(record?.[key])) return record[key] as unknown[]
+  }
+  return []
+}
+
+function pluginRefreshVersionFromUnknown(value: unknown): PluginRefreshVersion[] {
+  const record = recordFromUnknown(value)
+  if (!record) return []
+  return [{
+    id: firstNonEmptyString(stringFromRecord(record, 'id'), stringFromRecord(record, 'pluginVersionId')),
+    pluginId: firstNonEmptyString(stringFromRecord(record, 'pluginId'), stringFromRecord(record, 'pluginKey'), stringFromRecord(record, 'id')),
+    version: firstNonEmptyString(stringFromRecord(record, 'version'), stringFromRecord(record, 'currentVersion'), stringFromRecord(record, 'previousVersion')),
+    status: firstNonEmptyString(stringFromRecord(record, 'status'), stringFromRecord(record, 'currentStatus'), stringFromRecord(record, 'previousStatus')),
+  }]
+}
+
+function pluginRefreshPreviousVersionFromUnknown(value: unknown): PluginRefreshVersion[] {
+  const record = recordFromUnknown(value)
+  if (!record) return []
+  const version = firstNonEmptyString(
+    stringFromRecord(record, 'previousVersion'),
+    stringFromRecord(record, 'beforeVersion'),
+  )
+  const status = firstNonEmptyString(
+    stringFromRecord(record, 'previousStatus'),
+    stringFromRecord(record, 'beforeStatus'),
+  )
+  if (!version && !status) return []
+  return [{
+    id: firstNonEmptyString(stringFromRecord(record, 'previousId'), stringFromRecord(record, 'beforeId')),
+    pluginId: firstNonEmptyString(stringFromRecord(record, 'pluginId'), stringFromRecord(record, 'pluginKey')),
+    version,
+    status,
+  }]
+}
+
+function buildPluginRefreshChanges(
+  rawChanges: readonly unknown[],
+  beforeVersions: readonly PluginRefreshVersion[],
+  afterVersions: readonly PluginRefreshVersion[],
+): PluginRefreshChange[] {
+  const parsed = rawChanges.flatMap((item) => {
+    const record = recordFromUnknown(item)
+    if (!record) return []
+    const pluginId = firstNonEmptyString(stringFromRecord(record, 'pluginId'), stringFromRecord(record, 'pluginKey'))
+    if (!pluginId) return []
+    const before = pluginRefreshVersionFromUnknown(record.before ?? record.previous).at(0) ?? pluginRefreshLegacyVersion(record, 'previous')
+    const after = pluginRefreshVersionFromUnknown(record.after ?? record.current).at(0) ?? pluginRefreshLegacyVersion(record, 'current')
+    const changeType = normalizePluginRefreshChangeType(stringFromRecord(record, 'changeType'))
+    return [{
+      pluginId,
+      ...(before ? { before: { ...before, pluginId } } : {}),
+      ...(after ? { after: { ...after, pluginId } } : {}),
+      changeType: changeType ?? inferPluginRefreshChangeType(before, after),
+    }]
+  })
+  if (parsed.length > 0) return parsed
+
+  const beforeByPlugin = new Map(beforeVersions.flatMap((version) => version.pluginId ? [[version.pluginId, version] as const] : []))
+  const afterByPlugin = new Map(afterVersions.flatMap((version) => version.pluginId ? [[version.pluginId, version] as const] : []))
+  const pluginIds = new Set([...beforeByPlugin.keys(), ...afterByPlugin.keys()])
+  return [...pluginIds].sort((left, right) => left.localeCompare(right)).map((pluginId) => {
+    const before = beforeByPlugin.get(pluginId)
+    const after = afterByPlugin.get(pluginId)
+    return {
+      pluginId,
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+      changeType: inferPluginRefreshChangeType(before, after),
+    }
+  })
+}
+
+function pluginRefreshLegacyVersion(record: Record<string, unknown>, side: 'previous' | 'current'): PluginRefreshVersion | undefined {
+  const version = firstNonEmptyString(
+    side === 'previous' ? stringFromRecord(record, 'previousVersion') : stringFromRecord(record, 'currentVersion'),
+    side === 'previous' ? stringFromRecord(record, 'beforeVersion') : stringFromRecord(record, 'afterVersion'),
+  )
+  const status = firstNonEmptyString(
+    side === 'previous' ? stringFromRecord(record, 'previousStatus') : stringFromRecord(record, 'currentStatus'),
+    side === 'previous' ? stringFromRecord(record, 'beforeStatus') : stringFromRecord(record, 'afterStatus'),
+  )
+  return version || status ? { version, status } : undefined
+}
+
+function normalizePluginRefreshChangeType(value?: string): PluginRefreshChangeType | undefined {
+  const normalized = value?.toUpperCase()
+  return normalized === 'ADDED' || normalized === 'UPDATED' || normalized === 'REMOVED' || normalized === 'UNCHANGED'
+    ? normalized
+    : undefined
+}
+
+function inferPluginRefreshChangeType(before?: PluginRefreshVersion, after?: PluginRefreshVersion): PluginRefreshChangeType {
+  if (!before) return 'ADDED'
+  if (!after) return 'REMOVED'
+  return before.version !== after.version || before.status !== after.status ? 'UPDATED' : 'UNCHANGED'
+}
+
+function buildPluginRefreshTimeline(events: readonly Record<string, unknown>[], task: TaskRun | null): PluginRefreshTimelineItem[] {
+  if (task?.taskType !== 'PLUGIN_REFERENCE_REFRESH') return []
+  const result = buildPluginRefreshResult(events)
+  return events
+    .filter((event) => PLUGIN_REFRESH_EVENT_TYPES.has(eventTypeOf(event)))
+    .map((event, index) => {
+      const eventType = eventTypeOf(event)
+      const eventData = eventDataRecord(event)
+      return {
+        id: String(event.id ?? `${eventType || 'event'}-${index + 1}`),
+        createdAt: firstNonEmptyString(stringFromRecord(event, 'createdAt'), stringFromRecord(event, 'timestamp')) ?? task.createdAt,
+        description: pluginRefreshEventDescription(eventType, task, eventData, result),
+        tone: pluginRefreshEventTone(eventType),
+      }
+    })
+}
+
+function pluginRefreshEventDescription(
+  eventType: string,
+  task: TaskRun,
+  eventData: Record<string, unknown> | undefined,
+  result: PluginRefreshResult,
+): string {
+  if (eventType === 'SUCCEEDED') {
+    return t('tasks.pluginRefresh.events.succeeded', {
+      versions: result.versions.length,
+      projected: pluginRefreshCount(result.projection.projected, result.available),
+    })
+  }
+  if (eventType === 'FAILED') {
+    return t('tasks.pluginRefresh.events.failed', {
+      reason: firstNonEmptyString(stringFromRecord(eventData, 'errorMessage'), task.lastErrorMessage) ?? t('tasks.values.none'),
+    })
+  }
+  const eventKey: Record<string, string> = {
+    CREATED: 'created',
+    CLAIMED: 'claimed',
+    STARTED: 'started',
+    PROGRESS: 'progress',
+    RETRY_SCHEDULED: 'retryScheduled',
+    WAITING_RESULT: 'waitingResult',
+    AWAITING_CONFIRMATION: 'awaitingConfirmation',
+    CANCEL_REQUESTED: 'cancelRequested',
+    EXPIRED: 'expired',
+    CANCELLED: 'cancelled',
+  }
+  return t(`tasks.pluginRefresh.events.${eventKey[eventType] ?? 'progress'}`)
+}
+
+function pluginRefreshEventTone(eventType: string): PluginRefreshTimelineItem['tone'] {
+  if (eventType === 'SUCCEEDED') return 'success'
+  if (['FAILED', 'EXPIRED', 'CANCELLED'].includes(eventType)) return 'danger'
+  if (['RETRY_SCHEDULED', 'AWAITING_CONFIRMATION', 'CANCEL_REQUESTED'].includes(eventType)) return 'warning'
+  if (['CLAIMED', 'STARTED', 'PROGRESS', 'WAITING_RESULT'].includes(eventType)) return 'info'
+  return 'muted'
+}
+
+function pluginRefreshTaskSummary(task: TaskRun): string {
+  const result = pluginRefreshResult.value
+  if (task.status === 'SUCCEEDED') {
+    return t('tasks.pluginRefresh.summary.succeeded', {
+      versions: result.versions.length,
+      projected: pluginRefreshCount(result.projection.projected, result.available),
+    })
+  }
+  if (task.status === 'FAILED') return task.lastErrorMessage || t('tasks.pluginRefresh.summary.failed')
+  if (task.status === 'CANCELLED') return t('tasks.pluginRefresh.summary.cancelled')
+  if (task.status === 'RETRY_WAITING') return t('tasks.pluginRefresh.summary.retryWaiting')
+  if (task.status === 'WAITING_RESULT') return t('tasks.pluginRefresh.summary.waitingResult')
+  if (task.status === 'AWAITING_CONFIRMATION') return t('tasks.pluginRefresh.summary.awaitingConfirmation')
+  if (task.status === 'CANCELLING') return t('tasks.pluginRefresh.summary.cancelling')
+  if (task.status === 'QUEUED') return t('tasks.pluginRefresh.summary.queued')
+  return t('tasks.pluginRefresh.summary.running')
+}
+
+function pluginRefreshScope(task: TaskRun): string {
+  const scope = firstNonEmptyString(
+    stringFromRecord(task.payload, 'scope'),
+    stringFromRecord(task.resourceSummary, 'scope'),
+  )
+  return normalizeTaskRelatedName(scope) ?? t('tasks.pluginRefresh.values.unavailable')
+}
+
+function pluginRefreshCount(value: number | undefined, available = true): string {
+  return !available || value === undefined ? t('tasks.pluginRefresh.values.unavailable') : String(value)
+}
+
+function pluginRefreshVersionLabel(version: PluginRefreshVersion): string {
+  const pluginId = version.pluginId || t('tasks.pluginRefresh.values.unavailable')
+  return version.version ? `${pluginId} · ${version.version}` : pluginId
+}
+
+function pluginRefreshVersionStatusLabel(status?: string): string {
+  const normalized = status?.toUpperCase()
+  if (normalized === 'ENABLED' || normalized === 'ACTIVE') return t('tasks.pluginRefresh.versionStatus.enabled')
+  if (normalized === 'DISABLED' || normalized === 'RETIRED') return t('tasks.pluginRefresh.versionStatus.disabled')
+  return t('tasks.pluginRefresh.versionStatus.other')
+}
+
+function pluginRefreshVersionTone(status?: string): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
+  const normalized = status?.toUpperCase()
+  if (normalized === 'ENABLED' || normalized === 'ACTIVE') return 'success'
+  if (normalized === 'DISABLED' || normalized === 'RETIRED') return 'muted'
+  return 'warning'
+}
+
+function pluginRefreshVersionValue(version?: PluginRefreshVersion): string {
+  return version?.version || t('tasks.pluginRefresh.values.unavailable')
+}
+
+function pluginRefreshChangeForVersion(version: PluginRefreshVersion): PluginRefreshChange | undefined {
+  const pluginId = version.pluginId
+  return pluginId ? pluginRefreshResult.value.changes.find((change) => change.pluginId === pluginId) : undefined
+}
+
+function pluginRefreshVersionTransition(version: PluginRefreshVersion): string | undefined {
+  const change = pluginRefreshChangeForVersion(version)
+  if (!change || change.changeType === 'UNCHANGED') return undefined
+  const before = pluginRefreshVersionValue(change.before)
+  const after = pluginRefreshVersionValue(change.after)
+  return before === after ? undefined : `${before} → ${after}`
+}
+
+function pluginRefreshStatusTransition(version: PluginRefreshVersion): string | undefined {
+  const change = pluginRefreshChangeForVersion(version)
+  if (!change || change.changeType === 'UNCHANGED' || !change.before || !change.after) return undefined
+  const before = pluginRefreshVersionStatusLabel(change.before.status)
+  const after = pluginRefreshVersionStatusLabel(change.after.status)
+  return before === after ? undefined : `${before} → ${after}`
+}
+
+function pluginRefreshFailureTarget(failure: Record<string, unknown>): string {
+  return firstNonEmptyString(
+    stringFromRecord(failure, 'agentId'),
+    stringFromRecord(failure, 'tenantId'),
+  ) ?? t('tasks.pluginRefresh.values.unavailable')
+}
+
+function pluginRefreshFailureMessage(failure: Record<string, unknown>): string {
+  return firstNonEmptyString(
+    stringFromRecord(failure, 'error'),
+    stringFromRecord(failure, 'errorMessage'),
+    stringFromRecord(failure, 'message'),
+  ) ?? t('tasks.pluginRefresh.values.unavailable')
+}
+
+function taskTriggerSourceLabel(task: TaskRun): string {
+  if (task.taskType === 'PLUGIN_REFERENCE_REFRESH') return t('tasks.pluginRefresh.values.triggerSource')
+  return task.triggerSource
 }
 
 function taskStatusLabel(task: TaskRun): string {
@@ -1097,7 +1583,6 @@ function recordString(record: InternalCaRecord, key: string): string {
       <header class="task-popover__header">
         <div>
           <h2 id="global-task-popover-title">{{ t('tasks.title') }}</h2>
-          <p>{{ t('tasks.description') }}</p>
         </div>
         <GcButton variant="icon" class="task-popover__close" :aria-label="t('designSystem.modal.closeAria')" @click="emit('close')">
           <span aria-hidden="true">×</span>
@@ -1108,9 +1593,10 @@ function recordString(record: InternalCaRecord, key: string): string {
           <GcButton @click="closeDetail">{{ t('tasks.actions.backToList') }}</GcButton>
           <div class="task-drawer__detail-header">
             <div>
-              <p class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
+              <p v-if="detailTask?.taskType !== 'PLUGIN_REFERENCE_REFRESH'" class="task-drawer__eyebrow">{{ detailTask?.id }}</p>
+              <p v-else class="task-drawer__eyebrow">{{ t('tasks.pluginRefresh.subtitle') }}</p>
               <h3>{{ detailTask ? taskDisplayTitle(detailTask) : '' }}</h3>
-              <p v-if="detailTask" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
+              <p v-if="detailTask && detailTask.taskType !== 'PLUGIN_REFERENCE_REFRESH'" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
             </div>
             <GcStatusTag
               :status="detailTask?.status ?? 'UNKNOWN'"
@@ -1132,6 +1618,98 @@ function recordString(record: InternalCaRecord, key: string): string {
           <p v-if="forceCancelError" class="gc-form-error">{{ forceCancelError }}</p>
           <p v-if="detailError" class="gc-form-error">{{ detailError }}</p>
           <div v-if="detailLoading" class="task-drawer__loading">{{ t('common.loading') }}</div>
+          <template v-else-if="detailTask?.taskType === 'PLUGIN_REFERENCE_REFRESH'">
+            <section class="task-drawer__plugin-summary">
+              <div class="task-drawer__plugin-summary-copy">
+                <span class="task-drawer__plugin-kicker">{{ t('tasks.pluginRefresh.overview.kicker') }}</span>
+                <h4>{{ pluginRefreshTaskSummary(detailTask) }}</h4>
+                <p>{{ t('tasks.pluginRefresh.overview.description', { scope: pluginRefreshScope(detailTask) }) }}</p>
+              </div>
+              <div class="task-drawer__plugin-summary-status">
+                <GcStatusTag :status="detailTask.status" :label="taskStatusLabel(detailTask)" :tone="statusTone(detailTask.status)" />
+                <span>{{ localTime(pluginRefreshResult.refreshedAt || detailTask.finishedAt || detailTask.createdAt) }}</span>
+              </div>
+            </section>
+            <dl class="task-drawer__plugin-metrics">
+              <div>
+                <dt>{{ t('tasks.pluginRefresh.metrics.catalogVersions') }}</dt>
+                <dd>{{ pluginRefreshCount(pluginRefreshResult.versions.length, pluginRefreshResult.available) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('tasks.pluginRefresh.metrics.enabledVersions') }}</dt>
+                <dd>{{ pluginRefreshCount(pluginRefreshEnabledCount, pluginRefreshResult.available) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('tasks.pluginRefresh.metrics.agentsProjected') }}</dt>
+                <dd>{{ pluginRefreshCount(pluginRefreshResult.projection.projected, pluginRefreshResult.available) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('tasks.pluginRefresh.metrics.agentsFailed') }}</dt>
+                <dd :class="{ 'task-drawer__plugin-metric-value--danger': pluginRefreshResult.projection.failed.length > 0 }">{{ pluginRefreshCount(pluginRefreshResult.projection.failed.length, pluginRefreshResult.available) }}</dd>
+              </div>
+            </dl>
+            <section class="task-drawer__section">
+              <div class="task-drawer__section-heading">
+                <h4>{{ t('tasks.pluginRefresh.sections.timeline') }}</h4>
+                <span>{{ pluginRefreshTimeline.length }}</span>
+              </div>
+              <ol v-if="pluginRefreshTimeline.length > 0" class="task-drawer__plugin-timeline">
+                <li v-for="item in pluginRefreshTimeline" :key="item.id" :data-tone="item.tone">
+                  <span class="task-drawer__plugin-timeline-dot" aria-hidden="true" />
+                  <div>
+                    <strong>{{ item.description }}</strong>
+                    <time>{{ localTime(item.createdAt) }}</time>
+                  </div>
+                </li>
+              </ol>
+              <GcEmptyState v-else class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
+            </section>
+            <section class="task-drawer__section">
+              <div class="task-drawer__section-heading">
+                <h4>{{ t('tasks.pluginRefresh.sections.catalogVersions') }}</h4>
+                <span>{{ pluginRefreshCount(pluginRefreshResult.versions.length, pluginRefreshResult.available) }}</span>
+              </div>
+              <div v-if="pluginRefreshResult.versions.length > 0" class="task-drawer__plugin-versions">
+                <div v-for="version in pluginRefreshResult.versions" :key="version.id || `${version.pluginId}-${version.version}`" class="task-drawer__plugin-version">
+                  <div>
+                    <strong>{{ pluginRefreshVersionLabel(version) }}</strong>
+                    <span v-if="pluginRefreshVersionTransition(version)" class="task-drawer__plugin-version-transition">
+                      {{ pluginRefreshVersionTransition(version) }}
+                    </span>
+                    <span v-if="pluginRefreshStatusTransition(version)" class="task-drawer__plugin-status-transition">
+                      {{ pluginRefreshStatusTransition(version) }}
+                    </span>
+                  </div>
+                  <GcStatusTag :status="version.status || 'UNKNOWN'" :label="pluginRefreshVersionStatusLabel(version.status)" :tone="pluginRefreshVersionTone(version.status)" />
+                </div>
+              </div>
+              <GcEmptyState v-else class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.pluginRefresh.values.noVersions')" />
+            </section>
+            <section v-if="pluginRefreshResult.projection.failed.length > 0" class="task-drawer__section">
+              <div class="task-drawer__section-heading">
+                <h4>{{ t('tasks.pluginRefresh.sections.failures') }}</h4>
+                <span class="task-drawer__plugin-failure-count">{{ pluginRefreshResult.projection.failed.length }}</span>
+              </div>
+              <div class="task-drawer__plugin-failures">
+                <div v-for="(failure, index) in pluginRefreshResult.projection.failed" :key="`${pluginRefreshFailureTarget(failure)}-${index}`" class="task-drawer__plugin-failure">
+                  <strong>{{ pluginRefreshFailureTarget(failure) }}</strong>
+                  <span>{{ pluginRefreshFailureMessage(failure) }}</span>
+                </div>
+              </div>
+            </section>
+            <details class="task-drawer__technical-details">
+              <summary>{{ t('tasks.pluginRefresh.actions.showTechnicalDetails') }}</summary>
+              <dl class="task-drawer__facts task-drawer__facts--technical">
+                <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask.requestedBy || t('tasks.values.system') }}</dd></div>
+                <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ taskTriggerSourceLabel(detailTask) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.createdAt') }}</dt><dd>{{ localTime(detailTask.createdAt) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.startedAt') }}</dt><dd>{{ localTime(detailTask.startedAt) }}</dd></div>
+                <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask.finishedAt) }}</dd></div>
+                <div><dt>{{ t('tasks.pluginRefresh.fields.taskId') }}</dt><dd>{{ detailTask.id }}</dd></div>
+              </dl>
+              <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
+            </details>
+          </template>
           <template v-else>
             <dl class="task-drawer__facts">
               <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask?.requestedBy || t('tasks.values.system') }}</dd></div>
@@ -1355,7 +1933,6 @@ function recordString(record: InternalCaRecord, key: string): string {
     v-model:open="allTasksModalOpen"
     size="xl"
     :title="t('tasks.actions.viewAll')"
-    :description="t('tasks.description')"
   >
     <div class="task-drawer__all-list">
       <form class="task-drawer__toolbar" @submit.prevent="submitAllTasksSearch">
@@ -1548,7 +2125,7 @@ function recordString(record: InternalCaRecord, key: string): string {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   width: min(var(--gc-size-task-popover), calc(100vw - var(--gc-space-8)));
-  max-height: calc(100vh - var(--gc-space-8));
+  max-height: 80vh;
   overflow: visible;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-xl);
@@ -1575,25 +2152,15 @@ function recordString(record: InternalCaRecord, key: string): string {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--gc-space-4);
-  padding: var(--gc-space-4) var(--gc-space-5);
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3) var(--gc-space-4);
   border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
 }
 
-.task-popover__header h2,
-.task-popover__header p {
-  margin: 0;
-}
-
 .task-popover__header h2 {
+  margin: 0;
   color: var(--gc-color-text-strong);
   font-size: var(--gc-font-size-lg);
-}
-
-.task-popover__header p {
-  margin-top: var(--gc-space-1);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
 }
 
 .task-popover__close {
@@ -1605,7 +2172,7 @@ function recordString(record: InternalCaRecord, key: string): string {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: calc(var(--gc-space-4) - var(--gc-space-hairline));
+  padding: calc(var(--gc-space-3) - var(--gc-space-hairline));
 }
 
 .task-popover-enter-active,
@@ -1627,6 +2194,10 @@ function recordString(record: InternalCaRecord, key: string): string {
   display: flex;
   flex-direction: column;
   gap: var(--gc-space-5);
+}
+
+.task-popover .task-drawer__list {
+  gap: var(--gc-space-3);
 }
 
 :deep(.gc-modal__body) {
@@ -1847,9 +2418,17 @@ function recordString(record: InternalCaRecord, key: string): string {
   min-height: max-content;
 }
 
+.task-popover .task-drawer__quick-groups {
+  gap: var(--gc-space-3);
+}
+
 .task-drawer__group {
   display: grid;
   gap: var(--gc-space-2);
+}
+
+.task-popover .task-drawer__group {
+  gap: var(--gc-space-1);
 }
 
 .task-drawer__group-header {
@@ -1884,6 +2463,11 @@ function recordString(record: InternalCaRecord, key: string): string {
   padding: var(--gc-space-2) var(--gc-space-3);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-field);
+}
+
+.task-popover .task-drawer__search input {
+  min-height: var(--gc-control-height-sm);
+  padding: var(--gc-space-1) var(--gc-space-2);
 }
 
 .task-drawer__sr-only {
@@ -1964,6 +2548,10 @@ function recordString(record: InternalCaRecord, key: string): string {
   gap: var(--gc-space-2);
 }
 
+.task-popover .task-drawer__items {
+  gap: var(--gc-space-1);
+}
+
 .task-drawer__scroll,
 .task-drawer__all-scroll {
   flex: 1 1 auto;
@@ -2021,6 +2609,10 @@ function recordString(record: InternalCaRecord, key: string): string {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.task-popover .task-drawer__item-open {
+  padding: var(--gc-space-2) calc((var(--gc-control-height-card-action) * 2) + var(--gc-space-2)) var(--gc-space-2) var(--gc-space-2);
 }
 
 .task-drawer__item-open:hover:not(:disabled) {
@@ -2094,6 +2686,10 @@ function recordString(record: InternalCaRecord, key: string): string {
   display: grid;
   gap: var(--gc-space-2);
   min-width: 0;
+}
+
+.task-popover .task-drawer__item-main {
+  gap: var(--gc-space-1);
 }
 
 .task-drawer__item-header {
@@ -2191,6 +2787,245 @@ function recordString(record: InternalCaRecord, key: string): string {
 .task-drawer__detail-header h3,
 .task-drawer__eyebrow {
   margin: 0;
+}
+
+.task-drawer__plugin-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-primary-soft);
+}
+
+.task-drawer__plugin-summary-copy {
+  min-width: 0;
+}
+
+.task-drawer__plugin-kicker {
+  display: block;
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__plugin-summary h4 {
+  margin: var(--gc-space-1) 0 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+}
+
+.task-drawer__plugin-summary p {
+  margin: var(--gc-space-1) 0 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__plugin-summary-status {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: var(--gc-space-1);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  text-align: right;
+}
+
+.task-drawer__plugin-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.task-drawer__plugin-metrics div {
+  min-width: 0;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-field);
+}
+
+.task-drawer__plugin-metrics dt,
+.task-drawer__plugin-metrics dd {
+  margin: 0;
+}
+
+.task-drawer__plugin-metrics dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__plugin-metrics dd {
+  margin-top: var(--gc-space-1);
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-xl);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__plugin-metric-value--danger {
+  color: var(--gc-color-danger) !important;
+}
+
+.task-drawer__section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__section-heading > span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__plugin-timeline,
+.task-drawer__plugin-versions,
+.task-drawer__plugin-failures {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-drawer__plugin-timeline {
+  position: relative;
+  padding-inline-start: var(--gc-space-2);
+}
+
+.task-drawer__plugin-timeline::before {
+  position: absolute;
+  inset-block: var(--gc-space-2);
+  inset-inline-start: calc(var(--gc-space-2) - var(--gc-space-hairline));
+  width: var(--gc-border-width-default);
+  background: var(--gc-color-border);
+  content: '';
+}
+
+.task-drawer__plugin-timeline li {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-subtle);
+}
+
+.task-drawer__plugin-timeline-dot {
+  z-index: 1;
+  flex: 0 0 var(--gc-space-2);
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  margin-top: var(--gc-space-1);
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-muted);
+  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-surface-subtle);
+}
+
+.task-drawer__plugin-timeline li[data-tone='success'] .task-drawer__plugin-timeline-dot { background: var(--gc-color-success); }
+.task-drawer__plugin-timeline li[data-tone='warning'] .task-drawer__plugin-timeline-dot { background: var(--gc-color-warning); }
+.task-drawer__plugin-timeline li[data-tone='danger'] .task-drawer__plugin-timeline-dot { background: var(--gc-color-danger); }
+.task-drawer__plugin-timeline li[data-tone='info'] .task-drawer__plugin-timeline-dot { background: var(--gc-color-info); }
+
+.task-drawer__plugin-timeline li > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--gc-space-tight);
+}
+
+.task-drawer__plugin-timeline strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__plugin-timeline time,
+.task-drawer__plugin-failure span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__plugin-version,
+.task-drawer__plugin-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-field);
+}
+
+.task-drawer__plugin-version > div,
+.task-drawer__plugin-failure {
+  display: grid;
+  min-width: 0;
+  gap: var(--gc-space-tight);
+}
+
+.task-drawer__plugin-version > div {
+  align-content: start;
+}
+
+.task-drawer__plugin-version-transition,
+.task-drawer__plugin-status-transition {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-medium);
+}
+
+.task-drawer__plugin-version-transition {
+  color: var(--gc-color-primary);
+}
+
+.task-drawer__plugin-status-transition {
+  color: var(--gc-color-text-secondary);
+}
+
+.task-drawer__plugin-version strong,
+.task-drawer__plugin-failure strong {
+  overflow: hidden;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-drawer__plugin-failure {
+  align-items: flex-start;
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-bg);
+}
+
+.task-drawer__plugin-failure-count {
+  color: var(--gc-color-danger) !important;
+}
+
+.task-drawer__technical-details {
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
+  padding-top: var(--gc-space-3);
+}
+
+.task-drawer__technical-details summary {
+  width: fit-content;
+  color: var(--gc-color-primary);
+  cursor: pointer;
+  font-size: var(--gc-font-size-sm);
+}
+
+.task-drawer__facts--technical {
+  margin-top: var(--gc-space-3);
 }
 
 .task-drawer__facts {
@@ -2371,6 +3206,19 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 @media (max-width: 35rem) {
+  .task-drawer__plugin-summary {
+    flex-direction: column;
+  }
+
+  .task-drawer__plugin-summary-status {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .task-drawer__plugin-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .task-popover {
     right: calc(var(--gc-space-4) * -1);
     width: min(var(--gc-size-task-popover), calc(100vw - var(--gc-space-4)));

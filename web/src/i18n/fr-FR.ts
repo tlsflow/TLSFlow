@@ -428,7 +428,6 @@ export default {
   },
   tasks: {
     title: 'Tâches globales',
-    description: 'Consultez les tâches en file, en cours, de surveillance et système du locataire actuel.',
     quick: { active: 'Tâches actives', recent: 'Achèvements récents' },
     tabs: { all: 'Toutes', execution: "Tâches d'exécution", monitoring: 'Tâches de surveillance', system: 'Tâches système', other: 'Autres tâches' },
     aria: { openDrawer: 'Ouvrir les tâches globales', tabs: 'Catégories de tâches' },
@@ -450,6 +449,18 @@ export default {
     actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', viewRawLogs: 'Voir les journaux bruts', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante', forceCancel: 'Arrêt forcé', forceCancelConfirm: 'Forcer l’arrêt de cette tâche ? Une action distante en cours peut nécessiter une vérification manuelle.', forceCancelReason: 'Arrêt forcé par un opérateur depuis les tâches globales' },
     messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.', forceCancelFailed: 'Impossible d’arrêter la tâche.' },
     values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
+    pluginRefresh: {
+      subtitle: 'Tâche de maintenance du catalogue des plugins',
+      overview: { kicker: 'Résultat de la mise à jour', description: '{scope} a été actualisé et les références de plugins ont été synchronisées avec les nœuds disponibles.' },
+      metrics: { catalogVersions: 'Versions du catalogue', enabledVersions: 'Versions actives', agentsProjected: 'Nœuds synchronisés', agentsFailed: 'Échecs de synchronisation' },
+      sections: { timeline: 'Historique du traitement', catalogVersions: 'Versions actuelles des plugins', failures: 'Problèmes de synchronisation' },
+      actions: { showTechnicalDetails: 'Afficher les détails techniques' },
+      fields: { taskId: 'ID de tâche' },
+      values: { unavailable: 'Indisponible', noVersions: 'Aucune version de plugin retournée', triggerSource: 'Actualisation du catalogue des plugins' },
+      summary: { succeeded: 'Actualisation terminée : {versions} versions mises à jour et {projected} nœuds synchronisés.', failed: "L'actualisation du catalogue des plugins a échoué.", cancelled: "L'actualisation du catalogue des plugins a été annulée.", retryWaiting: "Une nouvelle tentative automatique sera effectuée.", waitingResult: "En attente du résultat de l'actualisation.", awaitingConfirmation: "Le résultat de l'actualisation doit être confirmé.", cancelling: "Annulation de l'actualisation en cours.", queued: "L'actualisation est en file d'attente.", running: "Actualisation du catalogue des plugins en cours." },
+      events: { created: "La tâche a été créée et attend son traitement.", claimed: "La tâche a été attribuée à un processeur en arrière-plan.", started: "Lecture du catalogue intégré démarrée.", progress: "Préparation des versions et synchronisation des nœuds en cours.", retryScheduled: "Le traitement n'est pas terminé ; une nouvelle tentative a été planifiée.", waitingResult: "En attente des résultats des nœuds.", awaitingConfirmation: "Le résultat doit être confirmé.", cancelRequested: "Une demande d'annulation a été reçue.", expired: "La tâche a expiré.", cancelled: "La tâche d'actualisation a été annulée.", succeeded: "Actualisation terminée : {versions} versions et {projected} nœuds synchronisés.", failed: "Échec de l'actualisation : {reason}" },
+      versionStatus: { enabled: 'Activée', disabled: 'Désactivée', other: 'Autre état' }
+    },
     approval: {
       title: 'Détail de la tâche d’approbation',
       description: 'Consultez le contenu, l’historique du statut et les actions disponibles.',

@@ -432,7 +432,6 @@ export default {
   },
   tasks: {
       title: 'Tarefas globais',
-      description: 'Consulte tarefas em fila, em execução, de monitoramento e do sistema no tenant atual.',
       quick: { active: 'Tarefas ativas', recent: 'Conclusões recentes' },
       tabs: { all: 'Todas', execution: 'Tarefas de execução', monitoring: 'Tarefas de monitoramento', system: 'Tarefas do sistema', other: 'Outras tarefas' },
     aria: { openDrawer: 'Abrir tarefas globais', tabs: 'Categorias de tarefas' },
@@ -454,6 +453,18 @@ export default {
     actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página', forceCancel: 'Parar à força', forceCancelConfirm: 'Forçar a parada desta tarefa? Uma ação remota em andamento pode exigir verificação manual.', forceCancelReason: 'Parada forçada por um operador nas tarefas globais' },
     messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.', forceCancelFailed: 'Falha ao parar a tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
+    pluginRefresh: {
+      subtitle: 'Tarefa de manutenção do catálogo de plugins',
+      overview: { kicker: 'Resultado da atualização', description: '{scope} foi atualizado e as referências de plugins foram sincronizadas com os nós disponíveis.' },
+      metrics: { catalogVersions: 'Versões do catálogo', enabledVersions: 'Versões ativas', agentsProjected: 'Nós sincronizados', agentsFailed: 'Falhas de sincronização' },
+      sections: { timeline: 'Histórico do processamento', catalogVersions: 'Versões atuais de plugins', failures: 'Problemas de sincronização' },
+      actions: { showTechnicalDetails: 'Mostrar detalhes técnicos' },
+      fields: { taskId: 'ID da tarefa' },
+      values: { unavailable: 'Indisponível', noVersions: 'Nenhuma versão de plugin foi retornada', triggerSource: 'Atualização do catálogo de plugins' },
+      summary: { succeeded: 'Atualização concluída: {versions} versões atualizadas e {projected} nós sincronizados.', failed: 'Falha na atualização do catálogo de plugins.', cancelled: 'A atualização do catálogo de plugins foi cancelada.', retryWaiting: 'Uma nova tentativa automática será feita mais tarde.', waitingResult: 'Aguardando o resultado da atualização.', awaitingConfirmation: 'O resultado da atualização precisa de confirmação.', cancelling: 'Cancelando a atualização do catálogo.', queued: 'A atualização está na fila.', running: 'Atualizando o catálogo de plugins.' },
+      events: { created: 'A tarefa foi criada e aguarda processamento.', claimed: 'A tarefa foi atribuída a um processador em segundo plano.', started: 'A leitura do catálogo integrado foi iniciada.', progress: 'Preparando versões e sincronizando nós de execução.', retryScheduled: 'O processamento não terminou; uma nova tentativa foi agendada.', waitingResult: 'Aguardando os resultados dos nós.', awaitingConfirmation: 'O resultado da atualização precisa ser confirmado.', cancelRequested: 'Uma solicitação de cancelamento foi recebida.', expired: 'A tarefa expirou.', cancelled: 'A tarefa de atualização foi cancelada.', succeeded: 'Atualização concluída: {versions} versões e {projected} nós sincronizados.', failed: 'Falha na atualização: {reason}' },
+      versionStatus: { enabled: 'Ativa', disabled: 'Desativada', other: 'Outro status' }
+    },
     approval: {
       title: 'Detalhes da tarefa de aprovação',
       description: 'Revise o conteúdo da aprovação, o histórico de status e as ações disponíveis.',

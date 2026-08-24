@@ -427,7 +427,6 @@ export default {
   },
   tasks: {
     title: 'Global tasks',
-    description: 'Review queued, running, monitoring, and system tasks in the current tenant.',
     quick: { active: 'Active tasks', recent: 'Recent completions' },
     tabs: { all: 'All tasks', execution: 'Execution tasks', monitoring: 'Monitoring tasks', system: 'System tasks', other: 'Other tasks' },
     aria: { openDrawer: 'Open global tasks', tabs: 'Task categories' },
@@ -449,6 +448,41 @@ export default {
     actions: { backToList: 'Back to task list', viewAll: 'View all tasks', viewRawLogs: 'View raw logs', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page', forceCancel: 'Force stop', forceCancelConfirm: 'Force stop this task? A remote action already in progress may still require manual verification.', forceCancelReason: 'Force stopped by an operator from global tasks' },
     messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.', forceCancelFailed: 'Failed to force stop the task.' },
     values: { system: 'System', empty: 'No records', none: 'None' },
+    pluginRefresh: {
+      subtitle: 'Plugin catalog maintenance task',
+      overview: { kicker: 'Refresh result', description: 'This operation refreshed {scope} and synchronized the latest plugin references to available runtime nodes.' },
+      metrics: { catalogVersions: 'Catalog versions', enabledVersions: 'Enabled versions', agentsProjected: 'Nodes synchronized', agentsFailed: 'Sync failures' },
+      sections: { timeline: 'Processing history', catalogVersions: 'Current plugin versions', failures: 'Sync issues' },
+      actions: { showTechnicalDetails: 'Show technical details' },
+      fields: { taskId: 'Task ID' },
+      values: { unavailable: 'Unavailable', noVersions: 'No plugin versions were returned', triggerSource: 'Plugin catalog refresh' },
+      summary: {
+        succeeded: 'Refresh completed: {versions} plugin versions updated and {projected} runtime nodes synchronized.',
+        failed: 'Plugin catalog refresh failed.',
+        cancelled: 'Plugin catalog refresh was cancelled.',
+        retryWaiting: 'Plugin catalog refresh will retry automatically later.',
+        waitingResult: 'Waiting for the plugin catalog refresh result.',
+        awaitingConfirmation: 'The plugin catalog refresh result needs confirmation.',
+        cancelling: 'Cancelling the plugin catalog refresh.',
+        queued: 'Plugin catalog refresh is queued.',
+        running: 'Refreshing the plugin catalog.'
+      },
+      events: {
+        created: 'The refresh task was created and is waiting to be processed.',
+        claimed: 'The task was assigned to a background processor.',
+        started: 'Started reading the built-in plugin catalog.',
+        progress: 'Preparing plugin versions and synchronizing runtime nodes.',
+        retryScheduled: 'Processing did not finish; an automatic retry was scheduled.',
+        waitingResult: 'Waiting for runtime nodes to return their results.',
+        awaitingConfirmation: 'The refresh result is ready and needs confirmation.',
+        cancelRequested: 'A cancellation request was received.',
+        expired: 'The task timed out.',
+        cancelled: 'The refresh task was cancelled.',
+        succeeded: 'Refresh completed: {versions} plugin versions and {projected} runtime nodes synchronized.',
+        failed: 'Refresh failed: {reason}'
+      },
+      versionStatus: { enabled: 'Enabled', disabled: 'Not enabled', other: 'Other status' }
+    },
     approval: {
       title: 'Approval task details',
       description: 'Review the approval content, status history, and available actions.',

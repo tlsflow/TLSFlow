@@ -427,7 +427,6 @@ export default {
   },
   tasks: {
     title: '全局任务',
-    description: '查看当前租户内的排队、执行、监控和系统任务。',
     quick: { active: '活动任务', recent: '最近完成' },
     tabs: { all: '全部任务', execution: '执行任务', monitoring: '监控任务', system: '系统任务', other: '其他任务' },
     aria: { openDrawer: '打开全局任务', tabs: '任务分类' },
@@ -449,6 +448,41 @@ export default {
     actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页', forceCancel: '强制结束', forceCancelConfirm: '确定要强制结束此任务吗？正在进行的远端动作可能仍需人工确认。', forceCancelReason: '操作员从全局任务中强制结束' },
     messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。', forceCancelFailed: '强制结束任务失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
+    pluginRefresh: {
+      subtitle: '插件目录维护任务',
+      overview: { kicker: '刷新结果', description: '本次操作刷新了 {scope}，并将最新插件引用同步到可用运行节点。' },
+      metrics: { catalogVersions: '目录版本', enabledVersions: '已启用版本', agentsProjected: '已同步节点', agentsFailed: '同步失败' },
+      sections: { timeline: '处理过程', catalogVersions: '当前插件版本', failures: '同步异常' },
+      actions: { showTechnicalDetails: '查看技术详情' },
+      fields: { taskId: '任务编号' },
+      values: { unavailable: '暂无', noVersions: '本次没有返回插件版本', triggerSource: '插件目录刷新' },
+      summary: {
+        succeeded: '已完成刷新，共更新 {versions} 个插件版本，并同步 {projected} 个运行节点。',
+        failed: '插件目录刷新失败。',
+        cancelled: '插件目录刷新已取消。',
+        retryWaiting: '插件目录刷新将在稍后自动重试。',
+        waitingResult: '正在等待插件目录刷新结果。',
+        awaitingConfirmation: '插件目录刷新结果待确认。',
+        cancelling: '正在取消插件目录刷新。',
+        queued: '插件目录刷新已排队。',
+        running: '正在刷新插件目录。'
+      },
+      events: {
+        created: '已创建刷新任务，等待系统处理。',
+        claimed: '任务已分配给后台处理器。',
+        started: '开始读取内置插件目录。',
+        progress: '正在整理插件版本并同步运行节点。',
+        retryScheduled: '本次处理未完成，系统已安排自动重试。',
+        waitingResult: '正在等待运行节点返回结果。',
+        awaitingConfirmation: '刷新结果已生成，等待确认。',
+        cancelRequested: '已收到取消请求。',
+        expired: '任务已超时。',
+        cancelled: '刷新任务已取消。',
+        succeeded: '刷新完成：{versions} 个插件版本，已同步 {projected} 个运行节点。',
+        failed: '刷新失败：{reason}'
+      },
+      versionStatus: { enabled: '已启用', disabled: '未启用', other: '其他状态' }
+    },
     approval: {
       title: '审批任务详情',
       description: '查看审批内容、处理状态和后续操作。',
