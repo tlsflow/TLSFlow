@@ -174,6 +174,38 @@ test('外部异步任务使用 defer 时不会伪造成功或提前进入终态'
   assert.equal(first?.finishedAt, undefined);
 });
 
+test('相对退避由数据库计算，避免应用与数据库时钟偏差导致立即重试', async () => {
+  const { db, repository, service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-relative-backoff',
+    taskType: 'REPORT_EXPORT',
+    triggerSource: 'test',
+  });
+  const first = await service.runNext(
+    'worker-relative-backoff',
+    async () => ({
+      success: false,
+      defer: true,
+      retryAfterSeconds: 30,
+      errorCode: 'EXTERNAL_PENDING',
+      errorMessage: '等待外部系统回报',
+    }),
+    task.tenantId,
+  );
+  assert.equal(first?.status, 'RETRY_WAITING');
+  assert.ok(first?.nextAttemptAt);
+
+  const nextAttempt = await db.query<{ next_attempt_at: string; database_now: string }>(
+    `select next_attempt_at, now() as database_now
+       from task_runs
+      where id = $1`,
+    [task.id],
+  );
+  assert.ok(nextAttempt.rows[0]);
+  assert.ok(Date.parse(nextAttempt.rows[0].next_attempt_at) > Date.parse(nextAttempt.rows[0].database_now));
+  assert.equal(await repository.claimNext(task.tenantId, 'worker-relative-backoff-2', 60), undefined);
+});
+
 test('父子任务不能跨租户，详情也不能越过租户边界', async () => {
   const { service } = await createFixture();
   const parent = await service.enqueue({

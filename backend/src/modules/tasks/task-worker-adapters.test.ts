@@ -124,6 +124,46 @@ test('执行任务遇到异步步骤时延后，不提前完成统一任务', as
   assert.equal(result.errorCode, 'EXECUTION_PENDING');
 });
 
+test('自动化运行等待审批时使用相对退避，不生成应用侧绝对时间', async () => {
+  const registry = createTaskExecutorRegistry({
+    automation: {
+      runRun: async () => false,
+    } as never,
+    automationRuns: {
+      getRun: async () => ({
+        id: 'automation-run-1',
+        tenantId: 'tenant-task-adapter',
+        automationId: 'automation-1',
+        automationNameSnapshot: '审批自动化',
+        triggerType: 'manual',
+        status: 'waiting_approval',
+        approvalId: 'approval-1',
+        targetSummary: {
+          total: 1,
+          pending: 1,
+          running: 0,
+          waitingApproval: 1,
+          succeeded: 0,
+          failed: 0,
+          skipped: 0,
+          cancelled: 0,
+        },
+      }),
+      listRunTargets: async () => [],
+      listRunActionResults: async () => [],
+    } as never,
+  });
+  const result = await registry.get('automation.run')(
+    task('AUTOMATION_RUN', { runId: 'automation-run-1' }),
+    attempt,
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.defer, true);
+  assert.equal(result.retryAfterSeconds, 5);
+  assert.equal(result.nextAttemptAt, undefined);
+  assert.equal(result.errorCode, 'AUTOMATION_RUN_LEASE_UNAVAILABLE');
+});
+
 test('Supervisor 只执行当前 Claim 的任务并返回执行器结果', async () => {
   const taskRun = task('WORKFLOW_RUN', { workflowRunId: 'workflow-1' });
   const registry = new TaskExecutorRegistry()
