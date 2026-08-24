@@ -39,6 +39,9 @@ import (
 	"gcac/linux-go-full-agent/internal/core/recovery"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
+	"gcac/linux-go-full-agent/internal/handlers/productruntime"
+	productRegistry "gcac/linux-go-full-agent/internal/handlers/registry"
+	linuxCommand "gcac/linux-go-full-agent/internal/platform/linux/command"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
@@ -2595,21 +2598,42 @@ func executeCanonicalDeploy(_ context.Context, taskID string, payload map[string
 	if err != nil {
 		return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
 	}
-	if resolution.ProductAdapterID != compatibility.ProductNginx {
-		return coreRegistry.Result{ErrorCode: "PRODUCT_HANDLER_NOT_REGISTERED", ErrorMessage: "product handler not registered", Detail: adapterResolutionDetail(taskID, resolution)}
-	}
-	input, err := parseLinuxNginxDeployInput(action.Input)
-	if err != nil {
-		return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: adapterResolutionDetail(taskID, resolution)}
-	}
-	success, code, message, detail := runLinuxNginxDeployment(taskID, input)
+	result := newLinuxProductRegistry().Execute(context.Background(), productRegistry.Request{
+		TaskID: taskID, Input: action.Input, Capabilities: capabilities, Resolution: resolution,
+	})
+	detail := result.Detail
 	if detail == nil {
 		detail = map[string]any{}
 	}
 	for key, value := range adapterResolutionDetail(taskID, resolution) {
 		detail[key] = value
 	}
-	return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
+	return coreRegistry.Result{Success: result.Success, ErrorCode: result.ErrorCode, ErrorMessage: result.ErrorMessage, Detail: detail}
+}
+
+func newLinuxProductRegistry() *productRegistry.Registry {
+	registry := productRegistry.New()
+	mustRegisterProductHandler(registry, productRegistry.HandlerFunc{
+		AdapterID: compatibility.ProductNginx,
+		Execute: func(_ context.Context, request productRegistry.Request) productRegistry.Result {
+			input, err := parseLinuxNginxDeployInput(request.Input)
+			if err != nil {
+				return productRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error()}
+			}
+			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
+			return productRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
+		},
+	})
+	if err := productruntime.Register(registry, linuxCommand.ExecRunner{}); err != nil {
+		panic(err)
+	}
+	return registry
+}
+
+func mustRegisterProductHandler(registry *productRegistry.Registry, handler productRegistry.Handler) {
+	if err := registry.Register(handler); err != nil {
+		panic(err)
+	}
 }
 
 func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Handler) {
@@ -2862,6 +2886,7 @@ func runLinuxNginxDeployment(taskID string, input linuxNginxDeployInput) (bool, 
 	detail["recoveryLedgerPath"] = ledgerPath
 	if success {
 		_ = ledger.CompleteStep("completed:" + operation)
+		_ = ledger.Complete()
 		return success, errorCode, errorMessage, detail
 	}
 	_ = ledger.Fail(operation, errorCode, errorMessage)

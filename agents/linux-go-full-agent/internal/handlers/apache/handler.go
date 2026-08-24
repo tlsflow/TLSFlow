@@ -33,6 +33,7 @@ type Verifier interface {
 
 type RecoveryRecorder interface {
 	CompleteStep(string) error
+	Complete() error
 	Fail(string, string, string) error
 	RecordRecovery([]string, string, string) error
 }
@@ -122,6 +123,7 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 	}
 	completed = append(completed, "verify")
 	handler.recordStep("verify")
+	handler.recordComplete()
 	return Result{Success: true, CompletedSteps: completed}
 }
 
@@ -153,6 +155,12 @@ func (handler *Handler) recover(ctx context.Context, code string, cause error, c
 func (handler *Handler) recordStep(step string) {
 	if handler.recovery != nil {
 		_ = handler.recovery.CompleteStep(step)
+	}
+}
+
+func (handler *Handler) recordComplete() {
+	if handler.recovery != nil {
+		_ = handler.recovery.Complete()
 	}
 }
 
