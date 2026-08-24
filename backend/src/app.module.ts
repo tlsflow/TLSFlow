@@ -388,6 +388,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginBindingsService,
     new PluginPromotionService(appDb),
     new ManagedTargetPluginQueryService(appDb),
+    new BuiltinPluginCompatibilityUpgradeService(appDb),
   ).register(app.router);
   new WorkflowTemplatesController(
     workflowTemplatesService,

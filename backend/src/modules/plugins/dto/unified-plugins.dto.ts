@@ -199,3 +199,17 @@ export interface UnifiedPluginVersionManagementDetail extends UnifiedPluginVersi
   validationReport: UnifiedPluginValidationReport;
   visibleToTenant: boolean;
 }
+
+export interface SwitchUnifiedPluginVersionInput {
+  pluginId: string;
+  targetPluginVersionId: string;
+  expectedCurrentPluginVersionId?: string;
+}
+
+export interface SwitchUnifiedPluginVersionResult {
+  pluginId: string;
+  fromPluginVersionId: string;
+  toPluginVersionId: string;
+  changed: Pick<UnifiedPluginReferenceCounts, 'bindings' | 'assignments' | 'hosts' | 'serviceAssets' | 'deviceAssets'>;
+  switchedAt: string;
+}

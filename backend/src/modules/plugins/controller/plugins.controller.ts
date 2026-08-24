@@ -11,6 +11,7 @@ import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.regi
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
 import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
+import { BuiltinPluginCompatibilityUpgradeService } from '../application/builtin-plugin-compatibility-upgrade.service.js';
 
 const tags = ['Plugins'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -23,6 +24,7 @@ export class PluginsController {
     private readonly pluginBindings = new PluginBindingsApplicationService(),
     private readonly promotions?: PluginPromotionService,
     private readonly managedTargetPlugins?: ManagedTargetPluginQueryService,
+    private readonly versionSwitcher?: BuiltinPluginCompatibilityUpgradeService,
   ) {}
 
   register(router: Router): void {
@@ -30,6 +32,7 @@ export class PluginsController {
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
     router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
     router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
+    router.post('/api/v1/plugin-version-management/switch', '切换插件运行版本', tags, (request) => this.switchPluginVersion(request));
     router.post('/api/v1/plugin-packages/import', '导入统一插件版本', tags, (request) => this.importUnifiedPluginVersion(request));
     router.post('/api/v1/plugin-versions/approve-permissions', '审批统一插件权限', tags, (request) => this.approveUnifiedPluginPermissions(request));
     router.post('/api/v1/plugin-versions/enable', '启用统一插件版本', tags, (request) => this.enableUnifiedPluginVersion(request));
@@ -73,6 +76,22 @@ export class PluginsController {
     const pluginVersionId = request.path.match(/^\/api\/v1\/plugin-version-management\/([^/]+)$/)?.[1];
     if (!pluginVersionId) throw new Error('插件版本管理详情路径无效');
     return this.unifiedPlugins.getVersionManagementDetail(tenantId(request), decodeURIComponent(pluginVersionId));
+  }
+
+  private switchPluginVersion(request: HttpRequest) {
+    if (!this.versionSwitcher) throw new Error('插件版本切换服务未接入');
+    const body = validateObject(request.body, {
+      pluginId: { type: 'string', required: true },
+      targetPluginVersionId: { type: 'string', required: true },
+      expectedCurrentPluginVersionId: { type: 'string' },
+    });
+    return this.versionSwitcher.switchVersion(tenantId(request), {
+      pluginId: String(body.pluginId),
+      targetPluginVersionId: String(body.targetPluginVersionId),
+      ...(typeof body.expectedCurrentPluginVersionId === 'string'
+        ? { expectedCurrentPluginVersionId: body.expectedCurrentPluginVersionId }
+        : {}),
+    });
   }
 
   private async importUnifiedPluginVersion(request: HttpRequest) {
@@ -262,6 +281,7 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageResponseSchema },
     { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: { type: 'object', additionalProperties: true } } },
     { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-version-management/switch', operationId: 'switchPluginVersion', summary: '切换插件运行版本', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-packages/import', operationId: 'importUnifiedPluginVersion', summary: '导入统一插件版本', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-versions/approve-permissions', operationId: 'approveUnifiedPluginPermissions', summary: '审批统一插件权限', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-versions/enable', operationId: 'enableUnifiedPluginVersion', summary: '启用统一插件版本', tags, responseSchema: objectSchema() },
