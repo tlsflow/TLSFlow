@@ -24,6 +24,7 @@ export interface AppDependencies {
 export function createApp(dependencies: AppDependencies = {}): App {
   const app = new App();
   const security = dependencies.security ?? createSecurityServices();
+  app.setAuthTokenResolver((authorization) => security.auth.parseAuthorizationHeader(authorization));
   new HealthController().register(app.router);
   new SecurityController(security).register(app.router);
   const deploymentPlans = dependencies.deploymentPlans ?? new DeploymentPlansController(undefined, { approval: security.approvals, audit: security.audit });

@@ -21,12 +21,19 @@ export interface InjectResponse {
   body: unknown;
 }
 
+export type AuthTokenResolver = (authorization: string | undefined) => { actorId: string; tenantId?: string } | undefined;
+
 export class App {
   readonly router = new Router();
   readonly config: AppConfig;
+  private authTokenResolver?: AuthTokenResolver;
 
   constructor(config: AppConfig = loadAppConfig()) {
     this.config = config;
+  }
+
+  setAuthTokenResolver(resolver: AuthTokenResolver): void {
+    this.authTokenResolver = resolver;
   }
 
   async handle(request: HttpRequest): Promise<InjectResponse> {
@@ -81,11 +88,12 @@ export class App {
   private createContext(headers: Record<string, string | string[] | undefined>, ip?: string): RequestContext {
     const requestId = readHeader(headers, 'x-request-id') ?? generateRequestId();
     const traceId = readHeader(headers, 'x-trace-id') ?? generateTraceId();
+    const tokenIdentity = this.authTokenResolver?.(readHeader(headers, 'authorization'));
     return {
       requestId,
       traceId,
-      tenantId: readHeader(headers, 'x-tenant-id'),
-      actorId: readHeader(headers, 'x-actor-id'),
+      tenantId: tokenIdentity?.tenantId ?? readHeader(headers, 'x-tenant-id'),
+      actorId: tokenIdentity?.actorId ?? readHeader(headers, 'x-actor-id'),
       actorType: readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
       ip,
       userAgent: readHeader(headers, 'user-agent'),

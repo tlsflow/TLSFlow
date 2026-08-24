@@ -27,16 +27,90 @@ export class RBACService {
     return this.users.create({ ...input, createdAt: now, updatedAt: now });
   }
 
+  createUserIfAbsent(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): UserEntity {
+    return this.users.get(input.id) ?? this.createUser(input);
+  }
+
+  getUser(id: string): UserEntity | undefined {
+    return this.users.get(id);
+  }
+
+  findUserByUsername(username: string): UserEntity | undefined {
+    const normalized = username.trim().toLowerCase();
+    return this.users.list((user) => user.username.toLowerCase() === normalized)[0];
+  }
+
+  listUsers(): UserEntity[] {
+    return this.users.list();
+  }
+
+  updateUserStatus(userId: string, status: UserEntity['status']): UserEntity {
+    return this.users.update(userId, { status, updatedAt: new Date().toISOString() });
+  }
+
   createRole(input: RoleEntity): RoleEntity {
     return this.roles.create(input);
   }
 
+  createRoleIfAbsent(input: RoleEntity): RoleEntity {
+    return this.roles.get(input.id) ?? this.roles.create(input);
+  }
+
+  listRoles(): RoleEntity[] {
+    return this.roles.list();
+  }
+
+  getRole(id: string): RoleEntity | undefined {
+    return this.roles.get(id);
+  }
+
   assignRole(userId: string, roleId: string): void {
-    this.userRoles.create({ id: `${userId}:${roleId}`, userId, roleId, createdAt: new Date().toISOString() });
+    const id = `${userId}:${roleId}`;
+    if (this.userRoles.get(id)) return;
+    this.userRoles.create({ id, userId, roleId, createdAt: new Date().toISOString() });
+  }
+
+  userHasRole(userId: string, roleId: string): boolean {
+    return Boolean(this.userRoles.get(`${userId}:${roleId}`));
+  }
+
+  rolesForUser(userId: string): RoleEntity[] {
+    const roleIds = new Set(this.userRoles.list((row) => row.userId === userId).map((row) => row.roleId));
+    return this.roles.list((role) => roleIds.has(role.id));
+  }
+
+  listUserRoles(): Array<UserRoleEntity & { id: string }> {
+    return this.userRoles.list();
   }
 
   createPolicy(input: Omit<PermissionPolicyEntity, 'id'> & { id?: string }): PermissionPolicyEntity {
     return this.policies.create({ ...input, id: input.id ?? newId('pol') });
+  }
+
+  createPolicyIfAbsent(input: Omit<PermissionPolicyEntity, 'id'> & { id: string }): PermissionPolicyEntity {
+    return this.policies.get(input.id) ?? this.policies.create(input);
+  }
+
+  listPolicies(): PermissionPolicyEntity[] {
+    return this.policies.list();
+  }
+
+  permissionsForSubject(subject: SecuritySubject): string[] {
+    const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
+    if (subject.type === 'user') {
+      for (const userRole of this.userRoles.list((row) => row.userId === subject.id)) {
+        subjectIds.add(userRole.roleId);
+      }
+    }
+    const denied = new Set<string>();
+    const allowed = new Set<string>();
+    for (const policy of this.policies.list((item) => subjectIds.has(item.subjectId))) {
+      for (const action of policy.actions) {
+        if (policy.effect === 'deny') denied.add(action);
+        else allowed.add(action);
+      }
+    }
+    return [...allowed].filter((action) => !denied.has(action)).sort();
   }
 
   can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): RbacDecision {

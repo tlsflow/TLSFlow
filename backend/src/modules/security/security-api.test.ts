@@ -4,6 +4,167 @@ import { createApp } from '../../app.module.js';
 import { createSecurityServices } from './security.controller.js';
 
 describe('安全 API 最小闭环', () => {
+  it('AD/LDAP 身份源登录会按外部组映射本地角色', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const role = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/roles',
+      headers: { authorization: `Bearer ${token}` },
+      body: { code: 'ad_ops', name: 'AD 运维组', description: '来自 AD 组映射' },
+    });
+    const roleId = (role.body as { id: string }).id;
+    await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/permission-policies',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        subjectType: 'role',
+        subjectId: roleId,
+        effect: 'allow',
+        actions: ['dashboard.read'],
+        resourceTypes: ['dashboard'],
+        scope: { tenantId: '*' },
+      },
+    });
+
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '企业 AD',
+        type: 'active_directory',
+        url: 'ldaps://ad.example.test:636',
+        baseDn: 'DC=example,DC=test',
+        userDnTemplate: '{{username}}@example.test',
+        groupFilter: '(member={{userDn}})',
+        requireGroupMapping: true,
+        tlsMode: 'ldaps',
+      },
+    });
+    assert.equal(source.statusCode, 201);
+    const sourceId = (source.body as { id: string }).id;
+
+    await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/group-role-mappings',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId, externalGroup: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=test', roleId },
+    });
+
+    const connector = security.externalIdentity.getConnector() as unknown as { addProfile: (sourceId: string, profile: any) => void };
+    connector.addProfile(sourceId, {
+      externalId: 'ad-user-001',
+      username: 'alice',
+      displayName: 'Alice AD',
+      userDn: 'CN=Alice,OU=Users,DC=example,DC=test',
+      groups: ['CN=GCAC-Ops,OU=Groups,DC=example,DC=test'],
+      password: 'alice-password',
+    });
+
+    const externalLogin = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/external-login',
+      body: { sourceId, username: 'alice', password: 'alice-password' },
+    });
+    assert.equal(externalLogin.statusCode, 200);
+    const session = externalLogin.body as { token: string; user: { username: string; roles: Array<{ code: string }> }; permissions: string[] };
+    assert.equal(session.user.username, `${sourceId}:alice`);
+    assert.deepEqual(session.user.roles.map((item) => item.code), ['ad_ops']);
+    assert.equal(session.permissions.includes('dashboard.read'), true);
+  });
+
+  it('支持登录、Bearer Token 当前用户和权限管理 API', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+      headers: { 'x-request-id': 'req_login' },
+    });
+    assert.equal(login.statusCode, 200);
+    const token = (login.body as { token: string }).token;
+    assert.equal(typeof token, 'string');
+
+    const me = await app.inject({
+      method: 'GET',
+      path: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(me.statusCode, 200);
+    assert.equal((me.body as { user: { username: string } }).user.username, 'admin');
+
+    const users = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/users',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(users.statusCode, 200);
+    assert.equal((users.body as { items: unknown[] }).items.length >= 1, true);
+
+    const role = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/roles',
+      headers: { authorization: `Bearer ${token}` },
+      body: { code: 'operator', name: '操作员', description: '执行日常证书操作' },
+    });
+    assert.equal(role.statusCode, 201);
+    const roleId = (role.body as { id: string }).id;
+
+    const user = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/users',
+      headers: { authorization: `Bearer ${token}` },
+      body: { username: 'operator', displayName: '操作员', password: 'operator12345', roleId },
+    });
+    assert.equal(user.statusCode, 201);
+
+    const policy = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/permission-policies',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        subjectType: 'role',
+        subjectId: roleId,
+        effect: 'allow',
+        actions: ['dashboard.read'],
+        resourceTypes: ['dashboard'],
+        scope: { tenantId: '*' },
+      },
+    });
+    assert.equal(policy.statusCode, 201);
+  });
+
+  it('错误密码不能登录，禁用用户不能继续登录', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+
+    const failed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'wrong-password' },
+    });
+    assert.equal(failed.statusCode, 401);
+
+    security.rbac.updateUserStatus('user_admin', 'disabled');
+    const disabled = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    assert.equal(disabled.statusCode, 403);
+  });
+
   it('Secret 创建只返回元数据和 SecretRef，并写入审计', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({
