@@ -69,7 +69,6 @@ const acmeProviders = computed(() => providers.value.filter((item) => text(item.
 const acmeAccounts = computed(() => accounts.value.filter((item) => acmeProviders.value.some((provider) => text(provider.id) === text(item.providerId)) && text(item.status) === 'active'))
 const defaultAcmeProvider = computed(() => acmeProviders.value.find((item) => providerConfiguration(item).isDefault === true) ?? acmeProviders.value[0])
 const selectedAcmeProvider = computed(() => acmeProviders.value.find((item) => text(item.id) === createDraft.providerId) ?? defaultAcmeProvider.value)
-const primaryAccount = computed(() => acmeAccounts.value.find((item) => text(item.providerId) === text(selectedAcmeProvider.value?.id)))
 const selectedDnsProvider = computed(() => dnsProviders.value.find((provider) => text(provider.id) === createDraft.dnsProvider))
 const selectedProviderPreset = computed(() => acmeProviderPresets.value.find((item) => item.key === providerDraft.preset))
 const configuredAssets = computed(() => assets.value.filter((asset) => policyForAsset(asset) || text(asset.sourceType) === 'acme'))
@@ -275,10 +274,6 @@ async function createAcmeCertificate(): Promise<void> {
   const domains = normalizeDomains(createDraft.domains)
   if (!domains.length || !createDraft.contactEmail.trim()) {
     error.value = t('acme.messages.requiredFields')
-    return
-  }
-  if (!selectedAcmeProvider.value || !primaryAccount.value) {
-    error.value = t('acme.messages.providerSetupRequired')
     return
   }
   if (createDraft.challengeType === 'dns-01' && (!createDraft.dnsProvider.trim() || !createDraft.dnsCredentialId.trim())) {

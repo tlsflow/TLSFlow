@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AcmeCertificateService } from './acme-certificate.service.js';
+import type { CreateAcmeAccountServiceInput } from './acme-account.service.js';
+import type { CreateSecretInput } from '../../secrets/secret.service.js';
 
 test('简化 ACME 入口创建证书资产并保存续签策略', async () => {
   let createdAssetInput: Record<string, unknown> | undefined;
@@ -101,5 +103,123 @@ test('简化 ACME 入口拒绝未同意服务条款', async () => {
       actorId: 'user-1',
     }),
     /必须同意服务条款/,
+  );
+});
+
+test('新租户首次创建证书时自动准备默认 Provider 和 Account', async () => {
+  let providers: Array<Record<string, unknown>> = [];
+  let savedSecretInput: CreateSecretInput | undefined;
+  let createdAccountInput: CreateAcmeAccountServiceInput | undefined;
+  const accounts: Array<Record<string, unknown>> = [];
+  const certificates = {
+    createAsset: async (input: Record<string, unknown>) => ({
+      id: 'asset-auto',
+      name: String(input.name),
+      primaryDomain: String(input.primaryDomain),
+      sans: input.sans as string[],
+      sourceType: 'acme',
+      status: 'active',
+      tags: ['acme'],
+      createdBy: String(input.createdBy),
+      createdAt: '2026-08-05T00:00:00.000Z',
+      updatedAt: '2026-08-05T00:00:00.000Z',
+    }),
+  };
+  const provider = {
+    id: 'provider-default',
+    tenantId: 'tenant-1',
+    name: "Let's Encrypt",
+    type: 'acme',
+    status: 'active',
+    configuration: { preset: 'letsencrypt', isBuiltIn: true, isDefault: true },
+  };
+  const caRepository = {
+    listProviders: async () => providers,
+  };
+  const acmeRepository = {
+    listAccounts: async () => accounts,
+  };
+  const policies = {
+    list: async () => [],
+    create: async (input: Record<string, unknown>) => ({ id: 'policy-auto', ...input }),
+    update: async () => {
+      throw new Error('不应更新不存在的策略');
+    },
+  };
+  const service = new AcmeCertificateService(
+    certificates as never,
+    caRepository as never,
+    acmeRepository as never,
+    policies as never,
+    undefined,
+    async () => {
+      providers = [provider];
+      return provider as never;
+    },
+    {
+      create: async (input: CreateAcmeAccountServiceInput) => {
+        createdAccountInput = input;
+        const account = { id: 'account-auto', providerId: provider.id, status: 'active' };
+        accounts.push(account);
+        return account as never;
+      },
+    },
+    {
+      create: async (input: CreateSecretInput) => {
+        savedSecretInput = input;
+        return { secretRef: 'secret://certificate_private_key/generated#current' } as never;
+      },
+    },
+  );
+
+  const result = await service.create({
+    tenantId: 'tenant-1',
+    domains: ['example.com'],
+    contactEmail: 'ops@example.com',
+    challengeType: 'http-01',
+    termsOfServiceAgreed: true,
+    actorId: 'user-1',
+  });
+
+  assert.equal(result.policy.id, 'policy-auto');
+  assert.equal(savedSecretInput?.type, 'certificate_private_key');
+  assert.equal(savedSecretInput?.scopeType, 'global');
+  assert.match(String(savedSecretInput?.plainText), /BEGIN PRIVATE KEY/);
+  assert.equal(createdAccountInput?.accountKeySecretRef, 'secret://certificate_private_key/generated#current');
+  assert.deepEqual(createdAccountInput?.contact, ['mailto:ops@example.com']);
+});
+
+test('需要 EAB 的 Provider 没有 Account 时要求高级配置', async () => {
+  const service = new AcmeCertificateService(
+    {
+      createAsset: async () => {
+        throw new Error('不应创建资产');
+      },
+    } as never,
+    {
+      listProviders: async () => [{
+        id: 'provider-zerossl',
+        type: 'acme',
+        status: 'active',
+        configuration: { preset: 'zerossl' },
+      }],
+    } as never,
+    {
+      listAccounts: async () => [],
+    } as never,
+    {} as never,
+  );
+
+  await assert.rejects(
+    service.create({
+      tenantId: 'tenant-1',
+      domains: ['example.com'],
+      contactEmail: 'ops@example.com',
+      challengeType: 'http-01',
+      providerId: 'provider-zerossl',
+      termsOfServiceAgreed: true,
+      actorId: 'user-1',
+    }),
+    /尚未配置 Account/,
   );
 });
