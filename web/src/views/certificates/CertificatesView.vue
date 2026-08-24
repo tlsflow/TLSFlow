@@ -67,7 +67,7 @@ interface CertificateVersionRow extends Record<string, string> {
 type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
 type VersionSortOrder = 'asc' | 'desc'
 type LifecycleStatusKey = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
-type CertificateSourceTypeKey = 'manual' | 'internal_ca' | 'enterprise_ca' | 'external_api' | 'unknown'
+type CertificateSourceTypeKey = 'manual' | 'internal_ca' | 'enterprise_ca' | 'external_api' | 'acme' | 'unknown'
 type CertificateCardSourceKey = 'manual' | 'acme' | 'unknown'
 type CertificateCategory = 'all' | LifecycleStatusKey
 type AssetPresentation = 'cards' | 'list'
@@ -107,6 +107,7 @@ let versionRequestSequence = 0
 
 const importDialogOpen = ref(false)
 const trustRootsDialogOpen = ref(false)
+const trustRootTargetId = ref('')
 const versionsDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
 const importLoading = ref(false)
@@ -291,6 +292,17 @@ const hasCertificateMaterial = computed(() => isMaterialReady(draft))
 watch(selectedAssetId, () => {
   void requestVersionsForSelectedAsset()
 })
+
+watch(
+  () => route.query.rootId,
+  (value) => {
+    const rootId = typeof value === 'string' ? value : ''
+    if (!rootId) return
+    trustRootTargetId.value = rootId
+    trustRootsDialogOpen.value = true
+  },
+  { immediate: true },
+)
 
 watch(
   () => [
@@ -632,6 +644,7 @@ function closeImportDialog() {
 }
 
 function openTrustRootsDialog() {
+  trustRootTargetId.value = ''
   trustRootsDialogOpen.value = true
 }
 
@@ -689,7 +702,7 @@ function navigateUserFlow(stepId: string) {
     void router.push({ name: 'asset.list' })
     return
   }
-  void router.push({ name: 'deployment.plan.list' })
+  void router.push({ name: 'asset.list' })
 }
 
 async function submitImport() {
@@ -775,7 +788,7 @@ function formatLifecycleStatus(status: LifecycleStatusKey) {
 
 function resolveCertificateSourceTypeKey(value: string): CertificateSourceTypeKey {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'manual' || normalized === 'internal_ca' || normalized === 'enterprise_ca' || normalized === 'external_api') return normalized
+  if (normalized === 'manual' || normalized === 'internal_ca' || normalized === 'enterprise_ca' || normalized === 'external_api' || normalized === 'acme') return normalized
   return 'unknown'
 }
 
@@ -1344,7 +1357,7 @@ async function removeVersion(row: CertificateVersionRow) {
       :title="t('certificates.trustRoots.title')"
       size="xxl"
     >
-      <CertificateTrustRootsModalContent :open="trustRootsDialogOpen" />
+      <CertificateTrustRootsModalContent :open="trustRootsDialogOpen" :root-id="trustRootTargetId" />
     </GcModal>
 
     <GcModal

@@ -1,18 +1,20 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { devicesZhCN } from './devices.locale'
 import { caOperationsZhCN } from './ca-operations.locale'
 import { credentialsZhCN } from './credentials.locale'
 import { providersZhCN } from './providers.locale'
 import { monitoringTlsZhCN } from './monitoring-tls.locale'
+import { acmeAutomationZhCN } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsZhCN,
   devices: devicesZhCN,
   caOperations: caOperationsZhCN,
   providers: providersZhCN,
+  acme: acmeAutomationZhCN,
   app: {
-    brand: 'GCAC 控制台',
+    brand: 'GCAC',
     platform: '企业 SSL 证书生命周期管理平台',
     defaultBreadcrumb: '控制台',
     dashboard: '仪表盘',
@@ -489,6 +491,39 @@ export default {
     sidebarCollapse: '收起侧边栏',
     sidebarExpand: '展开侧边栏'
   },
+  globalSearch: {
+    title: '全局搜索',
+    description: '搜索证书、设备资产、系统设置和插件。',
+    inputLabel: '搜索全局资源',
+    inputPlaceholder: '输入名称、域名、指纹或路径',
+    hint: '输入关键词开始搜索。',
+    aria: {
+      open: '打开全局搜索'
+    },
+    categories: {
+      certificates: '证书',
+      assets: '设备资产',
+      settings: '系统设置',
+      plugins: '插件'
+    },
+    types: {
+      serverCertificate: '服务器证书',
+      intermediateCertificate: '中间证书',
+      rootCertificate: '根证书',
+      application: '应用',
+      device: '设备',
+      cloudService: '云服务',
+      systemSetting: '系统设置',
+      plugin: '插件'
+    },
+    empty: {
+      title: '没有找到匹配结果',
+      description: '请尝试其他名称、域名、指纹或路径。'
+    },
+    messages: {
+      loadFailed: '全局搜索加载失败。'
+    }
+  },
   preferences: {
     theme: '主题',
     language: '语言',
@@ -539,6 +574,8 @@ export default {
     certificatesDesc: '证书库、绑定关系和到期状态',
     certificateAssets: '证书资产',
     certificateAssetsDesc: '证书、私钥引用、指纹和到期时间',
+    acmeAutomation: 'ACME 证书自动化',
+    acmeAutomationDesc: '申请、续签和跟踪 ACME 证书',
     certificateFormats: '证书格式配置',
     certificateFormatsDesc: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则',
     assetCenter: '资产中心',
@@ -1677,40 +1714,8 @@ export default {
         title: 'Agent',
         description: '查看在线状态和任务能力。'
       },
-  assets: {
-    presentation: {
-      cards: '卡片视图',
-      list: '表格视图',
-    },
-    userView: {
-      stepLabel: '第 2 步 / 3 · 应用',
-      title: '接入一个应用',
-      description: '添加要接收证书的应用。除非所选目标确实需要额外参数，否则不会显示技术部署细节。',
-      addAction: '添加应用',
-      listTitle: '已接入应用',
-      listDescription: '这些应用可以在部署步骤中被选择。',
-      continueToDeployment: '继续部署',
-      loadFailed: '应用加载失败',
-      emptyTitle: '还没有接入应用',
-      emptyDescription: '先添加一个应用，证书才能部署到它。',
-      deploymentLocation: '部署位置',
-      targetPending: '等待配置部署位置',
-      form: {
-        eyebrow: '简化设置',
-        title: '添加需要更新的应用',
-        description: '填写应用地址并选择证书应该部署到哪里。',
-        addressPlaceholder: 'app.example.com',
-        portPlaceholder: '443',
-        locationTitle: '证书要更新到哪里？',
-        locationDescription: '选择已有的设备、服务和部署目标，底层绑定逻辑保持不变。',
-        device: '设备',
-        service: '服务',
-        site: '站点',
-        target: '部署目标',
-        certificateFormat: '证书格式'
-      }
-    },
-    title: '应用资产',
+      assets: {
+        title: '应用资产',
         description: '维护域名、端口和部署目标。'
       },
       audits: {
@@ -2177,7 +2182,6 @@ export default {
       },
       fields: {
         subjectType: '主体类型',
-        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         subjectId: '主体 ID',
         effect: '效果',
         actions: '动作',
@@ -2210,6 +2214,7 @@ export default {
       fields: {
         sourceId: '身份源 ID',
         externalGroup: '外部组',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: '本地角色 ID'
       }
     },
@@ -2839,38 +2844,6 @@ export default {
       label: '允许跳过 TLS 证书校验',
       description: '显式授权本次部署在设备使用自签名或不受信任证书时跳过 TLS 证书校验。',
       help: '仅表示你的部署意图，不会自动获得执行权限；仍需通过审批和宿主签发的执行授权。'
-    presentation: {
-      cards: '卡片视图',
-      list: '表格视图'
-    },
-    userView: {
-      stepLabel: '第 2 步 / 3 · 应用',
-      title: '接入一个应用',
-      description: '添加要接收证书的应用。除非所选目标确实需要额外参数，否则不会显示技术部署细节。',
-      addAction: '添加应用',
-      listTitle: '已接入应用',
-      listDescription: '这些应用可以在部署步骤中被选择。',
-      continueToDeployment: '继续部署',
-      loadFailed: '应用加载失败',
-      emptyTitle: '还没有接入应用',
-      emptyDescription: '先添加一个应用，证书才能部署到它。',
-      deploymentLocation: '部署位置',
-      targetPending: '等待配置部署位置',
-      form: {
-        eyebrow: '简化设置',
-        title: '添加需要更新的应用',
-        description: '填写应用地址并选择证书应该部署到哪里。',
-        addressPlaceholder: 'app.example.com',
-        portPlaceholder: '443',
-        locationTitle: '证书要更新到哪里？',
-        locationDescription: '选择已有的设备、服务和部署目标，底层绑定逻辑保持不变。',
-        device: '设备',
-        service: '服务',
-        site: '站点',
-        target: '部署目标',
-        certificateFormat: '证书格式'
-      }
-    },
     },
     runtimeValue: '运行时由 {source} 提供',
     source: '来源：{source}',
@@ -2888,7 +2861,6 @@ export default {
       unknown: '部署输入校验失败（{code}）',
       DEPLOYMENT_INPUT_REQUIRED: '缺少必填部署输入',
       DEPLOYMENT_CONNECTION_REQUIRED: '缺少必填连接配置',
-      deployCertificate: '证书部署',
       DEPLOYMENT_CREDENTIAL_REQUIRED: '缺少必填凭据',
       DEPLOYMENT_ARTIFACT_REQUIRED: '缺少必填部署产物',
       DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: '该部署输入不允许覆盖',
@@ -3036,6 +3008,38 @@ export default {
       noVariablePreset: '暂无可添加变量',
       basicEntryIncomplete: '基础入口未完成'
     },
+    detail: {
+      title: '应用详情',
+      description: '查看资产详情、绑定关系、部署入口和快照记录。',
+      tabsAriaLabel: '应用详情标签页',
+      tabs: {
+        overview: '基础信息',
+        snapshots: '快照'
+      },
+      loadingTargetBinding: '正在加载目标绑定详情...',
+      loadingSnapshots: '正在加载快照...',
+      emptyCertificateBindings: '暂无证书绑定关系。',
+      emptySnapshots: '暂无快照。',
+      rollbackSubmitted: '已提交回退请求，请到“执行记录”查看回退运行。',
+      sections: {
+        overview: {
+          title: '基础信息',
+          description: '应用是主对象，资产和站点只作为执行定位信息出现。'
+        },
+        targetBinding: {
+          title: '目标绑定',
+          description: '绑定必须明确落到站点和受管目标，而不是继续靠域名猜。'
+        },
+        certificateBindings: {
+          title: '证书绑定关系',
+          description: '把证书关系明确到 binding 上，而不是只看域名。'
+        },
+        snapshots: {
+          title: '快照',
+          description: '部署前后与回退后的现场状态必须能直接看到，不能只剩任务记录。'
+        }
+      }
+    },
     deployment: {
       title: '证书部署',
       description: '从当前应用资产选择一个证书版本。系统会依次创建部署快照、执行预检、提交审批并在获准后执行。',
@@ -3068,38 +3072,6 @@ export default {
         preflightFailed: '证书部署预检未通过。',
         preflightTimeout: '证书部署预检等待超时。',
         loadRecordsFailed: '加载应用资产部署记录失败。'
-      }
-    },
-    detail: {
-      title: '应用详情',
-      description: '查看资产详情、绑定关系、部署入口和快照记录。',
-      tabsAriaLabel: '应用详情标签页',
-      tabs: {
-        overview: '基础信息',
-        snapshots: '快照'
-      },
-      loadingTargetBinding: '正在加载目标绑定详情...',
-      loadingSnapshots: '正在加载快照...',
-      emptyCertificateBindings: '暂无证书绑定关系。',
-      emptySnapshots: '暂无快照。',
-      rollbackSubmitted: '已提交回退请求，请到“执行记录”查看回退运行。',
-      sections: {
-        overview: {
-          title: '基础信息',
-          description: '应用是主对象，资产和站点只作为执行定位信息出现。'
-        },
-        targetBinding: {
-          title: '目标绑定',
-          description: '绑定必须明确落到站点和受管目标，而不是继续靠域名猜。'
-        },
-        certificateBindings: {
-          title: '证书绑定关系',
-          description: '把证书关系明确到 binding 上，而不是只看域名。'
-        },
-        snapshots: {
-          title: '快照',
-          description: '部署前后与回退后的现场状态必须能直接看到，不能只剩任务记录。'
-        }
       }
     },
     compatibilityModes: {
@@ -3268,7 +3240,6 @@ export default {
       noArtifactOutputs: '当前格式配置暂无可选输出项。'
     },
     certificateOutputs: {
-      loadCredentialProfilesFailed: '加载凭据配置失败',
       publicCertificateWithChain: '公钥证书+证书链',
       publicCertificate: '公钥证书',
       certificateChain: '证书链',
@@ -3301,6 +3272,7 @@ export default {
       pluginFormLoadFailed: '加载插件配置表单失败',
       pluginBindingCreateFailed: '保存插件绑定失败',
       loadWorkflowCredentialsFailed: '加载工作流凭据失败',
+      loadCredentialProfilesFailed: '加载凭据配置失败',
       noAvailableSiteInstance: '未找到可用的站点实例，请先确认设备发现已成功上报框架和站点。',
       managedTargetRediscoveryRequired: '当前站点没有受管目标，请重新执行设备发现。',
       noCompatibleManagedPlugin: '没有与当前受管目标兼容的已启用插件。',
@@ -3609,14 +3581,6 @@ export default {
         pfx: {
           hint: '仅支持文件导入，且容器内必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。'
         }
-      acme: {
-        title: '申请 ACME 证书', loading: '正在检查申请通道...', blocked: '当前申请通道尚未就绪，请根据下列原因完成配置后刷新。',
-        status: { ready: '可申请', blocked: '待配置', unknown: '状态未知' },
-        fields: { directoryUrl: 'ACME Directory URL', email: '联系人邮箱', identifiers: '域名', csrPem: 'CSR PEM', accountKeySecretRef: '账户私钥 SecretRef', certificatePrivateKeySecretRef: '证书私钥 SecretRef', provider: 'DNS 提供商', zoneId: 'DNS 区域标识', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 凭据 SecretRef', ttl: 'DNS TTL', name: '证书名称' },
-        actions: { create: '提交申请', refresh: '刷新状态', poll: '继续查询', retry: '重新申请', recover: '恢复状态' },
-        requests: { title: '申请记录', status: { pending: '等待创建订单', challenge: '等待域名验证', finalizing: '等待签发', succeeded: '已签发', failed: '申请失败', unknown: '状态未知', cancelled: '已取消' } },
-        errors: { requestFailed: 'ACME 请求失败' }
-      },
       },
       methods: {
         file: {
@@ -3648,6 +3612,14 @@ export default {
           title: 'ACME 申请通道尚未配置',
           description: '当前控制台没有可用的 ACME 申请入口。请选择导入已有证书，或在配置自动化申请通道后重试。'
         }
+      },
+      acme: {
+        title: '申请 ACME 证书', loading: '正在检查申请通道...', blocked: '当前申请通道尚未就绪，请根据下列原因完成配置后刷新。',
+        status: { ready: '可申请', blocked: '待配置', unknown: '状态未知' },
+        fields: { issuer: '颁发机构', email: '联系人邮箱', domains: '域名', dnsCredential: 'DNS 凭据', keyType: '密钥类型', autoRenew: '自动续签' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: '提交申请', refresh: '刷新状态' },
+        errors: { requestFailed: 'ACME 请求失败' }
       },
       hints: {
         pemChainCheck: '请上传或粘贴服务器证书、完整中间证书链和私钥，系统会校验证书链与私钥匹配关系。',
@@ -3726,7 +3698,6 @@ export default {
       importSuccess: '导入成功，证书版本 ID：{id}',
       actions: {
         validating: '校验中...',
-        acme: 'ACME',
         validate: '开始校验',
         cancel: '取消',
         previous: '上一步',
@@ -3759,6 +3730,7 @@ export default {
         internal_ca: '内部 CA',
         enterprise_ca: '企业 CA',
         external_api: '外部 API',
+        acme: 'ACME',
         unknown: '未知'
       },
       lifecycle: {
@@ -4607,7 +4579,7 @@ export default {
   },
   login: {
     visualLabel: '产品说明',
-    brand: 'GCAC 证书控制台',
+    brand: 'GCAC',
     brandSecondary: '证书集中管理平台',
     headlinePrefix: '让证书管理',
     headlineHighlight: '更智能',

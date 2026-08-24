@@ -1,4 +1,4 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesKoKR } from './devices.locale'
@@ -6,6 +6,7 @@ import { caOperationsKoKR } from './ca-operations.locale'
 import { credentialsKoKR } from './credentials.locale'
 import { providersKoKR } from './providers.locale'
 import { monitoringTlsKoKR } from './monitoring-tls.locale'
+import { acmeAutomationKoKR } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
@@ -14,10 +15,11 @@ export default {
   devices: devicesKoKR,
   caOperations: caOperationsKoKR,
   providers: providersKoKR,
+  acme: acmeAutomationKoKR,
   notifications: notificationsEnglish,
   reports: reportsEnglish,
   app: {
-    brand: 'GCAC 콘솔',
+    brand: 'GCAC',
     platform: '기업 SSL 인증서 수명 주기 관리 플랫폼',
     defaultBreadcrumb: '콘솔',
     dashboard: '대시보드',
@@ -494,6 +496,39 @@ export default {
     sidebarCollapse: '사이드바 접기',
     sidebarExpand: '사이드바 펼치기'
   },
+  globalSearch: {
+    title: '전역 검색',
+    description: '인증서, 디바이스 자산, 시스템 설정 및 플러그인을 검색합니다.',
+    inputLabel: '전역 리소스 검색',
+    inputPlaceholder: '이름, 도메인, 지문 또는 경로 입력',
+    hint: '키워드를 입력하여 검색을 시작하세요.',
+    aria: {
+      open: '전역 검색 열기'
+    },
+    categories: {
+      certificates: '인증서',
+      assets: '디바이스 자산',
+      settings: '시스템 설정',
+      plugins: '플러그인'
+    },
+    types: {
+      serverCertificate: '서버 인증서',
+      intermediateCertificate: '중간 인증서',
+      rootCertificate: '루트 인증서',
+      application: '애플리케이션',
+      device: '디바이스',
+      cloudService: '클라우드 서비스',
+      systemSetting: '시스템 설정',
+      plugin: '플러그인'
+    },
+    empty: {
+      title: '일치하는 결과가 없습니다',
+      description: '다른 이름, 도메인, 지문 또는 경로를 입력해 보세요.'
+    },
+    messages: {
+      loadFailed: '전역 검색을 불러오지 못했습니다.'
+    }
+  },
   preferences: {
     theme: '테마',
     language: '언어',
@@ -544,6 +579,8 @@ export default {
     certificatesDesc: '인증서 라이브러리, 바인딩 관계 및 만료 상태',
     certificateAssets: '인증서 자산',
     certificateAssetsDesc: '인증서, 개인 키 참조, 지문, 만료 시간입니다',
+    acmeAutomation: 'ACME 인증서 자동화',
+    acmeAutomationDesc: 'ACME 인증서 발급, 갱신 및 추적',
     certificateFormats: '인증서 형식 설정',
     certificateFormatsDesc: '저장된 인증서에 대해 PFX, CER, CRT, PEM 포맷 규칙을 정의한다',
     assetCenter: 'Asset Center',
@@ -3399,9 +3436,9 @@ export default {
       acme: {
         title: 'ACME 인증서 신청', loading: '발급 경로를 확인하는 중...', blocked: '신청 경로가 준비되지 않았습니다. 표시된 조건을 해결한 후 새로 고치세요.',
         status: { ready: '신청 가능', blocked: '설정 필요', unknown: '상태 알 수 없음' },
-        fields: { directoryUrl: 'ACME Directory URL', email: '연락처 이메일', identifiers: '도메인 이름', csrPem: 'CSR PEM', accountKeySecretRef: '계정 키 SecretRef', certificatePrivateKeySecretRef: '인증서 키 SecretRef', provider: 'DNS 공급자', zoneId: 'DNS 영역 ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 자격 증명 SecretRef', ttl: 'DNS TTL', name: '인증서 이름' },
-        actions: { create: '신청 제출', refresh: '상태 새로 고침', poll: '계속 조회', retry: '신청 재시도', recover: '상태 복구' },
-        requests: { title: '신청 기록', status: { pending: '주문 생성 대기', challenge: '도메인 검증 대기', finalizing: '발급 대기', succeeded: '발급됨', failed: '신청 실패', unknown: '상태 알 수 없음', cancelled: '취소됨' } },
+        fields: { issuer: '발급 기관', email: '연락처 이메일', domains: '도메인 이름', dnsCredential: 'DNS 자격 증명', keyType: '키 유형', autoRenew: '자동 갱신' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: '신청 제출', refresh: '상태 새로 고침' },
         errors: { requestFailed: 'ACME 요청 실패' }
       },
       hints: {
@@ -4351,7 +4388,7 @@ export default {
   },
   login: {
     visualLabel: '제품 설명',
-    brand: 'GCAC 인증서 콘솔',
+    brand: 'GCAC',
     brandSecondary: '중앙 인증서 관리 플랫폼',
     headlinePrefix: '인증서 관리 사용하기',
     headlineHighlight: '더 지능적이고,',

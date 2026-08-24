@@ -1,10 +1,11 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { devicesZhTW } from './devices.locale'
 import { caOperationsZhTW } from './ca-operations.locale'
 import { credentialsZhTW } from './credentials.locale'
 import { providersZhTW } from './providers.locale'
 import { monitoringTlsZhTW } from './monitoring-tls.locale'
+import { acmeAutomationZhTW } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
@@ -13,10 +14,11 @@ export default {
   devices: devicesZhTW,
   caOperations: caOperationsZhTW,
   providers: providersZhTW,
+  acme: acmeAutomationZhTW,
   notifications: notificationsEnglish,
   reports: reportsEnglish,
   app: {
-    brand: "GCAC 控制台",
+    brand: 'GCAC',
     platform: "企業 SSL 憑證生命週期管理平台",
     defaultBreadcrumb: "控制台",
     dashboard: "儀表板",
@@ -493,6 +495,39 @@ export default {
     sidebarCollapse: "收合側邊欄",
     sidebarExpand: "展開側邊欄"
   },
+  globalSearch: {
+    title: "全域搜尋",
+    description: "搜尋憑證、裝置資產、系統設定與外掛。",
+    inputLabel: "搜尋全域資源",
+    inputPlaceholder: "輸入名稱、網域、指紋或路徑",
+    hint: "輸入關鍵字開始搜尋。",
+    aria: {
+      open: "開啟全域搜尋"
+    },
+    categories: {
+      certificates: "憑證",
+      assets: "裝置資產",
+      settings: "系統設定",
+      plugins: "外掛"
+    },
+    types: {
+      serverCertificate: "伺服器憑證",
+      intermediateCertificate: "中繼憑證",
+      rootCertificate: "根憑證",
+      application: "應用程式",
+      device: "裝置",
+      cloudService: "雲端服務",
+      systemSetting: "系統設定",
+      plugin: "外掛"
+    },
+    empty: {
+      title: "找不到符合的結果",
+      description: "請嘗試其他名稱、網域、指紋或路徑。"
+    },
+    messages: {
+      loadFailed: "全域搜尋載入失敗。"
+    }
+  },
   preferences: {
     theme: "主題",
     language: "語言",
@@ -543,6 +578,8 @@ export default {
     certificatesDesc: "憑證庫、繫結關係和到期狀態",
     certificateAssets: "憑證資產",
     certificateAssetsDesc: "憑證、私密金鑰引用、指紋和到期時間",
+    acmeAutomation: "ACME 憑證自動化",
+    acmeAutomationDesc: "申請、續期和追蹤 ACME 憑證",
     certificateFormats: "憑證格式設定",
     certificateFormatsDesc: "為已儲存憑證定義 PFX、CER、CRT、PEM 等格式規則",
     assetCenter: "資產中心",
@@ -1518,7 +1555,7 @@ export default {
       expiring: "即將到期",
       unknown: "未知",
       valid: "正常",
-      updateAvailable: '可更新'
+      updateAvailable: "可更新"
     },
     days: {
       expired: "已過期 {days} 天",
@@ -2774,7 +2811,7 @@ export default {
       rollbackFromLatestSnapshot: "從最新快照啟動回復",
       rollingBack: "回復中...",
       deployCertificate: "憑證部署",
-      updateCertificate: '憑證更新',
+      updateCertificate: "憑證更新",
       saving: "儲存中...",
       creating: "建立中...",
       saveChanges: "儲存修改",
@@ -2816,7 +2853,7 @@ export default {
       hostHeader: "Host Header",
       sniName: "SNI 名稱",
       currentCertificate: "目前憑證",
-      remainingValidity: '剩餘有效期',
+      remainingValidity: "剩餘有效期",
       targetCertificate: "目標憑證",
       expectedFingerprint: "期望指紋",
       certificateStore: "憑證儲存",
@@ -3424,9 +3461,9 @@ export default {
       acme: {
         title: '申請 ACME 憑證', loading: '正在檢查申請通道...', blocked: '目前申請通道尚未就緒，請依下列原因完成設定後重新整理。',
         status: { ready: '可申請', blocked: '待設定', unknown: '狀態未知' },
-        fields: { directoryUrl: 'ACME Directory URL', email: '聯絡人電子郵件', identifiers: '網域名稱', csrPem: 'CSR PEM', accountKeySecretRef: '帳戶私密金鑰 SecretRef', certificatePrivateKeySecretRef: '憑證私密金鑰 SecretRef', provider: 'DNS 供應商', zoneId: 'DNS 區域識別碼', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 認證 SecretRef', ttl: 'DNS TTL', name: '憑證名稱' },
-        actions: { create: '提交申請', refresh: '重新整理狀態', poll: '繼續查詢', retry: '重新申請', recover: '恢復狀態' },
-        requests: { title: '申請記錄', status: { pending: '等待建立訂單', challenge: '等待網域驗證', finalizing: '等待簽發', succeeded: '已簽發', failed: '申請失敗', unknown: '狀態未知', cancelled: '已取消' } },
+        fields: { issuer: '發行機構', email: '聯絡人電子郵件', domains: '網域名稱', dnsCredential: 'DNS 憑據', keyType: '金鑰類型', autoRenew: '自動續約' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: '提交申請', refresh: '重新整理狀態' },
         errors: { requestFailed: 'ACME 請求失敗' }
       },
       hints: {
@@ -4376,7 +4413,7 @@ export default {
   },
   login: {
     visualLabel: "產品說明",
-    brand: "GCAC 憑證控制台",
+    brand: 'GCAC',
     brandSecondary: "憑證集中管理平台",
     headlinePrefix: "讓憑證管理",
     headlineHighlight: "更智慧",

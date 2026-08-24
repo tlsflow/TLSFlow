@@ -1,4 +1,4 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesJaJP } from './devices.locale'
@@ -6,6 +6,7 @@ import { caOperationsJaJP } from './ca-operations.locale'
 import { credentialsJaJP } from './credentials.locale'
 import { providersJaJP } from './providers.locale'
 import { monitoringTlsJaJP } from './monitoring-tls.locale'
+import { acmeAutomationJaJP } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
@@ -14,10 +15,11 @@ export default {
   devices: devicesJaJP,
   caOperations: caOperationsJaJP,
   providers: providersJaJP,
+  acme: acmeAutomationJaJP,
   notifications: notificationsEnglish,
   reports: reportsEnglish,
   app: {
-    brand: 'GCAC コンソール',
+    brand: 'GCAC',
     platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',
     defaultBreadcrumb: 'コンソール',
     dashboard: 'ダッシュボード',
@@ -494,6 +496,39 @@ export default {
     sidebarCollapse: 'サイドバーを折りたたむ',
     sidebarExpand: 'サイドバーを展開'
   },
+  globalSearch: {
+    title: 'グローバル検索',
+    description: '証明書、デバイス資産、システム設定、プラグインを検索します。',
+    inputLabel: 'グローバルリソースを検索',
+    inputPlaceholder: '名前、ドメイン、フィンガープリント、パスを入力',
+    hint: 'キーワードを入力して検索を開始します。',
+    aria: {
+      open: 'グローバル検索を開く'
+    },
+    categories: {
+      certificates: '証明書',
+      assets: 'デバイス資産',
+      settings: 'システム設定',
+      plugins: 'プラグイン'
+    },
+    types: {
+      serverCertificate: 'サーバー証明書',
+      intermediateCertificate: '中間証明書',
+      rootCertificate: 'ルート証明書',
+      application: 'アプリケーション',
+      device: 'デバイス',
+      cloudService: 'クラウドサービス',
+      systemSetting: 'システム設定',
+      plugin: 'プラグイン'
+    },
+    empty: {
+      title: '一致する結果がありません',
+      description: '別の名前、ドメイン、フィンガープリント、パスを試してください。'
+    },
+    messages: {
+      loadFailed: 'グローバル検索の読み込みに失敗しました。'
+    }
+  },
   preferences: {
     theme: 'テーマ',
     language: '言語',
@@ -544,6 +579,8 @@ export default {
     certificatesDesc: '証明書ライブラリ、バインド関係と期限切れステータス',
     certificateAssets: '証明書アセット',
     certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
+    acmeAutomation: 'ACME 証明書自動化',
+    acmeAutomationDesc: 'ACME 証明書の発行、更新、追跡',
     certificateFormats: '証明書形式設定',
     certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
     assetCenter: 'Asset Center',
@@ -3425,9 +3462,9 @@ export default {
       acme: {
         title: 'ACME 証明書を申請', loading: '発行経路を確認しています...', blocked: '申請経路の準備ができていません。表示された条件を解決してから更新してください。',
         status: { ready: '申請可能', blocked: '設定が必要', unknown: '状態不明' },
-        fields: { directoryUrl: 'ACME Directory URL', email: '連絡先メール', identifiers: 'ドメイン名', csrPem: 'CSR PEM', accountKeySecretRef: 'アカウント鍵 SecretRef', certificatePrivateKeySecretRef: '証明書鍵 SecretRef', provider: 'DNS プロバイダー', zoneId: 'DNS ゾーン ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 認証情報 SecretRef', ttl: 'DNS TTL', name: '証明書名' },
-        actions: { create: '申請を送信', refresh: '状態を更新', poll: '照会を続行', retry: '再申請', recover: '状態を復旧' },
-        requests: { title: '申請履歴', status: { pending: '注文作成待ち', challenge: 'ドメイン検証待ち', finalizing: '発行待ち', succeeded: '発行済み', failed: '申請失敗', unknown: '状態不明', cancelled: '取消済み' } },
+        fields: { issuer: '発行機関', email: '連絡先メール', domains: 'ドメイン名', dnsCredential: 'DNS 認証情報', keyType: '鍵の種類', autoRenew: '自動更新' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: '申請を送信', refresh: '状態を更新' },
         errors: { requestFailed: 'ACME リクエストに失敗しました' }
       },
       hints: {
@@ -4377,7 +4414,7 @@ export default {
   },
   login: {
     visualLabel: '製品説明',
-    brand: 'GCAC 証明書コンソール',
+    brand: 'GCAC',
     brandSecondary: '証明書集中管理プラットフォーム',
     headlinePrefix: '証明書管理を',
     headlineHighlight: 'よりスマートに',

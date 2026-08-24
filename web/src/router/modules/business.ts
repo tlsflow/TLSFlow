@@ -32,6 +32,23 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/acme',
+    name: 'acme.automation',
+    component: () => import('@/views/acme/AcmeOperationsView.vue'),
+    meta: {
+      title: 'ACME certificate automation',
+      titleKey: 'nav.acmeAutomation',
+      heroTitle: true,
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.asset.read',
+      resourceType: 'certificate',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.certificates', 'nav.acmeAutomation'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/ca-operations',
     name: 'caOperations.console',
     component: () => import('@/views/ca-operations/CaOperationsView.vue'),

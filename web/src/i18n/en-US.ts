@@ -1,18 +1,20 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { devicesEnUS } from './devices.locale'
 import { caOperationsEnUS } from './ca-operations.locale'
 import { credentialsEnUS } from './credentials.locale'
 import { providersEnUS } from './providers.locale'
 import { monitoringTlsEnUS } from './monitoring-tls.locale'
+import { acmeAutomationEnUS } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsEnUS,
   devices: devicesEnUS,
   caOperations: caOperationsEnUS,
   providers: providersEnUS,
+  acme: acmeAutomationEnUS,
   app: {
-    brand: 'GCAC Console',
+    brand: 'GCAC',
     platform: 'Enterprise SSL Certificate Lifecycle Platform',
     defaultBreadcrumb: 'Console',
     dashboard: 'Dashboard',
@@ -489,6 +491,39 @@ export default {
     sidebarCollapse: 'Collapse sidebar',
     sidebarExpand: 'Expand sidebar'
   },
+  globalSearch: {
+    title: 'Global search',
+    description: 'Search certificates, device assets, system settings, and plugins.',
+    inputLabel: 'Search global resources',
+    inputPlaceholder: 'Enter a name, domain, fingerprint, or path',
+    hint: 'Enter a keyword to start searching.',
+    aria: {
+      open: 'Open global search'
+    },
+    categories: {
+      certificates: 'Certificates',
+      assets: 'Device assets',
+      settings: 'System settings',
+      plugins: 'Plugins'
+    },
+    types: {
+      serverCertificate: 'Server certificate',
+      intermediateCertificate: 'Intermediate certificate',
+      rootCertificate: 'Root certificate',
+      application: 'Application',
+      device: 'Device',
+      cloudService: 'Cloud service',
+      systemSetting: 'System setting',
+      plugin: 'Plugin'
+    },
+    empty: {
+      title: 'No matching results',
+      description: 'Try another name, domain, fingerprint, or path.'
+    },
+    messages: {
+      loadFailed: 'Global search failed to load.'
+    }
+  },
   preferences: {
     theme: 'Theme',
     language: 'Language',
@@ -539,6 +574,8 @@ export default {
     certificatesDesc: 'Certificate library, bindings, and expiry status',
     certificateAssets: 'Certificate assets',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
+    acmeAutomation: 'ACME certificate automation',
+    acmeAutomationDesc: 'Issue, renew, and track ACME certificates',
     certificateFormats: 'Certificate format config',
     certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
     assetCenter: 'Asset Center',
@@ -3538,9 +3575,9 @@ export default {
       acme: {
         title: 'Request an ACME certificate', loading: 'Checking issuance availability...', blocked: 'The issuance path is not ready. Resolve the listed conditions and refresh.',
         status: { ready: 'Ready to request', blocked: 'Setup required', unknown: 'Status unknown' },
-        fields: { directoryUrl: 'ACME Directory URL', email: 'Contact email', identifiers: 'Domain names', csrPem: 'CSR PEM', accountKeySecretRef: 'Account key SecretRef', certificatePrivateKeySecretRef: 'Certificate key SecretRef', provider: 'DNS provider', zoneId: 'DNS zone ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS credential SecretRef', ttl: 'DNS TTL', name: 'Certificate name' },
-        actions: { create: 'Submit request', refresh: 'Refresh status', poll: 'Continue polling', retry: 'Retry request', recover: 'Recover status' },
-        requests: { title: 'Requests', status: { pending: 'Waiting to create order', challenge: 'Waiting for domain validation', finalizing: 'Waiting for issuance', succeeded: 'Issued', failed: 'Request failed', unknown: 'Status unknown', cancelled: 'Cancelled' } },
+        fields: { issuer: 'Issuer', email: 'Contact email', domains: 'Domain names', dnsCredential: 'DNS credential', keyType: 'Key type', autoRenew: 'Auto-renew' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: 'Submit request', refresh: 'Refresh status' },
         errors: { requestFailed: 'ACME request failed' }
       },
       hints: {
@@ -4490,7 +4527,7 @@ export default {
   },
   login: {
     visualLabel: 'Product overview',
-    brand: 'GCAC Certificate Console',
+    brand: 'GCAC',
     brandSecondary: 'Centralized certificate management platform',
     headlinePrefix: 'Certificate ',
     headlineHighlight: 'lifecycle',

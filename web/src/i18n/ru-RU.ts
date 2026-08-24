@@ -1,4 +1,4 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesRuRU } from './devices.locale'
@@ -6,6 +6,7 @@ import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
 import { providersRuRU } from './providers.locale'
 import { monitoringTlsRuRU } from './monitoring-tls.locale'
+import { acmeAutomationRuRU } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
@@ -14,10 +15,11 @@ export default {
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
   providers: providersRuRU,
+  acme: acmeAutomationRuRU,
   notifications: notificationsEnglish,
   reports: reportsEnglish,
   app: {
-    brand: 'Консоль GCAC',
+    brand: 'GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',
     defaultBreadcrumb: 'Консоль',
     dashboard: 'Панель мониторинга',
@@ -494,6 +496,39 @@ export default {
     sidebarCollapse: 'Свернуть боковую панель',
     sidebarExpand: 'Развернуть боковую панель'
   },
+  globalSearch: {
+    title: 'Глобальный поиск',
+    description: 'Поиск сертификатов, активов устройств, системных настроек и плагинов.',
+    inputLabel: 'Поиск глобальных ресурсов',
+    inputPlaceholder: 'Введите имя, домен, отпечаток или путь',
+    hint: 'Введите ключевое слово, чтобы начать поиск.',
+    aria: {
+      open: 'Открыть глобальный поиск'
+    },
+    categories: {
+      certificates: 'Сертификаты',
+      assets: 'Активы устройств',
+      settings: 'Системные настройки',
+      plugins: 'Плагины'
+    },
+    types: {
+      serverCertificate: 'Серверный сертификат',
+      intermediateCertificate: 'Промежуточный сертификат',
+      rootCertificate: 'Корневой сертификат',
+      application: 'Приложение',
+      device: 'Устройство',
+      cloudService: 'Облачный сервис',
+      systemSetting: 'Системная настройка',
+      plugin: 'Плагин'
+    },
+    empty: {
+      title: 'Совпадений не найдено',
+      description: 'Попробуйте другое имя, домен, отпечаток или путь.'
+    },
+    messages: {
+      loadFailed: 'Не удалось загрузить глобальный поиск.'
+    }
+  },
   preferences: {
     theme: 'Тема',
     language: 'Язык',
@@ -544,6 +579,8 @@ export default {
     certificatesDesc: 'Хранилище сертификатов, привязки и срок действия',
     certificateAssets: 'Сертификатные активы',
     certificateAssetsDesc: 'Сертификаты, ссылки на закрытые ключи, отпечатки и сроки действия',
+    acmeAutomation: 'Автоматизация сертификатов ACME',
+    acmeAutomationDesc: 'Выпуск, продление и отслеживание сертификатов ACME',
     certificateFormats: 'Конфигурации форматов сертификатов',
     certificateFormatsDesc: 'Правила форматов PFX, CER, CRT, PEM и других для сохраненных сертификатов',
     assetCenter: 'Asset Center',
@@ -3411,9 +3448,9 @@ export default {
       acme: {
         title: 'Запросить сертификат ACME', loading: 'Проверка канала выпуска...', blocked: 'Канал выпуска не готов. Устраните указанные условия и обновите страницу.',
         status: { ready: 'Можно запросить', blocked: 'Требуется настройка', unknown: 'Состояние неизвестно' },
-        fields: { directoryUrl: 'ACME Directory URL', email: 'Контактный e-mail', identifiers: 'Доменные имена', csrPem: 'CSR PEM', accountKeySecretRef: 'SecretRef ключа аккаунта', certificatePrivateKeySecretRef: 'SecretRef ключа сертификата', provider: 'DNS-провайдер', zoneId: 'ID DNS-зоны', endpointUrl: 'DNS API URL', solverSecretRef: 'SecretRef учетных данных DNS', ttl: 'DNS TTL', name: 'Имя сертификата' },
-        actions: { create: 'Отправить запрос', refresh: 'Обновить состояние', poll: 'Продолжить опрос', retry: 'Повторить запрос', recover: 'Восстановить состояние' },
-        requests: { title: 'Запросы', status: { pending: 'Ожидание создания заказа', challenge: 'Ожидание проверки домена', finalizing: 'Ожидание выпуска', succeeded: 'Выпущен', failed: 'Запрос не выполнен', unknown: 'Состояние неизвестно', cancelled: 'Отменен' } },
+        fields: { issuer: 'Центр сертификации', email: 'Контактный e-mail', domains: 'Доменные имена', dnsCredential: 'DNS-учетные данные', keyType: 'Тип ключа', autoRenew: 'Автопродление' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: 'Отправить запрос', refresh: 'Обновить состояние' },
         errors: { requestFailed: 'Сбой запроса ACME' }
       },
       hints: {
@@ -4363,7 +4400,7 @@ export default {
   },
   login: {
     visualLabel: 'Описание продукта',
-    brand: 'Консоль сертификатов GCAC',
+    brand: 'GCAC',
     brandSecondary: 'Платформа централизованного управления сертификатами',
     headlinePrefix: 'Сделайте управление сертификатами',
     headlineHighlight: 'умнее',

@@ -9,17 +9,23 @@ import CertificateTrustRootsModalContent from '@/views/certificates/CertificateT
 import CertificateUsagesView from '@/views/certificates/CertificateUsagesView.vue'
 
 const certificateMocks = vi.hoisted(() => ({
+  createAcmeCertificate: vi.fn(),
   createCertificateFormat: vi.fn(),
+  getAcmeStatus: vi.fn(),
   getCertificateTrustRootDetail: vi.fn(),
   getCertificateVersionDetail: vi.fn(),
   listCertificateFormats: vi.fn(),
   listCertificateTrustRoots: vi.fn(),
   listCertificateUsages: vi.fn(),
 }))
+const credentialMocks = vi.hoisted(() => ({
+  listCredentials: vi.fn(),
+}))
 
 const routeState = vi.hoisted(() => ({ params: { id: 'certificate-1' }, query: {} }))
 
 vi.mock('@/api/modules/certificates.api', () => certificateMocks)
+vi.mock('@/api/modules/credentials.api', () => credentialMocks)
 vi.mock('vue-router', () => ({
   RouterLink: { template: '<a><slot /></a>' },
   useRoute: () => routeState,
@@ -36,12 +42,31 @@ async function settle() {
 
 describe('证书辅助页面', () => {
   beforeEach(() => {
+    certificateMocks.createAcmeCertificate.mockResolvedValue({ data: {} })
     certificateMocks.createCertificateFormat.mockResolvedValue({ data: {} })
+    certificateMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'READY', provider: { name: 'Let’s Encrypt' } } })
     certificateMocks.getCertificateTrustRootDetail.mockResolvedValue({ data: null })
     certificateMocks.getCertificateVersionDetail.mockResolvedValue({ data: null })
     certificateMocks.listCertificateFormats.mockResolvedValue(page([]))
     certificateMocks.listCertificateTrustRoots.mockResolvedValue(page([]))
     certificateMocks.listCertificateUsages.mockResolvedValue(page([]))
+    credentialMocks.listCredentials.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'dns-credential-1',
+          name: 'Cloudflare DNS',
+          kind: 'DNS_PROVIDER',
+          scopeType: 'global',
+          status: 'active',
+          version: 1,
+          updatedAt: '2026-08-12T00:00:00.000Z',
+          metadata: { providerId: 'cloudflare' },
+        }],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      },
+    })
   })
 
   afterEach(() => {
@@ -146,21 +171,50 @@ describe('证书辅助页面', () => {
     expect(wrapper.find('.gc-tag--success').exists()).toBe(true)
   })
 
-  it('ACME 来源保持不可提交，并允许返回来源选择', async () => {
+  it('ACME 来源根据宿主能力开放六项申请表单，不暴露插件或私钥输入', async () => {
     const draft = reactive(createCertificateImportDraft())
     const wrapper = mount(CertificateImportForm, {
       props: { draft },
     })
+    await settle()
 
     await wrapper.findAll('.certificate-import-wizard__source-card')[1]?.trigger('click')
+    await settle()
 
     expect(wrapper.find('.certificate-import-wizard__panel--acme').exists()).toBe(true)
-    expect(wrapper.find('.certificate-import-wizard__footer-right .gc-button--primary').exists()).toBe(false)
-    expect(wrapper.emitted('validate')).toBeUndefined()
-    expect(wrapper.emitted('submit')).toBeUndefined()
+    expect(wrapper.find('.certificate-import-wizard__panel--acme form').exists()).toBe(true)
+    const inputs = wrapper.findAll('.certificate-import-wizard__panel--acme input')
+    await inputs[1]?.setValue('admin@example.test')
+    await inputs[2]?.setValue('example.test')
+    const credentialSelect = wrapper.find('.gc-credential-select select')
+    await credentialSelect.setValue('dns-credential-1')
+    await wrapper.find('.certificate-import-wizard__panel--acme form').trigger('submit')
+    await settle()
 
-    await wrapper.find('.certificate-import-wizard__footer-right .gc-button--secondary').trigger('click')
-    expect(wrapper.find('.certificate-import-wizard__panel--source').exists()).toBe(true)
+    expect(certificateMocks.createAcmeCertificate).toHaveBeenCalledWith(expect.objectContaining({
+      contactEmail: 'admin@example.test',
+      challengeType: 'dns-01',
+      domains: ['example.test'],
+      dnsCredentialId: 'dns-credential-1',
+      keyType: 'rsa',
+      autoRenew: true,
+    }))
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Directory URL')
+    expect(wrapper.text()).not.toContain('SecretRef')
+  })
+
+  it('ACME 来源在宿主能力状态异常时不开放申请表单', async () => {
+    certificateMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'BLOCKED' } })
+    const draft = reactive(createCertificateImportDraft())
+    const wrapper = mount(CertificateImportForm, { props: { draft } })
+    await settle()
+
+    await wrapper.findAll('.certificate-import-wizard__source-card')[1]?.trigger('click')
+    await settle()
+
+    expect(wrapper.find('.certificate-import-wizard__panel--acme form').exists()).toBe(false)
+    expect(certificateMocks.createAcmeCertificate).not.toHaveBeenCalled()
   })
 
   it('根证书弹层保留空态，并在有数据时展示统一详情状态和本地时间', async () => {

@@ -9,9 +9,12 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
 import { readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean
-}>()
+  rootId?: string
+}>(), {
+  rootId: '',
+})
 
 const { t, te } = useI18n()
 
@@ -46,8 +49,8 @@ const managedInvalidChain = computed(() => rootGroups.value.filter((group) => ro
 const relatedAssets = computed(() => relatedAssetGroups.value)
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open, props.rootId],
+  ([open]) => {
     if (open) {
       void loadRoots()
       return
@@ -77,9 +80,13 @@ async function loadRoots() {
     })
     roots.value = [...(result.data?.items ?? [])]
     managedSummary.value = readRecord((result.data as unknown as ApiRecord | undefined)?.managedSummary)
-    const nextKey = rootGroups.value.some((item) => item.key === selectedRootKey.value)
-      ? selectedRootKey.value
-      : rootGroups.value[0]?.key ?? ''
+    const targetedGroup = props.rootId
+      ? rootGroups.value.find((item) => item.rootRecordId === props.rootId || item.key === props.rootId)
+      : undefined
+    const nextKey = targetedGroup?.key
+      ?? (rootGroups.value.some((item) => item.key === selectedRootKey.value)
+        ? selectedRootKey.value
+        : rootGroups.value[0]?.key ?? '')
     selectedRootKey.value = nextKey
     if (nextKey) {
       await loadRootDetail(nextKey)

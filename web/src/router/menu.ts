@@ -18,6 +18,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.certificatesDesc',
     children: [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
+      { titleKey: 'nav.acmeAutomation', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.acmeAutomationDesc' },
       { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false },
       { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'internalCa.description' },
       { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }

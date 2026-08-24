@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcButton, GcCard, GcSelectionCard, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcCard, GcCredentialSelect, GcSelectionCard, GcStatusTag } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import {
+  createAcmeCertificate,
+  getAcmeStatus,
+} from '@/api/modules/certificates.api'
+import { ApiClientError } from '@/api/client'
 import type {
   CertificateImportDraft,
   CertificateImportValidationResult,
@@ -18,6 +23,7 @@ import {
 type ImportSource = 'manual' | 'acme'
 type FlowStep = 'source' | 'format' | 'materials' | 'review'
 type FormStep = FlowStep | 'acme'
+type AcmeStatus = 'READY' | 'BLOCKED' | 'UNKNOWN'
 
 const props = withDefaults(defineProps<{
   draft: CertificateImportDraft
@@ -46,6 +52,19 @@ const selectedSource = ref<ImportSource | null>(null)
 const fileInputKey = ref(0)
 const certificateFileName = ref('')
 const privateKeyFileName = ref('')
+const acmeStatus = ref<AcmeStatus>('UNKNOWN')
+const acmeReasons = ref<string[]>([])
+const acmeLoading = ref(false)
+const acmeActionLoading = ref(false)
+const acmeError = ref('')
+const acmeForm = ref({
+  issuer: '',
+  email: '',
+  domains: '',
+  dnsCredentialId: '',
+  keyType: 'rsa' as 'rsa' | 'ecdsa',
+  autoRenew: true,
+})
 
 const certificateFormatOptions = computed(() => createCertificateFormatOptions(t))
 const importMethodOptions = computed(() => createImportMethodOptions(t))
@@ -62,6 +81,11 @@ const materialReady = computed(() => isMaterialReady(props.draft))
 const canGoToMaterials = computed(() => Boolean(selectedFormat.value.supported))
 const canGoToReview = computed(() => materialReady.value && !props.loading && !props.validating)
 const canSubmit = computed(() => Boolean(props.validationResult?.importable) && !props.loading && !props.validating)
+const acmeReady = computed(() => acmeStatus.value === 'READY')
+const acmeStatusTone = computed(() => acmeStatus.value === 'READY' ? 'success' : acmeStatus.value === 'BLOCKED' ? 'warning' : 'muted')
+const acmeStatusLabel = computed(() => t(`certificates.importForm.acme.status.${acmeStatus.value.toLowerCase()}`))
+const canCreateAcmeRequest = computed(() => acmeReady.value && !acmeActionLoading.value
+  && Boolean(acmeForm.value.issuer && acmeForm.value.email && acmeForm.value.domains && acmeForm.value.dnsCredentialId))
 const flowSteps = computed(() => [
   { id: 'source' as const, label: t('certificates.importForm.steps.source') },
   { id: 'format' as const, label: t('certificates.importForm.steps.formatAndMethod') },
@@ -138,6 +162,56 @@ function selectSource(source: ImportSource) {
   selectedSource.value = source
   currentStep.value = source === 'manual' ? 'format' : 'acme'
 }
+
+async function loadAcmeState() {
+  acmeLoading.value = true
+  acmeError.value = ''
+  try {
+    const statusResult = await getAcmeStatus()
+    const status = statusResult.data as unknown as {
+      status?: AcmeStatus
+      provider?: { name?: unknown }
+    }
+    acmeStatus.value = status.status === 'READY' || status.status === 'BLOCKED' ? status.status : 'UNKNOWN'
+    acmeForm.value.issuer = typeof status.provider?.name === 'string' ? status.provider.name : ''
+    acmeReasons.value = []
+  } catch (error) {
+    acmeStatus.value = 'UNKNOWN'
+    acmeReasons.value = []
+    acmeError.value = apiErrorMessage(error)
+  } finally {
+    acmeLoading.value = false
+  }
+}
+
+async function createAcmeRequest() {
+  if (!canCreateAcmeRequest.value) return
+  acmeActionLoading.value = true
+  acmeError.value = ''
+  try {
+    await createAcmeCertificate({
+      contactEmail: acmeForm.value.email,
+      domains: acmeForm.value.domains.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean),
+      challengeType: 'dns-01',
+      dnsCredentialId: acmeForm.value.dnsCredentialId,
+      keyType: acmeForm.value.keyType,
+      autoRenew: acmeForm.value.autoRenew,
+      termsOfServiceAgreed: true,
+    })
+    await loadAcmeState()
+  } catch (error) {
+    acmeError.value = apiErrorMessage(error)
+  } finally {
+    acmeActionLoading.value = false
+  }
+}
+
+function apiErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError) return `${error.message}（${error.errorCode}）`
+  return error instanceof Error ? error.message : t('certificates.importForm.acme.errors.requestFailed')
+}
+
+onMounted(() => { void loadAcmeState() })
 
 function isStepDone(step: FlowStep) {
   return flowSteps.value.findIndex((item) => item.id === step) < activeStepIndex.value
@@ -281,9 +355,9 @@ function cancelImport() {
           @select="selectSource('acme')"
         >
           <GcStatusTag
-            status="UNAVAILABLE"
-            :label="t('certificates.importForm.source.acme.unavailable')"
-            tone="muted"
+            :status="acmeStatus"
+            :label="acmeStatusLabel"
+            :tone="acmeStatusTone"
           />
         </GcSelectionCard>
       </div>
@@ -292,7 +366,7 @@ function cancelImport() {
     <section v-else-if="currentStep === 'acme'" class="certificate-import-wizard__panel certificate-import-wizard__panel--acme">
       <header class="certificate-import-wizard__header">
         <div>
-          <h2>{{ t('certificates.importForm.source.unavailable.title') }}</h2>
+          <h2>{{ t('certificates.importForm.acme.title') }}</h2>
           <p>{{ t('certificates.importForm.source.acme.description') }}</p>
         </div>
       </header>
@@ -300,13 +374,67 @@ function cancelImport() {
       <GcCard as="article" class="certificate-import-wizard__acme-card">
         <template #header>
           <GcStatusTag
-            status="UNAVAILABLE"
-            :label="t('certificates.importForm.source.acme.unavailable')"
-            tone="muted"
+            :status="acmeStatus"
+            :label="acmeStatusLabel"
+            :tone="acmeStatusTone"
           />
         </template>
-        <p>{{ t('certificates.importForm.source.unavailable.description') }}</p>
+        <p v-if="acmeLoading">{{ t('certificates.importForm.acme.loading') }}</p>
+        <template v-else-if="acmeReady">
+          <form class="certificate-import-wizard__form" @submit.prevent="createAcmeRequest">
+            <label class="gc-form-field certificate-import-wizard__field">
+              <span>{{ t('certificates.importForm.acme.fields.issuer') }}</span>
+              <input :value="acmeForm.issuer" readonly />
+            </label>
+            <label class="gc-form-field certificate-import-wizard__field">
+              <span>{{ t('certificates.importForm.acme.fields.email') }}</span>
+              <input v-model="acmeForm.email" type="email" autocomplete="email" />
+            </label>
+            <label class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
+              <span>{{ t('certificates.importForm.acme.fields.domains') }}</span>
+              <input v-model="acmeForm.domains" />
+            </label>
+            <div class="gc-form-field certificate-import-wizard__field">
+              <GcCredentialSelect
+                v-model="acmeForm.dnsCredentialId"
+                :label="t('certificates.importForm.acme.fields.dnsCredential')"
+                :accepted-kinds="['DNS_PROVIDER']"
+                required
+              />
+            </div>
+            <label class="gc-form-field certificate-import-wizard__field">
+              <span>{{ t('certificates.importForm.acme.fields.keyType') }}</span>
+              <select v-model="acmeForm.keyType">
+                <option value="rsa">{{ t('certificates.importForm.acme.keyTypes.rsa') }}</option>
+                <option value="ecdsa">{{ t('certificates.importForm.acme.keyTypes.ecdsa') }}</option>
+              </select>
+            </label>
+            <label class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--toggle">
+              <input v-model="acmeForm.autoRenew" type="checkbox" />
+              <span>{{ t('certificates.importForm.acme.fields.autoRenew') }}</span>
+            </label>
+            <div class="certificate-import-wizard__acme-actions certificate-import-wizard__field--full">
+              <GcButton type="submit" variant="primary" :disabled="!canCreateAcmeRequest" :loading="acmeActionLoading">
+                {{ t('certificates.importForm.acme.actions.create') }}
+              </GcButton>
+              <GcButton type="button" variant="secondary" :disabled="acmeActionLoading" @click="loadAcmeState">
+                {{ t('certificates.importForm.acme.actions.refresh') }}
+              </GcButton>
+            </div>
+          </form>
+        </template>
+        <template v-else>
+          <p>{{ t('certificates.importForm.acme.blocked') }}</p>
+          <ul v-if="acmeReasons.length" class="certificate-import-wizard__list">
+            <li v-for="reason in acmeReasons" :key="reason">{{ reason }}</li>
+          </ul>
+          <GcButton type="button" variant="secondary" :disabled="acmeLoading" @click="loadAcmeState">
+            {{ t('certificates.importForm.acme.actions.refresh') }}
+          </GcButton>
+        </template>
+        <p v-if="acmeError" class="gc-form-error certificate-import-wizard__error">{{ acmeError }}</p>
       </GcCard>
+
     </section>
 
     <section v-else-if="currentStep === 'format'" class="certificate-import-wizard__panel">
@@ -706,6 +834,38 @@ function cancelImport() {
   line-height: var(--gc-line-height-relaxed);
 }
 
+.certificate-import-wizard__acme-actions,
+.certificate-import-wizard__acme-request {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+}
+
+.certificate-import-wizard__acme-request {
+  justify-content: space-between;
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.certificate-import-wizard__acme-request > div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.certificate-import-wizard__acme-request strong,
+.certificate-import-wizard__acme-request small,
+.certificate-import-wizard__acme-request p {
+  overflow-wrap: anywhere;
+}
+
+.certificate-import-wizard__acme-request small,
+.certificate-import-wizard__acme-request p {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
 .certificate-import-wizard__selection :deep(.gc-selection-card__extra) {
   display: inline-flex;
 }
@@ -888,8 +1048,15 @@ function cancelImport() {
 
   .certificate-import-wizard__footer-left,
   .certificate-import-wizard__footer-right,
-  .certificate-import-wizard__chain-head {
+  .certificate-import-wizard__chain-head,
+  .certificate-import-wizard__acme-request {
     justify-content: space-between;
+  }
+
+  .certificate-import-wizard__acme-actions,
+  .certificate-import-wizard__acme-request {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

@@ -11,6 +11,7 @@ const CERTIFICATE_IMPORT_PATH = '/api/v1/certificate-versions/import'
 const CERTIFICATE_VALIDATE_IMPORT_PATH = '/api/v1/certificate-versions/validate-import'
 const CERTIFICATE_USAGES_PATH = '/api/v1/certificate-bindings'
 const CERTIFICATE_TRUST_ROOTS_PATH = '/api/v1/certificate-trust-roots'
+const ACME_PATH = '/api/v1/acme'
 
 export function listCertificates(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_ASSETS_PATH, query)
@@ -62,6 +63,14 @@ export function importCertificate(payload: ApiBody) {
 
 export function validateCertificateImport(payload: ApiBody) {
   return postAction(CERTIFICATE_VALIDATE_IMPORT_PATH, payload, 'certificate_import_validate')
+}
+
+export function getAcmeStatus(): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${ACME_PATH}/status`))
+}
+
+export function createAcmeCertificate(payload: ApiBody) {
+  return postAction(`${ACME_PATH}/certificates`, payload, 'acme_certificate_create')
 }
 
 export function deleteCertificateVersion(id: string) {

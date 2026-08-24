@@ -1,4 +1,4 @@
-// GCAC 国际化语言文件：直接编辑此文件。
+// 产品国际化语言文件：直接编辑此文件。
 // 新增翻译 key 时，先更新 zh-CN.ts，再同步到其他语言文件。
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesPtBR } from './devices.locale'
@@ -6,6 +6,7 @@ import { caOperationsPtBR } from './ca-operations.locale'
 import { credentialsPtBR } from './credentials.locale'
 import { providersPtBR } from './providers.locale'
 import { monitoringTlsPtBR } from './monitoring-tls.locale'
+import { acmeAutomationPtBR } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
@@ -14,10 +15,11 @@ export default {
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
   providers: providersPtBR,
+  acme: acmeAutomationPtBR,
   notifications: notificationsEnglish,
   reports: reportsEnglish,
   app: {
-    brand: 'Console GCAC',
+    brand: 'GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',
     defaultBreadcrumb: 'Console',
     dashboard: 'Painel',
@@ -494,6 +496,39 @@ export default {
     sidebarCollapse: 'Recolher barra lateral',
     sidebarExpand: 'Expandir barra lateral'
   },
+  globalSearch: {
+    title: 'Pesquisa global',
+    description: 'Pesquise certificados, ativos de dispositivos, configurações do sistema e plugins.',
+    inputLabel: 'Pesquisar recursos globais',
+    inputPlaceholder: 'Digite um nome, domínio, impressão digital ou caminho',
+    hint: 'Digite uma palavra-chave para iniciar a pesquisa.',
+    aria: {
+      open: 'Abrir pesquisa global'
+    },
+    categories: {
+      certificates: 'Certificados',
+      assets: 'Ativos de dispositivos',
+      settings: 'Configurações do sistema',
+      plugins: 'Plugins'
+    },
+    types: {
+      serverCertificate: 'Certificado do servidor',
+      intermediateCertificate: 'Certificado intermediário',
+      rootCertificate: 'Certificado raiz',
+      application: 'Aplicação',
+      device: 'Dispositivo',
+      cloudService: 'Serviço em nuvem',
+      systemSetting: 'Configuração do sistema',
+      plugin: 'Plugin'
+    },
+    empty: {
+      title: 'Nenhum resultado correspondente',
+      description: 'Tente outro nome, domínio, impressão digital ou caminho.'
+    },
+    messages: {
+      loadFailed: 'Falha ao carregar a pesquisa global.'
+    }
+  },
   preferences: {
     theme: 'Tema',
     language: 'Idioma',
@@ -544,6 +579,8 @@ export default {
     certificatesDesc: 'Biblioteca de certificados, vínculos e status de expiração',
     certificateAssets: 'Ativos de certificado',
     certificateAssetsDesc: 'Certificados, referências de chave privada, impressões digitais e prazos de expiração',
+    acmeAutomation: 'Automação de certificados ACME',
+    acmeAutomationDesc: 'Emitir, renovar e acompanhar certificados ACME',
     certificateFormats: 'Configuração de formatos de certificado',
     certificateFormatsDesc: 'Defina regras de formato como PFX, CER, CRT e PEM para certificados salvos',
     assetCenter: 'Asset Center',
@@ -3411,9 +3448,9 @@ export default {
       acme: {
         title: 'Solicitar certificado ACME', loading: 'Verificando o canal de emissao...', blocked: 'O canal de emissao nao esta pronto. Resolva as condicoes listadas e atualize.',
         status: { ready: 'Pronto para solicitar', blocked: 'Configuracao necessaria', unknown: 'Status desconhecido' },
-        fields: { directoryUrl: 'URL do ACME Directory', email: 'E-mail de contato', identifiers: 'Nomes de dominio', csrPem: 'CSR PEM', accountKeySecretRef: 'SecretRef da chave da conta', certificatePrivateKeySecretRef: 'SecretRef da chave do certificado', provider: 'Provedor DNS', zoneId: 'ID da zona DNS', endpointUrl: 'URL da API DNS', solverSecretRef: 'SecretRef da credencial DNS', ttl: 'DNS TTL', name: 'Nome do certificado' },
-        actions: { create: 'Enviar solicitacao', refresh: 'Atualizar status', poll: 'Continuar consulta', retry: 'Tentar novamente', recover: 'Recuperar status' },
-        requests: { title: 'Solicitacoes', status: { pending: 'Aguardando criacao do pedido', challenge: 'Aguardando validacao do dominio', finalizing: 'Aguardando emissao', succeeded: 'Emitido', failed: 'Falha na solicitacao', unknown: 'Status desconhecido', cancelled: 'Cancelado' } },
+        fields: { issuer: 'Emissor', email: 'E-mail de contato', domains: 'Nomes de dominio', dnsCredential: 'Credencial DNS', keyType: 'Tipo de chave', autoRenew: 'Renovacao automatica' },
+        keyTypes: { rsa: 'RSA', ecdsa: 'ECDSA' },
+        actions: { create: 'Enviar solicitacao', refresh: 'Atualizar status' },
         errors: { requestFailed: 'Falha na solicitacao ACME' }
       },
       hints: {
@@ -4363,7 +4400,7 @@ export default {
   },
   login: {
     visualLabel: 'Descrição do produto',
-    brand: 'Console de Certificados GCAC',
+    brand: 'GCAC',
     brandSecondary: 'Plataforma centralizada de gerenciamento de certificados',
     headlinePrefix: 'Torne o gerenciamento de certificados',
     headlineHighlight: 'mais inteligente',
