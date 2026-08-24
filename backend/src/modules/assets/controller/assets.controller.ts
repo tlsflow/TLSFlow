@@ -294,15 +294,20 @@ export class AssetsController {
       allowedFilterFields: ['id', 'address', 'addressType', 'port', 'protocol', 'sniName', 'serviceInstanceId', 'serviceEndpointId', 'hostId', 'environment', 'discoverySource', 'status', 'tag'],
     });
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.read', 'service_asset', request);
-    return this.service.listServiceAssets(tenantId(request), await this.authorizedQuery(subject, 'service_asset', 'read', query));
+    const authorized = await this.authorizedQuery(subject, 'service_asset', 'read', query);
+    if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'service_asset.read', 'service_asset', request)) {
+      await this.assertCan(subject, 'service_asset.read', 'service_asset', request);
+    }
+    return this.service.listServiceAssets(tenantId(request), authorized);
   }
 
   private async getServiceAssetDetail(request: HttpRequest) {
     const serviceAssetId = String(request.query.serviceAssetId ?? request.query.id ?? '').trim();
     if (!serviceAssetId) throw new AppError('VALIDATION_FAILED', 'serviceAssetId 不能为空', { field: 'serviceAssetId' });
     const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
+    if (!await this.canReadObject(subject, 'service_asset.read', 'service_asset', request, serviceAssetId, true)) {
+      await this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
+    }
     return this.service.getServiceAssetDetail(tenantId(request), serviceAssetId).then((detail) => {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
       return detail;
@@ -787,6 +792,32 @@ export class AssetsController {
     return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
+  private async canReadObject(
+    subject: SecuritySubject,
+    action: string,
+    objectType: string,
+    request: HttpRequest,
+    objectId?: string,
+    requireObjectMatch = false,
+  ): Promise<boolean> {
+    if (!this.security) return true;
+    if (objectId) {
+      const objectAllowed = await this.security.objectPermissions.isAllowed(subject, 'read', {
+        objectType,
+        objectId,
+        tenantId: request.context.tenantId,
+      });
+      if (objectAllowed) return true;
+      if (requireObjectMatch) return false;
+    }
+    const decision = await this.security.rbac.can(subject, action, {
+      type: objectType,
+      id: objectId,
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    }, this.securityContext(request, subject));
+    return decision.allowed;
+  }
+
   private audit(request: HttpRequest, subject: SecuritySubject, eventType: string, action: string, resourceType: string, resourceId: string | undefined, before: unknown, after: unknown): void {
     void this.security?.audit.write({
       eventType,
@@ -810,6 +841,13 @@ export class AssetsController {
 
 function tenantId(request: HttpRequest): string {
   return requireTenantId(request);
+}
+
+function hasAuthorizedReadScope(authorization: PageQuery['authorization']): boolean {
+  if (!authorization) return false;
+  if (authorization.unrestricted) return true;
+  if ((authorization.objectIds?.length ?? 0) > 0) return true;
+  return (authorization.dynamicConditions?.length ?? 0) > 0;
 }
 
 function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {

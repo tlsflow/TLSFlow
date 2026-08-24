@@ -56,9 +56,24 @@ test('Dashboard 最近审计对已知对象执行授权，未知对象默认过�
   assert.deepEqual(overview.recentAudits.map((item) => item.id), ['visible-audit', 'login-audit']);
 });
 
+test('Dashboard 没有 audit.read 时不返回任何最近审计日志', async () => {
+  const service = createDashboardService({}, [
+    audit('login-audit', 'authSession'),
+    audit('object-audit', 'service_asset', 'application-visible'),
+  ], false);
+
+  const overview = await service.getOverview({
+    tenantId: 'tenant-1',
+    subject: { id: 'user-1', type: 'user', scope: { tenantId: 'tenant-1' } },
+  });
+
+  assert.deepEqual(overview.recentAudits, []);
+});
+
 function createDashboardService(
   allowedObjectIds: Record<string, string[]>,
   auditLogs: AuditLogEntity[] = [],
+  canReadAudit = true,
 ): DashboardApplicationService {
   const objectPermissions = {
     buildAuthorizedQuery: async (_subject: unknown, objectType: string) => {
@@ -124,6 +139,7 @@ function createDashboardService(
     },
     deploymentPlans: {} as never,
     objectPermissions: objectPermissions as never,
+    canReadAudit: async () => canReadAudit,
   } as never);
 }
 

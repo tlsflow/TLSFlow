@@ -22,6 +22,7 @@ export interface DashboardApplicationDependencies {
   audit: AuditService;
   deploymentPlans: DeploymentPlansRepository;
   objectPermissions: ObjectPermissionService;
+  canReadAudit: (subject: SecuritySubject, tenantId: string) => Promise<boolean>;
 }
 
 const DASHBOARD_AUDIT_LIMIT = 8;
@@ -31,6 +32,7 @@ export class DashboardApplicationService {
 
   async getOverview(input: { tenantId: string; subject: SecuritySubject }): Promise<DashboardOverview> {
     const generatedAt = new Date().toISOString();
+    const canReadAudit = await this.dependencies.canReadAudit(input.subject, input.tenantId);
     const [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization] = await Promise.all([
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'service_asset', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_asset', 'read'),
@@ -54,13 +56,13 @@ export class DashboardApplicationService {
       this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery('updatedAt:desc', bindingAuthorization)),
       this.dependencies.agents.listRegistrations(input.tenantId, allRowsQuery('updatedAt:desc', agentAuthorization)),
       this.dependencies.gateways.listGateways(input.tenantId, allRowsQuery('updatedAt:desc', gatewayAuthorization)),
-      this.dependencies.audit.query({ resourceScope: { tenantId: input.tenantId } }),
+      canReadAudit
+        ? this.dependencies.audit.query({ resourceScope: { tenantId: input.tenantId } })
+        : Promise.resolve([]),
     ]);
-    const authorizedAuditLogs = await filterDashboardAuditLogs(
-      this.dependencies.objectPermissions,
-      input.subject,
-      auditLogs,
-    );
+    const authorizedAuditLogs = canReadAudit
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.subject, auditLogs)
+      : [];
 
     const activeCertificateVersions = certificateVersions.items.filter((version) => version.status === 'active');
     const validCertificateCount = activeCertificateVersions.filter((version) => isAfter(version.notAfter, generatedAt)).length;
@@ -235,23 +237,31 @@ async function filterDashboardAuditLogs(
   subject: SecuritySubject,
   logs: AuditLogEntity[],
 ): Promise<AuditLogEntity[]> {
-  const result: AuditLogEntity[] = [];
-  for (const log of logs) {
+  const filtered = await Promise.all(logs.map(async (log) => {
     if (!log.resourceId) {
-      result.push(log);
-      continue;
+      return log;
     }
     const objectType = dashboardAuditObjectType(log.resourceType);
     // 带对象 ID 但无法映射对象类型时不能凭租户范围放行，避免未知对象绕过对象授权。
-    if (!objectType) continue;
-    const decision = await objectPermissions.can(subject, 'read', {
+    if (!objectType) return undefined;
+    const object = {
       objectType,
       objectId: log.resourceId,
       tenantId: subject.scope?.tenantId,
-    });
-    if (decision.allowed) result.push(log);
-  }
-  return result;
+    };
+    const permissionService = objectPermissions as ObjectPermissionService & {
+      isAllowed?: (
+        subject: SecuritySubject,
+        accessLevel: 'read',
+        object: { objectType: string; objectId: string; tenantId?: string },
+      ) => Promise<boolean>;
+    };
+    const allowed = permissionService.isAllowed
+      ? await permissionService.isAllowed(subject, 'read', object)
+      : (await objectPermissions.can(subject, 'read', object)).allowed;
+    return allowed ? log : undefined;
+  }));
+  return filtered.filter((log): log is AuditLogEntity => Boolean(log));
 }
 
 function dashboardAuditObjectType(resourceType: string): string | undefined {

@@ -674,6 +674,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     deploymentPlans: deploymentPlans.getRepository(),
     objectPermissions: security.objectPermissions,
+    canReadAudit: async (subject, tenantId) => (
+      await security.rbac.can(subject, 'audit.read', {
+        type: 'auditLog',
+        scope: {
+          tenantId,
+          tenantScope: subject.scope?.tenantScope,
+        },
+      })
+    ).allowed,
   }), security).register(app.router);
   new MonitorsController(monitorsService, security).register(app.router);
   new TasksController(tasksService, security).register(app.router);

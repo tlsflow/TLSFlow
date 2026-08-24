@@ -444,6 +444,88 @@ describe('证书资产 API', () => {
     assert.equal((deletedAsset.body as any).status, 'deleted');
   });
 
+  it('单条证书对象授权应放开版本详情和使用位置接口', async () => {
+    const security = createSecurityServices();
+    await security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_cert_importer',
+      effect: 'allow',
+      actions: ['*'],
+      resourceTypes: ['*'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    await security.rbac.createRole({ id: 'role_cert_object_reader', code: 'cert_object_reader', name: '证书对象只读', builtin: false });
+    await security.objectPermissions.ensureDefaultObjectTypes();
+
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_cert_importer'),
+      body: { certificatePem: CERT_PEM, allowCertificateOnly: true },
+    });
+    assert.equal(imported.statusCode, 201, JSON.stringify(imported.body));
+    const assetId = (imported.body as any).asset.id;
+    const versionId = (imported.body as any).version.id;
+
+    const objectSet = await security.objectPermissions.createObjectSet({
+      id: 'oset_single_cert_detail',
+      tenantId: 'tenant_1',
+      name: '单条证书详情授权',
+      kind: 'static',
+      objectTypes: ['certificate'],
+      status: 'active',
+    });
+    await security.objectPermissions.addObjectSetMember({
+      objectSetId: objectSet.id,
+      objectType: 'certificate',
+      objectId: assetId,
+      addedBy: 'user_cert_importer',
+    });
+    await security.objectPermissions.createRoleBinding({
+      tenantId: 'tenant_1',
+      principalType: 'user',
+      principalId: 'user_cert_object_reader',
+      roleId: 'role_cert_object_reader',
+      objectSetId: objectSet.id,
+      effect: 'allow',
+      enabled: true,
+    });
+    await security.objectPermissions.createAccessGrant({
+      tenantId: 'tenant_1',
+      roleId: 'role_cert_object_reader',
+      objectSetId: objectSet.id,
+      accessLevel: 'read',
+      effect: 'allow',
+    });
+
+    const assetDetail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-assets/detail?id=${assetId}`,
+      headers: headers('user_cert_object_reader'),
+    });
+    assert.equal(assetDetail.statusCode, 200, JSON.stringify(assetDetail.body));
+
+    const versionDetail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/detail?id=${versionId}`,
+      headers: headers('user_cert_object_reader'),
+    });
+    assert.equal(versionDetail.statusCode, 200, JSON.stringify(versionDetail.body));
+    assert.equal((versionDetail.body as any).asset.id, assetId);
+
+    const versionUsage = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/usage?id=${versionId}`,
+      headers: headers('user_cert_object_reader'),
+    });
+    assert.equal(versionUsage.statusCode, 200, JSON.stringify(versionUsage.body));
+    assert.equal((versionUsage.body as any).blockedDeletion, false);
+  });
+
   it('证书版本 usage 支持按域名匹配真实绑定，即使绑定未直接挂到 certificateVersionId', async () => {
     const app = await createMigratedApp('user_usage_domain_match', 'tenant_usage_domain_match');
     const tenantHeaders = { 'x-tenant-id': 'tenant_usage_domain_match', 'x-actor-id': 'user_usage_domain_match' };

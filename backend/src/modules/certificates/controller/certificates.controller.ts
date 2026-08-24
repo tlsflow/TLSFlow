@@ -64,26 +64,34 @@ export class CertificatesController {
   private async listAssets(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['name', 'primaryDomain', 'sourceType', 'status', 'createdAt', 'updatedAt'],
       allowedFilterFields: ['name', 'primaryDomain', 'sourceType', 'status', 'tags'],
     });
-    return this.services.certificates.listAssets(await this.authorizedQuery(subject, 'certificate_asset', 'read', query), tenantId);
+    const authorized = await this.authorizedQuery(subject, 'certificate_asset', 'read', query);
+    if (!hasAuthorizedReadScope(authorized.authorization) && !await this.canReadObject(subject, 'certificate_asset', request)) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    }
+    return this.services.certificates.listAssets(authorized, tenantId);
   }
 
   private async getAssetDetail(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
-    return this.services.certificates.getAssetDetail(readRequiredId(request), tenantId);
+    const assetId = readRequiredId(request);
+    if (!await this.canReadObject(subject, 'certificate_asset', request, assetId, true)) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    }
+    return this.services.certificates.getAssetDetail(assetId, tenantId);
   }
 
   private async getAssetUsage(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
     const assetId = readRequiredId(request);
+    if (!await this.canReadObject(subject, 'certificate_asset', request, assetId, true)) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_asset', request);
+    }
     const usages = await this.findUsages(request, { certificateAssetId: assetId });
     return { items: usages, total: usages.length, blockedDeletion: usages.length > 0 };
   }
@@ -131,26 +139,41 @@ export class CertificatesController {
   private async listVersions(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['certificateAssetId', 'versionNo', 'commonName', 'fingerprintSha256', 'serialNumber', 'notBefore', 'notAfter', 'status', 'createdAt'],
       allowedFilterFields: ['certificateAssetId', 'primaryDomain', 'commonName', 'sans', 'san', 'fingerprintSha256', 'fingerprint', 'serialNumber', 'notAfter', 'status', 'sourceType', 'chainStatus'],
     });
-    return this.services.certificates.listVersions(await this.authorizedQuery(subject, 'certificate_version', 'read', query), tenantId);
+    const certificateAssetId = query.filter.certificateAssetId;
+    const authorized = await this.authorizedQuery(subject, 'certificate_version', 'read', query);
+    const canReadAssetVersions = certificateAssetId
+      ? await this.canReadObject(subject, 'certificate_asset', request, certificateAssetId, true)
+      : false;
+    if (!hasAuthorizedReadScope(authorized.authorization) && !canReadAssetVersions) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+      return this.services.certificates.listVersions(authorized, tenantId);
+    }
+    return this.services.certificates.listVersions(canReadAssetVersions ? query : authorized, tenantId);
   }
 
   private async getVersionDetail(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
-    return this.services.certificates.getVersionDetail(readRequiredId(request), tenantId);
+    const versionId = readRequiredId(request);
+    const { version, allowed } = await this.resolveReadableVersion(subject, request, versionId, tenantId);
+    if (!allowed) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    }
+    return version;
   }
 
   private async getVersionUsage(request: HttpRequest) {
     const tenantId = requireTenantId(request);
     const subject = this.subjectFromRequest(request);
-    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
-    const version = await this.services.certificates.getVersionDetail(readRequiredId(request), tenantId);
+    const versionId = readRequiredId(request);
+    const { version, allowed } = await this.resolveReadableVersion(subject, request, versionId, tenantId);
+    if (!allowed) {
+      await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    }
     const usageQuery = {
       certificateVersionId: version.id,
       fingerprintSha256: version.fingerprintSha256,
@@ -481,6 +504,56 @@ export class CertificatesController {
     return withAuthorization(query, await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, accessLevel));
   }
 
+  private async resolveReadableVersion(
+    subject: SecuritySubject,
+    request: HttpRequest,
+    versionId: string,
+    tenantId: string,
+  ): Promise<{ version: Awaited<ReturnType<CertificatesApplicationService['getVersionDetail']>>; allowed: boolean }> {
+    if (await this.canReadObject(subject, 'certificate_version', request, versionId, true)) {
+      return {
+        version: await this.services.certificates.getVersionDetail(versionId, tenantId),
+        allowed: true,
+      };
+    }
+
+    const version = await this.services.certificates.getVersionDetail(versionId, tenantId);
+    const assetId = typeof version.asset?.id === 'string'
+      ? version.asset.id
+      : typeof version.certificateAssetId === 'string'
+        ? version.certificateAssetId
+        : undefined;
+    if (assetId && await this.canReadObject(subject, 'certificate_asset', request, assetId, true)) {
+      return { version, allowed: true };
+    }
+    return { version, allowed: false };
+  }
+
+  private async canReadObject(
+    subject: SecuritySubject,
+    objectType: string,
+    request: HttpRequest,
+    objectId?: string,
+    requireObjectMatch = false,
+  ): Promise<boolean> {
+    const objectAllowed = objectId
+      ? await this.security.objectPermissions.isAllowed(subject, 'read', {
+        objectType,
+        objectId,
+        tenantId: request.context.tenantId,
+      })
+      : false;
+    if (objectAllowed) return true;
+    if (requireObjectMatch) return false;
+    const action = objectType === 'certificate_asset' ? 'certificate.asset.read' : 'certificate.read';
+    const decision = await this.security.rbac.can(subject, action, {
+      type: objectType,
+      id: objectId,
+      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+    }, this.securityContext(request, subject));
+    return decision.allowed;
+  }
+
   private securityContext(request: HttpRequest, actor: SecuritySubject) {
     return {
       requestId: request.context.requestId,
@@ -488,6 +561,13 @@ export class CertificatesController {
       actor,
     };
   }
+}
+
+function hasAuthorizedReadScope(authorization: PageQuery['authorization']): boolean {
+  if (!authorization) return false;
+  if (authorization.unrestricted) return true;
+  if ((authorization.objectIds?.length ?? 0) > 0) return true;
+  return (authorization.dynamicConditions?.length ?? 0) > 0;
 }
 
 function collectCertificateDomains(version: { commonName?: string; sans?: string[]; asset?: { primaryDomain?: string } }): string[] {
