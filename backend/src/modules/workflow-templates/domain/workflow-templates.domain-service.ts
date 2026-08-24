@@ -844,6 +844,27 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       plannedOnly: mode === 'render_only',
     };
   }
+  if (step.type === 'checkpoint') {
+    const capture = Object.fromEntries(Object.entries(step.checkpoint.capture).map(([name, path]) => {
+      if (isSecretCapturePath(path, context.secretPaths)) {
+        throw new AppError('VALIDATION_FAILED', 'checkpoint 不允许捕获敏感变量', { step: step.name, name, path });
+      }
+      const value = readPath(context.values, path);
+      if (value === undefined) throw new AppError('VALIDATION_FAILED', 'checkpoint 捕获路径不存在', { step: step.name, name, path });
+      assertCheckpointValueSafe(value, `${step.name}.${name}`);
+      return [name, value];
+    }));
+    const normalized = stableStringify(capture);
+    return {
+      executor: 'workflow.checkpoint',
+      checkpointName: step.checkpoint.name,
+      capture,
+      captureHash: createHash('sha256').update(normalized).digest('hex'),
+      normalizedHash: step.checkpoint.normalizedHash !== false,
+      requiredForRollback: step.checkpoint.requiredForRollback,
+      plannedOnly: mode === 'render_only',
+    };
+  }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
 }
@@ -1357,6 +1378,33 @@ function stableStringify(value: unknown): string {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isSecretCapturePath(path: string, secretPaths: Set<string>): boolean {
+  for (const secretPath of secretPaths) {
+    if (path === secretPath || path.startsWith(`${secretPath}.`) || secretPath.startsWith(`${path}.`)) return true;
+  }
+  return false;
+}
+
+function assertCheckpointValueSafe(value: unknown, path: string): void {
+  if (Buffer.isBuffer(value)) throw new AppError('VALIDATION_FAILED', 'checkpoint 不允许保存二进制内容', { path });
+  if (typeof value === 'string') {
+    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----|secret:\/\//i.test(value)) {
+      throw new AppError('VALIDATION_FAILED', 'checkpoint 不允许保存 SecretRef 或私钥内容', { path });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertCheckpointValueSafe(item, `${path}[${index}]`));
+    return;
+  }
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      if (isSensitiveKey(key)) throw new AppError('VALIDATION_FAILED', 'checkpoint 不允许保存敏感字段', { path: `${path}.${key}` });
+      assertCheckpointValueSafe(child, `${path}.${key}`);
+    }
+  }
 }
 
 function restoreContextValue(values: Record<string, unknown>, key: string, previousValue: unknown, existed: boolean): void {

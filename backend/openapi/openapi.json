@@ -1997,6 +1997,37 @@
         }
       }
     },
+    "/api/v1/execution-workflow-recovery": {
+      "get": {
+        "operationId": "getExecutionWorkflowRecovery",
+        "summary": "查询工作流恢复账本",
+        "tags": [
+          "Executions"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/execution-runs/retry": {
       "post": {
         "operationId": "retryExecutionRun",
@@ -6893,6 +6924,68 @@
       "post": {
         "operationId": "createAdcsAgentUpdateSession",
         "summary": "创建 AD CS Agent 更新会话",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/adcs-agents/providers/:id/inspection-tasks": {
+      "post": {
+        "operationId": "createAdcsViewInspectionTask",
+        "summary": "创建 AD CS 结构化视图探针任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/adcs-agents/inspection-tasks/:id": {
+      "get": {
+        "operationId": "getAdcsViewInspectionTask",
+        "summary": "查询 AD CS 结构化视图探针任务",
         "tags": [
           "Internal CA"
         ],
@@ -12732,5 +12825,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-24T07:30:52.290Z"
+  "x-generatedAt": "2026-07-24T08:30:16.985Z"
 }

@@ -10,7 +10,7 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 
-type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'wait' | 'manual';
+type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
 type CanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls';
 
@@ -62,7 +62,7 @@ export interface WorkflowCanvasCompileResult {
 }
 
 const workflowStages: readonly WorkflowStage[] = ['prepare', 'backup', 'install', 'refresh', 'verify'];
-const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'wait', 'manual'];
+const workflowStepTypes: readonly WorkflowStepType[] = ['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual'];
 const requiredNodeTypes: readonly CanvasNodeType[] = ['http', 'ssh', 'sftp', 'verify'];
 
 export function compileWorkflowCanvas(input: unknown): WorkflowCanvasCompileResult {
@@ -262,6 +262,21 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
       },
     });
   }
+  if (node.type === 'checkpoint') {
+    const capture = parseLooseJson(String(config.capture ?? '{}'));
+    if (!capture || typeof capture !== 'object' || Array.isArray(capture)) throw new AppError('VALIDATION_FAILED', 'checkpoint capture 必须是 JSON 对象');
+    return mergeImportedDslStep(node, {
+      name,
+      type: 'checkpoint',
+      stage: getNodeStage(node),
+      checkpoint: {
+        name: String(config.checkpointName ?? ''),
+        capture: capture as Record<string, string>,
+        normalizedHash: true,
+        requiredForRollback: String(config.requiredForRollback ?? 'true') !== 'false',
+      },
+    });
+  }
   if (node.type === 'wait') return mergeImportedDslStep(node, { name, type: 'wait', stage: getNodeStage(node), seconds: Number(config.seconds ?? 10) });
   return mergeImportedDslStep(node, { name, type: 'manual', stage: getNodeStage(node), instruction: String(config.instruction ?? '人工确认') });
 }
@@ -310,6 +325,7 @@ function requiredFieldsForType(type: CanvasNodeType): string[] {
   if (type === 'verify') return ['verifyType', 'inputRef', 'expected', 'timeoutSeconds'];
   if (type === 'condition') return ['variable', 'operator'];
   if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'steps'];
+  if (type === 'checkpoint') return ['checkpointName', 'capture', 'requiredForRollback'];
   if (type === 'wait') return ['seconds'];
   if (type === 'manual') return ['instruction'];
   return [];
@@ -486,6 +502,7 @@ function getNodeStage(node: CanvasNode): WorkflowStage {
 
 function defaultStageForType(type: CanvasNodeType): WorkflowStage {
   if (type === 'http' || type === 'condition') return 'prepare';
+  if (type === 'checkpoint') return 'backup';
   if (type === 'transform' || type === 'foreach') return 'refresh';
   if (type === 'sftp' || type === 'scp') return 'install';
   if (type === 'ssh' || type === 'wait') return 'refresh';

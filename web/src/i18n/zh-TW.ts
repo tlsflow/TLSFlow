@@ -3047,6 +3047,10 @@ export default {
           displayName: "集合走訪",
           description: "依序走訪動態集合，並對每個元素執行同一組子步驟。"
         },
+        checkpoint: {
+          displayName: "復原檢查點",
+          description: "在裝置寫入操作前儲存可驗證的遠端狀態摘要。"
+        },
         wait: {
           displayName: "等待",
           description: "等待固定秒數後繼續執行。"
@@ -3083,12 +3087,16 @@ export default {
         indexVariable: "索引變數",
         maxItems: "最大項目數",
         foreachSteps: "子步驟 JSON",
+        checkpointName: "檢查點名稱",
+        checkpointCapture: "擷取路徑 JSON",
+        requiredForRollback: "回復必需",
         outputFormat: "輸出格式",
         usernameVariable: "使用者名稱變數",
         variable: "變數",
         verifyType: "驗證型別"
       },
       options: {
+        boolean: { yes: "是", no: "否" },
         direction: {
           download: "下載",
           upload: "上傳"

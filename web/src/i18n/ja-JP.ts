@@ -3048,6 +3048,10 @@ export default {
           displayName: 'コレクション反復',
           description: '動的コレクションを順番に反復し、各要素に同じ子ステップを実行します。'
         },
+        checkpoint: {
+          displayName: '復旧チェックポイント',
+          description: 'デバイス書き込み前に検証可能なリモート状態の要約を保存します。'
+        },
         wait: {
           displayName: '待機',
           description: '指定した秒数待機してから実行を続行します。'
@@ -3084,12 +3088,16 @@ export default {
         indexVariable: 'インデックス変数',
         maxItems: '最大項目数',
         foreachSteps: '子ステップ JSON',
+        checkpointName: 'チェックポイント名',
+        checkpointCapture: '取得パス JSON',
+        requiredForRollback: 'ロールバック必須',
         outputFormat: '出力形式',
         usernameVariable: 'ユーザー名変数',
         variable: '変数',
         verifyType: '検証タイプ'
       },
       options: {
+        boolean: { yes: 'はい', no: 'いいえ' },
         direction: {
           download: 'ダウンロード',
           upload: 'アップロード'

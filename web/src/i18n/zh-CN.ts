@@ -3144,6 +3144,10 @@ export default {
           displayName: '集合遍历',
           description: '按顺序遍历动态集合，并对每个元素执行同一组子步骤。'
         },
+        checkpoint: {
+          displayName: '恢复检查点',
+          description: '在设备写操作前保存可验证的远端状态摘要。'
+        },
         wait: {
           displayName: '等待',
           description: '等待固定秒数后继续执行。'
@@ -3180,12 +3184,16 @@ export default {
         indexVariable: '索引变量',
         maxItems: '最大项数',
         foreachSteps: '子步骤 JSON',
+        checkpointName: '检查点名称',
+        checkpointCapture: '捕获路径 JSON',
+        requiredForRollback: '回滚必需',
         outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',
         verifyType: '验证类型'
       },
       options: {
+        boolean: { yes: '是', no: '否' },
         direction: {
           download: '下载',
           upload: '上传'

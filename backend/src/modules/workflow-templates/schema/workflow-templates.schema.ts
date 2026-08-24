@@ -20,10 +20,11 @@ const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const transformStepKeys = new Set([...stepBaseKeys, 'transform']);
 const foreachStepKeys = new Set([...stepBaseKeys, 'foreach']);
+const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
@@ -245,6 +246,20 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     validateSteps(step.foreach.steps, `${path}.foreach.steps`, depth + 1);
     return;
   }
+  if (step.type === 'checkpoint') {
+    rejectUnknown(step as unknown as Record<string, unknown>, checkpointStepKeys, path);
+    if (!isRecord(step.checkpoint)) throw validationError(`${path}.checkpoint 必须是对象`);
+    rejectUnknown(step.checkpoint as unknown as Record<string, unknown>, new Set(['name', 'capture', 'normalizedHash', 'requiredForRollback']), `${path}.checkpoint`);
+    if (!isNonEmptyString(step.checkpoint.name)) throw validationError(`${path}.checkpoint.name 必填`);
+    if (!isRecord(step.checkpoint.capture) || Object.keys(step.checkpoint.capture).length === 0) throw validationError(`${path}.checkpoint.capture 必须是非空对象`);
+    for (const [name, capturePath] of Object.entries(step.checkpoint.capture)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) throw validationError(`${path}.checkpoint.capture 名称不合法`, { name });
+      if (!isNonEmptyString(capturePath) || !/^[a-zA-Z][a-zA-Z0-9_.\[\]]*$/.test(capturePath)) throw validationError(`${path}.checkpoint.capture 路径不合法`, { name, capturePath });
+    }
+    if (step.checkpoint.normalizedHash !== undefined && typeof step.checkpoint.normalizedHash !== 'boolean') throw validationError(`${path}.checkpoint.normalizedHash 必须是布尔值`);
+    if (typeof step.checkpoint.requiredForRollback !== 'boolean') throw validationError(`${path}.checkpoint.requiredForRollback 必须是布尔值`);
+    return;
+  }
   if (step.type === 'wait') {
     rejectUnknown(step as unknown as Record<string, unknown>, waitStepKeys, path);
     if (!isPositiveInteger(step.seconds)) throw validationError(`${path}.seconds 必须是正整数`);
@@ -442,7 +457,9 @@ function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<str
     const known = new Set([...declared, ...produced, ...stepExtracts]);
     const references = step.type === 'foreach'
       ? [step.foreach.itemsPath, ...collectReferences({ ...step, foreach: { ...step.foreach, steps: [] } })]
-      : collectReferences(step);
+      : step.type === 'checkpoint'
+        ? [...Object.values(step.checkpoint.capture), ...collectReferences({ ...step, checkpoint: { ...step.checkpoint, capture: {} } })]
+        : collectReferences(step);
     for (const reference of references) {
       const root = reference.split('.')[0]!;
       if (!known.has(root)) throw validationError('变量引用不存在', { reference, step: step.name });

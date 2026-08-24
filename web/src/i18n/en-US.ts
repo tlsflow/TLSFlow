@@ -3124,6 +3124,10 @@ export default {
           displayName: 'For Each',
           description: 'Iterate a dynamic collection sequentially and run the same child steps for every item.'
         },
+        checkpoint: {
+          displayName: 'Recovery Checkpoint',
+          description: 'Save a verifiable remote-state summary before a device write operation.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -3160,12 +3164,16 @@ export default {
         indexVariable: 'Index variable',
         maxItems: 'Maximum items',
         foreachSteps: 'Child steps JSON',
+        checkpointName: 'Checkpoint name',
+        checkpointCapture: 'Capture paths JSON',
+        requiredForRollback: 'Required for rollback',
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',
         verifyType: 'Verify type'
       },
       options: {
+        boolean: { yes: 'Yes', no: 'No' },
         direction: {
           download: 'Download',
           upload: 'Upload'

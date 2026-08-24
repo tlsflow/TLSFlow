@@ -10,6 +10,7 @@ import { ExecutionsApplicationService } from './modules/executions/application/e
 import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
+import { WorkflowRecoveryLedgerService } from './modules/executions/application/workflow-recovery-ledger.service.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
@@ -174,6 +175,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   assetsService.setBindingsRepository(bindingsService.getRepository());
   assetsService.setWorkflowTemplatesService(workflowTemplatesService);
   assetsService.setPluginBindingsService(pluginBindingsService);
+  const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -181,6 +183,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     workflows: workflowTemplatesService,
     agentPlugins: agentPluginsService,
+    workflowRecovery: workflowRecoveryService,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans
@@ -226,7 +229,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   app.setResource('executionsService', executionsService);
   app.setResource('executionDetailStream', executionDetailStream);
-  new ExecutionsController(executionsService, executionDetailStream).register(app.router);
+  new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
 
   const providersService = new ProvidersApplicationService({
     assetsService,

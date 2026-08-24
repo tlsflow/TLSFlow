@@ -5,7 +5,7 @@ import {
   type WorkflowManagedCredential,
 } from './workflow-credentials'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -250,6 +250,17 @@ export type WorkflowDslStep =
         readonly steps: readonly WorkflowDslStep[]
       }
     }
+  | {
+      readonly name: string
+      readonly type: 'checkpoint'
+      readonly stage?: WorkflowCanvasStage
+      readonly checkpoint: {
+        readonly name: string
+        readonly capture: Record<string, string>
+        readonly normalizedHash?: boolean
+        readonly requiredForRollback: boolean
+      }
+    }
   | { readonly name: string; readonly type: 'wait'; readonly stage?: WorkflowCanvasStage; readonly seconds: number }
   | { readonly name: string; readonly type: 'manual'; readonly stage?: WorkflowCanvasStage; readonly instruction: string }
 
@@ -491,6 +502,23 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     produces: [{ name: 'iterations', type: 'object' }],
   },
   {
+    type: 'checkpoint',
+    displayName: canvasModelText('nodeTypes.checkpoint.displayName'),
+    category: 'control',
+    description: canvasModelText('nodeTypes.checkpoint.description'),
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'checkpointName', label: canvasModelText('fields.checkpointName'), kind: 'text', required: true },
+      { key: 'capture', label: canvasModelText('fields.checkpointCapture'), kind: 'textarea', required: true },
+      { key: 'requiredForRollback', label: canvasModelText('fields.requiredForRollback'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.boolean.yes'), value: 'true' },
+        { label: canvasModelText('options.boolean.no'), value: 'false' },
+      ] },
+    ],
+    produces: [{ name: 'captureHash', type: 'string' }],
+  },
+  {
     type: 'wait',
     displayName: canvasModelText('nodeTypes.wait.displayName'),
     category: 'control',
@@ -651,6 +679,7 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
   if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
   if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, steps: '[]' }
+  if (type === 'checkpoint') return { checkpointName: 'before-write', capture: '{}', requiredForRollback: 'true' }
   if (type === 'wait') return { seconds: 10 }
   return { instruction: canvasModelText('defaults.config.manualInstruction') }
 }
@@ -912,6 +941,20 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
+  if (step.type === 'checkpoint') {
+    return {
+      id: `checkpoint_${index + 1}`,
+      type: 'checkpoint',
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, canvasModelText('nodeTypes.checkpoint.displayName')),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: {
+        checkpointName: step.checkpoint.name,
+        capture: JSON.stringify(step.checkpoint.capture, null, 2),
+        requiredForRollback: String(step.checkpoint.requiredForRollback),
+      },
+    }
+  }
   if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.wait.displayName')), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
   return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
@@ -981,6 +1024,7 @@ function buildStageEdges(nodes: readonly WorkflowCanvasNode[]): WorkflowCanvasEd
 
 function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage {
   if (type === 'http' || type === 'condition') return 'prepare'
+  if (type === 'checkpoint') return 'backup'
   if (type === 'transform' || type === 'foreach') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
@@ -993,6 +1037,7 @@ function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasSt
   if (step.type === 'http' && step.name.includes('verify')) return 'verify'
   if (step.type === 'http') return 'prepare'
   if (step.type === 'sftp' || step.type === 'scp') return 'install'
+  if (step.type === 'checkpoint') return 'backup'
   if (step.type === 'transform' || step.type === 'foreach') return 'refresh'
   if (step.type === 'ssh' && (step.ssh.command ?? '').startsWith('SFTP_')) return 'install'
   if (step.type === 'ssh' || step.type === 'wait') return 'refresh'

@@ -3022,6 +3022,10 @@ export default {
           displayName: '컬렉션 반복',
           description: '동적 컬렉션을 순서대로 반복하고 각 항목에 동일한 하위 단계를 실행합니다.'
         },
+        checkpoint: {
+          displayName: '복구 체크포인트',
+          description: '장치 쓰기 작업 전에 검증 가능한 원격 상태 요약을 저장합니다.'
+        },
         wait: {
           displayName: '대기',
           description: '몇 초 동안 기다린 후 계속 실행하세요.'
@@ -3058,12 +3062,16 @@ export default {
         indexVariable: '인덱스 변수',
         maxItems: '최대 항목 수',
         foreachSteps: '하위 단계 JSON',
+        checkpointName: '체크포인트 이름',
+        checkpointCapture: '캡처 경로 JSON',
+        requiredForRollback: '롤백 필수',
         outputFormat: '출력 형식',
         usernameVariable: '사용자 이름 변수',
         variable: '변수',
         verifyType: '형식 인증'
       },
       options: {
+        boolean: { yes: '예', no: '아니요' },
         direction: {
           download: '다운로드',
           upload: '업로드'

@@ -3022,6 +3022,10 @@ export default {
           displayName: 'Обход коллекции',
           description: 'Последовательно обходит динамическую коллекцию и выполняет одинаковые дочерние шаги для каждого элемента.'
         },
+        checkpoint: {
+          displayName: 'Точка восстановления',
+          description: 'Сохраняет проверяемую сводку удалённого состояния перед записью на устройство.'
+        },
         wait: {
           displayName: 'Ожидание',
           description: 'Ожидает фиксированное число секунд и продолжает выполнение.'
@@ -3058,12 +3062,16 @@ export default {
         indexVariable: 'Переменная индекса',
         maxItems: 'Максимум элементов',
         foreachSteps: 'JSON дочерних шагов',
+        checkpointName: 'Имя точки восстановления',
+        checkpointCapture: 'JSON путей захвата',
+        requiredForRollback: 'Требуется для отката',
         outputFormat: 'Формат вывода',
         usernameVariable: 'Переменная имени пользователя',
         variable: 'Переменная',
         verifyType: 'Тип проверки'
       },
       options: {
+        boolean: { yes: 'Да', no: 'Нет' },
         direction: {
           download: 'Скачать',
           upload: 'Загрузить'

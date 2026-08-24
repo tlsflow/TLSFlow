@@ -5,17 +5,20 @@ import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { ExecutionsApplicationService } from '../application/executions.application-service.js';
 import type { ExecutionDetailStreamService } from '../application/execution-detail-stream.service.js';
+import type { WorkflowRecoveryLedgerService } from '../application/workflow-recovery-ledger.service.js';
 
 export class ExecutionsController {
   constructor(
     private readonly service: ExecutionsApplicationService,
     private readonly detailStream?: ExecutionDetailStreamService,
+    private readonly workflowRecovery?: WorkflowRecoveryLedgerService,
   ) {}
 
   register(router: Router): void {
     router.get('/api/v1/execution-runs', '查询执行运行', ['Executions'], (request) => this.listRuns(request));
     router.get('/api/v1/execution-steps', '查询执行步骤', ['Executions'], (request) => this.listSteps(request));
     router.get('/api/v1/execution-runs/stream', '实时订阅执行详情', ['Executions'], (request) => this.streamDetail(request));
+    router.get('/api/v1/execution-workflow-recovery', '查询工作流恢复账本', ['Executions'], (request) => this.getWorkflowRecovery(request));
     router.post('/api/v1/execution-runs/retry', '重试执行运行', ['Executions'], (request) => this.retry(request));
     router.post('/api/v1/execution-runs/rollback', '回滚执行运行', ['Executions'], (request) => this.rollback(request));
   }
@@ -30,6 +33,13 @@ export class ExecutionsController {
     const executionRunId = this.readOptionalQueryString(request, 'executionRunId');
     const items = await this.service.listSteps({ tenantId: request.context.tenantId, executionRunId });
     return { items, page: 1, pageSize: 200, total: items.length };
+  }
+
+  private async getWorkflowRecovery(request: HttpRequest) {
+    if (!this.workflowRecovery) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流恢复账本服务未配置');
+    const ledgerId = this.readOptionalQueryString(request, 'ledgerId');
+    if (!ledgerId) throw new AppError('VALIDATION_FAILED', '缺少 ledgerId');
+    return await this.workflowRecovery.get(request.context.tenantId ?? 'default', String(ledgerId));
   }
 
   private retry(request: HttpRequest) {
@@ -134,6 +144,7 @@ export function getExecutionRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/execution-runs', operationId: 'listExecutionRuns', summary: '查询执行运行', tags: ['Executions'], responseSchema: schema },
     { method: 'GET', path: '/api/v1/execution-steps', operationId: 'listExecutionSteps', summary: '查询执行步骤', tags: ['Executions'], responseSchema: schema },
     { method: 'GET', path: '/api/v1/execution-runs/stream', operationId: 'streamExecutionRunDetail', summary: '实时订阅执行详情', tags: ['Executions'], responseSchema: schema },
+    { method: 'GET', path: '/api/v1/execution-workflow-recovery', operationId: 'getExecutionWorkflowRecovery', summary: '查询工作流恢复账本', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/retry', operationId: 'retryExecutionRun', summary: '重试执行运行', tags: ['Executions'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/execution-runs/rollback', operationId: 'rollbackExecutionRun', summary: '回滚执行运行', tags: ['Executions'], responseSchema: schema },
   ];

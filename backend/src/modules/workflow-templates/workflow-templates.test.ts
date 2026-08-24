@@ -1594,4 +1594,50 @@ describe('WorkflowTemplates', () => {
 
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(content), /不能超过 3 层/);
   });
+
+  it('checkpoint 生成规范化哈希并拒绝捕获敏感变量', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'checkpoint-capture' },
+        variables: {
+          remoteState: { type: 'object', required: true },
+          apiToken: { type: 'string', required: true, sensitive: true },
+        },
+        steps: [{
+          name: 'before_write',
+          type: 'checkpoint',
+          stage: 'backup',
+          checkpoint: {
+            name: 'before-write',
+            capture: { remoteState: 'remoteState' },
+            normalizedHash: true,
+            requiredForRollback: true,
+          },
+        }],
+      },
+    });
+    const run = await service.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: { remoteState: { etag: 'v1' }, apiToken: 'hidden-token' },
+    });
+    const plan = run.stepResults[0]!.plan as { captureHash: string; capture: Record<string, unknown> };
+    assert.match(plan.captureHash, /^[a-f0-9]{64}$/);
+    assert.deepEqual(plan.capture, { remoteState: { etag: 'v1' } });
+
+    const unsafe = { ...version.content, steps: [{
+      name: 'unsafe_checkpoint',
+      type: 'checkpoint',
+      checkpoint: { name: 'unsafe', capture: { apiToken: 'apiToken' }, requiredForRollback: true },
+    }] } as WorkflowDslV1;
+    const unsafeTemplate = await service.createTemplate({ content: unsafe });
+    await assert.rejects(() => service.testRun({
+      templateVersionId: unsafeTemplate.version.id,
+      mode: 'mock',
+      userVariables: { remoteState: {}, apiToken: 'hidden-token' },
+    }), /不允许捕获敏感变量/);
+  });
 });

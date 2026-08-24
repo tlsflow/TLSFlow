@@ -3022,6 +3022,10 @@ export default {
           displayName: 'Percorrer coleção',
           description: 'Percorre uma coleção dinâmica em ordem e executa as mesmas etapas filhas para cada item.'
         },
+        checkpoint: {
+          displayName: 'Checkpoint de recuperação',
+          description: 'Salva um resumo verificável do estado remoto antes de gravar no dispositivo.'
+        },
         wait: {
           displayName: 'Espera',
           description: 'Aguarda um número fixo de segundos antes de continuar.'
@@ -3058,12 +3062,16 @@ export default {
         indexVariable: 'Variável do índice',
         maxItems: 'Máximo de itens',
         foreachSteps: 'JSON das etapas filhas',
+        checkpointName: 'Nome do checkpoint',
+        checkpointCapture: 'JSON dos caminhos capturados',
+        requiredForRollback: 'Obrigatório para rollback',
         outputFormat: 'Formato de saída',
         usernameVariable: 'Variável de nome de usuário',
         variable: 'Variável',
         verifyType: 'Tipo de verificação'
       },
       options: {
+        boolean: { yes: 'Sim', no: 'Não' },
         direction: {
           download: 'Baixar',
           upload: 'Enviar'

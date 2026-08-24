@@ -3092,6 +3092,10 @@ export default {
           displayName: 'Parcourir la collection',
           description: 'Parcourt une collection dynamique dans l’ordre et exécute les mêmes sous-étapes pour chaque élément.'
         },
+        checkpoint: {
+          displayName: 'Point de reprise',
+          description: 'Enregistre un résumé vérifiable de l’état distant avant une écriture sur l’équipement.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -3128,12 +3132,16 @@ export default {
         indexVariable: 'Variable d’index',
         maxItems: 'Nombre maximal d’éléments',
         foreachSteps: 'JSON des sous-étapes',
+        checkpointName: 'Nom du point de reprise',
+        checkpointCapture: 'JSON des chemins capturés',
+        requiredForRollback: 'Requis pour le retour arrière',
         outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',
         verifyType: 'Verify type'
       },
       options: {
+        boolean: { yes: 'Oui', no: 'Non' },
         direction: {
           download: 'Download',
           upload: 'Upload'

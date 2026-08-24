@@ -17,6 +17,7 @@ import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js
 import type { AgentDeploymentPluginsApplicationService } from '../../plugins/application/agent-deployment-plugins.application-service.js';
 import type { AgentPluginBindingInput } from '../../plugins/dto/agent-deployment-plugins.dto.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
+import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -67,6 +68,7 @@ export interface DefaultExecutorDependencies {
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
   agentPlugins?: AgentDeploymentPluginsApplicationService;
+  workflowRecovery?: WorkflowRecoveryLedgerService;
 }
 
 export class ExecutorRegistry {
@@ -126,7 +128,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   return [
 	    sshExecutor,
 	    curlExecutor,
-	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor }),
+	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlugins),
@@ -283,11 +285,13 @@ export class WorkflowExecutorAdapter implements Executor {
   private readonly curlExecutor: CurlExecutor;
   private readonly sshExecutor: SSHExecutor;
   private readonly stepExecutors: WorkflowStepExecutorRegistry;
+  private readonly recovery: WorkflowRecoveryLedgerService;
 
-  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor } = {}) {
+  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService } = {}) {
     this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
     this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
     this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
+    this.recovery = options.recovery ?? new WorkflowRecoveryLedgerService();
     this.stepExecutors = new WorkflowStepExecutorRegistry([
       {
         executorId: '017.CURL_HTTP',
@@ -325,6 +329,7 @@ export class WorkflowExecutorAdapter implements Executor {
       certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
     };
     try {
+      const recoveryLedger = input.dryRun ? undefined : await this.beginRecoveryLedger(input, request, runtimeInput);
       const reportWorkflowProgress = async (workflowProgress: WorkflowRunProgress) => {
         await input.reportProgress?.({
           mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
@@ -336,9 +341,16 @@ export class WorkflowExecutorAdapter implements Executor {
         ? await this.workflows.preview(runtimeInput, reportWorkflowProgress)
         : await this.workflows.runWithDispatcher(
             runtimeInput,
-            async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt),
+            async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt, recoveryLedger),
             reportWorkflowProgress,
           );
+      if (recoveryLedger) {
+        await this.recovery.finish(
+          recoveryLedger.tenantId,
+          recoveryLedger.id,
+          workflowRun.status === 'success' ? 'COMPLETED' : workflowRun.status === 'rolled_back' ? 'ROLLED_BACK' : 'MANUAL_INTERVENTION',
+        );
+      }
       const dryRunChecks = input.dryRun ? buildWorkflowDryRunChecks(workflowRun) : undefined;
       const detail = {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
@@ -370,10 +382,56 @@ export class WorkflowExecutorAdapter implements Executor {
     }
   }
 
-  private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, workflowStepName: string, attempt: number): Promise<WorkflowExecutorDispatchResult> {
+  private async beginRecoveryLedger(
+    input: StepExecutionInput,
+    request: Record<string, unknown>,
+    runtimeInput: Record<string, unknown>,
+  ): Promise<WorkflowRecoveryLedgerRecord | undefined> {
+    const pluginVersionId = stringFromSnapshot(request.pluginVersionId);
+    const capabilityKey = stringFromSnapshot(request.capabilityKey);
+    if (!pluginVersionId && !capabilityKey) return undefined;
+    if (!pluginVersionId || !capabilityKey) {
+      throw new AppError('VALIDATION_FAILED', '插件工作流恢复账本必须同时固定 pluginVersionId 和 capabilityKey');
+    }
+    const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
+    return await this.recovery.begin({
+      tenantId,
+      executionRunId: input.step.executionRunId,
+      executionStepId: input.step.id,
+      deploymentPlanTargetId: input.step.deploymentPlanTargetId,
+      pluginVersionId,
+      workflowVersionId: String(runtimeInput.templateVersionId),
+      capabilityKey,
+      target: readRecord(runtimeInput.assetVariables) ?? {},
+      plan: request,
+      runtimeInput,
+    });
+  }
+
+  private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, workflowStepName: string, attempt: number, recoveryLedger?: WorkflowRecoveryLedgerRecord): Promise<WorkflowExecutorDispatchResult> {
     const plan = readRecord(renderedPlan);
     const executor = stringFromSnapshot(plan?.executor);
-    return this.stepExecutors.execute(executor, { input, plan, workflowStepName, attempt });
+    if (executor === 'workflow.checkpoint') {
+      if (!recoveryLedger) return { success: false, errorCode: 'WORKFLOW_RECOVERY_LEDGER_REQUIRED', errorMessage: 'checkpoint 执行前必须创建恢复账本' };
+      const capture = readRecord(plan?.capture) ?? {};
+      const captureHash = stringFromSnapshot(plan?.captureHash);
+      const checkpointName = stringFromSnapshot(plan?.checkpointName);
+      if (!captureHash || !checkpointName) return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: 'checkpoint 执行计划缺少名称或哈希' };
+      await this.recovery.recordCheckpoint({
+        tenantId: recoveryLedger.tenantId,
+        ledgerId: recoveryLedger.id,
+        checkpointName,
+        workflowStepName,
+        capture,
+        captureHash,
+        requiredForRollback: plan?.requiredForRollback === true,
+      });
+      await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
+      return { success: true, body: { checkpointName, captureHash }, logs: [`workflow:checkpoint:${checkpointName}:saved`] };
+    }
+    const result = await this.stepExecutors.execute(executor, { input, plan, workflowStepName, attempt });
+    if (recoveryLedger && result.success) await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
+    return result;
   }
 
   private async executeCurlWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
