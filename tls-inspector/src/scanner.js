@@ -495,8 +495,8 @@ function buildSimulationKeyExchangeLabel(standardName, protocolDetails) {
   return `ECDH ${group}`
 }
 
-function buildSimulationSuccessExplanation(profile, negotiated, protocolDetails) {
-  const protocolLabel = buildSimulationProtocolDisplay(profile, negotiated.protocol ?? '', protocolDetails)
+function buildSimulationSuccessExplanation(profile, protocol, negotiated, protocolDetails) {
+  const protocolLabel = buildSimulationProtocolDisplay(profile, protocol, protocolDetails)
   if (negotiated.tags?.includes('rc4')) {
     return `${protocolLabel} 可协商，但落到 RC4 旧套件。`
   }
