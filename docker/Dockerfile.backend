@@ -6,6 +6,7 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /src/backend
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
+COPY scripts /src/scripts
 COPY backend ./
 RUN npm run build
 
@@ -32,6 +33,7 @@ COPY --from=build /src/backend/package.json ./package.json
 COPY --from=build /src/backend/package-lock.json ./package-lock.json
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=build /src/backend/dist ./dist
+COPY --from=build /src/scripts ./scripts
 COPY --from=build /src/backend/src/database/migrations ./src/database/migrations
 COPY --from=build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
 COPY --from=build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows

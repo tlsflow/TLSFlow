@@ -27,10 +27,12 @@ async function walk(directory) {
       const manifest = JSON.parse(content);
       const dependencyNames = [
         ...Object.keys(manifest.dependencies ?? {}),
-        ...Object.keys(manifest.devDependencies ?? {}),
         ...Object.keys(manifest.optionalDependencies ?? {}),
         ...Object.keys(manifest.packages ?? {}),
       ];
+      if (!/[\\/]node_modules[\\/]/u.test(filePath)) {
+        dependencyNames.push(...Object.keys(manifest.devDependencies ?? {}));
+      }
       if (dependencyNames.some((name) => forbiddenNames.test(name))) findings.push(filePath);
     } catch {
       // 非 JSON 文件不参与依赖名称扫描。

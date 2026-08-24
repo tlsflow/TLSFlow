@@ -6,6 +6,7 @@ ARG WEB_IMAGE=nginx:1.27-alpine
 FROM ${NODE_IMAGE} AS build
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
+COPY version /src/version
 RUN npm ci
 COPY web ./
 RUN npm run build
