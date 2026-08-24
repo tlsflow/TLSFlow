@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
-import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { ApprovalDecision, ApprovalRequestEntity, ApprovalResourceRef } from '../../persistence/entities/approval.entity.js';
 import type { RequestContext, RiskLevel } from '../../shared/security-types.js';
 import { canonicalize } from '../../shared/canonical-json.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
-import { AuditService } from '../audits/audit.service.js';
+import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 
 export interface CreateApprovalInput {
@@ -27,18 +28,24 @@ export interface DecideApprovalInput {
 }
 
 export class ApprovalService {
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultRepository(): AsyncRepositoryPort<ApprovalRequestEntity> {
+    return new PgDocumentRepository<ApprovalRequestEntity>(ApprovalService.defaultDb, 'security.approval_requests');
+  }
+
   constructor(
-    private readonly approvals: RepositoryPort<ApprovalRequestEntity> = new MemoryRepository<ApprovalRequestEntity>(),
+    private readonly approvals: AsyncRepositoryPort<ApprovalRequestEntity> = ApprovalService.createDefaultRepository(),
     private readonly audit?: AuditService,
   ) {}
 
-  create(input: CreateApprovalInput, context: RequestContext = {}): ApprovalRequestEntity {
+  async create(input: CreateApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
     if (this.requiresApproval(input.riskLevel, input.operationType) === false) {
       throw securityErrors.approvalInvalid({ reason: 'operation does not require approval' });
     }
 
     const now = new Date().toISOString();
-    const approval = this.approvals.create({
+    const approval = await this.approvals.create({
       id: newId('apr'),
       operationType: input.operationType,
       resourceRefs: input.resourceRefs,
@@ -51,7 +58,7 @@ export class ApprovalService {
       updatedAt: now,
     });
 
-    this.audit?.write({
+    await this.audit?.write({
       eventType: AUDIT_EVENT_TYPES.APPROVAL_CREATED,
       actorType: 'user',
       actorId: input.requestedBy,
@@ -67,8 +74,8 @@ export class ApprovalService {
     return approval;
   }
 
-  decide(input: DecideApprovalInput, context: RequestContext = {}): ApprovalRequestEntity {
-    const current = this.getFresh(input.approvalId);
+  async decide(input: DecideApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
+    const current = await this.getFresh(input.approvalId);
     if (current.status !== 'pending') {
       throw securityErrors.approvalInvalid({ reason: 'approval is not pending', status: current.status });
     }
@@ -77,14 +84,14 @@ export class ApprovalService {
     }
 
     const nextStatus = input.decision === 'approved' ? 'approved' : 'rejected';
-    const updated = this.approvals.update(current.id, {
+    const updated = await this.approvals.update(current.id, {
       status: nextStatus,
       approvedBy: input.approverId,
       comment: input.comment,
       updatedAt: new Date().toISOString(),
     });
 
-    this.audit?.write({
+    await this.audit?.write({
       eventType: nextStatus === 'approved' ? AUDIT_EVENT_TYPES.APPROVAL_APPROVED : AUDIT_EVENT_TYPES.APPROVAL_REJECTED,
       actorType: 'user',
       actorId: input.approverId,
@@ -101,20 +108,20 @@ export class ApprovalService {
     return updated;
   }
 
-  consume(approvalId: string, parameters: unknown): ApprovalRequestEntity {
-    const current = this.getFresh(approvalId);
+  async consume(approvalId: string, parameters: unknown): Promise<ApprovalRequestEntity> {
+    const current = await this.getFresh(approvalId);
     if (current.status !== 'approved') {
       throw securityErrors.approvalInvalid({ reason: 'approval is not approved', status: current.status });
     }
     const expectedHash = this.hashParameters(parameters);
     if (current.parameterHash !== expectedHash) {
-      this.approvals.update(current.id, { status: 'cancelled', updatedAt: new Date().toISOString() });
+      await this.approvals.update(current.id, { status: 'cancelled', updatedAt: new Date().toISOString() });
       throw securityErrors.approvalInvalid({ reason: 'parameter hash changed' });
     }
     return this.approvals.update(current.id, { status: 'consumed', updatedAt: new Date().toISOString() });
   }
 
-  get(id: string): ApprovalRequestEntity | undefined {
+  async get(id: string): Promise<ApprovalRequestEntity | undefined> {
     return this.approvals.get(id);
   }
 
@@ -129,8 +136,8 @@ export class ApprovalService {
     return ['plugin.install', 'plugin.enable', 'deployment.rollback', 'workflow_template.execute'].includes(operationType);
   }
 
-  private getFresh(id: string): ApprovalRequestEntity {
-    const current = this.approvals.get(id);
+  private async getFresh(id: string): Promise<ApprovalRequestEntity> {
+    const current = await this.approvals.get(id);
     if (!current) {
       throw securityErrors.approvalInvalid({ reason: 'approval not found', id });
     }

@@ -1,5 +1,6 @@
-import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
@@ -24,9 +25,15 @@ export interface ValidateGrantInput {
 }
 
 export class ExecutionGrantService {
-  constructor(private readonly grants: RepositoryPort<ExecutionGrantEntity> = new MemoryRepository<ExecutionGrantEntity>()) {}
+  private static readonly defaultDb = new PgliteDatabase();
 
-  create(input: CreateExecutionGrantInput): ExecutionGrantEntity {
+  private static createDefaultRepository(): AsyncRepositoryPort<ExecutionGrantEntity> {
+    return new PgDocumentRepository<ExecutionGrantEntity>(ExecutionGrantService.defaultDb, 'security.execution_grants');
+  }
+
+  constructor(private readonly grants: AsyncRepositoryPort<ExecutionGrantEntity> = ExecutionGrantService.createDefaultRepository()) {}
+
+  async create(input: CreateExecutionGrantInput): Promise<ExecutionGrantEntity> {
     const now = new Date().toISOString();
     return this.grants.create({
       id: newId('grt'),
@@ -42,8 +49,8 @@ export class ExecutionGrantService {
     });
   }
 
-  validate(input: ValidateGrantInput): ExecutionGrantEntity {
-    const grant = this.grants.get(input.grantId);
+  async validate(input: ValidateGrantInput): Promise<ExecutionGrantEntity> {
+    const grant = await this.grants.get(input.grantId);
     if (!grant) {
       throw securityErrors.executorGrantDenied({ reason: 'grant not found' });
     }
@@ -51,7 +58,7 @@ export class ExecutionGrantService {
       throw securityErrors.executorGrantDenied({ reason: 'grant not active', status: grant.status });
     }
     if (new Date(grant.expiresAt).getTime() < Date.now()) {
-      this.grants.update(grant.id, { status: 'expired', updatedAt: new Date().toISOString() });
+      await this.grants.update(grant.id, { status: 'expired', updatedAt: new Date().toISOString() });
       throw securityErrors.executorGrantDenied({ reason: 'grant expired' });
     }
     if (grant.runId !== input.runId || grant.stepId !== input.stepId || grant.executorType !== input.executorType) {
@@ -70,12 +77,12 @@ export class ExecutionGrantService {
     return grant;
   }
 
-  get(id: string): ExecutionGrantEntity | undefined {
+  async get(id: string): Promise<ExecutionGrantEntity | undefined> {
     return this.grants.get(id);
   }
 
-  revoke(id: string): ExecutionGrantEntity {
-    const grant = this.grants.get(id);
+  async revoke(id: string): Promise<ExecutionGrantEntity> {
+    const grant = await this.grants.get(id);
     if (!grant) {
       throw securityErrors.executorGrantDenied({ reason: 'grant not found' });
     }

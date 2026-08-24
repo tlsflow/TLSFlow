@@ -1,5 +1,6 @@
-import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
 import type { ActorType, AuditResult, RequestContext, ResourceDescriptor, SecuritySubject, RiskLevel } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
@@ -33,16 +34,22 @@ export interface AuthorizedAuditQueryInput {
   subject: SecuritySubject;
   query?: AuditQuery;
   context?: RequestContext;
-  assertCan: (subject: SecuritySubject, action: string, resource: ResourceDescriptor, context?: RequestContext) => void;
+  assertCan: (subject: SecuritySubject, action: string, resource: ResourceDescriptor, context?: RequestContext) => Promise<void>;
 }
 
 export class AuditService {
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultRepository(): AsyncRepositoryPort<AuditLogEntity> {
+    return new PgDocumentRepository<AuditLogEntity>(AuditService.defaultDb, 'security.audit_logs');
+  }
+
   constructor(
-    private readonly logs: RepositoryPort<AuditLogEntity> = new MemoryRepository<AuditLogEntity>(),
+    private readonly logs: AsyncRepositoryPort<AuditLogEntity> = AuditService.createDefaultRepository(),
     private readonly redaction = new RedactionService(),
   ) {}
 
-  write(input: WriteAuditInput): AuditLogEntity {
+  async write(input: WriteAuditInput): Promise<AuditLogEntity> {
     try {
       const redactedDetail = input.detail === undefined ? undefined : this.redaction.redact(input.detail).value;
       return this.logs.create({
@@ -68,7 +75,7 @@ export class AuditService {
     }
   }
 
-  query(query: AuditQuery = {}): AuditLogEntity[] {
+  async query(query: AuditQuery = {}): Promise<AuditLogEntity[]> {
     return this.logs.list((log) => {
       return (!query.actorId || log.actorId === query.actorId)
         && (!query.eventType || log.eventType === query.eventType)
@@ -78,9 +85,9 @@ export class AuditService {
     });
   }
 
-  queryWithPermission(input: AuthorizedAuditQueryInput): AuditLogEntity[] {
+  async queryWithPermission(input: AuthorizedAuditQueryInput): Promise<AuditLogEntity[]> {
     const query = input.query ?? {};
-    input.assertCan(input.subject, 'audit.read', {
+    await input.assertCan(input.subject, 'audit.read', {
       type: query.resourceType ?? 'auditLog',
       id: query.resourceId,
       scope: query.resourceScope,

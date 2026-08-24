@@ -1,5 +1,8 @@
 import { AppError } from '../../common/errors/app-error.js';
 import type { RequestContext } from '../../common/tracing/request-context.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { newId } from '../../shared/id.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
@@ -64,7 +67,7 @@ export class MockDirectoryConnector implements LdapConnector {
   async authenticate(source: IdentitySource, username: string, password: string): Promise<ExternalIdentityProfile> {
     const profile = this.profiles.get(`${source.id}:${username.toLowerCase()}`);
     if (!profile || profile.password !== password) {
-      throw new AppError('AUTH_UNAUTHENTICATED', '外部目录用户名或密码错误');
+      throw new AppError('AUTH_UNAUTHENTICATED', '澶栭儴鐩綍鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒');
     }
     const { password: _password, ...safeProfile } = profile;
     return safeProfile;
@@ -76,29 +79,38 @@ export class MockDirectoryConnector implements LdapConnector {
 }
 
 export class ExternalIdentityService {
-  private readonly sources = new Map<string, IdentitySource>();
-  private readonly mappings = new Map<string, ExternalGroupRoleMapping>();
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultSourcesRepository(): AsyncRepositoryPort<IdentitySource> {
+    return new PgDocumentRepository<IdentitySource>(ExternalIdentityService.defaultDb, 'security.identity_sources');
+  }
+
+  private static createDefaultMappingsRepository(): AsyncRepositoryPort<ExternalGroupRoleMapping> {
+    return new PgDocumentRepository<ExternalGroupRoleMapping>(ExternalIdentityService.defaultDb, 'security.external_group_role_mappings');
+  }
 
   constructor(
     private readonly rbac: RBACService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
     private readonly connector: LdapConnector = new MockDirectoryConnector(),
+    private readonly sources: AsyncRepositoryPort<IdentitySource> = ExternalIdentityService.createDefaultSourcesRepository(),
+    private readonly mappings: AsyncRepositoryPort<ExternalGroupRoleMapping> = ExternalIdentityService.createDefaultMappingsRepository(),
   ) {}
 
   getConnector(): LdapConnector {
     return this.connector;
   }
 
-  listPublicSources(): Array<Pick<IdentitySource, 'id' | 'name' | 'type'>> {
-    return [...this.sources.values()].filter((source) => source.enabled).map((source) => ({ id: source.id, name: source.name, type: source.type }));
+  async listPublicSources(): Promise<Array<Pick<IdentitySource, 'id' | 'name' | 'type'>>> {
+    return (await this.sources.list((source) => source.enabled)).map((source) => ({ id: source.id, name: source.name, type: source.type }));
   }
 
-  listSources(): IdentitySource[] {
-    return [...this.sources.values()].map((source) => structuredClone(source));
+  async listSources(): Promise<IdentitySource[]> {
+    return this.sources.list();
   }
 
-  createSource(input: Omit<IdentitySource, 'id' | 'enabled' | 'createdAt' | 'updatedAt'> & { id?: string; enabled?: boolean }, actor: SecuritySubject, context: RequestContext): IdentitySource {
+  async createSource(input: Omit<IdentitySource, 'id' | 'enabled' | 'createdAt' | 'updatedAt'> & { id?: string; enabled?: boolean }, actor: SecuritySubject, context: RequestContext): Promise<IdentitySource> {
     const now = new Date().toISOString();
     const source: IdentitySource = {
       id: input.id ?? newId('ids'),
@@ -118,8 +130,8 @@ export class ExternalIdentityService {
       createdAt: now,
       updatedAt: now,
     };
-    this.sources.set(source.id, structuredClone(source));
-    this.audit.write({
+    await this.sources.upsert(source);
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.IDENTITY_SOURCE_CREATED,
       actorType: 'user',
       actorId: actor.id,
@@ -135,18 +147,22 @@ export class ExternalIdentityService {
   }
 
   async testSource(sourceId: string): Promise<{ ok: boolean; message: string }> {
-    const source = this.sources.get(sourceId);
-    if (!source) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    const source = await this.sources.get(sourceId);
+    if (!source) throw new AppError('RESOURCE_NOT_FOUND', '韬唤婧愪笉瀛樺湪');
     return this.connector.testConnection(source);
   }
 
-  listMappings(): ExternalGroupRoleMapping[] {
-    return [...this.mappings.values()].map((mapping) => structuredClone(mapping));
+  async listMappings(): Promise<ExternalGroupRoleMapping[]> {
+    return this.mappings.list();
   }
 
-  createMapping(input: Omit<ExternalGroupRoleMapping, 'id' | 'enabled' | 'createdAt' | 'updatedAt'> & { id?: string; enabled?: boolean }, actor: SecuritySubject, context: RequestContext): ExternalGroupRoleMapping {
-    if (!this.sources.has(input.sourceId)) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
-    if (!this.rbac.getRole(input.roleId)) throw new AppError('RESOURCE_NOT_FOUND', '角色不存在');
+  async createMapping(
+    input: Omit<ExternalGroupRoleMapping, 'id' | 'enabled' | 'createdAt' | 'updatedAt'> & { id?: string; enabled?: boolean },
+    actor: SecuritySubject,
+    context: RequestContext,
+  ): Promise<ExternalGroupRoleMapping> {
+    if (!await this.sources.get(input.sourceId)) throw new AppError('RESOURCE_NOT_FOUND', '韬唤婧愪笉瀛樺湪');
+    if (!await this.rbac.getRole(input.roleId)) throw new AppError('RESOURCE_NOT_FOUND', '瑙掕壊涓嶅瓨鍦?');
     const now = new Date().toISOString();
     const mapping: ExternalGroupRoleMapping = {
       id: input.id ?? newId('grpmap'),
@@ -157,8 +173,8 @@ export class ExternalIdentityService {
       createdAt: now,
       updatedAt: now,
     };
-    this.mappings.set(mapping.id, structuredClone(mapping));
-    this.audit.write({
+    await this.mappings.upsert(mapping);
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.IDENTITY_GROUP_MAPPING_CREATED,
       actorType: 'user',
       actorId: actor.id,
@@ -174,13 +190,13 @@ export class ExternalIdentityService {
   }
 
   async login(input: { sourceId: string; username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
-    const source = this.sources.get(input.sourceId);
-    if (!source || !source.enabled) throw new AppError('AUTH_UNAUTHENTICATED', '身份源不可用');
+    const source = await this.sources.get(input.sourceId);
+    if (!source || !source.enabled) throw new AppError('AUTH_UNAUTHENTICATED', '韬唤婧愪笉鍙敤');
     let profile: ExternalIdentityProfile;
     try {
       profile = await this.connector.authenticate(source, input.username, input.password);
     } catch (error) {
-      this.audit.write({
+      await this.audit.write({
         eventType: AUDIT_EVENT_TYPES.EXTERNAL_LOGIN_FAILED,
         actorType: 'user',
         actorId: input.username,
@@ -194,29 +210,31 @@ export class ExternalIdentityService {
       });
       throw error;
     }
-    if (profile.disabled) throw new AppError('AUTH_FORBIDDEN', '外部目录用户已禁用');
+    if (profile.disabled) throw new AppError('AUTH_FORBIDDEN', '澶栭儴鐩綍鐢ㄦ埛宸茬鐢?');
 
-    const matchedRoles = this.matchRoleIds(source.id, profile.groups);
+    const matchedRoles = await this.matchRoleIds(source.id, profile.groups);
     if (matchedRoles.length === 0 && source.defaultRoleId) matchedRoles.push(source.defaultRoleId);
     if (matchedRoles.length === 0 && source.requireGroupMapping) {
-      throw new AppError('AUTH_FORBIDDEN', '未命中任何外部组角色映射');
+      throw new AppError('AUTH_FORBIDDEN', '鏈懡涓换浣曞閮ㄧ粍瑙掕壊鏄犲皠');
     }
 
-    const user = this.rbac.createUserIfAbsent({
+    const user = await this.rbac.createUserIfAbsent({
       id: `external_${source.id}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
       username: `${source.id}:${profile.username}`,
       displayName: profile.displayName || profile.username,
       status: 'active',
       tenantId: 'default',
-      tenantName: '默认租户',
+      tenantName: '榛樿绉熸埛',
       identityProvider: source.type,
       externalId: profile.externalId,
       externalSourceId: source.id,
     });
-    if (user.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '本地影子用户已禁用');
-    for (const roleId of matchedRoles) this.rbac.assignRole(user.id, roleId);
+    if (user.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '鏈湴褰卞瓙鐢ㄦ埛宸茬鐢?');
+    for (const roleId of matchedRoles) {
+      await this.rbac.assignRole(user.id, roleId);
+    }
 
-    this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.EXTERNAL_LOGIN_SUCCESS,
       actorType: 'user',
       actorId: user.id,
@@ -231,10 +249,10 @@ export class ExternalIdentityService {
     return this.auth.currentSession(user.id);
   }
 
-  private matchRoleIds(sourceId: string, groups: string[]): string[] {
+  private async matchRoleIds(sourceId: string, groups: string[]): Promise<string[]> {
     const normalizedGroups = new Set(groups.map((group) => normalizeGroup(group)));
-    const roleIds = [...this.mappings.values()]
-      .filter((mapping) => mapping.enabled && mapping.sourceId === sourceId && normalizedGroups.has(normalizeGroup(mapping.externalGroup)))
+    const roleIds = (await this.mappings.list((mapping) => mapping.enabled && mapping.sourceId === sourceId))
+      .filter((mapping) => normalizedGroups.has(normalizeGroup(mapping.externalGroup)))
       .map((mapping) => mapping.roleId);
     return [...new Set(roleIds)];
   }

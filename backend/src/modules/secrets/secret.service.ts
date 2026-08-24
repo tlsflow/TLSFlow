@@ -1,5 +1,6 @@
-import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { SecretEntity, SecretVersionEntity } from '../../persistence/entities/secret.entity.js';
 import type { RequestContext, SecretScopeType, SecretType } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
@@ -7,7 +8,7 @@ import { securityErrors } from '../../shared/security-error.js';
 import { CryptoService, type EnvelopeEncryptedPayload } from './crypto.service.js';
 import { buildSecretRef, parseSecretRef } from './secret-ref.js';
 import type { ExecutionGrantService } from '../executions/execution-grant.service.js';
-import { AuditService } from '../audits/audit.service.js';
+import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 
 export interface CreateSecretInput {
@@ -60,15 +61,28 @@ export interface ResolvedSecret {
 }
 
 export class SecretService {
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultSecretsRepository(): AsyncRepositoryPort<SecretEntity> {
+    return new PgDocumentRepository<SecretEntity>(SecretService.defaultDb, 'security.secrets');
+  }
+
+  private static createDefaultVersionsRepository(): AsyncRepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> {
+    return new PgDocumentRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(
+      SecretService.defaultDb,
+      'security.secret_versions',
+    );
+  }
+
   constructor(
     private readonly crypto: CryptoService,
     private readonly grants: ExecutionGrantService,
     private readonly audit: AuditService,
-    private readonly secrets: RepositoryPort<SecretEntity> = new MemoryRepository<SecretEntity>(),
-    private readonly versions: RepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> = new MemoryRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(),
+    private readonly secrets: AsyncRepositoryPort<SecretEntity> = SecretService.createDefaultSecretsRepository(),
+    private readonly versions: AsyncRepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> = SecretService.createDefaultVersionsRepository(),
   ) {}
 
-  create(input: CreateSecretInput, context: RequestContext = {}): SecretMetadataOutput {
+  async create(input: CreateSecretInput, context: RequestContext = {}): Promise<SecretMetadataOutput> {
     if (input.scopeType !== 'global' && !input.scopeId) {
       throw securityErrors.secretRefInvalid({ reason: 'scopeId required for non-global secret' });
     }
@@ -78,7 +92,7 @@ export class SecretService {
     const encrypted = this.crypto.encryptSecret(input.plainText);
     const versionId = newId('secv');
 
-    this.versions.create({
+    await this.versions.create({
       id: versionId,
       secretId,
       versionNo: 1,
@@ -95,7 +109,7 @@ export class SecretService {
       createdAt: now,
     });
 
-    const secret = this.secrets.create({
+    const secret = await this.secrets.create({
       id: secretId,
       name: input.name,
       type: input.type,
@@ -108,7 +122,7 @@ export class SecretService {
       updatedAt: now,
     });
 
-    this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_CREATED,
       actorType: 'user',
       actorId: input.createdBy,
@@ -122,7 +136,7 @@ export class SecretService {
       detail: { name: input.name, type: input.type, scopeType: input.scopeType, scopeId: input.scopeId, fingerprint: encrypted.fingerprint },
     });
 
-    this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_VERSION_CREATED,
       actorType: 'user',
       actorId: input.createdBy,
@@ -139,17 +153,17 @@ export class SecretService {
     return this.toMetadata(secret);
   }
 
-  getMetadata(secretId: string): SecretMetadataOutput {
-    const secret = this.secrets.get(secretId);
+  async getMetadata(secretId: string): Promise<SecretMetadataOutput> {
+    const secret = await this.secrets.get(secretId);
     if (!secret || secret.status === 'deleted') {
       throw securityErrors.secretNotFound({ secretId });
     }
     return this.toMetadata(secret);
   }
 
-  resolveForExecution(input: ResolveSecretInput): ResolvedSecret {
+  async resolveForExecution(input: ResolveSecretInput): Promise<ResolvedSecret> {
     const parsed = parseSecretRef(input.secretRef);
-    const secret = this.secrets.get(parsed.secretId);
+    const secret = await this.secrets.get(parsed.secretId);
     if (!secret || secret.status !== 'active') {
       throw securityErrors.secretNotFound({ secretId: parsed.secretId });
     }
@@ -157,7 +171,7 @@ export class SecretService {
       throw securityErrors.secretRefInvalid({ reason: 'secret type mismatch' });
     }
 
-    this.grants.validate({
+    await this.grants.validate({
       grantId: input.grantId,
       runId: input.runId,
       stepId: input.stepId,
@@ -167,13 +181,13 @@ export class SecretService {
       markUsed: true,
     });
 
-    const version = this.resolveVersion(secret, parsed.version);
+    const version = await this.resolveVersion(secret, parsed.version);
     if (version.status !== 'active') {
       throw securityErrors.secretResolveDenied({ reason: 'secret version is not active' });
     }
 
     const plainText = this.crypto.decryptSecret(version as EnvelopeEncryptedPayload);
-    this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_USED,
       actorType: 'executor',
       actorId: input.executorType,
@@ -202,9 +216,9 @@ export class SecretService {
     };
   }
 
-  resolveForService(input: ResolveSecretForServiceInput): ResolvedSecret {
+  async resolveForService(input: ResolveSecretForServiceInput): Promise<ResolvedSecret> {
     const parsed = parseSecretRef(input.secretRef);
-    const secret = this.secrets.get(parsed.secretId);
+    const secret = await this.secrets.get(parsed.secretId);
     if (!secret || secret.status !== 'active') {
       throw securityErrors.secretNotFound({ secretId: parsed.secretId });
     }
@@ -215,13 +229,13 @@ export class SecretService {
       throw securityErrors.secretRefInvalid({ reason: 'unexpected secret type', expectedType: input.expectedType, actualType: secret.type });
     }
 
-    const version = this.resolveVersion(secret, parsed.version);
+    const version = await this.resolveVersion(secret, parsed.version);
     if (version.status !== 'active') {
       throw securityErrors.secretResolveDenied({ reason: 'secret version is not active' });
     }
 
     const plainText = this.crypto.decryptSecret(version as EnvelopeEncryptedPayload);
-    this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_USED,
       actorType: 'user',
       actorId: input.actorId,
@@ -247,13 +261,13 @@ export class SecretService {
     };
   }
 
-  listSecretVersions(secretId: string): SecretVersionEntity[] {
-    return this.versions.list((version) => version.secretId === secretId).map(({ dekIv: _dekIv, dekAuthTag: _dekAuthTag, ...safe }) => safe);
+  async listSecretVersions(secretId: string): Promise<SecretVersionEntity[]> {
+    return (await this.versions.list((version) => version.secretId === secretId)).map(({ dekIv: _dekIv, dekAuthTag: _dekAuthTag, ...safe }) => safe);
   }
 
-  private resolveVersion(secret: SecretEntity, version: string): SecretVersionEntity & { dekIv: string; dekAuthTag: string } {
+  private async resolveVersion(secret: SecretEntity, version: string): Promise<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> {
     if (version === 'current') {
-      const current = this.versions.get(secret.currentVersionId);
+      const current = await this.versions.get(secret.currentVersionId);
       if (!current) {
         throw securityErrors.secretNotFound({ reason: 'current version missing' });
       }
@@ -261,15 +275,15 @@ export class SecretService {
     }
 
     const versionNo = Number(version.slice(1));
-    const matched = this.versions.list((row) => row.secretId === secret.id && row.versionNo === versionNo)[0];
+    const matched = (await this.versions.list((row) => row.secretId === secret.id && row.versionNo === versionNo))[0];
     if (!matched) {
       throw securityErrors.secretNotFound({ reason: 'version missing', version });
     }
     return matched;
   }
 
-  private toMetadata(secret: SecretEntity): SecretMetadataOutput {
-    const version = this.versions.get(secret.currentVersionId);
+  private async toMetadata(secret: SecretEntity): Promise<SecretMetadataOutput> {
+    const version = await this.versions.get(secret.currentVersionId);
     if (!version) {
       throw securityErrors.secretNotFound({ reason: 'version missing' });
     }

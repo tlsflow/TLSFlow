@@ -2,18 +2,18 @@ import type { ApprovalService } from '../../modules/approvals/approval.service.j
 import { securityErrors } from '../../shared/security-error.js';
 import type { RiskLevel } from '../../shared/security-types.js';
 
-export function assertApprovalIfRequired(
+export async function assertApprovalIfRequired(
   approvals: ApprovalService,
   operationType: string,
   riskLevel: RiskLevel,
   approvalId: string | undefined,
   parameters: unknown,
-): void {
+): Promise<void> {
   if (!approvals.requiresApproval(riskLevel, operationType)) {
     return;
   }
   if (!approvalId) {
     throw securityErrors.approvalRequired({ operationType, riskLevel });
   }
-  approvals.consume(approvalId, parameters);
+  await approvals.consume(approvalId, parameters);
 }

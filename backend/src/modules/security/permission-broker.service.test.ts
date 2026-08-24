@@ -6,9 +6,9 @@ import { ExecutionGrantService } from '../executions/execution-grant.service.js'
 import { PluginPermissionService } from '../plugins/plugin-permission.service.js';
 import { PermissionBroker } from './permission-broker.service.js';
 
-test('PermissionBroker 生成最小 Grant，跨 step 复用失败，插件未声明权限失败', () => {
+test('PermissionBroker 鐢熸垚鏈€灏?Grant锛岃法 step 澶嶇敤澶辫触锛屾彃浠舵湭澹版槑鏉冮檺澶辫触', async () => {
   const rbac = new RBACService();
-  rbac.createPolicy({
+  await rbac.createPolicy({
     subjectType: 'user',
     subjectId: 'user_1',
     effect: 'allow',
@@ -19,7 +19,7 @@ test('PermissionBroker 生成最小 Grant，跨 step 复用失败，插件未声
   const grants = new ExecutionGrantService();
   const broker = new PermissionBroker(rbac, new ApprovalService(), grants, new PluginPermissionService());
   const subject = { id: 'user_1', type: 'user' as const };
-  const grant = broker.createExecutorGrant({
+  const grant = await broker.createExecutorGrant({
     subject,
     action: 'secret.resolve',
     resource: { type: 'execution', id: 'run_1' },
@@ -30,10 +30,10 @@ test('PermissionBroker 生成最小 Grant，跨 step 复用失败，插件未声
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   });
 
-  assert.equal(grants.validate({ grantId: grant.id, runId: 'run_1', stepId: 'step_1', executorType: 'ssh', action: 'secret.resolve' }).id, grant.id);
-  assert.throws(() => grants.validate({ grantId: grant.id, runId: 'run_1', stepId: 'step_2', executorType: 'ssh' }), (error: any) => error.errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
+  assert.equal((await grants.validate({ grantId: grant.id, runId: 'run_1', stepId: 'step_1', executorType: 'ssh', action: 'secret.resolve' })).id, grant.id);
+  await assert.rejects(() => grants.validate({ grantId: grant.id, runId: 'run_1', stepId: 'step_2', executorType: 'ssh' }), (error: any) => error.errorCode === 'SEC_EXECUTOR_GRANT_DENIED');
 
-  assert.throws(() => broker.createPluginGrant({
+  await assert.rejects(() => broker.createPluginGrant({
     subject,
     action: 'secret.resolve',
     resource: { type: 'execution', id: 'run_2' },
@@ -44,7 +44,7 @@ test('PermissionBroker 生成最小 Grant，跨 step 复用失败，插件未声
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
     manifest: {
       pluginId: 'plugin_1',
-      name: '坏插件',
+      name: '鍧忔彃浠?',
       version: '1.0.0',
       author: 'unknown',
       runtime: 'node',
@@ -56,9 +56,9 @@ test('PermissionBroker 生成最小 Grant，跨 step 复用失败，插件未声
   }), (error: any) => error.errorCode === 'SEC_PLUGIN_PERMISSION_DENIED');
 });
 
-test('PermissionBroker 对高风险 Grant 强制校验审批', () => {
+test('PermissionBroker 瀵归珮椋庨櫓 Grant 寮哄埗鏍￠獙瀹℃壒', async () => {
   const rbac = new RBACService();
-  rbac.createPolicy({
+  await rbac.createPolicy({
     subjectType: 'user',
     subjectId: 'user_1',
     effect: 'allow',
@@ -94,21 +94,21 @@ test('PermissionBroker 对高风险 Grant 强制校验审批', () => {
     approvalParameters,
   };
 
-  assert.throws(
+  await assert.rejects(
     () => broker.createExecutorGrant(input),
     (error: any) => error.errorCode === 'SEC_APPROVAL_REQUIRED',
   );
 
-  const approval = approvals.create({
+  const approval = await approvals.create({
     operationType: 'deployment.execute',
     resourceRefs: [{ type: 'execution', id: 'run_9' }],
     riskLevel: 'high',
     parameters: approvalParameters,
     requestedBy: 'user_1',
   });
-  approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'user_2' });
+  await approvals.decide({ approvalId: approval.id, decision: 'approved', approverId: 'user_2' });
 
-  assert.throws(
+  await assert.rejects(
     () => broker.createExecutorGrant({
       ...input,
       approvalId: approval.id,
@@ -117,17 +117,17 @@ test('PermissionBroker 对高风险 Grant 强制校验审批', () => {
     (error: any) => error.errorCode === 'SEC_APPROVAL_INVALID',
   );
 
-  const secondApproval = approvals.create({
+  const secondApproval = await approvals.create({
     operationType: 'deployment.execute',
     resourceRefs: [{ type: 'execution', id: 'run_9' }],
     riskLevel: 'high',
     parameters: approvalParameters,
     requestedBy: 'user_1',
   });
-  approvals.decide({ approvalId: secondApproval.id, decision: 'approved', approverId: 'user_2' });
+  await approvals.decide({ approvalId: secondApproval.id, decision: 'approved', approverId: 'user_2' });
 
-  const grant = broker.createExecutorGrant({ ...input, approvalId: secondApproval.id });
+  const grant = await broker.createExecutorGrant({ ...input, approvalId: secondApproval.id });
   assert.equal(grant.runId, 'run_9');
   assert.equal(grant.stepId, 'step_1');
-  assert.equal(approvals.get(secondApproval.id)?.status, 'consumed');
+  assert.equal((await approvals.get(secondApproval.id))?.status, 'consumed');
 });

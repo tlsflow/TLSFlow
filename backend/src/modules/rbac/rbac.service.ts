@@ -1,10 +1,11 @@
-import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
-import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 import type { RequestContext, ResourceDescriptor, ResourceScope, SecuritySubject } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
-import { AuditService } from '../audits/audit.service.js';
+import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 
 export interface RbacDecision {
@@ -14,97 +15,115 @@ export interface RbacDecision {
 }
 
 export class RBACService {
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultUsersRepository(): AsyncRepositoryPort<UserEntity> {
+    return new PgDocumentRepository<UserEntity>(RBACService.defaultDb, 'security.users');
+  }
+
+  private static createDefaultRolesRepository(): AsyncRepositoryPort<RoleEntity> {
+    return new PgDocumentRepository<RoleEntity>(RBACService.defaultDb, 'security.roles');
+  }
+
+  private static createDefaultUserRolesRepository(): AsyncRepositoryPort<UserRoleEntity & { id: string }> {
+    return new PgDocumentRepository<UserRoleEntity & { id: string }>(RBACService.defaultDb, 'security.user_roles');
+  }
+
+  private static createDefaultPoliciesRepository(): AsyncRepositoryPort<PermissionPolicyEntity> {
+    return new PgDocumentRepository<PermissionPolicyEntity>(RBACService.defaultDb, 'security.permission_policies');
+  }
+
   constructor(
-    private readonly users: RepositoryPort<UserEntity> = new MemoryRepository<UserEntity>(),
-    private readonly roles: RepositoryPort<RoleEntity> = new MemoryRepository<RoleEntity>(),
-    private readonly userRoles: RepositoryPort<UserRoleEntity & { id: string }> = new MemoryRepository<UserRoleEntity & { id: string }>(),
-    private readonly policies: RepositoryPort<PermissionPolicyEntity> = new MemoryRepository<PermissionPolicyEntity>(),
+    private readonly users: AsyncRepositoryPort<UserEntity> = RBACService.createDefaultUsersRepository(),
+    private readonly roles: AsyncRepositoryPort<RoleEntity> = RBACService.createDefaultRolesRepository(),
+    private readonly userRoles: AsyncRepositoryPort<UserRoleEntity & { id: string }> = RBACService.createDefaultUserRolesRepository(),
+    private readonly policies: AsyncRepositoryPort<PermissionPolicyEntity> = RBACService.createDefaultPoliciesRepository(),
     private readonly audit?: AuditService,
   ) {}
 
-  createUser(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): UserEntity {
+  async createUser(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): Promise<UserEntity> {
     const now = new Date().toISOString();
     return this.users.create({ ...input, createdAt: now, updatedAt: now });
   }
 
-  createUserIfAbsent(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): UserEntity {
-    return this.users.get(input.id) ?? this.createUser(input);
+  async createUserIfAbsent(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): Promise<UserEntity> {
+    return (await this.users.get(input.id)) ?? this.createUser(input);
   }
 
-  getUser(id: string): UserEntity | undefined {
+  async getUser(id: string): Promise<UserEntity | undefined> {
     return this.users.get(id);
   }
 
-  findUserByUsername(username: string): UserEntity | undefined {
+  async findUserByUsername(username: string): Promise<UserEntity | undefined> {
     const normalized = username.trim().toLowerCase();
-    return this.users.list((user) => user.username.toLowerCase() === normalized)[0];
+    return (await this.users.list((user) => user.username.toLowerCase() === normalized))[0];
   }
 
-  listUsers(): UserEntity[] {
+  async listUsers(): Promise<UserEntity[]> {
     return this.users.list();
   }
 
-  updateUserStatus(userId: string, status: UserEntity['status']): UserEntity {
+  async updateUserStatus(userId: string, status: UserEntity['status']): Promise<UserEntity> {
     return this.users.update(userId, { status, updatedAt: new Date().toISOString() });
   }
 
-  createRole(input: RoleEntity): RoleEntity {
+  async createRole(input: RoleEntity): Promise<RoleEntity> {
     return this.roles.create(input);
   }
 
-  createRoleIfAbsent(input: RoleEntity): RoleEntity {
-    return this.roles.get(input.id) ?? this.roles.create(input);
+  async createRoleIfAbsent(input: RoleEntity): Promise<RoleEntity> {
+    return (await this.roles.get(input.id)) ?? this.roles.create(input);
   }
 
-  listRoles(): RoleEntity[] {
+  async listRoles(): Promise<RoleEntity[]> {
     return this.roles.list();
   }
 
-  getRole(id: string): RoleEntity | undefined {
+  async getRole(id: string): Promise<RoleEntity | undefined> {
     return this.roles.get(id);
   }
 
-  assignRole(userId: string, roleId: string): void {
+  async assignRole(userId: string, roleId: string): Promise<void> {
     const id = `${userId}:${roleId}`;
-    if (this.userRoles.get(id)) return;
-    this.userRoles.create({ id, userId, roleId, createdAt: new Date().toISOString() });
+    if (await this.userRoles.get(id)) return;
+    await this.userRoles.create({ id, userId, roleId, createdAt: new Date().toISOString() });
   }
 
-  userHasRole(userId: string, roleId: string): boolean {
-    return Boolean(this.userRoles.get(`${userId}:${roleId}`));
+  async userHasRole(userId: string, roleId: string): Promise<boolean> {
+    return Boolean(await this.userRoles.get(`${userId}:${roleId}`));
   }
 
-  rolesForUser(userId: string): RoleEntity[] {
-    const roleIds = new Set(this.userRoles.list((row) => row.userId === userId).map((row) => row.roleId));
+  async rolesForUser(userId: string): Promise<RoleEntity[]> {
+    const roleIds = new Set((await this.userRoles.list((row) => row.userId === userId)).map((row) => row.roleId));
     return this.roles.list((role) => roleIds.has(role.id));
   }
 
-  listUserRoles(): Array<UserRoleEntity & { id: string }> {
+  async listUserRoles(): Promise<Array<UserRoleEntity & { id: string }>> {
     return this.userRoles.list();
   }
 
-  createPolicy(input: Omit<PermissionPolicyEntity, 'id'> & { id?: string }): PermissionPolicyEntity {
+  async createPolicy(input: Omit<PermissionPolicyEntity, 'id'> & { id?: string }): Promise<PermissionPolicyEntity> {
     return this.policies.create({ ...input, id: input.id ?? newId('pol') });
   }
 
-  createPolicyIfAbsent(input: Omit<PermissionPolicyEntity, 'id'> & { id: string }): PermissionPolicyEntity {
-    return this.policies.get(input.id) ?? this.policies.create(input);
+  async createPolicyIfAbsent(input: Omit<PermissionPolicyEntity, 'id'> & { id: string }): Promise<PermissionPolicyEntity> {
+    return (await this.policies.get(input.id)) ?? this.policies.create(input);
   }
 
-  listPolicies(): PermissionPolicyEntity[] {
+  async listPolicies(): Promise<PermissionPolicyEntity[]> {
     return this.policies.list();
   }
 
-  permissionsForSubject(subject: SecuritySubject): string[] {
+  async permissionsForSubject(subject: SecuritySubject): Promise<string[]> {
     const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
     if (subject.type === 'user') {
-      for (const userRole of this.userRoles.list((row) => row.userId === subject.id)) {
+      for (const userRole of await this.userRoles.list((row) => row.userId === subject.id)) {
         subjectIds.add(userRole.roleId);
       }
     }
     const denied = new Set<string>();
     const allowed = new Set<string>();
-    for (const policy of this.policies.list((item) => subjectIds.has(item.subjectId))) {
+    for (const policy of await this.policies.list((item) => subjectIds.has(item.subjectId))) {
       for (const action of policy.actions) {
         if (policy.effect === 'deny') denied.add(action);
         else allowed.add(action);
@@ -113,15 +132,15 @@ export class RBACService {
     return [...allowed].filter((action) => !denied.has(action)).sort();
   }
 
-  can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): RbacDecision {
+  async can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): Promise<RbacDecision> {
     const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
     if (subject.type === 'user') {
-      for (const userRole of this.userRoles.list((row) => row.userId === subject.id)) {
+      for (const userRole of await this.userRoles.list((row) => row.userId === subject.id)) {
         subjectIds.add(userRole.roleId);
       }
     }
 
-    const matched = this.policies.list((policy) => {
+    const matched = await this.policies.list((policy) => {
       if (!subjectIds.has(policy.subjectId)) {
         return false;
       }
@@ -135,7 +154,7 @@ export class RBACService {
 
     const denied = matched.filter((policy) => policy.effect === 'deny');
     if (denied.length > 0) {
-      this.auditDeny(subject, action, resource, context, 'explicit deny');
+      await this.auditDeny(subject, action, resource, context, 'explicit deny');
       return { allowed: false, reason: 'explicit deny', matchedPolicyIds: denied.map((policy) => policy.id) };
     }
 
@@ -144,12 +163,12 @@ export class RBACService {
       return { allowed: true, reason: 'allow', matchedPolicyIds: allowed.map((policy) => policy.id) };
     }
 
-    this.auditDeny(subject, action, resource, context, 'no allow policy');
+    await this.auditDeny(subject, action, resource, context, 'no allow policy');
     return { allowed: false, reason: 'no allow policy', matchedPolicyIds: [] };
   }
 
-  assertCan(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): void {
-    const decision = this.can(subject, action, resource, context);
+  async assertCan(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): Promise<void> {
+    const decision = await this.can(subject, action, resource, context);
     if (!decision.allowed) {
       throw securityErrors.permissionDenied({ action, resource, reason: decision.reason });
     }
@@ -182,8 +201,8 @@ export class RBACService {
     return 'user';
   }
 
-  private auditDeny(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext, reason: string): void {
-    this.audit?.write({
+  private async auditDeny(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext, reason: string): Promise<void> {
+    await this.audit?.write({
       eventType: AUDIT_EVENT_TYPES.PERMISSION_DENIED,
       actorType: this.toAuditActorType(subject.type),
       actorId: subject.id,

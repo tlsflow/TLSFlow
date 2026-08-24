@@ -22,11 +22,13 @@ export interface InjectResponse {
 }
 
 export type AuthTokenResolver = (authorization: string | undefined) => { actorId: string; tenantId?: string } | undefined;
+export type PersistenceFlusher = { flush: () => Promise<void> };
 
 export class App {
   readonly router = new Router();
   readonly config: AppConfig;
   private authTokenResolver?: AuthTokenResolver;
+  private readonly persistenceFlushers: PersistenceFlusher[] = [];
 
   constructor(config: AppConfig = loadAppConfig()) {
     this.config = config;
@@ -34,6 +36,10 @@ export class App {
 
   setAuthTokenResolver(resolver: AuthTokenResolver): void {
     this.authTokenResolver = resolver;
+  }
+
+  registerPersistenceFlusher(flusher: PersistenceFlusher): void {
+    this.persistenceFlushers.push(flusher);
   }
 
   async handle(request: HttpRequest): Promise<InjectResponse> {
@@ -45,6 +51,7 @@ export class App {
       }
       try {
         const result = await route.handler(request);
+        await this.flushPersistence();
         if (isResponseBody(result)) return this.json(result.statusCode ?? 200, result.body, request.context, result.headers);
         return this.json(200, result, request.context);
       } catch (error) {
@@ -111,6 +118,12 @@ export class App {
       },
       body,
     };
+  }
+
+  private async flushPersistence(): Promise<void> {
+    for (const flusher of this.persistenceFlushers) {
+      await flusher.flush();
+    }
   }
 }
 

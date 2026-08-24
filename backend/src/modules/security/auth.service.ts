@@ -1,7 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../common/errors/app-error.js';
 import type { RequestContext } from '../../common/tracing/request-context.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity } from '../../persistence/entities/rbac.entity.js';
+import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
@@ -37,25 +41,33 @@ interface TokenPayload {
 }
 
 const DEFAULT_TENANT_ID = 'default';
-const DEFAULT_TENANT_NAME = '默认租户';
+const DEFAULT_TENANT_NAME = '榛樿绉熸埛';
 const DEFAULT_ADMIN_PASSWORD = 'admin12345';
 const TOKEN_SECRET = 'gcac-dev-session-secret-change-before-production';
 
 export class AuthService {
-  private readonly credentials = new Map<string, PasswordCredential>();
+  private static readonly defaultDb = new PgliteDatabase();
+
+  private static createDefaultCredentialsRepository(): AsyncRepositoryPort<AuthPasswordCredentialEntity> {
+    return new PgDocumentRepository<AuthPasswordCredentialEntity>(AuthService.defaultDb, 'security.auth_password_credentials');
+  }
+
+  private readonly seedReady: Promise<void>;
 
   constructor(
     private readonly rbac: RBACService,
+    private readonly credentials: AsyncRepositoryPort<AuthPasswordCredentialEntity> = AuthService.createDefaultCredentialsRepository(),
     private readonly audit?: AuditService,
   ) {
-    this.seedDefaultAdmin();
+    this.seedReady = this.seedDefaultAdmin();
   }
 
-  login(input: { username: string; password: string }, context: RequestContext): AuthSessionResponse {
-    const user = this.rbac.findUserByUsername(input.username);
-    const credential = user ? this.credentials.get(user.id) : undefined;
+  async login(input: { username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
+    await this.seedReady;
+    const user = await this.rbac.findUserByUsername(input.username);
+    const credential = user ? await this.credentials.get(user.id) : undefined;
     if (!user || !credential || !this.verifyPassword(input.password, credential)) {
-      this.audit?.write({
+      await this.audit?.write({
         eventType: AUDIT_EVENT_TYPES.AUTH_LOGIN_FAILED,
         actorType: 'user',
         actorId: input.username,
@@ -66,15 +78,15 @@ export class AuthService {
         context: { requestId: context.requestId, sourceIp: context.ip },
         detail: { reason: 'bad credentials' },
       });
-      throw new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
+      throw new AppError('AUTH_UNAUTHENTICATED', '鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒');
     }
 
     if (user.status !== 'active') {
-      throw new AppError('AUTH_FORBIDDEN', '用户已被禁用');
+      throw new AppError('AUTH_FORBIDDEN', '鐢ㄦ埛宸茶绂佺敤');
     }
 
-    const session = this.createSession(user);
-    this.audit?.write({
+    const session = await this.createSession(user);
+    await this.audit?.write({
       eventType: AUDIT_EVENT_TYPES.AUTH_LOGIN_SUCCESS,
       actorType: 'user',
       actorId: user.id,
@@ -82,14 +94,14 @@ export class AuthService {
       resourceType: 'authSession',
       result: 'success',
       riskLevel: 'low',
-      context: { requestId: context.requestId, sourceIp: context.ip, actor: this.subjectForUser(user) },
+      context: { requestId: context.requestId, sourceIp: context.ip, actor: await this.subjectForUser(user) },
     });
     return session;
   }
 
-  logout(subject: SecuritySubject | undefined, context: RequestContext): { success: true } {
+  async logout(subject: SecuritySubject | undefined, context: RequestContext): Promise<{ success: true }> {
     if (subject) {
-      this.audit?.write({
+      await this.audit?.write({
         eventType: AUDIT_EVENT_TYPES.AUTH_LOGOUT,
         actorType: 'user',
         actorId: subject.id,
@@ -103,16 +115,18 @@ export class AuthService {
     return { success: true };
   }
 
-  createUserWithPassword(input: Omit<UserEntity, 'createdAt' | 'updatedAt'> & { password: string }): UserEntity {
-    const user = this.rbac.createUser(input);
-    this.credentials.set(user.id, this.hashPassword(user.id, input.password));
+  async createUserWithPassword(input: Omit<UserEntity, 'createdAt' | 'updatedAt'> & { password: string }): Promise<UserEntity> {
+    await this.seedReady;
+    const user = await this.rbac.createUser(input);
+    await this.credentials.upsert(this.hashPassword(user.id, input.password));
     return user;
   }
 
-  currentSession(userId: string): AuthSessionResponse {
-    const user = this.rbac.getUser(userId);
+  async currentSession(userId: string): Promise<AuthSessionResponse> {
+    await this.seedReady;
+    const user = await this.rbac.getUser(userId);
     if (!user || user.status !== 'active') {
-      throw new AppError('AUTH_UNAUTHENTICATED', '登录状态已失效');
+      throw new AppError('AUTH_UNAUTHENTICATED', '鐧诲綍鐘舵€佸凡澶辨晥');
     }
     return this.createSession(user);
   }
@@ -124,21 +138,23 @@ export class AuthService {
     return payload ? { actorId: payload.userId, tenantId: payload.tenantId } : undefined;
   }
 
-  private createSession(user: UserEntity): AuthSessionResponse {
+  private async createSession(user: UserEntity): Promise<AuthSessionResponse> {
     const token = this.signToken({
       userId: user.id,
       tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
       issuedAt: Date.now(),
       nonce: randomBytes(8).toString('hex'),
     });
+    const subject = await this.subjectForUser(user);
     return {
       token,
-      user: this.toAuthenticatedUser(user),
-      permissions: this.rbac.permissionsForSubject(this.subjectForUser(user)),
+      user: await this.toAuthenticatedUser(user),
+      permissions: await this.rbac.permissionsForSubject(subject),
     };
   }
 
-  private toAuthenticatedUser(user: UserEntity): AuthenticatedUser {
+  private async toAuthenticatedUser(user: UserEntity): Promise<AuthenticatedUser> {
+    const roles = await this.rbac.rolesForUser(user.id);
     return {
       id: user.id,
       username: user.username,
@@ -146,45 +162,48 @@ export class AuthService {
       tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
       tenantName: user.tenantName ?? DEFAULT_TENANT_NAME,
       status: user.status,
-      roles: this.rbac.rolesForUser(user.id).map((role) => ({ id: role.id, code: role.code, name: role.name })),
+      roles: roles.map((role) => ({ id: role.id, code: role.code, name: role.name })),
     };
   }
 
-  private subjectForUser(user: UserEntity): SecuritySubject {
+  private async subjectForUser(user: UserEntity): Promise<SecuritySubject> {
+    const roles = await this.rbac.rolesForUser(user.id);
     return {
       id: user.id,
       type: 'user',
-      roleIds: this.rbac.rolesForUser(user.id).map((role) => role.id),
+      roleIds: roles.map((role) => role.id),
       scope: { tenantId: user.tenantId ?? DEFAULT_TENANT_ID },
     };
   }
 
-  private seedDefaultAdmin(): void {
+  private async seedDefaultAdmin(): Promise<void> {
     const adminRole: RoleEntity = {
       id: 'role_admin',
       code: 'admin',
-      name: '系统管理员',
-      description: '拥有全部控制台权限的内置管理员角色',
+      name: '绯荤粺绠＄悊鍛?',
+      description: '鎷ユ湁鍏ㄩ儴鎺у埗鍙版潈闄愮殑鍐呯疆绠＄悊鍛樿鑹?',
       builtin: true,
     };
     const auditorRole: RoleEntity = {
       id: 'role_auditor',
       code: 'auditor',
-      name: '审计员',
-      description: '只能查看审计和只读安全信息',
+      name: '瀹¤鍛?',
+      description: '鍙兘鏌ョ湅瀹¤鍜屽彧璇诲畨鍏ㄤ俊鎭?',
       builtin: true,
     };
-    this.rbac.createRoleIfAbsent(adminRole);
-    this.rbac.createRoleIfAbsent(auditorRole);
-    const admin = this.rbac.createUserIfAbsent({
+    await this.rbac.createRoleIfAbsent(adminRole);
+    await this.rbac.createRoleIfAbsent(auditorRole);
+    const admin = await this.rbac.createUserIfAbsent({
       id: 'user_admin',
       username: 'admin',
-      displayName: '系统管理员',
+      displayName: '绯荤粺绠＄悊鍛?',
       status: 'active',
       tenantId: DEFAULT_TENANT_ID,
       tenantName: DEFAULT_TENANT_NAME,
     });
-    if (!this.rbac.userHasRole(admin.id, adminRole.id)) this.rbac.assignRole(admin.id, adminRole.id);
+    if (!await this.rbac.userHasRole(admin.id, adminRole.id)) {
+      await this.rbac.assignRole(admin.id, adminRole.id);
+    }
     const policy: Omit<PermissionPolicyEntity, 'id'> & { id: string } = {
       id: 'policy_admin_all',
       subjectType: 'role',
@@ -194,18 +213,26 @@ export class AuthService {
       resourceTypes: ['*'],
       scope: { tenantId: '*' },
     };
-    this.rbac.createPolicyIfAbsent(policy);
-    if (!this.credentials.has(admin.id)) {
-      this.credentials.set(admin.id, this.hashPassword(admin.id, DEFAULT_ADMIN_PASSWORD));
+    await this.rbac.createPolicyIfAbsent(policy);
+    if (!await this.credentials.get(admin.id)) {
+      await this.credentials.upsert(this.hashPassword(admin.id, DEFAULT_ADMIN_PASSWORD));
     }
   }
 
-  private hashPassword(userId: string, password: string): PasswordCredential {
+  private hashPassword(userId: string, password: string): AuthPasswordCredentialEntity {
+    const now = new Date().toISOString();
     const salt = randomBytes(16).toString('hex');
-    return { userId, salt, passwordHash: this.digestPassword(password, salt) };
+    return {
+      id: userId,
+      userId,
+      salt,
+      passwordHash: this.digestPassword(password, salt),
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
-  private verifyPassword(password: string, credential: PasswordCredential): boolean {
+  private verifyPassword(password: string, credential: Pick<AuthPasswordCredentialEntity, 'passwordHash' | 'salt'>): boolean {
     const expected = Buffer.from(credential.passwordHash, 'hex');
     const actual = Buffer.from(this.digestPassword(password, credential.salt), 'hex');
     return expected.length === actual.length && timingSafeEqual(expected, actual);

@@ -35,11 +35,11 @@ export class PermissionBroker {
     private readonly pluginPermissions: PluginPermissionService,
   ) {}
 
-  createExecutorGrant(input: GrantForExecutorInput) {
-    this.rbac.assertCan(input.subject, input.action, input.resource, input.context ?? {});
+  async createExecutorGrant(input: GrantForExecutorInput) {
+    await this.rbac.assertCan(input.subject, input.action, input.resource, input.context ?? {});
     // 授权 Grant 是执行器拿 Secret 和动作权限的最后闸门。
     // 高风险操作不能只靠调用方“自觉”先过 ApprovalGuard；Broker 必须自己失败关闭。
-    assertApprovalIfRequired(
+    await assertApprovalIfRequired(
       this.approvals,
       input.operationType ?? input.action,
       input.riskLevel ?? 'low',
@@ -56,7 +56,7 @@ export class PermissionBroker {
     });
   }
 
-  createPluginGrant(input: GrantForPluginInput) {
+  async createPluginGrant(input: GrantForPluginInput) {
     for (const secretRef of input.allowedSecretRefs) {
       const parsed = parseSecretRef(secretRef);
       this.pluginPermissions.assertDeclaredPermission(input.manifest, input.action, parsed.type);
