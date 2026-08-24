@@ -2,7 +2,7 @@
   "apiVersion": "gcac.device-discovery-mapping/v2",
   "kind": "DeviceDiscoveryMapping",
   "pluginId": "device.synology-dsm",
-  "pluginVersion": "2.0.6",
+  "pluginVersion": "2.0.10",
   "protocol": "DSM",
   "apiContract": {
     "authentication": { "path": "/webapi/auth.cgi", "api": "SYNO.API.Auth", "version": 7, "method": "login", "secretFields": ["passwd"], "responseSidPath": "$.data.sid" },
