@@ -1,0 +1,11 @@
+{
+  "apiVersion": "gcac.compatibility/v2",
+  "profileId": "invalid.profile-v2",
+  "version": "1.0",
+  "baselineRef": "linux-go-full-agent@1.0",
+  "recipeRefs": ["certificate.deploy.invalid@1.0"],
+  "certificationRefs": ["record@1.0"],
+  "declaredStatus": "experimental",
+  "automation": "full",
+  "limitations": []
+}

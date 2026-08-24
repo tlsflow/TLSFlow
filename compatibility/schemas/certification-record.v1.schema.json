@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gcac.local/schemas/certification-record.v1.schema.json",
+  "title": "GCAC Certification Record v1",
+  "type": "object",
+  "required": ["apiVersion", "recordId", "baselineRef", "recipeRef", "environment", "agentArtifact", "resolvedComposition", "testSuite", "results", "status", "observedAt", "evidenceReferences"],
+  "properties": {
+    "apiVersion": { "const": "gcac.certification-record/v1" },
+    "recordId": { "$ref": "#/$defs/id" },
+    "baselineRef": { "$ref": "#/$defs/reference" },
+    "recipeRef": { "$ref": "#/$defs/reference" },
+    "environment": {
+      "type": "object",
+      "required": ["osName", "osVersion", "kernelOrBuild", "architecture", "serviceModel", "privilegeMode", "securityModule", "securityMode", "productName", "productVersion", "certificateFormat", "transport"],
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "agentArtifact": {
+      "type": "object",
+      "required": ["productLine", "version", "revision", "sha256", "signatureVerified", "vcsModified"],
+      "properties": {
+        "productLine": { "$ref": "#/$defs/id" },
+        "version": { "$ref": "#/$defs/version" },
+        "revision": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "signatureVerified": { "type": "boolean" },
+        "vcsModified": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "resolvedComposition": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "enum": ["product", "certificate_store", "artifact_codec", "service_controller", "transport", "verifier", "rollback"] },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "testSuite": { "type": "string", "minLength": 1 },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["testId", "category", "status", "reference"],
+        "properties": {
+          "testId": { "$ref": "#/$defs/id" },
+          "category": { "enum": ["contract", "integration", "real_environment", "security", "recovery"] },
+          "status": { "enum": ["passed", "failed", "blocked"] },
+          "reference": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "status": { "enum": ["passed", "failed", "expired"] },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "evidenceReferences": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "supersedes": { "$ref": "#/$defs/id" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)+$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$" },
+    "reference": { "type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)+@\\d+\\.\\d+(?:\\.\\d+)?$" }
+  }
+}

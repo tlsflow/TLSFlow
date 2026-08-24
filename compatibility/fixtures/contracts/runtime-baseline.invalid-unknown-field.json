@@ -1,0 +1,15 @@
+{
+  "apiVersion": "gcac.runtime-baseline/v1",
+  "baselineId": "linux-invalid-baseline",
+  "version": "1.0",
+  "agentProductLine": "linux-go-full-agent",
+  "osFamily": "linux",
+  "architectures": ["amd64"],
+  "runtimeRequirements": [
+    { "name": "linux-kernel", "operator": "at_least", "value": "3.2" }
+  ],
+  "securityRequirements": [],
+  "installationCapabilities": ["agent-local-install"],
+  "unsupportedBoundaries": [],
+  "distribution": "ubuntu"
+}
