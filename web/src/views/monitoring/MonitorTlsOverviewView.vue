@@ -428,7 +428,24 @@ function parseEndpoint(value: string) {
             <span :data-risk="row.tlsTarget.latestSummary.weakCipherDetected ? 'danger' : 'ok'">
               {{ t('monitoring.tls.labels.weakCipher') }}: {{ row.tlsTarget.latestSummary.weakCipherDetected ? t('monitoring.tls.values.yes') : t('monitoring.tls.values.no') }}
             </span>
-            <span>{{ t('monitoring.tls.labels.trustPathIssues') }}: {{ row.tlsTarget.latestSummary.trustPathIssueCount ?? 0 }}</span>
+            <span
+              v-if="typeof row.tlsTarget.latestSummary.trustPathUnsupportedCount === 'number'"
+              :data-risk="(row.tlsTarget.latestSummary.trustPathIssueCount ?? 0) > 0 ? 'danger' : 'ok'"
+            >
+              {{ t('monitoring.tls.labels.trustPathIssues') }}: {{ row.tlsTarget.latestSummary.trustPathIssueCount ?? 0 }}
+            </span>
+            <span
+              v-if="(row.tlsTarget.latestSummary.trustPathUnsupportedCount ?? 0) > 0"
+              data-risk="info"
+            >
+              {{ t('monitoring.tls.labels.trustViewsUnsupported') }}: {{ row.tlsTarget.latestSummary.trustPathUnsupportedCount }}
+            </span>
+            <span
+              v-else-if="typeof row.tlsTarget.latestSummary.trustPathUnsupportedCount !== 'number'"
+              data-risk="info"
+            >
+              {{ t('monitoring.tls.labels.trustPathRescanRequired') }}
+            </span>
           </template>
           <span v-else-if="!tlsInspectorAvailable">{{ t('monitoring.tls.states.unavailable') }}</span>
           <span v-else>{{ t('monitoring.tls.states.notInitialized') }}</span>

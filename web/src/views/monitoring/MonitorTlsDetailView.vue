@@ -15,6 +15,15 @@ import {
 } from '@/api/modules/tls-inspector.api'
 import { GcEmptyState, GcPageToolbar, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
+import {
+  computeCertificateScore,
+  computeCipherStrengthScore,
+  computeKeyExchangeScore,
+  computeOverallScore,
+  computeProtocolScore,
+  countRealTrustPathIssues,
+  countUnsupportedTrustPaths,
+} from './monitor-tls-scoring'
 
 type RecordLike = Record<string, unknown>
 type StatusTone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
@@ -25,6 +34,7 @@ interface ReportMetric {
   readonly grade: string
   readonly tone: StatusTone
   readonly summary: string
+  readonly score: number
 }
 
 interface ReportHighlight {
@@ -82,6 +92,19 @@ interface ProtocolDetailGroup {
   readonly items: readonly ReportDetailItem[]
 }
 
+interface ReportFlag {
+  readonly label: string
+  readonly tone: StatusTone
+}
+
+interface GradeScaleMarker {
+  readonly key: string
+  readonly label: string
+  readonly grade: string
+  readonly tone: StatusTone
+  readonly score: number
+}
+
 const route = useRoute()
 const { t } = useI18n()
 const monitorTargetId = computed(() => String(route.params.id ?? ''))
@@ -123,6 +146,18 @@ const metricCards = computed<ReportMetric[]>(() => {
 const overallMetric = computed(() => metricCards.value[0] ?? buildMetricCard('overall', 0))
 const overviewMetricCards = computed(() => metricCards.value.slice(1))
 
+const gradeScaleMarkers = computed<GradeScaleMarker[]>(() =>
+  metricCards.value.slice(1).map((metric) => ({
+    key: metric.key,
+    label: metric.label,
+    grade: metric.grade,
+    tone: metric.tone,
+    score: metric.score,
+  })),
+)
+
+const gradeScaleTicks = [0, 20, 40, 60, 80, 100]
+
 const summaryFacts = computed<ReportDetailItem[]>(() => {
   if (!snapshot.value) return []
   return [
@@ -138,11 +173,13 @@ const summaryFacts = computed<ReportDetailItem[]>(() => {
 const overviewFacts = computed(() => summaryFacts.value.slice(0, 3))
 
 const trustPathSummary = computed(() => {
-  const views = snapshot.value?.trustPaths ?? []
+  const current = snapshot.value
+  const views = current?.trustPaths ?? []
   return {
     total: views.length,
     trusted: views.filter((item) => item.status === 'trusted').length,
-    issues: views.filter((item) => item.status !== 'trusted').length,
+    issues: current ? countRealTrustPathIssues(current) : 0,
+    unsupported: current ? countUnsupportedTrustPaths(current) : 0,
   }
 })
 
@@ -206,12 +243,20 @@ const summaryHighlights = computed<ReportHighlight[]>(() => {
       description: t('monitoring.tls.highlights.hstsDescription', { policy: hstsRaw }),
     })
   }
-  if (riskSummary.value?.trustPathIssueCount) {
+  if (trustPathSummary.value.issues) {
     highlights.push({
       id: 'trust-path',
       tone: 'warning',
       title: t('monitoring.tls.highlights.trustPathTitle'),
-      description: t('monitoring.tls.highlights.trustPathDescription', { count: riskSummary.value.trustPathIssueCount }),
+      description: t('monitoring.tls.highlights.trustPathDescription', { count: trustPathSummary.value.issues }),
+    })
+  }
+  if (trustPathSummary.value.unsupported) {
+    highlights.push({
+      id: 'trust-path-coverage',
+      tone: 'info',
+      title: t('monitoring.tls.highlights.trustPathCoverageTitle'),
+      description: t('monitoring.tls.highlights.trustPathCoverageDescription', { count: trustPathSummary.value.unsupported }),
     })
   }
   if (hasWeakCipher && !hasRc4) {
@@ -256,6 +301,14 @@ const certificateOverview = computed<ReportDetailItem[]>(() => {
 const certificateOverviewPrimary = computed(() => certificateOverview.value.slice(0, 6))
 const certificateOverviewSecondary = computed(() => certificateOverview.value.slice(6))
 
+const certificateKeySummary = computed(() => {
+  const current = certificate.value
+  if (!current) return t('monitoring.tls.values.unknown')
+  const key = [current.keyAlgorithm, formatAnyValue(current.keySize)].filter(Boolean).join(' ')
+  const signature = current.signatureAlgorithm || ''
+  return [key, signature].filter(Boolean).join(' · ') || t('monitoring.tls.values.unknown')
+})
+
 const chainCertificates = computed(() => certificate.value?.chain ?? [])
 
 const additionalCertificates = computed(() => chainCertificates.value.slice(1))
@@ -277,8 +330,11 @@ const trustPathViews = computed<TrustPathView[]>(() => (snapshot.value?.trustPat
   })),
 })))
 
-const protocolSummaryRows = computed<ReportDetailItem[]>(() => (snapshot.value?.protocols ?? []).map((item) => ({
+const protocolSummaryRows = computed(() => (snapshot.value?.protocols ?? []).map((item) => ({
   label: item.label,
+  supported: item.supported,
+  statusLabel: item.supported ? t('monitoring.tls.values.supported') : t('monitoring.tls.values.notSupported'),
+  statusTone: item.supported ? 'success' : legacyProtocolTone(item.label),
   value: item.supported
     ? formatNegotiatedResult(item.negotiatedProtocol, item.negotiatedCipherSuite)
     : item.errorMessage || t('monitoring.tls.values.notSupported'),
@@ -318,20 +374,13 @@ const simulationRows = computed(() => (snapshot.value?.simulations ?? []).map((i
   serverCertificateLabel: item.serverCertificate || t('monitoring.tls.values.unknown'),
   keyExchangeLabel: item.keyExchange || t('monitoring.tls.values.none'),
   explanationLabel: item.explanation || t('monitoring.tls.values.none'),
-  fsLabel: item.forwardSecrecy === null || item.forwardSecrecy === undefined
-    ? t('monitoring.tls.values.none')
-    : item.forwardSecrecy ? t('monitoring.tls.values.fs') : t('monitoring.tls.values.noFs'),
   noteLabel: simulationNoteLabel(item),
-  resultFlagsLabel: item.resultFlags?.length ? item.resultFlags.join(' ') : t('monitoring.tls.values.none'),
-  clientMarkers: [
-    ...(item.capabilityNotes ?? []),
-    ...(item.reference ? ['R'] : []),
-  ],
   resultFlags: item.resultFlags?.length
     ? item.resultFlags
     : item.forwardSecrecy === null || item.forwardSecrecy === undefined
       ? []
       : [item.forwardSecrecy ? 'FS' : 'No FS'],
+  flagItems: simulationFlagItems(item),
 })))
 
 const simulationFootnotes = computed<SimulationFootnoteItem[]>(() => {
@@ -480,62 +529,10 @@ function buildMetricCard(key: string, score: number): ReportMetric {
     key,
     label: t(`monitoring.tls.metrics.${key}`),
     grade,
+    score,
     tone: gradeTone(grade),
     summary: t(`monitoring.tls.metricSummaries.${gradeBucket(score)}`),
   }
-}
-
-function computeOverallScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  if (!current.riskSummary.tls13Supported) score -= 12
-  if (current.riskSummary.legacyProtocolEnabled) score -= 22
-  if (current.riskSummary.weakCipherDetected) score -= 24
-  if (current.riskSummary.hstsTooShort) score -= 8
-  score -= Math.min(current.riskSummary.trustPathIssueCount * 10, 30)
-  score -= Math.min(current.riskSummary.simulationFailedCount * 2, 18)
-  score -= Math.min((current.errors?.length ?? 0) * 3, 12)
-  if (current.status === 'failed') score = Math.min(score, 45)
-  if (current.status === 'partial') score = Math.min(score, 78)
-  return clampScore(score)
-}
-
-function computeCertificateScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  if (!current.certificate) return 30
-  score -= Math.min(current.riskSummary.trustPathIssueCount * 15, 45)
-  const expiry = getExpiryCountdown(current.certificate.notAfter)
-  if (expiry?.expired) score -= 40
-  else if (expiry && expiry.days <= 30) score -= 20
-  else if (expiry && expiry.days <= 90) score -= 8
-  return clampScore(score)
-}
-
-function computeProtocolScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  if (!current.riskSummary.tls13Supported) score -= 20
-  if (current.riskSummary.legacyProtocolEnabled) score -= 35
-  if (protocolLookup.value.get('SSL 3.0')?.supported) score -= 20
-  return clampScore(score)
-}
-
-function computeKeyExchangeScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  if (!current.protocolDetails.forwardSecrecy) score -= 28
-  if (!(current.protocolDetails.supportedNamedGroups?.length ?? 0)) score -= 14
-  if (!current.protocolDetails.pqcSupported) score -= 6
-  if (current.riskSummary.simulationFailedCount > 0) score -= Math.min(current.riskSummary.simulationFailedCount * 2, 16)
-  return clampScore(score)
-}
-
-function computeCipherStrengthScore(current: TlsInspectionSnapshot): number {
-  let score = 100
-  const insecureCount = current.cipherSuites.filter((item) => item.insecure).length
-  const weakCount = current.cipherSuites.filter((item) => item.weak && !item.insecure).length
-  score -= Math.min(insecureCount * 18, 36)
-  score -= Math.min(weakCount * 8, 24)
-  const maxStrength = Math.max(...current.cipherSuites.map((item) => item.strengthBits ?? 0), 0)
-  if (current.cipherSuites.length && maxStrength < 128) score -= 15
-  return clampScore(score)
 }
 
 function gradeTone(grade: string): StatusTone {
@@ -662,12 +659,37 @@ function formatFingerprint(value: string | null | undefined) {
   return compact.match(/.{1,2}/g)?.join(':') ?? compact
 }
 
-function cipherSuiteFlags(item: NonNullable<TlsInspectionSnapshot['cipherSuites']>[number]) {
-  const flags: string[] = []
-  if (item.forwardSecrecy) flags.push('FS')
-  if (item.insecure) flags.push('INSECURE')
-  else if (item.weak) flags.push('WEAK')
-  return flags.length ? flags.join(' / ') : t('monitoring.tls.values.none')
+function flagLabel(flag: string) {
+  const normalized = flag.trim().toLowerCase()
+  if (normalized === 'fs') return t('monitoring.tls.values.fs')
+  if (normalized === 'no fs') return t('monitoring.tls.values.noFs')
+  if (normalized === 'no sni') return t('monitoring.tls.values.noSni')
+  if (normalized === 'insecure') return t('monitoring.tls.values.flagInsecure')
+  if (normalized === 'weak') return t('monitoring.tls.values.flagWeak')
+  return flag
+}
+
+function cipherFlagItems(item: NonNullable<TlsInspectionSnapshot['cipherSuites']>[number]) {
+  const flags: ReportFlag[] = []
+  if (item.forwardSecrecy) flags.push({ label: flagLabel('FS'), tone: 'success' })
+  if (item.insecure) flags.push({ label: flagLabel('INSECURE'), tone: 'danger' })
+  else if (item.weak) flags.push({ label: flagLabel('WEAK'), tone: 'warning' })
+  return flags
+}
+
+function flagTone(flag: string): StatusTone {
+  const normalized = flag.toLowerCase()
+  if (normalized.includes('rc4') || normalized.includes('insecure')) return 'danger'
+  if (normalized.includes('cbc') || normalized.includes('weak')) return 'warning'
+  if (normalized === 'no fs' || normalized === 'no sni') return 'muted'
+  return 'success'
+}
+
+function simulationFlagItems(item: NonNullable<TlsInspectionSnapshot['simulations']>[number]) {
+  const source = item.resultFlags?.length ? item.resultFlags : item.forwardSecrecy === null || item.forwardSecrecy === undefined
+    ? []
+    : [item.forwardSecrecy ? 'FS' : 'No FS']
+  return source.map((label) => ({ label: flagLabel(label), tone: flagTone(label) }))
 }
 
 function assetLabel(record: RecordLike | null): string {
@@ -800,6 +822,38 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                 </dl>
               </div>
             </div>
+            <div class="tls-grade-scale" :aria-label="t('monitoring.tls.report.gradeScaleAria')">
+              <div class="tls-grade-scale__track">
+                <span
+                  v-for="tick in gradeScaleTicks"
+                  :key="`tick-${tick}`"
+                  class="tls-grade-scale__tick"
+                  :style="{ left: `${tick}%` }"
+                />
+                <span
+                  v-for="marker in gradeScaleMarkers"
+                  :key="`marker-${marker.key}`"
+                  class="tls-grade-scale__marker"
+                  :data-tone="marker.tone"
+                  :style="{ left: `${marker.score}%` }"
+                  :title="t('monitoring.tls.report.gradeScaleMarkerTitle', {
+                    label: marker.label,
+                    grade: marker.grade,
+                    score: marker.score,
+                  })"
+                />
+              </div>
+              <div class="tls-grade-scale__legend">
+                <span
+                  v-for="marker in gradeScaleMarkers"
+                  :key="`legend-${marker.key}`"
+                  class="tls-grade-scale__legend-item"
+                  :data-tone="marker.tone"
+                >
+                  {{ marker.label }} · {{ marker.grade }}
+                </span>
+              </div>
+            </div>
           </article>
 
           <div class="tls-score-grid">
@@ -812,6 +866,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               <span>{{ metric.label }}</span>
               <strong>{{ metric.grade }}</strong>
               <p>{{ metric.summary }}</p>
+              <div class="tls-score-card__bar" aria-hidden="true">
+                <span :class="`is-${metric.tone}`" :style="{ width: `${metric.score}%` }" />
+              </div>
             </article>
           </div>
         </section>
@@ -885,7 +942,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
           </header>
           <div class="tls-report-grid tls-report-grid--certificate">
             <section class="tls-certificate-panel">
-              <h3>{{ t('monitoring.tls.report.primaryCertificateTitle') }}</h3>
+              <div class="tls-certificate-panel__head">
+                <h3>{{ t('monitoring.tls.report.primaryCertificateTitle') }}</h3>
+                <span class="tls-card-meta">{{ certificateKeySummary }}</span>
+              </div>
               <div class="tls-report-grid tls-report-grid--double">
                 <dl class="tls-report-facts tls-report-facts--panel">
                   <div v-for="item in certificateOverviewPrimary" :key="item.label" class="tls-report-facts__row">
@@ -954,6 +1014,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               <span>{{ t('monitoring.tls.labels.trustViewsIssues') }}</span>
               <strong>{{ trustPathSummary.issues }}</strong>
             </article>
+            <article class="tls-simulation-stat" :data-tone="trustPathSummary.unsupported > 0 ? 'info' : 'success'">
+              <span>{{ t('monitoring.tls.labels.trustViewsUnsupported') }}</span>
+              <strong>{{ trustPathSummary.unsupported }}</strong>
+            </article>
           </div>
           <div v-if="trustPathViews.length" class="tls-trust-paths">
             <article v-for="view in trustPathViews" :key="view.key" class="tls-trust-path">
@@ -1004,10 +1068,13 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               <h2>{{ t('monitoring.tls.report.protocolSupportTitle') }}</h2>
             </div>
           </header>
-          <div class="tls-report-grid tls-report-grid--protocols">
-            <article v-for="item in protocolSummaryRows" :key="item.label" class="tls-protocol-card" :data-tone="item.tone">
-              <strong>{{ item.label }}</strong>
-              <p>{{ item.value }}</p>
+          <div class="tls-protocol-list">
+            <article v-for="item in protocolSummaryRows" :key="item.label" class="tls-protocol-row" :data-tone="item.tone">
+              <div class="tls-protocol-row__main">
+                <strong>{{ item.label }}</strong>
+                <GcStatusTag :status="item.statusLabel" :label="item.statusLabel" :tone="item.statusTone" />
+              </div>
+              <p class="tls-protocol-row__detail">{{ item.value }}</p>
             </article>
           </div>
         </article>
@@ -1026,6 +1093,11 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                   <h3>{{ group.protocol }}</h3>
                   <p>{{ group.supported ? t('monitoring.tls.values.supported') : t('monitoring.tls.values.notSupported') }}</p>
                 </div>
+                <GcStatusTag
+                  :status="group.supported ? 'SUPPORTED' : 'UNSUPPORTED'"
+                  :label="group.supported ? t('monitoring.tls.values.supported') : t('monitoring.tls.values.notSupported')"
+                  :tone="group.supported ? 'success' : 'muted'"
+                />
               </header>
               <div v-if="group.suites.length" class="tls-table-wrap">
                 <table class="tls-table">
@@ -1040,11 +1112,21 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                   </thead>
                   <tbody>
                     <tr v-for="item in group.suites" :key="`${group.protocol}-${item.standardName}`">
-                      <td>{{ item.standardName }}</td>
+                      <td><code class="tls-mono">{{ item.standardName }}</code></td>
                       <td>{{ item.negotiatedName || t('monitoring.tls.values.none') }}</td>
-                      <td>{{ formatAnyValue(item.strengthBits) }}</td>
+                      <td><span class="tls-strength">{{ formatAnyValue(item.strengthBits) }}</span></td>
                       <td>{{ formatYesNo(item.forwardSecrecy) }}</td>
-                      <td>{{ cipherSuiteFlags(item) }}</td>
+                      <td>
+                        <div v-if="cipherFlagItems(item).length" class="tls-flag-list">
+                          <span
+                            v-for="flag in cipherFlagItems(item)"
+                            :key="flag.label"
+                            class="tls-flag"
+                            :data-tone="flag.tone"
+                          >{{ flag.label }}</span>
+                        </div>
+                        <span v-else>{{ t('monitoring.tls.values.none') }}</span>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -1070,7 +1152,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
             </article>
           </div>
           <div v-if="snapshot.simulations.length" class="tls-table-wrap">
-            <table class="tls-table">
+            <table class="tls-table tls-table--simulation">
               <thead>
                 <tr>
                   <th>{{ t('monitoring.tls.labels.client') }}</th>
@@ -1086,15 +1168,26 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               <tbody>
                 <tr v-for="item in simulationRows" :key="item.profileId">
                   <td>
-                    <strong>{{ item.profileName }}</strong>
-                    <div class="tls-table__subtle">{{ item.profileVersion }}<span v-if="item.reference"> · R</span></div>
+                    <div class="tls-client-cell">
+                      <strong>{{ item.profileName }}</strong>
+                      <span v-if="item.reference" class="tls-flag" data-tone="info">R</span>
+                      <div class="tls-table__subtle">{{ item.profileVersion }}</div>
+                    </div>
                   </td>
                   <td>{{ item.serverCertificateLabel }}</td>
-                  <td>{{ item.protocolDisplay }}</td>
-                  <td>{{ item.cipherSuite || t('monitoring.tls.values.none') }}</td>
+                  <td><code class="tls-mono">{{ item.protocolDisplay }}</code></td>
+                  <td><code class="tls-mono">{{ item.cipherSuite || t('monitoring.tls.values.none') }}</code></td>
                   <td>{{ item.keyExchangeLabel }}</td>
                   <td>
-                    <span>{{ item.resultFlagsLabel }}</span>
+                    <div v-if="item.flagItems.length" class="tls-flag-list">
+                      <span
+                        v-for="flag in item.flagItems"
+                        :key="flag.label"
+                        class="tls-flag"
+                        :data-tone="flag.tone"
+                      >{{ flag.label }}</span>
+                    </div>
+                    <span v-else>{{ t('monitoring.tls.values.none') }}</span>
                     <div v-if="item.noteLabel !== t('monitoring.tls.values.none')" class="tls-table__subtle">{{ item.noteLabel }}</div>
                   </td>
                   <td>
@@ -1113,6 +1206,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
             </table>
           </div>
           <p v-else class="tls-report-empty">{{ t('monitoring.tls.empty.simulations') }}</p>
+          <ol v-if="simulationFootnotes.length" class="tls-simulation-footnotes">
+            <li v-for="note in simulationFootnotes" :key="note.id">{{ note.text }}</li>
+          </ol>
         </article>
       </section>
 
@@ -1125,7 +1221,12 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
             </div>
           </header>
           <div class="tls-report-grid tls-report-grid--detail-groups">
-            <section v-for="group in protocolDetailGroups" :key="group.key" class="tls-detail-group">
+            <section
+              v-for="group in protocolDetailGroups"
+              :key="group.key"
+              class="tls-detail-group"
+              :data-accent="group.key"
+            >
               <h3>{{ group.title }}</h3>
               <dl class="tls-report-facts">
                 <div v-for="item in group.items" :key="`${group.key}-${item.label}`" class="tls-report-facts__row">
@@ -1199,7 +1300,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-trust-path,
 .tls-highlight,
 .tls-simulation-stat,
-.tls-protocol-card,
 .tls-certificate-chain__item,
 .tls-report-card,
 .tls-grade-panel,
@@ -1319,7 +1419,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-trust-path,
 .tls-highlight,
 .tls-simulation-stat,
-.tls-protocol-card,
 .tls-certificate-chain__item,
 .tls-grade-panel,
 .tls-score-card,
@@ -1454,6 +1553,122 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-score-card[data-tone='warning'] strong { color: var(--gc-color-warning); }
 .tls-score-card[data-tone='danger'] strong { color: var(--gc-color-danger); }
 
+.tls-score-card__bar {
+  width: 100%;
+  height: var(--gc-space-1);
+  overflow: hidden;
+  border-radius: 999rem;
+  background: var(--gc-color-border-soft);
+}
+
+.tls-score-card__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999rem;
+}
+
+.tls-score-card__bar > span.is-success { background: var(--gc-color-success); }
+.tls-score-card__bar > span.is-info { background: var(--gc-color-info); }
+.tls-score-card__bar > span.is-warning { background: var(--gc-color-warning); }
+.tls-score-card__bar > span.is-danger { background: var(--gc-color-danger); }
+
+.tls-grade-scale {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin-top: var(--gc-space-1);
+  padding: var(--gc-space-4) var(--gc-space-3) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-lg);
+  background:
+    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+}
+
+.tls-grade-scale__track {
+  position: relative;
+  height: var(--gc-space-2);
+  margin: var(--gc-space-2) 0;
+  border-radius: 999rem;
+  background: var(--gc-gradient-progress);
+}
+
+.tls-grade-scale__tick {
+  position: absolute;
+  top: calc(var(--gc-space-2) * -1);
+  width: var(--gc-border-width-default);
+  height: calc(var(--gc-space-2) * 3);
+  background: var(--gc-color-border-strong);
+  opacity: 0.7;
+  transform: translateX(-50%);
+}
+
+.tls-grade-scale__marker {
+  position: absolute;
+  top: 50%;
+  width: var(--gc-space-3);
+  height: var(--gc-space-3);
+  border-radius: 999rem;
+  border: calc(var(--gc-border-width-default) * 2) solid var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-md);
+  transform: translate(-50%, -50%);
+}
+
+.tls-grade-scale__marker[data-tone='success'] { background: var(--gc-color-success); }
+.tls-grade-scale__marker[data-tone='info'] { background: var(--gc-color-info); }
+.tls-grade-scale__marker[data-tone='warning'] { background: var(--gc-color-warning); }
+.tls-grade-scale__marker[data-tone='danger'] { background: var(--gc-color-danger); }
+
+.tls-grade-scale__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2) var(--gc-space-4);
+}
+
+.tls-grade-scale__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-1);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.tls-grade-scale__legend-item::before {
+  content: '';
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: 999rem;
+  background: var(--gc-color-border-strong);
+}
+
+.tls-grade-scale__legend-item[data-tone='success'] { color: var(--gc-color-success); }
+.tls-grade-scale__legend-item[data-tone='success']::before { background: var(--gc-color-success); }
+.tls-grade-scale__legend-item[data-tone='info'] { color: var(--gc-color-info); }
+.tls-grade-scale__legend-item[data-tone='info']::before { background: var(--gc-color-info); }
+.tls-grade-scale__legend-item[data-tone='warning'] { color: var(--gc-color-warning); }
+.tls-grade-scale__legend-item[data-tone='warning']::before { background: var(--gc-color-warning); }
+.tls-grade-scale__legend-item[data-tone='danger'] { color: var(--gc-color-danger); }
+.tls-grade-scale__legend-item[data-tone='danger']::before { background: var(--gc-color-danger); }
+
+.tls-flag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-1);
+}
+
+.tls-flag {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--gc-space-hairline) var(--gc-space-2);
+  border-radius: 999rem;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.tls-flag[data-tone='success'] { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
+.tls-flag[data-tone='warning'] { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
+.tls-flag[data-tone='danger'] { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
+.tls-flag[data-tone='muted'] { color: var(--gc-color-muted); background: var(--gc-color-muted-bg); }
+
 .tls-report-grid {
   display: grid;
   gap: var(--gc-space-4);
@@ -1482,8 +1697,55 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 }
 
 .tls-highlights {
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: 1fr;
 }
+
+.tls-highlight {
+  position: relative;
+  align-content: start;
+  padding: var(--gc-space-3) var(--gc-space-4) var(--gc-space-3) var(--gc-space-5);
+  border-left-width: calc(var(--gc-border-width-default) * 4);
+  border-radius: var(--gc-radius-md);
+}
+
+.tls-highlight::before {
+  content: '';
+  position: absolute;
+  left: var(--gc-space-2);
+  top: 50%;
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: 999rem;
+  transform: translateY(-50%);
+}
+
+.tls-highlight[data-tone='success'] {
+  border-color: var(--gc-color-success-border);
+  background: var(--gc-color-success-soft);
+}
+
+.tls-highlight[data-tone='success']::before { background: var(--gc-color-success); }
+
+.tls-highlight[data-tone='info'] {
+  border-color: var(--gc-color-info-border);
+  background: var(--gc-color-info-soft);
+}
+
+.tls-highlight[data-tone='info']::before { background: var(--gc-color-info); }
+
+.tls-highlight[data-tone='warning'] {
+  border-color: var(--gc-color-warning-border);
+  background: var(--gc-color-warning-soft);
+}
+
+.tls-highlight[data-tone='warning']::before { background: var(--gc-color-warning); }
+
+.tls-highlight[data-tone='danger'] {
+  border-color: var(--gc-color-danger-border);
+  background: var(--gc-color-danger-soft);
+}
+
+.tls-highlight[data-tone='danger']::before { background: var(--gc-color-danger); }
 
 .tls-trust-path {
   border-color: var(--gc-color-primary-border);
@@ -1493,26 +1755,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-trust-path__header {
   align-items: center;
-}
-
-.tls-highlight[data-tone='success'] {
-  border-color: var(--gc-color-success-border);
-  background: var(--gc-color-success-soft);
-}
-
-.tls-highlight[data-tone='info'] {
-  border-color: var(--gc-color-info-border);
-  background: var(--gc-color-info-soft);
-}
-
-.tls-highlight[data-tone='warning'] {
-  border-color: var(--gc-color-warning-border);
-  background: var(--gc-color-warning-soft);
-}
-
-.tls-highlight[data-tone='danger'] {
-  border-color: var(--gc-color-danger-border);
-  background: var(--gc-color-danger-soft);
 }
 
 .tls-report-facts {
@@ -1551,12 +1793,59 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   word-break: break-word;
 }
 
+.tls-detail-group {
+  align-content: start;
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-lg);
+  background:
+    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+}
+
+.tls-detail-group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  padding-bottom: var(--gc-space-2);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.tls-detail-group h3::before {
+  content: '';
+  width: var(--gc-space-1);
+  height: var(--gc-space-4);
+  border-radius: 999rem;
+  background: var(--gc-color-primary);
+}
+
+.tls-detail-group[data-accent='transport'] h3::before { background: var(--gc-color-info); }
+.tls-detail-group[data-accent='http'] h3::before { background: var(--gc-color-success); }
+.tls-detail-group[data-accent='key-exchange'] h3::before { background: var(--gc-color-primary); }
+
 .tls-detail-group__value {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-2);
+}
+
+.tls-cipher-group {
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-lg);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+}
+
+.tls-cipher-group__header {
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-subtle);
+}
+
+.tls-cipher-group__header h3 {
+  font-size: var(--gc-font-size-md);
 }
 
 .tls-basic-info-callout {
@@ -1578,6 +1867,20 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-certificate-panel {
   align-content: start;
+}
+
+.tls-certificate-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-2);
+}
+
+.tls-certificate-panel__head .tls-card-meta {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 600;
 }
 
 .tls-certificate-chain {
@@ -1689,6 +1992,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   width: 100%;
   border-collapse: collapse;
   background: var(--gc-color-surface-solid);
+  min-width: 46rem;
 }
 
 .tls-table th,
@@ -1701,9 +2005,15 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 }
 
 .tls-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--gc-color-surface-subtle);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .tls-table tbody tr:hover td {
@@ -1714,9 +2024,100 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   border-bottom: 0;
 }
 
+.tls-table tbody tr:nth-child(even) td {
+  background: var(--gc-color-surface-subtle);
+}
+
+.tls-table tbody tr:nth-child(even):hover td {
+  background: var(--gc-color-surface-hover);
+}
+
 .tls-simulation-stat[data-tone='success'] strong { color: var(--gc-color-success); }
 .tls-simulation-stat[data-tone='info'] strong { color: var(--gc-color-info); }
 .tls-simulation-stat[data-tone='warning'] strong { color: var(--gc-color-warning); }
+
+.tls-protocol-list {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.tls-protocol-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, auto) minmax(0, 1fr);
+  gap: var(--gc-space-4);
+  align-items: center;
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-left-width: calc(var(--gc-border-width-default) * 4);
+  border-radius: var(--gc-radius-md);
+  background:
+    linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+}
+
+.tls-protocol-row[data-tone='success'] { border-left-color: var(--gc-color-success); }
+.tls-protocol-row[data-tone='warning'] { border-left-color: var(--gc-color-warning); }
+.tls-protocol-row[data-tone='danger'] { border-left-color: var(--gc-color-danger); }
+.tls-protocol-row[data-tone='muted'] { border-left-color: var(--gc-color-border-strong); }
+
+.tls-protocol-row__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gc-space-2);
+}
+
+.tls-protocol-row__main strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-md);
+}
+
+.tls-protocol-row__detail {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  word-break: break-word;
+}
+
+.tls-mono {
+  font-family: var(--gc-font-family);
+  font-size: var(--gc-font-size-xs);
+  word-break: break-all;
+}
+
+.tls-strength {
+  display: inline-flex;
+  align-items: center;
+  min-width: 2.5rem;
+  padding: var(--gc-space-hairline) var(--gc-space-2);
+  border-radius: 999rem;
+  background: var(--gc-color-surface-subtle);
+  color: var(--gc-color-text-strong);
+  font-weight: 700;
+  justify-content: center;
+}
+
+.tls-client-cell {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.tls-client-cell strong {
+  color: var(--gc-color-text-strong);
+}
+
+.tls-simulation-footnotes {
+  display: grid;
+  gap: var(--gc-space-1);
+  margin: var(--gc-space-4) 0 0;
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: var(--gc-border-width-default) dashed var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.tls-simulation-footnotes li {
+  padding-left: var(--gc-space-1);
+}
 
 .tls-note-list {
   display: grid;
