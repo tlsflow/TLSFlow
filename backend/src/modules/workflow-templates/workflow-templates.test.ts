@@ -1277,19 +1277,17 @@ describe('WorkflowTemplates', () => {
         prepare_synology_login: { statusCode: 200, body: { success: true, data: { sid: 'sid-secret', synotoken: 'token-secret' } } },
         list_synology_certificates_before_import: {
           statusCode: 200,
-          body: { success: true, data: { certificates: [{ id: 'old-cert', desc: 'old', is_default: true, services: ['DSM', 'WebStation'] }] } },
+          body: { success: true, data: [{ id: 'old-cert', desc: 'old', is_default: true, services: ['DSM', 'WebStation'] }] },
         },
         install_synology_certificate_as_new_default: { statusCode: 200, body: { success: true } },
         list_synology_certificates_after_import: {
           statusCode: 200,
           body: {
             success: true,
-            data: {
-              certificates: [
-                { id: 'old-cert', desc: 'old', is_default: false, services: [] },
-                { id: 'new-cert', desc: 'GCAC active certificate', is_default: true, services: ['DSM'] },
-              ],
-            },
+            data: [
+              { id: 'old-cert', desc: 'old', is_default: false, services: [] },
+              { id: 'new-cert', desc: 'GCAC active certificate', is_default: true, services: ['DSM'] },
+            ],
           },
         },
         apply_synology_service_bindings: { statusCode: 200, body: { success: true } },

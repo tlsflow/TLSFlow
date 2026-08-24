@@ -222,8 +222,14 @@
       "extract": [
         {
           "name": "synologyCertificatesBeforeImport",
-          "type": "jsonPath",
-          "path": "$.data.certificates"
+          "type": "firstOf",
+          "paths": [
+            "$.body.data.certificates",
+            "$.body.certificates",
+            "$.body.data.items",
+            "$.body.items",
+            "$.body.data"
+          ]
         }
       ],
       "assert": [
@@ -254,7 +260,7 @@
             "expression": "$filter(certificates, function($c){$c.is_default = true})[0].services"
           }
         },
-        "timeoutMs": 200,
+        "timeoutMs": 1000,
         "maxInputBytes": 1048576,
         "maxOutputBytes": 1048576
       }
@@ -356,8 +362,14 @@
       "extract": [
         {
           "name": "synologyCertificatesAfterImport",
-          "type": "jsonPath",
-          "path": "$.data.certificates"
+          "type": "firstOf",
+          "paths": [
+            "$.body.data.certificates",
+            "$.body.certificates",
+            "$.body.data.items",
+            "$.body.items",
+            "$.body.data"
+          ]
         }
       ],
       "assert": [
@@ -392,7 +404,7 @@
             "format": "jsonString"
           }
         },
-        "timeoutMs": 200,
+        "timeoutMs": 1000,
         "maxInputBytes": 1048576,
         "maxOutputBytes": 1048576
       }
