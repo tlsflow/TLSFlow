@@ -156,6 +156,22 @@ describe('统一设备详情动作边界', () => {
     expect(tabs.find(tab => tab.key === 'sites:web.nginx')?.buildProps?.(context)).toEqual({ sites: [context.sites[0]] })
   })
 
+  it('内置框架缺少 presentation 标签时回退到统一 i18n key', () => {
+    const context = new DeviceDetailAdapterRegistry().buildContext({
+      informationSections: [],
+      sites: [
+        { id: 'apache_1', siteAssetId: 'apache_1', kind: 'web.site', frameworkType: 'web.apache', name: 'Apache', bindings: [], metadata: {} },
+        { id: 'tomcat_1', siteAssetId: 'tomcat_1', kind: 'web.site', frameworkType: 'app.tomcat', name: 'Tomcat', bindings: [], metadata: {} },
+      ],
+      certificates: [],
+      logs: [],
+    })
+
+    const tabs = deviceDetailTabRegistry.resolve(context)
+    expect(tabs.find(tab => tab.key === 'sites:web.apache')).toMatchObject({ label: undefined, labelKey: 'devices.unifiedDetail.tabs.apache' })
+    expect(tabs.find(tab => tab.key === 'sites:app.tomcat')).toMatchObject({ label: undefined, labelKey: 'devices.unifiedDetail.tabs.tomcat' })
+  })
+
   it('设备列表区分设备版本和控制版本', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/devices/DevicesView.vue'), 'utf8')
     expect(source).toContain("key: 'deviceVersion'")

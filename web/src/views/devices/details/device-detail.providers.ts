@@ -41,22 +41,40 @@ export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
 }])
 
 function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {
-  const groups = new Map<string, { label: string; sites: DeviceSiteView[] }>()
+  const groups = new Map<string, { label?: string; labelKey?: string; sites: DeviceSiteView[] }>()
   for (const site of context.sites) {
     const groupKey = site.presentation?.groupKey || site.frameworkType || site.kind
     const current = groups.get(groupKey)
+    const labelKey = site.presentation?.groupLabelKey || builtinFrameworkGroupLabelKey(groupKey)
+    const label = site.presentation?.groupLabel || current?.label || (!labelKey ? groupKey : undefined)
     groups.set(groupKey, {
-      label: site.presentation?.groupLabel || groupKey,
+      label,
+      labelKey: current?.labelKey || labelKey,
       sites: [...(current?.sites ?? []), site],
     })
   }
   return [...groups.entries()].map(([groupKey, group], index) => ({
     key: 'sites:' + groupKey,
-    labelKey: 'devices.unifiedDetail.tabs.sites',
+    labelKey: group.labelKey || 'devices.unifiedDetail.tabs.sites',
     label: group.label,
     order: 300 + index,
     component: DeviceSitesTab,
     isVisible: () => group.sites.length > 0,
     buildProps: () => ({ sites: group.sites }),
   }))
+}
+
+function builtinFrameworkGroupLabelKey(groupKey: string): string | undefined {
+  switch (groupKey) {
+    case 'web.iis':
+      return 'devices.unifiedDetail.tabs.iis'
+    case 'web.nginx':
+      return 'devices.unifiedDetail.tabs.nginx'
+    case 'web.apache':
+      return 'devices.unifiedDetail.tabs.apache'
+    case 'app.tomcat':
+      return 'devices.unifiedDetail.tabs.tomcat'
+    default:
+      return undefined
+  }
 }
