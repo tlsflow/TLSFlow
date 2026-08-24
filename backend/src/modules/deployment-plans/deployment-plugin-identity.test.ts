@@ -21,6 +21,14 @@ test('Standalone Workflow Plugin 计划保留统一插件执行身份', async ()
         updatedAt: '2026-07-26T00:00:00.000Z',
       }),
     } as never,
+    unifiedPlugins: {
+      getVersion: async () => ({
+        id: 'uplgv_standalone_identity',
+        tenantId: 'tenant_standalone_identity',
+        pluginId: 'builtin.workflow.apache-8444-cert-switch',
+        version: '1.2.6',
+      }),
+    } as never,
   });
   const asset = {
     id: 'asset_standalone_identity',
@@ -46,6 +54,8 @@ test('Standalone Workflow Plugin 计划保留统一插件执行身份', async ()
   const workflowRequest = result.payload.workflowRequest as Record<string, unknown>;
 
   assert.equal(workflowRequest.pluginBindingId, 'plgb_standalone_identity');
+  assert.equal(workflowRequest.pluginId, 'builtin.workflow.apache-8444-cert-switch');
+  assert.equal(workflowRequest.pluginVersion, '1.2.6');
   assert.equal(workflowRequest.pluginVersionId, 'uplgv_standalone_identity');
   assert.equal(workflowRequest.capabilityKey, 'certificate.deploy');
   assert.equal(workflowRequest.workflowVersionId, 'wftplv_standalone_identity');

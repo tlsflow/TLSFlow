@@ -172,6 +172,11 @@
       "packageSha256": "sha256:bb59f7769e6b495c3da727ae983180b05432a07e8bcb1ff3bc66243540545c01"
     },
     {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.6",
+      "packageSha256": "sha256:c7658ea1971aa8287167129621ecb1f723d8995423260ed8e84c9c16f09ad15a"
+    },
+    {
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.1.5",
       "packageSha256": "sha256:6603b0ffc14ca0052fd618d2445450808899d5a926f15c04b8b75bd204ce5b0c"

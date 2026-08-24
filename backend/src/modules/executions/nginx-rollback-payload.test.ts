@@ -92,6 +92,17 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
         backupManifestPath: '/var/lib/gcac/backups/run_source/backup-manifest.json',
         backupManifest: manifest,
         installedCertificateSha256: 'a'.repeat(64),
+        workflowRun: {
+          stepResults: [{
+            name: 'buildDeploymentSnapshot',
+            extracted: {
+              deploymentSnapshot: {
+                bindingInformation: '*:443:example.com',
+                certificateFingerprintSha256: 'd'.repeat(64),
+              },
+            },
+          }],
+        },
       },
     },
   }, 'tenant_1');
@@ -125,6 +136,16 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
   assert.equal(rollbackStep!.inputSnapshot.rollbackContext.rollbackCertificateSha256, 'd'.repeat(64));
   assert.equal(rollbackStep!.inputSnapshot.expectedCertificateFingerprintSha256, 'd'.repeat(64));
   assert.equal(rollbackStep!.inputSnapshot.certificateVerification.expectedFingerprintSha256, 'd'.repeat(64));
+  assert.deepEqual(rollbackStep!.inputSnapshot.stepOutputs, {
+    buildDeploymentSnapshot: {
+      extracted: {
+        deploymentSnapshot: {
+          bindingInformation: '*:443:example.com',
+          certificateFingerprintSha256: 'd'.repeat(64),
+        },
+      },
+    },
+  });
   assert.equal(rollbackStep!.inputSnapshot.artifact, undefined);
   assert.equal(verifyStep!.inputSnapshot.expectedCertificateFingerprintSha256, 'd'.repeat(64));
   assert.equal(verifyStep!.inputSnapshot.certificateVerification.expectedFingerprintSha256, 'd'.repeat(64));

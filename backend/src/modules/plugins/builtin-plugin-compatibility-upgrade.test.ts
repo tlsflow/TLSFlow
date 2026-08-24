@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { DatabasePort, QueryResult } from '../../database/database-port.js';
 import { BuiltinPluginCompatibilityUpgradeService } from './application/builtin-plugin-compatibility-upgrade.service.js';
 
-test('内置插件 Patch 升级原子切换五类版本引用', async () => {
+test('内置插件 Patch 升级跨业务租户原子切换五类版本引用', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const db = fakeDatabase(calls, [
     { rows: [{ id: 'citrix-1.1.10' }] },
@@ -36,9 +36,11 @@ test('内置插件 Patch 升级原子切换五类版本引用', async () => {
     assert.match(calls[offset + 3]!.sql, /update plugin_capability_assignments/);
     assert.match(calls[offset + 4]!.sql, /update pg_device_assets/);
     assert.deepEqual(calls[offset]!.params?.slice(0, 2), [sourceId, 'citrix-1.1.10']);
+    assert.doesNotMatch(calls[offset]!.sql, /tenant_id=/);
     for (const call of calls.slice(offset + 1, offset + 5)) {
       assert.equal(call.params?.[0], 'citrix-1.1.10');
-      assert.equal(call.params?.[3], sourceId);
+      assert.equal(call.params?.[2], sourceId);
+      assert.doesNotMatch(call.sql, /tenant_id=/);
     }
   }
 });

@@ -17,8 +17,8 @@ export class BuiltinPluginCompatibilityUpgradeService {
       const targetLine = semanticVersionLine(targetVersion);
       const sources = (await tx.query<{ id: string; plugin_version: string }>(
         `select id, plugin_version from unified_plugin_versions
-          where tenant_id=$1 and plugin_id=$2 and id<>$3 and source='BUILTIN'`,
-        [tenantId, pluginId, targetPluginVersionId],
+          where plugin_id=$1 and id<>$2 and source='BUILTIN'`,
+        [pluginId, targetPluginVersionId],
       )).rows.filter((source) => (
         semanticVersionLine(source.plugin_version) === targetLine
         && compareSemanticVersions(source.plugin_version, targetVersion) < 0
@@ -35,32 +35,32 @@ export class BuiltinPluginCompatibilityUpgradeService {
               ), '[]'::jsonb)
               from jsonb_array_elements(management_channels) channel
             ), updated_at=$3, version=version+1
-            where tenant_id=$4 and exists (
+            where exists (
               select 1 from jsonb_array_elements(management_channels) channel
               where channel->>'type'='PLUGIN' and channel->'metadata'->>'pluginVersionId'=$1
             )`,
-          [source.id, target.id, new Date().toISOString(), tenantId],
+          [source.id, target.id, new Date().toISOString()],
         );
         await tx.query(
           `update pg_service_assets set metadata=jsonb_set(metadata, '{pluginVersionId}', to_jsonb($1::text), true),
              updated_at=$2, version=version+1
-            where tenant_id=$3 and metadata->>'pluginVersionId'=$4`,
-          [target.id, new Date().toISOString(), tenantId, source.id],
+            where metadata->>'pluginVersionId'=$3`,
+          [target.id, new Date().toISOString(), source.id],
         );
         await tx.query(
           `update unified_plugin_bindings set plugin_version_id=$1, updated_at=$2
-            where tenant_id=$3 and plugin_version_id=$4`,
-          [target.id, new Date().toISOString(), tenantId, source.id],
+            where plugin_version_id=$3`,
+          [target.id, new Date().toISOString(), source.id],
         );
         await tx.query(
           `update plugin_capability_assignments set plugin_version_id=$1, updated_at=$2
-            where tenant_id=$3 and plugin_version_id=$4`,
-          [target.id, new Date().toISOString(), tenantId, source.id],
+            where plugin_version_id=$3`,
+          [target.id, new Date().toISOString(), source.id],
         );
         await tx.query(
           `update pg_device_assets set plugin_version_id=$1, updated_at=$2, version=version+1
-            where tenant_id=$3 and plugin_version_id=$4`,
-          [target.id, new Date().toISOString(), tenantId, source.id],
+            where plugin_version_id=$3`,
+          [target.id, new Date().toISOString(), source.id],
         );
       }
     });

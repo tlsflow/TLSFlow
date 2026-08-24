@@ -388,10 +388,27 @@ export class WorkflowExecutorAdapter implements Executor {
       templateVersionId: workflowVersionId,
       mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
       resolvedInput,
+      ...(readRecord(input.step.inputSnapshot.stepOutputs)
+        ? { stepOutputs: structuredClone(readRecord(input.step.inputSnapshot.stepOutputs)) }
+        : {}),
       ...(request.executionBranch === 'rollback' ? { executionBranch: 'rollback' as const } : {}),
+    };
+    let workflowIdentity: Record<string, unknown> = {
+      pluginId: stringFromSnapshot(request.pluginId),
+      pluginVersion: stringFromSnapshot(request.pluginVersion),
+      pluginVersionId: stringFromSnapshot(request.pluginVersionId),
+      workflowVersionId,
     };
     let resourceLock: PluginResourceLockRecord | undefined;
     try {
+      const workflowVersion = await this.workflows.getVersion(workflowVersionId);
+      workflowIdentity = {
+        ...workflowIdentity,
+        workflowTemplateId: workflowVersion.templateId,
+        workflowVersion: workflowVersion.version,
+        workflowName: workflowVersion.content.metadata.name,
+        workflowDslVersion: workflowVersion.content.metadata.version,
+      };
       resourceLock = input.dryRun ? undefined : await this.acquireWorkflowResourceLock(input, request, resolvedInput.assetContext);
       const recoveryLedger = input.dryRun ? undefined : await this.beginRecoveryLedger(input, request, runtimeInput);
       const reportWorkflowProgress = async (workflowProgress: WorkflowRunProgress) => {
@@ -420,6 +437,7 @@ export class WorkflowExecutorAdapter implements Executor {
       const detail = {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
         workflowRequest: maskWorkflowRequest(request),
+        workflowIdentity,
         workflowRun,
         workflowExecutionSteps: projectWorkflowBusinessSteps(input.step.id, workflowRun),
         ...(dryRunChecks ? {
@@ -442,9 +460,19 @@ export class WorkflowExecutorAdapter implements Executor {
           };
     } catch (error) {
       if (error instanceof AppError) {
-        return { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: error.details as Record<string, unknown> | undefined };
+        return {
+          success: false,
+          errorCode: error.errorCode,
+          errorMessage: error.message,
+          detail: { ...(readRecord(error.details) ?? {}), workflowIdentity },
+        };
       }
-      return { success: false, errorCode: 'WORKFLOW_RUN_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+      return {
+        success: false,
+        errorCode: 'WORKFLOW_RUN_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        detail: { workflowIdentity },
+      };
     } finally {
       if (resourceLock) {
         await this.resourceLocks.release({

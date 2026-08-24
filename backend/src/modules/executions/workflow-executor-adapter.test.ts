@@ -47,7 +47,7 @@ function workflowFixture(): WorkflowDslV1 {
   return {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
-    metadata: { name: 'workflow-executor-adapter-test' },
+    metadata: { name: 'workflow-executor-adapter-test', version: '1.0.0' },
     inputContract: workflowInputContract(),
     steps: [
       {
@@ -325,9 +325,16 @@ describe('WorkflowExecutorAdapter', () => {
     const sshExecutor = new StubExecutor('SSH', () => ({ success: true }));
     const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor: curlExecutor as never, sshExecutor: sshExecutor as never });
     const progressDetails: Record<string, unknown>[] = [];
+    const step = workflowStep(versionId);
+    step.inputSnapshot.workflowRequest = {
+      workflowVersionId: versionId,
+      pluginId: 'builtin.workflow.apache-8444-cert-switch',
+      pluginVersion: '1.2.6',
+      pluginVersionId: 'uplgv_apache_1_2_6',
+    };
 
     const result = await adapter.executeStep({
-      step: workflowStep(versionId),
+      step,
       runType: 'dry_run',
       dryRun: true,
       reportProgress: async (detail) => {
@@ -350,6 +357,15 @@ describe('WorkflowExecutorAdapter', () => {
     const dryRunChecks = result.detail?.dryRunChecks as Array<{ detail?: string }>;
     assert.equal(dryRunChecks.length > 0, true);
     assert.equal(dryRunChecks.some((check) => /响应策略包含|SSH 执行计划已解析/.test(check.detail ?? '')), true);
+    const workflowIdentity = readRecord(result.detail?.workflowIdentity);
+    assert.equal(workflowIdentity.pluginId, 'builtin.workflow.apache-8444-cert-switch');
+    assert.equal(workflowIdentity.pluginVersion, '1.2.6');
+    assert.equal(workflowIdentity.pluginVersionId, 'uplgv_apache_1_2_6');
+    assert.equal(workflowIdentity.workflowVersionId, versionId);
+    assert.equal(workflowIdentity.workflowVersion, 1);
+    assert.equal(workflowIdentity.workflowName, 'workflow-executor-adapter-test');
+    assert.equal(workflowIdentity.workflowDslVersion, '1.0.0');
+    assert.equal(typeof workflowIdentity.workflowTemplateId, 'string');
   });
 
   it('apply 在 HTTP 节点之间传递真实敏感变量，但结果中只保留脱敏值', async () => {

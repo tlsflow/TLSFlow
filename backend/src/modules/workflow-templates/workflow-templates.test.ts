@@ -399,17 +399,35 @@ describe('WorkflowTemplates', () => {
     assert.equal(workflowIds.includes(derivedId), true);
 
     const pluginWorkflow = await service.createPluginTemplate({
-      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow', version: '1.2.6' } },
     });
     const duplicatePluginWorkflow = await service.createPluginTemplate({
-      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow', version: '1.2.4' } },
+    });
+    const duplicateLatestPluginWorkflow = await service.createPluginTemplate({
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow', version: '1.2.6' } },
+    });
+    const connectionPluginWorkflow = await service.createPluginTemplate({
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-connection-test' } },
     });
     await service.publishPluginVersion(pluginWorkflow.version.id);
     await service.publishPluginVersion(duplicatePluginWorkflow.version.id);
+    await service.publishPluginVersion(duplicateLatestPluginWorkflow.version.id);
+    await service.publishPluginVersion(connectionPluginWorkflow.version.id);
     currentBindings.push({
       pluginVersionId: 'uplgv_current',
       pluginId: 'builtin.workflow.current-plugin-workflow',
       capabilityKey: 'certificate.deploy',
+      workflowResourcePath: 'workflows/deploy.json',
+      workflowTemplateId: pluginWorkflow.template.id,
+      workflowVersionId: pluginWorkflow.version.id,
+      workflowContentSha256: pluginWorkflow.version.contentHash,
+      createdAt: pluginWorkflow.template.createdAt,
+    });
+    currentBindings.push({
+      pluginVersionId: 'uplgv_current',
+      pluginId: 'builtin.workflow.current-plugin-workflow',
+      capabilityKey: 'certificate.rollback',
       workflowResourcePath: 'workflows/deploy.json',
       workflowTemplateId: pluginWorkflow.template.id,
       workflowVersionId: pluginWorkflow.version.id,
@@ -426,11 +444,38 @@ describe('WorkflowTemplates', () => {
       workflowContentSha256: duplicatePluginWorkflow.version.contentHash,
       createdAt: duplicatePluginWorkflow.template.createdAt,
     });
+    currentBindings.push({
+      pluginVersionId: 'uplgv_duplicate_latest',
+      pluginId: 'builtin.workflow.current-plugin-workflow',
+      capabilityKey: 'certificate.deploy',
+      workflowResourcePath: 'workflows/deploy.json',
+      workflowTemplateId: duplicateLatestPluginWorkflow.template.id,
+      workflowVersionId: duplicateLatestPluginWorkflow.version.id,
+      workflowContentSha256: duplicateLatestPluginWorkflow.version.contentHash,
+      createdAt: duplicateLatestPluginWorkflow.template.createdAt,
+    });
+    currentBindings.push({
+      pluginVersionId: 'uplgv_current',
+      pluginId: 'builtin.workflow.current-plugin-workflow',
+      capabilityKey: 'device.connection.test',
+      workflowResourcePath: 'workflows/connection-test.json',
+      workflowTemplateId: connectionPluginWorkflow.template.id,
+      workflowVersionId: connectionPluginWorkflow.version.id,
+      workflowContentSha256: connectionPluginWorkflow.version.contentHash,
+      createdAt: connectionPluginWorkflow.template.createdAt,
+    });
     const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
-    const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string }> }).items;
+    const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string; capabilities?: string[]; currentVersionLabel?: string }> }).items;
     const mergedPluginRows = workflowItemsWithPlugin.filter((item) => item.origin === 'plugin_internal' && item.id !== legacyId && item.id !== currentId && item.id !== derivedId);
-    assert.equal(mergedPluginRows.length, 1);
-    assert.equal((await service.listVersions(mergedPluginRows[0]!.id)).length, 2);
+    assert.equal(mergedPluginRows.length, 2);
+    const deployRow = mergedPluginRows.find((item) => item.capabilities?.includes('certificate.deploy'));
+    const connectionRow = mergedPluginRows.find((item) => item.capabilities?.includes('device.connection.test'));
+    assert.ok(deployRow);
+    assert.ok(connectionRow);
+    assert.deepEqual(deployRow.capabilities, ['certificate.deploy', 'certificate.rollback']);
+    assert.equal(deployRow.currentVersionLabel, '1.2.6');
+    const mergedVersions = await service.listVersions(deployRow.id);
+    assert.deepEqual(mergedVersions.map((version) => version.content.metadata.version), ['1.2.6', '1.2.4']);
     assert.equal(workflowItemsWithPlugin.some((item) => item.id === legacyId), true);
   });
 

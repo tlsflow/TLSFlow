@@ -32,7 +32,7 @@ export class UnifiedDeploymentInputResolver {
     this.derivedResolvers = {
       endpoint_url: endpointUrl,
       authority: authority,
-      binding_information: (context) => context.site?.bindingInformation ?? context.target?.bindingKey,
+      binding_information: bindingInformation,
       certificate_resource_name: (context) => context.deployment.certificateResourceName,
       ...derivedResolvers,
     };
@@ -339,6 +339,12 @@ function endpointUrl(context: DeploymentAssetContextV1): string {
 
 function authority(context: DeploymentAssetContextV1): string {
   return `${context.application.serverName}:${context.application.port}`;
+}
+
+function bindingInformation(context: DeploymentAssetContextV1): string {
+  return context.site?.bindingInformation
+    ?? context.target?.bindingKey
+    ?? `${context.site?.listenIp ?? '*'}:${context.site?.port ?? context.application.port}:${context.site?.hostHeader ?? context.application.serverName}`;
 }
 
 function matchesVariableType(definition: DeploymentVariableDefinitionV1, value: unknown): boolean {

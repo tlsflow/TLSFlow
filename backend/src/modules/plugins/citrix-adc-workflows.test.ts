@@ -60,11 +60,15 @@ test('Citrix ADC 所有 Workflow 只声明统一部署输入协议', async () =>
 
   for (const [resourcePath, resourceContent] of workflowResources) {
     const workflow = JSON.parse(resourceContent) as Record<string, any>;
+    if (resourcePath === 'workflows/certificate-deploy.json') {
+      assert.equal(resourceContent.match(/^\s*"rollback"\s*:/gm)?.length ?? 0, 1, `${resourcePath} 只能声明一个顶层 rollback`);
+    }
     assert.equal(workflow.variables, undefined, `${resourcePath} 不得保留顶层旧 variables`);
     assert.equal(workflow.inputContract?.apiVersion, 'gcac.deployment-input/v1');
     assert.deepEqual(Object.keys(workflow.inputContract?.connections ?? {}), ['management']);
     assert.deepEqual(Object.keys(workflow.inputContract?.credentials ?? {}), ['credential']);
     assertHttpRequestsUseConnectionRef(workflow.steps ?? [], resourcePath);
+    assertHttpRequestsUseConnectionRef(workflow.rollback ?? [], resourcePath);
   }
 
   const deploy = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
@@ -486,6 +490,7 @@ test('Citrix ADC 回滚恢复旧绑定、移除新绑定并验证集合语义等
     mode: 'mock',
     executionBranch: 'rollback',
     resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }),
+    stepOutputs: rollbackStepOutputs(snapshot),
     mockResponses: recoveryResponses(),
   });
   assert.equal(result.status, 'success');
@@ -519,7 +524,7 @@ test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async 
   const responses = recoveryResponses();
   responses.readCurrentVersion = { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS14.1: Build 1.0.nc' } } };
   const snapshot = recoverySnapshot();
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', executionBranch: 'rollback', resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }), mockResponses: responses });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', executionBranch: 'rollback', resolvedInput: resolvedWorkflowInput({ ...deploymentVariables(), ...recoveryVariables(snapshot) }), stepOutputs: rollbackStepOutputs(snapshot), mockResponses: responses });
   assert.equal(result.status, 'failed');
   assert.deepEqual(result.rollbackResults.map((item) => item.name), ['verifyRecoverySnapshot', 'readCurrentVersion', 'verifyDeviceVersion']);
   assert.equal(result.rollbackResults.some((item) => item.name === 'restoreOldBindings'), false);
@@ -578,6 +583,16 @@ function recoveryVariables(snapshot: Record<string, unknown>): Record<string, un
   return {
     recoverySnapshot: wrapped,
     recoverySnapshotHash: createHash('sha256').update(stableJson(wrapped)).digest('hex'),
+  };
+}
+
+function rollbackStepOutputs(snapshot: Record<string, unknown>): Record<string, unknown> {
+  return {
+    buildDeploymentSnapshot: {
+      extracted: {
+        deploymentSnapshot: snapshot,
+      },
+    },
   };
 }
 

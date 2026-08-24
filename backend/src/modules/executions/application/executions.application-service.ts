@@ -158,10 +158,12 @@ export class ExecutionsApplicationService {
       if (!sourcePayloadByTargetId.has(targetId)) {
         const basePayload = readRecord(step.inputSnapshot) ?? {};
         const rollbackContext = buildRollbackContextFromSourceSteps(sourceRun.id, sourceSteps, targetId);
+        const stepOutputs = buildWorkflowStepOutputsFromSourceSteps(sourceSteps, targetId);
         const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
         const baseVerification = readRecord(basePayload.certificateVerification);
         sourcePayloadByTargetId.set(targetId, {
           ...basePayload,
+          ...(stepOutputs ? { stepOutputs } : {}),
           ...(rollbackCertificateSha256
             ? {
                 certificateVerification: {
@@ -1125,6 +1127,28 @@ function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: E
     installedCertificateSha256: readString(installDetail?.installedCertificateSha256)
       ?? readString(firstDetail?.installedCertificateSha256),
   };
+}
+
+function buildWorkflowStepOutputsFromSourceSteps(
+  sourceSteps: ExecutionStepEntity[],
+  targetId: string,
+): Record<string, unknown> | undefined {
+  const outputs: Record<string, unknown> = {};
+  for (const step of sourceSteps) {
+    if (step.deploymentPlanTargetId !== targetId) continue;
+    const detail = readRecord(step.inputSnapshot.resultDetail);
+    const workflowRun = readRecord(detail?.workflowRun);
+    const stepResults = Array.isArray(workflowRun?.stepResults) ? workflowRun.stepResults : [];
+    for (const item of stepResults) {
+      const result = readRecord(item);
+      if (!result) continue;
+      const name = readString(result.name);
+      const extracted = readRecord(result.extracted);
+      if (!name || !extracted || Object.keys(extracted).length === 0) continue;
+      outputs[name] = { extracted: structuredClone(extracted) };
+    }
+  }
+  return Object.keys(outputs).length > 0 ? outputs : undefined;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {

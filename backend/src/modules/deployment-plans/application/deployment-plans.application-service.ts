@@ -694,6 +694,7 @@ export class DeploymentPlansApplicationService {
     if (!pluginBindingId || !this.pluginBindings) return resolved;
     const binding = await this.pluginBindings.getBinding(pluginBindingId);
     if (!binding) throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
+    const plugin = this.unifiedPlugins ? await this.unifiedPlugins.getVersion(binding.pluginVersionId) : undefined;
     const workflowRequest = readRecord(resolved.payload.workflowRequest);
     return {
       ...resolved,
@@ -702,6 +703,7 @@ export class DeploymentPlansApplicationService {
         workflowRequest: workflowRequest ? {
           ...workflowRequest,
           pluginVersionId: binding.pluginVersionId,
+          ...(plugin ? { pluginId: plugin.pluginId, pluginVersion: plugin.version } : {}),
           pluginBindingId,
           capabilityKey: 'certificate.deploy',
         } : workflowRequest,

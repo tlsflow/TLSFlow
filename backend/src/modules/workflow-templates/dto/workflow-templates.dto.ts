@@ -379,6 +379,11 @@ export interface WorkflowTemplate {
   updatedAt: string;
 }
 
+/** 工作流目录读模型附带的插件能力摘要，不参与模板持久化。 */
+export interface WorkflowListItem extends WorkflowTemplate {
+  capabilities?: string[];
+}
+
 export interface WorkflowTemplateVersion {
   id: string;
   templateId: string;

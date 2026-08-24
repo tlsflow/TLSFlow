@@ -11,6 +11,7 @@ import type {
   WorkflowStepRuntimeInput,
   WorkflowExecutorDispatcher,
   WorkflowProgressReporter,
+  WorkflowListItem,
   WorkflowTemplate,
   WorkflowTemplateVersion,
 } from '../dto/workflow-templates.dto.js';
@@ -100,7 +101,7 @@ export class WorkflowTemplatesApplicationService {
   }
 
   /** 正式工作流目录同时展示插件内置和用户工作流。 */
-  async listWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
+  async listWorkflows(_tenantId: string): Promise<WorkflowListItem[]> {
     return this.mergePluginInternalWorkflows(await this.domain.listTemplates());
   }
 
@@ -110,11 +111,15 @@ export class WorkflowTemplatesApplicationService {
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {
+    const templates = await this.domain.listTemplates();
+    const selected = templates.find((template) => template.id === templateId);
     const templateIds = await this.resolveDisplayTemplateIds(templateId);
     const versions = await Promise.all(templateIds.map((id) => this.domain.listVersions(id)));
-    return versions
-      .flat()
-      .sort((left, right) => left.version - right.version || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    const flattened = versions.flat();
+    if (selected?.origin === 'plugin_internal') {
+      return deduplicatePluginInternalVersions(flattened).sort(comparePluginInternalVersions);
+    }
+    return flattened.sort((left, right) => left.version - right.version || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
   }
 
   async getVersion(versionId: string): Promise<WorkflowTemplateVersion> {
@@ -151,15 +156,30 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.runWithDispatcher(input, dispatcher, reporter);
   }
 
-  private async mergePluginInternalWorkflows(templates: WorkflowTemplate[]): Promise<WorkflowTemplate[]> {
+  private async mergePluginInternalWorkflows(templates: WorkflowTemplate[]): Promise<WorkflowListItem[]> {
     const groups = await this.buildPluginInternalGroups(templates);
     const mergedIds = new Set<string>();
-    const output: WorkflowTemplate[] = [];
+    const output: WorkflowListItem[] = [];
     for (const group of groups.values()) {
-      const canonical = [...group].sort(compareWorkflowDisplayRecords)[0];
+      const versions = (await Promise.all(group.map((template) => this.domain.listVersions(template.id)))).flat();
+      const latestVersion = versions
+        .filter((version) => version.status === 'published')
+        .sort(comparePluginInternalVersions)[0] ?? versions.sort(comparePluginInternalVersions)[0];
+      const canonical = group.find((template) => template.id === latestVersion?.templateId)
+        ?? [...group].sort(compareWorkflowDisplayRecords)[0];
       if (!canonical || mergedIds.has(canonical.id)) continue;
       mergedIds.add(canonical.id);
-      output.push(canonical);
+      const capabilities = [...new Set(group.flatMap((template) => templateCapabilities(template)))].sort();
+      const dslVersion = workflowDslVersion(latestVersion);
+      const current = latestVersion ? {
+        currentVersionId: latestVersion.id,
+        currentVersion: latestVersion.version,
+        currentVersionLabel: dslVersion ?? canonical.currentVersionLabel,
+        status: latestVersion.status === 'disabled' ? 'disabled' as const : 'published' as const,
+        updatedAt: latestVersion.createdAt,
+      } : {};
+      const item = { ...canonical, ...current };
+      output.push(capabilities.length ? { ...item, capabilities } : item);
     }
     for (const template of templates) {
       if (template.origin === 'user') output.push(template);
@@ -179,24 +199,82 @@ export class WorkflowTemplatesApplicationService {
   private async buildPluginInternalGroups(templates: WorkflowTemplate[]): Promise<Map<string, WorkflowTemplate[]>> {
     const bindings = await this.workflowBindingsRepository.listAll();
     const sourceKeyByTemplateId = new Map<string, string>();
+    const capabilitiesByTemplateId = new Map<string, Set<string>>();
     for (const binding of bindings) {
       if (!binding.pluginId) continue;
       const key = `${binding.pluginId}:${binding.workflowResourcePath}`;
       if (!sourceKeyByTemplateId.has(binding.workflowTemplateId)) sourceKeyByTemplateId.set(binding.workflowTemplateId, key);
+      const capabilities = capabilitiesByTemplateId.get(binding.workflowTemplateId) ?? new Set<string>();
+      capabilities.add(binding.capabilityKey);
+      capabilitiesByTemplateId.set(binding.workflowTemplateId, capabilities);
     }
 
     const groups = new Map<string, WorkflowTemplate[]>();
     for (const template of templates) {
       if (template.origin !== 'plugin_internal') continue;
       const key = sourceKeyByTemplateId.get(template.id) ?? `template:${template.id}`;
-      groups.set(key, [...(groups.get(key) ?? []), template]);
+      const capabilities = capabilitiesByTemplateId.get(template.id);
+      const item = capabilities?.size
+        ? { ...template, capabilities: [...capabilities] }
+        : template;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
     }
     return groups;
   }
+}
+
+function templateCapabilities(template: WorkflowTemplate): string[] {
+  const capabilities = (template as WorkflowListItem).capabilities;
+  return Array.isArray(capabilities) ? capabilities : [];
 }
 
 function compareWorkflowDisplayRecords(left: WorkflowTemplate, right: WorkflowTemplate): number {
   return (right.currentVersion ?? 0) - (left.currentVersion ?? 0)
     || right.updatedAt.localeCompare(left.updatedAt)
     || right.id.localeCompare(left.id);
+}
+
+function deduplicatePluginInternalVersions(versions: WorkflowTemplateVersion[]): WorkflowTemplateVersion[] {
+  const unique = new Map<string, WorkflowTemplateVersion>();
+  for (const version of versions) {
+    const dslVersion = workflowDslVersion(version);
+    const key = dslVersion ? `dsl:${dslVersion}` : `id:${version.id}`;
+    const existing = unique.get(key);
+    if (!existing || comparePluginInternalVersions(version, existing) < 0) unique.set(key, version);
+  }
+  return [...unique.values()];
+}
+
+function comparePluginInternalVersions(left: WorkflowTemplateVersion, right: WorkflowTemplateVersion): number {
+  const leftDslVersion = workflowDslVersion(left);
+  const rightDslVersion = workflowDslVersion(right);
+  if (leftDslVersion && rightDslVersion) {
+    const semanticOrder = compareSemanticVersions(rightDslVersion, leftDslVersion);
+    if (semanticOrder !== 0) return semanticOrder;
+  } else if (leftDslVersion) {
+    return -1;
+  } else if (rightDslVersion) {
+    return 1;
+  }
+  if (left.status !== right.status) return left.status === 'published' ? -1 : right.status === 'published' ? 1 : 0;
+  return right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id);
+}
+
+function workflowDslVersion(version: WorkflowTemplateVersion | undefined): string | undefined {
+  const value = version?.content.metadata.version?.trim();
+  return value || undefined;
+}
+
+function compareSemanticVersions(left: string, right: string): number {
+  const [leftCoreText, leftPreRelease = ''] = left.split('+', 1)[0]!.split('-', 2);
+  const [rightCoreText, rightPreRelease = ''] = right.split('+', 1)[0]!.split('-', 2);
+  const leftCore = leftCoreText!.split('.').map(Number);
+  const rightCore = rightCoreText!.split('.').map(Number);
+  for (let index = 0; index < 3; index += 1) {
+    if ((leftCore[index] ?? 0) !== (rightCore[index] ?? 0)) return (leftCore[index] ?? 0) - (rightCore[index] ?? 0);
+  }
+  if (!leftPreRelease && !rightPreRelease) return 0;
+  if (!leftPreRelease) return 1;
+  if (!rightPreRelease) return -1;
+  return leftPreRelease.localeCompare(rightPreRelease);
 }

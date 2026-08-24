@@ -51,6 +51,27 @@ describe('Spec 033.6 阶段 1 Fixture 检查', () => {
     assert.equal(resolved.issues.some((item) => item.slot === 'certificate'), true);
     assert.equal(resolved.executable, false);
   });
+
+  it('binding_information 在站点未提供绑定时生成稳定回退值', () => {
+    const contract = baseContract();
+    contract.variables.bindingInformation = {
+      type: 'string', required: false, configurationMode: 'advanced', source: { kind: 'derived', resolver: 'binding_information' }, lifecycle: 'pre_execution', bindingPolicy: 'fixed',
+    };
+    const context = assetContextFixture();
+    context.site = { id: 'site-1', name: 'APP', metadata: {} };
+    context.target = { id: 'target-1', type: 'tls.binding', key: 'target-1', metadata: {} };
+
+    const resolved = resolver.resolve({
+      phase: 'preflight',
+      contract: validateDeploymentInputContractV1(contract),
+      assetContext: context,
+      effectiveBinding: { inputBindings: emptyInputBindingsV1(), provenance: {} },
+      artifactSnapshots: {},
+    });
+
+    assert.equal(resolved.variables.bindingInformation, '*:443:app.example.com');
+    assert.equal(resolved.executable, true, JSON.stringify(resolved.issues));
+  });
 });
 
 interface StageFixture {
