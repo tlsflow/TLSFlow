@@ -7,13 +7,11 @@ export class PluginBindingsRepository {
 
   async saveBinding(record: PluginBindingV1): Promise<PluginBindingV1> {
     await this.db.query(`insert into unified_plugin_bindings
-      (id,tenant_id,plugin_version_id,mode,variable_bindings,credential_bindings,secret_bindings,certificate_artifact_bindings,connection_bindings,managed_context,status,version,created_at,updated_at)
-      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14)
-      on conflict (id) do update set variable_bindings=excluded.variable_bindings,credential_bindings=excluded.credential_bindings,secret_bindings=excluded.secret_bindings,
-      certificate_artifact_bindings=excluded.certificate_artifact_bindings,connection_bindings=excluded.connection_bindings,
+      (id,tenant_id,plugin_version_id,mode,input_bindings,managed_context,status,version,created_at,updated_at)
+      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10)
+      on conflict (id) do update set input_bindings=excluded.input_bindings,
       managed_context=excluded.managed_context,status=excluded.status,version=excluded.version,updated_at=excluded.updated_at`, [
-      record.id, record.tenantId, record.pluginVersionId, record.mode, JSON.stringify(record.variableBindings),
-      JSON.stringify(record.credentialBindings), JSON.stringify(record.secretBindings), JSON.stringify(record.certificateArtifactBindings), JSON.stringify(record.connectionBindings),
+      record.id, record.tenantId, record.pluginVersionId, record.mode, JSON.stringify(record.inputBindings),
       record.managedContext ? JSON.stringify(record.managedContext) : null, record.status, record.version, record.createdAt, record.updatedAt,
     ]);
     return record;
@@ -61,9 +59,8 @@ export class PluginBindingsRepository {
 }
 
 interface BindingRow extends Record<string, unknown> {
-  id: string; tenant_id: string; plugin_version_id: string; mode: PluginBindingV1['mode']; variable_bindings: Record<string, unknown>;
-  credential_bindings: PluginBindingV1['credentialBindings']; secret_bindings: Record<string, string>; certificate_artifact_bindings: PluginBindingV1['certificateArtifactBindings'];
-  connection_bindings: Record<string, unknown>; managed_context?: PluginBindingV1['managedContext']; status: PluginBindingV1['status'];
+  id: string; tenant_id: string; plugin_version_id: string; mode: PluginBindingV1['mode']; input_bindings: PluginBindingV1['inputBindings'];
+  managed_context?: PluginBindingV1['managedContext']; status: PluginBindingV1['status'];
   version: number; created_at: string; updated_at: string;
 }
 interface AssignmentRow extends Record<string, unknown> {
@@ -71,5 +68,5 @@ interface AssignmentRow extends Record<string, unknown> {
   plugin_version_id: string; plugin_binding_id: string; precedence: CapabilityAssignmentV1['precedence']; status: CapabilityAssignmentV1['status'];
   created_at: string; updated_at: string;
 }
-function binding(row: BindingRow): PluginBindingV1 { return { id: row.id, tenantId: row.tenant_id, pluginVersionId: row.plugin_version_id, mode: row.mode, variableBindings: row.variable_bindings ?? {}, credentialBindings: row.credential_bindings ?? {}, secretBindings: row.secret_bindings ?? {}, certificateArtifactBindings: row.certificate_artifact_bindings ?? {}, connectionBindings: row.connection_bindings ?? {}, managedContext: row.managed_context, status: row.status, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at }; }
+function binding(row: BindingRow): PluginBindingV1 { return { id: row.id, tenantId: row.tenant_id, pluginVersionId: row.plugin_version_id, mode: row.mode, inputBindings: row.input_bindings, managedContext: row.managed_context, status: row.status, version: row.version, createdAt: row.created_at, updatedAt: row.updated_at }; }
 function assignment(row: AssignmentRow): CapabilityAssignmentV1 { return { id: row.id, tenantId: row.tenant_id, ownerType: row.owner_type, ownerId: row.owner_id, capabilityKey: row.capability_key, pluginVersionId: row.plugin_version_id, pluginBindingId: row.plugin_binding_id, precedence: row.precedence, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }; }

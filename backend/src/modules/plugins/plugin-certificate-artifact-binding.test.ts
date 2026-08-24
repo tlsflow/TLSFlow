@@ -43,7 +43,7 @@ test('根据 Workflow artifactContract 生成 Citrix 证书产物绑定', () => 
   });
 });
 
-test('根据 Agent Recipe artifactInputs 生成通用原子插件证书产物绑定', () => {
+test('根据 Agent Recipe Artifact Contract 生成通用原子插件证书产物绑定', () => {
   const recipe = {
     apiVersion: 'gcac.agent-plugin/v1',
     kind: 'AgentDeploymentPlugin',
@@ -55,13 +55,16 @@ test('根据 Agent Recipe artifactInputs 生成通用原子插件证书产物绑
       platforms: ['LINUX'],
       requiredCapabilities: ['agent.atomic_plan.execute'],
     },
-    variables: {},
-    artifactInputs: {
-      publicMaterial: { type: 'certificate', required: true },
-      secretMaterial: { type: 'private_key', required: true },
-      chainMaterial: { type: 'certificate_chain', required: false },
-      packagedMaterial: { type: 'bundle', required: false },
-      unrelatedFile: { type: 'file', required: false },
+    inputContract: {
+      apiVersion: 'gcac.deployment-input/v1',
+      variables: {}, connections: {}, credentials: {},
+      artifacts: {
+        publicMaterial: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: { publicMaterial: { role: 'public_certificate', required: true } } } },
+        secretMaterial: { kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution', artifactContract: { outputs: { secretMaterial: { role: 'private_key', required: true, sensitive: true } } } },
+        chainMaterial: { kind: 'certificate', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { chainMaterial: { role: 'certificate_chain', required: false } } } },
+        packagedMaterial: { kind: 'certificate', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { packagedMaterial: { role: 'pkcs12_bundle', required: false, sensitive: true } } } },
+        unrelatedFile: { kind: 'file', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', artifactContract: { outputs: { unrelatedFile: { role: 'file', required: false } } } },
+      },
     },
     permissions: [],
     operations: [{
@@ -124,7 +127,7 @@ test('不同插件运行时只解析各自的能力资源', () => {
   );
 });
 
-test('所有内置 Agent Atomic 证书插件都从必需 artifactInputs 生成绑定', () => {
+test('所有内置 Agent Atomic 证书插件都从必需 Artifact Contract 生成绑定', () => {
   for (const recipe of builtinAgentPluginManifests) {
     const resourcePath = `agent-recipes/${recipe.pluginId}.json`;
     const plugin = {
@@ -135,8 +138,8 @@ test('所有内置 Agent Atomic 证书插件都从必需 artifactInputs 生成�
       },
       resources: { [resourcePath]: JSON.stringify(recipe) },
     } as unknown as UnifiedPluginVersionRecord;
-    const expectedNames = Object.entries(recipe.artifactInputs)
-      .filter(([, definition]) => definition.required === true && definition.type !== 'file')
+    const expectedNames = Object.entries(recipe.inputContract.artifacts)
+      .filter(([, definition]) => definition.required === true)
       .map(([artifactName]) => artifactName)
       .sort();
 

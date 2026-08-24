@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
 import type {
   WorkflowDslV1,
   WorkflowExtractor,
@@ -7,7 +8,7 @@ import type {
   WorkflowVariableType,
 } from '../dto/workflow-templates.dto.js';
 
-const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'variables', 'connections', 'steps', 'rollback']);
+const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'variables', 'connections', 'steps', 'rollback']);
 const metadataKeys = new Set(['name', 'displayName', 'description', 'category', 'tags', 'version', 'logoUrl', 'platforms', 'updateMethods', 'maintainer', 'homepage']);
 const updateMethodValues = new Set(['ssh', 'curl']);
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -36,12 +37,16 @@ export class WorkflowSchemaRegistry {
     if (content.apiVersion !== 'gcac.workflow/v1') throw validationError('apiVersion 只支持 gcac.workflow/v1');
     if (content.kind !== 'CurlSshWorkflow') throw validationError('kind 只支持 CurlSshWorkflow');
     validateMetadata(content.metadata);
+    const inputContract = content.inputContract === undefined ? undefined : validateDeploymentInputContractV1(content.inputContract);
     validateVariables(content.variables);
     if (content.connections !== undefined) validateConnections(content.connections);
     validateSteps(content.steps, 'steps');
     if (content.rollback !== undefined) validateSteps(content.rollback, 'rollback');
     scanPlainSecrets(content, []);
-    const typedContent = content as unknown as WorkflowDslV1;
+    const typedContent = {
+      ...content,
+      ...(inputContract === undefined ? {} : { inputContract }),
+    } as unknown as WorkflowDslV1;
     validateExplicitConfigurationContract(typedContent);
     validateVariableReferences(typedContent);
     return typedContent;

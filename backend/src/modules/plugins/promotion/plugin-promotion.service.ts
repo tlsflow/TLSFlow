@@ -41,9 +41,9 @@ export class PluginPromotionService {
         frameworks: discovery.frameworks.map(({ stableKey, displayName }) => ({ stableKey, displayName })),
         sites: discovery.sites.map(({ stableKey, displayName }) => ({ stableKey, displayName })),
         managedTargets: discovery.sites.map(({ stableKey, displayName }) => ({ stableKey, displayName })),
-        secretBindings: Object.entries(source.secretBindings).map(([slot, secretRef]) => ({ slot, secretRef, action: 'REUSE' as const })),
-        variableBindings: Object.keys(source.variableBindings).sort(),
-        certificateArtifactBindings: Object.keys(source.certificateArtifactBindings).sort(),
+        credentials: Object.entries(source.inputBindings.credentials).map(([slot, binding]) => ({ slot, credentialId: binding.credentialId, action: 'REUSE' as const })),
+        variables: Object.keys(source.inputBindings.variables).sort(),
+        artifacts: Object.keys(source.inputBindings.artifacts).sort(),
       },
       conflicts,
     };
@@ -68,7 +68,7 @@ export class PluginPromotionService {
         : await this.devices.create(tenantId, {
           displayName: snapshot.displayName, managementAddress: snapshot.managementAddress,
           managementPort: snapshot.managementPort, deviceFamily: snapshot.deviceFamily,
-          credentialId: Object.values(source.secretBindings)[0], authMode: snapshot.authMode,
+          credentialId: Object.values(source.inputBindings.credentials)[0]?.credentialId, authMode: snapshot.authMode,
           tlsVerify: snapshot.tlsVerify, gatewayId: snapshot.gatewayId,
         });
       if (!device) throw new AppError('RESOURCE_NOT_FOUND', '迁移设备不存在');
@@ -112,8 +112,8 @@ export class PluginPromotionService {
     const conflicts = [] as PluginPromotionPreview['conflicts'];
     const existing = await this.db.query<{ id: string }>(`select id from pg_service_assets where tenant_id=$1 and address=$2 and port=$3 and deleted_at is null limit 1`, [tenantId, input.managementAddress, input.managementPort]);
     if (existing.rows[0]) conflicts.push({ code: 'DEVICE_ADDRESS_CONFLICT', path: 'managementAddress', message: '管理地址已被现有资产占用', blocking: true });
-    for (const [slot, secretRef] of Object.entries(source.secretBindings)) {
-      if (!/^secret:\/\//.test(secretRef)) conflicts.push({ code: 'SECRET_REF_INVALID', path: `secretBindings.${slot}`, message: '凭据必须使用 SecretRef', blocking: true });
+    for (const [slot, binding] of Object.entries(source.inputBindings.credentials)) {
+      if (!binding.credentialId.trim()) conflicts.push({ code: 'CREDENTIAL_ID_INVALID', path: `inputBindings.credentials.${slot}`, message: '凭据必须引用 CredentialProfile', blocking: true });
     }
     const siteKeys = input.discovery.sites.map((item) => item.stableKey);
     if (new Set(siteKeys).size !== siteKeys.length) conflicts.push({ code: 'SITE_STABLE_KEY_CONFLICT', path: 'discovery.sites', message: '发现结果包含重复站点稳定键', blocking: true });
@@ -127,10 +127,9 @@ export class PluginPromotionService {
       status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now,
     };
     await this.db.query(`insert into unified_plugin_bindings
-      (id,tenant_id,plugin_version_id,mode,variable_bindings,credential_bindings,secret_bindings,certificate_artifact_bindings,connection_bindings,managed_context,status,version,created_at,updated_at)
-      values ($1,$2,$3,'MANAGED',$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,'ACTIVE',1,$10,$10)`, [
-      binding.id, tenantId, binding.pluginVersionId, JSON.stringify(binding.variableBindings), JSON.stringify(binding.credentialBindings), JSON.stringify(binding.secretBindings),
-      JSON.stringify(binding.certificateArtifactBindings), JSON.stringify(binding.connectionBindings), JSON.stringify(binding.managedContext), now,
+      (id,tenant_id,plugin_version_id,mode,input_bindings,managed_context,status,version,created_at,updated_at)
+      values ($1,$2,$3,'MANAGED',$4::jsonb,$5::jsonb,'ACTIVE',1,$6,$6)`, [
+      binding.id, tenantId, binding.pluginVersionId, JSON.stringify(binding.inputBindings), JSON.stringify(binding.managedContext), now,
     ]);
     return binding;
   }
@@ -154,9 +153,7 @@ export class PluginPromotionService {
     if (!row) throw new AppError('RESOURCE_NOT_FOUND', 'PluginBinding 不存在', { id });
     return {
       id: String(row.id), tenantId: String(row.tenant_id), pluginVersionId: String(row.plugin_version_id), mode: row.mode as PluginBindingV1['mode'],
-      variableBindings: (row.variable_bindings ?? {}) as Record<string, unknown>, credentialBindings: (row.credential_bindings ?? {}) as PluginBindingV1['credentialBindings'], secretBindings: (row.secret_bindings ?? {}) as Record<string, string>,
-      certificateArtifactBindings: (row.certificate_artifact_bindings ?? {}) as PluginBindingV1['certificateArtifactBindings'],
-      connectionBindings: (row.connection_bindings ?? {}) as Record<string, unknown>, managedContext: row.managed_context as PluginBindingV1['managedContext'],
+      inputBindings: row.input_bindings as PluginBindingV1['inputBindings'], managedContext: row.managed_context as PluginBindingV1['managedContext'],
       status: row.status as PluginBindingV1['status'], version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
     };
   }

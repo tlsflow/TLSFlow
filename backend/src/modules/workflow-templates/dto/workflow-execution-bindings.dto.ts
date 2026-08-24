@@ -10,10 +10,7 @@ export interface WorkflowExecutionBinding {
   workflowVersionId?: string;
   runner: WorkflowExecutionRunner;
   gatewayId?: string;
-  connectionBindings: Record<string, unknown>;
-  variableBindings: Record<string, unknown>;
-  credentialBindings: Record<string, { credentialId: string }>;
-  certificateArtifactBindings: Record<string, unknown>;
+  inputBindings: InputBindingsV1;
   status: WorkflowExecutionBindingStatus;
   version: number;
   createdAt: string;
@@ -22,3 +19,4 @@ export interface WorkflowExecutionBinding {
 
 export type CreateWorkflowExecutionBindingInput = Omit<WorkflowExecutionBinding, 'id' | 'status' | 'version' | 'createdAt' | 'updatedAt'>;
 export type UpdateWorkflowExecutionBindingInput = Partial<Omit<CreateWorkflowExecutionBindingInput, 'tenantId'>> & { expectedVersion: number; status?: WorkflowExecutionBindingStatus };
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';

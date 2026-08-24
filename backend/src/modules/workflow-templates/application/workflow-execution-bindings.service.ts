@@ -25,11 +25,11 @@ function validate(input: CreateWorkflowExecutionBindingInput) {
   if (input.workflowVersionSelection === 'LATEST_PUBLISHED' && input.workflowVersionId) throw new AppError('VALIDATION_FAILED','LATEST_PUBLISHED 不得固定工作流版本');
   if (input.runner === 'GATEWAY' && !input.gatewayId) throw new AppError('VALIDATION_FAILED','GATEWAY Runner 必须指定 Gateway');
   if (input.runner === 'CONTROL_PLANE' && input.gatewayId) throw new AppError('VALIDATION_FAILED','CONTROL_PLANE Runner 不得指定 Gateway');
-  for (const [slot, binding] of Object.entries(input.credentialBindings)) {
+  for (const [slot, binding] of Object.entries(input.inputBindings.credentials)) {
     if (!slot.trim() || !binding?.credentialId?.trim()) throw new AppError('VALIDATION_FAILED', 'Credential Binding 必须使用非空 credentialId');
   }
-  rejectPlainSecrets(input.connectionBindings, []);
-  rejectPlainSecrets(input.variableBindings, []);
+  rejectPlainSecrets(input.inputBindings.connections, []);
+  rejectPlainSecrets(input.inputBindings.variables, []);
 }
 
 function rejectPlainSecrets(value: unknown, path: string[]): void {

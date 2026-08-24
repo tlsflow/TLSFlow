@@ -216,13 +216,18 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   );
   await database.query(
     `insert into unified_plugin_bindings (
-      id, tenant_id, plugin_version_id, mode, variable_bindings, credential_bindings,
-      secret_bindings, certificate_artifact_bindings, connection_bindings, status, version, created_at, updated_at
+      id, tenant_id, plugin_version_id, mode, input_bindings, status, version, created_at, updated_at
     ) values (
-      'plgb_usage', 'tenant-usage', 'plgv_usage', 'STANDALONE', '{}'::jsonb,
-      $1::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'ACTIVE', 1, now(), now()
+      'plgb_usage', 'tenant-usage', 'plgv_usage', 'STANDALONE', $1::jsonb,
+      'ACTIVE', 1, now(), now()
     )`,
-    [JSON.stringify({ management: { credentialId } })],
+    [JSON.stringify({
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: {},
+      connections: {},
+      credentials: { management: { credentialId } },
+      artifacts: {},
+    })],
   );
 
   const usage = await app.inject({

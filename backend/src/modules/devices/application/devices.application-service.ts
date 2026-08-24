@@ -139,14 +139,14 @@ export class DevicesApplicationService {
       this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
     ]);
     const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db))
-      .resolveBindings(tenantId, binding.credentialBindings);
+      .resolveBindings(tenantId, binding.inputBindings.credentials);
     const result = await this.runtimeGuard.execute({
       tenantId, pluginVersionId: assignment.pluginVersionId, capabilityKey,
-      gatewayId: typeof binding.connectionBindings.gatewayId === 'string' ? binding.connectionBindings.gatewayId : undefined,
+      gatewayId: undefined,
     }, () => this.workflows!.execute({
       templateVersionId: workflow.workflowVersionId,
       mode: 'real_test',
-      userVariables: { ...binding.variableBindings, ...credentials },
+      userVariables: { ...binding.inputBindings.variables, ...credentials },
     }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);
@@ -258,11 +258,13 @@ export class DevicesApplicationService {
       const binding = await bindingService.createBinding(tenantId, {
         pluginVersionId,
         mode: 'MANAGED',
-        variableBindings: mapped.variables,
-        credentialBindings: mapped.credentials,
-        secretBindings: mapped.secrets,
-        certificateArtifactBindings: {},
-        connectionBindings: mapped.connections,
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          variables: mapped.variables,
+          credentials: mapped.credentials,
+          artifacts: {},
+          connections: mapped.connections as never,
+        },
         managedContext: { hostId: device.hostId },
       });
       await tx.query(

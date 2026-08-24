@@ -1,18 +1,11 @@
-export interface CertificateArtifactBindingV1 {
-  certificateFormatId: string;
-  outputBindings: Record<string, string>;
-}
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
 export interface PluginBindingV1 {
   id: string;
   tenantId: string;
   pluginVersionId: string;
   mode: 'MANAGED' | 'STANDALONE';
-  variableBindings: Record<string, unknown>;
-  credentialBindings: Record<string, { credentialId: string }>;
-  secretBindings: Record<string, string>;
-  certificateArtifactBindings: Record<string, CertificateArtifactBindingV1>;
-  connectionBindings: Record<string, unknown>;
+  inputBindings: InputBindingsV1;
   managedContext?: {
     hostId: string;
     managedTargetId?: string;
@@ -45,7 +38,6 @@ export interface NormalizedPluginRuntimeInput {
   connections: Record<string, unknown>;
   variables: Record<string, unknown>;
   credentials: Record<string, { credentialId: string }>;
-  secrets: Record<string, { secretRef: string; purpose: string }>;
   certificateMaterials: Record<string, CertificateMaterialDescriptor>;
   target: Record<string, unknown>;
   normalizedSha256: string;

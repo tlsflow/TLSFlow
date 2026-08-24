@@ -1,13 +1,13 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
+import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
+import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 
 export interface RuntimeCompileInput {
   capability: ResolvedDeploymentCapability;
   context: ResolvedManagedTargetContext;
-  applicationAssetId: string;
-  serverName: string;
-  port: number;
+  applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName'>;
   certificateBindingId?: string;
   workflow?: {
     workflowId: string;
@@ -30,8 +30,8 @@ export interface RuntimeExecutionRequest {
 
 function hostCertificateVerification(input: RuntimeCompileInput): Record<string, unknown> {
   const connectHost = input.context.host.primaryIp;
-  const serverName = input.serverName;
-  const port = input.port;
+  const serverName = input.applicationAsset.sniName ?? input.applicationAsset.address;
+  const port = input.applicationAsset.port;
   if (!connectHost || !serverName || !port) {
     throw new AppError('VALIDATION_FAILED', '部署 Runtime 缺少宿主证书验证目标', {
       managedTargetId: input.context.managedTarget.id,
@@ -84,6 +84,7 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
   async compile(input: RuntimeCompileInput): Promise<RuntimeExecutionRequest> {
     const agentId = input.context.agent?.id;
     if (!agentId) throw new AppError('CAPABILITY_MISSING', 'Agent Atomic Runtime 缺少可用 Agent 连接', { managedTargetId: input.context.managedTarget.id });
+    const deploymentAssetContext = deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.context });
     return {
       executorType: 'AGENT',
       executionTargetId: agentId,
@@ -94,11 +95,11 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
         actionSchemaVersion: '1.0',
         agentId,
         pluginBindingId: input.capability.binding.id,
-        applicationAssetId: input.applicationAssetId,
+        applicationAssetId: input.applicationAsset.id,
         certificateBindingId: input.certificateBindingId,
         managedTargetId: input.context.managedTarget.id,
         certificateVerification: hostCertificateVerification(input),
-        pluginExecutionContext: buildPluginExecutionContext(input),
+        pluginExecutionContext: deploymentAssetContext,
         siteAssetId: input.context.siteAsset?.id,
         frameworkType: input.context.frameworkType,
         siteName: input.context.siteAsset?.siteName,
@@ -122,43 +123,6 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
   }
 }
 
-function buildPluginExecutionContext(input: RuntimeCompileInput): Record<string, unknown> {
-  const site = input.context.siteAsset;
-  return {
-    application: {
-      id: input.applicationAssetId,
-      serverName: input.serverName,
-      port: input.port,
-    },
-    target: {
-      id: input.context.managedTarget.id,
-      type: input.context.managedTarget.targetType,
-      key: input.context.managedTarget.targetKey,
-      bindingKey: input.context.managedTarget.bindingKey,
-      frameworkType: input.context.frameworkType,
-      metadata: input.context.managedTarget.metadata,
-    },
-    host: {
-      id: input.context.host.id,
-      primaryIp: input.context.host.primaryIp,
-      osType: input.context.host.osType,
-    },
-    site: site ? {
-      id: site.id,
-      type: site.siteType,
-      name: site.siteName,
-      key: site.siteKey,
-      bindingInformation: site.bindingInformation ?? input.context.managedTarget.bindingKey,
-      hostHeader: site.hostHeader,
-      listenIp: site.listenIp,
-      port: site.port,
-      protocol: site.protocol,
-      configPath: site.configPath,
-      metadata: site.metadata,
-    } : undefined,
-  };
-}
-
 export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
   readonly runtime = 'WORKFLOW_DSL' as const;
 
@@ -172,6 +136,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
     if (input.capability.executionLocation === 'GATEWAY' && !gatewayId) {
       throw new AppError('CAPABILITY_MISSING', 'Workflow DSL Runtime 缺少 Gateway 连接', { managedTargetId: input.context.managedTarget.id });
     }
+    const deploymentAssetContext = deploymentAssetContextBuilder.build({ applicationAsset: input.applicationAsset, managedTargetContext: input.context });
     return {
       executorType: 'WORKFLOW',
       executionTargetId: input.context.managedTarget.id,
@@ -180,6 +145,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
       payload: {
         pluginRuntimeCapability: immutableCapabilitySnapshot(input.capability),
         certificateVerification: hostCertificateVerification(input),
+        deploymentAssetContext,
         workflowRequest: {
           workflowId: input.workflow.workflowId,
           workflowVersionSelection: 'PINNED',
@@ -197,12 +163,12 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
             port: input.context.siteAsset?.port,
             protocol: input.context.siteAsset?.protocol,
           },
-          connectionBindings: input.capability.binding.connectionBindings,
-          variableBindings: input.capability.binding.variableBindings,
+          connectionBindings: input.capability.binding.inputBindings.connections,
+          variableBindings: input.capability.binding.inputBindings.variables,
           credentials: input.workflow.credentials,
           parameterBindings: {},
-          certificateArtifactBindings: input.capability.binding.certificateArtifactBindings,
-          applicationAssetId: input.applicationAssetId,
+          certificateArtifactBindings: input.capability.binding.inputBindings.artifacts,
+          applicationAssetId: input.applicationAsset.id,
           certificateBindingId: input.certificateBindingId,
           managedTargetId: input.context.managedTarget.id,
           siteAssetId: input.context.siteAsset?.id,

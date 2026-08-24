@@ -644,8 +644,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   if (result.onboardingKind !== 'PLUGIN_MANAGED') assert.fail('应返回插件接入结果');
   assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
   assert.equal(result.binding.managedContext?.hostId, result.device.hostId);
-  assert.deepEqual(result.binding.credentialBindings.credential, { credentialId: 'cred_adc' });
-  assert.deepEqual(result.binding.secretBindings, {});
+  assert.deepEqual(result.binding.inputBindings.credentials.credential, { credentialId: 'cred_adc' });
   assert.equal(result.assignments.length, 6);
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery && result.discovery.projection.certificateBindings === 1);

@@ -110,10 +110,10 @@ export function validateDeploymentStrategyPluginBinding(
     workflow: {
       ...strategy.workflow!,
       parameterBindings: undefined,
-      variableBindings: binding.variableBindings,
-      credentialBindings: binding.credentialBindings,
-      connectionBindings: binding.connectionBindings as NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'],
-      certificateArtifactBindings: binding.certificateArtifactBindings,
+      variableBindings: binding.inputBindings.variables,
+      credentialBindings: binding.inputBindings.credentials,
+      connectionBindings: binding.inputBindings.connections as NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'],
+      certificateArtifactBindings: binding.inputBindings.artifacts as NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'],
     },
     compatibilityMode: 'UNIFIED',
   };

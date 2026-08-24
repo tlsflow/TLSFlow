@@ -1,10 +1,10 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { normalizeMinimumGcacVersion } from '../../../common/version.js';
+import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
 import type {
   AgentDeploymentPluginManifestV1,
   AgentPluginOperation,
   AgentPluginPermissionDeclaration,
-  ExecutionVariableDefinition,
 } from '../dto/agent-deployment-plugins.dto.js';
 
 const platforms = ['WINDOWS', 'LINUX'] as const;
@@ -24,7 +24,6 @@ const operationTypes = [
   'windows.iis.binding.update_certificate',
   'windows.iis.binding.restore_certificate',
 ] as const;
-const variableTypes = ['string', 'number', 'boolean', 'enum', 'object', 'file', 'certificate', 'credential'] as const;
 const stageOrder = new Map(stages.map((stage, index) => [stage, index]));
 
 export function validateAgentDeploymentPluginManifest(input: unknown): AgentDeploymentPluginManifestV1 {
@@ -36,12 +35,14 @@ export function validateAgentDeploymentPluginManifest(input: unknown): AgentDepl
   const publisher = nonEmptyString(manifest.publisher, 'publisher');
   const version = nonEmptyString(manifest.version, 'version');
   const compatibility = validateCompatibility(manifest.compatibility);
-  const variables = validateVariables(manifest.variables);
-  const artifactInputs = validateArtifacts(manifest.artifactInputs);
+  if (manifest.variables !== undefined || manifest.artifactInputs !== undefined) {
+    throw validationError('Agent Recipe 只允许使用 inputContract 声明部署输入');
+  }
+  const inputContract = validateDeploymentInputContractV1(manifest.inputContract);
   const permissions = validatePermissions(manifest.permissions);
   const operations = validateOperations(manifest.operations, false);
   const rollback = manifest.rollback === undefined ? undefined : validateOperations(manifest.rollback, true);
-  validateReferences(operations, rollback ?? [], variables, artifactInputs);
+  validateReferences(operations, rollback ?? [], inputContract);
   validateDependencies(operations, 'operations');
   validateDependencies(rollback ?? [], 'rollback');
   validateStageOrder(operations);
@@ -64,31 +65,11 @@ export function validateAgentDeploymentPluginManifest(input: unknown): AgentDepl
       homepage: optionalString(manifest.metadata.homepage),
     } : undefined,
     compatibility,
-    variables,
-    artifactInputs,
+    inputContract,
     permissions,
     operations,
     rollback,
   };
-}
-
-export function validateAgentPluginVariableValues(
-  definitions: Record<string, ExecutionVariableDefinition>,
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {};
-  for (const [name, definition] of Object.entries(definitions)) {
-    const value = values[name] ?? definition.default;
-    if (value === undefined) {
-      if (definition.required) throw validationError(`变量 ${name} 必填`, { field: `variableBindings.${name}` });
-      continue;
-    }
-    validateVariableValue(name, definition, value);
-    normalized[name] = value;
-  }
-  const unknown = Object.keys(values).filter((name) => !definitions[name]);
-  if (unknown.length > 0) throw validationError('存在未声明的插件变量', { unknown });
-  return normalized;
 }
 
 function validateCompatibility(input: unknown): AgentDeploymentPluginManifestV1['compatibility'] {
@@ -108,54 +89,6 @@ function validateCompatibility(input: unknown): AgentDeploymentPluginManifestV1[
     requiredCapabilities: stringArray(value.requiredCapabilities, 'compatibility.requiredCapabilities', true),
     operationSchemaVersions,
   };
-}
-
-function validateVariables(input: unknown): Record<string, ExecutionVariableDefinition> {
-  const variables = record(input, 'variables');
-  return Object.fromEntries(Object.entries(variables).map(([name, raw]) => {
-    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(name)) throw validationError(`变量名不合法: ${name}`);
-    const value = record(raw, `variables.${name}`);
-    const type = nonEmptyString(value.type, `variables.${name}.type`);
-    if (!variableTypes.includes(type as typeof variableTypes[number])) throw validationError(`variables.${name}.type 不支持`);
-    const definition: ExecutionVariableDefinition = {
-      type: type as ExecutionVariableDefinition['type'],
-      required: value.required === true,
-      description: optionalString(value.description),
-      default: value.default,
-      source: validateVariableSource(value.source, `variables.${name}.source`),
-      enum: stringArray(value.enum, `variables.${name}.enum`, true),
-      pattern: optionalString(value.pattern),
-      minimum: optionalNumber(value.minimum, `variables.${name}.minimum`),
-      maximum: optionalNumber(value.maximum, `variables.${name}.maximum`),
-      editableScope: value.editableScope === 'EXECUTION' ? 'EXECUTION' : 'ASSET',
-      sensitive: value.sensitive === true,
-    };
-    if (definition.type === 'enum' && (!definition.enum || definition.enum.length === 0)) throw validationError(`variables.${name}.enum 必填`);
-    if (definition.default !== undefined) validateVariableValue(name, definition, definition.default);
-    return [name, definition];
-  }));
-}
-
-function validateVariableSource(input: unknown, field: string): ExecutionVariableDefinition['source'] {
-  if (input === undefined) return undefined;
-  const value = record(input, field);
-  requireExact(value.kind, 'execution_context', `${field}.kind`);
-  const path = nonEmptyString(value.path, `${field}.path`);
-  if (!/^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)*$/.test(path)) {
-    throw validationError(`${field}.path 不合法`, { field: `${field}.path` });
-  }
-  return { kind: 'execution_context', path };
-}
-
-function validateArtifacts(input: unknown): AgentDeploymentPluginManifestV1['artifactInputs'] {
-  const artifacts = record(input, 'artifactInputs');
-  const allowed = new Set(['certificate', 'private_key', 'certificate_chain', 'bundle', 'file']);
-  return Object.fromEntries(Object.entries(artifacts).map(([name, raw]) => {
-    const value = record(raw, `artifactInputs.${name}`);
-    const type = nonEmptyString(value.type, `artifactInputs.${name}.type`);
-    if (!allowed.has(type)) throw validationError(`artifactInputs.${name}.type 不支持`);
-    return [name, { type, required: value.required === true, description: optionalString(value.description) }];
-  })) as AgentDeploymentPluginManifestV1['artifactInputs'];
 }
 
 function validatePermissions(input: unknown): AgentPluginPermissionDeclaration[] {
@@ -268,37 +201,27 @@ function validateRollbackCoverage(operations: AgentPluginOperation[], rollback: 
 function validateReferences(
   operations: AgentPluginOperation[],
   rollback: AgentPluginOperation[],
-  variables: Record<string, ExecutionVariableDefinition>,
-  artifacts: AgentDeploymentPluginManifestV1['artifactInputs'],
+  contract: AgentDeploymentPluginManifestV1['inputContract'],
 ): void {
   const variablePattern = /\$\{variables\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
+  const connectionPattern = /\$\{connections\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
+  const credentialPattern = /\$\{credentials\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
   const artifactPattern = /\$\{artifacts\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g;
   for (const operation of [...operations, ...rollback]) {
     const serialized = JSON.stringify(operation.input);
     for (const match of serialized.matchAll(variablePattern)) {
-      if (!variables[match[1]]) throw validationError(`操作 ${operation.id} 引用了不存在的变量 ${match[1]}`);
+      if (!contract.variables[match[1].split('.')[0]]) throw validationError(`操作 ${operation.id} 引用了不存在的变量 ${match[1]}`);
+    }
+    for (const match of serialized.matchAll(connectionPattern)) {
+      if (!contract.connections[match[1].split('.')[0]]) throw validationError(`操作 ${operation.id} 引用了不存在的 Connection ${match[1]}`);
+    }
+    for (const match of serialized.matchAll(credentialPattern)) {
+      if (!contract.credentials[match[1].split('.')[0]]) throw validationError(`操作 ${operation.id} 引用了不存在的 Credential ${match[1]}`);
     }
     for (const match of serialized.matchAll(artifactPattern)) {
       const artifactName = match[1].split('.')[0];
-      if (!artifacts[artifactName]) throw validationError(`操作 ${operation.id} 引用了不存在的 Artifact ${match[1]}`);
+      if (!contract.artifacts[artifactName]) throw validationError(`操作 ${operation.id} 引用了不存在的 Artifact ${match[1]}`);
     }
-  }
-}
-
-function validateVariableValue(name: string, definition: ExecutionVariableDefinition, value: unknown): void {
-  if (definition.type === 'string' || definition.type === 'file' || definition.type === 'credential') {
-    if (typeof value !== 'string' || value.trim() === '') throw validationError(`变量 ${name} 必须是非空字符串`);
-    if (definition.pattern && !new RegExp(definition.pattern).test(value)) throw validationError(`变量 ${name} 不符合格式`);
-  } else if (definition.type === 'number') {
-    if (typeof value !== 'number' || !Number.isFinite(value)) throw validationError(`变量 ${name} 必须是数字`);
-    if (definition.minimum !== undefined && value < definition.minimum) throw validationError(`变量 ${name} 小于最小值`);
-    if (definition.maximum !== undefined && value > definition.maximum) throw validationError(`变量 ${name} 大于最大值`);
-  } else if (definition.type === 'boolean') {
-    if (typeof value !== 'boolean') throw validationError(`变量 ${name} 必须是布尔值`);
-  } else if (definition.type === 'enum') {
-    if (typeof value !== 'string' || !definition.enum?.includes(value)) throw validationError(`变量 ${name} 不在允许选项中`);
-  } else if (!isRecord(value)) {
-    throw validationError(`变量 ${name} 必须是对象`);
   }
 }
 

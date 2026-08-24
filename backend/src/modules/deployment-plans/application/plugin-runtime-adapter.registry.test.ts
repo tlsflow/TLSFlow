@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
+import type { ExecutionLocation, ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import {
   AgentAtomicRuntimeAdapter,
@@ -13,9 +13,7 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
   const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
     capability: capability('AGENT_ATOMIC', 'AGENT'),
     context: context('AGENT'),
-    applicationAssetId: 'asset-1',
-    serverName: 'test02.jacksonz.cn',
-    port: 443,
+    applicationAsset: applicationAsset(),
     certificateBindingId: 'certificate-binding-1',
   });
   assert.equal(result.executorType, 'AGENT');
@@ -24,24 +22,19 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
   assert.deepEqual(result.payload.certificateVerification, {
     capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, expectedDomains: ['test02.jacksonz.cn'],
   });
-  assert.deepEqual(result.payload.pluginExecutionContext, {
-    application: { id: 'asset-1', serverName: 'test02.jacksonz.cn', port: 443 },
-    target: { id: 'target-1', type: 'tls.binding', key: 'target-1', bindingKey: undefined, frameworkType: 'web.nginx', metadata: {} },
-    host: { id: 'host-1', primaryIp: '10.255.0.127', osType: 'LINUX' },
-    site: {
-      id: 'site-1', type: undefined, name: 'TEST02', key: undefined, bindingInformation: '*:443:test02.jacksonz.cn',
-      hostHeader: 'test02.jacksonz.cn', listenIp: undefined, port: 443, protocol: 'HTTPS', configPath: undefined, metadata: {},
-    },
-  });
+  const assetContext = result.payload.pluginExecutionContext as Record<string, Record<string, unknown>>;
+  assert.equal(assetContext.apiVersion, 'gcac.deployment-asset-context/v1');
+  assert.equal(assetContext.application.serverName, 'test02.jacksonz.cn');
+  assert.equal(assetContext.target.key, 'target-1');
+  assert.equal('frameworkType' in assetContext.target, false);
+  assert.equal('configPath' in assetContext.site, false);
 });
 
 test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async () => {
   const result = await createDefaultPluginRuntimeAdapterRegistry().compile({
     capability: capability('WORKFLOW_DSL', 'CONTROL_PLANE'),
     context: context('CONTROL_PLANE'),
-    applicationAssetId: 'asset-1',
-    serverName: 'test02.jacksonz.cn',
-    port: 443,
+    applicationAsset: applicationAsset(),
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
   });
   assert.equal(result.executorType, 'WORKFLOW');
@@ -54,12 +47,21 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
   await assert.rejects(() => new PluginRuntimeAdapterRegistry().register(new WorkflowDslRuntimeAdapter()).compile({
     capability: capability('WORKFLOW_DSL', 'AGENT'),
     context: context('AGENT'),
-    applicationAssetId: 'asset-1',
-    serverName: 'test02.jacksonz.cn',
-    port: 443,
+    applicationAsset: applicationAsset(),
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1', credentials: {} },
   }), /没有可用/);
 });
+
+function applicationAsset() {
+  return {
+    id: 'asset-1',
+    address: '10.255.0.127',
+    sniName: 'test02.jacksonz.cn',
+    port: 443,
+    protocol: 'HTTPS' as const,
+    displayName: 'TEST02',
+  };
+}
 
 function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], executionLocation: ResolvedDeploymentCapability['executionLocation']): ResolvedDeploymentCapability {
   return {
@@ -68,8 +70,8 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
       pluginVersionId: 'plugin-version-1', pluginBindingId: 'binding-1', precedence: 'ASSET_OVERRIDE', status: 'ACTIVE', createdAt: '', updatedAt: '',
     },
     binding: {
-      id: 'binding-1', tenantId: 'tenant-1', pluginVersionId: 'plugin-version-1', mode: 'MANAGED', variableBindings: {}, credentialBindings: {},
-      secretBindings: {}, certificateArtifactBindings: {}, connectionBindings: {}, managedContext: { hostId: 'host-1', managedTargetId: 'target-1' },
+      id: 'binding-1', tenantId: 'tenant-1', pluginVersionId: 'plugin-version-1', mode: 'MANAGED',
+      inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, credentials: {}, artifacts: {}, connections: {} }, managedContext: { hostId: 'host-1', managedTargetId: 'target-1' },
       status: 'ACTIVE', version: 3, createdAt: '', updatedAt: '',
     },
     plugin: {
@@ -85,7 +87,7 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
   };
 }
 
-function context(executionLocation: ResolvedManagedTargetContext['executionLocation']): ResolvedManagedTargetContext {
+function context(executionLocation: ExecutionLocation): ResolvedManagedTargetContext {
   return {
     managedTarget: {
       id: 'target-1', tenantId: 'tenant-1', deviceId: 'host-1', discoveryProviderKey: 'fixture', targetType: 'tls.binding', targetKey: 'target-1',
@@ -102,8 +104,6 @@ function context(executionLocation: ResolvedManagedTargetContext['executionLocat
     } as never,
     discoveryProviderKey: 'fixture',
     frameworkType: 'web.nginx',
-    driverKind: executionLocation === 'AGENT' ? 'AGENT_NATIVE' : 'DEVICE_PLUGIN',
-    executionLocation,
     availableExecutionLocations: [executionLocation],
   };
 }

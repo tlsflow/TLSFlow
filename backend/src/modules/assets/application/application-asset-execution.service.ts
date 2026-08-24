@@ -4,6 +4,7 @@ import { PgAssetsRepository } from '../repository/assets.repository.js';
 import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
+import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
 
 export interface SaveStandaloneWorkflowExecutionInput {
   workflowExecution: CreateWorkflowExecutionBindingInput & { bindingId?: string; expectedVersion?: number };
@@ -28,6 +29,10 @@ export class ApplicationAssetExecutionService {
       const { bindingId, expectedVersion, ...bindingInput } = input.workflowExecution;
       if (bindingInput.tenantId !== tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
       const bindings = new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(tx));
+      const currentBinding = bindingId ? await bindings.get(tenantId, bindingId) : undefined;
+      const validation = await new WorkflowDeploymentInputSaveService(tx).validate({ applicationAsset: asset, workflowExecution: bindingInput, currentBinding });
+      if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
+      bindingInput.inputBindings = validation.assetOverride;
       const binding = bindingId
         ? await bindings.update(tenantId, bindingId, { ...bindingInput, expectedVersion: expectedVersion ?? 0 })
         : await bindings.create(bindingInput);

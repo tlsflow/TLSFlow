@@ -49,6 +49,8 @@ export const errorCodes = {
   CAPABILITY_EXPIRED: { httpStatus: 422, message: '能力检测已过期' },
   DEPLOYMENT_INVALID_STATE: { httpStatus: 409, message: '部署计划状态不允许该操作' },
   DEPLOYMENT_APPROVAL_REQUIRED: { httpStatus: 422, message: '需要审批' },
+  DEPLOYMENT_ASSET_CONTEXT_INVALID: { httpStatus: 422, message: '部署资产上下文无效' },
+  DEPLOYMENT_INPUT_CONTRACT_INVALID: { httpStatus: 422, message: '部署输入契约无效' },
   EXECUTION_TIMEOUT: { httpStatus: 504, message: '执行超时' },
   EXECUTION_TARGET_UNAVAILABLE: { httpStatus: 503, message: '执行目标不可用' },
   AGENT_OFFLINE: { httpStatus: 503, message: 'Agent 离线' },

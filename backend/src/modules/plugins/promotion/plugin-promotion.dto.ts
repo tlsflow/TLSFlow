@@ -31,9 +31,9 @@ export interface PluginPromotionPreview {
     frameworks: Array<{ stableKey: string; displayName: string }>;
     sites: Array<{ stableKey: string; displayName: string }>;
     managedTargets: Array<{ stableKey: string; displayName: string }>;
-    secretBindings: Array<{ slot: string; secretRef: string; action: 'REUSE' }>;
-    variableBindings: string[];
-    certificateArtifactBindings: string[];
+    credentials: Array<{ slot: string; credentialId: string; action: 'REUSE' }>;
+    variables: string[];
+    artifacts: string[];
   };
   conflicts: PluginPromotionConflict[];
 }

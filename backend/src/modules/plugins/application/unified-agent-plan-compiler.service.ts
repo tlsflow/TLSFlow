@@ -3,15 +3,13 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { assertPluginGcacCompatibility } from '../../../common/version.js';
 import { newId } from '../../../shared/id.js';
 import type { AgentAtomicExecutionPlanV1, AgentDeploymentPluginManifestV1, AgentPluginOperation } from '../dto/agent-deployment-plugins.dto.js';
-import type { PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
-import { validateAgentDeploymentPluginManifest, validateAgentPluginVariableValues } from '../schema/agent-deployment-plugins.schema.js';
-import type { PluginBindingsApplicationService } from './plugin-bindings.application-service.js';
+import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
 import type { UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
 
 export class UnifiedAgentPlanCompilerService {
   constructor(
     private readonly plugins: UnifiedPluginsApplicationService,
-    private readonly bindings: PluginBindingsApplicationService,
   ) {}
 
   async compile(input: {
@@ -19,17 +17,16 @@ export class UnifiedAgentPlanCompilerService {
     agentId: string;
     executionRunId: string;
     executionStepId: string;
+    pluginVersionId: string;
     pluginBindingId: string;
-    artifacts: Record<string, unknown>;
-    executionContext?: Record<string, unknown>;
-    executionVariables?: Record<string, unknown>;
+    resolvedInput: ResolvedDeploymentInputV1;
     executionMode?: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
     ttlSeconds?: number;
   }): Promise<AgentAtomicExecutionPlanV1> {
-    const binding = await this.bindings.getTenantBinding(input.tenantId, input.pluginBindingId);
-    if (binding.status !== 'ACTIVE') throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件绑定未启用');
-    if (binding.mode !== 'MANAGED') throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent Atomic 插件必须使用 MANAGED Binding');
-    const plugin = await this.plugins.getVersion(binding.pluginVersionId);
+    if (!input.resolvedInput.executable) {
+      throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
+    }
+    const plugin = await this.plugins.getVersion(input.pluginVersionId);
     if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED') {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '统一插件版本未启用');
     }
@@ -42,14 +39,13 @@ export class UnifiedAgentPlanCompilerService {
     if (!recipePath || !recipeText) throw new AppError('RESOURCE_NOT_FOUND', '统一插件缺少 Agent Recipe', { pluginVersionId: plugin.id });
     const recipe = validateAgentDeploymentPluginManifest(JSON.parse(recipeText));
     if (recipe.pluginId !== plugin.pluginId) throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent Recipe 与统一插件身份不一致');
-    const sourcedVariables = resolveExecutionContextVariables(recipe.variables, input.executionContext ?? {});
-    const variables = validateAgentPluginVariableValues(recipe.variables, {
-      ...binding.variableBindings,
-      ...binding.secretBindings,
-      ...sourcedVariables,
-      ...input.executionVariables,
-    });
-    const values = { variables, artifacts: normalizeArtifacts(binding, input.artifacts) };
+    const variables = input.resolvedInput.variables;
+    const values = {
+      variables,
+      connections: input.resolvedInput.connections,
+      credentials: input.resolvedInput.credentials,
+      artifacts: normalizeArtifacts(input.resolvedInput.artifacts),
+    };
     const executionMode = input.executionMode ?? 'APPLY';
     const sourceOperations = executionMode === 'ROLLBACK'
       ? recipe.rollback ?? []
@@ -79,9 +75,9 @@ export class UnifiedAgentPlanCompilerService {
         executionRunId: input.executionRunId,
         executionStepId: input.executionStepId,
         pluginVersionId: plugin.id,
-        pluginBindingId: binding.id,
+        pluginBindingId: input.pluginBindingId,
         variables,
-        artifacts: Object.keys(input.artifacts).sort(),
+        artifacts: Object.keys(values.artifacts).sort(),
       })),
       permissions,
       variablesDigest: sha256(JSON.stringify(variables)),
@@ -97,56 +93,25 @@ export class UnifiedAgentPlanCompilerService {
   }
 }
 
-function resolveExecutionContextVariables(
-  definitions: AgentDeploymentPluginManifestV1['variables'],
-  executionContext: Record<string, unknown>,
-): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [name, definition] of Object.entries(definitions)) {
-    if (definition.source?.kind !== 'execution_context') continue;
-    const value = readContextPath(executionContext, definition.source.path);
-    if (value !== undefined) resolved[name] = value;
-  }
-  return resolved;
-}
-
-function readContextPath(context: Record<string, unknown>, path: string): unknown {
-  let current: unknown = context;
-  for (const segment of path.split('.')) {
-    if (!isRecord(current)) return undefined;
-    current = current[segment];
-  }
-  return current;
-}
-
-function normalizeArtifacts(binding: PluginBindingV1, artifacts: Record<string, unknown>): Record<string, unknown> {
-  const artifactNames = new Set([
-    ...Object.keys(artifacts),
-    ...Object.keys(binding.certificateArtifactBindings),
-  ]);
-  return Object.fromEntries([...artifactNames].map((name) => {
-    const material = isRecord(artifacts[name]) ? artifacts[name] : {};
-    const definition = binding.certificateArtifactBindings[name];
-    if (!definition) return [name, material];
-    const outputs = isRecord(material.outputs) ? material.outputs : {};
-    const selectedBySlot = Object.fromEntries(Object.entries(definition.outputBindings)
-      .map(([slot, outputKey]) => [slot, outputs[slot] ?? outputs[outputKey]] as const)
-      .filter(([, value]) => value !== undefined));
-    const selected = Object.values(selectedBySlot);
-    const primary = selected.length === 1 && isRecord(selected[0]) ? selected[0] : {};
-    return [name, { ...material, ...primary, ...selectedBySlot }];
+function normalizeArtifacts(artifacts: ResolvedDeploymentInputV1['artifacts']): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(artifacts).map(([name, artifact]) => {
+    const outputs = isRecord(artifact.outputs) ? artifact.outputs : {};
+    const outputValues = Object.values(outputs);
+    return [name, outputValues.length === 1 ? outputValues[0] : outputs];
   }));
 }
 
-function renderOperations(operations: AgentPluginOperation[], values: { variables: Record<string, unknown>; artifacts: Record<string, unknown> }): AgentPluginOperation[] {
+type AgentOperationInputContext = Pick<ResolvedDeploymentInputV1, 'variables' | 'connections' | 'credentials'> & { artifacts: Record<string, unknown> };
+
+function renderOperations(operations: AgentPluginOperation[], values: AgentOperationInputContext): AgentPluginOperation[] {
   return operations.map((operation) => ({ ...operation, input: interpolateValue(operation.input, values) as Record<string, unknown> }));
 }
 
-function interpolateValue(value: unknown, context: { variables: Record<string, unknown>; artifacts: Record<string, unknown> }): unknown {
+function interpolateValue(value: unknown, context: AgentOperationInputContext): unknown {
   if (typeof value === 'string') {
-    const exact = value.match(/^\$\{(variables|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/);
-    if (exact) return resolveContextPath(context[exact[1] as 'variables' | 'artifacts'], exact[2]);
-    return value.replace(/\$\{(variables|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: 'variables' | 'artifacts', key: string) => String(resolveContextPath(context[group], key) ?? ''));
+    const exact = value.match(/^\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/);
+    if (exact) return resolveContextPath(context[exact[1] as keyof AgentOperationInputContext], exact[2]);
+    return value.replace(/\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: keyof AgentOperationInputContext, key: string) => String(resolveContextPath(context[group], key) ?? ''));
   }
   if (Array.isArray(value)) return value.map((item) => interpolateValue(item, context));
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, interpolateValue(item, context)]));
@@ -157,7 +122,7 @@ function resolveExecutionPermissions(
   manifest: AgentDeploymentPluginManifestV1,
   variables: Record<string, unknown>,
 ): AgentDeploymentPluginManifestV1['permissions'] {
-  const filePaths = Object.entries(manifest.variables)
+  const filePaths = Object.entries(manifest.inputContract.variables)
     .filter(([, definition]) => definition.type === 'file')
     .map(([name]) => variables[name])
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)

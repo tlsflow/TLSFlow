@@ -1,4 +1,5 @@
 import type { AgentDeploymentPluginManifestV1 } from '../dto/agent-deployment-plugins.dto.js';
+import type { DeploymentInputContractV1, DeploymentVariableDefinitionV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import { GCAC_VERSION } from '../../../common/version.js';
 
 const commonCompatibility = {
@@ -32,16 +33,12 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
         'command.execute': ['1.0'],
       },
     },
-    variables: {
+    inputContract: agentInputContract({
       certificatePath: { type: 'file', required: true, default: '/etc/nginx/tls/server.crt' },
       privateKeyPath: { type: 'file', required: true, default: '/etc/nginx/tls/server.key' },
       nginxProgram: { type: 'enum', required: true, default: '/usr/sbin/nginx', enum: ['/usr/sbin/nginx', '/usr/bin/nginx'] },
       serviceName: { type: 'string', required: true, default: 'nginx' },
-    },
-    artifactInputs: {
-      certificate: { type: 'certificate', required: true },
-      privateKey: { type: 'private_key', required: true },
-    },
+    }, { certificate: 'public_certificate', privateKey: 'private_key' }),
     permissions: [
       { name: 'nginx-files', risk: 'high', scope: 'filesystem', values: ['/etc/nginx/*'] },
       { name: 'nginx-process', risk: 'medium', scope: 'process', values: ['/usr/sbin/nginx', '/usr/bin/nginx'] },
@@ -73,12 +70,11 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
         'windows.iis.binding.restore_certificate': ['1.0'],
       },
     },
-    variables: {
-      siteName: { type: 'string', required: true, source: { kind: 'execution_context', path: 'site.name' } },
-      bindingInformation: { type: 'string', required: true, source: { kind: 'execution_context', path: 'site.bindingInformation' } },
+    inputContract: agentInputContract({
+      siteName: { type: 'string', required: true, assetPath: 'site.name' },
+      bindingInformation: { type: 'string', required: true, assetPath: 'site.bindingInformation' },
       appPoolName: { type: 'string', required: false },
-    },
-    artifactInputs: { certificate: { type: 'bundle', required: true } },
+    }, { certificate: 'pkcs12_bundle' }),
     permissions: [
       { name: 'windows-certificate-store', risk: 'high', scope: 'certificate_store', values: ['LocalMachine/My'] },
       { name: 'iis-sites-and-app-pools', risk: 'high', scope: 'iis', values: ['*'] },
@@ -96,15 +92,11 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'RabbitMQ PEM 证书部署', description: '替换 RabbitMQ PEM 证书和私钥，重启服务并校验 TLS。', logoUrl: '/plugin-logos/rabbitmq.svg', category: 'messaging', tags: ['rabbitmq', 'pem', 'linux'] },
     compatibility: { ...commonCompatibility, platforms: ['LINUX'], frameworks: ['CUSTOM'] },
-    variables: {
+    inputContract: agentInputContract({
       certificatePath: { type: 'file', required: true, default: '/etc/rabbitmq/tls/server.crt' },
       privateKeyPath: { type: 'file', required: true, default: '/etc/rabbitmq/tls/server.key' },
       serviceName: { type: 'string', required: true, default: 'rabbitmq-server' },
-    },
-    artifactInputs: {
-      certificate: { type: 'certificate', required: true },
-      privateKey: { type: 'private_key', required: true },
-    },
+    }, { certificate: 'public_certificate', privateKey: 'private_key' }),
     permissions: [
       { name: 'rabbitmq-files', risk: 'medium', scope: 'filesystem', values: ['/etc/rabbitmq/tls/*'] },
       { name: 'rabbitmq-service', risk: 'medium', scope: 'service', values: ['rabbitmq-server'] },
@@ -122,11 +114,10 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'Java PKCS#12 / KeyStore 部署', description: '原子替换 Java 服务使用的 PKCS#12 或 KeyStore 文件并重启服务。', logoUrl: '/plugin-logos/java.svg', category: 'java', tags: ['java', 'pkcs12', 'keystore', 'linux', 'windows'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS', 'LINUX'], frameworks: ['TOMCAT', 'CUSTOM'] },
-    variables: {
+    inputContract: agentInputContract({
       keystorePath: { type: 'file', required: true },
       serviceName: { type: 'string', required: true },
-    },
-    artifactInputs: { keystore: { type: 'bundle', required: true } },
+    }, { keystore: 'pkcs12_bundle' }),
     permissions: [
       { name: 'keystore-files', risk: 'high', scope: 'filesystem', values: ['*'] },
       { name: 'java-service', risk: 'high', scope: 'service', values: ['*'] },
@@ -144,11 +135,10 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: '自定义 Windows Service 证书文件部署', description: '替换自定义 Windows 服务读取的证书文件并重启指定服务。', logoUrl: '/plugin-logos/windows-service.svg', category: 'windows-service', tags: ['windows', 'service', 'custom'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS'], frameworks: ['CUSTOM'] },
-    variables: {
+    inputContract: agentInputContract({
       certificatePath: { type: 'file', required: true },
       serviceName: { type: 'string', required: true },
-    },
-    artifactInputs: { certificateFile: { type: 'bundle', required: true } },
+    }, { certificateFile: 'pkcs12_bundle' }),
     permissions: [
       { name: 'service-certificate-file', risk: 'high', scope: 'filesystem', values: ['*'] },
       { name: 'windows-service', risk: 'high', scope: 'service', values: ['*'] },
@@ -157,6 +147,40 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     rollback: singleFileRollback('windows-service'),
   },
 ];
+
+type AgentVariableDeclaration = Pick<DeploymentVariableDefinitionV1, 'type' | 'required' | 'default' | 'enum'> & { assetPath?: string };
+
+function agentInputContract(
+  variables: Record<string, AgentVariableDeclaration>,
+  artifacts: Record<string, string>,
+): DeploymentInputContractV1 {
+  return {
+    apiVersion: 'gcac.deployment-input/v1',
+    variables: Object.fromEntries(Object.entries(variables).map(([name, definition]) => {
+      const fixed = definition.assetPath !== undefined;
+      const hasDefault = definition.default !== undefined;
+      return [name, {
+        type: definition.type,
+        required: definition.required,
+        configurationMode: fixed ? 'runtime' : hasDefault || !definition.required ? 'advanced' : 'required',
+        source: fixed ? { kind: 'asset', path: definition.assetPath! } : hasDefault ? { kind: 'default' } : { kind: 'binding' },
+        lifecycle: 'pre_execution',
+        bindingPolicy: fixed ? 'fixed' : hasDefault || !definition.required ? 'default_overridable' : 'required_binding',
+        default: definition.default,
+        enum: definition.enum,
+      } satisfies DeploymentVariableDefinitionV1];
+    })),
+    connections: {},
+    credentials: {},
+    artifacts: Object.fromEntries(Object.entries(artifacts).map(([name, role]) => [name, {
+      kind: 'certificate',
+      required: true,
+      configurationMode: 'required',
+      lifecycle: 'pre_execution',
+      artifactContract: { outputs: { [name]: { role, required: true, sensitive: role === 'private_key' || role === 'pkcs12_bundle' } } },
+    }])),
+  };
+}
 
 function nginxOperations(): AgentDeploymentPluginManifestV1['operations'] {
   return [

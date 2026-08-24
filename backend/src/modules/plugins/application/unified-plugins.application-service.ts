@@ -248,9 +248,10 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
       if (record.runtime === 'AGENT_ATOMIC') {
         stepCount += Array.isArray(parsed.operations) ? parsed.operations.length : 0;
         rollbackCount += Array.isArray(parsed.rollback) ? parsed.rollback.length : 0;
+        const inputContract = readRecordField(parsed.inputContract);
         configuration ??= {
-          variables: readRecordField(parsed.variables),
-          artifactInputs: readRecordField(parsed.artifactInputs),
+          variables: readRecordField(inputContract.variables),
+          artifactInputs: readRecordField(inputContract.artifacts),
           compatibility: readRecordField(parsed.compatibility),
         };
       } else {

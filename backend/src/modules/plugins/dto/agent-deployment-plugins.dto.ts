@@ -1,24 +1,7 @@
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+
 export type AgentPluginPlatform = 'WINDOWS' | 'LINUX';
 export type AgentPluginStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify' | 'rollback';
-
-export type ExecutionVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'certificate' | 'credential';
-
-export interface ExecutionVariableDefinition {
-  type: ExecutionVariableType;
-  required?: boolean;
-  description?: string;
-  default?: unknown;
-  source?: {
-    kind: 'execution_context';
-    path: string;
-  };
-  enum?: string[];
-  pattern?: string;
-  minimum?: number;
-  maximum?: number;
-  editableScope?: 'ASSET' | 'EXECUTION';
-  sensitive?: boolean;
-}
 
 export interface AgentPluginCompatibility {
   platforms: AgentPluginPlatform[];
@@ -26,12 +9,6 @@ export interface AgentPluginCompatibility {
   architectures?: string[];
   requiredCapabilities?: string[];
   operationSchemaVersions?: Record<string, string[]>;
-}
-
-export interface AgentPluginArtifactInput {
-  type: 'certificate' | 'private_key' | 'certificate_chain' | 'bundle' | 'file';
-  required?: boolean;
-  description?: string;
 }
 
 export interface AgentPluginPermissionDeclaration {
@@ -85,8 +62,7 @@ export interface AgentDeploymentPluginManifestV1 {
     homepage?: string;
   };
   compatibility: AgentPluginCompatibility;
-  variables: Record<string, ExecutionVariableDefinition>;
-  artifactInputs: Record<string, AgentPluginArtifactInput>;
+  inputContract: DeploymentInputContractV1;
   permissions: AgentPluginPermissionDeclaration[];
   operations: AgentPluginOperation[];
   rollback?: AgentPluginOperation[];

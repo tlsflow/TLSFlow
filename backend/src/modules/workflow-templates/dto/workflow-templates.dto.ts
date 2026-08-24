@@ -1,3 +1,5 @@
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual';
@@ -303,6 +305,7 @@ export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';
   kind: 'CurlSshWorkflow';
   metadata: WorkflowMetadata;
+  inputContract?: DeploymentInputContractV1;
   variables: Record<string, WorkflowVariableDefinition>;
   connections?: Record<string, WorkflowConnectionDefinition>;
   steps: WorkflowStep[];

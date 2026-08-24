@@ -78,7 +78,7 @@ export class CredentialsRepository {
         where tenant_id=$1
           and exists (
             select 1
-              from jsonb_each(credential_bindings) as binding_slot
+              from jsonb_each(input_bindings->'credentials') as binding_slot
              where binding_slot.value->>'credentialId'=$2
           )
         order by id`,

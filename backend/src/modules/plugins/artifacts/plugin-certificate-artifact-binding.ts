@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { AgentDeploymentPluginManifestV1, AgentPluginArtifactInput } from '../dto/agent-deployment-plugins.dto.js';
+import type { AgentDeploymentPluginManifestV1 } from '../dto/agent-deployment-plugins.dto.js';
 import type { WorkflowDslV1, WorkflowVariableDefinition } from '../../workflow-templates/dto/workflow-templates.dto.js';
-import type { CertificateArtifactBindingV1 } from '../dto/plugin-bindings.dto.js';
+import type { DeploymentArtifactBindingV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
 
@@ -9,7 +9,7 @@ export function buildPluginCertificateArtifactBindings(
   plugin: UnifiedPluginVersionRecord,
   capabilityKey: string,
   certificateFormatId: string,
-): Record<string, CertificateArtifactBindingV1> {
+): Record<string, DeploymentArtifactBindingV1> {
   if (plugin.runtime === 'AGENT_ATOMIC') {
     return buildAgentAtomicCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
   }
@@ -28,7 +28,7 @@ function buildWorkflowCertificateArtifactBindings(
   plugin: UnifiedPluginVersionRecord,
   capabilityKey: string,
   certificateFormatId: string,
-): Record<string, CertificateArtifactBindingV1> {
+): Record<string, DeploymentArtifactBindingV1> {
   const resourcePath = plugin.manifest.resources.workflows?.[capabilityKey];
   const contentText = resourcePath ? plugin.resources[resourcePath] : undefined;
   if (!resourcePath || !contentText) {
@@ -58,7 +58,7 @@ function buildAgentAtomicCertificateArtifactBindings(
   plugin: UnifiedPluginVersionRecord,
   capabilityKey: string,
   certificateFormatId: string,
-): Record<string, CertificateArtifactBindingV1> {
+): Record<string, DeploymentArtifactBindingV1> {
   const resourcePath = plugin.manifest.resources.agentRecipes?.[capabilityKey];
   const contentText = resourcePath ? plugin.resources[resourcePath] : undefined;
   if (!resourcePath || !contentText) {
@@ -71,7 +71,7 @@ function buildAgentAtomicCertificateArtifactBindings(
   }
 
   const recipe = parseAgentRecipe(contentText, plugin.id, capabilityKey);
-  const bindings = Object.fromEntries(Object.entries(recipe.artifactInputs)
+  const bindings = Object.fromEntries(Object.entries(recipe.inputContract.artifacts)
     .filter(([, definition]) => definition.required === true)
     .flatMap(([artifactName, definition]) => {
       const outputKey = standardAgentArtifactOutputKey(definition);
@@ -79,7 +79,7 @@ function buildAgentAtomicCertificateArtifactBindings(
         ? [[artifactName, {
           certificateFormatId,
           outputBindings: { [artifactName]: outputKey },
-        } satisfies CertificateArtifactBindingV1] as const]
+        } satisfies DeploymentArtifactBindingV1] as const]
         : [];
     }));
   if (Object.keys(bindings).length === 0) {
@@ -127,7 +127,7 @@ function buildBinding(
   variableName: string,
   definition: WorkflowVariableDefinition,
   certificateFormatId: string,
-): CertificateArtifactBindingV1 {
+): DeploymentArtifactBindingV1 {
   const outputs = definition.artifactContract?.outputs ?? {};
   const outputBindings = Object.fromEntries(Object.entries(outputs).map(([outputName, output]) => [
     outputName,
@@ -157,10 +157,7 @@ function standardOutputKey(outputName: string, role: string): string {
   return outputName.trim();
 }
 
-function standardAgentArtifactOutputKey(definition: AgentPluginArtifactInput): string | undefined {
-  if (definition.type === 'certificate') return 'leafPem';
-  if (definition.type === 'private_key') return 'privateKeyPem';
-  if (definition.type === 'certificate_chain') return 'orderedChainPem';
-  if (definition.type === 'bundle') return 'bundle';
-  return undefined;
+function standardAgentArtifactOutputKey(definition: AgentDeploymentPluginManifestV1['inputContract']['artifacts'][string]): string | undefined {
+  const requiredOutput = Object.entries(definition.artifactContract.outputs).find(([, output]) => output.required);
+  return requiredOutput ? standardOutputKey(requiredOutput[0], requiredOutput[1].role) : undefined;
 }

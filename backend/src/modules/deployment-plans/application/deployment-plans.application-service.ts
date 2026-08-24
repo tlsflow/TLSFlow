@@ -48,6 +48,7 @@ import {
   getDeploymentStrategyPluginBindingId,
   validateDeploymentStrategyPluginBinding,
 } from '../../assets/application/deployment-strategy.service.js';
+import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -559,7 +560,7 @@ export class DeploymentPlansApplicationService {
     }
     if (!this.pluginWorkflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件 Workflow 发布服务未接入', { code: 'PLUGIN_WORKFLOW_RESOLVER_MISSING' });
     const workflowBinding = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
-    const credentials = await this.snapshotCredentials(tenantId, binding.credentialBindings);
+    const credentials = await this.snapshotCredentials(tenantId, binding.inputBindings.credentials);
     return {
       ...asset,
       deploymentStrategy: {
@@ -569,10 +570,10 @@ export class DeploymentPlansApplicationService {
           workflowId: workflowBinding.workflowTemplateId,
           workflowVersionSelection: 'PINNED',
           workflowVersionId: workflowBinding.workflowVersionId,
-          variableBindings: binding.variableBindings,
+          variableBindings: binding.inputBindings.variables,
           credentials,
-          connectionBindings: binding.connectionBindings as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
-          certificateArtifactBindings: binding.certificateArtifactBindings,
+          connectionBindings: binding.inputBindings.connections as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
+          certificateArtifactBindings: binding.inputBindings.artifacts as NonNullable<WorkflowDeploymentStrategyDto['certificateArtifactBindings']>,
         },
       },
     };
@@ -608,9 +609,8 @@ export class DeploymentPlansApplicationService {
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
     certificateBinding?: CertificateBindingDto,
   ) {
-    const base = this.deploymentStrategyResolver.resolve({ applicationAsset: asset, bindingTarget, certificateBinding, managedTargetContext: context });
-    const runtime = await this.compileManagedPluginRuntime(tenantId, asset, context, base);
-    return this.attachWorkflowCredentialSnapshots(tenantId, await this.attachPluginExecutionIdentity(asset, runtime));
+    const resolved = await this.compileManagedPluginRuntime(tenantId, asset, bindingTarget, context, certificateBinding);
+    return this.attachWorkflowCredentialSnapshots(tenantId, await this.attachPluginExecutionIdentity(asset, resolved));
   }
 
   private async compileWorkflowExecutionBinding(
@@ -643,10 +643,10 @@ export class DeploymentPlansApplicationService {
           workflowVersionId,
           runner: binding.runner,
           gatewayId: binding.gatewayId,
-          connectionBindings: binding.connectionBindings as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
-          variableBindings: binding.variableBindings,
-          credentialBindings: binding.credentialBindings,
-          certificateArtifactBindings: binding.certificateArtifactBindings as NonNullable<WorkflowDeploymentStrategyDto['certificateArtifactBindings']>,
+          connectionBindings: binding.inputBindings.connections as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
+          variableBindings: binding.inputBindings.variables,
+          credentialBindings: binding.inputBindings.credentials,
+          certificateArtifactBindings: binding.inputBindings.artifacts as NonNullable<WorkflowDeploymentStrategyDto['certificateArtifactBindings']>,
         },
       },
     };
@@ -660,6 +660,7 @@ export class DeploymentPlansApplicationService {
       ...resolved,
       payload: {
         ...resolved.payload,
+        deploymentAssetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
         executionSource: {
           type: executionSource.type,
           mode: executionSource.mode,
@@ -687,11 +688,17 @@ export class DeploymentPlansApplicationService {
   private async compileManagedPluginRuntime(
     tenantId: string,
     asset: ServiceAssetDto,
+    bindingTarget: Awaited<ReturnType<AssetsRepository['getApplicationAssetTargetByApplicationAssetId']>>,
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
-    resolved: ReturnType<DeploymentStrategyResolver['resolve']>,
+    certificateBinding?: CertificateBindingDto,
   ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
     if (asset.deploymentStrategy?.type !== 'MANAGED_TARGET' || !context) {
-      return resolved;
+      return this.deploymentStrategyResolver.resolve({
+        applicationAsset: asset,
+        bindingTarget,
+        certificateBinding,
+        managedTargetContext: context,
+      });
     }
     if (!this.deploymentCapabilityResolver) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', '设备插件部署编译服务未完整接入', {
@@ -722,25 +729,25 @@ export class DeploymentPlansApplicationService {
       capability,
       internalWorkflowVersionId: workflow?.workflowVersionId,
     });
-    const credentials = workflow ? await this.snapshotCredentials(tenantId, capability.binding.credentialBindings) : {};
+    const credentials = workflow ? await this.snapshotCredentials(tenantId, capability.binding.inputBindings.credentials) : {};
     const runtime = await this.pluginRuntimeAdapters.compile({
       capability,
       context,
-      applicationAssetId: asset.id,
-      serverName: asset.sniName ?? asset.address,
-      port: asset.port,
-      certificateBindingId: readOptionalString(resolved.payload.certificateBindingId),
+      applicationAsset: asset,
+      certificateBindingId: certificateBinding?.id,
       workflow: workflow ? { workflowId: workflow.workflowTemplateId, workflowVersionId: workflow.workflowVersionId, credentials } : undefined,
+    });
+    const resolved = this.deploymentStrategyResolver.resolve({
+      applicationAsset: asset,
+      bindingTarget,
+      certificateBinding,
+      managedTargetContext: context,
+      managedTargetRuntime: runtime,
     });
     return {
       ...resolved,
-      executorType: runtime.executorType,
-      executionTargetId: runtime.executionTargetId,
-      requiredCapabilities: runtime.requiredCapabilities,
-      gatewayRoute: runtime.gatewayRoute,
       payload: {
         ...resolved.payload,
-        ...runtime.payload,
         executionSource: {
           type: executionSource.type,
           mode: 'PLUGIN',
@@ -1578,11 +1585,11 @@ export class DeploymentPlansApplicationService {
     const agentBinding = agentBindingId && this.pluginBindings
       ? await this.pluginBindings.getTenantBinding(resolvedTenantId, agentBindingId)
       : undefined;
-    const artifactBindings = Object.keys(agentBinding?.certificateArtifactBindings ?? {}).length > 0
-      ? agentBinding!.certificateArtifactBindings
+    const artifactBindings = Object.keys(agentBinding?.inputBindings.artifacts ?? {}).length > 0
+      ? agentBinding!.inputBindings.artifacts
       : workflowBindings;
     if (Object.keys(artifactBindings).length > 0) {
-      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings);
+      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings as Record<string, WorkflowCertificateArtifactBinding>);
     }
     if (!target.certificateBindingId) {
       return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId);

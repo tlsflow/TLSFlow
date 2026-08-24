@@ -49,7 +49,22 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     resources: {
       'workflows/deploy.json': JSON.stringify({
         apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'fixture-managed-deploy', version: '1.0.0' },
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {
+            virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+          },
+          connections: {},
+          credentials: {},
+          artifacts: {
+            certificate: {
+              kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution',
+              artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
+            },
+          },
+        },
         variables: {
+          virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
           certificate: {
             type: 'certificate', required: true,
             artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
@@ -79,6 +94,11 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     resources: { 'workflows/deploy.json': imported.resources['workflows/deploy.json']! },
   });
   await plugins.enableVersion(legacy.id);
+  await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
+    ('workflow.templates','workflow_user_override',$1::jsonb,now()),('workflow.template_versions','workflow_user_override_v1',$2::jsonb,now())`, [
+    JSON.stringify({ id: 'workflow_user_override', name: 'Fixture Override', currentVersionId: 'workflow_user_override_v1', status: 'active' }),
+    JSON.stringify({ id: 'workflow_user_override_v1', templateId: 'workflow_user_override', version: 1, dslVersion: 'v1', status: 'published', contentHash: 'hash', content: { inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } }),
+  ]);
 
   const service = new ManagedTargetPluginQueryService(db);
   const compatible = await service.listCompatiblePlugins({ tenantId, managedTargetId: target.id, capabilityKey: 'certificate.deploy', locale: 'zh-CN' });
@@ -93,7 +113,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     applicationAssetId: applicationAsset.id,
     value: {
       managedTargetId: target.id,
-      pluginOverride: { pluginVersionId: imported.id, variableBindings: { virtualServer: 'https' }, secretBindings: {} },
+      pluginOverride: { pluginVersionId: imported.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https' }, credentials: {}, artifacts: {}, connections: {} } },
     },
   });
   assert.equal(saved.target.managedTargetId, target.id);
@@ -105,6 +125,13 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   const effective = await service.getEffectiveCapability({ tenantId, managedTargetId: target.id, applicationAssetId: applicationAsset.id, capabilityKey: 'certificate.deploy' });
   assert.equal(effective.executionLocation, 'CONTROL_PLANE');
   assert.equal(effective.binding.pluginBindingId, saved.effectiveCapability?.binding.pluginBindingId);
+
+  await assert.rejects(() => service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: { managedTargetId: target.id, pluginOverride: { pluginVersionId: older.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } },
+  }), (error: any) => error.errorCode === 'VALIDATION_FAILED'
+    && error.details?.issues?.some((issue: any) => issue.code === 'DEPLOYMENT_INPUT_REQUIRED'));
 
   const sourceWorkflow = { workflow_template_id: 'workflow_user_override', workflow_version_id: 'workflow_user_override_v1' };
   const overridden = await service.saveApplicationAssetTarget({
@@ -119,7 +146,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
         workflowVersionSelection: 'PINNED',
         workflowVersionId: sourceWorkflow.workflow_version_id,
         runner: 'CONTROL_PLANE',
-        connectionBindings: {}, variableBindings: {}, credentialBindings: {}, certificateArtifactBindings: {},
+        inputBindings: { apiVersion: 'gcac.input-bindings/v1', connections: {}, variables: {}, credentials: {}, artifacts: {} },
       },
     },
   });
@@ -161,12 +188,15 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   const restoredBindingId = restored.effectiveCapability?.binding.pluginBindingId;
   assert.ok(restoredBindingId);
   const restoredBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db)).getTenantBinding(tenantId, restoredBindingId);
-  assert.deepEqual(restoredBinding.certificateArtifactBindings, {
+  assert.deepEqual(restoredBinding.inputBindings.artifacts, {
     certificate: {
       certificateFormatId: 'format-existing',
       outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
     },
   });
+  assert.deepEqual(restoredBinding.inputBindings.variables, {});
+  assert.deepEqual(restoredBinding.inputBindings.connections, {});
+  assert.deepEqual(restoredBinding.inputBindings.credentials, {});
   assert.equal((await db.query<{ status: string }>('select status from workflow_execution_bindings where id=$1', [overridden.workflowExecutionBinding.id])).rows[0]?.status, 'DISABLED');
 
   await service.saveApplicationAssetTarget({
@@ -186,5 +216,18 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     tenantId,
     applicationAssetId: applicationAsset.id,
     value: { managedTargetId: target.id, expectedTargetVersion: 999 },
+  }), /版本冲突/);
+  await assert.rejects(() => service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: {
+      managedTargetId: target.id,
+      pluginOverride: {
+        pluginVersionId: imported.id,
+        pluginBindingId: restoredBinding.id,
+        expectedBindingVersion: 999,
+        inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} },
+      },
+    },
   }), /版本冲突/);
 });

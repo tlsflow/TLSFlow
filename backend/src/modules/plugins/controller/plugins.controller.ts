@@ -211,16 +211,11 @@ export class PluginsController {
   private createPluginBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginVersionId: { type: 'string', required: true }, mode: { type: 'string', required: true },
-      variableBindings: { type: 'object' }, credentialBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
-      connectionBindings: { type: 'object' }, managedContext: { type: 'object' },
+      inputBindings: { type: 'object', required: true }, managedContext: { type: 'object' },
     });
     return this.pluginBindings.createBinding(tenantId(request), {
       pluginVersionId: String(body.pluginVersionId), mode: body.mode as 'MANAGED' | 'STANDALONE',
-      variableBindings: (body.variableBindings ?? {}) as Record<string, unknown>,
-      credentialBindings: (body.credentialBindings ?? {}) as Record<string, { credentialId: string }>,
-      secretBindings: (body.secretBindings ?? {}) as Record<string, string>,
-      certificateArtifactBindings: (body.certificateArtifactBindings ?? {}) as never,
-      connectionBindings: (body.connectionBindings ?? {}) as Record<string, unknown>,
+      inputBindings: body.inputBindings as never,
       managedContext: body.managedContext as never,
     });
   }
@@ -233,8 +228,7 @@ export class PluginsController {
   private updatePluginBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       bindingId: { type: 'string', required: true }, expectedVersion: { type: 'number', required: true },
-      variableBindings: { type: 'object' }, credentialBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
-      connectionBindings: { type: 'object' }, managedContext: { type: 'object' }, status: { type: 'string' },
+      inputBindings: { type: 'object' }, managedContext: { type: 'object' }, status: { type: 'string' },
     });
     return this.pluginBindings.updateBinding(tenantId(request), String(body.bindingId), body as never);
   }

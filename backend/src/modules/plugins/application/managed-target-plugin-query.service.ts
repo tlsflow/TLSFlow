@@ -7,7 +7,8 @@ import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-
 import { PgDevicesRepository } from '../../devices/repository/devices.repository.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../capabilities/plugin-compatibility.evaluator.js';
-import type { CertificateArtifactBindingV1, PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
+import type { PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
+import { emptyInputBindingsV1, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginBindingsRepository } from '../repository/plugin-bindings.repository.js';
@@ -19,6 +20,10 @@ import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templat
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
 import { buildPluginCertificateArtifactBindings } from '../artifacts/plugin-certificate-artifact-binding.js';
+import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
+import { DeploymentInputBindingSaveService } from '../../deployment-inputs/application/deployment-input-binding-save.service.js';
+import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
+import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -32,11 +37,7 @@ export interface SaveManagedTargetPluginOverrideInput {
     pluginVersionId: string;
     pluginBindingId?: string;
     expectedBindingVersion?: number;
-    variableBindings?: Record<string, unknown>;
-    credentialBindings?: Record<string, { credentialId: string }>;
-    secretBindings?: Record<string, string>;
-    certificateArtifactBindings?: Record<string, CertificateArtifactBindingV1>;
-    connectionBindings?: Record<string, unknown>;
+    inputBindings?: InputBindingsV1;
   };
   workflowExecution?: CreateWorkflowExecutionBindingInput & { bindingId?: string; expectedVersion?: number };
 }
@@ -44,6 +45,8 @@ export interface SaveManagedTargetPluginOverrideInput {
 export class ManagedTargetPluginQueryService {
   private readonly capabilityRegistry = new PluginCapabilityRegistry();
   private readonly pluginLocales = new PluginLocaleService();
+  private readonly contractLoader = new DeploymentInputContractLoader();
+  private readonly bindingSaves = new DeploymentInputBindingSaveService();
 
   constructor(private readonly db: DatabasePort) {}
 
@@ -133,6 +136,10 @@ export class ManagedTargetPluginQueryService {
         }
         const { bindingId, expectedVersion, ...createInput } = workflowInput;
         if (createInput.tenantId !== input.tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
+        const currentBinding = bindingId ? await services.workflowBindings.get(input.tenantId, bindingId) : undefined;
+        const validation = await new WorkflowDeploymentInputSaveService(tx).validate({ applicationAsset, managedTargetContext: context, workflowExecution: createInput, currentBinding });
+        if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
+        createInput.inputBindings = validation.assetOverride;
         const binding = bindingId
           ? await services.workflowBindings.update(input.tenantId, bindingId, { ...createInput, expectedVersion: expectedVersion ?? 0 })
           : await services.workflowBindings.create(createInput);
@@ -167,15 +174,27 @@ export class ManagedTargetPluginQueryService {
         });
         if (certificateFormatId?.trim()) {
           const plugin = await services.plugins.getVersion(inherited.pluginVersionId);
-          const certificateArtifactBindings = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim());
+          const artifacts = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim());
+          const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
+            deviceId: context.host.id,
+            managedTargetId: context.managedTarget.id,
+          });
+          const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
+          const submitted = emptyInputBindingsV1();
+          submitted.artifacts = artifacts;
+          const validation = this.bindingSaves.validate({
+            pluginVersionId: plugin.id,
+            contract: this.contractLoader.fromPlugin(plugin, capabilityKey),
+            assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
+            deviceDefault: layers.device,
+            targetOverride: layers.target,
+            submitted,
+          });
+          if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
           const binding = await services.bindings.createBinding(input.tenantId, {
             pluginVersionId: inherited.pluginVersionId,
             mode: 'MANAGED',
-            variableBindings: inherited.binding.variableBindings,
-            credentialBindings: inherited.binding.credentialBindings,
-            secretBindings: inherited.binding.secretBindings,
-            certificateArtifactBindings,
-            connectionBindings: inherited.binding.connectionBindings,
+            inputBindings: validation.assetOverride,
             managedContext: { hostId: context.host.id, managedTargetId: context.managedTarget.id },
           });
           await services.bindings.assignCapability(input.tenantId, {
@@ -210,16 +229,36 @@ export class ManagedTargetPluginQueryService {
           reasons: evaluated.reasons,
         });
       }
-      const requestedArtifactBindings = input.value.pluginOverride.certificateArtifactBindings ?? {};
-      const certificateArtifactBindings = Object.keys(requestedArtifactBindings).length > 0
-        ? requestedArtifactBindings
+      const requestedInputBindings = input.value.pluginOverride.inputBindings ?? emptyInputBindingsV1();
+      const artifacts = Object.keys(requestedInputBindings.artifacts).length > 0
+        ? requestedInputBindings.artifacts
         : certificateFormatId?.trim()
           ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim())
           : {};
-      const binding = await this.saveBinding(services.bindings, input.tenantId, context, {
-        ...input.value.pluginOverride,
-        certificateArtifactBindings,
+      const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
+        deviceId: context.host.id,
+        managedTargetId: context.managedTarget.id,
+        applicationAssetId: input.applicationAssetId,
       });
+      const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
+      const validation = this.bindingSaves.validate({
+        pluginVersionId: plugin.id,
+        contract: this.contractLoader.fromPlugin(plugin, capabilityKey),
+        assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
+        deviceDefault: layers.device,
+        targetOverride: layers.target,
+        currentAssetOverride: layers.asset,
+        submitted: { ...requestedInputBindings, artifacts },
+      });
+      if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
+      const hasAssetOverride = hasBindingValues(validation.assetOverride);
+      const inheritedSameVersion = layers.target?.pluginVersionId === plugin.id || layers.device?.pluginVersionId === plugin.id;
+      const binding = hasAssetOverride || !inheritedSameVersion
+        ? await this.saveBinding(services.bindings, input.tenantId, context, { ...input.value.pluginOverride, inputBindings: validation.assetOverride })
+        : undefined;
+      if (!binding) {
+        await services.bindings.disableOwnerAssignment(input.tenantId, { ownerType: 'APPLICATION_ASSET', ownerId: input.applicationAssetId, capabilityKey });
+      } else {
       await services.bindings.assignCapability(input.tenantId, {
         ownerType: 'APPLICATION_ASSET',
         ownerId: input.applicationAssetId,
@@ -228,6 +267,7 @@ export class ManagedTargetPluginQueryService {
         pluginBindingId: binding.id,
         precedence: 'ASSET_OVERRIDE',
       });
+      }
       const resolved = await services.capabilities.resolve({
         tenantId: input.tenantId,
         capabilityKey,
@@ -261,11 +301,7 @@ export class ManagedTargetPluginQueryService {
       }
       return bindings.updateBinding(tenantId, current.id, {
         expectedVersion: input.expectedBindingVersion,
-        variableBindings: input.variableBindings,
-        credentialBindings: input.credentialBindings,
-        secretBindings: input.secretBindings,
-        certificateArtifactBindings: input.certificateArtifactBindings,
-        connectionBindings: input.connectionBindings,
+        inputBindings: input.inputBindings,
         managedContext,
         status: 'ACTIVE',
       });
@@ -273,13 +309,25 @@ export class ManagedTargetPluginQueryService {
     return bindings.createBinding(tenantId, {
       pluginVersionId: input.pluginVersionId,
       mode: 'MANAGED',
-      variableBindings: input.variableBindings ?? {},
-      credentialBindings: input.credentialBindings ?? {},
-      secretBindings: input.secretBindings ?? {},
-      certificateArtifactBindings: input.certificateArtifactBindings ?? {},
-      connectionBindings: input.connectionBindings ?? {},
+      inputBindings: input.inputBindings ?? emptyInputBindingsV1(),
       managedContext,
     });
+  }
+
+  private async loadBindingLayers(
+    bindings: PluginBindingsApplicationService,
+    tenantId: string,
+    assignments: Awaited<ReturnType<PluginBindingsApplicationService['listAssignmentCandidates']>>,
+  ) {
+    const layers: { device?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; target?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; asset?: { pluginVersionId: string; inputBindings: InputBindingsV1 } } = {};
+    for (const assignment of assignments) {
+      const binding = await bindings.getTenantBinding(tenantId, assignment.pluginBindingId);
+      const layer = { pluginVersionId: assignment.pluginVersionId, inputBindings: binding.inputBindings };
+      if (assignment.ownerType === 'DEVICE') layers.device = layer;
+      else if (assignment.ownerType === 'MANAGED_TARGET') layers.target = layer;
+      else layers.asset = layer;
+    }
+    return layers;
   }
 
   private async createCompatibilityContext(
@@ -319,6 +367,13 @@ export class ManagedTargetPluginQueryService {
       workflowBindings: new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(db)),
     };
   }
+}
+
+function hasBindingValues(bindings: InputBindingsV1): boolean {
+  return Object.keys(bindings.variables).length > 0
+    || Object.keys(bindings.connections).length > 0
+    || Object.keys(bindings.credentials).length > 0
+    || Object.keys(bindings.artifacts).length > 0;
 }
 
 function evaluateCompatiblePlugin(

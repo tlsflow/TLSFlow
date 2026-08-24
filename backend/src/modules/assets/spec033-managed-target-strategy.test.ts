@@ -119,15 +119,16 @@ test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
     },
   }, context);
   const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
-    variableBindings: { bindingVariable: 'binding' },
-    credentialBindings: { credential: { credentialId: 'cred_spec033' } },
-    connectionBindings: { target: { host: '192.0.2.10' } },
-    certificateArtifactBindings: {
+    inputBindings: { apiVersion: 'gcac.input-bindings/v1',
+      variables: { bindingVariable: 'binding' },
+      credentials: { credential: { credentialId: 'cred_spec033' } },
+      connections: { target: { host: '192.0.2.10' } },
+      artifacts: {
       certificate: {
         certificateFormatId: 'format_unified',
         outputBindings: { certificatePem: 'certificatePem' },
       },
-    },
+    } },
   }));
 
   assert.equal(validated.compatibilityMode, 'UNIFIED');
@@ -149,11 +150,7 @@ function pluginBinding(patch: Partial<PluginBindingV1> = {}): PluginBindingV1 {
     tenantId: 'tenant_spec033_strategy',
     pluginVersionId: 'version_spec033_strategy',
     mode: 'MANAGED',
-    variableBindings: {},
-    credentialBindings: {},
-    secretBindings: {},
-    certificateArtifactBindings: {},
-    connectionBindings: {},
+    inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, credentials: {}, artifacts: {}, connections: {} },
     managedContext: {
       hostId: 'host_spec033_strategy',
       managedTargetId: 'target_spec033_strategy',

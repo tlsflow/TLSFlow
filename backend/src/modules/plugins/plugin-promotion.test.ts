@@ -14,15 +14,14 @@ test('Standalone 归集支持预览、确认幂等和撤销恢复', async () => 
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (value) => createHash('sha256').update(value).digest('hex') });
   const plugin = await createPlugin(db);
   const binding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db)).createBinding('tenant-1', {
-    pluginVersionId: plugin.id, mode: 'STANDALONE', variableBindings: { timeoutSeconds: 30 },
-    secretBindings: { credential: 'secret://password/secret-1#current' }, certificateArtifactBindings: {},
-    connectionBindings: { address: '10.50.0.10', port: 443 },
+    pluginVersionId: plugin.id, mode: 'STANDALONE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { timeoutSeconds: 30 },
+    credentials: { credential: { credentialId: 'cred-1' } }, artifacts: {}, connections: { management: { host: '10.50.0.10', port: 443 } } },
   });
   const service = new PluginPromotionService(db);
   const preview = await service.preview('tenant-1', input(binding.id));
   assert.equal(preview.status, 'PREVIEWED');
   assert.equal(preview.mappings.sites.length, 1);
-  assert.equal(preview.mappings.secretBindings[0]?.action, 'REUSE');
+  assert.equal(preview.mappings.credentials[0]?.action, 'REUSE');
 
   const completed = await service.confirm('tenant-1', preview.promotionId);
   assert.equal(completed.status, 'COMPLETED');
@@ -45,15 +44,15 @@ test('Standalone 归集预览阻止地址冲突和非 SecretRef', async () => {
   const bindings = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const existing = new PluginPromotionService(db);
   const first = await bindings.createBinding('tenant-1', {
-    pluginVersionId: plugin.id, mode: 'STANDALONE', variableBindings: {},
-    secretBindings: { credential: 'secret://password/secret-1#current' }, certificateArtifactBindings: {}, connectionBindings: {},
+    pluginVersionId: plugin.id, mode: 'STANDALONE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {},
+    credentials: { credential: { credentialId: 'cred-1' } }, artifacts: {}, connections: {} },
   });
   const firstPreview = await existing.preview('tenant-1', input(first.id));
   assert.equal((await existing.confirm('tenant-1', firstPreview.promotionId)).status, 'COMPLETED');
 
   const invalid = await bindings.createBinding('tenant-1', {
-    pluginVersionId: plugin.id, mode: 'STANDALONE', variableBindings: {},
-    secretBindings: { credential: 'plain-password' }, certificateArtifactBindings: {}, connectionBindings: {},
+    pluginVersionId: plugin.id, mode: 'STANDALONE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {},
+    credentials: { credential: { credentialId: '' } }, artifacts: {}, connections: {} },
   });
   const conflict = await existing.preview('tenant-1', input(invalid.id));
   assert.equal(conflict.status, 'CONFLICT');

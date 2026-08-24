@@ -360,16 +360,18 @@ export class AgentExecutorAdapter implements Executor {
     }
     const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId);
     if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
-    const artifact = readRecord(snapshot.deploymentArtifact) ?? {};
-    const artifacts = resolveAgentAtomicArtifacts(artifact);
+    const pluginVersionId = stringFromSnapshot(readRecord(snapshot.pluginRuntimeCapability)?.pluginVersionId);
+    if (!pluginVersionId) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 插件执行缺少固定 PluginVersion' } };
+    const resolvedInput = readResolvedDeploymentInput(snapshot.resolvedDeploymentInput);
+    if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
     const plan = await this.agentPlanCompiler.compile({
       tenantId: input.step.tenantId ?? '',
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
+      pluginVersionId,
       pluginBindingId,
-      artifacts,
-      executionContext: resolvePluginExecutionContext(snapshot),
+      resolvedInput,
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
     });
     return { payload: {
@@ -389,71 +391,14 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
   return payload;
 }
 
-function resolvePluginExecutionContext(snapshot: Record<string, unknown>): Record<string, unknown> | undefined {
-  const current = readRecord(snapshot.pluginExecutionContext);
-  if (current) return current;
-
-  const targetSnapshot = readRecord(snapshot.targetSnapshot);
-  if (!targetSnapshot) return undefined;
-  const managedTarget = readRecord(targetSnapshot.managedTarget);
-  const host = readRecord(targetSnapshot.host);
-  const siteAsset = readRecord(targetSnapshot.siteAsset);
-  const verification = readRecord(snapshot.certificateVerification);
-  return {
-    application: {
-      id: snapshot.applicationAssetId,
-      serverName: verification?.serverName,
-      port: verification?.port,
-    },
-    target: managedTarget ? {
-      id: managedTarget.id,
-      type: managedTarget.targetType,
-      key: managedTarget.targetKey,
-      bindingKey: managedTarget.bindingKey,
-      frameworkType: snapshot.frameworkType,
-      metadata: managedTarget.metadata,
-    } : undefined,
-    host: host ? {
-      id: host.id,
-      primaryIp: host.primaryIp,
-      osType: host.osType,
-    } : undefined,
-    site: siteAsset ? {
-      id: siteAsset.id,
-      type: siteAsset.siteType,
-      name: siteAsset.siteName,
-      key: siteAsset.siteKey,
-      bindingInformation: siteAsset.bindingInformation ?? managedTarget?.bindingKey,
-      hostHeader: siteAsset.hostHeader,
-      listenIp: siteAsset.listenIp,
-      port: siteAsset.port,
-      protocol: siteAsset.protocol,
-      configPath: siteAsset.configPath,
-      metadata: siteAsset.metadata,
-    } : undefined,
-  };
-}
-
-function resolveAgentAtomicArtifacts(artifact: Record<string, unknown>): Record<string, unknown> {
-  const workflowMaterials = readRecord(artifact.workflowCertificateMaterials);
-  if (workflowMaterials && Object.keys(workflowMaterials).length > 0) return workflowMaterials;
-
-  const certificatePem = stringFromSnapshot(artifact.certificatePem);
-  const privateKeyPem = stringFromSnapshot(artifact.privateKeyPem);
-  const pfxBase64 = stringFromSnapshot(artifact.pfxBase64);
-  const pfxPassword = stringFromSnapshot(artifact.pfxPassword);
-  const fingerprintSha256 = stringFromSnapshot(artifact.expectedFingerprintSha256);
-  return {
-    certificate: {
-      ...(certificatePem ? { content: certificatePem } : {}),
-      ...(pfxBase64 ? { contentBase64: pfxBase64 } : {}),
-      ...(pfxPassword ? { password: pfxPassword } : {}),
-      ...(fingerprintSha256 ? { fingerprintSha256 } : {}),
-    },
-    privateKey: {
-      ...(privateKeyPem ? { content: privateKeyPem } : {}),
-    },
-  };
+function readResolvedDeploymentInput(value: unknown): ResolvedDeploymentInputV1 | undefined {
+  const input = readRecord(value);
+  if (input?.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
+  if (!readRecord(input.assetContext) || !readRecord(input.variables) || !readRecord(input.connections)
+    || !readRecord(input.credentials) || !readRecord(input.artifacts) || !readRecord(input.provenance)
+    || !Array.isArray(input.sensitivePaths) || !Array.isArray(input.issues)
+    || typeof input.executable !== 'boolean' || typeof input.resolvedSha256 !== 'string') return undefined;
+  return input as unknown as ResolvedDeploymentInputV1;
 }
 
 function isSuccessfulAtomicDryRun(detail: Record<string, unknown> | undefined): boolean {
