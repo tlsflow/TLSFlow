@@ -366,7 +366,8 @@ describe('监控风险 API', () => {
     assert.equal(listed.statusCode, 200);
     assert.equal((listed.body as { total: number }).total, 1);
 
-    const firstRun = await monitors.runDueMonitorTargetProbes({ maxTargets: 5, now: '2026-07-04T00:00:00.000Z' });
+    const firstRunAt = new Date().toISOString();
+    const firstRun = await monitors.runDueMonitorTargetProbes({ maxTargets: 5, now: firstRunAt });
     assert.equal(firstRun.checkedCount, 1);
     const probeResults = await app.inject({ method: 'GET', path: '/api/v1/monitors/probe-results?page=1&pageSize=20', headers });
     assert.equal(probeResults.statusCode, 200);
@@ -376,9 +377,12 @@ describe('监控风险 API', () => {
     assert.equal(probePage.items[0]!.serviceAssetId, asset.id);
     assert.equal(['READY', 'WARNING', 'ERROR'].includes(probePage.items[0]!.status), true);
 
-    const secondRun = await monitors.runDueMonitorTargetProbes({ maxTargets: 5, now: '2026-07-04T00:00:10.000Z' });
+    const secondRun = await monitors.runDueMonitorTargetProbes({
+      maxTargets: 5,
+      now: new Date(Date.parse(firstRunAt) + 10_000).toISOString(),
+    });
     assert.equal(secondRun.checkedCount, 0);
-    assert.equal(secondRun.skippedCount >= 1, true);
+    assert.equal(secondRun.skippedCount, 0);
 
     const updated = await app.inject({
       method: 'PATCH',
@@ -608,7 +612,7 @@ describe('监控风险 API', () => {
         now: '2026-08-02T11:20:51.000Z',
       });
       assert.equal(scheduled.checkedCount, 0);
-      assert.equal(scheduled.skippedCount, 1);
+      assert.equal(scheduled.skippedCount, 0);
 
       const recoveredFromStoredObservation = (await monitors.listRiskEvents({ tenantId }))
         .find((item) => item.id === risk.id);

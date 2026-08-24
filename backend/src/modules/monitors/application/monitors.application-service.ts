@@ -4,6 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import tls from 'node:tls';
 import { AppError } from '../../../common/errors/app-error.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
@@ -35,8 +36,8 @@ import { monitorMetrics, monitorTargetStatuses, type AlertRule, type MonitorMetr
 import { AlertDispatcher } from './alert-dispatcher.js';
 import type { NotificationPort } from '../../notifications/application/notification.port.js';
 import { MonitoringScheduler } from './monitoring-scheduler.js';
-import { PgMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
-import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import { PgMonitorsRepository, type ClaimedMonitorSchedulerBatch, type MonitorsRepository } from '../repository/monitors.repository.js';
+import { isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface MonitorsApplicationDependencies {
   repository?: MonitorsRepository;
@@ -184,12 +185,23 @@ export class MonitorsApplicationService {
   async runDueMonitorTargetProbes(input: { maxTargets?: number; now?: string } = {}): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
-    const scheduled = await this.scheduleMonitorBatches({ maxTargets, now: now.toISOString() });
+    if (Number.isNaN(now.getTime())) throw new AppError('VALIDATION_FAILED', '监控调度时间无效');
+    // 中文说明：这个入口用于同步维护和测试；它与异步调度一样先领取目标，再只执行领取结果。
+    await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
+    const batches = await this.repository.claimDueMonitorTargets(now.toISOString(), maxTargets);
     let checkedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;
-    for (const tenantId of scheduled.tenantIds) {
-      const result = await this.runMonitorBatch({ tenantId, maxTargets, now: now.toISOString() });
+    for (const batch of batches) {
+      await this.repository.markMonitorSchedulerWindowEnqueued({
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+      });
+      const result = await this.runMonitorBatch({
+        tenantId: batch.tenantId,
+        targetIds: batch.targetIds,
+        now: now.toISOString(),
+      });
       checkedCount += result.checkedCount;
       skippedCount += result.skippedCount;
       failedCount += result.failedCount;
@@ -198,44 +210,86 @@ export class MonitorsApplicationService {
   }
 
   async scheduleMonitorBatches(input: { maxTargets?: number; now?: string } = {}): Promise<{ tenantIds: string[]; candidateCount: number }> {
+    const startedAt = Date.now();
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
+    if (Number.isNaN(now.getTime())) throw new AppError('VALIDATION_FAILED', '监控调度时间无效');
     // 中文说明：风险恢复使用已有最新观测，必须独立于本轮是否执行实际探测。
     await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
-    const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3);
-    const batchTenants = new Set(candidates.map((target) => target.tenantId));
-    for (const tenantId of batchTenants) {
-      enqueueTaskBestEffort(this.dependencies.tasks, {
-        tenantId,
-        taskType: 'MONITORING_BATCH',
-        triggerSource: 'monitoring.scheduler',
-        idempotencyKey: `monitoring-batch:${tenantId}:${now.toISOString().slice(0, 16)}`,
-        payload: { maxTargets, candidateCount: candidates.filter((target) => target.tenantId === tenantId).length },
-      });
+    if (!this.dependencies.tasks || !isUnifiedTaskWorkerEnabled()) {
+      structuredLogger.info('监控调度周期跳过', {
+        durationMs: Date.now() - startedAt,
+        workerEnabled: false,
+        claimedBatchCount: 0,
+        enqueuedTaskCount: 0,
+        failedTaskCount: 0,
+        candidateCount: 0,
+        skippedReason: !this.dependencies.tasks ? 'task_enqueuer_missing' : 'unified_worker_disabled',
+      }, { module: 'monitors', resourceType: 'monitorScheduler' });
+      return { tenantIds: [], candidateCount: 0 };
     }
-    return { tenantIds: [...batchTenants], candidateCount: candidates.length };
+
+    const recovered = await this.repository.claimRecoverableMonitorSchedulerWindows(now.toISOString(), maxTargets);
+    const claimed = await this.repository.claimDueMonitorTargets(now.toISOString(), maxTargets);
+    const batches = mergeSchedulerBatches([...recovered, ...claimed]);
+    let enqueuedTaskCount = 0;
+    let failedTaskCount = 0;
+    for (const batch of batches) {
+      const result = await this.enqueueClaimedMonitorBatch(batch, this.dependencies.tasks);
+      if (result === 'ENQUEUED') enqueuedTaskCount += 1;
+      else failedTaskCount += 1;
+    }
+    const summary = {
+      tenantIds: [...new Set(batches.map((batch) => batch.tenantId))],
+      candidateCount: batches.reduce((total, batch) => total + batch.candidateCount, 0),
+    };
+    structuredLogger.info('监控调度周期完成', {
+      durationMs: Date.now() - startedAt,
+      workerEnabled: true,
+      recoveredWindowCount: recovered.length,
+      claimedWindowCount: claimed.length,
+      mergedWindowCount: batches.length,
+      deduplicatedWindowCount: Math.max(0, recovered.length + claimed.length - batches.length),
+      enqueuedTaskCount,
+      failedTaskCount,
+      candidateCount: summary.candidateCount,
+      tenantCount: summary.tenantIds.length,
+    }, { module: 'monitors', resourceType: 'monitorScheduler' });
+    return summary;
   }
 
-  async runMonitorBatch(input: { tenantId: string; maxTargets?: number; now?: string } ): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
+  async runMonitorBatch(input: {
+    tenantId: string;
+    maxTargets?: number;
+    now?: string;
+    targetIds?: readonly string[];
+    taskId?: string;
+  } ): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
+    if (Number.isNaN(now.getTime())) throw new AppError('VALIDATION_FAILED', '监控批次时间无效');
     // 中文说明：统一任务执行器只能处理当前 Claim 携带的租户，禁止重新扫描其他租户。
     await this.reconcileMonitorCertificateRisks({ tenantId: input.tenantId, occurredAt: now.toISOString() });
-    const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3, input.tenantId);
+    let targetIds = normalizeMonitorTargetIds(input.targetIds);
+    if (targetIds.length === 0) {
+      // 中文说明：兼容升级前已入列但没有目标列表的旧任务；仍只领取该租户到期目标。
+      const claimed = await this.repository.claimDueMonitorTargets(now.toISOString(), maxTargets, input.tenantId);
+      const batch = claimed[0];
+      if (!batch) return { checkedCount: 0, skippedCount: 0, failedCount: 0 };
+      targetIds = batch.targetIds;
+      await this.repository.markMonitorSchedulerWindowEnqueued({
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+        taskId: input.taskId,
+      });
+    }
+    const candidates = await this.repository.listMonitorTargetsByIds(input.tenantId, targetIds);
     let checkedCount = 0;
-    let skippedCount = 0;
+    let skippedCount = Math.max(0, targetIds.length - candidates.length);
     let failedCount = 0;
 
     for (const target of candidates) {
-      const latest = await this.repository.getLatestMonitorProbeResult(target.tenantId, target.id);
-
       try {
-        if (checkedCount >= maxTargets) continue;
-        if (!isProbeDue(target, latest, now)) {
-          skippedCount += 1;
-          continue;
-        }
-
         await this.probeServiceAsset({
           tenantId: target.tenantId,
           monitorTargetId: target.id,
@@ -249,6 +303,36 @@ export class MonitorsApplicationService {
     }
 
     return { checkedCount, skippedCount, failedCount };
+  }
+
+  private async enqueueClaimedMonitorBatch(batch: ClaimedMonitorSchedulerBatch, tasks: TaskEnqueuer): Promise<'ENQUEUED' | 'FAILED'> {
+    try {
+      const task = await tasks.enqueue({
+        tenantId: batch.tenantId,
+        taskType: 'MONITORING_BATCH',
+        triggerSource: 'monitoring.scheduler',
+        idempotencyKey: `monitoring-batch:${batch.tenantId}:${batch.windowStart}`,
+        payload: {
+          maxTargets: batch.targetIds.length,
+          candidateCount: batch.candidateCount,
+          monitorTargetIds: batch.targetIds,
+          schedulerWindowStart: batch.windowStart,
+        },
+      });
+      await this.repository.markMonitorSchedulerWindowEnqueued({
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+        taskId: task.id,
+      });
+      return 'ENQUEUED';
+    } catch (error) {
+      await this.repository.markMonitorSchedulerWindowFailed({
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'FAILED';
+    }
   }
 
   async createAlertRule(input: CreateAlertRuleInput): Promise<AlertRuleDto> {
@@ -625,11 +709,15 @@ function normalizeWorkerLimit(value: number | undefined): number {
   return Math.min(100, Math.max(1, Math.trunc(value!)));
 }
 
-function isProbeDue(target: MonitorTargetDto, latest: MonitorProbeResultDto | undefined, now: Date): boolean {
-  if (!latest) return true;
-  const latestCheckedAt = Date.parse(latest.checkedAt);
-  if (!Number.isFinite(latestCheckedAt)) return true;
-  return now.getTime() - latestCheckedAt >= normalizeMonitorInterval(target.intervalSeconds) * 1000;
+function normalizeMonitorTargetIds(input: readonly string[] | undefined): string[] {
+  if (!input) return [];
+  return [...new Set(input.map((id) => id.trim()).filter(Boolean))];
+}
+
+function mergeSchedulerBatches(batches: readonly ClaimedMonitorSchedulerBatch[]): ClaimedMonitorSchedulerBatch[] {
+  const byWindow = new Map<string, ClaimedMonitorSchedulerBatch>();
+  for (const batch of batches) byWindow.set(`${batch.tenantId}:${batch.windowStart}`, batch);
+  return [...byWindow.values()];
 }
 
 async function probeFromControlPlane(asset: ProbeAsset, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {

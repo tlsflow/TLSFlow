@@ -25,7 +25,11 @@ export interface MonitorsRepository {
   readonly moduleName: 'monitors';
   createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
   listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto>;
-  listActiveMonitorTargetsForScheduler(limit: number, tenantId?: string): Promise<MonitorTargetDto[]>;
+  claimDueMonitorTargets(now: string, limit: number, tenantId?: string): Promise<ClaimedMonitorSchedulerBatch[]>;
+  claimRecoverableMonitorSchedulerWindows(now: string, limit: number): Promise<ClaimedMonitorSchedulerBatch[]>;
+  markMonitorSchedulerWindowEnqueued(input: { tenantId: string; windowStart: string; taskId?: string }): Promise<void>;
+  markMonitorSchedulerWindowFailed(input: { tenantId: string; windowStart: string; error: string }): Promise<void>;
+  listMonitorTargetsByIds(tenantId: string, ids: readonly string[]): Promise<MonitorTargetDto[]>;
   getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined>;
   updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto>;
   deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto>;
@@ -43,6 +47,13 @@ export interface MonitorsRepository {
   saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto>;
   listCertificateObservations(query?: ListCertificateObservationsQuery): Promise<CertificateObservationDto[]>;
   getLatestCertificateObservation(tenantId: string | undefined, serviceAssetId: string): Promise<CertificateObservationDto | undefined>;
+}
+
+export interface ClaimedMonitorSchedulerBatch {
+  tenantId: string;
+  windowStart: string;
+  candidateCount: number;
+  targetIds: string[];
 }
 
 export class PgMonitorsRepository implements MonitorsRepository {
@@ -69,9 +80,9 @@ export class PgMonitorsRepository implements MonitorsRepository {
       version: 1,
     };
     await this.db.query(`insert into pg_monitor_targets (
-      id, tenant_id, service_asset_id, metrics, interval_seconds, status, created_by, created_at, updated_at, version
+      id, tenant_id, service_asset_id, metrics, interval_seconds, status, next_run_at, created_by, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4::jsonb,$5,$6,$7,$8::timestamptz,$9::timestamptz,$10
+      $1,$2,$3,$4::jsonb,$5,$6,$7::timestamptz,$8,$9::timestamptz,$10::timestamptz,$11
     )`, [
       target.id,
       target.tenantId,
@@ -79,6 +90,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
       JSON.stringify(target.metrics),
       target.intervalSeconds,
       target.status,
+      target.createdAt,
       target.createdBy ?? null,
       target.createdAt,
       target.updatedAt,
@@ -95,16 +107,140 @@ export class PgMonitorsRepository implements MonitorsRepository {
     return page(rows, query, monitorTargetFilter);
   }
 
-  async listActiveMonitorTargetsForScheduler(limit: number, tenantId?: string): Promise<MonitorTargetDto[]> {
+  async claimDueMonitorTargets(nowInput: string, limit: number, tenantId?: string): Promise<ClaimedMonitorSchedulerBatch[]> {
+    const now = normalizeSchedulerNow(nowInput);
+    const windowStart = monitorSchedulerWindowStart(now);
+    const normalizedLimit = normalizeSchedulerLimit(limit);
+    return this.db.transaction(async (tx) => {
+      const params: unknown[] = [now, windowStart, normalizedLimit];
+      const tenantFilter = tenantId ? `and target.tenant_id = $4` : '';
+      if (tenantId) params.push(tenantId);
+      const candidates = (await tx.query<MonitorTargetRow>(
+        `select target.*
+           from pg_monitor_targets target
+          where target.deleted_at is null
+            and target.status = 'active'
+            and target.next_run_at <= $1::timestamptz
+            and not exists (
+              select 1
+                from pg_monitor_scheduler_windows scheduler_window
+               where scheduler_window.tenant_id = target.tenant_id
+                 and scheduler_window.window_start = $2::timestamptz
+            )
+            ${tenantFilter}
+          order by target.next_run_at asc, target.tenant_id asc, target.id asc
+          limit $3
+          for update skip locked`,
+        params,
+      )).rows;
+      const batches: ClaimedMonitorSchedulerBatch[] = [];
+      for (const [candidateTenantId, rows] of groupMonitorTargetsByTenant(candidates)) {
+        const targetIds = rows.map((row) => row.id);
+        const inserted = (await tx.query<MonitorSchedulerWindowRow>(
+          `insert into pg_monitor_scheduler_windows (
+             tenant_id, window_start, candidate_count, target_ids, status, created_at, updated_at
+           ) values ($1, $2::timestamptz, $3, $4::jsonb, 'CLAIMED', $5::timestamptz, $5::timestamptz)
+           on conflict (tenant_id, window_start) do nothing
+           returning tenant_id, window_start, task_id, candidate_count, target_ids, status, updated_at`,
+          [candidateTenantId, windowStart, targetIds.length, JSON.stringify(targetIds), now],
+        )).rows[0];
+        if (!inserted) continue;
+        await tx.query(
+          `update pg_monitor_targets
+              set next_run_at = $2::timestamptz + (interval_seconds * interval '1 second')
+            where tenant_id = $1
+              and id = any($3::text[])
+              and deleted_at is null
+              and status = 'active'`,
+          [candidateTenantId, now, targetIds],
+        );
+        batches.push(toClaimedMonitorSchedulerBatch(inserted));
+      }
+      return batches;
+    });
+  }
+
+  async claimRecoverableMonitorSchedulerWindows(nowInput: string, limit: number): Promise<ClaimedMonitorSchedulerBatch[]> {
+    const now = normalizeSchedulerNow(nowInput);
+    const normalizedLimit = normalizeSchedulerLimit(limit);
+    return this.db.transaction(async (tx) => {
+      const windows = (await tx.query<MonitorSchedulerWindowRow>(
+        `select tenant_id, window_start, task_id, candidate_count, target_ids, status, updated_at
+           from pg_monitor_scheduler_windows
+          where task_id is null
+            and (
+              status = 'FAILED'
+              or (status = 'CLAIMED' and updated_at <= $1::timestamptz - interval '1 minute')
+            )
+          order by updated_at asc, tenant_id asc, window_start asc
+          limit $2
+          for update skip locked`,
+        [now, normalizedLimit],
+      )).rows;
+      const claimed: ClaimedMonitorSchedulerBatch[] = [];
+      for (const window of windows) {
+        const updated = (await tx.query<MonitorSchedulerWindowRow>(
+          `update pg_monitor_scheduler_windows
+              set status = 'CLAIMED',
+                  last_error = null,
+                  updated_at = $3::timestamptz
+            where tenant_id = $1
+              and window_start = $2::timestamptz
+              and task_id is null
+            returning tenant_id, window_start, task_id, candidate_count, target_ids, status, updated_at`,
+          [window.tenant_id, window.window_start, now],
+        )).rows[0];
+        if (updated) claimed.push(toClaimedMonitorSchedulerBatch(updated));
+      }
+      return claimed;
+    });
+  }
+
+  async markMonitorSchedulerWindowEnqueued(input: { tenantId: string; windowStart: string; taskId?: string }): Promise<void> {
+    const windowStart = normalizeSchedulerNow(input.windowStart);
+    await this.db.query(
+      `update pg_monitor_scheduler_windows
+          set status = 'ENQUEUED',
+              task_id = coalesce($3, task_id),
+              last_error = null,
+              updated_at = now()
+        where tenant_id = $1
+          and window_start = $2::timestamptz`,
+      [input.tenantId, windowStart, input.taskId ?? null],
+    );
+  }
+
+  async markMonitorSchedulerWindowFailed(input: { tenantId: string; windowStart: string; error: string }): Promise<void> {
+    const windowStart = normalizeSchedulerNow(input.windowStart);
+    await this.db.query(
+      `update pg_monitor_scheduler_windows
+          set status = 'FAILED',
+              last_error = $3,
+              updated_at = now()
+        where tenant_id = $1
+          and window_start = $2::timestamptz
+          and task_id is null`,
+      [input.tenantId, windowStart, input.error.slice(0, 2_000)],
+    );
+  }
+
+  async listMonitorTargetsByIds(tenantId: string, ids: readonly string[]): Promise<MonitorTargetDto[]> {
+    const targetIds = uniqueMonitorTargetIds(ids);
+    if (targetIds.length === 0) return [];
     const rows = (await this.db.query<MonitorTargetRow>(
-      `select * from pg_monitor_targets
-       where deleted_at is null and status = 'active'
-         ${tenantId ? 'and tenant_id = $2' : ''}
-       order by updated_at asc
-       limit $1`,
-      tenantId ? [Math.max(1, Math.trunc(limit)), tenantId] : [Math.max(1, Math.trunc(limit))],
+      `select *
+         from pg_monitor_targets
+        where tenant_id = $1
+          and id = any($2::text[])
+          and deleted_at is null
+          and status = 'active'`,
+      [tenantId, targetIds],
     )).rows;
-    return rows.map(toMonitorTarget);
+    const byId = new Map(rows.map((row) => [row.id, toMonitorTarget(row)]));
+    return targetIds.flatMap((id) => {
+      const target = byId.get(id);
+      return target ? [target] : [];
+    });
   }
 
   async getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined> {
@@ -126,18 +262,24 @@ export class PgMonitorsRepository implements MonitorsRepository {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
+    const nextRunAt = updated.status === 'active'
+      && (current.status !== 'active' || updated.intervalSeconds !== current.intervalSeconds)
+      ? updated.updatedAt
+      : undefined;
     await this.db.query(`update pg_monitor_targets
       set metrics = $3::jsonb,
           interval_seconds = $4,
           status = $5,
-          updated_at = $6::timestamptz,
-          version = $7
+          next_run_at = coalesce($6::timestamptz, next_run_at),
+          updated_at = $7::timestamptz,
+          version = $8
       where tenant_id = $1 and id = $2 and deleted_at is null`, [
       input.tenantId,
       input.id,
       JSON.stringify(updated.metrics),
       updated.intervalSeconds,
       updated.status,
+      nextRunAt ?? null,
       updated.updatedAt,
       updated.version,
     ]);
@@ -649,6 +791,16 @@ type MonitorTargetRow = {
   version: number;
 };
 
+type MonitorSchedulerWindowRow = {
+  tenant_id: string;
+  window_start: string | Date;
+  task_id?: string | null;
+  candidate_count: number | string;
+  target_ids: unknown;
+  status: 'CLAIMED' | 'ENQUEUED' | 'FAILED';
+  updated_at: string | Date;
+};
+
 type MonitorProbeResultRow = {
   id: string;
   tenant_id: string;
@@ -685,6 +837,63 @@ function toMonitorTarget(row: MonitorTargetRow): MonitorTargetDto {
     deletedAt: row.deleted_at ?? undefined,
     version: row.version,
   };
+}
+
+function toClaimedMonitorSchedulerBatch(row: MonitorSchedulerWindowRow): ClaimedMonitorSchedulerBatch {
+  return {
+    tenantId: row.tenant_id,
+    windowStart: toIsoTimestamp(row.window_start),
+    candidateCount: Number(row.candidate_count),
+    targetIds: uniqueMonitorTargetIds(readMonitorTargetIds(row.target_ids)),
+  };
+}
+
+function groupMonitorTargetsByTenant(rows: readonly MonitorTargetRow[]): Map<string, MonitorTargetRow[]> {
+  const grouped = new Map<string, MonitorTargetRow[]>();
+  for (const row of rows) {
+    const items = grouped.get(row.tenant_id) ?? [];
+    items.push(row);
+    grouped.set(row.tenant_id, items);
+  }
+  return grouped;
+}
+
+function normalizeSchedulerNow(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new AppError('VALIDATION_FAILED', '监控调度时间无效');
+  return parsed.toISOString();
+}
+
+function monitorSchedulerWindowStart(now: string): string {
+  const parsed = new Date(now);
+  parsed.setUTCSeconds(0, 0);
+  return parsed.toISOString();
+}
+
+function normalizeSchedulerLimit(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(100, Math.max(1, Math.trunc(value)));
+}
+
+function uniqueMonitorTargetIds(ids: readonly string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
+function readMonitorTargetIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function toIsoTimestamp(value: string | Date): string {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new Error('监控调度账本包含无效时间');
+  return parsed.toISOString();
 }
 
 function toMonitorProbeResult(row: MonitorProbeResultRow): MonitorProbeResultDto {

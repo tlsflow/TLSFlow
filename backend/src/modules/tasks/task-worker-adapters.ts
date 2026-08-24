@@ -136,6 +136,8 @@ export function createTaskExecutorRegistry(
       tenantId: task.tenantId,
       maxTargets: optionalPayloadNumber(task, 'maxTargets'),
       now: optionalPayloadString(task, 'now'),
+      targetIds: optionalPayloadStringArray(task, 'monitorTargetIds'),
+      taskId: task.id,
     });
     return { success: true, detail: result };
   }));
@@ -354,6 +356,12 @@ function optionalPayloadString(task: TaskRun, key: string): string | undefined {
 function optionalPayloadNumber(task: TaskRun, key: string): number | undefined {
   const value = task.payload[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalPayloadStringArray(task: TaskRun, key: string): string[] | undefined {
+  const value = task.payload[key];
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
