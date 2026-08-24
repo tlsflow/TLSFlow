@@ -44,15 +44,26 @@ export type AuditTenantResolver = () => Promise<string>;
 export class AuditService {
   private static readonly defaultDb = new PgliteDatabase();
 
+  private readonly logs: AsyncRepositoryPort<AuditLogEntity>;
+  private readonly redaction: RedactionService;
+  private readonly defaultTenantResolver?: AuditTenantResolver;
+  private readonly queryDb?: DatabasePort;
+
   private static createDefaultRepository(): AsyncRepositoryPort<AuditLogEntity> {
     return new PgDocumentRepository<AuditLogEntity>(AuditService.defaultDb, 'security.audit_logs');
   }
 
   constructor(
-    private readonly logs: AsyncRepositoryPort<AuditLogEntity> = AuditService.createDefaultRepository(),
-    private readonly redaction = new RedactionService(),
-    private readonly defaultTenantResolver?: AuditTenantResolver,
-  ) {}
+    logs?: AsyncRepositoryPort<AuditLogEntity>,
+    redaction = new RedactionService(),
+    defaultTenantResolver?: AuditTenantResolver,
+    queryDb?: DatabasePort,
+  ) {
+    this.logs = logs ?? AuditService.createDefaultRepository();
+    this.redaction = redaction;
+    this.defaultTenantResolver = defaultTenantResolver;
+    this.queryDb = queryDb ?? (logs === undefined ? AuditService.defaultDb : undefined);
+  }
 
   /**
    * 为事务复用相同的租户解析规则，只替换审计仓储的数据连接。
@@ -63,6 +74,7 @@ export class AuditService {
       new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs'),
       this.redaction,
       this.defaultTenantResolver,
+      db,
     );
   }
 
@@ -102,6 +114,7 @@ export class AuditService {
   }
 
   async query(query: AuditQuery = {}): Promise<AuditLogEntity[]> {
+    if (this.queryDb) return this.queryPersistedLogs(query);
     return this.logs.list((log) => {
       return (!query.tenantId || log.tenantId === query.tenantId)
         && (!query.actorId || log.actorId === query.actorId)
@@ -119,6 +132,19 @@ export class AuditService {
       .map((resource) => `${resource.resourceType}:${resource.resourceId}`));
     if (keys.size === 0) return 0;
 
+    if (this.queryDb) {
+      await this.ensurePersistedLogsReady();
+      const result = await this.queryDb.query<{ document_id: string }>(
+        `delete from pg_documents
+          where namespace = 'security.audit_logs'
+            and payload->>'resourceId' is not null
+            and ((payload->>'resourceType') || ':' || (payload->>'resourceId')) = any($1::text[])
+          returning document_id`,
+        [[...keys]],
+      );
+      return result.rows.length;
+    }
+
     const matched = await this.logs.list((log) => Boolean(log.resourceId) && keys.has(`${log.resourceType}:${log.resourceId}`));
     await Promise.all(matched.map((log) => this.logs.delete(log.id)));
     return matched.length;
@@ -133,6 +159,42 @@ export class AuditService {
     }, input.context);
     return this.query({ tenantId: query.tenantId ?? input.subject.scope?.tenantId ?? resolveContextTenantId(input.context), ...query });
   }
+
+  private async queryPersistedLogs(query: AuditQuery): Promise<AuditLogEntity[]> {
+    await this.ensurePersistedLogsReady();
+    const params: unknown[] = [];
+    const conditions: string[] = [];
+    appendAuditCondition(conditions, params, "payload->>'tenantId'", query.tenantId);
+    appendAuditCondition(conditions, params, "payload->>'actorId'", query.actorId);
+    appendAuditCondition(conditions, params, "payload->>'eventType'", query.eventType);
+    appendAuditCondition(conditions, params, "payload->>'resourceType'", query.resourceType);
+    appendAuditCondition(conditions, params, "payload->>'resourceId'", query.resourceId);
+    appendAuditCondition(conditions, params, "payload->>'riskLevel'", query.riskLevel);
+    const result = await this.queryDb!.query<AuditDocumentRow>(
+      `select document_id, payload
+         from pg_documents
+        where namespace = 'security.audit_logs'
+        ${conditions.length > 0 ? `and ${conditions.join('\n and ')}` : ''}
+        order by updated_at asc`,
+      params,
+    );
+    return result.rows.map((row) => structuredClone({ ...row.payload, id: row.document_id }));
+  }
+
+  private async ensurePersistedLogsReady(): Promise<void> {
+    if (this.logs instanceof PgDocumentRepository) await this.logs.initialize();
+  }
+}
+
+interface AuditDocumentRow extends Record<string, unknown> {
+  document_id: string;
+  payload: AuditLogEntity;
+}
+
+function appendAuditCondition(conditions: string[], params: unknown[], expression: string, value: string | undefined): void {
+  if (!value) return;
+  params.push(value);
+  conditions.push(`${expression} = $${params.length}`);
 }
 
 function resolveContextTenantId(context: RequestContext | undefined): string | undefined {

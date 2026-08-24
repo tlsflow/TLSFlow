@@ -73,7 +73,7 @@ export function createPersistedSecurityServices(db: DatabasePort, options: { ini
   const businessPermissionRelations = new PgDocumentRepository<BusinessPermissionRelationEntity>(db, 'security.business_permission_relations');
   const tenantIdentity = new TenantIdentityService(db);
 
-  const audit = new AuditService(auditLogs, undefined, () => resolveUnambiguousDefaultTenant(db, tenantIdentity));
+  const audit = new AuditService(auditLogs, undefined, () => resolveUnambiguousDefaultTenant(db, tenantIdentity), db);
   const approvals = new ApprovalService(approvalsRepo, audit, {
     allowSelfApproval: process.env.GCAC_APPROVAL_ALLOW_SELF_APPROVAL === 'true',
   });

@@ -40,9 +40,12 @@ export interface GatewayTargetHistoryRepositoryPort {
 type GatewayTargetHistoryEntity = GatewayTargetHistoryRecord & IdentifiedEntity;
 
 export class PgGatewayTargetHistoryRepository implements GatewayTargetHistoryRepositoryPort {
+  private readonly db: DatabasePort;
   private readonly repository: PgDocumentRepository<GatewayTargetHistoryEntity>;
+  private storageReady?: Promise<void>;
 
   constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.db = db;
     this.repository = new PgDocumentRepository(db, 'gateway-target-history');
   }
 
@@ -53,14 +56,44 @@ export class PgGatewayTargetHistoryRepository implements GatewayTargetHistoryRep
   }
 
   async listByTarget(delegatedTargetId: string, tenantId?: string): Promise<GatewayTargetHistoryRecord[]> {
-    return this.repository
-      .list((record) => record.delegatedTargetId === delegatedTargetId && (!tenantId || record.tenantId === tenantId))
-      .then((rows) => rows.sort(sortByCreatedAt));
+    await this.ensureStorage();
+    const params: unknown[] = [delegatedTargetId];
+    const tenantCondition = tenantId ? `and payload->>'tenantId' = $${params.push(tenantId)}` : '';
+    return this.listDocuments(`
+      select document_id, payload
+        from pg_documents
+       where namespace = 'gateway-target-history'
+         and payload->>'delegatedTargetId' = $1
+         ${tenantCondition}
+       order by payload->>'createdAt' asc, updated_at asc`, params);
   }
 
   async listByTask(taskId: string): Promise<GatewayTargetHistoryRecord[]> {
-    return this.repository.list((record) => record.taskId === taskId).then((rows) => rows.sort(sortByCreatedAt));
+    await this.ensureStorage();
+    return this.listDocuments(`
+      select document_id, payload
+        from pg_documents
+       where namespace = 'gateway-target-history'
+         and payload->>'taskId' = $1
+       order by payload->>'createdAt' asc, updated_at asc`, [taskId]);
   }
+
+  private async ensureStorage(): Promise<void> {
+    if (!this.storageReady) {
+      this.storageReady = this.repository.initialize();
+    }
+    await this.storageReady;
+  }
+
+  private async listDocuments(sql: string, params: unknown[]): Promise<GatewayTargetHistoryRecord[]> {
+    const result = await this.db.query<DocumentRow>(sql, params);
+    return result.rows.map((row) => structuredClone({ ...row.payload, id: row.document_id }));
+  }
+}
+
+interface DocumentRow extends Record<string, unknown> {
+  document_id: string;
+  payload: GatewayTargetHistoryEntity;
 }
 
 export class RepositoryGatewayTargetHistoryRepository implements GatewayTargetHistoryRepositoryPort {

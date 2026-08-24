@@ -16,10 +16,13 @@ function sameTenantStrict(left?: string, right?: string): boolean {
 export class ExecutionsRepository {
   readonly moduleName = 'executions' as const;
 
+  private readonly db: DatabasePort;
   private readonly runs: PgDocumentRepository<ExecutionRunEntity>;
   private readonly steps: PgDocumentRepository<ExecutionStepEntity>;
+  private storageReady?: Promise<void>;
 
   constructor(db: DatabasePort = new PgliteDatabase()) {
+    this.db = db;
     this.runs = new PgDocumentRepository(db, 'executions:runs');
     this.steps = new PgDocumentRepository(db, 'executions:steps');
   }
@@ -51,14 +54,20 @@ export class ExecutionsRepository {
   }
 
   async listRuns(tenantId?: string, deploymentPlanId?: string): Promise<ExecutionRunEntity[]> {
-    return this.runs.list((run) => sameTenant(run.tenantId, tenantId)
-      && (!deploymentPlanId || run.deploymentPlanId === deploymentPlanId));
+    await this.ensureStorage();
+    const { clauses, params } = executionDocumentConditions({ tenantId, deploymentPlanId });
+    return listExecutionDocuments<ExecutionRunEntity>(this.db, 'executions:runs', clauses, params, `
+      order by payload->>'createdAt' asc`);
   }
 
   async findRunByIdempotencyKey(tenantId: string | undefined, idempotencyKey: string): Promise<ExecutionRunEntity | undefined> {
-    return (await this.runs.list((run) => run.idempotencyKey === idempotencyKey
-      && sameTenant(run.tenantId, tenantId)))
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+    await this.ensureStorage();
+    const { clauses, params } = executionDocumentConditions({ tenantId });
+    params.push(idempotencyKey);
+    clauses.push(`payload->>'idempotencyKey' = $${params.length + 1}`);
+    return (await listExecutionDocuments<ExecutionRunEntity>(this.db, 'executions:runs', clauses, params, `
+      order by payload->>'createdAt' asc
+      limit 1`))[0];
   }
 
   async nextRunNo(tenantId: string | undefined, deploymentPlanId: string): Promise<number> {
@@ -67,9 +76,18 @@ export class ExecutionsRepository {
   }
 
   async createStep(step: ExecutionStepEntity): Promise<ExecutionStepEntity> {
-    const duplicated = (await this.steps.list((item) => item.executionRunId === step.executionRunId
-      && item.stepNo === step.stepNo
-      && sameTenantStrict(item.tenantId, step.tenantId)))[0];
+    await this.ensureStorage();
+    const duplicateRows = await this.db.query<DocumentRow<ExecutionStepEntity>>(
+      `select document_id, payload
+         from pg_documents
+        where namespace = 'executions:steps'
+          and payload->>'executionRunId' = $1
+          and (payload->>'stepNo')::integer = $2
+          and payload->>'tenantId' is not distinct from $3::text
+        limit 1`,
+      [step.executionRunId, step.stepNo, step.tenantId ?? null],
+    );
+    const duplicated = documentEntity(duplicateRows.rows[0]);
     if (duplicated) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', '执行步骤序号重复', { executionRunId: step.executionRunId, stepNo: step.stepNo });
     }
@@ -95,9 +113,10 @@ export class ExecutionsRepository {
   }
 
   async listSteps(tenantId?: string, executionRunId?: string): Promise<ExecutionStepEntity[]> {
-    return (await this.steps.list((step) => sameTenant(step.tenantId, tenantId)
-      && (!executionRunId || step.executionRunId === executionRunId)))
-      .sort((left, right) => left.stepNo - right.stepNo || left.createdAt.localeCompare(right.createdAt));
+    await this.ensureStorage();
+    const { clauses, params } = executionDocumentConditions({ tenantId, executionRunId });
+    return listExecutionDocuments<ExecutionStepEntity>(this.db, 'executions:steps', clauses, params, `
+      order by (payload->>'stepNo')::integer asc, payload->>'createdAt' asc`);
   }
 
   async deleteRunsByDeploymentPlan(tenantId: string | undefined, deploymentPlanId: string): Promise<{ runIds: string[]; stepIds: string[] }> {
@@ -117,4 +136,60 @@ export class ExecutionsRepository {
     await this.steps.clear();
     await this.runs.clear();
   }
+
+  private async ensureStorage(): Promise<void> {
+    if (!this.storageReady) {
+      this.storageReady = this.runs.initialize();
+    }
+    await this.storageReady;
+  }
+}
+
+interface DocumentRow<T> extends Record<string, unknown> {
+  document_id: string;
+  payload: T;
+}
+
+function documentEntity<T>(row: DocumentRow<T> | undefined): (T & { id: string }) | undefined {
+  return row ? structuredClone({ ...row.payload, id: row.document_id }) : undefined;
+}
+
+async function listExecutionDocuments<T>(
+  db: DatabasePort,
+  namespace: 'executions:runs' | 'executions:steps',
+  clauses: readonly string[],
+  params: readonly unknown[],
+  suffix = '',
+): Promise<Array<T & { id: string }>> {
+  const result = await db.query<DocumentRow<T>>(
+    `select document_id, payload
+       from pg_documents
+      where namespace = $1
+      ${clauses.length > 0 ? `and ${clauses.join('\n and ')}` : ''}
+      ${suffix}`,
+    [namespace, ...params],
+  );
+  return result.rows.map(documentEntity).filter((item): item is T & { id: string } => item !== undefined);
+}
+
+function executionDocumentConditions(input: {
+  tenantId?: string;
+  deploymentPlanId?: string;
+  executionRunId?: string;
+}): { clauses: string[]; params: unknown[] } {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  if (input.tenantId !== undefined) {
+    params.push(input.tenantId);
+    clauses.push(`coalesce(payload->>'tenantId', '') = $${params.length + 1}`);
+  }
+  if (input.deploymentPlanId) {
+    params.push(input.deploymentPlanId);
+    clauses.push(`payload->>'deploymentPlanId' = $${params.length + 1}`);
+  }
+  if (input.executionRunId) {
+    params.push(input.executionRunId);
+    clauses.push(`payload->>'executionRunId' = $${params.length + 1}`);
+  }
+  return { clauses, params };
 }

@@ -12,6 +12,11 @@ export class PgDocumentRepository<T extends IdentifiedEntity> implements AsyncRe
     private readonly namespace: string,
   ) {}
 
+  // 需要直接执行精确 SQL 的领域仓储必须先等待这里，避免跳过 pg_documents 的懒初始化。
+  async initialize(): Promise<void> {
+    await this.ensureTable();
+  }
+
   async create(entity: T): Promise<T> {
     await this.ensureTable();
     const existing = await this.get(entity.id);

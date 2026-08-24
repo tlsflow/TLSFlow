@@ -303,20 +303,54 @@ export class PgDevicesRepository implements DevicesRepository {
 }
 
 const DEVICE_LIST_SQL = `
-  with agent_extensions as (
-    select document_id as agent_id, payload
-    from pg_documents
-    where namespace = 'agents:registrations'
+  with tenant_hosts as (
+    select *
+      from pg_hosts
+     where tenant_id = $1
+       and deleted_at is null
+  ), tenant_agents as (
+    select distinct agent_id
+      from tenant_hosts
+     where agent_id is not null
+  ), agent_extensions as (
+    select document.document_id as agent_id, document.payload
+      from pg_documents document
+      join tenant_agents agent on agent.agent_id = document.document_id
+     where document.namespace = 'agents:registrations'
+       and document.payload->>'tenantId' = $1
+  ), current_agent_snapshots as (
+    select current_snapshot.agent_id, document.payload
+      from pg_agent_capability_snapshot_current current_snapshot
+      join tenant_agents agent on agent.agent_id = current_snapshot.agent_id
+      join pg_documents document
+        on document.namespace = 'agents:snapshots'
+       and document.document_id = current_snapshot.latest_snapshot_id
+     where current_snapshot.tenant_id = $1
+  ), fallback_agent_snapshots as (
+    select distinct on (document.payload->>'agentId') document.payload->>'agentId' as agent_id, document.payload
+      from pg_documents document
+      join tenant_agents agent on agent.agent_id = document.payload->>'agentId'
+     where document.namespace = 'agents:snapshots'
+       and document.payload->>'tenantId' = $1
+       and not exists (
+         select 1
+           from pg_agent_capability_snapshot_current current_snapshot
+          where current_snapshot.tenant_id = $1
+            and current_snapshot.agent_id = document.payload->>'agentId'
+       )
+     order by document.payload->>'agentId', document.payload->>'reportedAt' desc
   ), agent_snapshots as (
-    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload
-    from pg_documents
-    where namespace = 'agents:snapshots'
-    order by payload->>'agentId', payload->>'reportedAt' desc
+    select agent_id, payload from current_agent_snapshots
+    union all
+    select agent_id, payload from fallback_agent_snapshots
   ), agent_heartbeats as (
-    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload->>'receivedAt' as received_at
-    from pg_documents
-    where namespace = 'agents:heartbeats'
-    order by payload->>'agentId', payload->>'receivedAt' desc
+    select distinct on (document.payload->>'agentId') document.payload->>'agentId' as agent_id,
+           document.payload->>'receivedAt' as received_at
+      from pg_documents document
+      join tenant_agents agent on agent.agent_id = document.payload->>'agentId'
+     where document.namespace = 'agents:heartbeats'
+       and document.payload->>'tenantId' = $1
+     order by document.payload->>'agentId', document.payload->>'receivedAt' desc
   ), liveness_signals as (
     select tenant_id, resource_type, resource_id,
            jsonb_agg(jsonb_build_object(
@@ -341,6 +375,7 @@ const DEVICE_LIST_SQL = `
              'updated_at', updated_at
            ) order by signal_type) signals
       from pg_device_liveness_signals
+     where tenant_id = $1
      group by tenant_id, resource_type, resource_id
   ), application_counts as (
     select host_id, count(distinct asset_id)::int as asset_count
@@ -393,7 +428,7 @@ const DEVICE_LIST_SQL = `
     device.last_error_code,
     service.address as device_address,
     coalesce(counts.asset_count, 0)::int as application_asset_count
-  from pg_hosts host
+  from tenant_hosts host
   left join agent_extensions agent on agent.agent_id = host.agent_id
   left join agent_snapshots snapshot on snapshot.agent_id = host.agent_id
   left join agent_heartbeats heartbeat on heartbeat.agent_id = host.agent_id
@@ -404,9 +439,7 @@ const DEVICE_LIST_SQL = `
   left join unified_plugin_versions plugin_version on plugin_version.id = device.plugin_version_id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
-  where host.tenant_id = $1
-    and host.deleted_at is null
-    and (host.agent_id is not null or service.id is not null)
+  where host.agent_id is not null or service.id is not null
 `;
 
 // 详情查询只围绕目标 Host 建立 CTE。列表中的全租户聚合不能复用于单设备详情，
