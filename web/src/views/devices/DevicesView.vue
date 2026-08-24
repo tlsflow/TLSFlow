@@ -4,9 +4,12 @@ import { useI18n } from 'vue-i18n'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { listManagedDevices } from '@/api/modules/devices.api'
+import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
 
 const { t } = useI18n()
 const filters = ref<Record<string, string>>({})
+const onboardingOpen = ref(false)
+const reloadKey = ref(0)
 
 const config = computed<BusinessPageConfig>(() => ({
   title: t('devices.page.title'),
@@ -14,6 +17,7 @@ const config = computed<BusinessPageConfig>(() => ({
   readPermission: 'host.read',
   primaryPermission: 'host.create',
   primaryActionLabel: t('devices.actions.add'),
+  primaryAction: () => { onboardingOpen.value = true },
   moduleName: 'devices',
   resourceName: 'Device',
   defaultStatus: 'UNKNOWN',
@@ -58,11 +62,15 @@ const config = computed<BusinessPageConfig>(() => ({
   onFiltersChange: (next) => { filters.value = next },
   emptyTitle: t('devices.empty.title'),
   emptyDescription: t('devices.empty.description'),
-  load: () => listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value }),
+  load: () => {
+    void reloadKey.value
+    return listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value })
+  },
   actions: [],
 }))
 </script>
 
 <template>
-  <BusinessResourcePage :config="config" />
+  <BusinessResourcePage :key="reloadKey" :config="config" />
+  <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
 </template>
