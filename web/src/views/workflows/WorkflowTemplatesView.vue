@@ -13,60 +13,82 @@ import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
+import WorkflowCanvasEditor from './WorkflowCanvasEditor.vue'
+import {
+  createDefaultWorkflowCanvas,
+  workflowCanvasToDsl,
+  workflowDslToCanvas,
+  type WorkflowCanvasDefinition,
+  type WorkflowDslV1,
+} from './workflow-canvas.model'
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const detailModalOpen = ref(false)
+const editorModalOpen = ref(false)
 const detailRow = ref<ViewRow | null>(null)
+const editorRow = ref<ViewRow | null>(null)
 const versionItems = ref<ApiRecord[]>([])
 const versionLoading = ref(false)
 const versionError = ref('')
 const publishLoading = ref(false)
 const publishMessage = ref('')
+const canvasSaving = ref(false)
+const canvasMessage = ref('')
+const canvasDraft = ref<WorkflowCanvasDefinition>(createDefaultWorkflowCanvas())
 const activeTab = ref<'summary' | 'versions'>('summary')
 
 const config: BusinessPageConfig = {
-  title: '工作流模板',
-  description: '按模板清单管理 CURL/SSH 工作流版本、发布状态与变更记录。',
+  title: '工作流',
+  description: '按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。',
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
-  primaryActionLabel: '新建模板',
+  primaryActionLabel: '新建工作流',
   primaryAction: async () => {
+    const canvas = createDefaultWorkflowCanvas('workflow-canvas-draft')
     await createWorkflowTemplate({
-      content: createDefaultTemplate(),
-      changeSummary: '前端快速创建模板草稿',
+      content: workflowCanvasToDsl(canvas),
+      changeSummary: '前端画布创建工作流草稿',
     })
     await pageRef.value?.reload()
   },
   moduleName: 'workflow-templates',
-  resourceName: '工作流模板',
+  resourceName: '工作流',
   defaultStatus: 'draft',
   defaultRisk: 'MEDIUM',
   showDetailPanel: false,
   showActionPanel: false,
   columns: [
-    { key: 'name', title: '模板名称', candidates: ['name'] },
+    { key: 'name', title: '工作流名称', candidates: ['name'] },
     { key: 'status', title: '状态', candidates: ['status'] },
     { key: 'currentVersionId', title: '当前版本', candidates: ['currentVersionId'] },
     { key: 'updatedAt', title: '更新时间', candidates: ['updatedAt', 'createdAt'], kind: 'date' },
     { key: 'actions', title: '操作', candidates: [] },
   ],
   metrics: [
-    { title: '模板总数', description: '已登记的工作流模板。', status: 'READY', risk: 'MEDIUM' },
-    { title: '待发布草稿', description: '仍处于 draft 的模板。', status: 'PENDING_APPROVAL', risk: 'MEDIUM' },
+    { title: '工作流总数', description: '已登记的自动化工作流。', status: 'READY', risk: 'MEDIUM' },
+    { title: '待发布草稿', description: '仍处于 draft 的工作流。', status: 'PENDING_APPROVAL', risk: 'MEDIUM' },
   ],
   detailFields: [
-    { label: '模板 ID', candidates: ['id'] },
-    { label: '模板名称', candidates: ['name'] },
+    { label: '工作流 ID', candidates: ['id'] },
+    { label: '工作流名称', candidates: ['name'] },
     { label: '当前状态', candidates: ['status'] },
     { label: '当前版本 ID', candidates: ['currentVersionId'] },
     { label: '创建时间', candidates: ['createdAt'] },
     { label: '更新时间', candidates: ['updatedAt'] },
   ],
-  emptyTitle: '暂无工作流模板',
-  emptyDescription: '先创建模板草稿，再基于版本发布到正式链路。',
+  emptyTitle: '暂无工作流',
+  emptyDescription: '先创建画布草稿，再基于版本发布到正式链路。',
   load: () => listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' }),
   actions: [],
   rowActions: [
+    {
+      label: '编辑',
+      permission: 'workflow.template.write',
+      reloadAfterRun: false,
+      run: async (row) => {
+        await openEditor(row)
+      },
+    },
     {
       label: '详情',
       permission: 'workflow.template.read',
@@ -80,10 +102,11 @@ const config: BusinessPageConfig = {
       permission: 'workflow.template.write',
       reloadAfterRun: true,
       run: async (row) => {
+        const canvas = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
         await createWorkflowTemplateVersion({
           templateId: readString(row.raw, ['id']),
-          content: createDefaultTemplate(readString(row.raw, ['name'], 'workflow-template')),
-          changeSummary: '前端快速创建新版本草稿',
+          content: workflowCanvasToDsl(canvas),
+          changeSummary: '前端画布创建新版本草稿',
         })
       },
     },
@@ -103,17 +126,58 @@ async function openDetail(row: ViewRow) {
   await loadVersions(row)
 }
 
+async function openEditor(row: ViewRow) {
+  editorRow.value = row
+  editorModalOpen.value = true
+  canvasMessage.value = ''
+  canvasDraft.value = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
+  await loadVersions(row)
+  hydrateCanvasFromLatestVersion()
+}
+
 async function loadVersions(row: ViewRow) {
   versionLoading.value = true
   versionError.value = ''
   try {
     const result = await listWorkflowTemplateVersions(readString(row.raw, ['id']))
     versionItems.value = [...(result.data?.items ?? [])]
+    hydrateCanvasFromLatestVersion()
   } catch (cause) {
     versionItems.value = []
-    versionError.value = cause instanceof Error ? cause.message : '加载模板版本失败'
+    versionError.value = cause instanceof Error ? cause.message : '加载工作流版本失败'
   } finally {
     versionLoading.value = false
+  }
+}
+
+function hydrateCanvasFromLatestVersion() {
+  const latest = [...versionItems.value].sort((left, right) => Number(readString(right, ['version'], '0')) - Number(readString(left, ['version'], '0')))[0]
+  const content = latest?.content
+  if (isWorkflowDsl(content)) {
+    canvasDraft.value = workflowDslToCanvas(content)
+  } else {
+    const row = editorRow.value ?? detailRow.value
+    if (row) canvasDraft.value = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
+  }
+}
+
+async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition; dsl: WorkflowDslV1 }) {
+  if (!editorRow.value) return
+  canvasSaving.value = true
+  canvasMessage.value = ''
+  try {
+    await createWorkflowTemplateVersion({
+      templateId: readString(editorRow.value.raw, ['id']),
+      content: payload.dsl,
+      changeSummary: '画布编辑器保存草稿版本',
+    })
+    canvasMessage.value = '画布草稿已保存为新版本。'
+    await loadVersions(editorRow.value)
+    await pageRef.value?.reload()
+  } catch (cause) {
+    canvasMessage.value = cause instanceof Error ? cause.message : '保存画布草稿失败'
+  } finally {
+    canvasSaving.value = false
   }
 }
 
@@ -128,47 +192,14 @@ async function publishVersion(versionId: string) {
     }
     await pageRef.value?.reload()
   } catch (cause) {
-    publishMessage.value = cause instanceof Error ? cause.message : '发布模板版本失败'
+    publishMessage.value = cause instanceof Error ? cause.message : '发布工作流版本失败'
   } finally {
     publishLoading.value = false
   }
 }
 
-function createDefaultTemplate(name = 'workflow-template') {
-  return {
-    apiVersion: 'gcac.workflow/v1',
-    kind: 'CurlSshWorkflow',
-    metadata: {
-      name,
-      displayName: `${name} 模板`,
-      category: 'deployment',
-      tags: ['ssl', 'workflow'],
-    },
-    variables: {
-      domainName: { type: 'string', required: true, description: '目标域名' },
-      verifyUrl: { type: 'string', required: false, description: '验证 URL' },
-      certificateSecretRef: { type: 'secret', required: true, description: '证书 SecretRef' },
-    },
-    steps: [
-      {
-        name: 'verify_target',
-        type: 'http',
-        request: {
-          method: 'GET',
-          url: '{{verifyUrl}}',
-          timeoutSeconds: 30,
-        },
-        assert: [{ type: 'statusCode', equals: 200 }],
-      },
-    ],
-    rollback: [
-      {
-        name: 'manual_rollback',
-        type: 'manual',
-        instruction: '回滚到上一个稳定证书版本',
-      },
-    ],
-  }
+function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
+  return Boolean(value && typeof value === 'object' && (value as { apiVersion?: unknown }).apiVersion === 'gcac.workflow/v1')
 }
 </script>
 
@@ -178,15 +209,15 @@ function createDefaultTemplate(name = 'workflow-template') {
 
     <GcModal
       v-model:open="detailModalOpen"
-      :title="detailRow ? `工作流模板 ${readString(detailRow.raw, ['name'], detailRow.id)}` : '工作流模板详情'"
-      description="模板详情与版本清单全部收口到模态框里，主页面只保留紧凑列表。"
+      :title="detailRow ? `工作流 ${readString(detailRow.raw, ['name'], detailRow.id)}` : '工作流详情'"
+      description="工作流详情、画布草稿与版本清单全部收口到模态框里，主页面只保留紧凑列表。"
       size="xl"
-      width="min(1100px, calc(100vw - 32px))"
+      width="min(1280px, calc(100vw - 32px))"
     >
       <section v-if="detailRow" class="workflow-template-detail">
         <section class="workflow-template-detail__hero">
           <div class="workflow-template-detail__hero-copy">
-            <p class="workflow-template-detail__eyebrow">Workflow Template</p>
+            <p class="workflow-template-detail__eyebrow">Workflow</p>
             <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
             <span>当前发布版本 {{ publishedVersionLabel }}</span>
           </div>
@@ -206,8 +237,8 @@ function createDefaultTemplate(name = 'workflow-template') {
 
         <section v-if="activeTab === 'summary'" class="workflow-template-detail__section">
           <dl class="workflow-template-detail__facts">
-            <div><dt>模板 ID</dt><dd>{{ readString(detailRow.raw, ['id']) }}</dd></div>
-            <div><dt>模板名称</dt><dd>{{ readString(detailRow.raw, ['name']) }}</dd></div>
+            <div><dt>工作流 ID</dt><dd>{{ readString(detailRow.raw, ['id']) }}</dd></div>
+            <div><dt>工作流名称</dt><dd>{{ readString(detailRow.raw, ['name']) }}</dd></div>
             <div><dt>当前状态</dt><dd>{{ readString(detailRow.raw, ['status']) }}</dd></div>
             <div><dt>当前版本 ID</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
             <div><dt>创建时间</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['createdAt'])) || readString(detailRow.raw, ['createdAt']) }}</dd></div>
@@ -246,6 +277,29 @@ function createDefaultTemplate(name = 'workflow-template') {
         <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
       </template>
     </GcModal>
+
+    <GcModal
+      v-model:open="editorModalOpen"
+      frameless
+      :close-on-backdrop="false"
+      width="calc(100vw - 28px)"
+    >
+      <section v-if="editorRow" class="workflow-template-editor-shell">
+        <WorkflowCanvasEditor
+          v-model="canvasDraft"
+          class="workflow-template-editor-shell__editor"
+          :readonly="readString(editorRow.raw, ['status']) === 'published'"
+          :save-message="canvasMessage"
+          :saving="canvasSaving"
+          @save="saveCanvasDraft"
+        >
+          <template #toolbar-actions>
+            <GcStatusTag :status="readString(editorRow.raw, ['status'])" />
+            <button class="gc-button" type="button" @click="editorModalOpen = false">关闭</button>
+          </template>
+        </WorkflowCanvasEditor>
+      </section>
+    </GcModal>
   </section>
 </template>
 
@@ -253,11 +307,6 @@ function createDefaultTemplate(name = 'workflow-template') {
 .workflow-templates-page {
   display: grid;
   gap: var(--gc-space-4);
-}
-
-.workflow-templates-page :deep(.business-page__row-actions) {
-  gap: 6px;
-  flex-wrap: wrap;
 }
 
 .workflow-template-detail {
@@ -440,6 +489,37 @@ function createDefaultTemplate(name = 'workflow-template') {
   color: var(--gc-color-danger);
 }
 
+.workflow-template-editor-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  width: calc(100vw - 28px);
+  height: calc(100vh - 28px);
+  padding: 12px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 18px;
+  background: #f4f8fd;
+  box-shadow: 0 24px 80px rgb(15 23 42 / 18%);
+}
+
+.workflow-template-editor-shell__editor {
+  min-height: 0;
+}
+
+.workflow-template-editor-shell__editor :deep(.workflow-canvas-editor) {
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) minmax(150px, 22vh);
+}
+
+.workflow-template-editor-shell__editor :deep(.workflow-canvas-editor__main) {
+  min-height: 0;
+}
+
+.workflow-template-editor-shell__editor :deep(.workflow-canvas-editor__surface) {
+  min-height: 760px;
+}
+
 @media (max-width: 900px) {
   .workflow-template-detail__hero {
     display: grid;
@@ -448,6 +528,13 @@ function createDefaultTemplate(name = 'workflow-template') {
 
   .workflow-template-detail__facts {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-template-editor-shell {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+    padding: 8px;
+    overflow: hidden;
   }
 }
 </style>

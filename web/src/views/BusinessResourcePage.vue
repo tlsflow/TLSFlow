@@ -414,9 +414,17 @@ defineExpose({
 .business-page__metric footer { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); align-items: center; }
 .business-page__toolbar { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: center; }
 .business-page__toolbar-title { display: grid; gap: var(--gc-space-1); }
-.business-page__toolbar-title strong { font-size: 17px; letter-spacing: -0.02em; }
-.business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 650; }
+.business-page__toolbar-title strong { font-size: 14px; letter-spacing: 0; }
+.business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: 11px; font-weight: 650; }
 .business-page__toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); align-items: center; }
+.business-page__toolbar-actions :deep(.gc-button),
+.business-page__toolbar-actions :deep(.gc-permission-button),
+.business-page__row-actions :deep(.gc-button),
+.business-page__row-actions :deep(.gc-permission-button) {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
 .business-page__filters {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -465,7 +473,7 @@ defineExpose({
 .business-page__pill--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
 .business-page__row-link[aria-pressed="true"] { color: var(--gc-color-primary-hover); text-decoration: underline; text-underline-offset: 4px; }
-.business-page__row-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.business-page__row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .business-page__detail { display: grid; gap: var(--gc-space-4); padding: 26px; }
 .business-page__detail header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
 .business-page__detail h2, .business-page__detail p { margin: 0; }
