@@ -927,17 +927,32 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!targetBinding) return asset;
     const managedTarget = await this.getManagedTargetIncludingDeleted(tenantId, targetBinding.managedTargetId);
     if (!managedTarget) return { ...asset, targetBinding };
-    const [host, frameworkInstance, siteAsset] = await Promise.all([
-      this.getHostIncludingDeleted(tenantId, managedTarget.deviceId),
-      managedTarget.frameworkInstanceId ? this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId) : undefined,
-      managedTarget.siteId ? this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId) : undefined,
-    ]);
+    // Repository 可能绑定到事务专用 client；事务 client 不允许并发 query。
+    // 顺序读取避免 pg 触发“client already executing a query”并发警告。
+    const devicePluginRows = (await this.db.query<{ plugin_version_ids: string[] | null }>(
+      `select coalesce(array_agg(distinct plugin_version_id) filter (where plugin_version_id is not null), '{}') as plugin_version_ids
+       from pg_device_assets
+       where tenant_id = $1 and host_id = $2`,
+      [tenantId, managedTarget.deviceId],
+    )).rows[0];
+    const pluginVersionIds = Array.isArray(devicePluginRows?.plugin_version_ids)
+      ? devicePluginRows.plugin_version_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [];
+    const pluginVersionId = pluginVersionIds.length === 1 ? pluginVersionIds[0] : undefined;
+    const host = await this.getHostIncludingDeleted(tenantId, managedTarget.deviceId);
+    const frameworkInstance = managedTarget.frameworkInstanceId
+      ? await this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId)
+      : undefined;
+    const siteAsset = managedTarget.siteId
+      ? await this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId)
+      : undefined;
     return {
       ...asset,
       targetBinding: {
         ...targetBinding,
         deviceId: managedTarget.deviceId,
         deviceDisplayName: host?.displayName ?? host?.hostname ?? host?.primaryIp ?? host?.id,
+        ...(pluginVersionId ? { pluginVersionId } : {}),
         frameworkInstanceId: managedTarget.frameworkInstanceId,
         frameworkType: frameworkInstance?.frameworkType,
         frameworkDisplayName: frameworkInstance?.displayName,

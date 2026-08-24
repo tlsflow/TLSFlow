@@ -380,6 +380,8 @@ export interface ApplicationAssetTargetSummaryDto {
   managedTargetId: string;
   deviceId?: string;
   deviceDisplayName?: string;
+  /** 受管设备当前绑定的插件版本，用于应用资产卡片展示插件 Logo。 */
+  pluginVersionId?: string;
   frameworkInstanceId?: string;
   frameworkType?: string;
   frameworkDisplayName?: string;

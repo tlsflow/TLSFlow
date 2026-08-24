@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch, type Directive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
@@ -15,7 +15,7 @@ import { listManagedDevices } from '@/api/modules/devices.api'
 import { getDeploymentTaskSettings } from '@/api/modules/security.api'
 import type { ApiPageResult, ApiRecord, BusinessListQuery } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
+import { DeploymentInputForm, GcButton, GcCard, GcCertificateDeploymentForm, GcCompatiblePluginSelector, GcConfirmAction, GcDataTable, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcHelpTip, GcManagedTargetSelector, GcModal, GcPagination, GcPermissionButton, GcPluginLogo, GcProgressBar, GcStatusTag, GcTabs, GcUserFlowWizard, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import { useAppStore } from '@/stores/app.store'
@@ -55,7 +55,7 @@ type AssetWizardStep = 1 | 2 | 3
 type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid' | 'updateAvailable'
 type CertificateDeploymentSelection = { certificateAssetId: string; selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }
 type AssetPresentation = 'cards' | 'list'
-type AssetSortField = 'domain' | 'port' | 'protocol' | 'platform' | 'framework' | 'site' | 'status' | 'updatedAt'
+type AssetSortField = 'domain' | 'port' | 'protocol' | 'device' | 'framework' | 'site' | 'status' | 'updatedAt'
 type AssetSortOrder = 'asc' | 'desc'
 type AssetCertificateCategory = 'all' | 'valid' | 'updateAvailable'
 
@@ -69,6 +69,47 @@ interface DeploymentInputIssueDetail {
 }
 
 const ASSET_WORKSPACE_PAGE_SIZE = 20
+const cardFactTextObservers = new WeakMap<HTMLElement, ResizeObserver>()
+const cardFactTextBaseFontSizes = new WeakMap<HTMLElement, number>()
+
+function fitCardFactText(element: HTMLElement): void {
+  const baseFontSize = cardFactTextBaseFontSizes.get(element)
+  if (!baseFontSize || element.clientWidth <= 0) return
+
+  const computedStyle = getComputedStyle(element)
+  const minimumFontSize = Number.parseFloat(computedStyle.getPropertyValue('--gc-font-size-overline')) || baseFontSize * 0.8
+  let fontSize = baseFontSize
+  element.style.fontSize = `${baseFontSize}px`
+  while (element.scrollWidth > element.clientWidth && fontSize > minimumFontSize) {
+    fontSize = Math.max(minimumFontSize, fontSize - 0.5)
+    element.style.fontSize = `${fontSize}px`
+  }
+}
+
+const vAutoFitCardFactText: Directive<HTMLElement> = {
+  mounted(element) {
+    const baseFontSize = Number.parseFloat(getComputedStyle(element).fontSize)
+    if (!Number.isFinite(baseFontSize) || baseFontSize <= 0) return
+    cardFactTextBaseFontSizes.set(element, baseFontSize)
+    element.style.whiteSpace = 'nowrap'
+    element.style.overflow = 'visible'
+    element.style.textOverflow = 'clip'
+    fitCardFactText(element)
+    if (typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(() => fitCardFactText(element))
+    observer.observe(element)
+    if (element.parentElement) observer.observe(element.parentElement)
+    cardFactTextObservers.set(element, observer)
+  },
+  updated(element) {
+    fitCardFactText(element)
+  },
+  beforeUnmount(element) {
+    cardFactTextObservers.get(element)?.disconnect()
+    cardFactTextObservers.delete(element)
+    cardFactTextBaseFontSizes.delete(element)
+  },
+}
 
 interface AssetCardCertificate {
   readonly name: string
@@ -83,6 +124,7 @@ interface AssetOverviewCard {
   readonly asset: ApiRecord
   readonly name: string
   readonly status: string
+  readonly pluginVersionId: string
   readonly certificate: AssetCardCertificate
 }
 
@@ -92,7 +134,7 @@ interface AssetListRow extends Record<string, unknown> {
   readonly domain: string
   readonly port: string
   readonly protocol: string
-  readonly platform: string
+  readonly device: string
   readonly framework: string
   readonly site: string
   readonly status: string
@@ -171,7 +213,7 @@ const assetListRows = computed<AssetListRow[]>(() =>
     domain: card.name,
     port: firstAssetText(card.asset, ['port']) || t('assets.empty.notSet'),
     protocol: firstAssetText(card.asset, ['protocol']) || t('assets.empty.notSet'),
-    platform: firstAssetText(card.asset, ['platform']) || t('assets.empty.notSet'),
+    device: assetDeviceLabel(card.asset),
     framework: assetFrameworkLabel(card.asset),
     site: assetSiteLabel(card.asset),
     status: assetCertificateStatusKey(card),
@@ -181,7 +223,7 @@ const assetListColumns = computed<DataTableColumn<AssetListRow>[]>(() => [
   { key: 'domain', title: t('assets.columns.domain'), width: '24%' },
   { key: 'port', title: t('assets.columns.port'), width: '8%' },
   { key: 'protocol', title: t('assets.columns.protocol'), width: '10%' },
-  { key: 'platform', title: t('assets.columns.platform'), width: '11%' },
+  { key: 'device', title: t('assets.columns.device'), width: '11%' },
   { key: 'framework', title: t('assets.columns.framework'), width: '14%' },
   { key: 'site', title: t('assets.columns.site'), width: '14%' },
   { key: 'status', title: t('assets.columns.status'), width: '9%' },
@@ -2080,8 +2122,31 @@ function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
     asset,
     name,
     status: firstAssetText(asset, ['status', 'state']) || 'UNKNOWN',
+    pluginVersionId: assetPluginVersionId(asset),
     certificate: assetOverviewCertificate(asset),
   }
+}
+
+function assetPluginVersionId(asset: ApiRecord): string {
+  return firstAssetText(asset, [
+    'targetBinding.pluginVersionId',
+    'targetBindingDetail.pluginVersionId',
+    'deploymentStrategy.workflow.pluginVersionId',
+    'metadata.deploymentStrategy.workflow.pluginVersionId',
+  ])
+}
+
+function assetPluginLogoUrl(pluginVersionId: string, variant: 'horizontal' | 'square'): string | undefined {
+  if (!pluginVersionId) return undefined
+  return `/api/v1/plugin-versions/${encodeURIComponent(pluginVersionId)}/resources/logos/${variant}`
+}
+
+function assetPluginLogoFallbackText(asset: ApiRecord): string {
+  const label = assetDeviceLabel(asset)
+  if (label && label !== t('assets.empty.notSet')) return Array.from(label)[0] ?? '?'
+  const framework = assetFrameworkLabel(asset)
+  if (framework && framework !== t('assets.empty.notSet')) return Array.from(framework)[0] ?? '?'
+  return Array.from(userAssetName(asset))[0] ?? '?'
 }
 
 function assetCertificateStatusKey(card: AssetOverviewCard): Exclude<AssetCertificateCategory, 'all'> {
@@ -2106,6 +2171,18 @@ function assetFrameworkLabel(asset: ApiRecord): string {
   ]) || t('assets.empty.notSet')
 }
 
+function assetDeviceLabel(asset: ApiRecord): string {
+  return firstAssetText(asset, [
+    'targetBinding.deviceDisplayName',
+    'targetBindingDetail.deviceDisplayName',
+    'deviceDisplayName',
+    'device.displayName',
+    'device.hostname',
+    'host.displayName',
+    'host.hostname',
+  ]) || t('assets.empty.notSet')
+}
+
 function assetSiteLabel(asset: ApiRecord): string {
   return firstAssetText(asset, [
     'targetBinding.siteName',
@@ -2123,8 +2200,8 @@ function normalizeAssetSortValue(card: AssetOverviewCard, field: AssetSortField)
       return Number(firstAssetText(card.asset, ['port'])) || 0
     case 'protocol':
       return firstAssetText(card.asset, ['protocol']).toLowerCase()
-    case 'platform':
-      return firstAssetText(card.asset, ['platform']).toLowerCase()
+    case 'device':
+      return assetDeviceLabel(card.asset).toLowerCase()
     case 'framework':
       return assetFrameworkLabel(card.asset).toLowerCase()
     case 'site':
@@ -3311,7 +3388,13 @@ function managedTargetLabel(target: ApiRecord): string {
             >
               <template #header>
                 <span class="asset-page__card-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm3-6.5h.01M7 16.5h.01" /></svg>
+                  <GcPluginLogo
+                    :logo-url="assetPluginLogoUrl(card.pluginVersionId, 'horizontal')"
+                    :square-logo-url="assetPluginLogoUrl(card.pluginVersionId, 'square')"
+                    :fallback-text="assetPluginLogoFallbackText(card.asset)"
+                    :alt="t('plugins.aria.logo', { name: assetDeviceLabel(card.asset) })"
+                    size="onboarding"
+                  />
                 </span>
                 <div class="asset-page__card-heading">
                   <h3>{{ card.name }}</h3>
@@ -3332,11 +3415,11 @@ function managedTargetLabel(target: ApiRecord): string {
                 <dl class="asset-page__card-facts">
                   <div>
                     <dt>{{ t('assets.fields.currentCertificate') }}</dt>
-                    <dd class="asset-page__card-fact-value asset-page__card-certificate-name">{{ card.certificate.name }}</dd>
+                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-name">{{ card.certificate.name }}</dd>
                   </div>
                   <div>
                     <dt>{{ t('assets.fields.remainingValidity') }}</dt>
-                    <dd class="asset-page__card-fact-value asset-page__card-certificate-status">
+                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-status">
                       <strong class="asset-page__card-certificate-remaining">{{ card.certificate.remainingLabel }}</strong>
                       <GcStatusTag
                         class="asset-page__card-certificate-state"
@@ -3345,6 +3428,10 @@ function managedTargetLabel(target: ApiRecord): string {
                         :tone="card.certificate.tone"
                       />
                     </dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.fields.device') }}</dt>
+                    <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-device-name">{{ assetDeviceLabel(card.asset) }}</dd>
                   </div>
                 </dl>
               </template>
@@ -3427,9 +3514,9 @@ function managedTargetLabel(target: ApiRecord): string {
                 {{ t('assets.columns.protocol') }} {{ assetSortIndicator('protocol') }}
               </button>
             </template>
-            <template #header-platform>
-              <button class="asset-page__header-sort" type="button" @click="toggleAssetSort('platform')">
-                {{ t('assets.columns.platform') }} {{ assetSortIndicator('platform') }}
+            <template #header-device>
+              <button class="asset-page__header-sort" type="button" @click="toggleAssetSort('device')">
+                {{ t('assets.columns.device') }} {{ assetSortIndicator('device') }}
               </button>
             </template>
             <template #header-framework>
@@ -4706,6 +4793,23 @@ function managedTargetLabel(target: ApiRecord): string {
   background: var(--gc-color-primary-soft);
 }
 
+.asset-page__card-icon :deep(.plugin-logo) {
+  inline-size: 100%;
+  block-size: 100%;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+  background: transparent;
+}
+
+.asset-page__card-icon :deep(.plugin-logo img) {
+  padding: var(--gc-space-1);
+}
+
+.asset-page__card-icon :deep(.plugin-logo--fallback) {
+  font-size: var(--gc-font-size-md);
+}
+
 .asset-page__card-select {
   width: var(--gc-size-icon-sm);
   height: var(--gc-size-icon-sm);
@@ -4789,8 +4893,8 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-1);
   margin: 0;
   padding: 0;
 }
@@ -4799,7 +4903,7 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
-  padding: var(--gc-space-3);
+  padding: var(--gc-space-1);
   border-radius: var(--gc-radius-control);
   background: var(--gc-color-surface-muted);
 }
@@ -4817,7 +4921,7 @@ function managedTargetLabel(target: ApiRecord): string {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-xs);
   font-weight: var(--gc-font-weight-semibold);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .asset-page__card-fact-value {
@@ -4826,17 +4930,24 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-certificate-name {
   min-width: 0;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .asset-page__card-certificate-status {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--gc-space-2);
+  flex-wrap: nowrap;
+  gap: var(--gc-space-1);
+  min-width: 0;
+  width: 100%;
+}
+
+.asset-page__card-certificate-status .asset-page__card-certificate-remaining,
+.asset-page__card-certificate-status .asset-page__card-certificate-state {
+  font-size: inherit;
+}
+
+.asset-page__card-certificate-status .asset-page__card-certificate-state {
+  padding-inline: var(--gc-space-1);
 }
 
 .asset-page__card-certificate-remaining {

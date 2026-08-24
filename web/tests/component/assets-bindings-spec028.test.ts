@@ -340,6 +340,7 @@ describe('资产与证书产物视图', () => {
         status: 'ACTIVE',
         targetBinding: {
           siteName: 'production-web',
+          pluginVersionId: 'plugin-version-nginx',
         },
         currentCertificate: {
           commonName: '*.example.com',
@@ -357,6 +358,7 @@ describe('资产与证书产物视图', () => {
     expect(card.text()).toContain('*.example.com')
     expect(card.text()).not.toContain('production-web')
     expect(card.find('.asset-page__card-heading p').text()).toBe('https://card.example.com')
+    expect(card.find('.asset-page__card-icon img').attributes('src')).toBe('/api/v1/plugin-versions/plugin-version-nginx/resources/logos/square')
     expect(card.find('.asset-page__card-meta').exists()).toBe(false)
     expect(card.find('[role="progressbar"]').exists()).toBe(false)
     expect(card.find('[data-testid="asset-card-select-asset-card-1"]').exists()).toBe(true)
@@ -387,8 +389,8 @@ describe('资产与证书产物视图', () => {
 
   it('专业应用页支持切换表格视图并按表头稳定排序', async () => {
     assetMocks.listAssets.mockResolvedValue(okPage([
-      { id: 'asset-sort-b', address: 'b.example.com', displayName: 'b.example.com', port: 8443, protocol: 'HTTPS', platform: 'WINDOWS', status: 'ACTIVE', currentCertificate: { updateAvailable: true } },
-      { id: 'asset-sort-a', address: 'a.example.com', displayName: 'a.example.com', port: 443, protocol: 'HTTPS', platform: 'LINUX', status: 'ACTIVE', currentCertificate: { notAfter: '2099-06-15T23:59:59.000Z' } },
+      { id: 'asset-sort-b', address: 'b.example.com', displayName: 'b.example.com', port: 8443, protocol: 'HTTPS', platform: 'WINDOWS', targetBinding: { deviceDisplayName: 'device-b' }, status: 'ACTIVE', currentCertificate: { updateAvailable: true } },
+      { id: 'asset-sort-a', address: 'a.example.com', displayName: 'a.example.com', port: 443, protocol: 'HTTPS', platform: 'LINUX', targetBinding: { deviceDisplayName: 'device-a' }, status: 'ACTIVE', currentCertificate: { notAfter: '2099-06-15T23:59:59.000Z' } },
     ]))
 
     const wrapper = mountBusinessView(AssetsView)
@@ -406,6 +408,9 @@ describe('资产与证书产物视图', () => {
     const table = wrapper.get('.asset-page__asset-table')
     expect(table.text()).toContain('a.example.com')
     expect(table.text()).toContain('b.example.com')
+    expect(table.text()).toContain('所属设备')
+    expect(table.text()).toContain('device-a')
+    expect(table.text()).not.toContain('平台')
     expect(table.find('[data-testid="asset-list-select-asset-sort-a"]').exists()).toBe(true)
     const categoryTabs = wrapper.findAll('.certificate-page__category-tab')
     expect(categoryTabs.map((tab) => tab.text())).toEqual(['全部', '正常', '可更新'])
@@ -709,7 +714,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenCalledTimes(2)
   })
 
-  it('应用资产卡片移除设备、框架和站点元数据', async () => {
+  it('应用资产卡片显示所属设备，并继续隐藏框架和站点元数据', async () => {
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
         id: 'asset-name-1',
@@ -736,7 +741,7 @@ describe('资产与证书产物视图', () => {
     const card = wrapper.get('[data-testid="asset-professional-card"]')
     expect(card.text()).not.toContain('NGINX')
     expect(card.text()).not.toContain('prod-site')
-    expect(card.text()).not.toContain('prod-device')
+    expect(card.text()).toContain('prod-device')
     expect(wrapper.text()).not.toContain('sit_001')
     expect(wrapper.text()).not.toContain('host_001')
     expect(assetMocks.listAgents).not.toHaveBeenCalled()
