@@ -2,8 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.aliyun",
-  "version": "1.0.4",
-  "providerKey": "cloud.aliyun",
+  "version": "1.0.5",
   "displayNameKey": "plugin.builtin.cloud.aliyun.name",
   "descriptionKey": "plugin.builtin.cloud.aliyun.description",
   "logoUrl": "/plugin-logos/aliyun.svg",
@@ -36,21 +35,6 @@
       "riskLevel": "HIGH",
       "executionLocations": ["CONTROL_PLANE"]
     }
-  ],
-  "supportedProducts": [
-    "cloud.aliyun.cdn",
-    "cloud.aliyun.alb",
-    "cloud.aliyun.clb",
-    "cloud.aliyun.oss",
-    "cloud.aliyun.waf-cname",
-    "cloud.aliyun.waf-cloud",
-    "cloud.aliyun.live",
-    "cloud.aliyun.vod"
-  ],
-  "supportedOperations": [
-    "certificate.discover",
-    "certificate.deploy",
-    "certificate.rollback"
   ],
   "permissions": [
     "secret.read",

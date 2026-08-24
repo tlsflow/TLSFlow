@@ -17,6 +17,11 @@
       "packageSha256": "sha256:3c8e34446ed16eefd33287ab18f7e35be82a2b819b8c0de31fc55e2f4ee339b0"
     },
     {
+      "pluginId": "cloud.aliyun",
+      "version": "1.0.5",
+      "packageSha256": "sha256:26f3012599830f050a412cb255e1eedbf0c9ef19980ed6cfffa59250241c3327"
+    },
+    {
       "pluginId": "cloud.huawei",
       "version": "1.0.2",
       "packageSha256": "sha256:9feab1bf2892a3b6bc7b09aab64689fec230f75730c0aa912538a1f37b8b5577"
@@ -30,6 +35,11 @@
       "pluginId": "cloud.huawei",
       "version": "1.0.4",
       "packageSha256": "sha256:02f95b42ffa5c13ecd629a879773d014fe87145a4d0da81887c8baddeec6d1f9"
+    },
+    {
+      "pluginId": "cloud.huawei",
+      "version": "1.0.5",
+      "packageSha256": "sha256:97064e21c1f3d2357fac9c3e4013bedefc2672c95429acedb601d515396343e6"
     },
     {
       "pluginId": "cloud.tencent",
@@ -47,6 +57,11 @@
       "packageSha256": "sha256:78e82238db75e3b97e674878dd4b931abea6a493b5901516a9bf597908c1d46a"
     },
     {
+      "pluginId": "cloud.tencent",
+      "version": "1.0.5",
+      "packageSha256": "sha256:ffa6c0dd9a9cad630350640bf5569e9f190b3873df7c9bd69d434cd5d74124d6"
+    },
+    {
       "pluginId": "cloud.volcengine",
       "version": "1.0.2",
       "packageSha256": "sha256:8f8dd97999298125132492cf043f5a80b2da8730ec182d8359a41b76650cc390"
@@ -60,6 +75,11 @@
       "pluginId": "cloud.volcengine",
       "version": "1.0.4",
       "packageSha256": "sha256:6b4fe1395632a5b346443a61fab967e86ff6f3f8253eb3c8dbd7bfca49838592"
+    },
+    {
+      "pluginId": "cloud.volcengine",
+      "version": "1.0.5",
+      "packageSha256": "sha256:95234c0f7a37d8feddd8feee21d94422550ed9d4a055ae66d5e2c62738d15959"
     },
     {
       "pluginId": "device.citrix.netscaler-adc",

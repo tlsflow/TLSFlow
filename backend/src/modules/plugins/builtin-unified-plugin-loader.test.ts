@@ -15,17 +15,17 @@ test('内置插件包仅安装符合当前 Manifest 合同的包并可幂等启�
   const first = await loader.installAll(service);
   const second = await loader.installAll(service);
 
-  assert.equal(first.length, 1);
+  assert.equal(first.length, 5);
   const citrix = first.find((item) => item.pluginId === 'device.citrix.netscaler-adc');
   assert.equal(citrix?.status, 'ENABLED');
   assert.equal(citrix?.version, '1.2.2');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.logoUrl, '/plugin-logos/citrix-adc.svg');
   assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
-  assert.equal(first.some((item) => item.pluginId.startsWith('cloud.')), false);
+  assert.equal(first.filter((item) => item.pluginId.startsWith('cloud.')).length, 4);
   assert.equal(first.every((item) => item.manifest.logoUrl?.startsWith('/plugin-logos/')), true);
   assert.deepEqual(second.map((item) => item.id), first.map((item) => item.id));
-  assert.equal(records.size, 1);
+  assert.equal(records.size, 5);
 
   const packages = await loader.loadPackages();
   const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'device.citrix.netscaler-adc')!;
@@ -45,11 +45,28 @@ test('内置插件包仅安装符合当前 Manifest 合同的包并可幂等启�
   }
 });
 
-test('旧厂商 Manifest 导入失败时只告警并继续处理其他插件', async () => {
+test('旧 Provider 字段的 Manifest 失败关闭，同时不阻断其他合法插件', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));
   const baseLoader = new BuiltinUnifiedPluginLoader();
   const packages = await baseLoader.loadPackages();
+  const cloudPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'cloud.aliyun')!;
+  const legacyManifest = {
+    ...(cloudPackage.manifest as Record<string, unknown>),
+    pluginId: 'legacy.cloud',
+    version: '1.0.0',
+    providerKey: 'legacy.cloud',
+    supportedProducts: ['legacy.cloud.product'],
+    supportedOperations: ['certificate.deploy'],
+  };
+  const testPackages = [
+    ...packages,
+    {
+      ...cloudPackage,
+      manifest: legacyManifest,
+      packageContent: JSON.stringify({ directory: 'legacy-cloud', manifest: legacyManifest, resources: cloudPackage.resources }),
+    },
+  ];
   const warnings: LogEvent[] = [];
   const logger = new StructuredLogger((event) => warnings.push(event));
 
@@ -63,22 +80,22 @@ test('旧厂商 Manifest 导入失败时只告警并继续处理其他插件', a
   };
   class TestLoader extends BuiltinUnifiedPluginLoader {
     override async loadPackages() {
-      return packages;
+      return testPackages;
     }
   }
 
   const installed = await new TestLoader(undefined, logger).installAll(service);
-  assert.equal(installed.length, 0);
-  assert.equal(warnings.length, packages.length);
+  assert.equal(installed.length, 4);
+  assert.equal(warnings.length, 2);
   assert.equal(warnings.every((event) => (event.details as { phase: string }).phase === 'import'), true);
   assert.equal(warnings.some((event) => {
     const details = event.details as { pluginId?: string; errorCode: string };
     return details.pluginId === 'device.citrix.netscaler-adc' && details.errorCode === 'RESOURCE_VERSION_CONFLICT';
   }), true);
-  assert.equal(warnings.filter((event) => {
+  assert.equal(warnings.some((event) => {
     const details = event.details as { pluginId?: string; errorCode: string };
-    return details.pluginId?.startsWith('cloud.') && details.errorCode === 'VALIDATION_FAILED';
-  }).length, 4);
+    return details.pluginId === 'legacy.cloud' && details.errorCode === 'VALIDATION_FAILED';
+  }), true);
 });
 
 function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): UnifiedPluginsRepository {

@@ -2,8 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.huawei",
-  "version": "1.0.4",
-  "providerKey": "cloud.huawei",
+  "version": "1.0.5",
   "displayNameKey": "plugin.builtin.cloud.huawei.name",
   "descriptionKey": "plugin.builtin.cloud.huawei.description",
   "logoUrl": "/plugin-logos/huawei.svg",
@@ -36,15 +35,6 @@
       "riskLevel": "HIGH",
       "executionLocations": ["CONTROL_PLANE"]
     }
-  ],
-  "supportedProducts": [
-    "cloud.huawei.cdn",
-    "cloud.huawei.elb"
-  ],
-  "supportedOperations": [
-    "certificate.discover",
-    "certificate.deploy",
-    "certificate.rollback"
   ],
   "permissions": [
     "secret.read",
