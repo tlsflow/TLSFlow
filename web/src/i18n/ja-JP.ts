@@ -1,0 +1,3511 @@
+// Auto-generated from messages.ts — do not edit manually.
+// Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+export default {
+  app: {
+    brand: 'GCAC コンソール',
+    platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',
+    defaultBreadcrumb: 'コンソール',
+    dashboard: 'ダッシュボード'
+  },
+  common: {
+    refresh: '更新',
+    logout: '終了',
+    enter: '開く',
+    loading: '読み込み中',
+    userFallback: '未ログインユーザー',
+    tenantFallback: 'デフォルトテナント'
+  },
+  api: {
+    errors: {
+      requestFailed: 'リクエストに失敗しました'
+    }
+  },
+  auth: {
+    errors: {
+      missingSession: 'ログインに失敗しました。有効なセッションを取得できませんでした'
+    },
+    mock: {
+      displayName: 'システムユーザー（Mock）'
+    }
+  },
+  designSystem: {
+    confirm: {
+      title: '{action}を確認',
+      impactCount: '影響を受けるリソース数：{count}',
+      defaultRisk: 'この操作により、デプロイ、再試行、ロールバック、または取り消せない変更が発生する可能性があります。',
+      typeToConfirm: '二次確認のため {text} を入力',
+      cancel: 'キャンセル',
+      confirm: '確認'
+    },
+    dataTable: {
+      empty: 'データはまだありません',
+      loading: '読み込み中...'
+    },
+    dryRunChecklist: {
+      title: 'Dry-run 事前チェック結果',
+      ariaLabel: 'dry-run 事前チェック結果',
+      empty: 'dry-run 事前チェック結果はまだ生成されていません。',
+      unnamedCheck: '無名のチェック項目'
+    },
+    dryRunResult: {
+      title: 'Dry-run 実行結果',
+      close: '閉じる'
+    },
+    modal: {
+      closeAria: 'ダイアログを閉じる'
+    },
+    secretInput: {
+      label: 'Secret 参照',
+      placeholder: 'シークレット参照（SecretRef）を選択または入力してください。内容は平文で保存されません',
+      hint: '機密フィールドにはシークレット参照のみを保存し、画面に平文で表示しません。'
+    },
+    riskBadge: {
+      levelPrefix: 'レベル：'
+    },
+    status: {
+      DRAFT: 'ドラフト',
+      PUBLISHED: '公開済み',
+      PENDING_APPROVAL: '承認待ち',
+      READY: '実行待ち',
+      RUNNING: '実行中',
+      SUCCESS: '成功',
+      PARTIAL_SUCCESS: '一部成功',
+      FAILED: '失敗',
+      CANCELLED: 'キャンセル済み',
+      ROLLED_BACK: 'ロールバック済み',
+      DISCOVERED: '検出済み',
+      MANAGED: '管理対象',
+      DRIFTED: 'ドリフト検出済み',
+      EXPIRED: '期限切れ',
+      ERROR: '異常',
+      IGNORED: '無視済み',
+      ONLINE: 'オンライン',
+      OFFLINE: 'オフライン',
+      DISABLED: '無効化済み',
+      UPGRADING: 'アップグレード中',
+      UPDATE_REQUIRED: '更新が必要',
+      UP_TO_DATE: '最新',
+      UNKNOWN: '不明'
+    },
+    risk: {
+      LOW: {
+        label: '低',
+        description: '注意が必要ですが、操作を直接ブロックしません。'
+      },
+      MEDIUM: {
+        label: '中',
+        description: 'デプロイまたは監視結果に影響する可能性があるため、確認が必要です。'
+      },
+      HIGH: {
+        label: '高',
+        description: 'サービス中断またはセキュリティ露出を引き起こす可能性があります。'
+      },
+      CRITICAL: {
+        label: '重大',
+        description: '優先対応が必要です。危険な操作には二次確認が必要です。'
+      }
+    },
+    capability: {
+      available: '対応済み',
+      missing: '不足',
+      title: '機能互換性',
+      description: '確認済みの機能互換性結果のみ表示します。未確認項目はサポート済みとは見なしません。',
+      matrixLabel: '機能互換性マトリクス',
+      satisfied: '満たしています',
+      unknown: '不明',
+      manualRisk: '手動確認',
+      empty: '機能互換性データはまだありません。'
+    },
+    executionLogViewer: {
+      mode: {
+        realtime: 'リアルタイム更新',
+        autoRefresh: '自動更新'
+      },
+      search: {
+        placeholder: 'ログ内容を検索'
+      },
+      level: {
+        aria: 'ログレベル',
+        all: 'すべて'
+      },
+      hint: {
+        streaming: 'タスクステータスとログは持継リアルタイム更新。',
+        autoRefresh: 'タスクステータスとログは自動更新。',
+        pollingFallback: '現在は定期更新モードを使用しています。'
+      },
+      steps: {
+        aria: '実行ステップ',
+        emptyDetail: 'ステップ説明はまだありません'
+      },
+      empty: {
+        logs: 'ログはまだありません。'
+      }
+    },
+    executionProgress: {
+      aria: {
+        progressOverview: '実行進捗の概要',
+        taskList: 'タスクリスト',
+        latestEvents: '最新イベント',
+        executionLog: '実行ログ'
+      },
+      checklist: {
+        title: 'チェック結果'
+      },
+      detail: {
+        stepsCompleted: '{completed}/{total} ステップ完了済み',
+        summaryFailed: '{total} 件のチェック結果が返され、{failed} 件が失敗しました',
+        summaryPassed: '{passed} 件チェック全部合格',
+        summaryReturned: '{total} 件のチェック結果が返されました',
+        summaryWarning: '{total} 件のチェック結果が返され、{warning} 件の警告があります',
+        waitingStart: 'タスクの開始を待っています',
+        waitingSteps: '実行ステップを待っています…'
+      },
+      empty: {
+        activity: '実行ログでタスク完了後逐步表示。',
+        events: 'イベント記録はまだありません。',
+        tasks: 'タスクはまだ作成されていません。実行ステップを待っています…'
+      },
+      event: {
+        collapse: 'イベントを折りたたむ',
+        defaultLabel: 'イベント',
+        defaultTitle: 'タスクイベント',
+        expand: 'イベントを展開',
+        waitingDetail: 'イベント記録を待っています'
+      },
+      feed: {
+        completed: '実行完了',
+        failed: '実行失敗',
+        warning: '警告付きで完了'
+      },
+      loading: {
+        pollingFallback: '定期更新中…',
+        refreshing: '更新中'
+      },
+      log: {
+        collapse: '完全なログを折りたたむ',
+        expand: '完全なログを表示'
+      },
+      metrics: {
+        completed: '完了',
+        failed: '失敗',
+        passed: '合格',
+        queued: 'キュー待ち',
+        running: '実行中',
+        totalTasks: '総タスク数',
+        unknown: '不明',
+        warning: '警告'
+      },
+      process: {
+        execution: '実行'
+      },
+      progress: {
+        completed: 'すべて完了',
+        failed: '完了済み、存で失敗件',
+        pending: '結果の書き戻しを待っています',
+        processFailed: '{process} に失敗しました',
+        queued: 'スケジューリング待ち',
+        running: 'タスク実行中',
+        warning: '完了済み、存でリスク警告'
+      },
+      section: {
+        completedCount: '{completed}/{total} 完了済み',
+        executionLog: '実行ログ',
+        latestEvents: '最新イベント',
+        taskProgress: 'タスク進行状況'
+      },
+      status: {
+        completed: '完了',
+        failed: '失敗',
+        queued: '待機中',
+        running: '実行中',
+        warning: '警告あり'
+      },
+      step: {
+        backup: '事前バックアップ',
+        discover: '環境識別',
+        installDryRun: 'マテリアル準備',
+        installExecution: '証明書インストール',
+        reload: 'サービス更新',
+        verify: '結果検証'
+      },
+      subtitle: {
+        completed: 'タスクは完了しました。',
+        failed: 'タスク終了済み、但戻る了失敗結果。',
+        failedChecks: '{total} 件チェック、{failed} 件に失敗しました',
+        passedChecks: '{total} 件チェック合格',
+        queued: 'タスクは作成済みです。実行を待っています。',
+        running: 'タスクは開始済みです。実行結果を待っています。',
+        runningChecks: '戻る {total} 件チェック済み',
+        warningChecks: '{total} 件チェック、{warning} 件警告'
+      },
+      time: {
+        waitingStart: '開始待ち'
+      }
+    },
+    deploymentWizard: {
+      actions: {
+        cancel: 'キャンセル',
+        dryRun: '先に Dry-run',
+        next: '次へ',
+        previous: '前へ',
+        save: 'プランを保存'
+      },
+      aria: {
+        steps: 'デプロイ手順',
+        wizard: 'デプロイウィザード'
+      },
+      capability: {
+        targetMissingDetail: 'デプロイターゲットがまだ選択されていません。',
+        targetSelectedDetail: '選択デプロイターゲット済み、推奨先完了 dry-run 再送信実行。',
+        targetSelection: 'デプロイターゲット選択',
+        targetSource: 'デプロイターゲット'
+      },
+      checks: {
+        failed: '失敗 {count}',
+        passed: '合格 {count}',
+        unknown: '不明 {count}',
+        unnamed: '無名のチェック項目',
+        warning: '警告 {count}'
+      },
+      empty: {
+        noTargets: '選択可能なアプリケーションアセットターゲットはまだありません',
+        selectTarget: '1 個アプリケーションアセットのデプロイターゲット。を選択してください'
+      },
+      fallback: {
+        generatedByApplicationEntry: 'アプリケーションエントリから生成',
+        missingBinding: 'バインド情報が指定されていません',
+        unboundCertificateVariable: '証明書変数がバインドされていません',
+        unconfigured: '未設定',
+        unconfiguredRunner: '実行場所が未設定です',
+        unknownEnd: '終了不明',
+        unknownStart: '開始不明',
+        unnamedSite: '無名のサイト',
+        unnamedVersion: '無名のバージョン',
+        unrecognizedManagedTarget: '未識別の管理対象ターゲット',
+        unselected: '未選択',
+        unselectedVersion: 'バージョン未選択',
+        unselectedWorkflow: 'ワークフロー未選択'
+      },
+      fields: {
+        applicationTarget: 'アプリケーションアセットのデプロイターゲット',
+        artifactConfig: '成果物設定',
+        binding: 'バインド',
+        certificateAsset: '証明書アセット',
+        certificateVariable: '証明書変数',
+        certificateVersion: '証明書バージョン',
+        deploymentTarget: 'デプロイターゲット',
+        keyword: 'キーワード検索',
+        managedTarget: '管理対象ターゲット',
+        runner: '実行場所',
+        site: 'サイト',
+        verifyUrl: '検証 URL',
+        version: 'バージョン',
+        workflow: 'ワークフロー'
+      },
+      panels: {
+        certificateTitle: '1. 証明書マテリアル',
+        submitTitle: '3. 事前チェックと送信',
+        targetTitle: '2. デプロイターゲット'
+      },
+      panelState: {
+        needPrerequisites: '前提選択の完了待ち',
+        operable: '操作可能',
+        pending: '完了待ち',
+        readyNext: '次のステップへ進めます'
+      },
+      placeholders: {
+        selectTarget: 'アプリケーションアセットターゲットを選択してください',
+        targetKeyword: 'ドメイン名、サイト、バインド情報で検索'
+      },
+      plan: {
+        dryRunCompleted: '直近の dry-run は完了しました。',
+        submitCompleted: '直近の送信は完了しました。'
+      },
+      preview: {
+        needCertificate: '先に証明書マテリアルの選択を完了してください。',
+        needTarget: '証明書マテリアルの選択後、配布先のアプリケーションアセットターゲットを指定してください。',
+        ready: '選択した証明書バージョンを {count} 個のアプリケーションアセットターゲットへデプロイします。'
+      },
+      status: {
+        checksReturned: '事前チェック結果が返されました。結果に基づいて保存、送信、または直接実行を決定できます。',
+        current: '現在のステータス',
+        default: '先に dry-run を開始してから、実行を送信するかどうかを決定することを推奨します。',
+        dryRunStarted: '事前チェックを開始しました。実行結果エリアで進行状況を確認してください。',
+        submitted: 'プランを送信しました。'
+      },
+      steps: {
+        certificate: {
+          description: '証明書アセットとバージョン',
+          title: '証明書マテリアルを選択'
+        },
+        submit: {
+          description: 'Dry-run、保存、送信、実行',
+          title: '事前チェックして送信'
+        },
+        target: {
+          description: 'アプリケーションアセット、サイト、バインド',
+          title: 'デプロイターゲットを選択'
+        }
+      },
+      stepState: {
+        active: '進行中',
+        done: '完了',
+        pending: '開始待ち'
+      },
+      target: {
+        workflowMode: 'ワークフローモード'
+      },
+      version: {
+        autoLatest: '自動選択最新可デプロイバージョン（現在：{current}）',
+        noDeployableVersion: '現在デプロイ可能な証明書バージョンはありません',
+        range: '{id} ({notBefore} ~ {notAfter})'
+      },
+      currentStep: 'ステップ {current} / {total}',
+      selectedTargetCount: '{count} 個のターゲットを選択済み',
+      subtitle: '段階的にデプロイプラン設定を完了します',
+      title: 'デプロイウィザード'
+    }
+  },
+  shell: {
+    currentLocation: '現在位置',
+    breadcrumb: 'パンくずリスト',
+    currentGroupNavigation: '現在のグループナビゲーション',
+    backDashboard: 'ダッシュボードへ戻る'
+  },
+  preferences: {
+    theme: 'テーマ',
+    language: '言語',
+    themeLight: 'ライトモード',
+    themeDark: 'ダークモード',
+    themeToggle: 'テーマモードを切り替え',
+    languageSelect: '画面言語を選択',
+    title: '表示設定',
+    description: 'テーマと言語は現在のユーザーのバックエンド設定に保存されます。',
+    errors: {
+      loadFailed: '設定の読み込みに失敗しました',
+      saveFailed: '設定の保存に失敗しました'
+    }
+  },
+  userMenu: {
+    currentUser: '現在のユーザー',
+    changePassword: 'パスワード変更',
+    logout: 'ログアウト'
+  },
+  password: {
+    title: 'パスワード変更',
+    description: '現在ログイン中のユーザーのローカルパスワードを変更します。',
+    current: '現在のパスワード',
+    new: '新しいパスワード',
+    confirm: '新しいパスワードを確認',
+    cancel: 'キャンセル',
+    submit: 'パスワードを保存',
+    submitting: '保存中…',
+    success: 'パスワードを更新しました',
+    failed: 'パスワード変更に失敗しました',
+    mismatch: '2 回入力した新しいパスワードが一致しません',
+    tooShort: '新しいパスワードは 8 文字以上で入力してください'
+  },
+  nav: {
+    dashboard: '概要',
+    dashboardDesc: 'アプリケーション、証明書、Agent、ゲートウェイと監査ステータス概要',
+    certificates: '証明書',
+    certificatesDesc: '証明書ライブラリ、バインド関係と期限切れステータス',
+    certificateAssets: '証明書アセット',
+    certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
+    certificateFormats: '証明書形式設定',
+    certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
+    assets: 'アプリケーションアセット',
+    assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
+    agents: 'Agent',
+    agentsDesc: 'オンラインステータス、ハートビートと機能セット',
+    gateways: 'ゲートウェイ',
+    gatewaysDesc: '隔離ゾーンゲートウェイ、プロトコルとへ達可能ターゲット',
+    deployments: '証明書デプロイ',
+    deploymentsDesc: 'デプロイプランと実行記録',
+    deploymentPlans: 'デプロイプラン',
+    deploymentPlansDesc: '証明書デプロイプランと承認導線',
+    executions: '実行記録',
+    executionsDesc: '実行ステップ、ログ、失敗とロールバック',
+    workflows: 'ワークフロー',
+    workflowsDesc: 'ワークフローとプラグイン',
+    workflowTemplates: 'ワークフロー',
+    workflowTemplatesDesc: 'キャンバスドラフト、変数、機能宣言と公開',
+    plugins: 'プラグイン',
+    pluginsDesc: 'Provider、Executorとサンドボックスステータス',
+    monitoring: '監視',
+    monitoringDesc: 'アラート、監査と証明書ステータス',
+    monitorAlerts: '監視アラート',
+    monitorAlertsDesc: '期限切れ、ドリフトと実行失敗イベント',
+    audits: '監査ログ',
+    auditsDesc: '操作証拠と合规エクスポート',
+    settings: '設定',
+    settingsDesc: 'テナント、ユーザー、権限とシステム設定',
+    systemSettings: 'システム設定',
+    systemSettingsDesc: 'システム設定と安全元データ',
+    users: 'ユーザー管理',
+    usersDesc: 'コンソールユーザー、ステータスとロール',
+    roles: '権限管理',
+    rolesDesc: 'ロール、認可対象範囲とメンバー割り当て',
+    identitySources: 'ID ソース',
+    identitySourcesDesc: 'AD/LDAP サービス設定',
+    groupRoleMappings: 'グループロールマッピング'
+  },
+  routes: {
+    certificateImport: '証明書をインポート',
+    certificateDetail: '証明書詳細',
+    certificateUsages: '使用関係',
+    certificateFormats: '形式成果物'
+  },
+  businessPage: {
+    request: {
+      notRequested: 'まだリクエストしていません'
+    },
+    error: {
+      unknown: '不明なエラー'
+    },
+    primaryActionFailed: '主操作の実行に失敗しました',
+    processing: '処理中…',
+    metricsAria: '業務指標',
+    apiFailed: 'サービスリクエストに失敗しました',
+    errorCode: 'エラーコード：{code}',
+    retry: '再試行',
+    resourceList: '{resource}一覧',
+    total: '合計 {count}',
+    dangerConfirmRequired: '高リスク操作には確認が必要です',
+    all: 'すべて',
+    clearFilters: 'フィルターをクリア',
+    pagination: '{page} ページ / 1ページ {pageSize} 件',
+    resourceDetailAria: 'リソース詳細',
+    resourceDetailTitle: '{resource}詳細',
+    contextAria: 'コンテキスト導線',
+    resourceActionsAria: 'リソース操作',
+    resourceActionsTitle: 'リソース操作',
+    resourceActionsHint: '高リスク操作には二次確認が必要です。最終的にはシステムの権限検証に従います。'
+  },
+  executionDetail: {
+    error: {
+      loadStepsFailed: '実行ステップの照会に失敗しました',
+      streamConnectFailed: '実行詳細更新接続に失敗しました'
+    },
+    step: {
+      nameFallback: 'ステップ {index}',
+      dryRunCheckSummary: '事前チェックの結論：合格 {passed} / 警告 {warning} / 失敗 {failed} / 不明 {unknown}。{topChecks}',
+      dryRunPending: {
+        queued: '現在もキュー内にあり、まだ実行を開始していません。',
+        running: '現在のステップを実行中です。Agent から事前チェック結果が返るのを待っています。',
+        failed: '現在のステップは失敗しましたが、事前チェック結果はまだ取得していません。',
+        finished: '現在のステップは終了しましたが、事前チェック結果はまだ取得していません。'
+      },
+      dryRunDiscover: '読み取り専用事前チェック：識別デプロイターゲットと {providerLabel} サイト情報。サイト {siteName}、バインド {binding}。{pendingText}',
+      dryRunVerify: '読み取り専用事前チェック：検証証明書マテリアル、ターゲットバインドとドメイン名一致。ターゲット {providerLabel} バインド {binding}。{pendingText}',
+      dryRunCreated: '読み取り専用事前チェック作成済み。{pendingText}',
+      failure: {
+          emptyMessage: '具体的なエラー情報を受信していません'
+      },
+      running: {
+        dispatched: 'Agent タスクを配信しました（{taskId}）。実行結果を待っています。',
+        waitingAgentResult: 'ステップを実行中です。Agent から結果が返るのを待っています…'
+      },
+      pending: {
+        waitingDependency: '前のステップが完了するまで待機しています。'
+      },
+      verifyRecovered: {
+        detail: 'Agent 側リモート TLS プローブ失敗、ただし、システムは {remoteTarget} 実際の TLS 検証確認しターゲット証明書一致済み。{originalError}',
+        originalSuffix: '原始 Agent エラー：{originalError}'
+      },
+      resultReturned: {
+        withTask: '{executor} {mode} が返されました。Agent taskId={taskId}',
+        withoutTask: '{executor} {mode} が返されました。'
+      },
+      createdFallback: 'ステップ {index} を作成しました。実行詳細を待っています…'
+    },
+    dryRun: {
+      failedNoChecks: {
+        label: 'Dry-run 実行に失敗しました',
+        detail: '{failedStepCount} 個の事前チェックステップが失敗またはタイムアウトしました。構造化された事前チェックの結論は受信していません。'
+      },
+      queued: {
+        label: 'Dry-run キュー待ち中',
+        detail: '事前チェックタスクを作成しました。実行開始を待っています。'
+      },
+      running: {
+        label: 'Dry-run 実行中',
+        detail: '事前チェックを開始しました。結果が返るのを待っています。'
+      },
+      pending: {
+        label: 'Dry-run は終了しましたが結論がありません',
+        detail: '{finishedWithoutChecks} 個のステップが終了しましたが、事前チェックの結論は受信していません。'
+      },
+      receiving: {
+        label: 'Dry-run 接收中',
+        detail: '一部の結論を受信しました：合格 {passed}、警告 {warning}、失敗 {failed}、不明 {unknown}。'
+      },
+      failed: {
+        label: 'Dry-run に失敗しました',
+        detail: '事前チェック失敗 {failed} 件、警告 {warning} 件、合格 {passed} 件。'
+      },
+      warning: {
+        label: 'Dry-run 有リスク警告',
+        detail: '事前チェック完了済み：合格 {passed} 件、警告 {warning} 件、不明 {unknown} 件。'
+      },
+      passed: {
+        label: 'Dry-run に成功しました',
+        detail: '事前チェック全部合格、共 {passed} 件。'
+      }
+    },
+    agent: {
+      taskSuffix: '（Agent taskId={taskId}）'
+    },
+    log: {
+      verifyRecovered: '[ControlPlane] Agent 側リモート TLS プローブ失敗、但システム実際の TLS 検証確認しターゲット証明書一致。'
+    },
+    workflowStep: {
+      failedDefault: 'ワークフローノード {index} 実行に失敗しました',
+      skipped: 'ワークフローノード跳過済み、件件未満たしています。',
+      successAssertions: 'ワークフローノード実行成功、断言合格 {passed}/{total}。',
+      success: 'ワークフローノード実行成功。'
+    },
+    binding: {
+      hostMissing: '未提供ホスト头（Host Header）'
+    },
+    site: {
+      unnamed: '無名のサイト'
+    },
+    provider: {
+      target: 'ターゲット'
+    }
+  },
+  executions: {
+    title: '実行記録',
+    description: 'デプロイ実行ステータス、ステップログ、dry-run 事前チェックの結論、失敗原因、ロールバック導線を表示します。',
+    resourceName: '実行記録',
+    errors: {
+      streamConnectFailed: '実行詳細更新接続に失敗しました：HTTP {status}'
+    },
+    actions: {
+      refreshList: '更新一覧',
+      viewDetail: '表示詳細',
+      rollback: 'ロールバックを開始',
+      rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず確認バックアップ引用と影響範囲。'
+    },
+    columns: {
+      name: '実行番号',
+      status: 'ステータス',
+      risk: 'リスク',
+      planId: 'デプロイプラン',
+      startedAt: '開始時刻'
+    },
+    metrics: {
+      total: {
+        title: '実行合計',
+        description: '現在可追踪の実行記録。'
+      },
+      risky: {
+        title: '高リスク待処理',
+        description: '失敗、部分成功または必要ロールバックの実行。'
+      }
+    },
+    fields: {
+      executionId: '実行 ID',
+      deploymentPlan: 'デプロイプラン',
+      runType: '実行タイプ',
+      status: '実行ステータス',
+      target: '実行ターゲット',
+      externalRunId: '外部実行 ID',
+      startedAt: '開始時刻',
+      finishedAt: '終了時刻',
+      errorCode: 'エラーコード',
+      failureReason: '失敗原因'
+    },
+    links: {
+      deploymentPlan: '表示デプロイプラン',
+      auditEvents: '表示監査イベント'
+    },
+    empty: {
+      title: '実行記録はまだありません',
+      description: 'デプロイプラン実行後はここで表示ログ、ステータスと監査関連。'
+    },
+    summary: {
+      passed: '合格',
+      warning: '警告',
+      failed: '失敗',
+      unknown: '不明'
+    },
+    detail: {
+      title: '実行詳細',
+      titleWithId: '実行詳細 {id}',
+      description: '表示実行記録の基本情報、ステップステータスとログ。',
+      planLabel: 'デプロイプラン {plan}',
+      loadingSteps: '読み込みステップ中...',
+      loadingLogs: '読み込みログ中...',
+      noStepDetail: 'ステップ説明はまだありません',
+      notStarted: '未開始',
+      noSteps: 'ステップ。はまだありません',
+      noLogs: 'ログはまだありません。'
+    },
+    tabs: {
+      summary: '概要',
+      steps: 'ステップ',
+      logs: 'ログ'
+    }
+  },
+  plugins: {
+    title: 'プラグイン',
+    description: '管理プラグインパッケージ、Executor、権限宣言とサンドボックス隔離ステータス。',
+    resourceName: 'プラグイン',
+    actions: {
+      install: 'インストールプラグイン',
+      detail: '詳細',
+      disable: '無効化プラグイン',
+      disableRisk: '無効化プラグインは影響 Provider、テンプレートとExecutor機能。'
+    },
+    columns: {
+      name: 'プラグイン名前',
+      status: 'ステータス',
+      risk: 'リスク',
+      version: 'バージョン',
+      signature: '署名'
+    },
+    metrics: {
+      total: {
+        title: 'プラグイン合計',
+        description: 'インストールとアップグレード可能なプラグイン済み。'
+      },
+      risky: {
+        title: '高リスク待処理',
+        description: '高リスク権限、署名異常またはサンドボックス隔離プラグイン。'
+      }
+    },
+    empty: {
+      title: 'プラグインはまだありません',
+      description: 'インストール前確認してくださいプラグイン権限、署名とロールバックポリシー。'
+    },
+    detail: {
+      title: 'プラグイン詳細',
+      titleWithName: 'プラグイン {name}',
+      description: '表示プラグイン詳細、権限宣言とサンドボックス隔離情報。',
+      versionLabel: 'バージョン {version}'
+    },
+    fields: {
+      pluginId: 'プラグイン ID',
+      name: 'プラグイン名前',
+      currentStatus: '現在のステータス',
+      version: 'バージョン',
+      signatureStatus: '署名ステータス',
+      riskLevel: 'リスク等级'
+    }
+  },
+  deploymentPlans: {
+    title: 'デプロイプラン',
+    description: 'プランのプレビュー、影響範囲、承認、実行バッチ、検証、ロールバック導線を扱います。',
+    resourceName: 'デプロイプラン',
+    apiActions: {
+      submit: '送信デプロイプラン',
+      execute: '実行デプロイプラン',
+      cancel: 'キャンセルデプロイプラン',
+      delete: '削除デプロイプラン'
+    },
+    actions: {
+      create: '作成デプロイプラン',
+      detail: '詳細',
+      edit: '編集プラン',
+      dryRun: 'Dry-run 影響プレビュー',
+      dryRunRisk: 'のみ生成影響プレビュー、しません実行正式デプロイ。',
+      submit: '送信承認',
+      submitRisk: '送信後プランは開く承認または待実行ステータス。',
+      execute: '実行デプロイ',
+      executeRisk: '実行すると対象の証明書設定が変更されます。完了済みまたは失敗したプランの再実行にもこの導線を使用します。実行前に Dry-run の影響プレビューを実行してください。',
+      cancel: 'キャンセルプラン',
+      cancelRisk: '未完了のデプロイプランのみキャンセルします。完了済みのデプロイはロールバックされません。',
+      rollback: 'ロールバック実行',
+      rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず使用実際の runId。',
+      delete: '削除プラン',
+      deleteRisk: '永久削除プラン、デプロイターゲット、実行記録と对応監査履歴、不可恢复。'
+    },
+    columns: {
+      name: 'プラン名前',
+      status: 'ステータス',
+      currentAssetCertificateExpiresAt: '現在証明書終了時刻',
+      updateNeeded: '必要更新',
+      scheduledAt: 'プラン時刻',
+      actions: '操作'
+    },
+    metrics: {
+      total: {
+        title: 'プラン合計',
+        description: '承認待ち、実行待ち、実行中のプランです。'
+      },
+      risky: {
+        title: '高リスク待処理',
+        description: '影響生産サービスまたは不足ロールバック機能のプラン。'
+      }
+    },
+    fields: {
+      planId: 'プラン ID',
+      name: 'プラン名前',
+      status: 'プランステータス',
+      approvalStatus: '承認ステータス',
+      certificateVersionId: '証明書バージョン ID',
+      certificateFormatId: '証明書形式設定 ID',
+      currentAssetCertificateExpiresAt: '現在証明書終了時刻',
+      updateNeeded: '必要更新',
+      targetSummary: 'ターゲットバインドサマリー',
+      latestRun: '最新実行批回',
+      approvalId: '承認 ID',
+      snapshotHash: 'スナップショット Hash',
+      failureReason: '失敗原因',
+      createdAt: '作成時刻',
+      updatedAt: '更新時刻'
+    },
+    links: {
+      executions: '表示実行記録',
+      bindings: '表示相関バインド'
+    },
+    empty: {
+      title: 'デプロイプランはまだありません',
+      description: '先から証明書またはバインド開くデプロイ向導、生成影響プレビュー後再送信プラン。'
+    },
+    disabled: {
+      missingApproval: '承認合格情報、できません実行。が不足しています',
+      needDryRun: '正式実行前必ず先完了一回成功の Dry-run 影響プレビュー。',
+      missingRunId: ' runId、できませんロールバック。が不足しています',
+      missingSelection: 'デプロイプラン選択が不足しています'
+    },
+    common: {
+      cancel: 'キャンセル',
+      close: '閉じる',
+      notConfigured: '未設定',
+      notProvided: '未提供'
+    },
+    detail: {
+      certificateVersionLabel: '証明書バージョン',
+      description: 'プランの基本情報、関連レコード、直近の実行結果を表示します。',
+      emptyRelatedRecords: '関連記録。はまだありません',
+      loadingRelatedRecords: '読み込み関連記録中...',
+      noExecutionRecords: '現在プランまだありません実行記録。',
+      noTargetSummary: '未提供ターゲットサマリー',
+      planIdLine: 'プラン ID {planId}',
+      recordKinds: {
+        certificateUpdate: '証明書更新',
+        dryRun: 'Dry-run'
+      },
+      relatedPlan: 'プラン {planId}',
+      relatedRun: '実行 {runId}',
+      relatedSource: 'ソース {source}',
+      tabs: {
+        latestExecution: '直近実行',
+        relatedRecords: '関連記録',
+        summary: '概要'
+      },
+      targetLabel: 'ターゲット',
+      title: 'デプロイプラン詳細',
+      titleWithName: 'デプロイプラン {name}',
+      viewLogs: '表示ログ'
+    },
+    dryRunRequired: {
+      copy: '現在の操作：{action}。先に Dry-run を実行し、影響範囲とチェックの結論を確認してから正式実行を続行してください。',
+      description: '正式実行前必要先完了一回成功の Dry-run 影響プレビュー。',
+      primaryAction: '先に Dry-run',
+      runningAction: 'Dry-run を開始中…',
+      title: '必要先実行 Dry-run'
+    },
+    execution: {
+      applyName: 'デプロイ実行 {runId}',
+      applyTitle: '証明書更新実行',
+      dryRunTitle: 'Dry-run 結果',
+      fallbackName: '実行 {runId}',
+      rollbackTitle: '証明書ロールバック実行'
+    },
+    feedback: {
+      cancelled: 'デプロイプランキャンセル済み。',
+      cancelledWithPlanId: 'デプロイプランキャンセル（プラン {planId}）済み。',
+      deleted: 'デプロイプラン削除済み。',
+      deletedWithPlanId: 'デプロイプラン削除（プラン {planId}）済み。',
+      dryRunStartedMissingRunId: '事前チェックを開始しました。',
+      dryRunStartedWithRunId: '事前チェックを開始しました（{runId}）。ダイアログで進行状況を確認してください。',
+      dryRunTriggered: '事前チェック触発済み。',
+      dryRunTriggeredWithPlanId: '事前チェック触発（プラン {planId}）済み。',
+      dryRunTriggeredWithRunId: '事前チェックをトリガーしました（{runId}）。ダイアログで進行状況を確認してください。',
+      executeTriggered: 'デプロイ触発済み。',
+      executeTriggeredWithPlanId: 'デプロイ触発（プラン {planId}）済み。',
+      executeTriggeredWithRunId: 'デプロイをトリガーしました（{runId}）。ダイアログで進行状況を確認してください。',
+      loadedDraft: '読み込みドラフトプラン済み。',
+      loadedDraftWithPlanId: '読み込みドラフト（プラン {planId}）済み。',
+      savedWithPlanId: 'プラン保存済み（{planId}）。',
+      submitted: 'デプロイプラン送信済み。',
+      submittedWithPlanId: 'デプロイプラン送信（プラン {planId}）済み。'
+    },
+    target: {
+      controlPlane: 'プラットフォーム',
+      noBindingInfo: 'バインド情報が指定されていません',
+      noCertificateVariables: '証明書変数がバインドされていません',
+      noHostHeader: '未提供ホスト头（Host Header）',
+      noOutputSelected: '出力項目が未選択です'
+    },
+    errors: {
+      actionFailed: '{action}に失敗しました',
+      createReturnedMissingPlanId: 'プランは作成されましたが、番号を取得できませんでした。一覧を更新してください。',
+      loadCreateDataFailed: 'デプロイプラン作成データの読み込みに失敗しました',
+      loadRelatedRecordsFailed: '関連記録の読み込みに失敗しました',
+      missingApplicationAssetIdForDryRun: 'アプリケーションアセットが不足しているため、事前チェックを開始できません。',
+      missingApplicationAssetIdForSave: 'アプリケーションアセット、できません保存プラン。が不足しています',
+      missingPlanId: 'プラン番号が不足しています。再選択してください。',
+      missingPlanIdForAction: '{action}に失敗しました：プラン番号が不足しています。再選択してください。',
+      missingRunIdRequest: '実行番号が不足しています。再選択してください。',
+      saveFailed: 'デプロイプランの保存に失敗しました',
+      startDryRunFailed: 'dry-run の開始に失敗しました'
+    }
+  },
+  agents: {
+    actions: {
+      close: '閉じる',
+      delete: '削除',
+      deleteRisk: '削除では直接削除 Agent 記録、この操作元に戻せません。',
+      detail: '詳細',
+      disable: '無効化',
+      disableRisk: '無効化後この Agent 停止接收新タスク。',
+      enable: '有効化',
+      enableRisk: '有効化後この Agent 恢复として可スケジューリングステータス。'
+    },
+    app: {
+      fallbackName: 'アプリケーション {index}'
+    },
+    certificate: {
+      boundCertificate: 'サイトバインド証明書',
+      expiredDays: '期限切れ {days} 日',
+      expiresToday: '本日付限切れ',
+      modalDescription: '表示現在サイトバインド使用の証明書キー情報。',
+      modalTitle: '証明書詳細',
+      overviewDescription: '表示証明書名、発行者、開始時刻、期限切れ日時とフィンガープリント等キー情報。',
+      overviewTitle: '証明書概要',
+      projectDetailDescription: 'で現在 Agent 詳細上下文中表示件目内証明書アセット詳細と関連使用関係。',
+      projectDetailTitle: '本件目証明書詳細',
+      querying: '照会中...',
+      remainingDays: '残り {days} 日',
+      remainingWithViewAction: '{remaining} / クリック表示証明書',
+      statusExpired: '期限切れ',
+      statusExpiring: '期限切れ間近',
+      statusLabel: '証明書ステータス',
+      statusUnknown: '有効期間不明',
+      statusValid: '有効',
+      view: '表示証明書',
+      viewProjectDetail: '表示本件目証明書詳細'
+    },
+    certificateUsage: {
+      iisSite: 'Agent IIS サイト',
+      linuxSite: 'Agent Linux サイト',
+      tomcatConnector: 'Agent Tomcat 接続器'
+    },
+    columns: {
+      actions: '操作',
+      hostname: 'ホスト名',
+      ipAddress: 'IP アドレス',
+      lastHeartbeat: '直近ハートビート',
+      onlineStatus: 'オンラインステータス',
+      osType: 'システムタイプ',
+      version: 'バージョン'
+    },
+    common: {
+      defaultAddress: 'デフォルトアドレス',
+      no: '否',
+      noHostHeader: '無 Host Header',
+      noListenAddress: '無リッスンアドレス',
+      none: '無',
+      notConfigured: '未設定',
+      notProvided: '未提供',
+      notWritable: '不可写',
+      unrecognized: '未識別',
+      writable: '可写',
+      yes: '是'
+    },
+    detail: {
+      loading: '詳細読み込み中...',
+      manualRescan: '手動再スキャン',
+      manualRescanCannotPullTasks: '現在の Agent はタスクを取得できないため、再スキャンを実行できません',
+      manualRescanCreated: '手動再スキャンタスクを作成しました。Agent による取得と実行を待っています。',
+      manualRescanSubmitting: '再スキャンを送信中...',
+      manualRescanUnsupportedType: '現在の Agent タイプは手動再スキャンに対応していません',
+      modalDescription: '表示 Agent の主要情報、実行環境および IIS サイト情報。',
+      modalTitle: 'Agent詳細',
+      nodeEyebrow: 'Agent ノード',
+      tabsAriaLabel: 'Agent 詳細タブ'
+    },
+    empty: {
+      description: 'クリック右上“インストールAgent”、選択プラットフォームとバージョン後生成一度限りのインストールコマンド。',
+      noFrameworkSites: '未検出 {name} サイト',
+      noIisSites: '未検出 IIS サイト',
+      noRuntimeLogs: '実行ログはまだありません',
+      noTomcatApps: '未検出 Tomcat アプリケーション',
+      noTomcatConnectors: '未検出 Tomcat 接続器',
+      title: ' Agentはまだありません'
+    },
+    errors: {
+      certificateAssetIncomplete: '証明書アセットデータ不完全な、できません跳转詳細。',
+      certificateAssetNotFound: '本件目中未找へ对応証明書アセット。',
+      certificateAssetQueryFailed: '証明書アセットの照会に失敗しました。',
+      detailDataMissing: '詳細情報を取得できませんでした。',
+      generateInstallCommandFailed: 'インストールコマンドを生成失敗。',
+      installCommandMissing: 'システム未戻るインストールコマンド。',
+      loadDetailFailed: '読み込み詳細失敗。',
+      manualRescanFailed: '手動再スキャンの開始に失敗しました。'
+    },
+    fields: {
+      agentVersion: 'Agent バージョン',
+      appCount: 'アプリケーション数',
+      appList: 'アプリケーション一覧',
+      appPool: 'アプリケーション程序池',
+      arch: 'システム架构',
+      binaryPath: '二进制パス',
+      certificateFile: '証明書ファイル',
+      certificateName: '証明書名',
+      certificateStore: '証明書仓庫',
+      certificateSubject: '証明書主题',
+      certificateThumbprint: '証明書フィンガープリント',
+      configFile: '設定ファイル',
+      configPath: '設定パス',
+      connectorCount: '接続器数',
+      connectorList: '接続器一覧',
+      domain: 'ドメイン名',
+      frameworkVersion: '{name} バージョン',
+      healthStatus: '正常ステータス',
+      healthSummary: '異常サマリー',
+      hostname: 'ホスト名',
+      httpsBinding: 'HTTPS バインド',
+      httpsListen: 'HTTPS リッスン',
+      iisVersion: 'IIS バージョン',
+      installPrefix: 'インストール前缀',
+      installStatus: 'インストールステータス',
+      ipAddress: 'IP アドレス',
+      issuer: '発行者',
+      lastCapabilityReportAt: '上回機能報告時刻',
+      lastHeartbeat: '直近ハートビート',
+      lastRecoveryAt: '直近恢复時刻',
+      lastReportAt: '直近報告時刻',
+      linuxDistribution: 'Linux 発行版',
+      listenAddress: 'リッスンアドレス',
+      notAfter: '期限切れ日時',
+      notBefore: '開始時刻',
+      offlineDetected: '判定オフライン済み',
+      osType: 'システムタイプ',
+      osVersion: '操作システムバージョン',
+      patchVersion: 'パッチバージョン',
+      privateKeyOrKeystore: '秘密鍵 / Keystore',
+      proxyTarget: 'プロキシターゲット',
+      remainingDays: '残り日数',
+      role: 'ロール',
+      runningStatus: '実行ステータス',
+      runtimeLog: '実行ログ',
+      serviceName: 'サービス名',
+      sha256Fingerprint: 'SHA-256 フィンガープリント',
+      siteCount: 'サイト数',
+      siteList: 'サイト一覧',
+      tlsConnector: 'TLS コネクター',
+      tomcatVersion: 'Tomcat バージョン',
+      zone: 'ゾーン'
+    },
+    health: {
+      degraded: '劣化',
+      failed: '失敗',
+      healthy: '正常',
+      unknown: '不明'
+    },
+    install: {
+      bootstrapToken: 'インストールコード',
+      command: 'インストールコマンド',
+      commandCopied: 'インストールコマンドコピー済み',
+      copyCommand: 'インストールコマンドをコピー',
+      copyToken: 'インストールコードをコピー',
+      expired: '期限切れ',
+      generateCommand: 'インストールコマンドを生成',
+      generating: '生成中...',
+      modalDescription: '選択プラットフォームとバージョン、生成一度限りのインストールコマンド。インストールコード 10 分内有効、かつ1 回だけ使用できます。',
+      modalTitle: 'インストール Agent',
+      platform: 'プラットフォーム',
+      platformLinuxDescription: 'Ubuntu、Debian、CentOS、Rocky、AlmaLinux 等 Linux 発行版。',
+      platformWindowsDescription: 'Windows Server と Windows 10/11、インストール後システムサービスとして登録。',
+      remainingTime: '{minutes}分 {seconds}秒',
+      remainingValidity: '残り有効期間',
+      singleUseHint: '同じインストールコードで bootstrap スクリプトがリクエストされると、ただちに失効し、再利用できません。',
+      tokenCopied: 'インストールコードコピー済み',
+      version: 'バージョン',
+      versionLatest: '最新安定版',
+      zone: 'ゾーン'
+    },
+    labels: {
+      certificatePath: '証明書：{value}',
+      deployDirectory: 'デプロイディレクトリ：{value}',
+      directory: 'ディレクトリ：{value}',
+      keystorePath: 'Keystore：{value}',
+      listenAddress: 'リッスンアドレス：{value}',
+      path: 'パス：{value}',
+      privateKeyPath: '秘密鍵：{value}',
+      reloadCommand: 'Reload コマンド：{value}',
+      siteName: 'サイト名前：{value}',
+      taskType: 'タスクタイプ：{value}',
+      testCommand: '測試コマンド：{value}',
+      thumbprint: 'フィンガープリント：{value}'
+    },
+    linux: {
+      certDirectoryWritable: '証明書ディレクトリ：{status}',
+      helperRequired: '必要 helper',
+      keyDirectoryWritable: '秘密鍵ディレクトリ：{status}',
+      permissionMode: '権限モード：{mode}'
+    },
+    logs: {
+      collapse: '折りたたむ',
+      expand: '展開',
+      listAriaLabel: '実行ログ一覧'
+    },
+    metrics: {
+      abnormalDescription: 'オフライン、失敗またはドリフトステータスの Agent 必要優先処理。',
+      abnormalTitle: '異常 Agent',
+      totalDescription: '現在登録済みへシステムの Agent 数。',
+      totalTitle: 'Agent 合計'
+    },
+    page: {
+      description: '表示 Agent 一覧、生成異なるプラットフォームのインストールコマンド、かつでダイアログ中表示詳細。',
+      installAgent: 'インストールAgent'
+    },
+    sections: {
+      frameworkOverviewDescription: '宿ホスト上の {name} インストールステータス、実行ステータスと設定場所。',
+      frameworkOverviewTitle: '{name} 概况',
+      frameworkSitesDescription: '{name} 識別へのサイト、根ディレクトリ、ドメイン名、反向プロキシターゲットと証明書ファイルパス。',
+      frameworkSitesTitle: '{name} サイト',
+      healthDescription: 'システム对 Agent のオフライン判断、恢复時刻と実行正常サマリー。',
+      healthTitle: '正常と恢复',
+      iisOverviewDescription: '宿ホスト上の IIS インストールステータスとバージョン情報。',
+      iisOverviewTitle: 'IIS 概况',
+      iisSitesDescription: 'IIS 網站一覧、サイトパス、バインドポートおよび証明書主题名。',
+      iisSitesTitle: 'IIS サイト',
+      logOverviewDescription: '直近直近の機能報告時刻、機能情報の判断に使用するの鮮度。',
+      logOverviewTitle: 'ログ概要',
+      mainInfoDescription: 'Agent ID、ロールとハートビートステータス。',
+      mainInfoTitle: '主要情報',
+      runtimeDescription: 'Agent 報告の実行システムとバージョン情報。',
+      runtimeLogsDescription: '手動再スキャン結果、ハートビート異常および機能報告中断等実行ログ。',
+      runtimeLogsTitle: '実行ログ',
+      runtimeTitle: '実行環境',
+      tomcatAppsDescription: 'Tomcat Host/Context 中識別へのアプリケーションパスとデプロイディレクトリ。',
+      tomcatAppsTitle: 'Tomcat アプリケーション',
+      tomcatConnectorsDescription: 'Tomcat Connector のリッスンアドレス、プロトコル、TLS 开関と証明書パス。',
+      tomcatConnectorsTitle: 'Tomcat 接続器',
+      tomcatOverviewDescription: '宿ホスト上の Tomcat インストールステータス、実行ステータスと Catalina パス。',
+      tomcatOverviewTitle: 'Tomcat 概况'
+    },
+    site: {
+      domainCount: '{count} 個ドメイン名',
+      fallbackName: 'サイト {index}'
+    },
+    siteMode: {
+      reverseProxy: '反向プロキシ',
+      staticRoot: '静態サイト'
+    },
+    status: {
+      installed: 'インストール済み',
+      notInstalled: '未インストール',
+      notRunning: '未実行',
+      running: '実行中'
+    },
+    tabs: {
+      logs: 'ログ',
+      overview: '概要'
+    }
+  },
+  dashboard: {
+    aria: {
+      assetHeatmap: 'アプリケーションアセットステータス热力图',
+      certificateStatusList: '証明書ステータス一覧',
+      metrics: '核心指標',
+      quickActions: '主要機能への導線',
+      statusHeatmap: '証明書、Agent、ゲートウェイとアプリケーションアセットステータス',
+      statusLegend: 'ステータス图例'
+    },
+    assets: {
+      groupCount: '{summary} · {total} 個',
+      title: 'アプリケーションアセットステータス',
+      updatedAt: '更新于 {time}'
+    },
+    audit: {
+      description: '優先表示失敗、拒否、高リスクとキー業務変更。',
+      title: '直近監査ログ'
+    },
+    certificateState: {
+      critical: '期限切れ間近',
+      expired: '期限切れ',
+      expiring: '期限切れ間近',
+      unknown: '不明',
+      valid: '正常'
+    },
+    days: {
+      expired: '期限切れ {days} 日',
+      expiresToday: '本日付限切れ',
+      notRecorded: '未記録',
+      remaining: '{days} 日'
+    },
+    empty: {
+      noAuditLogs: '監査ログはまだありません',
+      noCertificateStatus: '証明書ステータスデータはまだありません',
+      noObjects: 'オブジェクトはまだありません'
+    },
+    errors: {
+      loadFailed: '概要データの読み込みに失敗しました',
+      missingOverviewData: '概要情報を取得できませんでした。'
+    },
+    legend: {
+      disabled: '無効化',
+      error: '異常',
+      ok: '正常',
+      unknown: '不明',
+      warning: '関注'
+    },
+    loading: {
+      description: '読み込み概要情報中…',
+      title: '読み込み中'
+    },
+    metrics: {
+      activeAgents: {
+        title: 'アクティブ Agent 数',
+        description: '現在オンラインかつスケジューリングの Agent。'
+      },
+      activeGateways: {
+        title: 'アクティブゲートウェイ数',
+        description: '現在オンラインの隔離ゾーンゲートウェイ。'
+      },
+      applications: {
+        title: '現在アプリケーション数',
+        description: '管理対象になっているアプリケーションエントリアセットです。'
+      },
+      expiringCertificates: {
+        title: '15 日内期限切れ証明書',
+        description: '必要安排継期または替换の証明書。'
+      },
+      managedBindings: {
+        title: '管理対象バインド数',
+        description: '開く管理対象ステータスの証明書バインド済み。'
+      },
+      validCertificates: {
+        title: 'アクティブ証明書数',
+        description: 'ステータスアクティブかつまだ期限切れの証明書バージョン。'
+      }
+    },
+    quickActions: {
+      agents: {
+        title: 'Agent',
+        description: '表示オンラインステータスとタスク機能。'
+      },
+      assets: {
+        title: 'アプリケーションアセット',
+        description: '維護ドメイン名、ポートとデプロイターゲット。'
+      },
+      audits: {
+        title: '監査ログ',
+        description: '追踪操作人と実行結果。'
+      },
+      certificates: {
+        title: '証明書管理',
+        description: 'インポート、表示と转换証明書。'
+      },
+      deploymentPlans: {
+        title: 'デプロイプラン',
+        description: '作成と実行証明書更新プラン。'
+      },
+      gateways: {
+        title: 'ゲートウェイ',
+        description: '隔離ゾーンの実行導線を管理します。'
+      }
+    },
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}、{days}'
+      },
+      status: {
+        active: 'アクティブ',
+        critical: '期限切れ間近',
+        deleted: '削除済み',
+        disabled: '無効化',
+        expired: '期限切れ',
+        expiring: '期限切れ間近',
+        inactive: '不アクティブ',
+        offline: 'オフライン',
+        online: 'オンライン',
+        retired: '退役済み',
+        revoked: '吊销済み',
+        stale: '期限切れ未更新',
+        unknown: '不明',
+        unreachable: '不へ達可能',
+        upgrading: 'アップグレード中',
+        valid: '正常'
+      }
+    },
+    statusGroups: {
+      agents: {
+        title: 'Agent'
+      },
+      applicationAssets: {
+        title: 'アプリケーションアセット'
+      },
+      certificates: {
+        title: '証明書'
+      },
+      gateways: {
+        title: 'ゲートウェイ'
+      },
+      summary: {
+        allNormal: '全部正常',
+        needsAttention: '{count} 個必要関注'
+      }
+    },
+    table: {
+      bindings: 'バインド',
+      certificate: '証明書',
+      domain: 'ドメイン名',
+      notAfterMissing: '未記録期限切れ日時',
+      remainingTime: '残り時刻',
+      status: 'ステータス'
+    }
+  },
+  gateways: {
+    actions: {
+      addGatewayAgent: '追加 Gateway Agent',
+      close: '閉じる',
+      copied: 'コピー済み',
+      copyEnableCommand: 'コピー有効化コマンド',
+      copyInstallCommand: 'インストールコマンドをコピー',
+      detail: '詳細',
+      enableExistingAgent: '既存 Agent 有効化 Gateway',
+      generateEnableCommand: '生成有効化コマンド',
+      generateInstallCommand: 'インストールコマンドを生成',
+      generating: '生成中...',
+      probe: 'プローブ',
+      probeRisk: 'この Gateway が属するゾーンから到達性プローブを 1 回実行します。'
+    },
+    columns: {
+      actions: '操作',
+      gateway: 'ゲートウェイ',
+      lastHeartbeat: '直近ハートビート',
+      load: '负載',
+      region: 'ゾーン',
+      status: 'ステータス'
+    },
+    detail: {
+      abilities: {
+        agentTask: {
+          description: '把デプロイ、チェック等タスク转给ゾーン内の Agent 実行。',
+          title: 'タスク转発'
+        },
+        directControl: {
+          description: '把受控操作转発へゾーン内 Agent、システム無必要直连内網ポート。',
+          title: '远程控制转発'
+        },
+        probe: {
+          description: 'このゾーンからホスト、Web サイト、Agent にアクセスできるかを確認します。',
+          title: '连通性チェック'
+        }
+      },
+      eyebrow: 'ゾーンゲートウェイ',
+      heroDescription: '负责 {region} ゾーン内のプローブと转発',
+      overview: {
+        availableCapacity: '利用可能容量',
+        connectionStatus: '接続ステータス',
+        lastContact: '直近連络',
+        processing: '正で処理',
+        serviceRegion: 'サービスゾーン',
+        successRate: '成功率'
+      },
+      sections: {
+        overview: '実行概要',
+        services: '利用可能サービス'
+      }
+    },
+    empty: {
+      description: '追加 Gateway Agent、またはで既存 Agent 上有効化 Gateway ロール。',
+      title: 'ゲートウェイはまだありません'
+    },
+    errors: {
+      generateEnableCommandFailed: '生成 Gateway 有効化コマンド失敗。',
+      generateInstallCommandFailed: '生成 Gateway Agent インストールコマンド失敗。',
+      missingEnableCommand: 'システム未戻る Gateway 有効化コマンド。',
+      missingInstallCommand: 'システム未戻る Gateway Agent インストールコマンド。'
+    },
+    fields: {
+      config: '設定',
+      enableCommand: '有効化コマンド',
+      expiresAt: '期限切れ時刻',
+      installCode: 'インストールコード',
+      installCommand: 'インストールコマンド',
+      platform: 'プラットフォーム',
+      region: 'ゾーン',
+      service: 'サービス',
+      unboundAgent: '不バインド具体的な Agent'
+    },
+    links: {
+      assets: 'アセットを表示',
+      executions: '表示実行記録'
+    },
+    modals: {
+      detail: {
+        title: 'ゲートウェイ詳細'
+      },
+      enable: {
+        title: '既存 Agent 有効化 Gateway'
+      },
+      install: {
+        title: '追加 Gateway Agent'
+      }
+    },
+    page: {
+      description: '管理ゾーン路由 Gateway Agent。',
+      title: 'ゲートウェイ'
+    },
+    platforms: {
+      linuxSystemd: {
+        description: 'で Linux ホストインストール Gateway Agent サービス'
+      },
+      windowsService: {
+        description: 'で Windows ホストインストール Gateway Agent サービス'
+      }
+    },
+    resourceName: 'ゲートウェイ',
+    status: {
+      disabled: '停止済み',
+      offline: 'オフライン',
+      online: '正常オンライン',
+      revoked: '撤销済み',
+      upgrading: 'アップグレード中'
+    },
+    values: {
+      availableCapacity: '可接收 {count} 個タスク',
+      defaultRegion: 'デフォルトゾーン',
+      regionGatewayName: '{region}ゲートウェイ',
+      taskCount: '{count} 個タスク'
+    }
+  },
+  auditFormat: {
+    actions: {
+      secretResolveService: 'サービス読取 Secret',
+      secretResolve: 'Executor読取 Secret',
+      secretCreate: '作成 Secret',
+      secretVersionCreate: '作成 Secret バージョン',
+      secretRotate: '轮换 Secret',
+      certificateImport: '証明書をインポート',
+      certificateFormatUpdate: '更新証明書成果物',
+      certificateFormatDelete: '削除証明書成果物',
+      deploymentCreate: '作成デプロイプラン',
+      deploymentExecute: '実行デプロイプラン',
+      deploymentRollback: 'リクエストロールバック',
+      approvalCreate: '作成承認',
+      approvalApprove: '承認を許可',
+      approvalReject: '拒否承認',
+      authLogin: 'ユーザーログイン',
+      authLogout: 'ユーザー終了'
+    },
+    events: {
+      authLoginSuccess: 'ログインに成功しました',
+      authLoginFailure: 'ログインに失敗しました',
+      authLoginFailed: 'ログインに失敗しました',
+      authLogout: 'ログアウト',
+      authExternalLoginSuccess: '外部IDログインに成功しました',
+      authExternalLoginFailed: '外部IDログインに失敗しました',
+      secretCreated: '作成 Secret',
+      secretVersionCreated: '作成 Secret バージョン',
+      secretUsed: '読取 Secret',
+      secretRotated: '轮换 Secret',
+      permissionDenied: '権限拒否',
+      approvalCreated: '作成承認',
+      approvalApproved: '承認合格',
+      approvalRejected: '承認驳回',
+      certificateImported: '証明書変更',
+      deploymentCreated: '作成デプロイ',
+      deploymentExecuted: '実行デプロイ',
+      deploymentRollbackRequested: 'リクエストデプロイロールバック',
+      pluginInstalled: 'インストールプラグイン',
+      pluginPermissionDenied: 'プラグイン権限拒否',
+      workflowTemplateExecuted: '実行ワークフローテンプレート'
+    },
+    types: {
+      audit: '監査',
+      auth: '認証',
+      security: '安全',
+      secret: 'Secret',
+      certificate: '証明書',
+      certificateVersion: '証明書',
+      certificateVersionFormat: '証明書成果物',
+      deployment: 'デプロイ',
+      deploymentPlan: 'デプロイプラン',
+      execution: '実行',
+      approval: '承認',
+      permission: '権限',
+      plugin: 'プラグイン',
+      workflowTemplate: 'ワークフロー',
+      gateway: 'ゲートウェイ',
+      agent: 'Agent',
+      serviceAsset: 'アプリケーションアセット',
+      binding: 'バインド'
+    },
+    actors: {
+      user: 'ユーザー',
+      system: 'システム',
+      agent: 'Agent',
+      plugin: 'プラグイン',
+      executor: 'Executor'
+    },
+    resources: {
+      secret: 'Secret',
+      secretVersion: 'Secret バージョン',
+      certificate: '証明書',
+      certificateVersion: '証明書バージョン',
+      certificateVersionFormat: '証明書成果物',
+      deployment: 'デプロイ',
+      deploymentPlan: 'デプロイプラン',
+      execution: '実行タスク',
+      executionRun: '実行タスク',
+      approval: '承認単',
+      plugin: 'プラグイン',
+      workflowTemplate: 'ワークフローテンプレート',
+      gateway: 'ゲートウェイ',
+      agent: 'Agent',
+      serviceAsset: 'アプリケーションアセット',
+      binding: '証明書バインド',
+      auditLog: '監査ログ'
+    },
+    results: {
+      success: '成功',
+      failure: '失敗',
+      denied: '拒否'
+    },
+    verbs: {
+      success: '完了',
+      failure: '失敗',
+      denied: '拒否'
+    },
+    tokens: {
+      auth: '認証',
+      login: 'ログイン',
+      logout: '終了',
+      external: '外部',
+      secret: 'Secret',
+      resolve: '読取',
+      service: 'サービス',
+      used: '使用',
+      created: '作成',
+      create: '作成',
+      updated: '更新',
+      update: '更新',
+      deleted: '削除',
+      delete: '削除',
+      version: 'バージョン',
+      certificate: '証明書',
+      imported: 'インポート',
+      import: 'インポート',
+      format: '成果物',
+      deployment: 'デプロイ',
+      executed: '実行',
+      execute: '実行',
+      rollback: 'ロールバック',
+      requested: 'リクエスト',
+      approval: '承認',
+      approved: '合格',
+      rejected: '驳回',
+      permission: '権限',
+      denied: '拒否',
+      gateway: 'ゲートウェイ',
+      credential: '認証情報',
+      issued: '発放',
+      revoked: '吊销',
+      task: 'タスク',
+      evidence: '証拠',
+      recorded: '記録',
+      result: '結果',
+      plugin: 'プラグイン',
+      workflow: 'ワークフロー',
+      template: 'テンプレート',
+      synced: '同時に',
+      tested: '測試',
+      source: 'ソース',
+      identity: 'ID ソース',
+      group: '組',
+      mapping: '映射'
+    },
+    actorWithId: '{actorType} {actorId}',
+    summary: '{actor}{verb}“{title}”、オブジェクト：{resource}。',
+    fallbacks: {
+      unknown: '不明'
+    }
+  },
+  audit: {
+    page: {
+      title: '監査ログ',
+      description: 'によりユーザー操作、失敗/拒否とキー業務変更組织ログ、保留可読サマリー。'
+    },
+    actions: {
+      exportEvidence: 'エクスポート監査証拠',
+      exporting: 'エクスポート中…',
+      refreshing: '更新中…'
+    },
+    errors: {
+      exportFailed: 'エクスポート監査証拠に失敗しました',
+      loadFailed: '監査ログの読み込みに失敗しました',
+      withRequestId: '{message}（{requestId}）'
+    },
+    metrics: {
+      ariaLabel: '監査概要',
+      total: {
+        title: '監査合計',
+        description: '現在フィルター範囲内可追踪の操作記録。'
+      },
+      failed: {
+        title: '失敗 / 拒否',
+        description: '優先的な再確認が必要な失敗実行とアクセス拒否です。'
+      },
+      userActions: {
+        title: 'ユーザー操作',
+        description: 'ユーザーが直接開始した業務変更とアクセス操作です。'
+      }
+    },
+    list: {
+      ariaLabel: '監査ログ一覧',
+      title: 'ログ一覧',
+      summary: '合計 {total} 件。デフォルトでは最新時刻順に並びます。',
+      timeNotRecorded: '未記録時刻'
+    },
+    empty: {
+      title: '監査イベントはまだありません',
+      description: 'キー操作応能回溯へ对応の操作記録とタスク記録。'
+    }
+  },
+  securityAdmin: {
+    emptyValue: '—',
+    errors: {
+      loadFailed: '読み込みに失敗しました',
+      submitFailed: '送信に失敗しました'
+    },
+    actions: {
+      createResource: '追加{resource}',
+      submitting: '送信中…'
+    },
+    modal: {
+      createDescription: '入力以下フィールド後作成{resource}'
+    },
+    placeholders: {
+      selectField: '{field}を選択してください'
+    },
+    table: {
+      ariaLabel: '管理一覧',
+      resourceList: '{resource}一覧',
+      total: '共 {count} 件'
+    }
+  },
+  settings: {
+    securityLabel: 'セキュリティ設定への導線',
+    permissionPolicies: {
+      resourceName: '権限ポリシー',
+      actions: {
+        create: '作成ポリシー'
+      },
+      columns: {
+        id: 'ポリシー ID',
+        subjectType: 'サブジェクトタイプ',
+        subjectId: 'サブジェクト ID',
+        effect: '效果',
+        actions: '动作',
+        resourceTypes: 'リソースタイプ',
+        scope: 'スコープ'
+      },
+      fields: {
+        subjectType: 'サブジェクトタイプ',
+        subjectId: 'サブジェクト ID',
+        effect: '效果',
+        actions: '动作',
+        resourceTypes: 'リソースタイプ',
+        tenantId: 'テナントスコープ'
+      },
+      subjectTypes: {
+        role: 'ロール',
+        user: 'ユーザー',
+        plugin: 'プラグイン',
+        executor: 'Executor'
+      },
+      effects: {
+        allow: '允許',
+        deny: '拒否'
+      }
+    },
+    groupRoleMappings: {
+      resourceName: '組映射',
+      actions: {
+        create: '作成映射'
+      },
+      columns: {
+        sourceId: 'ID ソース ID',
+        externalGroup: '外部グループ',
+        roleId: 'ローカルロール',
+        enabled: '有効化',
+        updatedAt: '更新時刻'
+      },
+      fields: {
+        sourceId: 'ID ソース ID',
+        externalGroup: '外部グループ',
+        roleId: 'ローカルロール ID'
+      }
+    },
+    users: {
+      title: 'アカウントサブジェクト一覧',
+      summary: {
+        groups: '共 {count} 件',
+        users: '共 {total} 件、選 {selected} 件済み'
+      },
+      actions: {
+        createUser: '作成ユーザー',
+        addGroup: '追加組',
+        bulkDelete: '一括削除',
+        edit: '編集',
+        delete: '削除',
+        lookupLoading: '検索中...',
+        lookupUser: '検索ユーザー',
+        lookupGroup: '検索組',
+        creating: '作成中...',
+        saving: '保存中...',
+        saveChanges: '保存変更',
+        adding: '追加中...'
+      },
+      risks: {
+        bulkDelete: '一括削除では削除選択したユーザーのローカル認証情報とロール関連。',
+        deleteUser: '削除ユーザーは削除このアカウントのローカル認証情報とロール関連。'
+      },
+      tabs: {
+        users: 'ユーザー',
+        groups: '組'
+      },
+      empty: {
+        users: 'ユーザーはまだありません',
+        groups: 'ユーザー組はまだありません'
+      },
+      columns: {
+        username: 'ユーザー名',
+        displayName: '表示名',
+        email: '邮箱',
+        source: 'ソース',
+        identitySourceName: 'ID ソース名前',
+        status: 'ステータス',
+        tenant: 'テナント',
+        roles: 'ロール',
+        lastSyncedAt: '直近同時に',
+        updatedAt: '更新時刻',
+        actions: '操作',
+        groupName: '組名前',
+        code: 'エンコーディング',
+        externalRef: '外部標識'
+      },
+      dialog: {
+        userCreateTitle: '作成ユーザー',
+        userEditTitle: '編集ユーザー',
+        userCreateDescription: '作成ローカルユーザー、またはID ソースからユーザー名で検索して作成バインドユーザー。',
+        userEditDescription: '編集ユーザーの表示名、邮箱、ステータスとロール。',
+        groupCreateTitle: '追加組',
+        groupCreateDescription: '作成ローカル組、またはID ソースからグループ名で検索して追加外部グループ。'
+      },
+      aria: {
+        principalType: 'サブジェクトタイプ',
+        createMode: '作成方式',
+        externalUserProfile: 'ID ソースユーザー资料',
+        groupCreateMode: '作成組方式',
+        externalGroupProfile: 'ID ソースユーザー組资料'
+      },
+      modes: {
+        localUser: 'ローカルユーザー',
+        externalUser: 'ID ソースユーザー',
+        localGroup: 'ローカル組',
+        externalGroup: 'ID ソース組'
+      },
+      fields: {
+        identitySource: 'ID ソース',
+        directoryUsername: 'ディレクトリユーザー名',
+        username: 'ユーザー名',
+        displayName: '表示名',
+        email: '邮箱',
+        role: 'ロール',
+        initialPassword: '初始パスワード',
+        status: 'ステータス',
+        directoryGroupName: 'ディレクトリ組名前',
+        groupName: '組名前',
+        groupCode: '組エンコーディング',
+        directoryDn: 'ディレクトリ DN'
+      },
+      placeholders: {
+        selectIdentitySource: 'ID ソースを選択してください',
+        directoryUsername: '例： jackson',
+        displayName: '証明書操作员',
+        initialPassword: '入力初始パスワード',
+        directoryGroupName: '例： GCAC-Ops',
+        groupName: '証明書運用グループ'
+      },
+      options: {
+        unset: '不設定'
+      },
+      status: {
+        active: '有効化',
+        disabled: '無効化'
+      },
+      labels: {
+        identitySourceOption: '{name}（{type}）'
+      },
+      errors: {
+        loadUsersFailed: 'ユーザーの読み込みに失敗しました',
+        loadGroupsFailed: 'ユーザー組の読み込みに失敗しました',
+        createUserFailed: 'ユーザーの作成に失敗しました',
+        updateUserFailed: '更新ユーザーに失敗しました',
+        externalUserEmpty: 'ID ソース没有戻るユーザー资料',
+        lookupExternalUserFailed: '検索ID ソースユーザーに失敗しました',
+        externalGroupEmpty: 'ID ソース没有戻るユーザー組资料',
+        lookupExternalGroupFailed: '検索ID ソースユーザー組に失敗しました',
+        createGroupFailed: 'ユーザー組の作成に失敗しました',
+        deleteUsersFailed: '削除ユーザーに失敗しました'
+      }
+    },
+    roles: {
+      page: {
+        title: '権限管理',
+        description: 'ロールを中心に管理認可対象範囲、かつユーザーまたはグループを割り当てへロール。'
+      },
+      actions: {
+        createRole: '作成ロール',
+        refreshObjects: '更新オブジェクト',
+        loading: '読み込み中...',
+        creating: '作成中...',
+        saving: '保存中...',
+        detail: '詳細',
+        authorize: '授権',
+        grantPermission: '付与権限',
+        assignMembers: '分配成员',
+        delete: '削除',
+        deleteRole: '削除ロール',
+        deleting: '削除中...',
+        clearSelection: '清空選択'
+      },
+      columns: {
+        roleId: 'ロール ID',
+        code: 'エンコーディング',
+        name: '名前',
+        builtin: '組み込み',
+        policyCount: 'ポリシー数',
+        permissions: '権限項目',
+        actions: '操作',
+        objectScope: 'オブジェクト範囲',
+        accessLevel: '権限レベル',
+        effect: '效果',
+        memberType: '成员タイプ',
+        member: '成员'
+      },
+      table: {
+        emptyRoles: 'ロールはまだありません',
+        roleRecords: 'ロール記録',
+        emptyGrants: '現在ロールまだありませんオブジェクト権限',
+        currentPermissions: '現在ロール権限',
+        emptyMembers: '現在ロールまだありませんメンバー割り当て',
+        assignedMembers: '分配成员済み'
+      },
+      categories: {
+        certificate: '証明書',
+        gateway: 'ゲートウェイ',
+        agent: 'Agent',
+        serviceAsset: 'アプリケーションアセット',
+        deploymentPlan: '更新プラン',
+        workflow: 'ワークフロー',
+        auditLog: 'ログ',
+        systemSetting: 'システム設定'
+      },
+      accessLevel: {
+        read: '読み取り専用',
+        edit: '編集',
+        control: '完全控制'
+      },
+      effect: {
+        allow: '允許',
+        deny: '拒否'
+      },
+      principal: {
+        user: 'ユーザー',
+        group: '組',
+        externalGroup: 'ID ソース組'
+      },
+      summary: {
+        selectedMembers: '選 {count} 個成员済み',
+        chooseMembers: 'ユーザーまたは組を選択してください',
+        selectedScopes: '選 {count} 個範囲済み',
+        chooseObjectNode: 'オブジェクトツリーノードを選択してください',
+        selectedScopeLabel: '選範囲済み',
+        selectedMemberLabel: '選成员済み'
+      },
+      tree: {
+        rootLabel: '全部オブジェクト',
+        rootDescription: '所有権限付与可能な業務オブジェクト',
+        typeDescription: '{category}全部記録',
+        allBusinessObjects: '全部業務オブジェクト',
+        selectedScopeAria: '選授権範囲済み',
+        objectTreeAria: '権限付与可能なオブジェクトツリー',
+        authorizableObjects: '権限付与可能なオブジェクト',
+        loading: '読み込みオブジェクトツリー中...',
+        kind: {
+          all: 'すべて',
+          category: '分类',
+          record: '記録'
+        }
+      },
+      format: {
+        labelWithId: '{label}（{id}）',
+        recordFallback: '{category} {value}',
+        unnamedRecord: '無名の記録'
+      },
+      detail: {
+        title: 'ロール詳細',
+        titleWithName: 'ロール {name}',
+        description: 'オブジェクト範囲、具体的なオブジェクト、権限レベルとメンバー割り当てここで維護。'
+      },
+      create: {
+        title: '作成ロール',
+        description: '入力ロール職責、かつ直接としてこのロール認可対象範囲。',
+        nameLabel: 'ロール名前',
+        namePlaceholder: '証明書操作员',
+        descriptionLabel: '説明',
+        descriptionPlaceholder: '负责証明書日常操作',
+        authorizedRole: '授権ロール',
+        newRole: '新ロール'
+      },
+      grant: {
+        title: '付与ロール権限',
+        description: 'からオブジェクトツリー選択範囲、直接設定この範囲上の権限レベル。',
+        roleLabel: 'ロール'
+      },
+      member: {
+        title: '分配成员',
+        titleWithName: '分配成员：{name}',
+        description: '選択ユーザーまたは組、システムは把メンバー割り当てへこのロール有の認可対象範囲済み。',
+        targetRole: 'ターゲットロール',
+        authorizedScope: '授権範囲',
+        objectScopeCount: '{count} 個オブジェクト範囲',
+        selectedMembersAria: '選成员済み',
+        assignableMembersAria: '可分配成员',
+        emptyAssignable: '可分配{type}はまだありません'
+      },
+      errors: {
+        loadObjectTreeFailed: 'オブジェクトツリーの読み込みに失敗しました',
+        loadDataFailed: '権限管理データの読み込みに失敗しました',
+        missingRoleId: 'ロール ID を取得していません',
+        createRoleFailed: 'ロールの作成に失敗しました',
+        grantRoleFailed: '付与ロール権限に失敗しました',
+        roleNoObjectScopes: 'このロールまだありません認可対象範囲、先にロールへ権限を付与してください。',
+        assignMembersFailed: '分配成员に失敗しました',
+        deleteRoleFailed: '削除ロールに失敗しました',
+        missingObjectSetId: 'オブジェクト範囲 ID を取得していません'
+      },
+      confirm: {
+        deleteRole: '確認削除ロール“{name}”？削除後は同時に削除このロールのユーザー分配とオブジェクト授権。'
+      },
+      auditLogs: {
+        auth: {
+          name: '認証ログインログ',
+          description: 'ログイン、ログアウト、外部ID ソースログイン'
+        },
+        security: {
+          name: '安全管理ログ',
+          description: 'ユーザー、ロール、権限、ID ソース変更'
+        },
+        certificate: {
+          name: '証明書ログ',
+          description: '証明書インポート、バージョン、成果物とバインド操作'
+        },
+        asset: {
+          name: 'アセットログ',
+          description: 'アプリケーションアセット、ホスト、サービスインスタンス、サイトアセットの操作'
+        },
+        gateway: {
+          name: 'ゲートウェイログ',
+          description: 'ゲートウェイ路由、プローブとステータス変更'
+        },
+        agent: {
+          name: 'Agent ログ',
+          description: 'Agent 登録、ハートビート、タスクとアップグレード操作'
+        },
+        deployment: {
+          name: '更新プランログ',
+          description: 'デプロイプラン、実行、ロールバックと承認'
+        },
+        workflow: {
+          name: 'ワークフローログ',
+          description: 'ワークフローテンプレートと実行操作'
+        },
+        secret: {
+          name: '鍵ログ',
+          description: 'Secret 作成、使用と轮换'
+        },
+        system: {
+          name: 'システムログ',
+          description: 'システム設定とプラットフォーム级イベント'
+        }
+      }
+    },
+    identitySources: {
+      actions: {
+        create: '作成ID ソース',
+        edit: '編集',
+        delete: '削除',
+        creating: '作成中...',
+        saving: '保存中...',
+        saveChanges: '保存変更',
+        expandAdvanced: '展開高级設定',
+        collapseAdvanced: '折りたたむ高级設定'
+      },
+      columns: {
+        name: '名前',
+        type: 'ディレクトリタイプ',
+        server: 'サーバー',
+        status: 'ステータス',
+        actions: '操作'
+      },
+      table: {
+        title: 'ID ソース一覧',
+        total: '共 {count} 件'
+      },
+      empty: 'ID ソースはまだありません',
+      dialog: {
+        createTitle: '作成ID ソース',
+        editTitle: '編集ID ソース',
+        createDescription: 'まず基本的な接続情報を入力します。フィルターとディレクトリタイプは詳細設定にあります。',
+        editDescription: '変更ID ソース設定；若要更新サービスアカウントパスワード、重新入力パスワード。'
+      },
+      fields: {
+        name: '名前',
+        domain: 'ドメイン名',
+        protocol: 'プロトコル',
+        serverAddress: 'サーバーアドレス',
+        bindDn: 'サービスアカウント DN',
+        bindPassword: 'サービスアカウントパスワード',
+        directoryType: 'ディレクトリタイプ',
+        defaultRole: 'デフォルトロール',
+        enabled: '有効化ステータス',
+        userDnTemplate: 'ユーザー DN/UPN テンプレート',
+        userFilter: 'ユーザー過滤器',
+        groupFilter: '組過滤器',
+        syncUserFilter: '同時にユーザー過滤器',
+        requireGroupMapping: '要求ログインユーザー必ず命中組映射'
+      },
+      placeholders: {
+        name: '例：企業 AD',
+        bindPasswordCreate: '入力サービスアカウントパスワード',
+        bindPasswordEdit: '空欄の場合は既存のパスワードを使用します',
+        autoByDirectoryType: '留空则によりディレクトリタイプ自動推導',
+        userFilter: '例：(uid={{username}})',
+        groupFilter: '例：(member={{userDn}})'
+      },
+      labels: {
+        finalUrl: '最終アドレス：{url}'
+      },
+      options: {
+        unset: '不設定'
+      },
+      status: {
+        enabled: '有効化',
+        disabled: '停止済み',
+        disabledShort: '無効化'
+      },
+      types: {
+        ldap: '標準 LDAP'
+      },
+      risks: {
+        delete: '削除ID ソース後、このディレクトリのログイン、同時にと組映射都は失効。'
+      },
+      secret: {
+        bindPasswordName: '{name} LDAP サービスアカウントパスワード'
+      },
+      messages: {
+        createSuccess: 'ID ソース作成に成功しました',
+        updateSuccess: 'ID ソース更新に成功しました'
+      },
+      errors: {
+        loadFailed: 'ID ソースの読み込みに失敗しました',
+        createBindPasswordSecretFailed: 'サービスアカウントパスワード Secret の作成に失敗しました',
+        createFailed: 'ID ソースの作成に失敗しました',
+        updateFailed: '更新ID ソースに失敗しました',
+        deleteFailed: '削除ID ソースに失敗しました'
+      }
+    }
+  },
+  bindings: {
+    actions: {
+      create: '新建設定ファイル',
+      edit: '編集',
+      delete: '削除',
+      deleting: '削除中...',
+      applyTemplate: '適用組み込みテンプレート',
+      saving: '保存中...',
+      confirmSave: '確認保存'
+    },
+    columns: {
+      configName: '設定ファイル名前',
+      targetSummary: 'ターゲット環境',
+      displayFormat: '内容形式',
+      extension: '拡張子',
+      encodingSummary: 'エンコーディング',
+      exportSummary: '含める内容 / エクスポートオプション',
+      actions: '操作'
+    },
+    dialog: {
+      createTitle: '新建証明書形式設定',
+      editTitle: '編集証明書形式設定',
+      description: '選択システムプラットフォームとターゲットプラットフォーム後、可適用組み込みテンプレートかつ項目ごとに調整エクスポート内容。'
+    },
+    list: {
+      title: '証明書形式設定一覧',
+      descriptionWithCount: '可复用の証明書形式テンプレート。現在 {count} 件'
+    },
+    empty: {
+      text: '証明書形式設定はまだありません'
+    },
+    fields: {
+      contentFormat: '内容形式',
+      systemPlatform: 'システムプラットフォーム',
+      runtimePlatform: 'ターゲットプラットフォーム',
+      configName: '設定ファイル名前',
+      backendFormat: '基盤形式',
+      outputExtension: '輸出拡張子',
+      expiresAt: '設定失効時刻（任意）',
+      certificateEncoding: '証明書エンコーディング',
+      certificateContentEncoding: '証明書内容エンコーディング',
+      privateKeyEncoding: '秘密鍵エンコーディング',
+      includeLeafCertificate: '公開鍵証明書を含める',
+      includeCertificateChain: '含める証明書チェーン',
+      includePrivateKey: '含める秘密鍵',
+      mainArtifactIncludesChain: '主成果物含める証明書チェーン',
+      generateChainFile: '証明書チェーンファイルも生成',
+      generatePrivateKeyFile: '秘密鍵ファイルも生成',
+      exportPassword: 'エクスポートパスワード'
+    },
+    formats: {
+      pfx: 'PKCS#12 / PFX 容器',
+      jks: 'JKS 容器',
+      pemBundle: 'PEM 単ファイル Bundle',
+      pemCert: 'PEM 証明書ファイル',
+      pemKey: '秘密鍵ファイル',
+      cer: '証明書ファイル（.cer）',
+      crt: '証明書ファイル（.crt）',
+      p7b: 'PKCS#7 / P7B 証明書チェーン',
+      custom: 'カスタム'
+    },
+    sections: {
+      templates: {
+        title: '組み込みテンプレート',
+        description: '各プラットフォームで一般的な TLS 配置方式に基づき、内容形式、含める内容、エクスポートルールを事前入力します。適用後も変更できます。'
+      },
+      basic: {
+        title: '基本情報',
+        description: 'まず設定ファイル ID、実際の内容形式、最終的な拡張子を定義します。'
+      },
+      encoding: {
+        title: 'エンコーディング選択',
+        description: '現在の内容形式でサポートされているエンコーディングオプションのみ表示します。'
+      },
+      content: {
+        title: '含める内容',
+        description: '主成果物ファイルに含める内容を定義します：公開鍵、証明書チェーン、秘密鍵。'
+      },
+      export: {
+        title: 'エクスポートオプション',
+        description: '証明書チェーンファイルや秘密鍵ファイルを追加生成するか、コンテナ専用パスワードを使うかを定義します。'
+      }
+    },
+    filters: {
+      keywordPlaceholder: '設定名前 / ターゲット環境 / Alias / 内容形式'
+    },
+    placeholders: {
+      configName: '例：デバイス互換の単一ファイル PEM',
+      exportPassword: ' PFX/JKS エクスポートパスワードを入力してください'
+    },
+    validation: {
+      selectPlatformsFirst: '先選択システムプラットフォームとターゲットプラットフォーム。',
+      configNameRequired: '必ず入力設定ファイル名前',
+      passwordRequired: 'PFX/JKS 設定必ず入力エクスポートパスワード'
+    },
+    errors: {
+      loadFailed: '証明書形式設定の読み込みに失敗しました',
+      saveFailed: '証明書形式設定の保存に失敗しました',
+      deleteFailed: '削除証明書形式設定に失敗しました',
+      createExportSecretFailed: 'エクスポートパスワード Secret の作成に失敗しました',
+      withCode: '{message}（{code}）'
+    },
+    fallbacks: {
+      unnamedConfig: '無名の設定-{index}',
+      unspecified: '未指定',
+      aliasUnset: '未設定 Alias'
+    },
+    labels: {
+      aliasWithValue: 'Alias：{alias}',
+      requestId: 'リクエスト ID：{requestId}'
+    },
+    encoding: {
+      pkcs12Container: 'PKCS#12 容器',
+      jksContainer: 'JKS 容器',
+      privateKeyWithEncoding: '秘密鍵 {encoding}',
+      pkcs7Chain: 'PKCS#7 証明書チェーン',
+      certificateWithEncoding: '証明書 {encoding}',
+      default: 'デフォルト'
+    },
+    export: {
+      leafCertificate: '公開鍵',
+      certificateChain: '証明書チェーン',
+      privateKey: '秘密鍵',
+      extraChainFile: '追加の証明書チェーンファイル',
+      extraPrivateKeyFile: '追加の秘密鍵ファイル'
+    },
+    secret: {
+      defaultConfigName: '証明書形式設定',
+      exportPasswordName: '{name} エクスポートパスワード'
+    },
+    select: {
+      placeholder: '選択'
+    },
+    separators: {
+      export: ' · '
+    },
+    hints: {
+      savedPassword: '設定エクスポートパスワード；如必要更换済み、直接入力新パスワード上書き。'
+    },
+    templates: {
+      windowsIis: {
+        configName: 'Windows-IIS-PKCS12-標準テンプレート',
+        description: 'IIS 使用 PKCS#12/PFX 容器最一般的な、主成果物内直接携带サーバー証明書、証明書チェーンと秘密鍵。'
+      },
+      windowsNginx: {
+        configName: 'Windows-NGINX-PEM-標準テンプレート',
+        description: 'NGINX では一般的に、サーバー証明書と証明書チェーンを単一の PEM ファイルにまとめ、秘密鍵ファイルを別に配置します。'
+      },
+      windowsApache: {
+        configName: 'Windows-Apache-PEM-標準テンプレート',
+        description: 'Apache では通常、PEM 証明書ファイルと独立した秘密鍵を配布します。証明書チェーンファイルを追加でエクスポートすると、運用習慣の違いに対応しやすくなります。'
+      },
+      windowsTomcat: {
+        configName: 'Windows-Tomcat-PKCS12-標準テンプレート',
+        description: 'Tomcat では JKS/PKCS#12 keystore が主に使われます。ここではより汎用的な PKCS#12 をデフォルトで使用します。'
+      },
+      windowsOther: {
+        configName: 'Windows-デバイス互換の単一ファイル PEM テンプレート',
+        description: '一部デバイスの要件に対応します。単一ファイルに公開証明書、証明書チェーン、秘密鍵をまとめ、必要に応じて拡張子を .crt/.cer に変更できます。'
+      },
+      linuxIis: {
+        configName: 'Linux-IIS 互換テンプレート',
+        description: '最終ターゲットが IIS の場合、最も妥当な配布物は引き続き PKCS#12/PFX コンテナです。'
+      },
+      linuxNginx: {
+        configName: 'Linux-NGINX-PEM-標準テンプレート',
+        description: 'NGINX の公式設定は、単一 PEM ファイルの証明書チェーンと独立した秘密鍵を前提に構成されています。'
+      },
+      linuxApache: {
+        configName: 'Linux-Apache-PEM-標準テンプレート',
+        description: 'Apache では一般的に、PEM 証明書ファイルと独立した秘密鍵を組み合わせます。証明書チェーンファイルを追加でエクスポートすると、分割デプロイしやすくなります。'
+      },
+      linuxTomcat: {
+        configName: 'Linux-Tomcat-PKCS12-標準テンプレート',
+        description: 'Tomcat では keystore コンテナでの配布がデフォルトで推奨されます。ここではより汎用的な PKCS#12 を使用します。'
+      },
+      linuxOther: {
+        configName: 'Linux-デバイス互換の単一ファイル PEM テンプレート',
+        description: 'Linux 汎用デバイスが受け入れる場合単ファイル PEM、先に使用できます bundle 形式、再によりターゲットデバイス調整拡張子と含める内容。'
+      }
+    }
+  },
+  assets: {
+    title: 'アプリケーションアセット',
+    description: 'ドメイン名または IP を主な対象としてアプリケーションエントリを管理し、アドレス、ポート、プロトコル、サイト、実行先の特定に集中します。',
+    resourceName: 'アプリケーションアセット',
+    actions: {
+      add: 'アセットを追加',
+      edit: '編集',
+      detail: '詳細',
+      addVariable: '追加変数',
+      delete: '削除',
+      rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
+      rollingBack: 'ロールバック中...',
+      saving: '保存中...',
+      creating: '作成中...',
+      saveChanges: '保存変更',
+      confirmCreate: '確認作成'
+    },
+    columns: {
+      domain: 'アクセスドメイン名',
+      port: 'ポート',
+      protocol: 'プロトコル',
+      platform: 'プラットフォーム',
+      framework: 'フレームワーク',
+      site: 'サイト',
+      status: 'ステータス',
+      actions: '操作'
+    },
+    fields: {
+      assetId: 'アプリケーションアセット ID',
+      domain: 'アクセスドメイン名',
+      addressType: 'アドレスタイプ',
+      port: 'ポート',
+      protocol: 'プロトコル',
+      verifyUrl: '検証 URL',
+      platform: 'プラットフォーム',
+      frameworkType: 'フレームワークタイプ',
+      serviceInstanceId: 'サービスインスタンス ID',
+      siteId: 'サイト ID',
+      managedTargetId: '管理対象ターゲット ID',
+      bindingKey: 'バインドキー',
+      hostId: '宿ホスト ID',
+      environment: '環境',
+      discoverySource: '検出ソース',
+      lastDiscoveredAt: '最後検出時刻',
+      tags: 'タグ',
+      managedTarget: '管理対象ターゲット',
+      siteName: 'サイト名',
+      bindingInformation: 'バインド情報',
+      hostHeader: 'Host Header',
+      sniName: 'SNI 名',
+      currentCertificate: '現在証明書',
+      targetCertificate: 'ターゲット証明書',
+      expectedFingerprint: '期望フィンガープリント',
+      certificateStore: '証明書ストレージ',
+      snapshotType: 'スナップショットタイプ',
+      time: '時刻',
+      executionRun: '実行記録',
+      displayName: '表示名前',
+      siteInstance: 'サイトインスタンス',
+      certificateFormat: '証明書成果物設定',
+      workflow: 'ワークフロー',
+      publishedVersion: '公開済みバージョン',
+      runner: '実行場所',
+      artifactFormat: '成果物形式設定'
+    },
+    links: {
+      certificateBindings: '表示証明書バインド',
+      executions: '表示実行記録'
+    },
+    empty: {
+      title: 'アプリケーションアセットはまだありません',
+      description: 'システムによる自動検出を待つか、アプリケーションエントリを手動で補足してください。',
+      noBindingInformation: 'バインド情報が指定されていません',
+      notSet: '未設定',
+      notSelected: '未選択',
+      noVariablePreset: '可追加変数はまだありません',
+      basicEntryIncomplete: '基本エントリが未完了です'
+    },
+    detail: {
+      title: 'アプリケーション詳細',
+      description: 'アセット詳細、バインド関係、デプロイ導線、スナップショット記録を表示します。',
+      tabsAriaLabel: 'アプリケーション詳細タブ',
+      tabs: {
+        overview: '基本情報',
+        snapshots: 'スナップショット'
+      },
+      loadingTargetBinding: '読み込みターゲットバインド詳細中...',
+      loadingSnapshots: 'スナップショットを読み込み中...',
+      emptyCertificateBindings: '証明書バインド関係。はまだありません',
+      emptySnapshots: 'スナップショットはまだありません',
+      rollbackSubmitted: 'ロールバックリクエストを送信しました。“実行記録”でロールバック実行を確認してください。',
+      sections: {
+        overview: {
+          title: '基本情報',
+          description: 'アプリケーションアセットが主対象です。ホストとサイトは実行先を特定する情報としてのみ表示されます。'
+        },
+        targetBinding: {
+          title: 'ターゲットバインド',
+          description: 'バインドはドメイン名から推測せず、サイトと管理対象ターゲットへ明確に紐付ける必要があります。'
+        },
+        certificateBindings: {
+          title: '証明書バインド関係',
+          description: '証明書の関係はドメイン名だけで判断せず、binding 上で明確にします。'
+        },
+        snapshots: {
+          title: 'スナップショット',
+          description: 'デプロイ前後とロールバック後の現場状態を直接確認できる必要があります。タスク記録だけを残してはいけません。'
+        }
+      }
+    },
+    managementModes: {
+      agent: 'Agent モード',
+      agentDescription: 'Agent、サイトインスタンス、管理対象ターゲットをバインド',
+      workflow: 'ワークフローモード',
+      workflowDescription: '選択ワークフローバージョンと実行変数'
+    },
+    loading: {
+      agents: '読み込み Agent 中...',
+      sites: '読み込みサイト中...',
+      managedTargets: '読み込みターゲット中...',
+      certificateFormats: '読み込み形式設定中...',
+      workflows: '読み込みワークフロー中...',
+      versions: '読み込みバージョン中...',
+      gateways: '読み込み Gateway 中...',
+      credentials: '認証情報を読み込み中...'
+    },
+    select: {
+      agent: ' Agentを選択してください',
+      siteInstance: 'サイトインスタンスを選択してください',
+      managedTarget: '管理対象ターゲットを選択してください',
+      certificateFormat: '証明書成果物設定を選択してください',
+      workflow: 'ワークフローを選択してください',
+      publishedVersion: '公開済みバージョンを選択してください',
+      gateway: ' Gatewayを選択してください',
+      variablePreset: 'プリセット変数を選択',
+      credential: '認証情報を選択してください',
+      generic: '選択',
+      artifactFormat: '形式設定を選択してください',
+      output: '出力項目を選択してください',
+      optionalOutput: '選択しなくても構いません'
+    },
+    validation: {
+      variableNameRequired: '変数名前できませんとして空',
+      variableNameInvalid: '変数 {name} の名前が不正です',
+      variableDuplicated: '変数 {name} が重複しています',
+      variableRequired: '変数 {name} 必須',
+      variableMustBeNumber: '変数 {name} は数値である必要があります',
+      variableMustBeJsonObject: '変数 {name} は JSON オブジェクトである必要があります',
+      variableInvalidJson: '変数 {name} は有効な JSON ではありません',
+      variableCredentialInvalid: '変数 {name} 必ず選択有効認証情報',
+      certificateFormatRequired: '証明書変数 {name} 必ず選択証明書形式設定',
+      certificateOutputRequired: '証明書変数 {name}.{slot} は出力項目を選択する必要があります',
+      certificateOutputMissing: '証明書変数 {name}.{slot} で選択した出力項目が存在しません'
+    },
+    workflowVariableTypes: {
+      string: '文字列',
+      number: '数字',
+      boolean: '真偽値',
+      enum: '列挙',
+      object: 'オブジェクト',
+      file: 'ファイル',
+      credential: '認証情報',
+      certificate: '証明書'
+    },
+    wizard: {
+      ariaLabel: 'アプリケーションアセット作成ステップ',
+      steps: {
+        basicEntry: '基本エントリ',
+        deploymentMode: 'デプロイモード',
+        confirmSave: '確認保存'
+      },
+      stepState: {
+        active: '進行中',
+        done: '完了',
+        pending: '開始待ち',
+        incomplete: '完了待ち',
+        readyNext: '次のステップへ進めます',
+        pendingSubmit: '送信待ち'
+      },
+      panels: {
+        basicEntryTitle: '基本エントリ',
+        basicEntryDescription: 'まずドメイン名、ポート、プロトコル、プラットフォームを入力し、アプリケーションエントリの識別情報を確定します。',
+        agentTitle: 'Agent ターゲットバインド',
+        agentDescription: 'Agent、サイトインスタンス、管理対象ターゲット、証明書成果物設定を選択します。',
+        workflowTitle: 'ワークフロー実行設定',
+        workflowDescription: '選択ワークフローバージョン、実行場所と変数、証明書変数はでランタイム注入。',
+        confirmTitle: '確認保存',
+        confirmDescription: 'アプリケーションエントリ、デプロイモード、実行パラメータを確認し、確認後にアプリケーションアセットへ書き込みます。'
+      }
+    },
+    form: {
+      createTitle: '手動追加アプリケーションアセット',
+      editTitle: '編集アプリケーションアセット',
+      createDescription: 'アプリケーションエントリを作成し、後続のデプロイに必要なターゲット情報をバインドします。',
+      editDescription: 'アプリケーションエントリとデプロイターゲットのバインドを変更します。',
+      createRequestCompleted: '作成リクエスト完了済み。',
+      editRequestCompleted: '保存リクエスト完了済み。',
+      agentCertificateFormatHint: 'Agent モードではは使用この証明書成果物設定生成デプロイマテリアル。',
+      placeholders: {
+        displayName: '例：本番サイトエントリ',
+        verifyUrl: '例：https://example.com/health',
+        siteName: '例：本番サイト',
+        bindingInformation: '例：*:443:example.com',
+        hostHeader: '例：example.com',
+        sniName: '例：example.com'
+      }
+    },
+    review: {
+      accessEntry: 'アクセスエントリ',
+      deploymentMode: 'デプロイモード',
+      agentSiteTarget: 'Agent / サイト / ターゲット',
+      workflowVersion: 'ワークフローバージョン',
+      gatewayRunner: 'Gateway：{gateway}',
+      variableCount: '{count} 個変数',
+      onlyBasicEntry: '基本エントリのみ',
+      autoGeneratedByEntry: 'アプリケーションエントリから生成'
+    },
+    workflowTarget: {
+      title: 'ワークフローターゲット情報',
+      description: 'ワークフロー資産表示、デプロイ後プローブ、DSL ターゲット変数同期に使用します。',
+      dslSyncHint: 'DSL ターゲット変数に同期済み'
+    },
+    workflowVariables: {
+      title: 'ワークフロー変数',
+      configuredCount: '設定 {configured}/{total}済み',
+      name: '変数名前',
+      type: 'タイプ',
+      value: '值',
+      manual: '手動',
+      empty: 'ワークフロー変数。はまだありません',
+      noPublishedVersion: '公開済みワークフローバージョン後設定変数。を選択してください',
+      certificateAutoInjected: '証明書バージョン由デプロイプラン選択、ランタイム自動注入。',
+      certificateDescription: '証明書バージョンはデプロイプランで選択します。アプリケーションアセットでは下方で形式設定と出力項目をバインドし、実行時に {name}.outputs.*.content を注入します。',
+      presets: {
+        deviceHost: 'ターゲットホストまたはデバイスアドレス',
+        sshUsername: 'SSH ユーザー名',
+        credential: 'ワークフロー認証情報',
+        certificate: '証明書成果物',
+        targetPlatform: 'ターゲットプラットフォーム',
+        verifyHost: '検証ホスト',
+        verifyPort: '検証ポート',
+        verifyPath: '検証パス',
+        apacheServiceName: 'Apache systemd サービス名',
+        apacheSiteConfigPath: 'Apache サイト設定パス',
+        certificateFilePath: '証明書目のパス',
+        certificateKeyFilePath: '秘密鍵目のパス',
+        backupRoot: '証明書バックアップ根ディレクトリ',
+        expectedResponseContains: '検証応答含めるテキスト',
+        virtualHostServerName: '虚拟ホスト ServerName'
+      }
+    },
+    certificateBindings: {
+      title: '証明書変数バインド',
+      description: 'ワークフロー内の証明書変数に対して、証明書成果物設定と出力項目を選択します。',
+      variableCount: '{count} 個証明書変数',
+      defaultVariableDescription: '証明書成果物変数',
+      noArtifactOutputs: '現在の形式設定には選択可能な出力項目がありません。'
+    },
+    certificateOutputs: {
+      publicCertificateWithChain: '公開鍵証明書+証明書チェーン',
+      publicCertificate: '公開鍵証明書',
+      certificateChain: '証明書チェーン',
+      privateKey: '秘密鍵',
+      pemBundle: 'PEM 結合成果物',
+      container: '{format} 容器',
+      bundle: 'Bundle'
+    },
+    certificateFormats: {
+      savedConfigMissingWithId: '{id}（保存済み設定、現在一覧未戻る）',
+      withPrivateKey: '含秘密鍵',
+      withoutPrivateKey: '無秘密鍵'
+    },
+    snapshotTypes: {
+      preDeploy: 'デプロイ前',
+      postDeploy: 'デプロイ後',
+      postRollback: 'ロールバック後',
+      errorState: 'エラー態',
+      rollbackPoint: 'ロールバックポイント'
+    },
+    errors: {
+      loadWorkflowListFailed: 'ワークフロー一覧の読み込みに失敗しました',
+      loadWorkflowVersionsFailed: 'ワークフローバージョンの読み込みに失敗しました',
+      loadGatewayListFailed: 'ゲートウェイ一覧の読み込みに失敗しました',
+      loadCertificateFormatsFailed: '証明書形式設定の読み込みに失敗しました',
+      loadAssetDetailFailed: 'アプリケーションアセット詳細の読み込みに失敗しました',
+      rollbackFailed: 'ロールバックの開始に失敗しました',
+      loadTargetsFailed: 'サイトと管理対象ターゲットの読み込みに失敗しました',
+      createAssetFailed: 'アプリケーションアセットの作成に失敗しました',
+      loadWorkflowCredentialsFailed: 'ワークフロー認証情報の読み込みに失敗しました',
+      noAvailableSiteInstance: '利用可能なサイトインスタンスが見つかりません。先に Agent 詳細でフレームワークサイトが正常に報告されていることを確認してください。'
+    },
+    platforms: {
+      appliance: 'デバイス'
+    },
+    runners: {
+      controlPlane: 'プラットフォーム'
+    },
+    status: {
+      archived: '归档済み',
+      unknownStatus: '不明なステータス'
+    },
+    common: {
+      required: '必須',
+      optional: '任意'
+    }
+  },
+  certificates: {
+    errors: {
+      requestFailed: 'リクエストに失敗しました'
+    },
+    detail: {
+      backList: '戻る一覧',
+      description: '証明書バージョンの詳細、形式別成果物、関連アセットを表示します。',
+      title: '証明書詳細'
+    },
+    detailPanel: {
+      sources: {
+        agentContext: 'Agent上下文',
+        platformBinding: 'プラットフォームバインド記録'
+      },
+      usage: {
+        columns: {
+          domainName: 'ドメイン名/ターゲット',
+          agentName: 'Agent名前',
+          siteName: 'サイト名前',
+          bindingType: 'バインドタイプ',
+          usageSource: 'ソース',
+          status: 'ステータス'
+        },
+        empty: '関連アセットはまだありません',
+        toolbar: '関連アセット'
+      },
+      summary: {
+        certificateName: '証明書名',
+        logicalDomain: '逻輯ドメイン名',
+        issuer: '発行者',
+        subject: 'サブジェクト',
+        serialNumber: 'シリアル番号',
+        chainStatus: 'チェーンステータス'
+      },
+      sections: {
+        subjectInfo: 'サブジェクト情報',
+        issuerInfo: '発行者情報',
+        certificateFields: '証明書フィールド',
+        extensionFields: '扩展フィールド'
+      },
+      fields: {
+        commonName: '公用名(CN)',
+        organization: '組织(O)',
+        organizationalUnit: '組织単位(OU)',
+        countryRegion: '国家/地区(C)',
+        stateProvince: '省/州(ST)',
+        locality: '城市(L)',
+        version: 'バージョン',
+        signatureAlgorithm: '署名算法',
+        publicKeyAlgorithm: '公開鍵アルゴリズム',
+        fingerprintSha256: 'SHA-256 フィンガープリント',
+        san: 'SAN',
+        deployable: '可デプロイ',
+        leafStorageRef: 'リーフ証明書引用',
+        chainCertificateCount: 'チェーン証明書数',
+        chainDiagnostics: 'チェーン診断'
+      },
+      fallbacks: {
+        unknownCertificate: '不明な証明書',
+        unknownIssuer: '不明な署発者',
+        unnamedCertificate: '無名の証明書',
+        unknownDomain: '不明なドメイン名',
+        unknownSubject: '不明なサブジェクト',
+        unknown: '不明',
+        notPartOfCertificate: '証明書の一部ではありません',
+        none: 'まだありません',
+        emptyValue: '—',
+        unknownType: '不明なタイプ',
+        unknownResource: '不明なリソース',
+        unknownTarget: '不明なターゲット'
+      },
+      values: {
+        yes: '是',
+        no: '否'
+      },
+      separators: {
+        diagnostic: '；',
+        list: '、'
+      },
+      chain: {
+        roles: {
+          leaf: 'リーフ証明書',
+          root: 'ルート証明書',
+          intermediate: '中間証明書'
+        },
+        title: '証明書チェーン',
+        empty: '証明書チェーン情報はまだありません',
+        subject: 'サブジェクト：{value}',
+        issuer: '署発者：{value}'
+      },
+      errors: {
+        loadFailedTitle: '証明書詳細の読み込みに失敗しました',
+        code: 'エラーコード：{code}'
+      },
+      actions: {
+        retry: '再試行'
+      },
+      states: {
+        loading: '読み込み中...'
+      },
+      tabs: {
+        ariaLabel: '証明書詳細タブ',
+        detail: '詳細',
+        usage: '関連アセット'
+      },
+      validity: {
+        title: '証明書有効期間',
+        notBefore: '生效：{value}',
+        notAfter: '期限切れ：{value}'
+      }
+    },
+    formats: {
+      columns: {
+        certificateVersionId: 'バージョン ID',
+        createdAt: '作成時刻',
+        format: '形式',
+        secretRef: 'Secret 参照',
+        status: 'ステータス'
+      },
+      create: '作成形式設定',
+      createFailed: '形式の作成に失敗しました',
+      description: '証明書 {id} の PEM/DER/PFX/JKS/P7B 形式設定への導線です。',
+      empty: '形式設定はまだありません',
+      fields: {
+        alias: 'Alias（任意）',
+        containsPrivateKey: '含める秘密鍵（PEM）',
+        passwordSecretRef: 'passwordSecretRef（PFX/JKS）',
+        targetFormat: 'ターゲット形式',
+        versionId: 'バージョン ID'
+      },
+      hint: 'PFX/JKS ではシステム上の passwordSecretRef を必ず使用します。実際のデプロイ時は、証明書バージョンと形式設定に基づいてマテリアルを即時生成します。',
+      loadFailed: '形式設定の読み込みに失敗しました',
+      optionAvailable: '{label} - 利用可能',
+      placeholders: {
+        alias: '例： gcac-cert'
+      },
+      title: '証明書形式設定',
+      toolbar: '形式設定一覧',
+      unsupported: '{format} は現在の機能宣言では作成できません。'
+    },
+    import: {
+      backList: '証明書一覧へ戻る',
+      description: '現在は PEM + KEY と PFX のみサポートします。PFX はファイルインポートのみ対応です。インポートマテリアルにはサーバー証明書、完全な中間証明書チェーン、秘密鍵を必ず含めてください。ルート証明書は必須ではありません。',
+      errors: {
+        importFailed: 'インポートに失敗しました',
+        materialRequiredBeforeValidate: '先にインポートマテリアルの入力を完了してから検証を開始してください。',
+        needPassedValidation: '先にステップ 3 の検証を完了し、検証合格後にインポートしてください。',
+        validateFailed: '検証に失敗しました'
+      },
+      formats: {
+        pem: {
+          hint: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵を同時に提供してください。ルート証明書は必須ではありません。不足している場合は警告を表示します。'
+        },
+        pfx: {
+          hint: 'ファイルインポートのみ対応です。コンテナ内にはサーバー証明書、完全な中間証明書チェーン、秘密鍵を必ず含めてください。ルート証明書は必須ではありません。不足している場合は警告を表示します。'
+        }
+      },
+      methods: {
+        file: {
+          hint: 'cert / key または .pfx ファイルがある場合に適しています。',
+          label: '選択ファイル'
+        },
+        text: {
+          hint: 'PEM テキストを直接貼り付け、臨時ファイルのアップロードを避けたい場合に適しています。',
+          label: '貼り付けテキスト'
+        }
+      },
+      title: '証明書をインポート'
+    },
+    importForm: {
+      hints: {
+        pemChainCheck: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵をアップロードまたは貼り付けてください。システムが証明書チェーンと秘密鍵の一致関係を検証します。',
+        pfxChainCheck: 'PFX/P12 ファイルをアップロードし、パスワードを入力してください。システムがコンテナ内のサーバー証明書、証明書チェーン、秘密鍵を解析します。',
+        pfxFileOnly: 'PFX はファイルインポートのみサポートします。'
+      },
+      roles: {
+        leaf: 'リーフ証明書',
+        root: 'ルート証明書',
+        intermediate: '中間証明書'
+      },
+      steps: {
+        ariaLabel: '証明書インポートステップ',
+        formatAndMethod: '形式と方式',
+        materials: 'インポートマテリアル',
+        validateAndImport: '検証かつインポート'
+      },
+      formatIntro: {
+        title: '選択インポート形式と方式',
+        description: '先確認マテリアル形式、再選択アップロードファイルまたは貼り付けテキスト。PFX 目前のみサポートファイルインポート。'
+      },
+      labels: {
+        importType: 'インポートタイプ',
+        importMethod: 'インポート方式',
+        materialStatus: 'マテリアルステータス'
+      },
+      status: {
+        supported: 'サポート済み',
+        unsupported: '暫不サポート',
+        completed: '完了',
+        incomplete: '未完了',
+        matched: '一致',
+        unmatched: '不一致'
+      },
+      fields: {
+        certificateChainFile: '証明書チェーンファイル',
+        certificatePemText: '証明書 PEM テキスト',
+        privateKey: '秘密鍵（{kind}）',
+        file: 'ファイル',
+        pemText: 'PEM テキスト',
+        pfxFile: 'PFX/P12 ファイル',
+        certificateName: '証明書名',
+        pfxPassword: 'PFX パスワード'
+      },
+      placeholders: {
+        certificatePem: '-----BEGIN CERTIFICATE-----\\n...\\n-----END CERTIFICATE-----',
+        certificateName: '例： example.com 生産証明書',
+        required: '必須'
+      },
+      validation: {
+        title: '検証インポートマテリアル',
+        description: '送信インポート前先検証証明書チェーン、有効期間、秘密鍵一致とマテリアル完全な性。',
+        passed: '検証合格、可以インポート',
+        failed: '検証未合格'
+      },
+      report: {
+        certificateSummary: '証明書サマリー',
+        serialNumber: 'シリアル番号',
+        validity: '有効期間',
+        validityRange: '{start} 至 {end}',
+        issuer: '発行者',
+        issuerWithValue: '署発者：{value}',
+        subject: 'サブジェクト',
+        chainValidation: '証明書チェーン検証',
+        chainStatus: 'チェーンステータス',
+        certificateCount: '証明書数',
+        privateKeyMatch: '秘密鍵一致',
+        provided: '提供済み',
+        matchResult: '一致結果',
+        privateKeySource: '秘密鍵ソース',
+        blockers: 'ブロック件',
+        warnings: '警告'
+      },
+      selectedFile: '選択：{name}済み',
+      importSuccess: 'インポート成功、証明書バージョン ID：{id}',
+      actions: {
+        validating: '検証中...',
+        validate: '開始検証',
+        cancel: 'キャンセル',
+        previous: '前へ',
+        next: '次へ',
+        importing: 'インポート中...',
+        import: '証明書をインポート'
+      }
+    },
+    list: {
+      filters: {
+        keyword: 'キーワード',
+        domain: 'ドメイン名',
+        status: 'ステータス'
+      },
+      placeholders: {
+        assetKeyword: 'ドメイン名 / SAN / フィンガープリント',
+        versionKeyword: '名前 / 発行者 / サブジェクト / バージョン ID'
+      },
+      columns: {
+        notBefore: '開始日付',
+        notAfter: '終了日付',
+        associatedAsset: '関連アセット',
+        status: 'ステータス',
+        certificateVersionId: '証明書バージョン ID'
+      },
+      lifecycle: {
+        unknown: '不明',
+        expired: '期限切れ',
+        expiringSoon: '期限切れ間近',
+        valid: '有効'
+      },
+      fallbacks: {
+        unselectedDomain: 'ドメイン名未選択',
+        unnamedDomain: '無名のドメイン名',
+        noSupplement: '补充情報はまだありません'
+      },
+      assets: {
+        title: 'ドメイン名一覧',
+        loadFailed: 'ドメイン名一覧の読み込みに失敗しました',
+        empty: 'ドメイン名一覧はまだありません',
+        unselectedTitle: 'ドメイン名未選択',
+        unselectedDescription: '先で左侧選択1 個逻輯証明書ドメイン名。'
+      },
+      versions: {
+        title: 'SSL 証明書一覧',
+        titleWithDomain: '{domain} の SSL 証明書一覧',
+        description: '右側表示現在ドメイン名下の SSL 証明書一覧、含める証明書名、開始日付、終了日付、発行者とサブジェクト情報。',
+        loadFailed: 'SSL 証明書一覧の読み込みに失敗しました',
+        emptyForDomain: 'このドメイン名下まだありません SSL 証明書',
+        emptyForDomainDescription: '可以合格フィルター栏右側のインポート証明書により钮补充このドメイン名の証明書バージョン。',
+        empty: ' SSL 証明書はまだありません',
+        toolbar: '証明書バージョン一覧',
+        currentCount: '現在 {count} 件'
+      },
+      actions: {
+        clear: '清空',
+        deleteRisk: '削除すると現在の証明書バージョンが直接削除されます。このバージョンがまだバインドまたはデプロイから参照されている場合、システムはこの操作を拒否します。'
+      },
+      errors: {
+        deleteFailed: '削除に失敗しました',
+        materialRequiredForFormat: '必ず提供現在形式对応の証明書マテリアル。',
+        importFailedWithCheck: 'インポート失敗、チェック入力マテリアル。',
+        validateFailedWithCheck: '検証失敗、チェック入力マテリアル。'
+      },
+      import: {
+        description: '現在はのみサポート PEM + KEY 和 PFX；毎回インポート都必ず含めるサーバー証明書、完全な中間証明書チェーンと秘密鍵。ルート証明書は必須ではありません。不足している場合は警告を表示します。秘密鍵はシステムの Secret ストレージにのみ保存、API レスポンスには返されません。'
+      }
+    },
+    usages: {
+      backDetail: '戻る詳細',
+      columns: {
+        domainName: 'ドメイン名/ターゲット',
+        resourceId: 'リソース ID',
+        resourceType: 'リソースタイプ',
+        status: 'ステータス',
+        updatedAt: '更新時刻'
+      },
+      description: '証明書 {id} のバインド、デプロイターゲットとリソース引用。',
+      empty: '使用関係はまだありません',
+      loadFailed: '使用関係の読み込みに失敗しました',
+      title: '証明書使用関係',
+      toolbar: '使用関係'
+    }
+  },
+  workflows: {
+    credentials: {
+      summary: {
+        usernamePassword: 'ユーザー名 + パスワード',
+        usernamePasswordWithUsername: 'ユーザー名 + パスワード / {username}',
+        sshKey: 'SSH 秘密鍵',
+        sshKeyWithUsername: 'SSH 秘密鍵 / {username}',
+        apiKey: 'API Key / {name} / {location}',
+        bearerToken: 'Bearer Token'
+      }
+    },
+    canvasModel: {
+      nodeTypes: {
+        http: {
+          description: '调用结构化 HTTP 接口、取代分散の curl コマンド。'
+        },
+        ssh: {
+          displayName: 'SSH コマンド',
+          description: '実行する SSH コマンドを宣言、のみ保存接続と認証情報引用。'
+        },
+        sftp: {
+          displayName: 'SFTP アップロード/ダウンロード',
+          description: '合格正式 SFTP step アップロードまたはダウンロードファイル、适合証明書と設定インストール。'
+        },
+        scp: {
+          displayName: 'SCP アップロード/ダウンロード',
+          description: '合格 SCP コピーファイル、适合简単ホストファイル分発。'
+        },
+        verify: {
+          displayName: '検証',
+          description: '对 HTTP ステータス、テキスト、正则または証明書フィンガープリント做断言。'
+        },
+        condition: {
+          displayName: '分支判断',
+          description: '根拠変数存で性または值决定後継パス。'
+        },
+        wait: {
+          displayName: '待機',
+          description: '指定した秒数待機してから実行を続行します。'
+        },
+        manual: {
+          displayName: '手動確認',
+          description: 'ワークフローを一時停止し、手動確認後に続行します。'
+        }
+      },
+      fields: {
+        command: 'コマンド',
+        connectionRef: '接続変数',
+        contentRef: '内容変数',
+        credential: '認証情報',
+        description: '説明',
+        direction: '方向',
+        expected: '期望值',
+        expectedHostKeyFingerprint: 'Host Key フィンガープリント',
+        hostKeyPolicy: 'Host Key ポリシー',
+        hostRef: 'ホスト変数',
+        inputRef: '入力変数',
+        instruction: '確認説明',
+        localPath: 'ローカルパス',
+        mode: 'ファイル権限',
+        operator: '操作符',
+        remotePath: 'リモートパス',
+        seconds: '待機秒数',
+        temporaryPath: '一時パス',
+        timeoutSeconds: '超時秒数',
+        usernameVariable: 'ユーザー名変数',
+        variable: '変数',
+        verifyType: '検証タイプ'
+      },
+      options: {
+        direction: {
+          download: 'ダウンロード',
+          upload: 'アップロード'
+        },
+        hostKeyPolicy: {
+          manualApproval: '手動承認',
+          strict: '厳格検証',
+          trustOnFirstUse: '首回信任'
+        },
+        operator: {
+          equals: '等于',
+          exists: '存で',
+          notEquals: '不等于',
+          notExists: '不存で'
+        },
+        verifyType: {
+          certificateFingerprint: '証明書フィンガープリント',
+          httpStatus: 'HTTP ステータス',
+          regex: '正则一致',
+          textContains: 'テキスト含める'
+        }
+      },
+      stages: {
+        backup: {
+          title: 'バックアップ',
+          description: '保留可ロールバックマテリアル。'
+        },
+        install: {
+          title: 'インストール',
+          description: 'デプロイ証明書または設定。'
+        },
+        prepare: {
+          title: '準備',
+          description: '接続、変数、マテリアルを準備します。'
+        },
+        refresh: {
+          title: '更新',
+          description: '重載サービスまたは更新ターゲット。'
+        },
+        verify: {
+          title: '検証',
+          description: '確認結果符合预期。'
+        }
+      },
+      defaults: {
+        displayName: '{name} ワークフロー',
+        nodes: {
+          backupExistingCertificate: 'バックアップ既存証明書',
+          reloadService: '重載サービス'
+        },
+        variables: {
+          certificatePaths: {
+            description: 'ターゲット証明書パス設定'
+          },
+          credential: {
+            description: '接続認証情報'
+          },
+          deviceHost: {
+            description: 'ターゲットホスト'
+          },
+          serverCert: {
+            description: '待デプロイサーバー証明書マテリアル',
+            outputs: {
+              certFile: {
+                description: 'サーバー証明書ファイル'
+              },
+              keyFile: {
+                description: '秘密鍵ファイル'
+              }
+            }
+          },
+          sshUsername: {
+            description: 'SSH ログインユーザー名'
+          },
+          verifyUrl: {
+            description: 'デプロイ後検証アドレス'
+          }
+        },
+        config: {
+          conditionDescription: 'チェックターゲットホスト変数是否存で',
+          manualInstruction: '確認してくださいターゲットデバイス証明書切り替えへ新バージョン済み。'
+        }
+      },
+      variableFlow: {
+        system: 'システム',
+        variable: '変数'
+      },
+      errors: {
+        unknownNodeType: '不明なノードタイプ：{type}'
+      }
+    },
+    canvasEditor: {
+      summary: 'ノード {nodes} 個、接続線 {edges} 件、変数 {variables} 個',
+      stageNodeCount: '{count} 個ノード',
+      copyLabel: '{label} 副本',
+      actions: {
+        addVariable: '追加変数',
+        collapseBottomPanelAria: '折叠底部控制パネル',
+        collapseDown: '向下折叠',
+        copy: 'コピー',
+        copyNode: 'コピーノード',
+        delete: '削除',
+        deleteNode: '削除ノード',
+        expandBottomPanelAria: '展開底部控制パネル',
+        expandPanel: '展開パネル',
+        layout: '整理布局',
+        mockCurrentNode: 'のみ模拟現在ノード',
+        mockRunning: '模拟中...',
+        paste: '貼り付け',
+        pasteNode: '貼り付けノード',
+        realRun: '真実試跑現在ノード',
+        realRunHttp: '真実 HTTP 試跑現在ノード',
+        realRunRunning: '試跑中...',
+        realRunSsh: '真実 SSH 実行現在ノード',
+        realRunTransfer: '真実ファイル传輸試跑',
+        redo: '重做',
+        saveDraft: '保存ドラフト',
+        saving: '保存中...',
+        undo: '撤销',
+        zoomIn: '放大',
+        zoomOut: '缩小'
+      },
+      aria: {
+        bottomPanel: '下部パネル',
+        canvasArea: 'キャンバスゾーン',
+        dslPanel: 'DSL パネル',
+        nodePalette: 'ノードライブラリ',
+        propertiesPanel: 'プロパティパネル',
+        runtimePanel: '実行時パネル',
+        toolbar: 'ワークフローキャンバスツールバー',
+        validationPanel: '検証パネル',
+        variablesPanel: '変数パネル'
+      },
+      credentialHints: {
+        savedApiKey: '保存済みの API Key',
+        savedBearerToken: '保存済みの Bearer Token',
+        savedSshSftp: '保存済みの SSH / SFTP 認証情報',
+        savedUsernamePassword: '保存済みのユーザー名 + パスワード'
+      },
+      credentials: {
+        emptyCreateHint: '利用可能な認証情報はまだありません。一覧ページの認証情報管理で先に作成してください。',
+        loading: '認証情報一覧を読み込み中…'
+      },
+      dsl: {
+        title: 'DSL インポートと上書き',
+        hint: '外部 DSL JSON を直接貼り付けるか、ローカル DSL ファイルを選択できます。インポートはブラウザー内の現在のキャンバスのみ上書きし、「ドラフトを保存」をクリックして初めて新しいワークフローバージョンが生成されます。',
+        selectFile: 'DSL ファイルを選択',
+        actions: {
+          importOverwrite: 'DSL をインポートしてキャンバスを上書き',
+          resetToCanvas: '現在のキャンバス DSL を反映'
+        },
+        messages: {
+          fileLoaded: 'ファイルを読み込みました：{fileName}',
+          imported: 'DSL をインポートし、現在のキャンバスを上書きしました。合計 {count} 個のノードです。',
+          resetToCompiled: 'コンパイル後の DSL を反映しました。'
+        },
+        errors: {
+          importFailed: 'DSL インポートに失敗しました',
+          invalidTopLevel: 'DSL のトップレベル構造が無効です。オブジェクトである必要があります。'
+        }
+      },
+      empty: {
+        selectNodeToEdit: 'ノードを選択してから属性を編集してください。'
+      },
+      errors: {
+        backendValidationFailed: '検証に失敗しました',
+        credentialsLoadFailed: 'ワークフロー認証情報の読み込みに失敗しました',
+        missingStepName: 'ステップ名が不足しています',
+        missingWorkflowDsl: 'ワークフロー DSL を取得できませんでした'
+      },
+      fields: {
+        authType: '認証タイプ',
+        clientCertificate: 'クライアント証明書',
+        clientPrivateKey: 'クライアント秘密鍵',
+        command: 'コマンド',
+        connectionVariable: '接続変数',
+        contentRef: '内容引用',
+        cookieName: 'Cookie 名',
+        credential: '認証情報',
+        credentialSelector: '認証情報セレクター',
+        defaultValue: 'デフォルト値',
+        deliveryLocation: '受け渡し場所',
+        description: '説明',
+        direction: '方向',
+        fileMode: 'ファイル権限',
+        headerName: 'Header 名',
+        hostRefOrHostname: 'ホスト変数 / ホスト名',
+        hostVariable: 'ホスト変数',
+        keyName: 'Key 名',
+        localPath: 'ローカルパス',
+        newNodeStage: '追加ノードステージ',
+        nodeName: 'ノード名',
+        remotePath: 'リモートパス',
+        required: '必須',
+        secretValue: 'シークレット値',
+        sensitive: '機密',
+        stage: '所属ステージ',
+        temporaryPath: '一時パス',
+        timeoutSeconds: '超時秒数',
+        type: 'タイプ',
+        username: 'ユーザー名',
+        variableName: '変数名'
+      },
+      options: {
+        download: 'ダウンロード',
+        manualInput: '手動入力',
+        notSelected: '未選択',
+        upload: 'アップロード'
+      },
+      runtime: {
+        noCredentialVariables: '現在ワークフロー没有認証情報変数。',
+        noExtraVariables: '現在のノードには追加のランタイム変数がありません。'
+      },
+      sections: {
+        httpAuth: 'HTTP 認証',
+        nodePalette: 'ノードライブラリ',
+        properties: 'プロパティパネル',
+        referenceFlow: '引用流',
+        runtimeCredentialVariables: 'ランタイム認証情報変数',
+        runtimeVariables: 'ランタイム変数',
+        singleNodeTest: '単ノード測試実行',
+        variableConfig: '変数設定'
+      },
+      tabs: {
+        runtime: '実行時',
+        validation: '検証',
+        variables: '変数'
+      },
+      test: {
+        cause: '原因',
+        code: 'コード',
+        emptyHint: '選択ノード後可実行模拟または真実試跑。',
+        error: 'エラー',
+        executionPlan: '実行プラン',
+        exitCode: '終了コード',
+        failureDetails: '失敗詳細',
+        hint: '測試提示',
+        logs: 'ログ',
+        nodeOutput: 'ノード出力',
+        running: '実行中',
+        stage: 'ステージ',
+        stderr: '標準エラー',
+        stdout: '標準出力',
+        suggestion: '推奨',
+        target: 'ターゲット',
+        errors: {
+          mockRunFailed: '模拟実行に失敗しました',
+          realRunFailed: '真実試跑に失敗しました'
+        },
+        messages: {
+          mockCompleted: '模拟実行完了。',
+          mockFailed: '模拟実行失敗。',
+          realCompleted: '真実試跑完了。',
+          realFailed: '真実試跑失敗。'
+        }
+      },
+      validation: {
+        levels: {
+          error: 'エラー',
+          risk: 'リスク',
+          warning: '警告'
+        },
+        location: {
+          canvas: 'キャンバス',
+          edge: '接続線',
+          fieldSuffix: 'フィールド',
+          node: 'ノード'
+        },
+        noBlockingErrors: '没有ブロックエラー。'
+      },
+      variables: {
+        customRuntimeDescription: 'カスタム実行変数',
+        notUsed: '未使用',
+        usedBy: '使用場所：{nodes}'
+      }
+    },
+    templates: {
+      title: 'ワークフロー',
+      resourceName: 'ワークフロー',
+      description: 'によりキャンバスドラフト管理 CURL/SSH/SFTP ワークフローバージョン、公開ステータスと変更記録。',
+      actions: {
+        addVersion: '追加バージョン',
+        applyTemplate: '適用テンプレート',
+        cancel: 'キャンセル',
+        close: '閉じる',
+        createBlank: '空白新建',
+        credentialManagement: '認証情報管理',
+        delete: '削除',
+        detail: '詳細',
+        edit: '編集',
+        publishVersion: '公開バージョン',
+        saveNote: '保存メモ',
+        switchVersion: '切り替えバージョン',
+        templateManagement: 'テンプレート管理',
+        versionManagement: 'バージョン管理'
+      },
+      states: {
+        creating: '作成中...',
+        loading: '読み込み中...',
+        processing: '処理中...',
+        saving: '保存中...'
+      },
+      fields: {
+        actions: '操作',
+        createdAt: '作成時刻',
+        currentStatus: '現在のステータス',
+        currentVersion: '現在バージョン',
+        currentVersionId: '現在バージョン ID',
+        id: 'ワークフロー ID',
+        name: 'ワークフロー名前',
+        note: 'メモ',
+        status: 'ステータス',
+        updatedAt: '更新時刻'
+      },
+      empty: {
+        description: '先作成キャンバスドラフト、再に基づくバージョン公開へ正式経路。',
+        noChangeSummary: '没有変更説明。',
+        noChangeSummaryShort: '没有変更説明',
+        noVersions: 'バージョン。はまだありません',
+        title: 'ワークフローはまだありません'
+      },
+      tabs: {
+        summary: '概要',
+        versions: 'バージョン'
+      },
+      versionStatuses: {
+        disabled: '無効化済み',
+        draft: 'ドラフト',
+        published: '公開済み'
+      },
+      detail: {
+        description: '表示ワークフロー詳細、キャンバスドラフトとバージョン清単。',
+        publishedVersion: '現在公開バージョン {version}',
+        title: 'ワークフロー詳細',
+        titleWithName: 'ワークフロー {name}'
+      },
+      versionManager: {
+        description: '管理ワークフローバージョンの新建と公開、不涉およびキャンバス内容の変更。',
+        titleWithName: 'バージョン管理：{name}'
+      },
+      changeSummaries: {
+        applyFromFileTemplate: 'からファイルテンプレート上書きワークフロードラフト',
+        createCanvasDraft: 'フロントエンドキャンバス作成ワークフロードラフト',
+        createFromFileTemplate: 'からファイルテンプレート作成ワークフロードラフト',
+        createVersionDraft: 'バージョン管理作成新バージョンドラフト',
+        saveCanvasDraft: 'キャンバスエディター保存ドラフトバージョン'
+      },
+      messages: {
+        canvasDraftUpdated: '現在ドラフトバージョン更新済み。',
+        switchedVersion: '{version} に切り替えました。',
+        versionDraftCreated: '新バージョンドラフト作成済み。',
+        versionNoteUpdated: 'バージョンメモ更新済み。'
+      },
+      errors: {
+        createVersionFailed: 'ワークフローバージョンの作成に失敗しました',
+        loadVersionsFailed: 'ワークフローバージョンの読み込みに失敗しました',
+        missingWorkflowDsl: 'ワークフロー DSL を取得できませんでした',
+        publishVersionFailed: '公開ワークフローバージョンに失敗しました',
+        saveCanvasDraftFailed: 'キャンバスドラフトの保存に失敗しました',
+        updateVersionNoteFailed: '更新バージョンメモに失敗しました'
+      },
+      delete: {
+        riskText: '削除では無効化このワークフローおよび其全部バージョン、一覧中不再表示；履歴実行記録しません被書き換え。'
+      },
+      loading: {
+        versions: '読み込みバージョン中...'
+      },
+      fileTemplates: {
+        applyAction: 'によりテンプレート上書き現在ワークフロー',
+        applyTitle: '用ファイルテンプレート上書きワークフロー',
+        createAction: 'によりテンプレート作成ワークフロー',
+        createTitle: 'からファイルテンプレート新建ワークフロー',
+        currentTarget: '現在ターゲット：{name}',
+        description: 'テンプレートファイル由来組み込みテンプレート庫またはユーザーインポートディレクトリ。上書き既存ワークフロー時、は作成新のドラフトバージョン、しません書き換え履歴バージョン。',
+        empty: '可識別のワークフローテンプレートファイル。はまだありません',
+        identifier: '標識 {name}',
+        invalid: '無効',
+        invalidFile: 'ファイル無効',
+        loading: 'スキャンファイルテンプレート中...',
+        valid: '利用可能',
+        sources: {
+          builtin: '組み込み',
+          userImported: 'ユーザーインポート'
+        },
+        errors: {
+          actionFailed: '実行ファイルテンプレート动作に失敗しました',
+          loadFailed: 'ワークフローファイルテンプレートの読み込みに失敗しました',
+          missingApplyTarget: '待上書きのワークフローターゲットが不足しています'
+        }
+      },
+      credentials: {
+        actions: {
+          create: '作成認証情報'
+        },
+        addTitle: '追加認証情報',
+        count: '{count} 個',
+        description: '集中管理ワークフロー所必要のログイン認証情報と API 認証情報、サポートでキャンバスとノード中直接選択复用。',
+        empty: '認証情報記録。作成後可直接で変数、SSH ノードと HTTP ノード里選択。はまだありません',
+        loading: '認証情報を読み込み中…',
+        registeredTitle: '登録済み認証情報',
+        title: '認証情報管理',
+        fields: {
+          deliveryLocation: '受け渡し場所',
+          headerOrParam: 'Header / パラメータ名',
+          name: '認証情報名前',
+          referenceLocation: '引用場所',
+          storageType: 'ストレージタイプ',
+          type: '認証情報タイプ',
+          username: 'ユーザー名'
+        },
+        kinds: {
+          common: {
+            family: '汎用'
+          },
+          sshKey: {
+            title: 'SSH 秘密鍵'
+          },
+          usernamePassword: {
+            title: 'ユーザー名 + パスワード'
+          }
+        },
+        secretLabels: {
+          password: 'パスワード',
+          sshKey: 'SSH 秘密鍵'
+        },
+        placeholders: {
+          apiKey: '入力 API Key',
+          bearer: '入力 Bearer Token',
+          password: '入力ログインパスワード',
+          sshKey: '貼り付け PEM 形式秘密鍵'
+        },
+        messages: {
+          created: '認証情報作成済み、可直接でワークフロー変数、SSH ノードと HTTP ノード中選択。'
+        },
+        errors: {
+          createFailed: '認証情報の作成に失敗しました',
+          loadFailed: '認証情報の読み込みに失敗しました',
+          missingCreatedId: '作成認証情報未戻る有効な番号'
+        }
+      }
+    }
+  },
+  monitoring: {
+    actions: {
+      add: '追加監視',
+      probe: '検査サイト',
+      probing: '検査中...',
+      refresh: '更新データ',
+      refreshing: '更新中...',
+      remove: '削除'
+    },
+    errors: {
+      addFailed: '監視ターゲット追加に失敗しました',
+      deleteFailed: '監視ターゲットの削除に失敗しました',
+      invalidTarget: '監視ターゲットデータ無効',
+      loadFailed: '監視データの読み込みに失敗しました',
+      probeFailed: 'プローブリクエストに失敗しました',
+      updateIntervalFailed: 'プローブ頻度の更新に失敗しました'
+    },
+    empty: {
+      actualCertificate: '実測 TLS 証明書。HTTPS ターゲットはでサイト検査時自動収集証明書情報。はまだありません',
+      description: 'クリック右上追加監視、システムはによりターゲット頻度検査サイトかつ同時に収集証明書情報。',
+      noAddableAssets: '可追加アプリケーションアセット、有ターゲットで詳細中調整プローブ頻度済み。はまだありません',
+      observedCertificateHistory: 'バインド証明書バージョン。サイト検査収集へ第一张証明書後は自動保留。はまだありません',
+      probeHistory: 'プローブ履歴。はまだありません',
+      riskEvents: '相関イベント。はまだありません',
+      title: '監視ターゲットはまだありません'
+    },
+    sections: {
+      actualCertificate: '現在サイト実測証明書',
+      actualCertificateHint: '随サイト検査自動収集',
+      observedCertificateHistory: 'バインド証明書バージョン',
+      observedCertificateHistoryHint: 'により実測 TLS 証明書変化保留バージョン記録',
+      probeHistory: 'プローブ履歴',
+      probeHistoryHint: 'システムプローブ結果直近 20 回記録',
+      riskEvents: 'リスクイベント',
+      riskEventsHint: '証明書チェーン、ドメイン名、フィンガープリントと実行ステータス',
+      targets: '監視ターゲット'
+    },
+    labels: {
+      applicationAsset: 'アプリケーションアセット',
+      currentTarget: '現在ターゲット',
+      probeInterval: 'プローブ頻度'
+    },
+    metrics: {
+      availability: 'へ達性',
+      certificateStatus: '証明書ステータス',
+      latency: 'アクセス遅延',
+      observedCertificateChanges: '実測証明書変更'
+    },
+    probe: {
+      completed: 'プローブ完了',
+      emptyHistoryBlock: '第 {index} 回：プローブはまだありません',
+      latencyNotCollected: '未収集遅延',
+      recentAria: '直近 10 回プローブ結果',
+      waiting: 'サイト検査待ち'
+    },
+    status: {
+      error: 'エラー',
+      none: '実行待ち',
+      ready: '正常',
+      warning: '警告'
+    },
+    fallback: {
+      noEndpoint: 'アクセスアドレスが未設定です',
+      noFingerprint: '無フィンガープリント',
+      noSummary: '無サマリー',
+      notCollected: '未収集',
+      notSelected: '未選択',
+      unknownAsset: '不明なアセット',
+      unknownCertificate: '不明な証明書',
+      unknownIssuer: '不明な発行者',
+      unnamedEvent: '無名のイベント'
+    },
+    certificate: {
+      actualCertificate: '実測証明書',
+      chainUntrusted: '未合格システム信頼チェーン検証',
+      chainVerification: 'チェーン検証',
+      chainVerified: 'チェーン検証に合格',
+      chainVerifyFailedWithReason: 'チェーン検証に失敗しました：{reason}',
+      collectedAt: '収集時刻',
+      issuer: '発行者',
+      serialNumber: 'シリアル番号',
+      sha256Fingerprint: 'SHA-256 フィンガープリント',
+      subject: 'サブジェクト',
+      validity: '有効期間',
+      validityRange: '{start} 至 {end}'
+    },
+    columns: {
+      certificateName: '証明書名',
+      changedAt: '更换時刻',
+      expiresAt: '期限切れ日時',
+      issuerName: '発行者名',
+      latency: '遅延',
+      result: '結果',
+      source: 'ソース',
+      status: 'ステータス',
+      time: '時刻'
+    },
+    dialog: {
+      defaultMetricsHint: 'デフォルト監視へ達性、アクセス遅延、証明書情報と証明書履歴。',
+      description: 'アプリケーションアセット一覧選択1 個ターゲット、システムは固定収集から達性、アクセス遅延、証明書情報と証明書履歴。まで',
+      loadingAssets: 'アセットを読み込み中...',
+      selectAsset: 'アプリケーションアセットを選択してください',
+      title: '追加監視'
+    },
+    source: {
+      controlPlane: 'プラットフォーム'
+    },
+    targets: {
+      assetCount: '{count} 個のアセット'
+    }
+  },
+  login: {
+    visualLabel: '製品説明',
+    brand: 'GCAC 証明書コンソール',
+    brandSecondary: '証明書集中管理プラットフォーム',
+    headlinePrefix: '証明書管理を',
+    headlineHighlight: 'よりスマートに',
+    headlineSuffix: '、より安全に',
+    intro: '証明書アセットの一元管理、自動デプロイのオーケストレーション、全経路の監査追跡により、煩雑な手作業による証明書運用を、検証可能で追跡可能な標準化プロセスへ転換し、企業のデジタル基盤を支えます。',
+    capabilitiesLabel: 'プラットフォーム機能',
+    featureLifecycle: 'ライフサイクル全体の管理',
+    featureLifecycleDesc: 'からインポート、継署、バージョン追踪期限切れ限切れアラート、上書き証明書アセットの每1 個环節。',
+    featureAutomation: '自動デプロイオーケストレーション',
+    featureAutomationDesc: '面向 Nginx、Tomcat、IIS 等主要環境、一键生成可監査のデプロイプラン。',
+    featureRollback: '安全な実行とロールバック',
+    featureRollbackDesc: 'デプロイ前自動検証、実行全過程留痕、失敗即ロールバック、確認本番環境安定無忧。',
+    formLabel: 'ログインフォーム',
+    secure: '安全な接続',
+    welcome: 'コンソールへログイン',
+    hint: '企業アカウントで GCAC 管理ワークスペースに入ります',
+    username: 'ユーザー名',
+    usernamePlaceholder: 'ユーザー名を入力してください',
+    password: 'パスワード',
+    passwordPlaceholder: 'パスワードを入力してください',
+    failed: 'ログインに失敗しました。しばらくしてから再試行してください',
+    submitting: '本人確認中…',
+    submit: 'ログイン',
+    policy: 'RBAC 権限保護',
+    audit: '操作の全過程を監査'
+  },
+  errors: {
+    forbiddenTitle: '403 権限がありません',
+    forbiddenMessage: 'このページにアクセスするために必要な権限がありません。',
+    missingPermission: '不足している権限：{permission}',
+    notFoundTitle: '404 ページが存在しません',
+    notFoundMessage: 'このページは存在しません。アクセス先が正しいか確認してください。',
+    backDashboard: 'ダッシュボードへ戻る'
+  }
+} as const
