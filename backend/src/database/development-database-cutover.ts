@@ -17,12 +17,7 @@ import { computeWorkflowContentHash, WorkflowTemplatesDomainService } from '../m
 import { PgDocumentRepository } from '../persistence/repositories/pg-document-repository.js';
 
 const requiredMigrations = [
-  '20260811000100',
-  '20260811000200',
-  '20260811000300',
-  '20260811000400',
-  '20260817000900',
-  '20260817001000',
+  '20260823000000',
 ] as const;
 
 const snapshotTables = [

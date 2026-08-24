@@ -115,7 +115,7 @@ export class TaskRepository {
     if (missingColumns.length === 0) return;
 
     throw new Error(
-      `任务控制面依赖的幂等记录表不完整：idempotency_records 缺少 ${missingColumns.join(', ')}；请先执行迁移 20260816000400_idempotency_records.sql`,
+      `任务控制面依赖的幂等记录表不完整：idempotency_records 缺少 ${missingColumns.join(', ')}；请先执行迁移 20260823000000_unified_current_baseline.sql`,
     );
   }
 
