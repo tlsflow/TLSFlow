@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createPluginRunnerExecutor } from './index.js';
 import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
@@ -87,6 +88,91 @@ test('Citrix 真实 Runner 子进程执行 NITRO discovery Fixture 并脱敏 Sec
     else await client.stop(true);
   }
 });
+
+test('Citrix 真实 Runner 子进程在 NITRO 业务故障时失败关闭', async () => {
+  const failureCase = loadFailureFixture().cases['discovery-business-error'];
+  const client = new PluginRunnerClient({
+    pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
+    pluginId: 'device.citrix.netscaler-adc',
+    pluginVersion: '2.0.1',
+    tenantId: 'tenant-device',
+    executablePath: process.execPath,
+    args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/citrix-adc/runtime/index.js')],
+    workingDirectory: process.cwd(),
+    environment: env,
+    runnerVersion: '1.0.0',
+    sdkVersion: '1.0.0',
+    capabilities: ['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
+    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    startupTimeoutMs: 1000,
+    helloTimeoutMs: 500,
+    executeTimeoutMs: 1000,
+    hostApiHandler: async ({ method }) => {
+      assert.equal(method, 'secret.grant.resolve');
+      return { ok: true, data: { secretRef: 'secret://device/password', fingerprint: 'fp', value: '[REDACTED]' } };
+    },
+  });
+  try {
+    const result = await client.execute({
+      tenantId: 'tenant-device', executionId: 'run-citrix-failure', executionStepId: 'step-discover', workflowVersionId: 'workflow-citrix-1', planDigest: 'b'.repeat(64),
+      capability: failureCase.capability, grantRefs: ['secret-grant'], idempotencyKey: 'idem-citrix-failure', writeEffect: failureCase.writeEffect,
+      deadlineAt: new Date(Date.now() + 10_000).toISOString(), input: {
+        deviceAddress: '192.0.2.20', displayName: 'ADC Failure Fixture',
+        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
+        protocolFixture: failureCase.protocolFixture,
+      },
+    });
+    assert.equal(result.status, failureCase.expected.runnerStatus, JSON.stringify(result));
+    assert.equal(result.error.code, failureCase.expected.runnerErrorCode, JSON.stringify(result));
+    assert.match(result.error.message, /NITRO/);
+  } finally {
+    if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
+    else await client.stop(true);
+  }
+});
+
+test('Citrix 写入传输中断 Fixture 在插件边界收敛为 UNKNOWN', async () => {
+  const failureCase = loadFailureFixture().cases['certificate-deploy-transport-unknown'];
+  await withEnvironmentAsync(env, async () => {
+    const executor = createPluginRunnerExecutor();
+    const result = await executor.execute({
+      pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
+      pluginId: 'device.citrix.netscaler-adc',
+      pluginVersion: '2.0.1',
+      tenantId: 'tenant-device', executionId: 'run-citrix-write-failure', executionStepId: 'step-deploy', capability: failureCase.capability,
+      grantRefs: ['secret-grant', 'artifact-grant'], idempotencyKey: 'idem-citrix-write-failure', deadlineAt: new Date(Date.now() + 10_000).toISOString(),
+      writeEffect: failureCase.writeEffect, signal: new AbortController().signal,
+      input: {
+        deviceAddress: '192.0.2.20', target: 'lb-one', certificateKeyName: 'leaf-new',
+        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
+        artifact: { artifactRef: 'artifact://certificate/new', grantId: 'artifact-grant' },
+        protocolFixture: failureCase.protocolFixture,
+      },
+    }, {
+      call: async (method) => {
+        if (method === 'secret.grant.resolve') return { ok: true, data: { value: '[REDACTED]' } };
+        if (method === 'artifact.grant.read') return { ok: true, data: { sha256: `sha256:${'d'.repeat(64)}` } };
+        throw new Error(`unexpected host method ${method}`);
+      },
+    });
+    assert.equal(result.status, failureCase.expected.directStatus, JSON.stringify(result));
+    assert.equal(result.error.code, failureCase.expected.directErrorCode, JSON.stringify(result));
+  });
+});
+
+function loadFailureFixture() {
+  return JSON.parse(readFileSync(resolve(process.cwd(), '../compatibility/fixtures/device-plugins/citrix-adc-error-cases.json'), 'utf8'));
+}
+
+async function withEnvironmentAsync(values, callback) {
+  const previous = { ...process.env };
+  Object.assign(process.env, values);
+  try { return await callback(); }
+  finally { for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); }
+}
 
 function nitroResponses() {
   const ok = (body) => ({ statusCode: 200, body });

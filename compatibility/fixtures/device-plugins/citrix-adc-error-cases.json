@@ -1,0 +1,61 @@
+{
+  "apiVersion": "gcac.device-fixture/v1",
+  "pluginId": "device.citrix.netscaler-adc",
+  "pluginVersion": "2.0.1",
+  "protocol": "NITRO",
+  "cases": {
+    "discovery-business-error": {
+      "capability": "device.discover",
+      "writeEffect": false,
+      "protocolFixture": {
+        "apiVersion": "gcac.device-fixture/v1",
+        "protocol": "NITRO",
+        "device": { "managementAddress": "192.0.2.20" },
+        "responses": {
+          "GET /nitro/v1/config/nsversion": {
+            "statusCode": 200,
+            "body": { "errorcode": 444, "message": "fixture authentication rejected" }
+          }
+        }
+      },
+      "expected": {
+        "runnerStatus": "FAILED",
+        "runnerErrorCode": "PLUGIN_CAPABILITY_EXECUTION_FAILED",
+        "directErrorCode": "PLUGIN_PROTOCOL_CONTRACT_INVALID"
+      }
+    },
+    "certificate-deploy-transport-unknown": {
+      "capability": "certificate.deploy",
+      "writeEffect": true,
+      "protocolFixture": {
+        "apiVersion": "gcac.device-fixture/v1",
+        "protocol": "NITRO",
+        "device": { "managementAddress": "192.0.2.20" },
+        "responses": {
+          "GET /nitro/v1/config/sslvserver_sslcertkey_binding?args=vservername:lb-one": {
+            "statusCode": 200,
+            "body": {
+              "errorcode": 0,
+              "sslvserver_sslcertkey_binding": [
+                { "vservername": "lb-one", "certkeyname": "leaf-old" }
+              ]
+            }
+          },
+          "POST /nitro/v1/config/systemfile": {
+            "statusCode": 504,
+            "transportError": true,
+            "body": { "errorcode": 0 }
+          },
+          "POST /nitro/v1/config/sslvserver_sslcertkey_binding/rollback": {
+            "statusCode": 200,
+            "body": { "errorcode": 0 }
+          }
+        }
+      },
+      "expected": {
+        "directStatus": "UNKNOWN",
+        "directErrorCode": "PLUGIN_OPERATION_UNKNOWN_STATE"
+      }
+    }
+  }
+}

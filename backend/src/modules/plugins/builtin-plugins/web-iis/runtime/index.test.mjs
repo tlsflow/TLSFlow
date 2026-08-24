@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createPluginRunnerExecutor } from './index.js';
 import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
@@ -93,6 +94,44 @@ test('IIS 真实 Runner 子进程执行 Agent-side discovery Fixture 并输出�
   }
 });
 
+test('IIS 真实 Runner 子进程在 Agent-side 写后断连时返回 UNKNOWN', async () => {
+  const failureFixture = loadFailureFixture();
+  const authorization = authorizationFixture('update-binding', ['agent-grant'], failureFixture.receipt.planDigest);
+  const client = new PluginRunnerClient({
+    pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
+    pluginId: 'web.iis',
+    pluginVersion: '1.0.0',
+    tenantId: 'tenant-device',
+    executablePath: process.execPath,
+    args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/web-iis/runtime/index.js')],
+    workingDirectory: process.cwd(),
+    environment: env,
+    runnerVersion: '1.0.0',
+    sdkVersion: '1.0.0',
+    capabilities: ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+    hostPermissions: ['artifact.read', 'agent.fact.collect', 'agent.plan.validate', 'agent.plan.execute', 'agent.execution.receipt', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    startupTimeoutMs: 1000,
+    helloTimeoutMs: 500,
+    executeTimeoutMs: 1000,
+  });
+  try {
+    const result = await client.execute({
+      tenantId: 'tenant-device', executionId: 'run-iis-failure', executionStepId: 'step-deploy', workflowVersionId: 'workflow-iis-1', planDigest: failureFixture.receipt.planDigest,
+      capability: 'certificate.deploy', grantRefs: ['agent-grant'], idempotencyKey: 'idem-iis-failure', writeEffect: true,
+      deadlineAt: new Date(Date.now() + 10_000).toISOString(), input: { agentAuthorization: authorization, protocolFixture: failureFixture },
+    });
+    assert.equal(result.status, 'UNKNOWN', JSON.stringify(result));
+    assert.equal(result.error.code, 'PLUGIN_OPERATION_UNKNOWN_STATE', JSON.stringify(result));
+    assert.equal(client.state, 'READY');
+  } finally {
+    if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
+    else await client.stop(true);
+  }
+});
+
 test('IIS deploy 通过 Artifact Grant、验证和脱敏合同', async () => {
   await withEnvironmentAsync(env, async () => {
     const executor = createPluginRunnerExecutor();
@@ -123,10 +162,12 @@ test('IIS deploy 通过 Artifact Grant、验证和脱敏合同', async () => {
 test('IIS 写入结果不明时只能返回 UNKNOWN', async () => {
   await withEnvironmentAsync(env, async () => {
     const executor = createPluginRunnerExecutor();
+    const failureFixture = loadFailureFixture();
+    const authorization = authorizationFixture('update-binding', ['agent-grant', 'artifact-grant'], failureFixture.receipt.planDigest);
     const result = await executor.execute({
-      ...context('certificate.deploy', authorizationFixture('update-binding'), ['agent-grant', 'artifact-grant']),
+      ...context('certificate.deploy', authorization, ['agent-grant', 'artifact-grant']),
       writeEffect: true,
-      input: { target: 'Default Web Site|192.0.2.80:443:www.example.invalid', artifact: { artifactRef: 'artifact://certificate/iis-new', grantId: 'artifact-grant' }, agentAuthorization: authorizationFixture('update-binding', ['agent-grant', 'artifact-grant']), protocolFixture: unknownFixture() },
+      input: { target: 'Default Web Site|192.0.2.80:443:www.example.invalid', artifact: { artifactRef: 'artifact://certificate/iis-new', grantId: 'artifact-grant' }, agentAuthorization: authorization, protocolFixture: failureFixture },
     }, { call: async () => ({ ok: true, data: { sha256: hash } }) });
     assert.equal(result.status, 'UNKNOWN');
     assert.equal(result.error.code, 'PLUGIN_OPERATION_UNKNOWN_STATE');
@@ -151,9 +192,9 @@ function context(capability, authorization, grantRefs = ['agent-grant']) {
   };
 }
 
-function authorizationFixture(operation, grantRefs = ['agent-grant']) {
+function authorizationFixture(operation, grantRefs = ['agent-grant'], authorizationPlanDigest = planDigest) {
   const nonce = 'nonce-iis-fixture';
-  const common = { agentId: 'agent-iis-01', tenantId: 'tenant-device', pluginId: 'web.iis', pluginVersion: '1.0.0', pluginVersionId: env.GCAC_PLUGIN_VERSION_ID, planDigest, nonce };
+  const common = { agentId: 'agent-iis-01', tenantId: 'tenant-device', pluginId: 'web.iis', pluginVersion: '1.0.0', pluginVersionId: env.GCAC_PLUGIN_VERSION_ID, planDigest: authorizationPlanDigest, nonce };
   return {
     ...common,
     nonce,
@@ -185,12 +226,8 @@ function deployFixture() {
   };
 }
 
-function unknownFixture() {
-  return {
-    apiVersion: 'gcac.agent-side-plugin/v1', pluginId: 'web.iis', pluginVersion: '1.0.0', operation: 'update-binding', status: 'UNKNOWN', writeStarted: true,
-    error: { code: 'AGENT_EXECUTION_UNKNOWN', message: 'Agent-side 进程在 CommitChanges 后断开' },
-    receipt: { planDigest, nonce: 'nonce-iis-fixture', digest: 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', status: 'UNKNOWN' },
-  };
+function loadFailureFixture() {
+  return JSON.parse(readFileSync(resolve(process.cwd(), 'src/modules/plugins/builtin-plugins/web-iis/fixtures/iis-error-cases.json'), 'utf8'));
 }
 
 async function withEnvironmentAsync(values, callback) {

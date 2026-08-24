@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createPluginRunnerExecutor } from './index.js';
 import { PluginRunnerClient } from '../../../runner/plugin-runner-client.js';
@@ -11,6 +12,8 @@ const env = {
   GCAC_PLUGIN_MANIFEST_HASH: hash,
   GCAC_PLUGIN_RESOURCE_HASH: hash,
 };
+const AUTH_PATH = 'POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid';
+const IMPORT_PATH = 'POST /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import';
 
 test('Synology 工厂只导出标准入口并读取适配器注入的四项身份', () => {
   withEnvironment(env, () => {
@@ -80,6 +83,55 @@ test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标�
   }
 });
 
+test('Synology 真实 Runner 子进程在 DSM 业务故障时失败关闭', async () => {
+  const failureCase = loadErrorCases().cases.find((item) => item.name === '业务错误');
+  assert.ok(failureCase);
+  const client = new PluginRunnerClient({
+    pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,
+    pluginId: 'device.synology-dsm',
+    pluginVersion: '1.0.0',
+    tenantId: 'tenant-device',
+    executablePath: process.execPath,
+    args: [resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'), '--executor-module', resolve(process.cwd(), 'dist/modules/plugins/builtin-plugins/device-synology-dsm/runtime/index.js')],
+    workingDirectory: process.cwd(),
+    environment: env,
+    runnerVersion: '1.0.0',
+    sdkVersion: '1.0.0',
+    capabilities: ['device.connection.test', 'device.discover', 'certificate.deploy', 'certificate.rollback'],
+    hostPermissions: ['secret.resolve', 'artifact.read', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'],
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    startupTimeoutMs: 1000,
+    helloTimeoutMs: 500,
+    executeTimeoutMs: 1000,
+    hostApiHandler: async ({ method }) => {
+      assert.equal(method, 'secret.grant.resolve');
+      return { ok: true, data: { secretRef: 'secret://device/password', fingerprint: 'fixture-secret', value: '[REDACTED]' } };
+    },
+  });
+  try {
+    const result = await client.execute({
+      tenantId: 'tenant-device', executionId: 'run-synology-failure', executionStepId: 'step-connection-test', workflowVersionId: 'workflow-synology-1', planDigest: 'd'.repeat(64),
+      capability: 'device.connection.test', grantRefs: ['secret-grant'], idempotencyKey: 'idem-synology-failure', writeEffect: false,
+      deadlineAt: new Date(Date.now() + 10_000).toISOString(), input: {
+        deviceAddress: '192.0.2.50', displayName: 'DSM Failure Fixture',
+        credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
+        protocolFixture: {
+          apiVersion: 'gcac.device-fixture/v1', protocol: 'DSM', device: { managementAddress: '192.0.2.50' },
+          responses: { [AUTH_PATH]: failureCase.response },
+        },
+      },
+    });
+    assert.equal(result.status, 'FAILED', JSON.stringify(result));
+    assert.equal(result.error.code, 'PLUGIN_CAPABILITY_EXECUTION_FAILED', JSON.stringify(result));
+    assert.match(result.error.message, /DSM/);
+  } finally {
+    if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
+    else await client.stop(true);
+  }
+});
+
 test('Synology deploy Fixture 验证 Artifact Grant、写后校验和脱敏', async () => {
   withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
@@ -98,7 +150,9 @@ test('Synology 写入传输失败后只能返回 UNKNOWN', async () => {
   withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
     const fixture = writeFixture();
-    fixture.responses['POST /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import'] = { statusCode: 504, transportError: true, body: { success: false, error: { code: 105 } } };
+    const failureCase = loadErrorCases().cases.find((item) => item.name === '写入后未知');
+    assert.ok(failureCase);
+    fixture.responses[IMPORT_PATH] = failureCase.response;
     const result = await executor.execute(context('certificate.deploy', ['secret-grant', 'artifact-grant'], true, {
       deviceAddress: '192.0.2.50', target: 'DSM Management', certificateId: 'cert-new',
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
@@ -166,3 +220,7 @@ function writeFixture() {
 }
 
 function ok(body) { return { statusCode: 200, body }; }
+
+function loadErrorCases() {
+  return JSON.parse(readFileSync(resolve(process.cwd(), 'src/modules/plugins/builtin-plugins/device-synology-dsm/fixtures/dsm-error-cases.json'), 'utf8'));
+}
