@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { PluginRuntimeMetric, PluginVersionRecord } from '@/api/generated/schemas'
-import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, listPluginRuntimeMetrics, listUnifiedPluginVersions, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
+import type { PluginVersionRecord } from '@/api/generated/schemas'
+import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, listUnifiedPluginVersions, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { aggregateRunnerStatus, toCatalogPluginRecord, type PluginRecord } from './plugin-record'
+import { toCatalogPluginRecord, type PluginRecord } from './plugin-record'
 
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
@@ -75,7 +75,6 @@ const filteredPlugins = computed(() => {
       ...plugin.capabilities.map(pluginCapabilityLabel),
       ...plugin.permissions,
       ...plugin.permissions.map(pluginPermissionLabel),
-      pluginRunnerStatusLabel(plugin),
     ].filter(Boolean).join(' ').toLocaleLowerCase()
     return searchable.includes(normalizedKeyword)
   })
@@ -119,21 +118,11 @@ async function loadPlugins(refreshBuiltins = false): Promise<void> {
       filters: { locale: locale.value },
     } as const
     const catalogResult = await listPluginCatalog(query)
-    const [versionResult, metricsResult] = await Promise.all([
-      listUnifiedPluginVersions(query).catch(() => undefined),
-      listPluginRuntimeMetrics(query).catch(() => undefined),
-    ])
+    const versionResult = await listUnifiedPluginVersions(query).catch(() => undefined)
     const versionsById = new Map(readPageItems<PluginVersionRecord>(versionResult).map((record) => [record.id, record]))
-    const metricsByVersionId = new Map<string, PluginRuntimeMetric[]>()
-    for (const metric of readPageItems<PluginRuntimeMetric>(metricsResult)) {
-      const metrics = metricsByVersionId.get(metric.pluginVersionId) ?? []
-      metrics.push(metric)
-      metricsByVersionId.set(metric.pluginVersionId, metrics)
-    }
     plugins.value = (catalogResult.data?.items ?? [])
       .map((record) => toCatalogPluginRecord(record, versionsById.get(record.pluginVersionId)))
       .filter((plugin): plugin is PluginRecord => Boolean(plugin))
-      .map((plugin) => ({ ...plugin, runnerStatus: aggregateRunnerStatus(metricsByVersionId.get(plugin.pluginVersionId) ?? []) }))
   } catch (cause) {
     plugins.value = []
     loadError.value = cause instanceof Error ? cause.message : t('plugins.errors.loadFailed')
@@ -173,10 +162,6 @@ function pluginRuntimeLabel(runtime?: string): string {
 
 function pluginExecutionSummary(plugin: PluginRecord): string {
   return t('plugins.card.stepCount', { count: plugin.stepCount })
-}
-
-function pluginRunnerStatusLabel(plugin: PluginRecord): string {
-  return t(`plugins.runnerStatuses.${plugin.runnerStatus}`)
 }
 
 function pluginHashEntries(plugin: PluginRecord): string[] {
@@ -385,9 +370,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
             <span class="plugin-state" :class="pluginStatusClass(plugin)">
               {{ pluginStatusLabel(plugin) }}
             </span>
-            <span class="plugin-state" :class="`plugin-runner-state--${plugin.runnerStatus}`">
-              {{ pluginRunnerStatusLabel(plugin) }}
-            </span>
           </div>
         </header>
 
@@ -493,7 +475,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
           </div>
           <div class="plugin-detail__identity-side">
             <span class="plugin-state" :class="pluginStatusClass(selectedPlugin)">{{ pluginStatusLabel(selectedPlugin) }}</span>
-            <span class="plugin-state" :class="`plugin-runner-state--${selectedPlugin.runnerStatus}`">{{ pluginRunnerStatusLabel(selectedPlugin) }}</span>
             <span class="plugin-version">{{ pluginVersion(selectedPlugin) }}</span>
           </div>
         </div>
@@ -525,7 +506,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
               <span v-if="!selectedPlugin.permissions.length">{{ t('common.notAvailable') }}</span>
             </dd>
           </div>
-          <div><dt>{{ t('plugins.labels.runnerStatus') }}</dt><dd>{{ pluginRunnerStatusLabel(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(selectedPlugin.updatedAt) }}</dd></div>
           <div class="plugin-detail__fact-wide">
             <dt>{{ t('plugins.fields.signatureStatus') }}</dt>
@@ -936,30 +916,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
   border: var(--gc-border-width-default) solid var(--gc-color-success-border);
   color: var(--gc-color-success);
   background: var(--gc-color-success-soft);
-}
-
-.plugin-runner-state--ready {
-  border-color: var(--gc-color-success-border);
-  color: var(--gc-color-success);
-  background: var(--gc-color-success-soft);
-}
-
-.plugin-runner-state--busy {
-  border-color: var(--gc-color-info-border);
-  color: var(--gc-color-info);
-  background: var(--gc-color-info-soft);
-}
-
-.plugin-runner-state--unavailable {
-  border-color: var(--gc-color-danger-border);
-  color: var(--gc-color-danger);
-  background: var(--gc-color-danger-bg);
-}
-
-.plugin-runner-state--notObserved {
-  border-color: var(--gc-color-border-muted);
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-hover);
 }
 
 .plugin-chip[data-kind='more'] {
