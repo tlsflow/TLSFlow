@@ -6,6 +6,7 @@ import { caOperationsKoKR } from './ca-operations.locale'
 import { credentialsKoKR } from './credentials.locale'
 import { acmeKoKR } from './acme.locale'
 import { providersKoKR } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsKoKR,
   devices: devicesKoKR,
@@ -1806,32 +1807,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['ko-KR'] ?? {}),
     securityLabel: '출입구 안전 설치',
-    licensing: {
-      title: '제품 라이선스',
-      description: '이 설치의 라이선스 상태를 확인하고 온라인 또는 오프라인 라이선스 파일을 관리합니다.',
-      summary: { title: '라이선스 상태', unconfigured: '라이선스가 설정되지 않음' },
-      fields: { installationId: '설치 ID', expiresAt: '만료일', graceEndsAt: '유예 기간 종료', lastClockAt: '마지막 시간 확인' },
-      states: { unlicensed: '라이선스 없음', active: '활성', grace: '유예 기간', expired: '만료됨', revoked: '해지됨', clock_rollback_detected: '시간 되돌림 감지' },
-      plans: { free: '무료판', commercial: '상용판', enterprise: '엔터프라이즈', trial: '무료판', standard: '상용판', professional: '상용판' },
-      features: { title: '허가된 기능', empty: '사용 가능한 허가 기능이 없습니다.' },
-      quotas: { title: '할당량', managedTargets: '애플리케이션 자산', concurrentExecutions: '동시 실행', plugins: '플러그인', unlimited: '제한 없음' },
-      actions: { title: '라이선스 파일', description: '연결된 환경은 온라인 요청을, 격리된 환경은 오프라인 요청을 사용합니다.', upgrade: '라이선스 업그레이드', onlineRequest: '온라인 요청 내보내기', offlineRequest: '오프라인 요청 내보내기', export: '현재 라이선스 내보내기', importLabel: '라이선스 JSON 가져오기', importPlaceholder: '라이선스 파일 내용을 붙여 넣으세요', import: '라이선스 가져오기' },
-      comparison: {
-        title: '라이선스 업그레이드',
-        subtitle: '업그레이드 여부를 결정하기 전에 버전 차이를 비교합니다.',
-        currentPlan: '현재 라이선스: {plan}',
-        noActivePlan: '아직 활성 라이선스가 없습니다. 먼저 버전 차이를 확인하세요.',
-        badges: { current: '현재 버전', recommended: '추천 업그레이드' },
-        footer: { consult: '구매 상담', faq: '라이선스 FAQ' },
-        cards: {
-          free: { summary: '평가, 개인 사용, 경량 시나리오에 적합', price: '무료 사용', features: { full: '모든 기능 사용 가능', usage: '비상업적 용도에 한해 사용 가능', automation: '자동화 업데이트 워크플로 포함', quota: '애플리케이션 자산 5개까지', support: '커뮤니티 / 이메일 지원' } },
-          commercial: { summary: '표준 운영 환경과 단계적 확장에 적합', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로', quota: '필요한 만큼 애플리케이션 자산을 구매하고 기간 제한 없이 사용', support: '1년 버전 업그레이드 및 원격 기술 지원' } },
-          enterprise: { summary: '대규모 환경, 프라이빗 배포, 맞춤 협업에 적합', price: '영업팀 문의', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로', approval: '워크플로 승인 엔진 포함', quota: '필요한 만큼 애플리케이션 자산을 구매하고 기간 제한 없이 사용', customization: '요구사항에 따른 맞춤화', support: '전담 기술 지원' } },
-        }
-      },
-      messages: { loadFailed: '라이선스 상태를 불러오지 못했습니다.', operationFailed: '라이선스 작업에 실패했습니다.', exported: '라이선스 파일을 내보냈습니다.', requestExported: '활성화 요청을 내보냈습니다.', invalidJson: '올바른 JSON을 입력하세요.', licenseMissing: 'JSON에 라이선스 객체가 없습니다.', imported: '라이선스를 가져왔습니다.', importFailed: '라이선스를 가져오지 못했습니다.' }
-    },
     version: {
       title: '버전 정보',
       description: '현재 실행 중인 GCAC 버전을 확인합니다.',

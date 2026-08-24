@@ -6,6 +6,7 @@ import { caOperationsJaJP } from './ca-operations.locale'
 import { credentialsJaJP } from './credentials.locale'
 import { acmeJaJP } from './acme.locale'
 import { providersJaJP } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsJaJP,
   devices: devicesJaJP,
@@ -1832,32 +1833,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['ja-JP'] ?? {}),
     securityLabel: 'セキュリティ設定への導線',
-    licensing: {
-      title: '製品ライセンス',
-      description: 'このインストールのライセンス状態を確認し、オンラインまたはオフラインのライセンスファイルを操作します。',
-      summary: { title: 'ライセンス状態', unconfigured: 'ライセンス未設定' },
-      fields: { installationId: 'インストール ID', expiresAt: '有効期限', graceEndsAt: '猶予期間終了', lastClockAt: '最終時刻確認' },
-      states: { unlicensed: '未認証', active: '有効', grace: '猶予期間', expired: '期限切れ', revoked: '失効', clock_rollback_detected: '時刻の巻き戻しを検出' },
-      plans: { free: '無料版', commercial: '商用版', enterprise: 'エンタープライズ版', trial: '無料版', standard: '商用版', professional: '商用版' },
-      features: { title: '許可された機能', empty: '利用可能な機能はありません。' },
-      quotas: { title: '上限', managedTargets: 'アプリケーション資産', concurrentExecutions: '同時実行', plugins: 'プラグイン', unlimited: '無制限' },
-      actions: { title: 'ライセンスファイル', description: '接続環境ではオンライン要求、分離環境ではオフライン要求を使用します。', upgrade: 'ライセンスをアップグレード', onlineRequest: 'オンライン要求を出力', offlineRequest: 'オフライン要求を出力', export: '現在のライセンスを出力', importLabel: 'ライセンス JSON を入力', importPlaceholder: 'ライセンスファイルの内容を貼り付け', import: 'ライセンスを取り込む' },
-      comparison: {
-        title: 'ライセンスをアップグレード',
-        subtitle: '各ライセンスの違いを確認してからアップグレードを判断します。',
-        currentPlan: '現在のライセンス：{plan}',
-        noActivePlan: '有効なライセンスはまだ導入されていません。まずは各プランの違いを確認してください。',
-        badges: { current: '現在のプラン', recommended: 'おすすめアップグレード' },
-        footer: { consult: '購入相談', faq: 'ライセンス FAQ' },
-        cards: {
-          free: { summary: '評価、個人利用、軽量な用途向け', price: '無料で利用可能', features: { full: '全機能を利用可能', usage: '非商用利用に限定', automation: '自動更新ワークフローを含む', quota: 'アプリケーション資産は 5 件まで', support: 'コミュニティ / メールサポート' } },
-          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフロー', quota: '必要に応じてアプリケーション資産を購入、利用期限なし', support: '1 年間のバージョンアップとリモート技術サポート' } },
-          enterprise: { summary: '大規模環境、プライベート配備、個別対応向け', price: '営業へお問い合わせ', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフロー', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じてアプリケーション資産を購入、利用期限なし', customization: '要件に応じたカスタマイズ', support: '専任技術サポート' } },
-        }
-      },
-      messages: { loadFailed: 'ライセンス状態の読み込みに失敗しました。', operationFailed: 'ライセンス操作に失敗しました。', exported: 'ライセンスファイルを出力しました。', requestExported: 'アクティベーション要求を出力しました。', invalidJson: '有効な JSON を入力してください。', licenseMissing: 'JSON にライセンスがありません。', imported: 'ライセンスを取り込みました。', importFailed: 'ライセンスの取り込みに失敗しました。' }
-    },
     version: {
       title: 'バージョン情報',
       description: '現在実行中の GCAC バージョンを表示します。',

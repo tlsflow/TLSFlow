@@ -5,6 +5,7 @@ import { caOperationsEnUS } from './ca-operations.locale'
 import { credentialsEnUS } from './credentials.locale'
 import { acmeEnUS } from './acme.locale'
 import { providersEnUS } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsEnUS,
   devices: devicesEnUS,
@@ -1914,32 +1915,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['en-US'] ?? {}),
     securityLabel: 'Security settings entry',
-    licensing: {
-      title: 'Product licensing',
-      description: 'View this installation license and complete online or offline license file operations.',
-      summary: { title: 'License status', unconfigured: 'License not configured' },
-      fields: { installationId: 'Installation ID', expiresAt: 'Expires at', graceEndsAt: 'Grace period ends', lastClockAt: 'Last clock check' },
-      states: { unlicensed: 'Unlicensed', active: 'Active', grace: 'Grace period', expired: 'Expired', revoked: 'Revoked', clock_rollback_detected: 'Clock rollback detected' },
-      plans: { free: 'Free', commercial: 'Commercial', enterprise: 'Enterprise', trial: 'Free', standard: 'Commercial', professional: 'Commercial' },
-      features: { title: 'Licensed features', empty: 'No licensed features are available.' },
-      quotas: { title: 'Quotas', managedTargets: 'Application assets', concurrentExecutions: 'Concurrent executions', plugins: 'Plugins', unlimited: 'Unlimited' },
-      actions: { title: 'License files', description: 'Use an online request for connected environments or export an offline request for the licensing operator.', upgrade: 'Upgrade license', onlineRequest: 'Export online request', offlineRequest: 'Export offline request', export: 'Export current license', importLabel: 'Import license JSON', importPlaceholder: 'Paste the license export file content', import: 'Import license' },
-      comparison: {
-        title: 'Upgrade license',
-        subtitle: 'Compare license tiers before deciding whether to upgrade.',
-        currentPlan: 'Current license: {plan}',
-        noActivePlan: 'No active license is installed yet. Review the tier differences first.',
-        badges: { current: 'Current tier', recommended: 'Recommended upgrade' },
-        footer: { consult: 'Purchase consultation', faq: 'License FAQ' },
-        cards: {
-          free: { summary: 'Best for evaluation, personal use, and light workloads', price: 'Free to use', features: { full: 'All features enabled', usage: 'For non-commercial use only', automation: 'Includes automated update workflows', quota: 'Limited to 5 application assets', support: 'Community and email support' } },
-          commercial: { summary: 'Best for standard production environments and flexible growth', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Automated update workflows', quota: 'Buy application assets as needed with unlimited use', support: '1 year of version upgrades and remote technical support' } },
-          enterprise: { summary: 'Best for large-scale environments, private deployment, and custom collaboration', price: 'Contact sales', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Automated update workflows', approval: 'Includes workflow approval engine', quota: 'Buy application assets as needed with unlimited use', customization: 'Customization tailored to your requirements', support: 'Dedicated technical support' } },
-        }
-      },
-      messages: { loadFailed: 'Failed to load license status.', operationFailed: 'License operation failed.', exported: 'License file exported.', requestExported: 'Activation request exported.', invalidJson: 'Enter valid JSON.', licenseMissing: 'The JSON does not contain a license object.', imported: 'License imported.', importFailed: 'Failed to import license.' }
-    },
     version: {
       title: 'Version information',
       description: 'View the currently running GCAC version.',

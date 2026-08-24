@@ -6,6 +6,7 @@ import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
 import { acmeRuRU } from './acme.locale'
 import { providersRuRU } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsRuRU,
   devices: devicesRuRU,
@@ -1806,32 +1807,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['ru-RU'] ?? {}),
     securityLabel: 'Вход в настройки безопасности',
-    licensing: {
-      title: 'Лицензирование продукта',
-      description: 'Просматривайте лицензию этой установки и работайте с онлайн- и офлайн-файлами лицензии.',
-      summary: { title: 'Состояние лицензии', unconfigured: 'Лицензия не настроена' },
-      fields: { installationId: 'ID установки', expiresAt: 'Истекает', graceEndsAt: 'Конец льготного периода', lastClockAt: 'Последняя проверка времени' },
-      states: { unlicensed: 'Без лицензии', active: 'Действует', grace: 'Льготный период', expired: 'Истекла', revoked: 'Отозвана', clock_rollback_detected: 'Обнаружен откат времени' },
-      plans: { free: 'Бесплатная', commercial: 'Коммерческая', enterprise: 'Корпоративная', trial: 'Бесплатная', standard: 'Коммерческая', professional: 'Коммерческая' },
-      features: { title: 'Лицензированные функции', empty: 'Нет доступных лицензированных функций.' },
-      quotas: { title: 'Лимиты', managedTargets: 'Активы приложений', concurrentExecutions: 'Параллельные выполнения', plugins: 'Плагины', unlimited: 'Без ограничений' },
-      actions: { title: 'Файлы лицензии', description: 'Для подключенных сред используйте онлайн-запрос, а для изолированных сред экспортируйте офлайн-запрос.', upgrade: 'Обновить лицензию', onlineRequest: 'Экспорт онлайн-запроса', offlineRequest: 'Экспорт офлайн-запроса', export: 'Экспорт текущей лицензии', importLabel: 'Импорт JSON лицензии', importPlaceholder: 'Вставьте содержимое файла лицензии', import: 'Импортировать лицензию' },
-      comparison: {
-        title: 'Обновить лицензию',
-        subtitle: 'Сравните версии лицензии перед тем, как решать вопрос об обновлении.',
-        currentPlan: 'Текущая лицензия: {plan}',
-        noActivePlan: 'Активная лицензия еще не импортирована. Сначала посмотрите различия между версиями.',
-        badges: { current: 'Текущая версия', recommended: 'Рекомендуемое обновление' },
-        footer: { consult: 'Консультация по покупке', faq: 'FAQ по лицензии' },
-        cards: {
-          free: { summary: 'Для оценки, личного использования и легких сценариев', price: 'Бесплатное использование', features: { full: 'Доступны все функции', usage: 'Только для некоммерческого использования', automation: 'Включены автоматизированные сценарии обновления', quota: 'До 5 активов приложений', support: 'Поддержка сообщества и по e-mail' } },
-          commercial: { summary: 'Для стандартной продакшен-среды и роста по мере необходимости', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'Доступны все функции', usage: 'Можно использовать в коммерческих сценариях', automation: 'Автоматизированные сценарии обновления', quota: 'Покупайте активы приложений по мере необходимости, использование без ограничения срока', support: '1 год обновлений версии и удалённой технической поддержки' } },
-          enterprise: { summary: 'Для крупных сред, приватного развёртывания и кастомного сотрудничества', price: 'Связаться с отделом продаж', features: { full: 'Доступны все функции', usage: 'Можно использовать в коммерческих сценариях', automation: 'Автоматизированные сценарии обновления', approval: 'Включен движок согласования процессов', quota: 'Покупайте активы приложений по мере необходимости, использование без ограничения срока', customization: 'Кастомизация под требования', support: 'Выделенная техническая поддержка' } },
-        }
-      },
-      messages: { loadFailed: 'Не удалось загрузить состояние лицензии.', operationFailed: 'Операция лицензирования завершилась ошибкой.', exported: 'Файл лицензии экспортирован.', requestExported: 'Запрос активации экспортирован.', invalidJson: 'Введите корректный JSON.', licenseMissing: 'В JSON отсутствует объект лицензии.', imported: 'Лицензия импортирована.', importFailed: 'Не удалось импортировать лицензию.' }
-    },
     version: {
       title: 'Информация о версии',
       description: 'Просмотр текущей запущенной версии GCAC.',

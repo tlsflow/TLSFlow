@@ -6,6 +6,7 @@ import { caOperationsPtBR } from './ca-operations.locale'
 import { credentialsPtBR } from './credentials.locale'
 import { acmePtBR } from './acme.locale'
 import { providersPtBR } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsPtBR,
   devices: devicesPtBR,
@@ -1806,32 +1807,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['pt-BR'] ?? {}),
     securityLabel: 'Entrada de configurações de segurança',
-    licensing: {
-      title: 'Licenciamento do produto',
-      description: 'Consulte a licença desta instalação e gerencie arquivos de licença online ou offline.',
-      summary: { title: 'Status da licença', unconfigured: 'Licença não configurada' },
-      fields: { installationId: 'ID da instalação', expiresAt: 'Expira em', graceEndsAt: 'Fim do período de tolerância', lastClockAt: 'Última verificação do relógio' },
-      states: { unlicensed: 'Sem licença', active: 'Ativa', grace: 'Período de tolerância', expired: 'Expirada', revoked: 'Revogada', clock_rollback_detected: 'Retrocesso do relógio detectado' },
-      plans: { free: 'Gratuito', commercial: 'Comercial', enterprise: 'Empresarial', trial: 'Gratuito', standard: 'Comercial', professional: 'Comercial' },
-      features: { title: 'Recursos licenciados', empty: 'Nenhum recurso licenciado disponível.' },
-      quotas: { title: 'Cotas', managedTargets: 'Ativos de aplicações', concurrentExecutions: 'Execuções simultâneas', plugins: 'Plugins', unlimited: 'Ilimitado' },
-      actions: { title: 'Arquivos de licença', description: 'Use uma solicitação online em ambientes conectados ou exporte uma solicitação offline para ambientes isolados.', upgrade: 'Atualizar licença', onlineRequest: 'Exportar solicitação online', offlineRequest: 'Exportar solicitação offline', export: 'Exportar licença atual', importLabel: 'Importar JSON da licença', importPlaceholder: 'Cole o conteúdo do arquivo de licença', import: 'Importar licença' },
-      comparison: {
-        title: 'Atualizar licença',
-        subtitle: 'Compare as versões antes de decidir pela atualização.',
-        currentPlan: 'Licença atual: {plan}',
-        noActivePlan: 'Ainda não há uma licença ativa importada. Revise primeiro as diferenças entre as versões.',
-        badges: { current: 'Versão atual', recommended: 'Upgrade recomendado' },
-        footer: { consult: 'Consulta comercial', faq: 'FAQ da licença' },
-        cards: {
-          free: { summary: 'Para avaliação, uso pessoal e cenários leves', price: 'Uso gratuito', features: { full: 'Todos os recursos disponíveis', usage: 'Apenas para uso não comercial', automation: 'Inclui fluxos automatizados de atualização', quota: 'Limitado a 5 ativos de aplicações', support: 'Suporte por comunidade e e-mail' } },
-          commercial: { summary: 'Para produção padrão e expansão sob demanda', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Fluxos automatizados de atualização', quota: 'Compre ativos de aplicações conforme a necessidade, com uso por prazo ilimitado', support: '1 ano de atualizações de versão e suporte técnico remoto' } },
-          enterprise: { summary: 'Para ambientes de grande porte, implantação privada e colaboração sob medida', price: 'Fale com vendas', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'Compre ativos de aplicações conforme a necessidade, com uso por prazo ilimitado', customization: 'Customização conforme as necessidades', support: 'Suporte técnico dedicado' } },
-        }
-      },
-      messages: { loadFailed: 'Falha ao carregar o status da licença.', operationFailed: 'Falha na operação de licença.', exported: 'Arquivo de licença exportado.', requestExported: 'Solicitação de ativação exportada.', invalidJson: 'Insira um JSON válido.', licenseMissing: 'O JSON não contém uma licença.', imported: 'Licença importada.', importFailed: 'Falha ao importar a licença.' }
-    },
     version: {
       title: 'Informações da versão',
       description: 'Visualize a versão do GCAC em execução.',

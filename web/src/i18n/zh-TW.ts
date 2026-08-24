@@ -5,6 +5,7 @@ import { caOperationsZhTW } from './ca-operations.locale'
 import { credentialsZhTW } from './credentials.locale'
 import { acmeZhTW } from './acme.locale'
 import { providersZhTW } from './providers.locale'
+import { licensingLocaleMessages } from '@/edition/licensing-messages'
 export default {
   credentials: credentialsZhTW,
   devices: devicesZhTW,
@@ -1831,32 +1832,8 @@ export default {
     }
   },
   settings: {
+    ...(licensingLocaleMessages['zh-TW'] ?? {}),
     securityLabel: "安全設定入口",
-    licensing: {
-      title: "產品授權",
-      description: "查看目前安裝實例的授權狀態，並完成線上或離線授權檔案操作。",
-      summary: { title: "授權狀態", unconfigured: "未設定授權" },
-      fields: { installationId: "安裝實例 ID", expiresAt: "到期時間", graceEndsAt: "寬限期結束", lastClockAt: "最近時間檢查" },
-      states: { unlicensed: "未授權", active: "有效", grace: "寬限期", expired: "已過期", revoked: "已撤銷", clock_rollback_detected: "偵測到時間回退" },
-      plans: { free: "免費版", commercial: "商業版", enterprise: "企業版", trial: "免費版", standard: "商業版", professional: "商業版" },
-      features: { title: "已授權功能", empty: "目前沒有可用功能。" },
-      quotas: { title: "額度", managedTargets: "應用資產", concurrentExecutions: "並行執行", plugins: "外掛數量", unlimited: "不限" },
-      actions: { title: "授權檔案", description: "線上請求適用於連網環境，離線請求可匯出後交給授權方處理。", upgrade: "升級授權", onlineRequest: "匯出線上請求", offlineRequest: "匯出離線請求", export: "匯出目前授權", importLabel: "匯入授權 JSON", importPlaceholder: "貼上授權匯出檔案內容", import: "匯入授權" },
-      comparison: {
-        title: "升級授權",
-        subtitle: "查看不同授權版本的功能邊界，再決定是否升級。",
-        currentPlan: "目前授權：{plan}",
-        noActivePlan: "目前尚未匯入有效授權，可先查看版本能力差異。",
-        badges: { current: "目前版本", recommended: "建議升級" },
-        footer: { consult: "採購諮詢", faq: "授權常見問題" },
-        cards: {
-          free: { summary: "適合評估、自用或輕量場景", price: "免費使用", features: { full: "全功能可用", usage: "僅限非商業用途使用", automation: "包含自動化更新流程", quota: "限制 5 個應用資產", support: "社群 / 郵件支援" } },
-          commercial: { summary: "適合標準生產環境和按需擴容", priceCny: "699 元 / 應用資產", priceUsd: "USD 99 / application asset", features: { full: "全功能可用", usage: "可用於商業場景", automation: "自動化更新流程", quota: "依需求購買應用資產，無限期使用", support: "1 年版本升級服務及遠端技術支援" } },
-          enterprise: { summary: "適合大型環境、私有化和定製合作", price: "聯絡銷售", features: { full: "全功能可用", usage: "可用於商業場景", automation: "自動化更新流程", approval: "包含流程審批引擎", quota: "依需求購買應用資產，無限期使用", customization: "針對需求進行定製", support: "專屬技術支援" } },
-        }
-      },
-      messages: { loadFailed: "授權狀態載入失敗。", operationFailed: "授權操作失敗。", exported: "授權檔案已匯出。", requestExported: "啟用請求檔案已匯出。", invalidJson: "請輸入合法的 JSON。", licenseMissing: "JSON 中缺少授權物件。", imported: "授權已匯入。", importFailed: "授權匯入失敗。" }
-    },
     version: {
       title: "版本資訊",
       description: "查看目前執行中的 GCAC 版本。",
