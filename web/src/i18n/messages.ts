@@ -463,6 +463,14 @@ const zhCN = {
       reviewTitle: '配置摘要',
       reviewText: '将处理 {domains}，证书版本策略为：{version}。运行开始后会冻结目标快照。'
     },
+    scheduleBuilder: {
+      api: '通过外部 API 触发', apiHelp: '保存后由外部系统调用自动化运行 API。每次调用仍会执行目标预览、Dry Run 和审批规则。',
+      once: '在固定时间执行一次', onceHelp: '选择浏览器本地时间。任务执行一次后不会再次排期。',
+      recurring: '定期执行', scheduleHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。', recurringHelp: '按计划周期执行。仅建议用于确实需要持续轮询的场景。',
+      recurringWarningTitle: '证书更新不建议使用定期执行', recurringWarning: '证书换证通常应由外部系统在证书签发后触发，或安排一次固定时间执行。只有明确需要周期检查时才使用此选项。',
+      runAt: '执行时间', frequency: '执行周期', daily: '每天', weekly: '每周', monthly: '每月', time: '执行时刻', weekday: '星期', monthDay: '每月日期', legacyCustom: '保留原有自定义计划', legacyCron: '原有 Cron（只读）',
+      weekdays: { 0: '星期日', 1: '星期一', 2: '星期二', 3: '星期三', 4: '星期四', 5: '星期五', 6: '星期六' }
+    },
     form: {
       existingAssetTitle: '只更新现有应用资产',
       existingAssetDescription: '自动化只处理已经建立证书绑定的应用资产，不负责首次安装证书或新增部署目标。',
@@ -3675,6 +3683,14 @@ const enUS = {
       next: 'Next',
       reviewTitle: 'Configuration summary',
       reviewText: 'The automation will process {domains} using: {version}. The target snapshot is frozen when the run starts.'
+    },
+    scheduleBuilder: {
+      api: 'Trigger through external API', apiHelp: 'An external system calls the automation run API. Target preview, Dry Run, and approval rules still apply to every request.',
+      once: 'Run once at a fixed time', onceHelp: 'Choose a browser-local time. The task is not scheduled again after it runs.',
+      recurring: 'Run periodically', scheduleHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.',
+      recurringWarningTitle: 'Periodic execution is not recommended for certificate updates', recurringWarning: 'Certificate replacement should normally be triggered after certificate issuance or scheduled once at a fixed time. Use periodic execution only for an explicit recurring-check requirement.',
+      runAt: 'Execution time', frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', time: 'Time', weekday: 'Weekday', monthDay: 'Day of month', legacyCustom: 'Keep existing custom schedule', legacyCron: 'Existing Cron (read-only)',
+      weekdays: { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' }
     },
     form: {
       existingAssetTitle: 'Update existing application assets only',
