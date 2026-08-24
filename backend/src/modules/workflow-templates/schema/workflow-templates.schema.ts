@@ -251,11 +251,12 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'foreach') {
     rejectUnknown(step as unknown as Record<string, unknown>, foreachStepKeys, path);
     if (!isRecord(step.foreach)) throw validationError(`${path}.foreach 必须是对象`);
-    rejectUnknown(step.foreach as unknown as Record<string, unknown>, new Set(['itemsPath', 'itemVariable', 'indexVariable', 'maxItems', 'steps']), `${path}.foreach`);
+    rejectUnknown(step.foreach as unknown as Record<string, unknown>, new Set(['itemsPath', 'itemVariable', 'indexVariable', 'maxItems', 'continueOnError', 'steps']), `${path}.foreach`);
     if (!isNonEmptyString(step.foreach.itemsPath)) throw validationError(`${path}.foreach.itemsPath 必填`);
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(step.foreach.itemVariable)) throw validationError(`${path}.foreach.itemVariable 不合法`);
     if (step.foreach.indexVariable !== undefined && !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(step.foreach.indexVariable)) throw validationError(`${path}.foreach.indexVariable 不合法`);
     if (step.foreach.maxItems !== undefined && (!isPositiveInteger(step.foreach.maxItems) || step.foreach.maxItems > 1000)) throw validationError(`${path}.foreach.maxItems 必须在 1 到 1000 之间`);
+    if (step.foreach.continueOnError !== undefined && typeof step.foreach.continueOnError !== 'boolean') throw validationError(`${path}.foreach.continueOnError 必须是布尔值`);
     validateSteps(step.foreach.steps, `${path}.foreach.steps`, depth + 1);
     return;
   }

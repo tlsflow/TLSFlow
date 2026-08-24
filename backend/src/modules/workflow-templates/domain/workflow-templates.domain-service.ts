@@ -370,7 +370,7 @@ export class WorkflowTemplatesDomainService {
     };
   }
 
-  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, runId: string, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
+  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, runId: string, dispatcher?: WorkflowExecutorDispatcher, executionName = step.name): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
     const type = step.type;
     if (!evaluateCondition(step.when, context.values)) {
       return {
@@ -394,7 +394,7 @@ export class WorkflowTemplatesDomainService {
       const preOutput = normalizeStepOutput(step, mockOutput);
       const plan = adaptStep(step, context, input.mode, preOutput);
       const dispatchOutput = dispatcher && input.mode !== 'render_only' && step.type !== 'transform'
-        ? await dispatcher({ runId, step, renderedPlan: plan, attempt, rollback })
+        ? await dispatcher({ runId, step: executionName === step.name ? step : { ...step, name: executionName }, renderedPlan: plan, attempt, rollback })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
       const dispatchSucceeded = dispatchOutput ? dispatchOutput.success : true;
@@ -495,7 +495,7 @@ export class WorkflowTemplatesDomainService {
         const childResults: WorkflowStepRunResult[] = [];
         const childOutputs: Array<{ name: string; output: unknown; extracted: Record<string, unknown> }> = [];
         for (const childStep of step.foreach.steps) {
-          const child = await this.runStep(childStep, context, input, rollback, runId, dispatcher);
+          const child = await this.runStep(childStep, context, input, rollback, runId, dispatcher, `${step.name}[${index}].${childStep.name}`);
           childResults.push(child.result);
           childOutputs.push({ name: childStep.name, output: child.output, extracted: child.result.extracted });
           logs.push(...child.result.logs.map((line) => `foreach:${step.name}:index:${index}:${line}`));
@@ -511,7 +511,8 @@ export class WorkflowTemplatesDomainService {
           steps: childResults,
           outputs: childOutputs,
         });
-        if (failedResult) break;
+        if (failedResult && !step.foreach.continueOnError) break;
+        if (step.foreach.continueOnError) failedResult = undefined;
       }
     } finally {
       restoreContextValue(context.values, step.foreach.itemVariable, previousItem, hadPreviousItem);
@@ -874,6 +875,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       itemVariable: step.foreach.itemVariable,
       indexVariable: step.foreach.indexVariable,
       maxItems: step.foreach.maxItems ?? 100,
+      continueOnError: step.foreach.continueOnError === true,
       itemCount: Array.isArray(items) ? items.length : undefined,
       steps: step.foreach.steps.map((child) => ({ name: child.name, type: child.type, stage: child.stage })),
       plannedOnly: mode === 'render_only',

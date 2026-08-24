@@ -1562,19 +1562,22 @@ describe('WorkflowTemplates', () => {
       },
     });
     const urls: string[] = [];
+    const executionNames: string[] = [];
     const run = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
       userVariables: { apiToken: 'foreach-secret-token' },
       assetVariables: { targets: [{ host: 'adc-a.example.com' }, { host: 'adc-b.example.com' }] },
-    }, async ({ renderedPlan }) => {
+    }, async ({ renderedPlan, step }) => {
       const plan = renderedPlan as { curlRequest: { template: { url: string } } };
       urls.push(plan.curlRequest.template.url);
+      executionNames.push(step.name);
       return { success: true, statusCode: 200, body: { ok: true }, logs: ['token=foreach-secret-token'] };
     });
 
     assert.equal(run.status, 'success');
     assert.deepEqual(urls, ['https://adc-a.example.com/deploy/0', 'https://adc-b.example.com/deploy/1']);
+    assert.deepEqual(executionNames, ['deploy_targets[0].deploy_target', 'deploy_targets[1].deploy_target']);
     assert.equal(run.stepResults[0]!.type, 'foreach');
     assert.match(run.stepResults[0]!.logs[0]!, /count:2:completed:2:status:success/);
     assert.doesNotMatch(JSON.stringify(run), /foreach-secret-token/);
@@ -1626,6 +1629,48 @@ describe('WorkflowTemplates', () => {
     assert.equal(failed.status, 'failed');
     assert.equal(attempts, 1);
     assert.equal(failed.stepResults[0]!.errorCode, 'REMOTE_FAILED');
+  });
+
+  it('foreach continueOnError 跳过失败元素并继续后续元素', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const { version } = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'foreach-best-effort' },
+        variables: {},
+        steps: [{
+          name: 'probe_targets',
+          type: 'foreach',
+          foreach: {
+            itemsPath: 'asset.targets',
+            itemVariable: 'target',
+            continueOnError: true,
+            steps: [{
+              name: 'probe_target',
+              type: 'http',
+              request: { method: 'GET', url: 'https://{{target.host}}/health' },
+            }],
+          },
+        }],
+      },
+    });
+    let attempts = 0;
+    const result = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'mock',
+      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }] },
+    }, async () => {
+      attempts += 1;
+      return attempts === 1
+        ? { success: false, statusCode: 500, errorCode: 'REMOTE_FAILED', errorMessage: 'remote failed' }
+        : { success: true, statusCode: 200 };
+    });
+
+    assert.equal(result.status, 'success');
+    assert.equal(attempts, 2);
+    assert.equal(result.stepResults[0]!.children?.[0]?.status, 'failed');
+    assert.equal(result.stepResults[0]!.children?.[1]?.status, 'success');
   });
 
   it('foreach schema 拒绝超过三层的嵌套', () => {

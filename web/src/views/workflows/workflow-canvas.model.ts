@@ -265,6 +265,7 @@ export type WorkflowDslStep =
         readonly itemVariable: string
         readonly indexVariable?: string
         readonly maxItems?: number
+        readonly continueOnError?: boolean
         readonly steps: readonly WorkflowDslStep[]
       }
     }
@@ -696,7 +697,7 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
   if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
-  if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, steps: '[]' }
+  if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, continueOnError: false, steps: '[]' }
   if (type === 'checkpoint') return { checkpointName: 'before-write', capture: '{}', requiredForRollback: 'true' }
   if (type === 'wait') return { seconds: 10 }
   return { instruction: canvasModelText('defaults.config.manualInstruction') }
@@ -968,6 +969,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         itemVariable: step.foreach.itemVariable,
         indexVariable: step.foreach.indexVariable ?? '',
         maxItems: step.foreach.maxItems ?? 100,
+        continueOnError: step.foreach.continueOnError === true,
         steps: JSON.stringify(step.foreach.steps, null, 2),
       },
     }

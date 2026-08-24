@@ -275,6 +275,7 @@ export interface WorkflowForeachStep extends WorkflowStepBase {
     itemVariable: string;
     indexVariable?: string;
     maxItems?: number;
+    continueOnError?: boolean;
     steps: WorkflowStep[];
   };
 }

@@ -258,6 +258,7 @@ function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
         itemVariable: String(config.itemVariable ?? ''),
         ...(isBlank(config.indexVariable) ? {} : { indexVariable: String(config.indexVariable) }),
         maxItems: Number(config.maxItems ?? 100),
+        continueOnError: config.continueOnError === true,
         steps: readForeachSteps(config.steps),
       },
     });
@@ -324,7 +325,7 @@ function requiredFieldsForType(type: CanvasNodeType): string[] {
   if (type === 'sftp' || type === 'scp') return ['direction', 'connectionRef', 'username', 'credential', 'remotePath', 'hostKeyPolicy', 'timeoutSeconds'];
   if (type === 'verify') return ['verifyType', 'inputRef', 'expected', 'timeoutSeconds'];
   if (type === 'condition') return ['variable', 'operator'];
-  if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'steps'];
+  if (type === 'foreach') return ['itemsPath', 'itemVariable', 'maxItems', 'continueOnError', 'steps'];
   if (type === 'checkpoint') return ['checkpointName', 'capture', 'requiredForRollback'];
   if (type === 'wait') return ['seconds'];
   if (type === 'manual') return ['instruction'];
