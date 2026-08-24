@@ -66,6 +66,7 @@ export interface PluginPackageManifest {
   name: string;
   publisher: string;
   version: string;
+  minGcacVersion?: string;
   runtime: PluginRuntimeDescriptor;
   actions: PluginActionDeclaration[];
   permissions: PluginPermissionDeclaration[];

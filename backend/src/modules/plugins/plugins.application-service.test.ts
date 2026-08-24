@@ -146,6 +146,25 @@ describe('spec024 插件管理与安全沙箱 mock-safe 闭环', () => {
     assert.ok(contracts.some((contract) => contract.operationId === 'uploadPluginPackage'));
     assert.ok(contracts.some((contract) => contract.operationId === 'executePluginMockRuntime'));
   });
+
+  it('拒绝要求更高 GCAC 版本的用户插件', async () => {
+    const service = new PluginsApplicationService();
+    await assert.rejects(
+      () => service.uploadPackage({
+        manifest: createManifest({ minGcacVersion: '999.0.0' }),
+        packageContent: 'future-package',
+      }),
+      /当前版本不兼容/,
+    );
+  });
+
+  it('历史用户插件缺少最低版本时按 0.0.0 处理', async () => {
+    const service = new PluginsApplicationService();
+    const manifest = createManifest();
+    delete manifest.minGcacVersion;
+    const record = await service.uploadPackage({ manifest, packageContent: 'legacy-package' });
+    assert.equal(record.manifest.minGcacVersion, '0.0.0');
+  });
 });
 
 function createManifest(patch: Partial<PluginPackageManifest> = {}): PluginPackageManifest {
@@ -156,6 +175,7 @@ function createManifest(patch: Partial<PluginPackageManifest> = {}): PluginPacka
     name: 'Example NGINX Provider',
     publisher: 'example-inc',
     version: '1.0.0',
+    minGcacVersion: '0.1.0',
     runtime: { type: 'process', entry: 'gcac-plugin', timeoutSeconds: 30, allowedCommands: ['gcac-plugin'] },
     actions: [
       { name: 'deploy', command: 'gcac-plugin', requiredPermissions: ['process.exec'], requiredSecretScopes: [] },

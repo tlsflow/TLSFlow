@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AppError } from '../../../common/errors/app-error.js';
+import { assertPluginGcacCompatibility } from '../../../common/version.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
@@ -36,6 +37,7 @@ export class AgentDeploymentPluginsApplicationService {
 
   async uploadPackage(input: AgentPluginPackageUploadInput, tenantId = tenantFallback): Promise<AgentPluginPackageRecord> {
     const manifest = validateAgentDeploymentPluginManifest(input.manifest);
+    assertPluginGcacCompatibility(manifest.pluginId, manifest.minGcacVersion);
     const packageHash = hash(input.packageContent);
     if (input.expectedHash && input.expectedHash !== packageHash) {
       throw new AppError('VALIDATION_FAILED', 'Agent 插件包 hash 不匹配', { expectedHash: input.expectedHash, packageHash });
@@ -97,6 +99,7 @@ export class AgentDeploymentPluginsApplicationService {
 
   async enablePackage(input: PluginEnableInput): Promise<AgentPluginPackageRecord> {
     const record = await this.requirePackage(input.pluginPackageId);
+    assertPluginGcacCompatibility(record.manifest.pluginId, record.manifest.minGcacVersion);
     const approved = new Set(record.approvedPermissions);
     const missing = record.manifest.permissions
       .filter((permission) => permission.risk === 'high' && !approved.has(permission.name))
@@ -174,6 +177,7 @@ export class AgentDeploymentPluginsApplicationService {
   }
 
   private async validatePackageCompatibility(tenantId: string, agentId: string, plugin: AgentPluginPackageRecord) {
+    assertPluginGcacCompatibility(plugin.manifest.pluginId, plugin.manifest.minGcacVersion);
     const detail = await this.agents.getAgentDetail(tenantId, agentId);
     const osType = detail.agent.descriptor.osType.toUpperCase();
     const platform = osType.includes('WINDOWS') ? 'WINDOWS' : osType.includes('LINUX') ? 'LINUX' : undefined;
@@ -242,6 +246,7 @@ export class AgentDeploymentPluginsApplicationService {
 
   async previewBinding(tenantId: string, agentId: string, binding: AgentPluginBindingInput) {
     const plugin = await this.requirePackage(binding.pluginPackageId);
+    assertPluginGcacCompatibility(plugin.manifest.pluginId, plugin.manifest.minGcacVersion);
     if (plugin.tenantId !== tenantId) throw new AppError('AUTH_FORBIDDEN', '不能使用其他租户的 Agent 插件');
     if (plugin.installStatus !== 'enabled') throw new AppError('PLUGIN_PERMISSION_DENIED', 'Agent 插件未启用');
     await this.requireCatalogEnabled(tenantId, 'AGENT_DEPLOYMENT', plugin.id);
@@ -292,6 +297,7 @@ export class AgentDeploymentPluginsApplicationService {
   }): Promise<AgentAtomicExecutionPlanV1> {
     await this.previewBinding(input.tenantId, input.agentId, input.binding);
     const plugin = await this.requirePackage(input.binding.pluginPackageId);
+    assertPluginGcacCompatibility(plugin.manifest.pluginId, plugin.manifest.minGcacVersion);
     const variables = validateAgentPluginVariableValues(plugin.manifest.variables, {
       ...input.binding.variableBindings,
       ...input.binding.secretBindings,
@@ -354,6 +360,7 @@ export class AgentDeploymentPluginsApplicationService {
     const existing = new Map((await this.repository.listAgentPackages(tenantId)).map((record) => [record.manifest.pluginId, record]));
     for (const manifest of builtinAgentPluginManifests) {
       const normalized = validateAgentDeploymentPluginManifest(manifest);
+      assertPluginGcacCompatibility(normalized.pluginId, normalized.minGcacVersion);
       const packageHash = hash(JSON.stringify(normalized));
       const current = existing.get(normalized.pluginId);
       if (current?.packageHash === packageHash) continue;

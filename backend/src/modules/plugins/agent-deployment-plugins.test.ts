@@ -260,6 +260,17 @@ describe('Agent 原子操作部署插件', () => {
       await rm(rootDir, { recursive: true, force: true });
     }
   });
+
+  it('拒绝要求更高 GCAC 版本的 Agent 插件', async () => {
+    const service = new AgentDeploymentPluginsApplicationService({} as never, {} as never, {} as never, tmpdir());
+    await assert.rejects(
+      () => service.uploadPackage({
+        manifest: { ...builtinAgentPluginManifests[0]!, pluginId: 'future.agent.plugin', minGcacVersion: '999.0.0' },
+        packageContent: 'future-package',
+      }, 'tenant-1'),
+      /当前版本不兼容/,
+    );
+  });
 });
 
 function compatibleAgentsService(platform: 'WINDOWS' | 'LINUX') {

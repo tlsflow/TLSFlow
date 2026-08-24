@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { normalizeMinimumGcacVersion } from '../../../common/version.js';
 import type {
   PluginActionDeclaration,
   PluginPackageManifest,
@@ -57,6 +58,7 @@ export function validatePluginManifest(input: unknown): PluginPackageManifest {
     name: String(input.name),
     publisher: String(input.publisher),
     version: String(input.version),
+    minGcacVersion: normalizeMinimumGcacVersion(input.minGcacVersion),
     runtime,
     actions,
     permissions,

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { assertPluginGcacCompatibility } from '../../../common/version.js';
 import { RedactionService } from '../../audits/redaction.service.js';
 import { newId } from '../../../shared/id.js';
 import type {
@@ -39,6 +40,7 @@ export class PluginsApplicationService {
 
   async uploadPackage(input: PluginPackageUploadInput, tenantId = tenantFallback): Promise<PluginPackageRecord> {
     const manifest = validatePluginManifest(input.manifest);
+    assertPluginGcacCompatibility(manifest.pluginId, manifest.minGcacVersion);
     const packageHash = this.calculateHash(input.packageContent);
     if (input.expectedHash && input.expectedHash !== packageHash) {
       throw new AppError('VALIDATION_FAILED', '插件包完整性校验失败', {
@@ -94,6 +96,7 @@ export class PluginsApplicationService {
 
   async enablePlugin(input: PluginEnableInput): Promise<PluginPackageRecord> {
     const record = await this.requirePackage(input.pluginPackageId);
+    assertPluginGcacCompatibility(record.manifest.pluginId, record.manifest.minGcacVersion);
     const summary = await this.getPermissionSummary(record.id);
     if (!summary.canEnable) {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '插件存在未审批高风险权限，不能启用', summary);
@@ -111,6 +114,7 @@ export class PluginsApplicationService {
 
   async execute(request: PluginExecutionRequest): Promise<PluginExecutionResult> {
     const record = await this.requirePackage(request.pluginPackageId);
+    assertPluginGcacCompatibility(record.manifest.pluginId, record.manifest.minGcacVersion);
     if (record.installStatus !== 'enabled') {
       throw new AppError('PLUGIN_PERMISSION_DENIED', '插件未启用，不能执行', {
         pluginPackageId: record.id,

@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { normalizeMinimumGcacVersion } from '../../../common/version.js';
 import type {
   AgentDeploymentPluginManifestV1,
   AgentPluginOperation,
@@ -53,6 +54,7 @@ export function validateAgentDeploymentPluginManifest(input: unknown): AgentDepl
     name,
     publisher,
     version,
+    minGcacVersion: normalizeMinimumGcacVersion(manifest.minGcacVersion),
     metadata: isRecord(manifest.metadata) ? {
       displayName: optionalString(manifest.metadata.displayName),
       description: optionalString(manifest.metadata.description),

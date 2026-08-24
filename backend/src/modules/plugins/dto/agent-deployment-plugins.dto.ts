@@ -72,6 +72,7 @@ export interface AgentDeploymentPluginManifestV1 {
   name: string;
   publisher: string;
   version: string;
+  minGcacVersion?: string;
   metadata?: {
     displayName?: string;
     description?: string;

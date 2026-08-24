@@ -1,4 +1,5 @@
 import type { AgentDeploymentPluginManifestV1 } from '../dto/agent-deployment-plugins.dto.js';
+import { GCAC_VERSION } from '../../../common/version.js';
 
 const commonCompatibility = {
   architectures: ['amd64', 'arm64'],
@@ -20,6 +21,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     name: 'linux-nginx-pem-certificate-deployment',
     publisher: 'GCAC',
     version: '1.0.0',
+    minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'NGINX PEM 证书部署', description: '备份并原子替换 NGINX PEM 证书和私钥，执行配置检查、reload 和 TLS 验证。', category: 'web-server', tags: ['nginx', 'pem', 'linux'] },
     compatibility: {
       ...commonCompatibility,
@@ -59,6 +61,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     name: 'windows-iis-pfx-certificate-deployment',
     publisher: 'GCAC',
     version: '1.0.0',
+    minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'IIS PFX 证书部署', description: '检查并导入 PFX、授权应用池私钥、更新 IIS HTTPS Binding 并验证 TLS。', category: 'web-server', tags: ['iis', 'pfx', 'windows'] },
     compatibility: {
       architectures: ['amd64', 'arm64'],
@@ -98,6 +101,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     name: 'rabbitmq-pem-certificate-deployment',
     publisher: 'GCAC',
     version: '1.0.0',
+    minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'RabbitMQ PEM 证书部署', description: '替换 RabbitMQ PEM 证书和私钥，重启服务并校验 TLS。', category: 'messaging', tags: ['rabbitmq', 'pem', 'linux'] },
     compatibility: { ...commonCompatibility, platforms: ['LINUX'], frameworks: ['CUSTOM'] },
     variables: {
@@ -126,6 +130,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     name: 'java-pkcs12-certificate-deployment',
     publisher: 'GCAC',
     version: '1.0.0',
+    minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'Java PKCS#12 / KeyStore 部署', description: '原子替换 Java 服务使用的 PKCS#12 或 KeyStore 文件并重启服务。', category: 'java', tags: ['java', 'pkcs12', 'keystore', 'linux', 'windows'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS', 'LINUX'], frameworks: ['TOMCAT', 'CUSTOM'] },
     variables: {
@@ -150,6 +155,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     name: 'windows-service-certificate-file-deployment',
     publisher: 'GCAC',
     version: '1.0.0',
+    minGcacVersion: GCAC_VERSION,
     metadata: { displayName: '自定义 Windows Service 证书文件部署', description: '替换自定义 Windows 服务读取的证书文件并重启指定服务。', category: 'windows-service', tags: ['windows', 'service', 'custom'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS'], frameworks: ['CUSTOM'] },
     variables: {
