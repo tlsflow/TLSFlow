@@ -605,7 +605,7 @@ export class WorkflowTemplatesDomainService {
   }
 
   private async getTemplateOrThrow(templateId: string): Promise<WorkflowTemplate> {
-    const template = this.templates.get(templateId);
+    const template = this.templates.get(templateId) ?? await this.loadPersistedTemplate(templateId);
     if (!template) throw new AppError('RESOURCE_NOT_FOUND', 'workflow template not found', { templateId });
     return template;
   }
@@ -615,7 +615,29 @@ export class WorkflowTemplatesDomainService {
       const version = list.find((item) => item.id === versionId);
       if (version) return { template: await this.getTemplateOrThrow(templateId), version };
     }
+    const persisted = await this.versionsRepository.get(versionId);
+    if (persisted) {
+      const version = normalizeVersion(persisted);
+      const template = await this.getTemplateOrThrow(version.templateId);
+      this.cacheVersion(version);
+      return { template, version };
+    }
     throw new AppError('RESOURCE_NOT_FOUND', 'workflow template version not found', { versionId });
+  }
+
+  private async loadPersistedTemplate(templateId: string): Promise<WorkflowTemplate | undefined> {
+    const persisted = await this.templatesRepository.get(templateId);
+    if (!persisted) return undefined;
+    const template = normalizeTemplate(persisted);
+    this.templates.set(template.id, template);
+    return template;
+  }
+
+  private cacheVersion(version: WorkflowTemplateVersion): void {
+    const list = this.versions.get(version.templateId) ?? [];
+    const next = [...list.filter((item) => item.id !== version.id), version]
+      .sort((left, right) => left.version - right.version || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
+    this.versions.set(version.templateId, next);
   }
 
   private withCurrentVersionSummary(template: WorkflowTemplate): WorkflowTemplate {
@@ -1470,7 +1492,7 @@ function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput)
 }
 
 function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, values: Record<string, unknown>): boolean {
-  if (step.type === 'http') return [200, 201, 202, 204].includes(output.statusCode ?? 200);
+  if (step.type === 'http') return (step.request.successStatusCodes ?? [200, 201, 202, 204]).includes(output.statusCode ?? 200);
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
   if (step.type === 'condition') return evaluateCondition(step.condition, values, 'mock');
   if (step.type === 'checkpoint_verify') {

@@ -1300,6 +1300,33 @@ describe('WorkflowTemplates', () => {
     assert.deepEqual(plan.curlRequest.retryPolicy.retryOnStatus, [500, 503]);
   });
 
+  it('HTTP mock 成功判断尊重 DSL successStatusCodes', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'nitroAcceptedErrorCode',
+        type: 'http',
+        request: {
+          method: 'POST',
+          connectionRef: 'management',
+          url: 'https://{{variables.deviceHost}}/nitro/v1/config/sslcertkey',
+          successStatusCodes: [500],
+        },
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: { nitroAcceptedErrorCode: { statusCode: 500, body: { errorcode: 273, message: 'Resource already exists' } } },
+    });
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]?.status, 'success');
+  });
+
   it('HTTP formCredentialRefs 会转换成内部 formSecretRefs 并在计划中脱敏', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
