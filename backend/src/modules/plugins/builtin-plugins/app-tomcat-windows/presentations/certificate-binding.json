@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.appTomcatWindows.name",
+    "profile": "plugin.appTomcatWindows.field.framework"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.appTomcatWindows.section.identity",
+      "fields": [
+        {
+          "key": "frameworkType",
+          "labelKey": "plugin.appTomcatWindows.field.framework",
+          "valuePath": "metadata.frameworkType",
+          "type": "text"
+        },
+        {
+          "key": "platform",
+          "labelKey": "plugin.appTomcatWindows.field.platform",
+          "valuePath": "host.osType",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.appTomcatWindows.section.certificate",
+      "fields": [
+        {
+          "key": "targetPath",
+          "labelKey": "plugin.appTomcatWindows.field.path",
+          "valuePath": "metadata.certificateLocation.keystorePath",
+          "type": "text"
+        },
+        {
+          "key": "serviceName",
+          "labelKey": "plugin.appTomcatWindows.field.service",
+          "valuePath": "metadata.certificateLocation.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "configFingerprint",
+          "labelKey": "plugin.appTomcatWindows.field.configFingerprint",
+          "valuePath": "metadata.certificateLocation.configFingerprint",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appTomcatWindows.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appTomcatWindows.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appTomcatWindows.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

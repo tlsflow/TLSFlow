@@ -98,6 +98,7 @@ export interface DeploymentArtifactSnapshotDto {
   privateKeyPem?: string;
   pfxBase64?: string;
   pfxPassword?: string;
+  jksBase64?: string;
   expectedFingerprintSha256?: string;
   warnings?: string[];
   files?: Array<{

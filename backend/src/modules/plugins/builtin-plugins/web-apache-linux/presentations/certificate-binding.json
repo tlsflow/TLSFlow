@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.webApacheLinux.name",
+    "profile": "plugin.webApacheLinux.field.framework"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webApacheLinux.section.identity",
+      "fields": [
+        {
+          "key": "frameworkType",
+          "labelKey": "plugin.webApacheLinux.field.framework",
+          "valuePath": "metadata.frameworkType",
+          "type": "text"
+        },
+        {
+          "key": "platform",
+          "labelKey": "plugin.webApacheLinux.field.platform",
+          "valuePath": "host.osType",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.webApacheLinux.section.certificate",
+      "fields": [
+        {
+          "key": "targetPath",
+          "labelKey": "plugin.webApacheLinux.field.path",
+          "valuePath": "metadata.certificateLocation.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "serviceName",
+          "labelKey": "plugin.webApacheLinux.field.service",
+          "valuePath": "metadata.certificateLocation.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "configFingerprint",
+          "labelKey": "plugin.webApacheLinux.field.configFingerprint",
+          "valuePath": "metadata.certificateLocation.configFingerprint",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.webApacheLinux.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.webApacheLinux.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.webApacheLinux.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

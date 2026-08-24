@@ -1,0 +1,184 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "web.apache.windows-certificate-verify",
+    "displayName": "Windows Apache 证书更新验证",
+    "description": "使用同一输入快照执行宿主标准验证。",
+    "category": "application",
+    "tags": [
+      "certificate",
+      "verify"
+    ],
+    "version": "1.0.0",
+    "platforms": [
+      "windows"
+    ],
+    "maintainer": "GCAC"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "certificatePath": {
+        "type": "file",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.certificatePath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "privateKeyPath": {
+        "type": "file",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.privateKeyPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "chainPath": {
+        "type": "file",
+        "required": false,
+        "configurationMode": "advanced",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.chainPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "configPath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.sourceConfigPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "serviceName": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.serviceName"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "programPath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.programPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "configFingerprint": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.configFingerprint"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {
+      "certificateArtifact": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "leafPem": {
+              "role": "public_certificate",
+              "required": true,
+              "format": "PEM",
+              "encoding": "base64"
+            },
+            "privateKeyPem": {
+              "role": "private_key",
+              "required": true,
+              "format": "PEM",
+              "encoding": "base64",
+              "sensitive": true
+            },
+            "orderedChainPem": {
+              "role": "certificate_chain",
+              "required": false,
+              "format": "PEM",
+              "encoding": "base64"
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "verifySameTarget",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.certificatePath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    }
+  ],
+  "rollback": [
+    {
+      "name": "verifySameTarget",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.certificatePath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    }
+  ]
+}

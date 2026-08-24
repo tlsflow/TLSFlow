@@ -761,6 +761,7 @@ export class CertificatesApplicationService {
     privateKeyPem?: string;
     pfxBase64?: string;
     pfxPassword?: string;
+    jksBase64?: string;
     artifactRef?: string;
     artifactSha256?: string;
     files: CertificateArtifactFileDto[];
@@ -810,6 +811,7 @@ export class CertificatesApplicationService {
       privateKeyPem: generated.format === 'pem' && (format.containsPrivateKey || pemNeedsSeparatePrivateKey) ? privateKey?.plainText : undefined,
       pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
       pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
+      jksBase64: generated.format === 'jks' ? generated.content.toString('base64') : undefined,
       files: generated.files.map((file) => ({ ...file })),
       artifactRef,
       artifactSha256: `sha256:${artifactSha256}`,

@@ -1,0 +1,82 @@
+{
+  "apiVersion": "gcac.certificate-update-plan/v1",
+  "pluginId": "app.tomcat.linux",
+  "capability": "certificate.rollback",
+  "planId": "certificate.rollback",
+  "writeEffect": true,
+  "operations": [
+    {
+      "operationId": "restore-target",
+      "operationType": "filesystem.restore",
+      "stage": "prepare",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "ledgerRef": "execution-recovery-ledger",
+        "storageKind": "KEYSTORE"
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "config-check",
+      "operationType": "command.execute_allowlisted",
+      "stage": "execute",
+      "input": {
+        "executablePath": {
+          "$ref": "programPath"
+        },
+        "executableSha256": {
+          "$ref": "programSha256"
+        },
+        "args": {
+          "$ref": "configCheckArgs"
+        },
+        "argumentTemplate": {
+          "$ref": "configCheckArgsTemplate"
+        },
+        "environmentAllowlist": [],
+        "workingDirectory": {
+          "$ref": "workingDirectory"
+        },
+        "networkScopes": [],
+        "childProcessPolicy": "deny",
+        "timeoutSeconds": 60,
+        "outputLimitBytes": 65536,
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        }
+      }
+    },
+    {
+      "operationId": "stop-service",
+      "operationType": "service.stop",
+      "stage": "execute",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    },
+    {
+      "operationId": "start-service",
+      "operationType": "service.start",
+      "stage": "execute",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    },
+    {
+      "operationId": "verify-service",
+      "operationType": "service.status",
+      "stage": "verify",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "apiVersion": "gcac.certificate-update-plan/v1",
+  "pluginId": "app.tomcat.windows",
+  "capability": "certificate.verify",
+  "planId": "certificate.verify",
+  "writeEffect": false,
+  "operations": [
+    {
+      "operationId": "verify-material",
+      "operationType": "certificate.material.validate",
+      "stage": "verify",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        },
+        "storageKind": "KEYSTORE",
+        "keystoreType": {
+          "$ref": "keystoreType"
+        },
+        "keyAlias": {
+          "$ref": "keyAlias"
+        },
+        "secretRef": {
+          "$ref": "secretRefs.0"
+        }
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "verify-service",
+      "operationType": "service.status",
+      "stage": "verify",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    }
+  ]
+}

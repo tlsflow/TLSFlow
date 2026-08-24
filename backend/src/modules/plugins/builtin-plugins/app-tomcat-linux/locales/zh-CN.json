@@ -1,0 +1,14 @@
+{
+  "plugin.appTomcatLinux.name": "Linux Tomcat 证书更新",
+  "plugin.appTomcatLinux.description": "固定linux平台与app.tomcat框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.appTomcatLinux.section.identity": "目标事实",
+  "plugin.appTomcatLinux.section.certificate": "证书更新",
+  "plugin.appTomcatLinux.field.platform": "平台",
+  "plugin.appTomcatLinux.field.framework": "框架",
+  "plugin.appTomcatLinux.field.path": "证书位置",
+  "plugin.appTomcatLinux.field.service": "服务",
+  "plugin.appTomcatLinux.field.configFingerprint": "配置指纹",
+  "plugin.appTomcatLinux.action.deploy": "部署证书",
+  "plugin.appTomcatLinux.action.verify": "验证证书",
+  "plugin.appTomcatLinux.action.rollback": "回滚证书"
+}

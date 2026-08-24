@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.appTomcatLinux.name",
+    "profile": "plugin.appTomcatLinux.field.framework"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.appTomcatLinux.section.identity",
+      "fields": [
+        {
+          "key": "frameworkType",
+          "labelKey": "plugin.appTomcatLinux.field.framework",
+          "valuePath": "metadata.frameworkType",
+          "type": "text"
+        },
+        {
+          "key": "platform",
+          "labelKey": "plugin.appTomcatLinux.field.platform",
+          "valuePath": "host.osType",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.appTomcatLinux.section.certificate",
+      "fields": [
+        {
+          "key": "targetPath",
+          "labelKey": "plugin.appTomcatLinux.field.path",
+          "valuePath": "metadata.certificateLocation.keystorePath",
+          "type": "text"
+        },
+        {
+          "key": "serviceName",
+          "labelKey": "plugin.appTomcatLinux.field.service",
+          "valuePath": "metadata.certificateLocation.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "configFingerprint",
+          "labelKey": "plugin.appTomcatLinux.field.configFingerprint",
+          "valuePath": "metadata.certificateLocation.configFingerprint",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appTomcatLinux.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appTomcatLinux.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appTomcatLinux.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

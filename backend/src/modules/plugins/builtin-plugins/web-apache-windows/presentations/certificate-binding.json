@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.webApacheWindows.name",
+    "profile": "plugin.webApacheWindows.field.framework"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webApacheWindows.section.identity",
+      "fields": [
+        {
+          "key": "frameworkType",
+          "labelKey": "plugin.webApacheWindows.field.framework",
+          "valuePath": "metadata.frameworkType",
+          "type": "text"
+        },
+        {
+          "key": "platform",
+          "labelKey": "plugin.webApacheWindows.field.platform",
+          "valuePath": "host.osType",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.webApacheWindows.section.certificate",
+      "fields": [
+        {
+          "key": "targetPath",
+          "labelKey": "plugin.webApacheWindows.field.path",
+          "valuePath": "metadata.certificateLocation.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "serviceName",
+          "labelKey": "plugin.webApacheWindows.field.service",
+          "valuePath": "metadata.certificateLocation.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "configFingerprint",
+          "labelKey": "plugin.webApacheWindows.field.configFingerprint",
+          "valuePath": "metadata.certificateLocation.configFingerprint",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.webApacheWindows.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.webApacheWindows.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.webApacheWindows.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

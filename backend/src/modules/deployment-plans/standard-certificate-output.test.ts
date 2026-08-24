@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveBoundCertificateOutput, resolveStandardCertificateOutput } from './application/deployment-plans.application-service.js';
 
-test('标准证书输出解析器同时支持 PEM、PFX 和 PFX 密码', () => {
+test('标准证书输出解析器同时支持 PEM、PFX、JKS 和密码', () => {
   const material = {
     leafPem: 'CERTIFICATE_PEM',
     privateKeyPem: 'PRIVATE_KEY_PEM',
     pfxBase64: 'PFX_BASE64',
     pfxPassword: 'PFX_PASSWORD',
+    jksBase64: 'JKS_BASE64',
   };
 
   assert.deepEqual(resolveStandardCertificateOutput(material, 'leafPem'), {
@@ -28,6 +29,12 @@ test('标准证书输出解析器同时支持 PEM、PFX 和 PFX 密码', () => {
     role: 'pkcs12_password',
     format: 'text',
     content: 'PFX_PASSWORD',
+  });
+  assert.deepEqual(resolveStandardCertificateOutput(material, 'jksBase64'), {
+    key: 'jksBase64',
+    role: 'keystore',
+    format: 'base64',
+    content: 'JKS_BASE64',
   });
 });
 

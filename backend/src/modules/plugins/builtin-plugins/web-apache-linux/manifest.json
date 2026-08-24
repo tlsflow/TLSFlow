@@ -1,0 +1,93 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "web.apache.linux",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.webApacheLinux.name",
+  "descriptionKey": "plugin.webApacheLinux.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "MANAGED",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    {
+      "key": "certificate.deploy",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.deploy.v1",
+      "riskLevel": "HIGH",
+      "executionLocations": [
+        "AGENT"
+      ]
+    },
+    {
+      "key": "certificate.verify",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.verify.v1",
+      "riskLevel": "MEDIUM",
+      "executionLocations": [
+        "AGENT"
+      ]
+    },
+    {
+      "key": "certificate.rollback",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.rollback.v1",
+      "riskLevel": "HIGH",
+      "executionLocations": [
+        "AGENT"
+      ]
+    }
+  ],
+  "permissions": [
+    "agent.plan.validate",
+    "agent.plan.execute",
+    "agent.execution.receipt"
+  ],
+  "compatibility": {
+    "productFamilies": [
+      "web.apache"
+    ],
+    "frameworkTypes": [
+      "web.apache"
+    ],
+    "targetTypes": [
+      "tls.binding"
+    ],
+    "managementMethods": [
+      "AGENT"
+    ],
+    "executionLocations": [
+      "AGENT"
+    ],
+    "artifactContracts": [
+      "certificate.deploy.v1"
+    ]
+  },
+  "resources": {
+    "inputContracts": {
+      "certificate.deploy": "contracts/deploy.json",
+      "certificate.verify": "contracts/verify.json",
+      "certificate.rollback": "contracts/rollback.json"
+    },
+    "workflows": {
+      "certificate.deploy": "workflows/deploy.json",
+      "certificate.verify": "workflows/verify.json",
+      "certificate.rollback": "workflows/rollback.json"
+    },
+    "agentPlans": {
+      "certificate.deploy": "agent-plans/deploy.json",
+      "certificate.verify": "agent-plans/verify.json",
+      "certificate.rollback": "agent-plans/rollback.json"
+    },
+    "locales": {
+      "zh-CN": "locales/zh-CN.json"
+    },
+    "presentations": {
+      "application": "presentations/application.json",
+      "certificate-binding": "presentations/certificate-binding.json"
+    }
+  }
+}

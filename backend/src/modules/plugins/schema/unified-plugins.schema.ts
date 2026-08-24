@@ -77,6 +77,9 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
         : { runtimeEntrypoint: readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint') }),
       agentPlans: readStringMap(resources.agentPlans),
       workflows: readStringMap(resources.workflows),
+      ...(resources.inputContracts === undefined
+        ? {}
+        : { inputContracts: readStringMap(resources.inputContracts) }),
       actionContracts: readStringMap(resources.actionContracts),
       forms: readStringMap(resources.forms),
       presentations: readStringMap(resources.presentations),
@@ -187,7 +190,7 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'actionContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
+  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'inputContracts', 'actionContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
   assertKnownKeys(resources, new Set(resourceKeys), 'resources');
   if (resources.runtimeEntrypoint !== undefined) {
     const runtimeEntrypoint = readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint');

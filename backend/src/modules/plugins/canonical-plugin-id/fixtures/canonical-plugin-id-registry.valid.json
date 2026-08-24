@@ -3,6 +3,12 @@
   "kind": "CanonicalPluginIdRegistry",
   "registryVersion": "2026-08-09",
   "entries": [
+    { "canonicalId": "web.nginx.linux", "displayKey": "plugins.canonical.webNginxLinux", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem"] },
+    { "canonicalId": "web.nginx.windows", "displayKey": "plugins.canonical.webNginxWindows", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.pem"] },
+    { "canonicalId": "web.apache.linux", "displayKey": "plugins.canonical.webApacheLinux", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem"] },
+    { "canonicalId": "web.apache.windows", "displayKey": "plugins.canonical.webApacheWindows", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.pem"] },
+    { "canonicalId": "app.tomcat.linux", "displayKey": "plugins.canonical.appTomcatLinux", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.keystore"] },
+    { "canonicalId": "app.tomcat.windows", "displayKey": "plugins.canonical.appTomcatWindows", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.keystore"] },
     { "canonicalId": "web.nginx", "displayKey": "plugins.canonical.webNginx", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem", "windows.agent_plan.pem"] },
     { "canonicalId": "web.apache", "displayKey": "plugins.canonical.webApache", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem", "windows.agent_plan.pem"] },
     { "canonicalId": "web.iis", "displayKey": "plugins.canonical.webIis", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.iis-pfx"] },

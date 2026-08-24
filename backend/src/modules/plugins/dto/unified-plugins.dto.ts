@@ -77,6 +77,8 @@ export interface UnifiedPluginManifestV1 {
     runtimeEntrypoint?: string;
     agentPlans?: Record<string, string>;
     workflows?: Record<string, string>;
+    /** 普通 Workflow 与 Agent Plan 共用的不可变输入合同资源。 */
+    inputContracts?: Record<string, string>;
     actionContracts?: Record<string, string>;
     forms?: Record<string, string>;
     presentations?: Record<string, string>;

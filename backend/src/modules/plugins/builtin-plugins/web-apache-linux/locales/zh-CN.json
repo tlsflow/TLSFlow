@@ -1,0 +1,14 @@
+{
+  "plugin.webApacheLinux.name": "Linux Apache 证书更新",
+  "plugin.webApacheLinux.description": "固定linux平台与web.apache框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webApacheLinux.section.identity": "目标事实",
+  "plugin.webApacheLinux.section.certificate": "证书更新",
+  "plugin.webApacheLinux.field.platform": "平台",
+  "plugin.webApacheLinux.field.framework": "框架",
+  "plugin.webApacheLinux.field.path": "证书位置",
+  "plugin.webApacheLinux.field.service": "服务",
+  "plugin.webApacheLinux.field.configFingerprint": "配置指纹",
+  "plugin.webApacheLinux.action.deploy": "部署证书",
+  "plugin.webApacheLinux.action.verify": "验证证书",
+  "plugin.webApacheLinux.action.rollback": "回滚证书"
+}

@@ -1,0 +1,211 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  assertCertificateUpdatePlanBinding,
+  resolveCertificateUpdateSnapshot,
+} from './certificate-update-input.service.js';
+import { validateCertificateUpdateInputContract } from './certificate-update.contract.js';
+import {
+  certificateUpdatePluginIds,
+  createResolvedCertificateUpdateInput,
+  loadCertificateUpdateContract,
+} from './certificate-update.test-fixtures.js';
+
+test('六个插件都能从同一类 Agent 事实生成不可变快照', () => {
+  for (const pluginId of certificateUpdatePluginIds) {
+    const contract = loadCertificateUpdateContract(pluginId);
+    const resolved = createResolvedCertificateUpdateInput(pluginId);
+    const snapshot = resolveCertificateUpdateSnapshot(resolved, contract, {
+      pluginVersionId: `${pluginId}-version-1`,
+      resourceHash: `sha256:${'e'.repeat(64)}`,
+    });
+
+    assert.equal(snapshot.pluginId, pluginId);
+    assert.equal(snapshot.frameworkType, contract.frameworkType);
+    assert.equal(snapshot.platform, contract.platform);
+    assert.equal(snapshot.artifactKind, contract.artifactKind);
+    assert.equal(snapshot.configFingerprint, 'a'.repeat(64));
+    assert.equal(snapshot.pluginVersionId, `${pluginId}-version-1`);
+    assert.equal(snapshot.resourceHash, `sha256:${'e'.repeat(64)}`);
+    assert.equal(snapshot.provenance['variables.configPath']?.source, 'asset');
+    assert.ok(snapshot.paths.length >= 1);
+  }
+});
+
+test('PEM 文件集合和 Tomcat KeyStore 的路径边界不同且不丢失', () => {
+  const pem = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('web.nginx.linux'),
+    loadCertificateUpdateContract('web.nginx.linux'),
+  );
+  assert.equal(pem.paths.length, 3);
+  assert.ok(pem.paths.every((path) => path.startsWith('/opt/gcac/')));
+
+  const keystore = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('app.tomcat.windows'),
+    loadCertificateUpdateContract('app.tomcat.windows'),
+  );
+  assert.deepEqual(keystore.paths.length, 1);
+  assert.equal(keystore.keystoreType, 'PKCS12');
+  assert.equal(keystore.keyAlias, 'server');
+  assert.deepEqual(keystore.secretRefs, ['secret://certificate/tomcat-password']);
+});
+
+test('Tomcat JKS 只接受 JKS 整体 Artifact，并固定 password SecretRef', () => {
+  const resolved = createResolvedCertificateUpdateInput('app.tomcat.linux', {
+    location: { keystoreType: 'JKS' },
+  });
+  delete resolved.artifacts.certificateArtifact.outputs.pfxBase64;
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('app.tomcat.linux'),
+  );
+
+  assert.equal(snapshot.keystoreType, 'JKS');
+  assert.deepEqual(snapshot.secretRefs, ['secret://certificate/tomcat-password']);
+});
+
+test('Tomcat 输入合同拒绝把密码放进 Artifact 输出', () => {
+  const contract = loadCertificateUpdateContract('app.tomcat.linux');
+  const outputs = contract.deploymentInputContract.artifacts.certificateArtifact!.artifactContract!.outputs;
+  const invalid = structuredClone(contract) as typeof contract;
+  invalid.deploymentInputContract.artifacts.certificateArtifact!.artifactContract!.outputs = {
+    ...outputs,
+    pfxPassword: {
+      role: 'keystore_password',
+      required: false,
+      format: 'text',
+      sensitive: true,
+    },
+  };
+  assert.throws(
+    () => validateCertificateUpdateInputContract(invalid),
+    /Artifact 不得输出密码/,
+  );
+});
+
+test('平台、框架、指纹和 confidence=UNKNOWN 在副作用前失败关闭', () => {
+  const contract = loadCertificateUpdateContract('web.nginx.linux');
+  const cases = [
+    createResolvedCertificateUpdateInput('web.nginx.linux', { platform: 'windows' }),
+    createResolvedCertificateUpdateInput('web.nginx.linux', { frameworkType: 'web.apache' }),
+    createResolvedCertificateUpdateInput('web.nginx.linux', { confidence: 'UNKNOWN' }),
+    createResolvedCertificateUpdateInput('web.nginx.linux', { configFingerprint: 'f'.repeat(64), targetMetadata: { configFingerprint: 'a'.repeat(64) } }),
+  ];
+  for (const resolved of cases) {
+    assert.throws(
+      () => resolveCertificateUpdateSnapshot(resolved, contract),
+      /证书更新输入门禁失败/,
+    );
+  }
+});
+
+test('路径越权、脚本程序、Shell 参数和 KeyStore SecretRef 缺失均拒绝', () => {
+  const pathTraversal = createResolvedCertificateUpdateInput('web.nginx.linux', {
+    location: { certificatePath: '/opt/gcac/../etc/nginx/server.crt' },
+  });
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(pathTraversal, loadCertificateUpdateContract('web.nginx.linux')),
+    /证书更新输入门禁失败/,
+  );
+
+  const scriptProgram = createResolvedCertificateUpdateInput('web.nginx.linux', {
+    location: { programPath: '/bin/sh' },
+  });
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(scriptProgram, loadCertificateUpdateContract('web.nginx.linux')),
+    /Shell、脚本或通用解释器/,
+  );
+
+  const shellArgument = createResolvedCertificateUpdateInput('web.nginx.linux', {
+    targetMetadata: { configCheckArgs: ['-t;id'], configCheckArgsTemplate: ['-t;id'] },
+  });
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(shellArgument, loadCertificateUpdateContract('web.nginx.linux')),
+    /Shell 控制字符/,
+  );
+
+  const missingSecret = createResolvedCertificateUpdateInput('app.tomcat.linux', { secretRefs: {} });
+  delete (missingSecret.credentials.keystorePassword as { secretRefs?: Record<string, string> }).secretRefs;
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(missingSecret, loadCertificateUpdateContract('app.tomcat.linux')),
+    /KeyStore 类型、Alias 或 SecretRef 缺失|KeyStore 凭据缺少 SecretRef 映射/,
+  );
+
+  const malformedArtifact = createResolvedCertificateUpdateInput('web.nginx.linux');
+  malformedArtifact.artifacts.certificateArtifact.outputs.leafPem = 'CERTIFICATE_PEM';
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(malformedArtifact, loadCertificateUpdateContract('web.nginx.linux')),
+    /不是有效 PEM/,
+  );
+
+  const pemWithCredential = createResolvedCertificateUpdateInput('web.nginx.linux');
+  pemWithCredential.credentials = {
+    unexpected: { credentialId: 'credential-2', secretRefs: { password: 'secret://unexpected/password' } },
+  };
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(pemWithCredential, loadCertificateUpdateContract('web.nginx.linux')),
+    /不得携带凭据|未声明的凭据槽位/,
+  );
+
+  const wrongSecretSlot = createResolvedCertificateUpdateInput('app.tomcat.linux', {
+    secretRefs: { username: 'secret://certificate/not-a-password' },
+  });
+  assert.throws(
+    () => resolveCertificateUpdateSnapshot(wrongSecretSlot, loadCertificateUpdateContract('app.tomcat.linux')),
+    /必须提供 password SecretRef/,
+  );
+});
+
+test('计划绑定只接受快照路径、指纹、Artifact、服务和程序事实', () => {
+  const contract = loadCertificateUpdateContract('web.apache.windows');
+  const snapshot = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('web.apache.windows'),
+    contract,
+  );
+  const plan = {
+    pluginId: snapshot.pluginId,
+    capability: 'certificate.deploy',
+    operations: [
+      { operationType: 'filesystem.atomic_replace', input: { path: snapshot.paths[0], configFingerprint: snapshot.configFingerprint, artifactDigest: snapshot.artifactDigest, ledgerRef: 'execution-recovery-ledger' } },
+      { operationType: 'service.reload', input: { serviceName: snapshot.serviceName, executablePath: snapshot.programPath } },
+    ],
+  };
+  assert.doesNotThrow(() => assertCertificateUpdatePlanBinding(plan, snapshot));
+  assert.throws(
+    () => assertCertificateUpdatePlanBinding({
+      ...plan,
+      operations: [
+        { ...plan.operations[0], input: { ...plan.operations[0].input, path: '/tmp/other.crt' } },
+        plan.operations[1],
+      ],
+    }, snapshot),
+    /计划包含不在输入快照中的路径/,
+  );
+});
+
+test('Verify 计划也必须绑定路径、指纹、Artifact 和服务事实', () => {
+  const snapshot = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('web.nginx.linux'),
+    loadCertificateUpdateContract('web.nginx.linux'),
+  );
+  assert.doesNotThrow(() => assertCertificateUpdatePlanBinding({
+    pluginId: snapshot.pluginId,
+    capability: 'certificate.verify',
+    operations: [
+      {
+        operationType: 'certificate.material.validate',
+        input: {
+          path: snapshot.paths[0],
+          configFingerprint: snapshot.configFingerprint,
+          artifactDigest: snapshot.artifactDigest,
+        },
+      },
+      { operationType: 'service.status', input: { serviceName: snapshot.serviceName } },
+    ],
+  }, snapshot));
+  assert.throws(() => assertCertificateUpdatePlanBinding({
+    pluginId: snapshot.pluginId,
+    capability: 'certificate.verify',
+    operations: [{ operationType: 'service.status', input: { serviceName: snapshot.serviceName } }],
+  }, snapshot), /计划未绑定路径/);
+});

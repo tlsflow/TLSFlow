@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.webNginxWindows.name",
+    "profile": "plugin.webNginxWindows.field.framework"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webNginxWindows.section.identity",
+      "fields": [
+        {
+          "key": "frameworkType",
+          "labelKey": "plugin.webNginxWindows.field.framework",
+          "valuePath": "metadata.frameworkType",
+          "type": "text"
+        },
+        {
+          "key": "platform",
+          "labelKey": "plugin.webNginxWindows.field.platform",
+          "valuePath": "host.osType",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.webNginxWindows.section.certificate",
+      "fields": [
+        {
+          "key": "targetPath",
+          "labelKey": "plugin.webNginxWindows.field.path",
+          "valuePath": "metadata.certificateLocation.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "serviceName",
+          "labelKey": "plugin.webNginxWindows.field.service",
+          "valuePath": "metadata.certificateLocation.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "configFingerprint",
+          "labelKey": "plugin.webNginxWindows.field.configFingerprint",
+          "valuePath": "metadata.certificateLocation.configFingerprint",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.webNginxWindows.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.webNginxWindows.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.webNginxWindows.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

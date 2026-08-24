@@ -6,6 +6,12 @@ export const canonicalPluginRegistryKind = 'CanonicalPluginIdRegistry' as const;
 export type CanonicalPluginExecutionMode = 'isolated_process';
 
 export const canonicalPluginIds = [
+  'web.nginx.linux',
+  'web.nginx.windows',
+  'web.apache.linux',
+  'web.apache.windows',
+  'app.tomcat.linux',
+  'app.tomcat.windows',
   'web.nginx',
   'web.apache',
   'web.iis',
@@ -21,6 +27,34 @@ export const canonicalPluginIds = [
   'cloud.volcengine',
   'ca.microsoft-adcs',
 ] as const;
+
+/**
+ * 当前版本证书更新能力的唯一入口。旧的三合一 ID 仍可能出现在历史
+ * 发现事实中，但不再作为证书更新插件入口。
+ */
+export const certificateUpdatePluginIds = [
+  'web.nginx.linux',
+  'web.nginx.windows',
+  'web.apache.linux',
+  'web.apache.windows',
+  'app.tomcat.linux',
+  'app.tomcat.windows',
+] as const;
+
+export type CertificateUpdatePluginId = typeof certificateUpdatePluginIds[number];
+
+export const certificateUpdatePluginProfiles: Readonly<Record<CertificateUpdatePluginId, {
+  frameworkType: 'web.nginx' | 'web.apache' | 'app.tomcat';
+  platform: 'linux' | 'windows';
+  artifactKind: 'PEM_FILES' | 'KEYSTORE';
+}>> = Object.freeze({
+  'web.nginx.linux': { frameworkType: 'web.nginx', platform: 'linux', artifactKind: 'PEM_FILES' },
+  'web.nginx.windows': { frameworkType: 'web.nginx', platform: 'windows', artifactKind: 'PEM_FILES' },
+  'web.apache.linux': { frameworkType: 'web.apache', platform: 'linux', artifactKind: 'PEM_FILES' },
+  'web.apache.windows': { frameworkType: 'web.apache', platform: 'windows', artifactKind: 'PEM_FILES' },
+  'app.tomcat.linux': { frameworkType: 'app.tomcat', platform: 'linux', artifactKind: 'KEYSTORE' },
+  'app.tomcat.windows': { frameworkType: 'app.tomcat', platform: 'windows', artifactKind: 'KEYSTORE' },
+});
 
 export type CanonicalPluginId = typeof canonicalPluginIds[number];
 
@@ -59,6 +93,12 @@ export const canonicalPluginIdRegistry: CanonicalPluginIdRegistryV1 = {
   kind: canonicalPluginRegistryKind,
   registryVersion: '2026-08-09',
   entries: [
+    entry('web.nginx.linux', 'plugins.canonical.webNginxLinux', ['linux.agent_plan.pem']),
+    entry('web.nginx.windows', 'plugins.canonical.webNginxWindows', ['windows.agent_plan.pem']),
+    entry('web.apache.linux', 'plugins.canonical.webApacheLinux', ['linux.agent_plan.pem']),
+    entry('web.apache.windows', 'plugins.canonical.webApacheWindows', ['windows.agent_plan.pem']),
+    entry('app.tomcat.linux', 'plugins.canonical.appTomcatLinux', ['linux.agent_plan.keystore']),
+    entry('app.tomcat.windows', 'plugins.canonical.appTomcatWindows', ['windows.agent_plan.keystore']),
     entry('web.nginx', 'plugins.canonical.webNginx', ['linux.agent_plan.pem', 'windows.agent_plan.pem']),
     entry('web.apache', 'plugins.canonical.webApache', ['linux.agent_plan.pem', 'windows.agent_plan.pem']),
     entry('web.iis', 'plugins.canonical.webIis', ['windows.agent_plan.iis-pfx']),

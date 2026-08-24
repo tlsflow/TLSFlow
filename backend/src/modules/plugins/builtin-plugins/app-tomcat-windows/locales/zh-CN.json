@@ -1,0 +1,14 @@
+{
+  "plugin.appTomcatWindows.name": "Windows Tomcat 证书更新",
+  "plugin.appTomcatWindows.description": "固定windows平台与app.tomcat框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.appTomcatWindows.section.identity": "目标事实",
+  "plugin.appTomcatWindows.section.certificate": "证书更新",
+  "plugin.appTomcatWindows.field.platform": "平台",
+  "plugin.appTomcatWindows.field.framework": "框架",
+  "plugin.appTomcatWindows.field.path": "证书位置",
+  "plugin.appTomcatWindows.field.service": "服务",
+  "plugin.appTomcatWindows.field.configFingerprint": "配置指纹",
+  "plugin.appTomcatWindows.action.deploy": "部署证书",
+  "plugin.appTomcatWindows.action.verify": "验证证书",
+  "plugin.appTomcatWindows.action.rollback": "回滚证书"
+}

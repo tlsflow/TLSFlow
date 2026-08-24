@@ -1,0 +1,14 @@
+{
+  "plugin.webNginxLinux.name": "Linux Nginx 证书更新",
+  "plugin.webNginxLinux.description": "固定linux平台与web.nginx框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webNginxLinux.section.identity": "目标事实",
+  "plugin.webNginxLinux.section.certificate": "证书更新",
+  "plugin.webNginxLinux.field.platform": "平台",
+  "plugin.webNginxLinux.field.framework": "框架",
+  "plugin.webNginxLinux.field.path": "证书位置",
+  "plugin.webNginxLinux.field.service": "服务",
+  "plugin.webNginxLinux.field.configFingerprint": "配置指纹",
+  "plugin.webNginxLinux.action.deploy": "部署证书",
+  "plugin.webNginxLinux.action.verify": "验证证书",
+  "plugin.webNginxLinux.action.rollback": "回滚证书"
+}

@@ -1,0 +1,14 @@
+{
+  "plugin.webApacheWindows.name": "Windows Apache 证书更新",
+  "plugin.webApacheWindows.description": "固定windows平台与web.apache框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webApacheWindows.section.identity": "目标事实",
+  "plugin.webApacheWindows.section.certificate": "证书更新",
+  "plugin.webApacheWindows.field.platform": "平台",
+  "plugin.webApacheWindows.field.framework": "框架",
+  "plugin.webApacheWindows.field.path": "证书位置",
+  "plugin.webApacheWindows.field.service": "服务",
+  "plugin.webApacheWindows.field.configFingerprint": "配置指纹",
+  "plugin.webApacheWindows.action.deploy": "部署证书",
+  "plugin.webApacheWindows.action.verify": "验证证书",
+  "plugin.webApacheWindows.action.rollback": "回滚证书"
+}

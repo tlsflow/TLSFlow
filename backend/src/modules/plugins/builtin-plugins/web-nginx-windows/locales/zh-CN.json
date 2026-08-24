@@ -1,0 +1,14 @@
+{
+  "plugin.webNginxWindows.name": "Windows Nginx 证书更新",
+  "plugin.webNginxWindows.description": "固定windows平台与web.nginx框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webNginxWindows.section.identity": "目标事实",
+  "plugin.webNginxWindows.section.certificate": "证书更新",
+  "plugin.webNginxWindows.field.platform": "平台",
+  "plugin.webNginxWindows.field.framework": "框架",
+  "plugin.webNginxWindows.field.path": "证书位置",
+  "plugin.webNginxWindows.field.service": "服务",
+  "plugin.webNginxWindows.field.configFingerprint": "配置指纹",
+  "plugin.webNginxWindows.action.deploy": "部署证书",
+  "plugin.webNginxWindows.action.verify": "验证证书",
+  "plugin.webNginxWindows.action.rollback": "回滚证书"
+}

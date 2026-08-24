@@ -1,0 +1,117 @@
+{
+  "apiVersion": "gcac.certificate-update-plan/v1",
+  "pluginId": "web.apache.linux",
+  "capability": "certificate.deploy",
+  "planId": "certificate.deploy",
+  "writeEffect": true,
+  "operations": [
+    {
+      "operationId": "validate-material",
+      "operationType": "certificate.material.validate",
+      "stage": "prepare",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        },
+        "storageKind": "PEM_FILES"
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "backup-target",
+      "operationType": "filesystem.backup",
+      "stage": "execute",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "ledgerRef": "execution-recovery-ledger",
+        "storageKind": "PEM_FILES"
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "atomic-replace",
+      "operationType": "filesystem.atomic_replace",
+      "stage": "execute",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        },
+        "storageKind": "PEM_FILES"
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "config-check",
+      "operationType": "command.execute_allowlisted",
+      "stage": "execute",
+      "input": {
+        "executablePath": {
+          "$ref": "programPath"
+        },
+        "executableSha256": {
+          "$ref": "programSha256"
+        },
+        "args": {
+          "$ref": "configCheckArgs"
+        },
+        "argumentTemplate": {
+          "$ref": "configCheckArgsTemplate"
+        },
+        "environmentAllowlist": [],
+        "workingDirectory": {
+          "$ref": "workingDirectory"
+        },
+        "networkScopes": [],
+        "childProcessPolicy": "deny",
+        "timeoutSeconds": 60,
+        "outputLimitBytes": 65536,
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        }
+      }
+    },
+    {
+      "operationId": "refresh-service",
+      "operationType": "service.reload",
+      "stage": "execute",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    },
+    {
+      "operationId": "verify-material",
+      "operationType": "certificate.material.validate",
+      "stage": "verify",
+      "input": {
+        "path": {
+          "$ref": "paths.current"
+        },
+        "artifactDigest": {
+          "$ref": "artifactDigest"
+        },
+        "storageKind": "PEM_FILES"
+      },
+      "expandPathRef": "paths"
+    },
+    {
+      "operationId": "verify-service",
+      "operationType": "service.status",
+      "stage": "verify",
+      "input": {
+        "serviceName": {
+          "$ref": "serviceName"
+        }
+      }
+    }
+  ]
+}

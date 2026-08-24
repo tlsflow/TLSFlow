@@ -1,0 +1,246 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "app.tomcat.windows-certificate-rollback",
+    "displayName": "Windows Tomcat 证书更新回滚",
+    "description": "只使用同一次执行备份账本恢复目标。",
+    "category": "application",
+    "tags": [
+      "certificate",
+      "rollback"
+    ],
+    "version": "1.0.0",
+    "platforms": [
+      "windows"
+    ],
+    "maintainer": "GCAC"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "keystorePath": {
+        "type": "file",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.keystorePath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "keystoreType": {
+        "type": "enum",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.keystoreType"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed",
+        "enum": [
+          "JKS",
+          "PKCS12"
+        ]
+      },
+      "keyAlias": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.keyAlias"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "configPath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.sourceConfigPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "serviceName": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.serviceName"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "programPath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.programPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "configFingerprint": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.configFingerprint"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      }
+    },
+    "connections": {},
+    "credentials": {
+      "keystorePassword": {
+        "allowedKinds": [
+          "USERNAME_PASSWORD"
+        ],
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution"
+      }
+    },
+    "artifacts": {
+      "certificateArtifact": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "pfxBase64": {
+              "role": "keystore",
+              "required": false,
+              "format": "PKCS12",
+              "encoding": "base64",
+              "sensitive": true
+            },
+            "jksBase64": {
+              "role": "keystore",
+              "required": false,
+              "format": "JKS",
+              "encoding": "base64",
+              "sensitive": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "prepareFacts",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.keystorePath}}",
+          "configPath": "{{variables.configPath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configPath": {
+            "expression": "configPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "verifySameTarget",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.keystorePath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    }
+  ],
+  "rollback": [
+    {
+      "name": "prepareFacts",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.keystorePath}}",
+          "configPath": "{{variables.configPath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configPath": {
+            "expression": "configPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "verifySameTarget",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.keystorePath}}",
+          "configFingerprint": "{{variables.configFingerprint}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configFingerprint": {
+            "expression": "configFingerprint"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    }
+  ]
+}
