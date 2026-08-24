@@ -2512,6 +2512,7 @@ export default {
       artifactFormat: '产物格式配置',
       updatePlugin: '证书更新插件'
     },
+    capability: { source: '能力来源', plugin: '插件版本', runtime: '运行时', executionLocation: '执行位置' },
     links: {
       certificateBindings: '查看证书绑定',
       executions: '查看执行记录'
@@ -2758,7 +2759,10 @@ export default {
       pluginFormLoadFailed: '加载插件配置表单失败',
       pluginBindingCreateFailed: '保存插件绑定失败',
       loadWorkflowCredentialsFailed: '加载工作流凭据失败',
-      noAvailableSiteInstance: '未找到可用的站点实例，请先确认 Agent 详情中的框架站点已成功上报。'
+      noAvailableSiteInstance: '未找到可用的站点实例，请先确认设备发现已成功上报框架和站点。',
+      managedTargetRediscoveryRequired: '当前站点没有受管目标，请重新执行设备发现。',
+      noCompatibleManagedPlugin: '没有与当前受管目标兼容的已启用插件。',
+      capabilityAssignmentMissing: '当前目标尚未配置生效的部署能力。'
     },
     platforms: {
       appliance: '设备'

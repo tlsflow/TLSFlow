@@ -2390,6 +2390,7 @@ export default {
       artifactFormat: 'Конфигурация формата артефакта',
       updatePlugin: 'Плагин обновления сертификата'
     },
+    capability: { source: 'Источник возможности', plugin: 'Версия плагина', runtime: 'Среда выполнения', executionLocation: 'Место выполнения' },
     links: {
       certificateBindings: 'Посмотреть привязки сертификатов',
       executions: 'Посмотреть записи выполнения'
@@ -2636,7 +2637,10 @@ export default {
       pluginFormLoadFailed: 'Не удалось загрузить форму настройки плагина',
       pluginBindingCreateFailed: 'Не удалось сохранить привязку плагина',
       loadWorkflowCredentialsFailed: 'Не удалось загрузить учетные данные рабочего процесса',
-      noAvailableSiteInstance: 'Доступный экземпляр сайта не найден; сначала убедитесь, что сайты фреймворка успешно отправлены в деталях Agent.'
+      noAvailableSiteInstance: 'Нет доступного экземпляра сайта. Убедитесь, что обнаружение устройства передало фреймворки и сайты.',
+      managedTargetRediscoveryRequired: 'У этого сайта нет управляемых целей. Повторите обнаружение устройства.',
+      noCompatibleManagedPlugin: 'Нет включённого плагина, совместимого с этой управляемой целью.',
+      capabilityAssignmentMissing: 'Для этой цели нет действующего назначения возможности развёртывания.'
     },
     platforms: {
       appliance: 'Устройство'

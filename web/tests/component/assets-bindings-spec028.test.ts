@@ -9,14 +9,14 @@ const assetMocks = vi.hoisted(() => ({
   createHost: vi.fn(),
   updateHost: vi.fn(),
   deleteHost: vi.fn(),
-  deleteServiceInstance: vi.fn(),
+  deleteFrameworkInstance: vi.fn(),
   listAssets: vi.fn(),
   listCapabilities: vi.fn(),
   matchCapabilityRequirement: vi.fn(),
   evaluateCapabilityCompatibility: vi.fn(),
-  listServiceInstances: vi.fn(),
-  createServiceInstance: vi.fn(),
-  updateServiceInstance: vi.fn(),
+  listFrameworkInstances: vi.fn(),
+  createFrameworkInstance: vi.fn(),
+  updateFrameworkInstance: vi.fn(),
   previewDiscoveryMerge: vi.fn(),
   startDiscovery: vi.fn(),
   createServiceAsset: vi.fn(),
@@ -28,6 +28,9 @@ const assetMocks = vi.hoisted(() => ({
   listSiteAssets: vi.fn(),
   createSiteAsset: vi.fn(),
   listManagedTargets: vi.fn(),
+  getManagedTargetEffectiveCapability: vi.fn(),
+  listManagedTargetCompatiblePlugins: vi.fn(),
+  saveApplicationAssetManagedTarget: vi.fn(),
   createManagedTarget: vi.fn(),
   listManagedTargetSnapshots: vi.fn(),
   projectWorkflowBinding: vi.fn(),
@@ -53,12 +56,18 @@ const securityMocks = vi.hoisted(() => ({
   listSecrets: vi.fn(),
 }))
 
+const credentialMocks = vi.hoisted(() => ({
+  listCredentials: vi.fn(),
+  getCredential: vi.fn(),
+}))
+
 const deviceMocks = vi.hoisted(() => ({
   listManagedDevices: vi.fn(),
 }))
 
 const pluginMocks = vi.hoisted(() => ({
   listAgentPluginPackages: vi.fn(),
+  listPluginCatalog: vi.fn(),
   previewAgentPluginBinding: vi.fn(),
 }))
 
@@ -67,6 +76,7 @@ vi.mock('@/api/modules/certificates.api', () => certificateMocks)
 vi.mock('@/api/modules/workflow-templates.api', () => workflowMocks)
 vi.mock('@/api/modules/gateways.api', () => gatewayMocks)
 vi.mock('@/api/modules/security.api', () => securityMocks)
+vi.mock('@/api/modules/credentials.api', () => credentialMocks)
 vi.mock('@/api/modules/devices.api', () => deviceMocks)
 vi.mock('@/api/modules/plugins.api', () => pluginMocks)
 
@@ -135,12 +145,15 @@ describe('资产与证书产物视图', () => {
         status: 'ACTIVE',
       },
     ]))
-    assetMocks.listServiceInstances.mockResolvedValue(okPage([
+    assetMocks.listFrameworkInstances.mockResolvedValue(okPage([
       { id: 'svc-1', displayName: 'nginx-main', providerType: 'NGINX', hostId: 'host-1', rawFacts: { ports: [443] } },
     ]))
     assetMocks.listAgents.mockResolvedValue(okPage([{ id: 'agent-1', displayName: 'agent-1' }]))
     assetMocks.listSiteAssets.mockResolvedValue(okPage([]))
     assetMocks.listManagedTargets.mockResolvedValue(okPage([]))
+    assetMocks.getManagedTargetEffectiveCapability.mockResolvedValue(okRecord({}))
+    assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({ items: [] }))
+    assetMocks.saveApplicationAssetManagedTarget.mockResolvedValue(okRecord({ target: { id: 'target-binding-1' } }))
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
     assetMocks.getAgentDetail.mockResolvedValue(okRecord({ id: 'agent-1', capabilitySnapshot: { capabilities: [] } }))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
@@ -200,6 +213,8 @@ describe('资产与证书产物视图', () => {
       { id: 'gateway-1', name: 'gw-east', status: 'online' },
     ]))
     securityMocks.listSecrets.mockResolvedValue(okPage([]))
+    credentialMocks.listCredentials.mockResolvedValue(okPage([]))
+    credentialMocks.getCredential.mockResolvedValue(okRecord())
     deviceMocks.listManagedDevices.mockResolvedValue(okPage([
       {
         id: 'host-1',
@@ -215,6 +230,7 @@ describe('资产与证书产物视图', () => {
       },
     ]))
     pluginMocks.listAgentPluginPackages.mockResolvedValue(okPage([]))
+    pluginMocks.listPluginCatalog.mockResolvedValue(okPage([]))
     pluginMocks.previewAgentPluginBinding.mockResolvedValue(okRecord({}))
 
     certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
@@ -320,6 +336,9 @@ describe('资产与证书产物视图', () => {
         providerType: 'NGINX',
       },
     ]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([{
+      id: 'target-1', deviceId: 'host-1', frameworkInstanceId: 'svc-1', siteId: 'site-1', targetType: 'tls.binding', targetKey: 'default-site',
+    }]))
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
@@ -344,11 +363,11 @@ describe('资产与证书产物视图', () => {
     await deviceSelect.setValue('host-1')
     await flushPromises()
 
-    expect(assetMocks.listServiceInstances).toHaveBeenLastCalledWith({
+    expect(assetMocks.listFrameworkInstances).toHaveBeenLastCalledWith({
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: { hostId: 'host-1' },
+      filters: { deviceId: 'host-1' },
     })
 
     const serviceSelect = wrapper.findAll('select').find((select) => select.find('option[value="svc-1"]').exists())!
@@ -359,7 +378,7 @@ describe('资产与证书产物视图', () => {
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: { serviceInstanceId: 'svc-1' },
+      filters: { frameworkInstanceId: 'svc-1', status: 'ACTIVE' },
     })
 
     const siteSelect = wrapper.findAll('select').find((select) => select.find('option[value="site-1"]').exists())!
@@ -373,10 +392,8 @@ describe('资产与证书产物视图', () => {
     await wrapper.findAll('button').find((button) => button.text() === '确认创建')!.trigger('click')
     await flushPromises()
 
-    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
-      siteAssetId: 'site-1',
-      certificateFormatId: 'certfmt-1',
-    }))
+    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({ certificateFormatId: 'certfmt-1' }))
+    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-2', expect.objectContaining({ managedTargetId: 'target-1' }))
     const payload = assetMocks.createServiceAsset.mock.calls.at(-1)?.[0]
     expect(payload).not.toHaveProperty('agentId')
     expect(payload).not.toHaveProperty('targetBinding')
@@ -395,6 +412,17 @@ describe('资产与证书产物视图', () => {
   })
 
   it('编辑 ADC 应用资产时加载并允许修改受管目标链路', async () => {
+    assetMocks.listManagedTargetCompatiblePlugins.mockResolvedValue(okRecord({
+      items: [{
+        pluginVersionId: 'plugin-version-adc-1',
+        pluginId: 'citrix.netscaler-adc',
+        version: '1.1.15',
+        runtime: 'WORKFLOW_DSL',
+        displayNameKey: 'plugin.citrix.name',
+        displayName: 'Citrix ADC 证书部署',
+        compatible: true,
+      }],
+    }))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: '10.255.0.41',
@@ -402,23 +430,19 @@ describe('资产与证书产物视图', () => {
       port: 443,
       protocol: 'HTTPS',
       platform: 'APPLIANCE',
-      hostId: 'host-adc-1',
-      serviceInstanceId: 'svc-adc-1',
       targetBinding: {
-        deviceAssetId: 'host-adc-1',
-        siteAssetId: 'site-adc-1',
         managedTargetId: 'target-adc-1',
-        frameworkType: 'DEVICE_TEMPLATE',
       },
       targetBindingDetail: {
-        siteAsset: { id: 'site-adc-1', hostId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+        host: { id: 'host-adc-1', displayName: 'ADC 01' },
+        frameworkInstance: { id: 'svc-adc-1', deviceId: 'host-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer' },
+        siteAsset: { id: 'site-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
         managedTarget: {
           id: 'target-adc-1',
-          deviceAssetId: 'host-adc-1',
-          hostId: 'host-adc-1',
-          providerType: 'DEVICE_TEMPLATE',
-          frameworkType: 'DEVICE_TEMPLATE',
-          targetType: 'SITE_BINDING',
+          deviceId: 'host-adc-1',
+          frameworkInstanceId: 'svc-adc-1',
+          siteId: 'site-adc-1',
+          targetType: 'tls.binding',
           targetKey: 'LB:test',
           bindingKey: 'LB:test',
         },
@@ -433,20 +457,19 @@ describe('资产与证书产物视图', () => {
         },
       },
     }))
-    assetMocks.listServiceInstances.mockResolvedValue(okPage([
-      { id: 'svc-adc-1', displayName: 'netscaler-adc', providerType: 'DEVICE_TEMPLATE', hostId: 'host-adc-1' },
+    assetMocks.listFrameworkInstances.mockResolvedValue(okPage([
+      { id: 'svc-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer', deviceId: 'host-adc-1' },
     ]))
     assetMocks.listSiteAssets.mockResolvedValue(okPage([
-      { id: 'site-adc-1', serviceInstanceId: 'svc-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+      { id: 'site-adc-1', frameworkInstanceId: 'svc-adc-1', deviceId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
     ]))
     assetMocks.listManagedTargets.mockResolvedValue(okPage([
       {
         id: 'target-adc-1',
-        deviceAssetId: 'host-adc-1',
-        siteAssetId: 'site-adc-1',
-        providerType: 'DEVICE_TEMPLATE',
-        frameworkType: 'DEVICE_TEMPLATE',
-        targetType: 'SITE_BINDING',
+        deviceId: 'host-adc-1',
+        frameworkInstanceId: 'svc-adc-1',
+        siteId: 'site-adc-1',
+        targetType: 'tls.binding',
         targetKey: 'LB:test',
         bindingKey: 'LB:test',
       },
@@ -458,9 +481,10 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
 
     expect(deviceMocks.listManagedDevices).toHaveBeenCalledWith(expect.objectContaining({ sort: 'displayName:asc' }))
-    expect(assetMocks.listServiceInstances).toHaveBeenCalledWith(expect.objectContaining({ filters: { hostId: 'host-adc-1' } }))
-    expect(assetMocks.listSiteAssets).toHaveBeenCalledWith(expect.objectContaining({ filters: { serviceInstanceId: 'svc-adc-1' } }))
-    expect(assetMocks.listManagedTargets).toHaveBeenCalledWith(expect.objectContaining({ filters: { siteAssetId: 'site-adc-1' } }))
+    expect(assetMocks.listFrameworkInstances).toHaveBeenCalledWith(expect.objectContaining({ filters: { deviceId: 'host-adc-1' } }))
+    expect(assetMocks.listSiteAssets).toHaveBeenCalledWith(expect.objectContaining({ filters: { frameworkInstanceId: 'svc-adc-1', status: 'ACTIVE' } }))
+    expect(assetMocks.listManagedTargets).toHaveBeenCalledWith(expect.objectContaining({ filters: { siteId: 'site-adc-1', status: 'ACTIVE' } }))
+    expect(assetMocks.listManagedTargetCompatiblePlugins).toHaveBeenCalledWith('target-adc-1', 'certificate.deploy', 'asset-1', 'zh-CN')
 
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
     await flushPromises()
@@ -470,22 +494,18 @@ describe('资产与证书产物视图', () => {
     expect(deviceSelect?.element.value).toBe('host-adc-1')
     expect(targetSelect?.element.value).toBe('target-adc-1')
     expect(certificateFormatSelect?.element.value).toBe('certfmt-1')
+    expect(wrapper.text()).toContain('test（10.255.0.41:443）')
+    expect(wrapper.text()).toContain('Citrix ADC 证书部署')
+    expect(wrapper.text()).not.toContain('plugin.citrix.name')
+    expect(deviceSelect?.classes()).toContain('gc-native-select')
 
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
     await flushPromises()
 
-    expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
-      hostId: 'host-adc-1',
-      serviceInstanceId: 'svc-adc-1',
-      targetBinding: expect.objectContaining({
-        deviceAssetId: 'host-adc-1',
-        siteAssetId: 'site-adc-1',
-        managedTargetId: 'target-adc-1',
-        targetType: 'SITE_BINDING',
-      }),
-    }))
+    expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.not.objectContaining({ hostId: expect.anything(), serviceInstanceId: expect.anything(), targetBinding: expect.anything() }))
+    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-1', expect.objectContaining({ managedTargetId: 'target-adc-1' }))
   })
 
   it('应用资产可以按工作流模式创建并保存部署策略', async () => {
@@ -585,6 +605,15 @@ describe('资产与证书产物视图', () => {
       advanced: [], runtime: [{ name: 'serverCert', type: 'certificate', source: 'certificate' }], basicConnections: [], advancedConnections: [], diagnostics: [],
     } }))
     securityMocks.listSecrets.mockResolvedValue(okPage([{ id: 'sec_synology', name: 'DSM 管理凭据', type: 'password', metadata: { workflowCredential: true, workflowCredentialKind: 'username_password', username: 'admin' } }]))
+    credentialMocks.listCredentials.mockResolvedValue(okPage([{ id: 'sec_synology', status: 'active' }]))
+    credentialMocks.getCredential.mockResolvedValue(okRecord({
+      id: 'sec_synology',
+      name: 'DSM 管理凭据',
+      kind: 'USERNAME_PASSWORD',
+      username: 'admin',
+      secretSlots: {},
+      createdAt: '2026-07-22T00:00:00.000Z',
+    }))
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()

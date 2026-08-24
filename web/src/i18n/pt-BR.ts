@@ -2390,6 +2390,7 @@ export default {
       artifactFormat: 'Configuração de formato do artefato',
       updatePlugin: 'Plugin de atualização de certificado'
     },
+    capability: { source: 'Origem da capacidade', plugin: 'Versão do plugin', runtime: 'Runtime', executionLocation: 'Local de execução' },
     links: {
       certificateBindings: 'Ver bindings de certificado',
       executions: 'Ver registros de execução'
@@ -2636,7 +2637,10 @@ export default {
       pluginFormLoadFailed: 'Falha ao carregar o formulário de configuração do plugin',
       pluginBindingCreateFailed: 'Falha ao salvar a vinculação do plugin',
       loadWorkflowCredentialsFailed: 'Falha ao carregar credenciais do workflow',
-      noAvailableSiteInstance: 'Nenhuma instância de site disponível encontrada. Confirme nos detalhes do Agent se os sites do framework foram reportados com sucesso.'
+      noAvailableSiteInstance: 'Nenhuma instância de site disponível. Confirme se a descoberta do dispositivo informou frameworks e sites.',
+      managedTargetRediscoveryRequired: 'Este site não possui alvos gerenciados. Execute novamente a descoberta do dispositivo.',
+      noCompatibleManagedPlugin: 'Nenhum plugin habilitado é compatível com este alvo gerenciado.',
+      capabilityAssignmentMissing: 'Este alvo não possui uma atribuição efetiva de capacidade de implantação.'
     },
     platforms: {
       appliance: 'Dispositivo'

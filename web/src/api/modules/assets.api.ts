@@ -3,7 +3,7 @@ import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQ
 
 const HOSTS_PATH = '/api/v1/hosts'
 const SERVICE_ASSETS_PATH = '/api/v1/service-assets'
-const SERVICE_INSTANCES_PATH = '/api/v1/service-instances'
+const FRAMEWORK_INSTANCES_PATH = '/api/v1/framework-instances'
 const SITE_ASSETS_PATH = '/api/v1/site-assets'
 const MANAGED_TARGETS_PATH = '/api/v1/managed-targets'
 const MANAGED_TARGET_SNAPSHOTS_PATH = '/api/v1/managed-target-snapshots'
@@ -49,8 +49,8 @@ export function deleteHost(hostId: string, payload: ApiBody = {}) {
   return postAction(`${HOSTS_PATH}/delete`, { ...payload, id: hostId }, 'host_delete')
 }
 
-export function listServiceInstances(query?: BusinessListQuery) {
-  return listRecords(SERVICE_INSTANCES_PATH, query)
+export function listFrameworkInstances(query?: BusinessListQuery) {
+  return listRecords(FRAMEWORK_INSTANCES_PATH, query)
 }
 
 export function listSiteAssets(query?: BusinessListQuery) {
@@ -61,6 +61,26 @@ export function listManagedTargets(query?: BusinessListQuery) {
   return listRecords(MANAGED_TARGETS_PATH, query)
 }
 
+export function getManagedTargetEffectiveCapability(managedTargetId: string, capabilityKey: string, applicationAssetId?: string): Promise<ApiRecordResult> {
+  const query = applicationAssetId ? `?applicationAssetId=${encodeURIComponent(applicationAssetId)}` : ''
+  return apiClient.get<ApiRecord>(toClientPath(`${MANAGED_TARGETS_PATH}/${encodeURIComponent(managedTargetId)}/deployment-capabilities/${encodeURIComponent(capabilityKey)}${query}`))
+}
+
+export function listManagedTargetCompatiblePlugins(managedTargetId: string, capabilityKey: string, applicationAssetId?: string, locale?: string): Promise<ApiRecordResult> {
+  const search = new URLSearchParams({ capabilityKey })
+  if (applicationAssetId) search.set('applicationAssetId', applicationAssetId)
+  if (locale) search.set('locale', locale)
+  return apiClient.get<ApiRecord>(toClientPath(`${MANAGED_TARGETS_PATH}/${encodeURIComponent(managedTargetId)}/compatible-plugins?${search.toString()}`))
+}
+
+export function saveApplicationAssetManagedTarget(applicationAssetId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.request<ApiRecord>(toClientPath(`/api/v1/application-assets/${encodeURIComponent(applicationAssetId)}/managed-target`), {
+    method: 'PUT',
+    body: payload,
+    idempotencyKey: createIdempotencyKey('application_asset_managed_target_save'),
+  })
+}
+
 export function createManagedTarget(payload: ApiBody) {
   return postAction(MANAGED_TARGETS_PATH, payload, 'managed_target_create')
 }
@@ -69,20 +89,20 @@ export function listManagedTargetSnapshots(query?: BusinessListQuery) {
   return listRecords(MANAGED_TARGET_SNAPSHOTS_PATH, query)
 }
 
-export function createServiceInstance(payload: ApiBody) {
-  return postAction(SERVICE_INSTANCES_PATH, payload, 'service_instance_create')
+export function createFrameworkInstance(payload: ApiBody) {
+  return postAction(FRAMEWORK_INSTANCES_PATH, payload, 'service_instance_create')
 }
 
 export function createSiteAsset(payload: ApiBody) {
   return postAction(SITE_ASSETS_PATH, payload, 'site_asset_create')
 }
 
-export function updateServiceInstance(serviceInstanceId: string, payload: ApiBody) {
-  return patchAction(SERVICE_INSTANCES_PATH, { ...payload, id: serviceInstanceId }, 'service_instance_update')
+export function updateFrameworkInstance(serviceInstanceId: string, payload: ApiBody) {
+  return patchAction(FRAMEWORK_INSTANCES_PATH, { ...payload, id: serviceInstanceId }, 'service_instance_update')
 }
 
-export function deleteServiceInstance(serviceInstanceId: string, payload: ApiBody = {}) {
-  return postAction(`${SERVICE_INSTANCES_PATH}/delete`, { ...payload, id: serviceInstanceId }, 'service_instance_delete')
+export function deleteFrameworkInstance(serviceInstanceId: string, payload: ApiBody = {}) {
+  return postAction(`${FRAMEWORK_INSTANCES_PATH}/delete`, { ...payload, id: serviceInstanceId }, 'service_instance_delete')
 }
 
 export function listCapabilities(query?: BusinessListQuery) {

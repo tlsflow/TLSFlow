@@ -9,6 +9,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 
 const deploymentMocks = vi.hoisted(() => ({
   listAssets: vi.fn(),
+  listManagedTargets: vi.fn(),
   getAssetDetail: vi.fn(),
   listCertificates: vi.fn(),
   listCertificateVersions: vi.fn(),
@@ -66,6 +67,7 @@ const workflowMocks = vi.hoisted(() => ({
 
 vi.mock('@/api/modules/assets.api', () => ({
   listAssets: deploymentMocks.listAssets,
+  listManagedTargets: deploymentMocks.listManagedTargets,
   getAssetDetail: deploymentMocks.getAssetDetail,
 }))
 
@@ -199,13 +201,17 @@ describe('spec028 前端闭环', () => {
         id: 'asset-1',
         address: 'a.example.com',
         displayName: 'a.example.com',
-        targetBinding: { managedTargetId: 'target-1', siteAssetId: 'site-1' },
-        targetBindingDetail: {
-          siteAsset: {
-            siteName: 'SITE-1',
-            bindingInformation: '*:443:a.example.com',
-          },
-        },
+        targetBinding: { managedTargetId: 'target-1', metadata: { siteName: 'SITE-1', bindingInformation: '*:443:a.example.com' } },
+      },
+    ]))
+    deploymentMocks.listManagedTargets.mockResolvedValue(okPage([
+      {
+        id: 'target-1',
+        siteId: 'site-1',
+        targetType: 'tls.binding',
+        targetKey: 'iis:site-1:*:443:a.example.com',
+        bindingKey: '*:443:a.example.com',
+        executionLocations: ['AGENT'],
       },
     ]))
     deploymentMocks.getAssetDetail.mockResolvedValue({
@@ -425,12 +431,8 @@ describe('spec028 前端闭环', () => {
         id: 'asset-1',
         address: 'a.example.com',
         displayName: 'a.example.com',
-        targetBinding: { managedTargetId: 'target-1', siteAssetId: 'site-1' },
+        targetBinding: { managedTargetId: 'target-1', metadata: { siteName: 'SITE-1', bindingInformation: '*:443:a.example.com' } },
         targetBindingDetail: {
-          siteAsset: {
-            siteName: 'SITE-1',
-            bindingInformation: '*:443:a.example.com',
-          },
           certificateBindings: [{ id: 'binding-1' }],
         },
       },
@@ -491,12 +493,8 @@ describe('spec028 前端闭环', () => {
         id: 'asset-1',
         address: 'a.example.com',
         displayName: 'a.example.com',
-        targetBinding: { managedTargetId: 'target-1', siteAssetId: 'site-1' },
+        targetBinding: { managedTargetId: 'target-1', metadata: { siteName: 'SITE-1', bindingInformation: '*:443:a.example.com' } },
         targetBindingDetail: {
-          siteAsset: {
-            siteName: 'SITE-1',
-            bindingInformation: '*:443:a.example.com',
-          },
           certificateBindings: [{ id: 'binding-1' }],
         },
       },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import GcDeploymentWizard from '@/design-system/components/GcDeploymentWizard.vue'
+import { i18n } from '@/i18n'
 
 describe('GcDeploymentWizard 部署计划选择', () => {
   it('部署计划只选择证书版本和应用资产，不再选择证书产物配置', async () => {
@@ -53,6 +54,7 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           },
         ],
       },
+      global: { plugins: [i18n] },
     })
 
     expect(wrapper.text()).not.toContain('证书产物配置')
@@ -119,6 +121,7 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           },
         ],
       },
+      global: { plugins: [i18n] },
     })
 
     const certificateSelect = wrapper.findAll('select')[0].element as HTMLSelectElement
@@ -126,7 +129,7 @@ describe('GcDeploymentWizard 部署计划选择', () => {
 
     expect([...certificateSelect.options].map((option) => option.textContent?.trim())).toEqual(['*.jacksonz.cn'])
     expect([...versionSelect.options].map((option) => option.value)).toEqual(['__LATEST__', 'certver-new', 'certver-old'])
-    expect(versionSelect.options[0]?.textContent).toContain('始终自动选择最新可部署证书')
+    expect(versionSelect.options[0]?.textContent).toContain('自动选择最新可部署版本')
   })
 
   it('编辑 LATEST_AUTO 计划时保留自动跟随最新版本语义，而不是回填成固定版本', async () => {
@@ -174,6 +177,7 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           selectionMode: 'LATEST_AUTO',
         },
       },
+      global: { plugins: [i18n] },
     })
 
     const versionSelect = wrapper.findAll('select')[1].element as HTMLSelectElement

@@ -145,10 +145,11 @@ const filteredTargets = computed(() => {
   return props.targets.filter((item) => {
     const haystack = [
       readString(item, ['name', 'displayName', 'domainName']),
+      readString(item, ['frameworkLabel']),
       readString(item, ['siteName']),
       readString(item, ['bindingName', 'bindingSummary']),
       readString(item, ['managedTargetLabel', 'managedTargetId']),
-      readString(item, ['workflowLabel', 'workflowVersionLabel', 'runnerLabel', 'verifyUrl']),
+      readString(item, ['targetType', 'targetKey', 'executionLocations']),
     ].join(' ').toLowerCase()
     return haystack.includes(keyword)
   })
@@ -249,13 +250,12 @@ const progressPercent = computed(() => `${(currentStep.value / 3) * 100}%`)
 
 function buildPlan(): DeploymentWizardPlan {
   const primaryTarget = selectedTargets.value[0]
-  const targetMode = readString(primaryTarget, ['targetMode'])
   return {
     certificateId: selectedCertificateId.value,
     certificateVersionId: resolvedCertificateVersionId.value,
     targetIds: selectedTargetId.value ? [selectedTargetId.value] : [],
     applicationAssetId: readString(primaryTarget, ['applicationAssetId']) || undefined,
-    selectionMode: targetMode === 'WORKFLOW' ? 'EXPLICIT' : selectedCertificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
+    selectionMode: selectedCertificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
     capabilityItems: capabilityItems.value,
     dryRunChecks: props.dryRunChecks,
     previewSummary: previewSummary.value,
@@ -315,15 +315,12 @@ function resolveCertificateOptionId(assetId: string): string {
 
 function targetLabel(item: ApiRecord): string {
   const name = readString(item, ['name', 'displayName', 'domainName'], readString(item, ['id']))
-  const targetMode = readString(item, ['targetMode'])
-  if (targetMode === 'WORKFLOW') {
-    const workflow = readString(item, ['workflowLabel'], t('designSystem.deploymentWizard.fallback.unselectedWorkflow'))
-    const runner = readString(item, ['runnerLabel'], t('designSystem.deploymentWizard.fallback.unconfiguredRunner'))
-    return `${name} / ${t('designSystem.deploymentWizard.target.workflowMode')} / ${workflow} / ${runner}`
-  }
-  const siteName = readString(item, ['siteName'], t('designSystem.deploymentWizard.fallback.unnamedSite'))
-  const binding = readString(item, ['bindingName', 'bindingSummary'], t('designSystem.deploymentWizard.fallback.missingBinding'))
-  return `${name} / ${siteName} / ${binding}`
+  const parts = [
+    readString(item, ['siteName', 'frameworkLabel']),
+    readString(item, ['bindingName', 'bindingSummary', 'targetKey']),
+    readString(item, ['managedTargetLabel', 'targetType', 'managedTargetId']),
+  ].filter(Boolean)
+  return [name, ...parts].join(' / ')
 }
 
 function formatDate(value: string): string {
@@ -505,42 +502,20 @@ function normalizeDomainKey(value: string): string {
         <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
           <div class="gc-deployment-wizard__target-head">
             <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
-            <span>{{ readString(selectedTarget, ['targetMode']) === 'WORKFLOW' ? t('designSystem.deploymentWizard.target.workflowMode') : readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
+            <span>{{ readString(selectedTarget, ['managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
           </div>
-          <dl v-if="readString(selectedTarget, ['targetMode']) === 'WORKFLOW'" class="gc-deployment-wizard__target-meta">
-            <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.workflow') }}</dt>
-              <dd>{{ readString(selectedTarget, ['workflowLabel'], t('designSystem.deploymentWizard.fallback.unselectedWorkflow')) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.version') }}</dt>
-              <dd>{{ readString(selectedTarget, ['workflowVersionLabel'], t('designSystem.deploymentWizard.fallback.unselectedVersion')) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.runner') }}</dt>
-              <dd>{{ readString(selectedTarget, ['runnerLabel'], t('designSystem.deploymentWizard.fallback.unconfigured')) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.verifyUrl') }}</dt>
-              <dd>{{ readString(selectedTarget, ['verifyUrl'], t('designSystem.deploymentWizard.fallback.generatedByApplicationEntry')) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.certificateVariable') }}</dt>
-              <dd>{{ readString(selectedTarget, ['certificateBindingSummary'], t('designSystem.deploymentWizard.fallback.unboundCertificateVariable')) }}</dd>
-            </div>
-          </dl>
-          <dl v-else class="gc-deployment-wizard__target-meta">
-            <div>
+          <dl class="gc-deployment-wizard__target-meta">
+            <div v-if="readString(selectedTarget, ['siteName'])">
               <dt>{{ t('designSystem.deploymentWizard.fields.site') }}</dt>
-              <dd>{{ readString(selectedTarget, ['siteName'], t('designSystem.deploymentWizard.fallback.unnamedSite')) }}</dd>
+              <dd>{{ readString(selectedTarget, ['siteName']) }}</dd>
             </div>
             <div>
               <dt>{{ t('designSystem.deploymentWizard.fields.binding') }}</dt>
-              <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary'], t('designSystem.deploymentWizard.fallback.missingBinding')) }}</dd>
+              <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary', 'targetKey'], t('designSystem.deploymentWizard.fallback.missingBinding')) }}</dd>
             </div>
             <div>
               <dt>{{ t('designSystem.deploymentWizard.fields.managedTarget') }}</dt>
-              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</dd>
+              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</dd>
             </div>
             <div>
               <dt>{{ t('designSystem.deploymentWizard.fields.artifactConfig') }}</dt>

@@ -68,6 +68,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/agents/versions",
     "/api/v1/application-asset-targets",
     "/api/v1/application-asset-targets/delete",
+    "/api/v1/application-assets/:applicationAssetId/managed-target",
     "/api/v1/approvals",
     "/api/v1/approvals/decide",
     "/api/v1/asset-conflicts",
@@ -184,6 +185,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/execution-runs/stream",
     "/api/v1/execution-steps",
     "/api/v1/execution-workflow-recovery",
+    "/api/v1/framework-instances",
+    "/api/v1/framework-instances/delete",
     "/api/v1/gateways",
     "/api/v1/gateways/detail",
     "/api/v1/gateways/probe",
@@ -195,6 +198,8 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/hosts/delete",
     "/api/v1/managed-target-snapshots",
     "/api/v1/managed-targets",
+    "/api/v1/managed-targets/:managedTargetId/compatible-plugins",
+    "/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey",
     "/api/v1/managed-targets/delete",
     "/api/v1/monitors/alert-rules",
     "/api/v1/monitors/certificate-observations",
@@ -294,8 +299,6 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/service-assets/workflow-binding-projection",
     "/api/v1/service-endpoints",
     "/api/v1/service-endpoints/delete",
-    "/api/v1/service-instances",
-    "/api/v1/service-instances/delete",
     "/api/v1/site-assets",
     "/api/v1/site-assets/delete",
     "/api/v1/workflow-file-templates",
@@ -312,6 +315,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/workflow-templates/canvas/compile",
     "/api/v1/workflow-templates/canvas/validate",
     "/api/v1/workflow-templates/delete",
-    "/api/v1/workflow-templates/rename"
+    "/api/v1/workflow-templates/rename",
+    "/api/v1/workflows"
   ]
 } as const

@@ -2416,6 +2416,7 @@ export default {
       artifactFormat: '成果物形式設定',
       updatePlugin: '証明書更新プラグイン'
     },
+    capability: { source: '機能の取得元', plugin: 'プラグインバージョン', runtime: 'ランタイム', executionLocation: '実行場所' },
     links: {
       certificateBindings: '表示証明書バインド',
       executions: '表示実行記録'
@@ -2662,7 +2663,10 @@ export default {
       pluginFormLoadFailed: 'プラグイン設定フォームの読み込みに失敗しました',
       pluginBindingCreateFailed: 'プラグインバインディングの保存に失敗しました',
       loadWorkflowCredentialsFailed: 'ワークフロー認証情報の読み込みに失敗しました',
-      noAvailableSiteInstance: '利用可能なサイトインスタンスが見つかりません。先に Agent 詳細でフレームワークサイトが正常に報告されていることを確認してください。'
+      noAvailableSiteInstance: '利用可能なサイトインスタンスがありません。デバイス検出でフレームワークとサイトが報告されたことを確認してください。',
+      managedTargetRediscoveryRequired: 'このサイトには管理対象がありません。デバイス検出を再実行してください。',
+      noCompatibleManagedPlugin: 'この管理対象と互換性のある有効なプラグインがありません。',
+      capabilityAssignmentMissing: 'この対象には有効なデプロイ機能の割り当てがありません。'
     },
     platforms: {
       appliance: 'デバイス'

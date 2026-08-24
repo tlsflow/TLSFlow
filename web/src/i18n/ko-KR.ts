@@ -2390,6 +2390,7 @@ export default {
       artifactFormat: '제품 형식 설정',
       updatePlugin: '인증서 업데이트 플러그인'
     },
+    capability: { source: '기능 출처', plugin: '플러그인 버전', runtime: '런타임', executionLocation: '실행 위치' },
     links: {
       certificateBindings: '인증서 바인딩 보기',
       executions: '실행 기록 보기'
@@ -2636,7 +2637,10 @@ export default {
       pluginFormLoadFailed: '플러그인 설정 양식을 불러올 수 없습니다',
       pluginBindingCreateFailed: '플러그인 바인딩을 저장할 수 없습니다',
       loadWorkflowCredentialsFailed: '워크플로 자격 증명을 불러오는 데 실패했습니다',
-      noAvailableSiteInstance: '사용 가능한 사이트 인스턴스를 찾을 수 없습니다. 먼저 Agent 프레임워크 사이트가 성공적으로 보고되었는지 확인하세요.'
+      noAvailableSiteInstance: '사용 가능한 사이트 인스턴스가 없습니다. 장치 검색이 프레임워크와 사이트를 보고했는지 확인하세요.',
+      managedTargetRediscoveryRequired: '이 사이트에 관리 대상이 없습니다. 장치 검색을 다시 실행하세요.',
+      noCompatibleManagedPlugin: '현재 관리 대상과 호환되는 활성 플러그인이 없습니다.',
+      capabilityAssignmentMissing: '현재 대상에 유효한 배포 기능 할당이 없습니다.'
     },
     platforms: {
       appliance: '장치'

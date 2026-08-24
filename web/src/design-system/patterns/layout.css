@@ -564,6 +564,54 @@
   font-weight: 650;
 }
 
+select.gc-native-select,
+.gc-native-select-surface select:not([multiple]) {
+  min-width: 0;
+  min-height: var(--gc-control-height-md);
+  appearance: none;
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  padding-block: var(--gc-space-2);
+  padding-inline: var(--gc-space-3) var(--gc-space-8);
+  color: var(--gc-color-text);
+  background-color: var(--gc-color-surface-field);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--gc-color-text-muted) 50%),
+    linear-gradient(135deg, var(--gc-color-text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--gc-space-4)) calc(50% - calc(var(--gc-space-1) / 2)),
+    calc(100% - var(--gc-space-3)) calc(50% - calc(var(--gc-space-1) / 2));
+  background-repeat: no-repeat;
+  background-size: calc(var(--gc-space-2) / 2) calc(var(--gc-space-2) / 2);
+  box-shadow: inset 0 var(--gc-space-hairline) var(--gc-space-hairline) var(--gc-color-border-subtle), var(--gc-shadow-sm);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+select.gc-native-select:hover:not(:disabled),
+.gc-native-select-surface select:not([multiple]):hover:not(:disabled) {
+  border-color: var(--gc-color-border-strong);
+  background-color: var(--gc-color-surface-field-focus);
+}
+
+select.gc-native-select:focus,
+select.gc-native-select:focus-visible,
+.gc-native-select-surface select:not([multiple]):focus,
+.gc-native-select-surface select:not([multiple]):focus-visible {
+  border-color: var(--gc-color-focus);
+  background-color: var(--gc-color-surface-field-focus);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+select.gc-native-select:disabled,
+.gc-native-select-surface select:not([multiple]):disabled {
+  color: var(--gc-color-text-muted);
+  background-color: var(--gc-color-muted-bg);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .gc-form-error,
 .gc-form-success {
   margin: 0;

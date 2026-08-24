@@ -2464,6 +2464,7 @@ export default {
       artifactFormat: 'Format de l’artéfact',
       updatePlugin: 'Plugin de mise à jour du certificat'
     },
+    capability: { source: 'Source de la capacité', plugin: 'Version du plugin', runtime: 'Runtime', executionLocation: "Emplacement d’exécution" },
     links: {
       certificateBindings: 'View certificate bindings',
       executions: 'View execution records'
@@ -2706,7 +2707,10 @@ export default {
       pluginFormLoadFailed: 'Échec du chargement du formulaire de configuration du plugin',
       pluginBindingCreateFailed: 'Échec de l’enregistrement de la liaison du plugin',
       loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
-      noAvailableSiteInstance: 'No available site instance found. Confirm framework sites have been reported successfully in Agent details.'
+      noAvailableSiteInstance: 'Aucune instance de site disponible. Vérifiez que la découverte du périphérique a remonté les frameworks et les sites.',
+      managedTargetRediscoveryRequired: 'Ce site ne contient aucune cible gérée. Relancez la découverte du périphérique.',
+      noCompatibleManagedPlugin: 'Aucun plugin activé n’est compatible avec cette cible gérée.',
+      capabilityAssignmentMissing: 'Cette cible ne possède aucune affectation de capacité de déploiement effective.'
     },
     platforms: {
       appliance: 'Appliance'

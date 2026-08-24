@@ -2415,6 +2415,7 @@ export default {
       artifactFormat: "產物格式設定",
       updatePlugin: "憑證更新外掛"
     },
+    capability: { source: "能力來源", plugin: "外掛版本", runtime: "執行階段", executionLocation: "執行位置" },
     links: {
       certificateBindings: "檢視憑證繫結",
       executions: "檢視執行記錄"
@@ -2661,7 +2662,10 @@ export default {
       pluginFormLoadFailed: "載入外掛設定表單失敗",
       pluginBindingCreateFailed: "儲存外掛綁定失敗",
       loadWorkflowCredentialsFailed: "載入工作流憑據失敗",
-      noAvailableSiteInstance: "未找到可用的站點例項，請先確認 Agent 詳情中的框架站點已成功上報。"
+      noAvailableSiteInstance: "未找到可用的站點例項，請先確認裝置探索已成功上報框架和站點。",
+      managedTargetRediscoveryRequired: "目前站點沒有受管目標，請重新執行裝置探索。",
+      noCompatibleManagedPlugin: "沒有與目前受管目標相容的已啟用外掛。",
+      capabilityAssignmentMissing: "目前目標尚未設定生效的部署能力。"
     },
     platforms: {
       appliance: "裝置"

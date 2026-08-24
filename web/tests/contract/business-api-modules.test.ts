@@ -8,7 +8,7 @@ import {
   listCertificates,
   updateCertificateFormat,
 } from '@/api/modules/certificates.api'
-import { createHost, createServiceInstance, deleteHost, deleteServiceInstance, evaluateCapabilityCompatibility, listAssets, matchCapabilityRequirement, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
+import { createHost, createFrameworkInstance, deleteHost, deleteFrameworkInstance, evaluateCapabilityCompatibility, listAssets, matchCapabilityRequirement, previewDiscoveryMerge, updateHost, updateFrameworkInstance } from '@/api/modules/assets.api'
 import { createBinding, deleteBinding, detectBindingDrift, listBindingUsages, listBindings, patchBindingStatus, persistBindingDriftResult } from '@/api/modules/bindings.api'
 import { executeDeploymentPlan, listDeploymentPlans } from '@/api/modules/deployments.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
@@ -180,9 +180,9 @@ describe('业务 API modules', () => {
 
     await updateHost('host-1', { hostname: 'web-01', zoneId: 'zone-a', arch: 'arm64' })
     await deleteHost('host-1')
-    await createServiceInstance({ hostId: 'host-1', providerType: 'NGINX', displayName: 'nginx-main' })
-    await updateServiceInstance('svc-1', { configPath: '/etc/nginx/nginx.conf' })
-    await deleteServiceInstance('svc-1', { reason: 'manual' })
+    await createFrameworkInstance({ hostId: 'host-1', providerType: 'NGINX', displayName: 'nginx-main' })
+    await updateFrameworkInstance('svc-1', { configPath: '/etc/nginx/nginx.conf' })
+    await deleteFrameworkInstance('svc-1', { reason: 'manual' })
     await matchCapabilityRequirement({ targetId: 'host-1', requiredCapabilities: ['service.reload'] })
     await evaluateCapabilityCompatibility({ targetId: 'host-1', operation: 'deploy' })
     await createBinding({ serviceInstanceId: 'svc-1', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem', verifyMethod: 'TLS_CONNECT' })
@@ -197,9 +197,9 @@ describe('业务 API modules', () => {
     expect(calls.map((call) => String(call[0]))).toEqual([
       '/api/v1/hosts',
       '/api/v1/hosts/delete',
-      '/api/v1/service-instances',
-      '/api/v1/service-instances',
-      '/api/v1/service-instances/delete',
+      '/api/v1/framework-instances',
+      '/api/v1/framework-instances',
+      '/api/v1/framework-instances/delete',
       '/api/v1/capabilities/match',
       '/api/v1/capabilities/compatibility/evaluate',
       '/api/v1/certificate-bindings',
