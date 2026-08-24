@@ -160,8 +160,34 @@ describe('CertificatesView', () => {
 
     const wrapper = mount(CertificatesView, { attachTo: document.body })
     await waitFor(() => {
+      expect(wrapper.find('.certificate-page__asset-record-trigger').exists()).toBe(true)
+    })
+
+    const assetRecord = wrapper.find('.certificate-page__asset-record')
+    const recordTrigger = assetRecord.find('.certificate-page__asset-record-trigger')
+    const panelId = recordTrigger.attributes('aria-controls')
+    const footerVersionsTrigger = assetRecord.find('.certificate-page__asset-versions-trigger')
+
+    expect(recordTrigger.attributes('aria-expanded')).toBe('false')
+    expect(panelId).toBe('certificate-versions-panel-asset-1')
+    expect(assetRecord.find(`#${panelId}`).exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__selection-empty-state').text()).toContain('未选择域名')
+    expect(footerVersionsTrigger.attributes('aria-controls')).toBe(panelId)
+    expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('false')
+    expect(footerVersionsTrigger.text()).toBe('SSL 证书列表')
+    expect(footerVersionsTrigger.text()).not.toContain('详情')
+    expect(footerVersionsTrigger.attributes('aria-label')).toContain('SSL 证书列表')
+
+    await footerVersionsTrigger.trigger('click')
+    await waitFor(() => {
       expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
     })
+
+    expect(recordTrigger.attributes('aria-expanded')).toBe('true')
+    expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('true')
+    expect(assetRecord.find(`#${panelId}`).exists()).toBe(true)
+    expect(assetRecord.find(`#${panelId}`).attributes('role')).toBe('region')
+    expect(assetRecord.find(`#${panelId}`).attributes('aria-labelledby')).toBe(recordTrigger.attributes('id'))
 
     expect(wrapper.find('.certificate-page__version-table').exists()).toBe(true)
     expect(wrapper.find('.certificate-page__sort-row').exists()).toBe(false)
@@ -211,6 +237,19 @@ describe('CertificatesView', () => {
     expect(assetCard.text()).toContain('即将过期')
     expect(assetCard.find('[role="progressbar"]').exists()).toBe(true)
 
+    await recordTrigger.trigger('click')
+    await flushPromises()
+    expect(recordTrigger.attributes('aria-expanded')).toBe('false')
+    expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('false')
+    expect(assetRecord.find(`#${panelId}`).exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__version-table').exists()).toBe(false)
+    expect(wrapper.find('.certificate-page__selection-empty-state').text()).toContain('未选择域名')
+
+    await recordTrigger.trigger('click')
+    await waitFor(() => {
+      expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
+    })
+
     const headerButtons = wrapper.findAll('.certificate-page__header-sort')
     const nameHeader = headerButtons.find((button) => button.text().includes('证书名称'))
     expect(nameHeader).toBeTruthy()
@@ -224,6 +263,146 @@ describe('CertificatesView', () => {
     expect(sortedRows[0]?.text()).toContain('zeta.weichai.com')
     expect(sortedRows[1]?.text()).toContain('beta.weichai.com')
     expect(sortedRows[2]?.text()).toContain('alpha.weichai.com')
+  })
+
+  it('快速切换证书记录时不会展示旧请求返回的版本', async () => {
+    let resolveFirstVersionRequest: ((response: Response) => void) | undefined
+    const firstVersionRequest = new Promise<Response>((resolve) => {
+      resolveFirstVersionRequest = resolve
+    })
+
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const target = String(url)
+      if (target.includes('/certificate-assets')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [
+              {
+                id: 'asset-a',
+                primaryDomain: 'alpha.weichai.com',
+                sourceType: 'manual',
+                currentVersion: { notAfter: '2026-12-17T23:59:59.000Z' },
+              },
+              {
+                id: 'asset-b',
+                primaryDomain: 'beta.weichai.com',
+                sourceType: 'manual',
+                currentVersion: { notAfter: '2026-12-17T23:59:59.000Z' },
+              },
+            ],
+            page: 1,
+            pageSize: 20,
+            total: 2,
+          },
+        }), { status: 200 })
+      }
+
+      if (target.includes('/certificate-versions')) {
+        const parsed = new URL(target, 'https://example.test')
+        const assetId = parsed.searchParams.get('filter[certificateAssetId]')
+        const pageSize = parsed.searchParams.get('pageSize')
+
+        if (pageSize === '1') {
+          return new Response(JSON.stringify({
+            data: {
+              items: [
+                {
+                  id: `lifecycle-${assetId}`,
+                  certificateAssetId: assetId,
+                  commonName: assetId === 'asset-a' ? 'alpha.weichai.com' : 'beta.weichai.com',
+                  notAfter: '2026-12-17T23:59:59.000Z',
+                  status: 'MANAGED',
+                },
+              ],
+              page: 1,
+              pageSize: 1,
+              total: 1,
+            },
+          }), { status: 200 })
+        }
+
+        if (pageSize === '100' && assetId === 'asset-a') {
+          return firstVersionRequest
+        }
+
+        if (pageSize === '100' && assetId === 'asset-b') {
+          return new Response(JSON.stringify({
+            data: {
+              items: [
+                {
+                  id: 'certver-current-b',
+                  certificateAssetId: 'asset-b',
+                  commonName: 'current.beta.weichai.com',
+                  notBefore: '2026-06-10T00:00:00.000Z',
+                  notAfter: '2026-12-17T23:59:59.000Z',
+                  issuer: { commonName: 'Beta Issuer' },
+                  subject: { commonName: 'current.beta.weichai.com' },
+                  status: 'MANAGED',
+                },
+              ],
+              page: 1,
+              pageSize: 100,
+              total: 1,
+            },
+          }), { status: 200 })
+        }
+      }
+
+      return new Response(JSON.stringify({ data: { items: [], page: 1, pageSize: 20, total: 0 } }), { status: 200 })
+    }))
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(wrapper.findAll('.certificate-page__asset-record-trigger')).toHaveLength(2)
+    })
+
+    const recordTriggers = () => wrapper.findAll('.certificate-page__asset-record-trigger')
+    const firstPanelId = recordTriggers()[0]?.attributes('aria-controls')
+    const secondPanelId = recordTriggers()[1]?.attributes('aria-controls')
+    expect(firstPanelId).toBe('certificate-versions-panel-asset-a')
+    expect(secondPanelId).toBe('certificate-versions-panel-asset-b')
+    expect(new Set(recordTriggers().map((trigger) => trigger.attributes('aria-controls'))).size).toBe(2)
+
+    await recordTriggers()[0]!.trigger('click')
+    await waitFor(() => {
+      expect(resolveFirstVersionRequest).toBeDefined()
+      expect(wrapper.find(`#${firstPanelId}`).exists()).toBe(true)
+    })
+
+    await recordTriggers()[1]!.trigger('click')
+    await waitFor(() => {
+      expect(wrapper.find(`#${secondPanelId}`).findAll('.certificate-page__version-table tbody tr')).toHaveLength(1)
+    })
+
+    expect(wrapper.find(`#${firstPanelId}`).exists()).toBe(false)
+    expect(wrapper.find(`#${secondPanelId}`).text()).toContain('current.beta.weichai.com')
+    expect(wrapper.find(`#${secondPanelId}`).text()).not.toContain('stale.alpha.weichai.com')
+
+    const resolvePendingRequest = resolveFirstVersionRequest
+    expect(resolvePendingRequest).toBeDefined()
+    resolvePendingRequest!(new Response(JSON.stringify({
+      data: {
+        items: [
+          {
+            id: 'certver-stale-a',
+            certificateAssetId: 'asset-a',
+            commonName: 'stale.alpha.weichai.com',
+            notBefore: '2026-06-10T00:00:00.000Z',
+            notAfter: '2026-12-17T23:59:59.000Z',
+            issuer: { commonName: 'Alpha Issuer' },
+            subject: { commonName: 'stale.alpha.weichai.com' },
+            status: 'MANAGED',
+          },
+        ],
+        page: 1,
+        pageSize: 100,
+        total: 1,
+      },
+    }), { status: 200 }))
+
+    await flushPromises()
+    expect(wrapper.find(`#${secondPanelId}`).text()).toContain('current.beta.weichai.com')
+    expect(wrapper.find(`#${secondPanelId}`).text()).not.toContain('stale.alpha.weichai.com')
   })
 
   it('证书版本支持删除确认，并在成功后刷新列表', async () => {
@@ -333,6 +512,10 @@ describe('CertificatesView', () => {
     }))
 
     const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(wrapper.find('.certificate-page__asset-record-trigger').exists()).toBe(true)
+    })
+    await wrapper.find('.certificate-page__asset-record-trigger').trigger('click')
     await waitFor(() => {
       expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(2)
     })
@@ -526,7 +709,17 @@ describe('CertificatesView', () => {
     })
 
     expect(wrapper.find('.certificate-page__asset-card-list').exists()).toBe(true)
-    expect(wrapper.findAll('.certificate-page__presentation-toggle-button')).toHaveLength(0)
+    const presentationButtons = wrapper.findAll('.certificate-page__presentation-toggle-button')
+    expect(presentationButtons).toHaveLength(2)
+    expect(wrapper.find('.certificate-page__asset-card-list--cards').exists()).toBe(true)
+    expect(presentationButtons[0]?.attributes('aria-pressed')).toBe('true')
+    expect(presentationButtons[1]?.attributes('aria-pressed')).toBe('false')
+    await presentationButtons[1]!.trigger('click')
+    expect(wrapper.find('.certificate-page__asset-card-list--list').exists()).toBe(true)
+    expect(presentationButtons[0]?.attributes('aria-pressed')).toBe('false')
+    expect(presentationButtons[1]?.attributes('aria-pressed')).toBe('true')
+    await presentationButtons[0]!.trigger('click')
+    expect(wrapper.find('.certificate-page__asset-card-list--cards').exists()).toBe(true)
     expect(wrapper.find('.certificate-page__asset-list').exists()).toBe(false)
 
     const assetCardText = wrapper.find('.certificate-page__asset-card-list').text()
@@ -534,6 +727,7 @@ describe('CertificatesView', () => {
     expect(assetCardText).toContain('www.weichaipower.com')
     expect(assetCardText).not.toContain('暂无补充信息')
 
+    await wrapper.find('.certificate-page__asset-record-trigger').trigger('click')
     await waitFor(() => {
       expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(1)
     })

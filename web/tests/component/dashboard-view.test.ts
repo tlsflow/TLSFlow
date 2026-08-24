@@ -107,4 +107,108 @@ describe('DashboardView', () => {
     expect(wrapper.find('.dashboard-status-summary .gc-donut-chart__segment--success').exists()).toBe(true)
     expect(wrapper.find('.dashboard-status-summary__total').text()).toBe('1')
   })
+
+  it('保留快捷入口权限过滤，并在没有有效趋势序列时显示诚实空态', async () => {
+    usePermissionStore().setPermissions(['certificate.asset.read'])
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-07-06T08:34:00.000Z',
+        metrics: [],
+        quickActions: [
+          {
+            key: 'certificates',
+            title: '证书管理',
+            description: '导入、查看和转换证书。',
+            path: '/certificates',
+            permission: 'certificate.asset.read',
+          },
+          {
+            key: 'agents',
+            title: 'Agent',
+            description: '查看在线状态和任务能力。',
+            path: '/agents',
+            permission: 'agent.read',
+          },
+        ],
+        statusGroups: [
+          {
+            key: 'certificates',
+            title: '证书',
+            summary: '全部正常',
+            total: 1,
+            blocks: [{ id: 'cert-1', label: 'api.example.com', status: '正常', tone: 'ok' }],
+          },
+          {
+            key: 'agents',
+            title: 'Agent',
+            summary: '全部正常',
+            total: 0,
+            blocks: [],
+          },
+        ],
+        certificateStatuses: [],
+        recentAudits: [
+          {
+            id: 'aud-1',
+            eventType: 'auth.login.success',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'auth.login',
+            resourceType: 'authSession',
+            result: 'success',
+            riskLevel: 'low',
+            createdAt: '2026-07-06T08:34:00.000Z',
+          },
+        ],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+
+    await vi.waitFor(() => expect(wrapper.findAll('.dashboard-action')).toHaveLength(1))
+    expect(wrapper.find('.dashboard-status-group').exists()).toBe(true)
+    expect(wrapper.findAll('.dashboard-status-group')).toHaveLength(2)
+    expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__empty').exists()).toBe(true)
+  })
+
+  it('仅用最近审计事件时间聚合活动趋势，不生成示例静态数据', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-07-06T08:34:00.000Z',
+        metrics: [],
+        quickActions: [],
+        statusGroups: [],
+        certificateStatuses: [],
+        recentAudits: [
+          {
+            id: 'aud-1',
+            eventType: 'auth.login.success',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'auth.login',
+            resourceType: 'authSession',
+            result: 'success',
+            riskLevel: 'low',
+            createdAt: '2026-07-06T08:34:00.000Z',
+          },
+          {
+            id: 'aud-2',
+            eventType: 'auth.logout',
+            actorType: 'user',
+            actorId: 'user_admin',
+            action: 'auth.logout',
+            resourceType: 'authSession',
+            result: 'success',
+            riskLevel: 'low',
+            createdAt: '2026-07-06T09:34:00.000Z',
+          },
+        ],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__line').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="dashboard-activity-chart"] .gc-trend-chart__empty').exists()).toBe(false)
+  })
 })
