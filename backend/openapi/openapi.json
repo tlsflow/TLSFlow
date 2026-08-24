@@ -2650,8 +2650,23 @@
                     "writeOnly": true,
                     "x-sensitive": true
                   },
-                  "p7bBase64": {
+                  "jksPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksKeyPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "jksAlias": {
                     "type": "string"
+                  },
+                  "p7bBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
                   },
                   "declaredFormat": {
                     "type": "string",
@@ -2800,6 +2815,37 @@
       "post": {
         "operationId": "requestCertificateFormatExport",
         "summary": "规划证书格式导出",
+        "tags": [
+          "Certificates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-version-formats/export": {
+      "post": {
+        "operationId": "generateCertificateFormatExport",
+        "summary": "生成证书格式产物",
         "tags": [
           "Certificates"
         ],
@@ -3270,6 +3316,40 @@
         }
       }
     },
+    "/api/v1/agents/certificates": {
+      "get": {
+        "operationId": "listAgentCertificates",
+        "summary": "查询 Agent 证书列表",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/agents/tasks": {
       "get": {
         "operationId": "listAgentTaskQueue",
@@ -3303,6 +3383,37 @@
       "post": {
         "operationId": "enqueueAgentTask",
         "summary": "创建 Agent 任务",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/tasks/log-cursor": {
+      "get": {
+        "operationId": "getAgentTaskLogCursor",
+        "summary": "查询 Agent 日志 ack cursor",
         "tags": [
           "Agents"
         ],
@@ -3485,6 +3596,130 @@
         }
       }
     },
+    "/api/v1/agents/certificate-requests": {
+      "post": {
+        "operationId": "createAgentCertificateSigningRequest",
+        "summary": "创建 Agent CSR",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/certificates/sign": {
+      "post": {
+        "operationId": "signAgentCertificate",
+        "summary": "签发 Agent 证书",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/certificates/rotate": {
+      "post": {
+        "operationId": "rotateAgentCertificate",
+        "summary": "轮换 Agent 证书",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/certificates/revoke": {
+      "post": {
+        "operationId": "revokeAgentCertificate",
+        "summary": "吊销 Agent 证书",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/agents/heartbeat": {
       "post": {
         "operationId": "heartbeatAgent",
@@ -3628,6 +3863,37 @@
                     "type": "object",
                     "additionalProperties": true
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/tasks/log-batches": {
+      "post": {
+        "operationId": "submitAgentTaskLogBatch",
+        "summary": "Agent 批量提交任务日志并返回 ack cursor",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
                 }
               }
             }
@@ -5148,5 +5414,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-06-09T11:26:32.233Z"
+  "x-generatedAt": "2026-06-09T13:09:24.239Z"
 }
