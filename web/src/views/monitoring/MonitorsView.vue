@@ -27,6 +27,7 @@ import { GcButton, GcEmptyState, GcModal, GcStatusTag, GcTrendChart } from '@/de
 import MonitorTlsDetailView from './MonitorTlsDetailView.vue'
 import { computeTlsInspectionRating, tlsRatingTone } from './monitor-tls-scoring'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
@@ -103,7 +104,11 @@ const tlsDialogTargetId = ref('')
 const error = ref('')
 const activeProbeIds = new Set<string>()
 let refreshTimer: ReturnType<typeof setInterval> | undefined
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+function monitoringLabel(namespace: string, value: unknown): string {
+  return translateDynamic(t, te, `monitoring.${namespace}`, value)
+}
 const route = useRoute()
 const router = useRouter()
 
@@ -589,7 +594,7 @@ function latestCertificateVersionForAsset(certificateAssetId: string): ApiRecord
 }
 
 function warningSummary(reasons: readonly MonitorWarningReason[]): string {
-  return reasons.map((reason) => t(`monitoring.warnings.${reason}`)).join(' / ')
+  return reasons.map((reason) => monitoringLabel('warnings', reason)).join(' / ')
 }
 
 function recentProbeResults(assetId: string): ProbeResult[] {
@@ -1085,7 +1090,7 @@ function trimProbeStateToTargets() {
                 <dd>{{ verificationLabel(selectedActualCertificate) }}</dd>
               </div>
               <div>
-                <dt>{{ t('certificates.fields.san') }}</dt>
+                <dt>{{ t('certificates.detailPanel.fields.san') }}</dt>
                 <dd>{{ selectedActualCertificate.dnsNames?.join(', ') || t('monitoring.fallback.notCollected') }}</dd>
               </div>
               <div>

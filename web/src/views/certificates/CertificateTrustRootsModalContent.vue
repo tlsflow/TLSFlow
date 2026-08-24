@@ -6,13 +6,18 @@ import type { ApiRecord } from '@/api/modules/common'
 import { GcButton, GcCard, GcEmptyState, GcSelectionCard, GcStatusTag } from '@/design-system/components'
 import type { StatusTone } from '@/design-system/status/status-map'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import { readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 
 const props = defineProps<{
   open: boolean
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+function trustRootLabel(namespace: string, value: unknown): string {
+  return translateDynamic(t, te, `certificates.trustRoots.${namespace}`, value)
+}
 
 const loading = ref(false)
 const detailLoading = ref(false)
@@ -442,7 +447,7 @@ interface RootGroup {
           >
             <GcStatusTag
               :status="rootGroupStatus(root)"
-              :label="t(`certificates.trustRoots.rootStatus.${rootGroupStatus(root)}`)"
+              :label="trustRootLabel('rootStatus', rootGroupStatus(root))"
               :tone="managedRootTone(rootGroupStatus(root))"
             />
           </GcSelectionCard>
@@ -472,13 +477,13 @@ interface RootGroup {
               <div class="trust-roots-modal__status-group">
                 <GcStatusTag
                   :status="rootGroupStatus(selectedRootGroup)"
-                  :label="t(`certificates.trustRoots.rootStatus.${rootGroupStatus(selectedRootGroup)}`)"
+                  :label="trustRootLabel('rootStatus', rootGroupStatus(selectedRootGroup))"
                   :tone="managedRootTone(rootGroupStatus(selectedRootGroup))"
                 />
                 <GcStatusTag
                   v-if="selectedRootDetail"
                   :status="readString(selectedRootDetail, ['validationStatus'], 'pending')"
-                  :label="t(`certificates.trustRoots.validationStatus.${readString(selectedRootDetail, ['validationStatus'], 'pending')}`)"
+                  :label="trustRootLabel('validationStatus', readString(selectedRootDetail, ['validationStatus'], 'pending'))"
                   :tone="rootValidationTone(readString(selectedRootDetail, ['validationStatus'], 'pending'))"
                 />
               </div>
@@ -551,11 +556,11 @@ interface RootGroup {
                   </header>
                   <dl class="trust-roots-modal__asset-meta">
                     <div>
-                      <dt>{{ t('certificates.columns.certificateAssetId') }}</dt>
+                      <dt>{{ t('reports.columns.certificateAssetId') }}</dt>
                       <dd><code>{{ readString(group.asset, ['id']) }}</code></dd>
                     </div>
                     <div>
-                      <dt>{{ t('certificates.columns.primaryDomain') }}</dt>
+                      <dt>{{ t('reports.columns.primaryDomain') }}</dt>
                       <dd>{{ readString(group.asset, ['primaryDomain']) }}</dd>
                     </div>
                     <div>
@@ -567,11 +572,11 @@ interface RootGroup {
                     <li v-for="item in group.versions" :key="readString(item.version, ['id'])" class="trust-roots-modal__version-item">
                       <div class="trust-roots-modal__version-main">
                         <strong>{{ readString(item.version, ['commonName', 'certificateName', 'fingerprintSha256']) }}</strong>
-                        <span>{{ t(`certificates.trustRoots.rootStatus.${readString(item.relation, ['rootStatus'], 'missing')}`) }}</span>
+                        <span>{{ trustRootLabel('rootStatus', readString(item.relation, ['rootStatus'], 'missing')) }}</span>
                       </div>
                       <GcStatusTag
                         :status="readString(item.relation, ['rootStatus'], 'missing')"
-                        :label="t(`certificates.trustRoots.rootStatus.${readString(item.relation, ['rootStatus'], 'missing')}`)"
+                        :label="trustRootLabel('rootStatus', readString(item.relation, ['rootStatus'], 'missing'))"
                         :tone="managedRootTone(readString(item.relation, ['rootStatus'], 'missing'))"
                       />
                     </li>
@@ -593,13 +598,13 @@ interface RootGroup {
               <ul v-else class="trust-roots-modal__record-list">
                 <li v-for="item in observations" :key="readString(item, ['id'])" class="trust-roots-modal__record-item">
                   <div class="trust-roots-modal__record-main">
-                    <strong>{{ t(`certificates.trustRoots.sourceTypes.${readString(item, ['sourceType'], 'manual')}`) }}</strong>
+                    <strong>{{ trustRootLabel('sourceTypes', readString(item, ['sourceType'], 'manual')) }}</strong>
                     <span>{{ formatDateTime(readString(item, ['observedAt'])) }}</span>
                     <code>{{ readString(item, ['observedFingerprint']) }}</code>
                   </div>
                   <GcStatusTag
                     :status="readString(item, ['status'], 'candidate')"
-                    :label="t(`certificates.trustRoots.observationStatus.${readString(item, ['status'], 'candidate')}`)"
+                    :label="trustRootLabel('observationStatus', readString(item, ['status'], 'candidate'))"
                     :tone="observationTone(readString(item, ['status'], 'candidate'))"
                   />
                 </li>

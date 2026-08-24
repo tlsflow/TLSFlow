@@ -8,11 +8,12 @@ import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } f
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import { dispatchOpenDeploymentExecution, isAutomationApprovalTask, isExecutionTask, isQuickTask, isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -520,7 +521,7 @@ function recordValue(record: Record<string, unknown>, key: string): string {
 
 function taskStatusLabel(task: TaskRun): string {
   if (isAutomationApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
-  return t(`tasks.status.${task.status}`)
+  return translateDynamic(t, te, 'tasks.status', task.status)
 }
 
 function taskTypeLabel(task: TaskRun): string {
@@ -566,7 +567,9 @@ function taskOverview(task: TaskRun): string {
     stringFromRecord(task.progress, 'detail'),
     stringFromRecord(task.progress, 'status'),
     stringFromRecord(task.resourceSummary, 'summary'),
-  ) ?? t(`tasks.summaryTemplates.${task.status}`, { task: taskTypeLabel(task) })
+  ) ?? (te(`tasks.summaryTemplates.${task.status}`)
+    ? t(`tasks.summaryTemplates.${task.status}`, { task: taskTypeLabel(task) })
+    : taskStatusLabel(task))
 }
 
 function taskStatusSummary(task: TaskRun): string {

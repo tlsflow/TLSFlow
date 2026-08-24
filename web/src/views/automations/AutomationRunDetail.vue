@@ -6,8 +6,9 @@ import { getAutomationRun, listAutomationRunTargets, retryAutomationRun, stopAut
 import { GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import { listTasks, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const run = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
@@ -103,7 +104,7 @@ function taskTypeLabel(task: TaskRun): string {
 }
 
 function taskStatusLabel(status: TaskStatus): string {
-  return t(`tasks.status.${status}`)
+  return translateDynamic(t, te, 'tasks.status', status)
 }
 
 function taskStatusSummary(task: TaskRun): string {

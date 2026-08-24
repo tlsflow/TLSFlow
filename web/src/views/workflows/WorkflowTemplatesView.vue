@@ -19,6 +19,7 @@ import {
 import { GcModal, GcPluginWorkflowSourceSelector, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import WorkflowCanvasEditor from './WorkflowCanvasEditor.vue'
@@ -31,7 +32,7 @@ import {
 } from './workflow-canvas.model'
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const detailModalOpen = ref(false)
 const versionManagerModalOpen = ref(false)
 const editorModalOpen = ref(false)
@@ -92,7 +93,7 @@ const config: BusinessPageConfig = {
       key: 'origin',
       title: t('workflows.templates.fields.origin'),
       candidates: ['origin'],
-      format: (record) => t(`workflows.templates.origins.${normalizeWorkflowOrigin(readString(record, ['origin'], 'user'))}`),
+      format: (record) => translateDynamic(t, te, 'workflows.templates.origins', normalizeWorkflowOrigin(readString(record, ['origin'], 'user'))),
     },
     { key: 'status', title: t('workflows.templates.fields.status'), candidates: ['status'] },
     { key: 'currentVersionLabel', title: t('workflows.templates.fields.currentVersion'), candidates: ['currentVersionLabel', 'currentVersion'] },
@@ -787,7 +788,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <div><dt>{{ t('workflows.templates.fields.currentVersionId') }}</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.createdAt') }}</dt><dd>{{ formatWorkflowTime(readString(detailRow.raw, ['createdAt'])) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.updatedAt') }}</dt><dd>{{ formatWorkflowTime(readString(detailRow.raw, ['updatedAt'])) }}</dd></div>
-            <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ t(`workflows.templates.origins.${workflowOrigin(detailRow)}`) }}</dd></div>
+            <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ translateDynamic(t, te, 'workflows.templates.origins', workflowOrigin(detailRow)) }}</dd></div>
           </dl>
         </section>
 

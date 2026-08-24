@@ -14,6 +14,7 @@ import {
 } from '@/api/modules/tls-inspector.api'
 import { GcButton, GcEmptyState, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import {
   computeCertificateScore,
   computeCipherStrengthScore,
@@ -119,7 +120,11 @@ const emit = defineEmits<{
   inspectionUpdated: [snapshot: TlsInspectionSnapshot]
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+function tlsLabel(namespace: string, value: unknown): string {
+  return translateDynamic(t, te, `monitoring.tls.${namespace}`, value)
+}
 const loading = ref(true)
 const scanning = ref(false)
 const error = ref('')
@@ -643,7 +648,7 @@ function booleanTone(value: boolean | null | undefined, preferredTrueTone: Statu
 
 function simulationReasonLabel(reason: string | null | undefined) {
   if (!reason) return t('monitoring.tls.values.none')
-  return t(`monitoring.tls.simulationReasons.${reason}`, reason)
+  return tlsLabel('simulationReasons', reason)
 }
 
 function formatList(value: readonly string[] | undefined) {

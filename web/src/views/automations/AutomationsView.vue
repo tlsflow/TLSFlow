@@ -25,12 +25,13 @@ import { listTasks, type TaskRun } from '@/api/modules/tasks.api'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { GcButton, GcCard, GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import AutomationEditor from './AutomationEditor.vue'
 import AutomationPreviewPanel from './AutomationPreviewPanel.vue'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const router = useRouter()
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const editorOpen = ref(false)
@@ -305,7 +306,8 @@ function historyTaskSummary(task: TaskRun): string {
     : typeof task.progress?.message === 'string' && task.progress.message.trim()
       ? task.progress.message
       : typeof task.progress?.summary === 'string' ? task.progress.summary : ''
-  return message ? `${t(`tasks.status.${task.status}`)} · ${message}` : t(`tasks.status.${task.status}`)
+  const statusLabel = translateDynamic(t, te, 'tasks.status', task.status)
+  return message ? `${statusLabel} · ${message}` : statusLabel
 }
 
 async function runNow(item: AutomationRecord) {
@@ -337,7 +339,7 @@ async function openManualRun(item: AutomationRecord) {
       : ''
   } catch (error) {
     manualRunVersions.value = []
-    manualRunError.value = error instanceof Error ? error.message : t('common.error')
+    manualRunError.value = error instanceof Error ? error.message : t('common.unknownError')
   } finally {
     manualRunLoading.value = false
   }
@@ -368,7 +370,7 @@ async function loadManualRunPreview() {
     manualRunPreview.value = preview
   } catch (error) {
     manualRunPreview.value = null
-    manualRunPreviewError.value = error instanceof Error ? error.message : t('common.error')
+    manualRunPreviewError.value = error instanceof Error ? error.message : t('common.unknownError')
   } finally {
     manualRunPreviewLoading.value = false
   }
@@ -397,7 +399,7 @@ async function submitManualRun() {
     await refreshList()
     await openHistory(automation, run)
   } catch (error) {
-    manualRunError.value = error instanceof Error ? error.message : t('common.error')
+    manualRunError.value = error instanceof Error ? error.message : t('common.unknownError')
   } finally {
     manualRunSubmitting.value = false
   }
@@ -518,14 +520,14 @@ function targetScopeSummary(item: AutomationRecord): string {
 }
 
 function actionSummary(item: AutomationRecord): string {
-  return item.configuration.actions.map((action) => t(`automations.actionTypes.${action.type}`)).join(' / ')
+  return item.configuration.actions.map((action) => translateDynamic(t, te, 'automations.actionTypes', action.type)).join(' / ')
 }
 
 function eventSourceSummary(item: AutomationRecord): string {
   if (item.configuration.trigger.type !== 'certificate_version_created') return t('automations.common.notAvailable')
   const sources = item.configuration.trigger.sources ?? []
   if (sources.length === 0) return t('automations.common.notAvailable')
-  return sources.map((source) => t(`automations.eventSources.${source}`)).join(' / ')
+  return sources.map((source) => translateDynamic(t, te, 'automations.eventSources', source)).join(' / ')
 }
 
 function versionSelectionSummary(item: AutomationRecord): string {

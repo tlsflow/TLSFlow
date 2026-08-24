@@ -599,8 +599,8 @@ function submit() {
       </label>
 
       <div class="automation-editor__summary automation-editor__summary--compact">
-        <strong>{{ t('capability.title') }}</strong>
-        <p>{{ t('capability.description') }}</p>
+        <strong>{{ t('designSystem.capability.title') }}</strong>
+        <p>{{ t('designSystem.capability.description') }}</p>
         <span>{{ t('automations.actionTypes.send_notification') }}</span>
       </div>
     </section>

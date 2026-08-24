@@ -49,6 +49,7 @@ export const licensingLocaleMessages = {
         importLabel: '导入许可证 JSON',
         importPlaceholder: '粘贴许可证导出文件内容',
         import: '导入许可证',
+        importing: '导入中…',
       },
       comparison: {
         title: '授权版本对比',
@@ -168,6 +169,7 @@ export const licensingLocaleMessages = {
         importLabel: '匯入授權 JSON',
         importPlaceholder: '貼上授權匯出檔案內容',
         import: '匯入授權',
+        importing: '匯入中…',
       },
       comparison: {
         title: '授權版本對比',
@@ -217,6 +219,7 @@ export const licensingLocaleMessages = {
         importLabel: 'Import license JSON',
         importPlaceholder: 'Paste the license export file content',
         import: 'Import license',
+        importing: 'Importing…',
       },
       comparison: {
         title: 'License tier comparison',
@@ -256,7 +259,7 @@ export const licensingLocaleMessages = {
       plans: { none: 'ライセンスなし', community: 'コミュニティ版', commercial: '商用版', enterprise: 'エンタープライズ版', trial: '試用版', free: 'コミュニティ版', standard: '商用版', professional: '商用版' },
       features: { title: '許可された機能', empty: '利用可能な機能はありません。' },
       quotas: { title: '上限', applicationAssets: 'アプリケーション資産', managedTargets: 'アプリケーション資産', concurrentExecutions: '同時実行', plugins: 'プラグイン', unlimited: '無制限' },
-      actions: { title: 'ライセンスファイル', description: '接続環境ではオンライン要求、分離環境ではオフライン要求を使用します。', upgrade: '版を比較', onlineRequest: 'オンライン要求を出力', offlineRequest: 'オフライン要求を出力', export: '現在のライセンスを出力', importLabel: 'ライセンス JSON を入力', importPlaceholder: 'ライセンスファイルの内容を貼り付け', import: 'ライセンスを取り込む' },
+      actions: { title: 'ライセンスファイル', description: '接続環境ではオンライン要求、分離環境ではオフライン要求を使用します。', upgrade: '版を比較', onlineRequest: 'オンライン要求を出力', offlineRequest: 'オフライン要求を出力', export: '現在のライセンスを出力', importLabel: 'ライセンス JSON を入力', importPlaceholder: 'ライセンスファイルの内容を貼り付け', import: 'ライセンスを取り込む', importing: '取り込み中…' },
       comparison: {
         title: 'ライセンス比較',
         subtitle: 'Community、Commercial、Enterprise、Trial を確認してから、差し替えやアップグレードを判断します。',
@@ -295,7 +298,7 @@ export const licensingLocaleMessages = {
       plans: { none: 'Sans licence', community: 'Communautaire', commercial: 'Commerciale', enterprise: 'Entreprise', trial: 'Essai', free: 'Communautaire', standard: 'Commerciale', professional: 'Commerciale' },
       features: { title: 'Fonctionnalités sous licence', empty: 'Aucune fonctionnalité sous licence.' },
       quotas: { title: 'Quotas', applicationAssets: 'Actifs applicatifs', managedTargets: 'Actifs applicatifs', concurrentExecutions: 'Exécutions simultanées', plugins: 'Extensions', unlimited: 'Illimité' },
-      actions: { title: 'Fichiers de licence', description: 'Utilisez une demande en ligne pour les environnements connectés ou exportez une demande hors ligne.', upgrade: 'Voir les versions', onlineRequest: 'Exporter une demande en ligne', offlineRequest: 'Exporter une demande hors ligne', export: 'Exporter la licence actuelle', importLabel: 'Importer le JSON de licence', importPlaceholder: 'Collez le contenu du fichier de licence', import: 'Importer la licence' },
+      actions: { title: 'Fichiers de licence', description: 'Utilisez une demande en ligne pour les environnements connectés ou exportez une demande hors ligne.', upgrade: 'Voir les versions', onlineRequest: 'Exporter une demande en ligne', offlineRequest: 'Exporter une demande hors ligne', export: 'Exporter la licence actuelle', importLabel: 'Importer le JSON de licence', importPlaceholder: 'Collez le contenu du fichier de licence', import: 'Importer la licence', importing: 'Importation…' },
       comparison: {
         title: 'Comparaison des licences',
         subtitle: 'Comparez Community, Commercial, Enterprise et Trial avant de remplacer ou mettre à niveau une licence.',
@@ -334,7 +337,7 @@ export const licensingLocaleMessages = {
       plans: { none: 'Без лицензии', community: 'Сообщество', commercial: 'Коммерческая', enterprise: 'Корпоративная', trial: 'Пробная', free: 'Сообщество', standard: 'Коммерческая', professional: 'Коммерческая' },
       features: { title: 'Лицензированные функции', empty: 'Нет доступных лицензированных функций.' },
       quotas: { title: 'Лимиты', applicationAssets: 'Активы приложений', managedTargets: 'Активы приложений', concurrentExecutions: 'Параллельные выполнения', plugins: 'Плагины', unlimited: 'Без ограничений' },
-      actions: { title: 'Файлы лицензии', description: 'Для подключенных сред используйте онлайн-запрос, а для изолированных сред экспортируйте офлайн-запрос.', upgrade: 'Сравнить версии', onlineRequest: 'Экспорт онлайн-запроса', offlineRequest: 'Экспорт офлайн-запроса', export: 'Экспорт текущей лицензии', importLabel: 'Импорт JSON лицензии', importPlaceholder: 'Вставьте содержимое файла лицензии', import: 'Импортировать лицензию' },
+      actions: { title: 'Файлы лицензии', description: 'Для подключенных сред используйте онлайн-запрос, а для изолированных сред экспортируйте офлайн-запрос.', upgrade: 'Сравнить версии', onlineRequest: 'Экспорт онлайн-запроса', offlineRequest: 'Экспорт офлайн-запроса', export: 'Экспорт текущей лицензии', importLabel: 'Импорт JSON лицензии', importPlaceholder: 'Вставьте содержимое файла лицензии', import: 'Импортировать лицензию', importing: 'Импорт…' },
       comparison: {
         title: 'Сравнение лицензий',
         subtitle: 'Сравните Community, Commercial, Enterprise и Trial перед заменой или обновлением лицензии.',
@@ -373,7 +376,7 @@ export const licensingLocaleMessages = {
       plans: { none: 'Sem licença', community: 'Comunidade', commercial: 'Comercial', enterprise: 'Empresarial', trial: 'Teste', free: 'Comunidade', standard: 'Comercial', professional: 'Comercial' },
       features: { title: 'Recursos licenciados', empty: 'Nenhum recurso licenciado disponível.' },
       quotas: { title: 'Cotas', applicationAssets: 'Ativos de aplicações', managedTargets: 'Ativos de aplicações', concurrentExecutions: 'Execuções simultâneas', plugins: 'Plugins', unlimited: 'Ilimitado' },
-      actions: { title: 'Arquivos de licença', description: 'Use uma solicitação online em ambientes conectados ou exporte uma solicitação offline para ambientes isolados.', upgrade: 'Ver versões', onlineRequest: 'Exportar solicitação online', offlineRequest: 'Exportar solicitação offline', export: 'Exportar licença atual', importLabel: 'Importar JSON da licença', importPlaceholder: 'Cole o conteúdo do arquivo de licença', import: 'Importar licença' },
+      actions: { title: 'Arquivos de licença', description: 'Use uma solicitação online em ambientes conectados ou exporte uma solicitação offline para ambientes isolados.', upgrade: 'Ver versões', onlineRequest: 'Exportar solicitação online', offlineRequest: 'Exportar solicitação offline', export: 'Exportar licença atual', importLabel: 'Importar JSON da licença', importPlaceholder: 'Cole o conteúdo do arquivo de licença', import: 'Importar licença', importing: 'Importando…' },
       comparison: {
         title: 'Comparação de licenças',
         subtitle: 'Compare Community, Commercial, Enterprise e Trial antes de substituir ou atualizar uma licença.',
@@ -412,7 +415,7 @@ export const licensingLocaleMessages = {
       plans: { none: '라이선스 없음', community: '커뮤니티', commercial: '상용판', enterprise: '엔터프라이즈', trial: '평가판', free: '커뮤니티', standard: '상용판', professional: '상용판' },
       features: { title: '허가된 기능', empty: '사용 가능한 허가 기능이 없습니다.' },
       quotas: { title: '할당량', applicationAssets: '애플리케이션 자산', managedTargets: '애플리케이션 자산', concurrentExecutions: '동시 실행', plugins: '플러그인', unlimited: '제한 없음' },
-      actions: { title: '라이선스 파일', description: '연결된 환경은 온라인 요청을, 격리된 환경은 오프라인 요청을 사용합니다.', upgrade: '버전 비교', onlineRequest: '온라인 요청 내보내기', offlineRequest: '오프라인 요청 내보내기', export: '현재 라이선스 내보내기', importLabel: '라이선스 JSON 가져오기', importPlaceholder: '라이선스 파일 내용을 붙여 넣으세요', import: '라이선스 가져오기' },
+      actions: { title: '라이선스 파일', description: '연결된 환경은 온라인 요청을, 격리된 환경은 오프라인 요청을 사용합니다.', upgrade: '버전 비교', onlineRequest: '온라인 요청 내보내기', offlineRequest: '오프라인 요청 내보내기', export: '현재 라이선스 내보내기', importLabel: '라이선스 JSON 가져오기', importPlaceholder: '라이선스 파일 내용을 붙여 넣으세요', import: '라이선스 가져오기', importing: '가져오는 중…' },
       comparison: {
         title: '라이선스 비교',
         subtitle: '라이선스 교체 또는 업그레이드 전에 Community, Commercial, Enterprise, Trial 을 비교합니다.',

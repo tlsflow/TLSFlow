@@ -7,11 +7,15 @@ import { credentialsPtBR } from './credentials.locale'
 import { providersPtBR } from './providers.locale'
 import { monitoringTlsPtBR } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { notificationsEnglish } from './notifications.locale'
+import { reportsEnglish } from './reports.locale'
 export default {
   credentials: credentialsPtBR,
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
   providers: providersPtBR,
+  notifications: notificationsEnglish,
+  reports: reportsEnglish,
   app: {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',
@@ -32,6 +36,8 @@ export default {
     notAvailable: 'Indisponível',
     close: 'Fechar',
     unknownError: 'Erro desconhecido',
+    unknownValue: 'Valor desconhecido: {value}',
+    saving: 'Salvando…',
     userFallback: 'Usuário não autenticado',
     tenantFallback: 'Tenant padrão'
   },
@@ -521,17 +527,17 @@ export default {
     mismatch: 'As novas senhas não coincidem',
     tooShort: 'A nova senha deve ter pelo menos 8 caracteres'
   },
+  viewMode: {
+    switchLabel: 'Modo de visualização da aplicação',
+    user: 'Visão do usuário',
+    professional: 'Visão profissional',
+    steps: {
+      certificates: 'Certificados',
+      applications: 'Aplicações',
+      deployments: 'Implantações'
+    }
+  },
   nav: {
-    viewMode: {
-      switchLabel: 'Application view mode',
-      user: 'User view',
-      professional: 'Professional view',
-      steps: {
-        certificates: 'Certificates',
-        applications: 'Applications',
-        deployments: 'Deployments'
-      }
-    },
     dashboard: 'Painel',
     dashboardDesc: 'Visão geral do status de aplicações, certificados, Agents, gateways e auditoria',
     certificates: 'Gerenciamento de certificados',
@@ -556,6 +562,14 @@ export default {
     deploymentPlansDesc: 'Planos de implantação de certificados e entradas de aprovação',
     executions: 'Registros de execução',
     executionsDesc: 'Etapas de execução, logs, falhas e rollback',
+    reports: 'Relatórios',
+    reportsDesc: 'Janelas de incidentes de certificados, resposta a riscos e eficácia da automação',
+    incidentWindowReport: 'Relatório de janela de incidente',
+    incidentWindowReportDesc: 'Priorize certificados próximos do vencimento ou expirados',
+    riskResponseReport: 'Relatório de resposta a riscos',
+    riskResponseReportDesc: 'Acompanhamento, tempo de resolução e SLA',
+    automationEffectivenessReport: 'Relatório de eficácia da automação',
+    automationEffectivenessReportDesc: 'Taxas de sucesso de execuções e alvos, com etapas de falha',
     workflows: 'Fluxos de trabalho',
     workflowsDesc: 'Fluxos de trabalho e plugins',
     workflowTemplates: 'Fluxos de trabalho',
@@ -605,10 +619,10 @@ export default {
     actionTypes: { create_deployment_plan: 'Criar plano de renovação de certificado', execute_deployment_plan: 'Executar plano de renovação de certificado', send_notification: 'Enviar notificação' },
     values: { enabled: 'Enabled', disabled: 'Disabled', latest: 'Use the latest version', specific: 'Use specific certificate versions', fixedByEvent: 'Pinned by the certificate new-version event' },
     summaries: { targets: 'Até {count} destinos' },
-    preview: { title: 'Visualização do impacto nos ativos', description: 'Compare a expiração atual do certificado em cada ativo selecionado com a expiração do certificado de destino.', matched: '{count} correspondências', executable: '{count} executáveis', excluded: '{count} excluídos', affected: '{count} afetados', upgrade: '{count} validade maior', same: '{count} mesma expiração', downgrade: '{count} precisam de atenção', version: 'Versão {version}', versionUnknown: 'Versão desconhecida', ready: 'Pronto', impact: { upgrade: 'Validade maior', same: 'Mesma expiração', downgrade: 'Risco de validade menor', missing_current: 'Certificado atual ausente', unknown: 'Impacto desconhecido' } },
+    preview: { title: 'Visualização do impacto nos ativos', description: 'Compare a expiração atual do certificado em cada ativo selecionado com a expiração do certificado de destino.', matched: '{count} correspondências', executable: '{count} executáveis', excluded: '{count} excluídos', affected: '{count} afetados', upgrade: '{count} validade maior', same: '{count} mesma expiração', skip: '{count} atualizações ignoradas', downgrade: '{count} precisam de atenção', version: 'Versão {version}', versionUnknown: 'Versão desconhecida', ready: 'Pronto', skipUpdate: 'Ignorar atualização', expiryLabel: 'Expiração', impact: { upgrade: 'Validade maior', same: 'Mesma expiração', downgrade: 'Risco de validade menor', missing_current: 'Certificado atual ausente', unknown: 'Impacto desconhecido' } },
     detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} application assets involved', assetsResolvedAtRuntime: 'Target assets are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved assets', nextRun: 'Next run', lastRun: 'Last run' } },
     history: { title: 'Run history', description: 'Review the latest runs for this automation.', summary: '{count} runs', latestTarget: 'Automation: {name}', empty: 'No runs yet.' },
-    exclusions: { permission_denied: 'Permissão negada para o destino', missing_version: 'Versão do certificado ausente', version_not_deployable: 'Versão do certificado não pode ser implantada', binding_not_managed: 'Vínculo não gerenciado', environment_not_allowed: 'Ambiente não permitido', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', certificate_version_downgrade: 'A versão alvo é anterior à versão atual do ativo', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Motivo de exclusão desconhecido' },
+    exclusions: { permission_denied: 'Permissão negada para o destino', missing_version: 'Versão do certificado ausente', version_not_deployable: 'Versão do certificado não pode ser implantada', binding_not_managed: 'Vínculo não gerenciado', environment_not_allowed: 'Ambiente não permitido', binding_missing: 'Vínculo ausente', asset_missing_deployment_capability: 'O destino não pode implantar certificados', certificate_version_downgrade: 'A versão alvo é anterior à versão atual do ativo', certificate_already_up_to_date: 'A expiração alvo já corresponde ao certificado atual; a atualização foi ignorada', filter_not_matched: 'As condições do filtro não coincidiram', runtime_context_required: 'O contexto de execução é obrigatório', unknown: 'Motivo de exclusão desconhecido' },
     failureStages: { selection: 'Seleção de destinos', plan_creation: 'Criação do plano', dry_run: 'Dry Run', approval: 'Aprovação', execution: 'Execução', verification: 'Verificação', rollback: 'Reversão', notification: 'Notificação' },
     progress: { total: 'Total', pending: 'Pendente', running: 'Em execução', waitingApproval: 'Aguardando aprovação', succeeded: 'Sucesso', failed: 'Falha', skipped: 'Ignorado', cancelled: 'Cancelado' },
     editor: { createTitle: 'Criar automação', editTitle: 'Editar automação', description: 'Configure quando executar, quais certificados tratar, como criar os planos e o que fazer em caso de falha.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Informações básicas', basicHelp: 'Dê um nome claro à automação e descreva as alterações de certificados que ela trata.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Certificados a processar', targetsHelp: 'Aqui são selecionados certificados, não planos existentes; o snapshot dos destinos é congelado no início.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'Plano de implantação do certificado', planRelationTitle: 'Não vincula um plano de implantação existente', planRelationDescription: 'Um plano é criado em tempo de execução a partir dos filtros de certificados.', planRelationHelp: 'Cada destino recebe seu próprio DeploymentPlan, cujo ID aparece nos detalhes da execução.', guardrails: 'Controles de segurança', guardrailsHelp: 'Esses limites controlam lote, pré-verificação, aprovação e parada por falha.' }, chain: { createPlan: 'Criar um DeploymentPlan por destino', dryRun: 'Executar a pré-verificação Dry Run', approval: 'Aguardar aprovação', executePlan: 'Executar o DeploymentPlan do destino' } },
@@ -906,9 +920,22 @@ export default {
       riskLevel: 'Nível de risco', runtime: 'Runtime', executionMode: 'Modelo de execução', scope: 'Escopo', support: 'Nível de suporte', capabilities: 'Capacidades', frameworks: 'Frameworks alvo', products: 'Produtos suportados', operations: 'Operações suportadas'
     },
     labels: { permissions: 'Permissões declaradas', runnerStatus: 'Status do Runner' },
-    permissionKeys: { network_http: 'Solicitações de rede', secret_read: 'Leitura de segredos', artifact_read: 'Leitura de artefatos', device_write: 'Escrita em dispositivos' },
+    permissionKeys: {
+      network_http: 'Solicitações de rede', secret_read: 'Leitura de segredos', artifact_read: 'Leitura de artefatos', device_write: 'Escrita em dispositivos',
+      agent_execution_receipt: 'Recibos de execução do Agent', agent_fact_collect: 'Coleta de fatos do Agent', agent_plan_execute: 'Execução do plano do Agent', agent_plan_validate: 'Validação do plano do Agent',
+      audit_append: 'Adicionar registros de auditoria', cloud_service_get: 'Leitura de serviços de nuvem', execution_cancel_read: 'Leitura do cancelamento da execução', execution_checkpoint: 'Pontos de verificação da execução',
+      execution_checkpoint_read: 'Leitura dos pontos de verificação', execution_checkpoint_write: 'Gravação dos pontos de verificação', execution_progress: 'Progresso da execução', execution_progress_write: 'Gravação do progresso',
+      resource_lock: 'Bloqueios de recursos', secret_resolve: 'Resolver segredos'
+    },
     runnerStatuses: { ready: 'Runner pronto', busy: 'Runner ocupado', unavailable: 'Runner indisponível', notObserved: 'Runner não observado' },
-    capabilityKeys: { device_connection_test: 'Teste de conexão', device_identity_detect: 'Detecção de identidade do dispositivo', device_discover: 'Descoberta de dispositivo', device_logs_read: 'Leitura de logs do dispositivo', certificate_discover: 'Descoberta de certificados', certificate_deploy: 'Implantação de certificado', certificate_rollback: 'Rollback de certificado', certificate_verify: 'Verificação de certificado' },
+    capabilityKeys: {
+      device_connection_test: 'Teste de conexão', device_identity_detect: 'Detecção de identidade do dispositivo', device_discover: 'Descoberta de dispositivo', device_logs_read: 'Leitura de logs do dispositivo',
+      certificate_discover: 'Descoberta de certificados', certificate_deploy: 'Implantação de certificado', certificate_rollback: 'Rollback de certificado', certificate_verify: 'Verificação de certificado',
+      application_discover: 'Descoberta de aplicações', ca_account_manage: 'Gerenciamento de conta da CA', ca_order_manage: 'Gerenciamento de pedidos da CA', ca_challenge_orchestrate: 'Orquestração de desafios da CA',
+      ca_challenge_dns_solver: 'Resolvedor de desafios DNS da CA', ca_certificate_issue: 'Emissão de certificado da CA', ca_certificate_renew: 'Renovação de certificado da CA', ca_certificate_revoke: 'Revogação de certificado da CA',
+      cloud_service_connection_test: 'Teste de conexão do serviço de nuvem', cloud_service_discover: 'Descoberta de serviços de nuvem'
+    },
+    unknownCatalogValue: 'Valor de catálogo desconhecido: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personalizado', runtime_custom: 'Runtime personalizado', adc_load_balancer: 'Balanceador ADC', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Execução atômica do Agent', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
@@ -921,7 +948,7 @@ export default {
       executionMode: 'Modo de execução do Agent', nativeHandler: 'Manipulador nativo', pluginMode: 'Plugin do Agent', mountedPlugin: 'Plugin montado', selectMountedPlugin: 'Selecione um plugin montado',
       plugin: 'Plugin de implantação', selectPlugin: 'Selecione um plugin de implantação', noCompatiblePlugin: 'Nenhum plugin habilitado corresponde à plataforma e ao framework atuais', compatiblePluginHint: 'Somente plugins habilitados compatíveis com a plataforma e o framework do ativo são exibidos.',
       secretRefPlaceholder: 'Informe um identificador SecretRef', artifactBinding: 'Artefato de certificado {name}', artifactBindingPlaceholder: 'Exemplo: value=fullchain,key=private', preview: 'Validar configuração', previewFailed: 'Falha ao validar a configuração do plugin do Agent',
-      approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent',
+      approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent', disableFailed: 'Falha ao desabilitar o plugin do Agent',
       types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', UNIFIED_PLUGIN: 'Plugin de capacidade unificado' }
     },
     changeSummaries: { createWorkflow: 'Criar fluxo a partir do modelo do mercado de plugins' }
@@ -1183,6 +1210,12 @@ export default {
       view: 'Ver certificado',
       viewProjectDetail: 'Ver detalhes do certificado neste projeto'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}, {days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Site IIS do Agent',
       linuxSite: 'Site Linux do Agent',
@@ -1418,6 +1451,20 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: 'Visão operacional'
+    },
+    resources: {
+      title: 'Recursos do sistema', description: 'Uso em tempo real de CPU e memória do host do painel.', cpu: 'Uso de CPU', memory: 'Uso de memória', host: 'Host', abnormal: 'Atenção', usageAria: 'Uso de {metric}: {value}%', unavailableAria: '{metric} indisponível'
+    },
+    quickStart: {
+      title: 'Automatize sua próxima implantação de certificado', description: 'Prepare, valide e implante por uma entrada guiada.', addCertificate: 'Importar ou solicitar um novo certificado', deployExistingApplication: 'Implantar em um site ou aplicação', unavailable: 'Nenhuma entrada disponível', safeExecution: 'Execução segura', guidedFlow: 'Fluxo guiado'
+    },
+    trends: {
+      title: 'Tendências de execução', noDelta: '--', auditSuccess: { title: 'Taxa de sucesso da auditoria', suffix: 'taxa de sucesso' }, managedObjects: { title: 'Saúde dos objetos', suffix: 'objetos saudáveis' }, certificateAttention: { title: 'Atenção a certificados', suffix: 'para revisar' }
+    },
+    statusPanel: { description: 'Status atual visível de certificados, Agents, gateways e ativos de aplicação.', objects: 'objetos' },
+    recentLog: { title: 'Logs recentes', live: 'Ao vivo' },
     aria: {
       assetHeatmap: 'Mapa de calor de status dos ativos de aplicação',
       certificateStatusList: 'Lista de status dos certificados',
@@ -1433,7 +1480,8 @@ export default {
     },
     audit: {
       description: 'Exibe primeiro falhas, recusas, eventos de alto risco e mudanças críticas de negócio.',
-      title: 'Logs de auditoria recentes'
+      title: 'Logs de auditoria recentes',
+      activityTitle: 'Atividade de auditoria'
     },
     certificateState: {
       critical: 'Perto de expirar',
@@ -1451,7 +1499,9 @@ export default {
     empty: {
       noAuditLogs: 'Nenhum log de auditoria',
       noCertificateStatus: 'Nenhum dado de status de certificado',
-      noObjects: 'Nenhum objeto'
+      noObjects: 'Nenhum objeto',
+      noTrend: 'Nenhum dado de tendência',
+      noQuickActions: 'Nenhuma entrada rápida disponível'
     },
     errors: {
       loadFailed: 'Falha ao carregar dados da visão geral',
@@ -1469,6 +1519,10 @@ export default {
       title: 'Carregando'
     },
     metrics: {
+      attention: 'Atenção',
+      sparklineLabel: 'Tendência de {metric}',
+      stable: 'Estável',
+      tracked: 'Acompanhado',
       activeAgents: {
         title: 'Quantidade de Agents ativos',
         description: 'Agents atualmente online e escalonáveis.'
@@ -1493,6 +1547,25 @@ export default {
         title: 'Quantidade de certificados ativos',
         description: 'Versões de certificado ativas e ainda não expiradas.'
       }
+    },
+    health: {
+      title: 'Saúde do sistema',
+      description: 'Resumo de certificados, Agents, gateways e ativos de aplicação.',
+      healthy: 'Saudável',
+      attention: 'Atenção',
+      abnormal: 'Anormal',
+      noData: 'Sem dados',
+      score: 'objetos saudáveis',
+      progressAria: 'Proporção de objetos saudáveis do sistema',
+      normalObjects: 'objetos normais',
+      attentionObjects: 'objetos para revisar'
+    },
+    quickWizard: {
+      title: 'Guia rápido'
+    },
+    typeStats: {
+      title: 'Distribuição por tipo',
+      description: 'Objetos visíveis atualmente por tipo.'
     },
     quickActions: {
       agents: {
@@ -1958,6 +2031,7 @@ export default {
       fields: {
         sourceId: 'ID da fonte de identidade',
         externalGroup: 'Grupo externo',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: 'ID da função local'
       }
     },
@@ -2660,6 +2734,7 @@ export default {
       deleteRisk: 'A exclusão remove este ativo de aplicação e sua associação manual de destino da lista. Frameworks, sites, Virtual Servers e ManagedTargets descobertos são preservados.',
       rollbackFromLatestSnapshot: 'Iniciar reversão a partir do snapshot mais recente',
       rollingBack: 'Revertendo...',
+      deployCertificate: 'Implantar certificado',
       saving: 'Salvando...',
       creating: 'Criando...',
       saveChanges: 'Salvar alterações',
@@ -2685,6 +2760,7 @@ export default {
       platform: 'Plataforma',
       frameworkType: 'Tipo de framework',
       deploymentStrategyCompatibility: 'Modo de compatibilidade da implantação',
+      selectWorkflow: 'Selecionar fluxo de trabalho',
       serviceInstanceId: 'ID da instância de serviço',
       siteId: 'ID do site',
       managedTargetId: 'ID do destino gerenciado',
@@ -2761,6 +2837,21 @@ export default {
           description: 'O estado antes da implantação, depois da implantação e após a reversão deve ser visível diretamente, não apenas como registro de tarefa.'
         }
       }
+    },
+    deployment: {
+      title: 'Implantação de certificado',
+      description: 'Escolha uma versão de certificado para este ativo de aplicação. O sistema cria um snapshot, executa a pré-verificação, solicita aprovação e executa quando autorizado.',
+      dialogTitle: 'Implantação de certificado',
+      dialogDescription: 'A ação vale somente para o ativo de aplicação atual. O plano continua sendo o limite de snapshot, aprovação e execução no servidor.',
+      deployThisVersion: 'Implantar esta versão do certificado',
+      loadingRecords: 'Carregando registros de implantação...',
+      emptyRecords: 'Este ativo de aplicação ainda não possui registros de implantação.',
+      preflightAvailable: '{count} verificações preliminares retornadas',
+      preflightUnavailable: 'Nenhuma pré-verificação executada',
+      rollbackUnavailable: 'Nenhuma reversão solicitada',
+      fields: { status: 'Status da implantação', approval: 'Aprovação', latestRun: 'Última execução', preflight: 'Pré-verificação', rollback: 'Reversão', updatedAt: 'Atualizado em' },
+      feedback: { preflightRunning: 'Aguardando a conclusão da pré-verificação.', pendingApproval: 'Pré-verificação concluída; a implantação aguarda aprovação.', executionStarted: 'Pré-verificação e aprovação concluídas; a execução foi iniciada.' },
+      errors: { missingApplicationAssetId: 'O ID do ativo de aplicação é obrigatório.', loadOptionsFailed: 'Não foi possível carregar versões implantáveis.', createPlanMissingId: 'O snapshot criado não retornou um ID de plano.', deployFailed: 'Falha na implantação do certificado.', preflightFailed: 'A pré-verificação da implantação falhou.', preflightTimeout: 'A pré-verificação da implantação expirou.', loadRecordsFailed: 'Não foi possível carregar os registros de implantação.' }
     },
     compatibilityModes: {
       unified: 'Binding unificado de plugin',
@@ -2960,6 +3051,7 @@ export default {
       pluginFormLoadFailed: 'Falha ao carregar o formulário de configuração do plugin',
       pluginBindingCreateFailed: 'Falha ao salvar a vinculação do plugin',
       loadWorkflowCredentialsFailed: 'Falha ao carregar credenciais do workflow',
+      loadCredentialProfilesFailed: 'Falha ao carregar perfis de credenciais',
       noAvailableSiteInstance: 'Nenhuma instância de site disponível. Confirme se a descoberta do dispositivo informou frameworks e sites.',
       managedTargetRediscoveryRequired: 'Este site não possui alvos gerenciados. Execute novamente a descoberta do dispositivo.',
       noCompatibleManagedPlugin: 'Nenhum plugin habilitado é compatível com este alvo gerenciado.',
@@ -3300,6 +3392,14 @@ export default {
           description: 'Este console não possui um ponto de entrada ACME disponível. Importe um certificado existente ou tente novamente após configurar um canal de emissão automatizada.'
         }
       },
+      acme: {
+        title: 'Solicitar certificado ACME', loading: 'Verificando o canal de emissao...', blocked: 'O canal de emissao nao esta pronto. Resolva as condicoes listadas e atualize.',
+        status: { ready: 'Pronto para solicitar', blocked: 'Configuracao necessaria', unknown: 'Status desconhecido' },
+        fields: { directoryUrl: 'URL do ACME Directory', email: 'E-mail de contato', identifiers: 'Nomes de dominio', csrPem: 'CSR PEM', accountKeySecretRef: 'SecretRef da chave da conta', certificatePrivateKeySecretRef: 'SecretRef da chave do certificado', provider: 'Provedor DNS', zoneId: 'ID da zona DNS', endpointUrl: 'URL da API DNS', solverSecretRef: 'SecretRef da credencial DNS', ttl: 'DNS TTL', name: 'Nome do certificado' },
+        actions: { create: 'Enviar solicitacao', refresh: 'Atualizar status', poll: 'Continuar consulta', retry: 'Tentar novamente', recover: 'Recuperar status' },
+        requests: { title: 'Solicitacoes', status: { pending: 'Aguardando criacao do pedido', challenge: 'Aguardando validacao do dominio', finalizing: 'Aguardando emissao', succeeded: 'Emitido', failed: 'Falha na solicitacao', unknown: 'Status desconhecido', cancelled: 'Cancelado' } },
+        errors: { requestFailed: 'Falha na solicitacao ACME' }
+      },
       hints: {
         pemChainCheck: 'Envie ou cole o certificado do servidor, a cadeia intermediária completa e a chave privada; o sistema validará a cadeia de certificados e a correspondência da chave privada.',
         pfxChainCheck: 'Envie um arquivo PFX/P12 e informe a senha; o sistema analisará o certificado do servidor, a cadeia de certificados e a chave privada dentro do contêiner.',
@@ -3409,6 +3509,7 @@ export default {
         internal_ca: 'CA interno',
         enterprise_ca: 'CA empresarial',
         external_api: 'API externa',
+        acme: 'ACME',
         unknown: 'Desconhecido'
       },
       lifecycle: {

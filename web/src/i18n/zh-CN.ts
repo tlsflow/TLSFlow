@@ -31,6 +31,8 @@ export default {
     notAvailable: '暂无',
     close: '关闭',
     unknownError: '未知错误',
+    unknownValue: '未知值：{value}',
+    saving: '保存中…',
     userFallback: '未登录用户',
     tenantFallback: '默认租户'
   },
@@ -986,9 +988,22 @@ export default {
       operations: '支持操作'
     },
     labels: { permissions: '声明权限', runnerStatus: 'Runner 状态' },
-    permissionKeys: { network_http: '网络请求', secret_read: '读取密钥', artifact_read: '读取制品', device_write: '写入设备' },
+    permissionKeys: {
+      network_http: '网络请求', secret_read: '读取密钥', artifact_read: '读取制品', device_write: '写入设备',
+      agent_execution_receipt: 'Agent 执行回执', agent_fact_collect: 'Agent 信息采集', agent_plan_execute: 'Agent 计划执行', agent_plan_validate: 'Agent 计划校验',
+      audit_append: '追加审计记录', cloud_service_get: '读取云服务', execution_cancel_read: '读取执行取消状态', execution_checkpoint: '执行检查点',
+      execution_checkpoint_read: '读取执行检查点', execution_checkpoint_write: '写入执行检查点', execution_progress: '执行进度', execution_progress_write: '写入执行进度',
+      resource_lock: '资源锁', secret_resolve: '解析密钥'
+    },
     runnerStatuses: { ready: 'Runner 就绪', busy: 'Runner 执行中', unavailable: 'Runner 不可用', notObserved: 'Runner 未观测' },
-    capabilityKeys: { device_connection_test: '连接测试', device_identity_detect: '设备身份识别', device_discover: '设备发现', device_logs_read: '设备日志读取', certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证' },
+    capabilityKeys: {
+      device_connection_test: '连接测试', device_identity_detect: '设备身份识别', device_discover: '设备发现', device_logs_read: '设备日志读取',
+      certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证',
+      application_discover: '应用发现', ca_account_manage: 'CA 账户管理', ca_order_manage: 'CA 订单管理', ca_challenge_orchestrate: 'CA 挑战编排',
+      ca_challenge_dns_solver: 'CA DNS 挑战解析', ca_certificate_issue: 'CA 证书签发', ca_certificate_renew: 'CA 证书续期', ca_certificate_revoke: 'CA 证书吊销',
+      cloud_service_connection_test: '云服务连接测试', cloud_service_discover: '云服务发现'
+    },
+    unknownCatalogValue: '未知目录值：{value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', runtime_custom: '自定义运行时', adc_load_balancer: 'ADC 负载均衡', cloud_aliyun_cdn: '阿里云 CDN', cloud_aliyun_alb: '阿里云 ALB', cloud_aliyun_clb: '阿里云 CLB', cloud_aliyun_oss: '阿里云 OSS', cloud_aliyun_waf_cname: '阿里云 WAF CNAME', cloud_aliyun_waf_cloud: '阿里云 WAF 云产品', cloud_aliyun_live: '阿里云 Live', cloud_aliyun_vod: '阿里云 VOD', cloud_tencent_cdn: '腾讯云 CDN', cloud_tencent_clb: '腾讯云 CLB', cloud_tencent_live: '腾讯云直播', cloud_huawei_cdn: '华为云 CDN', cloud_huawei_elb: '华为云 ELB', cloud_volcengine_cdn: '火山引擎 CDN', cloud_volcengine_alb: '火山引擎 ALB', cloud_volcengine_clb: '火山引擎 CLB', cloud_volcengine_live: '火山引擎直播', cloud_volcengine_vod: '火山引擎 VOD' },
     runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL' },
     providerKeys: { cloud_aliyun: '阿里云', cloud_tencent: '腾讯云', cloud_huawei: '华为云', cloud_volcengine: '火山引擎' },
@@ -1008,7 +1023,7 @@ export default {
       executionMode: 'Agent 执行模式', nativeHandler: '原生处理器', pluginMode: 'Agent 插件', mountedPlugin: '已挂载插件', selectMountedPlugin: '请选择已挂载插件',
       plugin: '部署插件', selectPlugin: '请选择部署插件', noCompatiblePlugin: '没有匹配当前平台和框架的已启用插件', compatiblePluginHint: '仅显示与当前资产平台和框架匹配的已启用插件。',
       secretRefPlaceholder: '输入 SecretRef 标识', artifactBinding: '证书产物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '校验插件配置', previewFailed: 'Agent 插件配置校验失败',
-      approveAndEnable: '审批权限并启用', activating: '启用中...', activateFailed: 'Agent 插件审批或启用失败',
+      approveAndEnable: '审批权限并启用', activating: '启用中...', activateFailed: 'Agent 插件审批或启用失败', disableFailed: '停用 Agent 插件失败',
       types: { WORKFLOW_TEMPLATE: '工作流模板', UNIFIED_PLUGIN: '统一能力插件' }
     },
     changeSummaries: {
@@ -1272,6 +1287,12 @@ export default {
       view: '查看证书',
       viewProjectDetail: '查看本项目证书详情'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}，{days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Agent IIS 站点',
       linuxSite: 'Agent Linux 站点',
@@ -1507,6 +1528,43 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: '运行总览'
+    },
+    resources: {
+      title: '系统资源',
+      description: '显示仪表盘后端主机的实时资源使用率。',
+      cpu: 'CPU 使用率',
+      memory: '内存使用率',
+      host: '主机',
+      abnormal: '需关注',
+      usageAria: '{metric}使用率 {value}%',
+      unavailableAria: '{metric}暂无数据'
+    },
+    quickStart: {
+      title: '自动化下一次证书发布',
+      description: '通过一个入口完成准备、校验和部署。',
+      addCertificate: '导入或申请新证书',
+      deployExistingApplication: '部署到网站或应用',
+      unavailable: '暂无可用入口',
+      safeExecution: '安全执行',
+      guidedFlow: '向导流程'
+    },
+    trends: {
+      title: '运行趋势',
+      noDelta: '--',
+      auditSuccess: { title: '审计操作成功率', suffix: '成功率' },
+      managedObjects: { title: '对象健康度', suffix: '正常对象' },
+      certificateAttention: { title: '证书到期关注', suffix: '项待处理' }
+    },
+    statusPanel: {
+      description: '证书、Agent、网关和应用资产的当前可见状态。',
+      objects: '对象'
+    },
+    recentLog: {
+      title: '最近日志',
+      live: '实时'
+    },
     aria: {
       assetHeatmap: '应用资产状态热力图',
       certificateStatusList: '证书状态列表',
@@ -1522,7 +1580,8 @@ export default {
     },
     audit: {
       description: '优先展示失败、拒绝、高风险和关键业务变更。',
-      title: '最近审计日志'
+      title: '最近审计日志',
+      activityTitle: '审计活动'
     },
     certificateState: {
       critical: '临近到期',
@@ -1540,7 +1599,9 @@ export default {
     empty: {
       noAuditLogs: '暂无审计日志',
       noCertificateStatus: '暂无证书状态数据',
-      noObjects: '暂无对象'
+      noObjects: '暂无对象',
+      noTrend: '暂无趋势数据',
+      noQuickActions: '暂无可用快速入口'
     },
     errors: {
       loadFailed: '总览数据加载失败',
@@ -1558,6 +1619,10 @@ export default {
       title: '加载中'
     },
     metrics: {
+      attention: '需关注',
+      sparklineLabel: '{metric}趋势',
+      stable: '稳定',
+      tracked: '已跟踪',
       activeAgents: {
         title: '活跃 Agent 数量',
         description: '当前在线并可调度的 Agent。'
@@ -1582,6 +1647,25 @@ export default {
         title: '活跃证书数量',
         description: '状态活跃且尚未过期的证书版本。'
       }
+    },
+    health: {
+      title: '系统健康',
+      description: '根据证书、Agent、网关和应用资产状态汇总。',
+      healthy: '健康',
+      attention: '需关注',
+      abnormal: '异常',
+      noData: '暂无数据',
+      score: '健康对象占比',
+      progressAria: '系统健康对象占比',
+      normalObjects: '正常对象',
+      attentionObjects: '关注对象'
+    },
+    quickWizard: {
+      title: '快速向导'
+    },
+    typeStats: {
+      title: '对象类型统计',
+      description: '按当前可见对象数量分布。'
     },
     quickActions: {
       agents: {
@@ -2088,6 +2172,7 @@ export default {
       },
       fields: {
         subjectType: '主体类型',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         subjectId: '主体 ID',
         effect: '效果',
         actions: '动作',
@@ -2749,6 +2834,38 @@ export default {
       label: '允许跳过 TLS 证书校验',
       description: '显式授权本次部署在设备使用自签名或不受信任证书时跳过 TLS 证书校验。',
       help: '仅表示你的部署意图，不会自动获得执行权限；仍需通过审批和宿主签发的执行授权。'
+    presentation: {
+      cards: '卡片视图',
+      list: '表格视图'
+    },
+    userView: {
+      stepLabel: '第 2 步 / 3 · 应用',
+      title: '接入一个应用',
+      description: '添加要接收证书的应用。除非所选目标确实需要额外参数，否则不会显示技术部署细节。',
+      addAction: '添加应用',
+      listTitle: '已接入应用',
+      listDescription: '这些应用可以在部署步骤中被选择。',
+      continueToDeployment: '继续部署',
+      loadFailed: '应用加载失败',
+      emptyTitle: '还没有接入应用',
+      emptyDescription: '先添加一个应用，证书才能部署到它。',
+      deploymentLocation: '部署位置',
+      targetPending: '等待配置部署位置',
+      form: {
+        eyebrow: '简化设置',
+        title: '添加需要更新的应用',
+        description: '填写应用地址并选择证书应该部署到哪里。',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: '证书要更新到哪里？',
+        locationDescription: '选择已有的设备、服务和部署目标，底层绑定逻辑保持不变。',
+        device: '设备',
+        service: '服务',
+        site: '站点',
+        target: '部署目标',
+        certificateFormat: '证书格式'
+      }
+    },
     },
     runtimeValue: '运行时由 {source} 提供',
     source: '来源：{source}',
@@ -2766,6 +2883,7 @@ export default {
       unknown: '部署输入校验失败（{code}）',
       DEPLOYMENT_INPUT_REQUIRED: '缺少必填部署输入',
       DEPLOYMENT_CONNECTION_REQUIRED: '缺少必填连接配置',
+      deployCertificate: '证书部署',
       DEPLOYMENT_CREDENTIAL_REQUIRED: '缺少必填凭据',
       DEPLOYMENT_ARTIFACT_REQUIRED: '缺少必填部署产物',
       DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: '该部署输入不允许覆盖',
@@ -2868,6 +2986,40 @@ export default {
       notSelected: '未选择',
       noVariablePreset: '暂无可添加变量',
       basicEntryIncomplete: '基础入口未完成'
+    },
+    deployment: {
+      title: '证书部署',
+      description: '从当前应用资产选择一个证书版本。系统会依次创建部署快照、执行预检、提交审批并在获准后执行。',
+      dialogTitle: '证书部署',
+      dialogDescription: '此操作只作用于当前应用资产，部署计划仍作为后台快照、审批和执行边界保留。',
+      deployThisVersion: '部署此证书版本',
+      loadingRecords: '正在加载部署记录...',
+      emptyRecords: '该应用资产还没有部署记录。',
+      preflightAvailable: '已返回 {count} 项预检',
+      preflightUnavailable: '尚未执行预检',
+      rollbackUnavailable: '尚未发起回滚',
+      fields: {
+        status: '部署状态',
+        approval: '审批状态',
+        latestRun: '最新运行',
+        preflight: '预检',
+        rollback: '回滚',
+        updatedAt: '更新时间'
+      },
+      feedback: {
+        preflightRunning: '正在等待预检运行完成。',
+        pendingApproval: '预检已完成，部署正在等待审批。',
+        executionStarted: '预检和审批已通过，部署运行已开始。'
+      },
+      errors: {
+        missingApplicationAssetId: '缺少应用资产 ID，无法创建证书部署。',
+        loadOptionsFailed: '加载可部署证书版本失败。',
+        createPlanMissingId: '创建部署快照后未返回计划 ID。',
+        deployFailed: '证书部署操作失败。',
+        preflightFailed: '证书部署预检未通过。',
+        preflightTimeout: '证书部署预检等待超时。',
+        loadRecordsFailed: '加载应用资产部署记录失败。'
+      }
     },
     detail: {
       title: '应用详情',
@@ -3067,6 +3219,7 @@ export default {
       noArtifactOutputs: '当前格式配置暂无可选输出项。'
     },
     certificateOutputs: {
+      loadCredentialProfilesFailed: '加载凭据配置失败',
       publicCertificateWithChain: '公钥证书+证书链',
       publicCertificate: '公钥证书',
       certificateChain: '证书链',
@@ -3407,6 +3560,14 @@ export default {
         pfx: {
           hint: '仅支持文件导入，且容器内必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。'
         }
+      acme: {
+        title: '申请 ACME 证书', loading: '正在检查申请通道...', blocked: '当前申请通道尚未就绪，请根据下列原因完成配置后刷新。',
+        status: { ready: '可申请', blocked: '待配置', unknown: '状态未知' },
+        fields: { directoryUrl: 'ACME Directory URL', email: '联系人邮箱', identifiers: '域名', csrPem: 'CSR PEM', accountKeySecretRef: '账户私钥 SecretRef', certificatePrivateKeySecretRef: '证书私钥 SecretRef', provider: 'DNS 提供商', zoneId: 'DNS 区域标识', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 凭据 SecretRef', ttl: 'DNS TTL', name: '证书名称' },
+        actions: { create: '提交申请', refresh: '刷新状态', poll: '继续查询', retry: '重新申请', recover: '恢复状态' },
+        requests: { title: '申请记录', status: { pending: '等待创建订单', challenge: '等待域名验证', finalizing: '等待签发', succeeded: '已签发', failed: '申请失败', unknown: '状态未知', cancelled: '已取消' } },
+        errors: { requestFailed: 'ACME 请求失败' }
+      },
       },
       methods: {
         file: {
@@ -3516,6 +3677,7 @@ export default {
       importSuccess: '导入成功，证书版本 ID：{id}',
       actions: {
         validating: '校验中...',
+        acme: 'ACME',
         validate: '开始校验',
         cancel: '取消',
         previous: '上一步',

@@ -18,6 +18,7 @@ import {
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal, GcPageToolbar } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 
 type IdentitySourceKind = 'active_directory' | 'ldap'
 type IdentityProtocol = 'ldap' | 'ldaps'
@@ -52,7 +53,7 @@ const editorLoading = ref(false)
 const editorError = ref('')
 const editorMessage = ref('')
 const advancedOpen = ref(false)
-const { t } = useI18n()
+const { t, te } = useI18n()
 const SETTINGS_PAGE_SIZE = 20
 
 const deletingId = ref('')
@@ -318,11 +319,11 @@ function closeConnectionTest() {
 }
 
 function connectionCheckTitle(key: IdentitySourceConnectionCheckKey): string {
-  return t(`settings.identitySources.test.checks.${key}.title`)
+  return translateDynamic(t, te, 'settings.identitySources.test.checks', key, 'common.notAvailable', 'common.unknownValue', '.title')
 }
 
 function connectionCheckStatus(status: IdentitySourceConnectionCheckStatus): string {
-  return t(`settings.identitySources.test.status.${status}`)
+  return translateDynamic(t, te, 'settings.identitySources.test.status', status)
 }
 
 function connectionTestSummary(result: IdentitySourceConnectionTestResult): string {

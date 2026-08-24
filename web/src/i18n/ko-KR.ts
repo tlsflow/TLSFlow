@@ -7,11 +7,15 @@ import { credentialsKoKR } from './credentials.locale'
 import { providersKoKR } from './providers.locale'
 import { monitoringTlsKoKR } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { notificationsEnglish } from './notifications.locale'
+import { reportsEnglish } from './reports.locale'
 export default {
   credentials: credentialsKoKR,
   devices: devicesKoKR,
   caOperations: caOperationsKoKR,
   providers: providersKoKR,
+  notifications: notificationsEnglish,
+  reports: reportsEnglish,
   app: {
     brand: 'GCAC 콘솔',
     platform: '기업 SSL 인증서 수명 주기 관리 플랫폼',
@@ -32,6 +36,8 @@ export default {
     notAvailable: '사용할 수 없음',
     close: '닫기',
     unknownError: '알 수 없는 오류',
+    unknownValue: '알 수 없는 값: {value}',
+    saving: '저장 중…',
     userFallback: '로그인하지 않은 사용자',
     tenantFallback: '기본 테넌트'
   },
@@ -521,17 +527,17 @@ export default {
     mismatch: '두 번 입력한 비밀번호가 일치하지 않습니다',
     tooShort: '새 비밀번호는 8자리 이상이여야 한다'
   },
+  viewMode: {
+    switchLabel: '애플리케이션 보기 모드',
+    user: '사용자 보기',
+    professional: '전문가 보기',
+    steps: {
+      certificates: '인증서',
+      applications: '애플리케이션',
+      deployments: '배포'
+    }
+  },
   nav: {
-    viewMode: {
-      switchLabel: 'Application view mode',
-      user: 'User view',
-      professional: 'Professional view',
-      steps: {
-        certificates: 'Certificates',
-        applications: 'Applications',
-        deployments: 'Deployments'
-      }
-    },
     dashboard: '대시보드',
     dashboardDesc: '애플리케이션, 인증서, Agent, 게이트웨이 및 감사 상태 요약',
     certificates: '인증서 관리',
@@ -556,6 +562,14 @@ export default {
     deploymentPlansDesc: '인증서 배포 계획 및 승인 포털입니다',
     executions: '실행 기록',
     executionsDesc: '실행 단계, 로그, 실패, 스크롤백',
+    reports: '보고서',
+    reportsDesc: '인증서 사고 기간, 위험 대응 및 자동화 효과',
+    incidentWindowReport: '사고 기간 보고서',
+    incidentWindowReportDesc: '만료 예정 및 만료된 인증서 우선순위 지정',
+    riskResponseReport: '위험 대응 보고서',
+    riskResponseReportDesc: '확인, 해결 시간 및 SLA',
+    automationEffectivenessReport: '자동화 효과 보고서',
+    automationEffectivenessReportDesc: '실행 및 대상 성공률과 실패 단계',
     workflows: '워크플로',
     workflowsDesc: '워크플로 및 플러그인',
     workflowTemplates: '워크플로',
@@ -605,10 +619,10 @@ export default {
     actionTypes: { create_deployment_plan: '인증서 갱신 계획 만들기', execute_deployment_plan: '인증서 갱신 계획 실행', send_notification: '알림 보내기' },
     values: { enabled: 'Enabled', disabled: 'Disabled', latest: 'Use the latest version', specific: 'Use specific certificate versions', fixedByEvent: 'Pinned by the certificate new-version event' },
     summaries: { targets: '최대 {count}개 대상' },
-    preview: { title: '자산 영향 미리 보기', description: '선택한 각 애플리케이션 자산의 현재 인증서 만료 시각과 대상 인증서 만료 시각을 비교합니다.', matched: '{count}개 일치', executable: '{count}개 실행 가능', excluded: '{count}개 제외', affected: '{count}개 영향', upgrade: '{count}개 유효기간 연장', same: '{count}개 만료 시각 동일', downgrade: '{count}개 확인 필요', version: '버전 {version}', versionUnknown: '버전 알 수 없음', ready: '실행 가능', impact: { upgrade: '유효기간 연장', same: '만료 시각 동일', downgrade: '유효기간 단축 위험', missing_current: '현재 인증서 없음', unknown: '영향 알 수 없음' } },
+    preview: { title: '자산 영향 미리 보기', description: '선택한 각 애플리케이션 자산의 현재 인증서 만료 시각과 대상 인증서 만료 시각을 비교합니다.', matched: '{count}개 일치', executable: '{count}개 실행 가능', excluded: '{count}개 제외', affected: '{count}개 영향', upgrade: '{count}개 유효기간 연장', same: '{count}개 만료 시각 동일', skip: '{count}개 업데이트 건너뜀', downgrade: '{count}개 확인 필요', version: '버전 {version}', versionUnknown: '버전 알 수 없음', ready: '실행 가능', skipUpdate: '업데이트 건너뛰기', expiryLabel: '만료', impact: { upgrade: '유효기간 연장', same: '만료 시각 동일', downgrade: '유효기간 단축 위험', missing_current: '현재 인증서 없음', unknown: '영향 알 수 없음' } },
     detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} application assets involved', assetsResolvedAtRuntime: 'Target assets are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved assets', nextRun: 'Next run', lastRun: 'Last run' } },
     history: { title: 'Run history', description: 'Review the latest runs for this automation.', summary: '{count} runs', latestTarget: 'Automation: {name}', empty: 'No runs yet.' },
-    exclusions: { permission_denied: '대상 권한 없음', missing_version: '인증서 버전 없음', version_not_deployable: '인증서 버전을 배포할 수 없음', binding_not_managed: '바인딩이 관리되지 않음', environment_not_allowed: '허용되지 않은 환경', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', certificate_version_downgrade: '대상 버전이 현재 자산 버전보다 낮음', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: '알 수 없는 제외 이유' },
+    exclusions: { permission_denied: '대상 권한 없음', missing_version: '인증서 버전 없음', version_not_deployable: '인증서 버전을 배포할 수 없음', binding_not_managed: '바인딩이 관리되지 않음', environment_not_allowed: '허용되지 않은 환경', binding_missing: '바인딩 없음', asset_missing_deployment_capability: '대상 자산은 인증서를 배포할 수 없음', certificate_version_downgrade: '대상 버전이 현재 자산 버전보다 낮음', certificate_already_up_to_date: '대상 만료 시각이 현재 인증서와 같아 업데이트를 건너뜀', filter_not_matched: '필터 조건이 일치하지 않음', runtime_context_required: '실행 컨텍스트가 필요함', unknown: '알 수 없는 제외 이유' },
     failureStages: { selection: '대상 선택', plan_creation: '계획 생성', dry_run: 'Dry Run', approval: '승인', execution: '실행', verification: '검증', rollback: '롤백', notification: '알림' },
     progress: { total: '전체', pending: '대기 중', running: '실행 중', waitingApproval: '승인 대기', succeeded: '성공', failed: '실패', skipped: '건너뜀', cancelled: '취소됨' },
     editor: { createTitle: '자동화 만들기', editTitle: '자동화 편집', description: '실행 시점, 대상 인증서, 계획 생성 방식과 실패 시 안전 경계를 설정합니다.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '기본 정보', basicHelp: '자동화 이름과 처리할 인증서 변경을 설명합니다.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '처리할 인증서', targetsHelp: '기존 배포 계획이 아니라 인증서 대상을 선택하며, 실행 시작 시 스냅샷을 고정합니다.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: '인증서 배포 계획', planRelationTitle: '기존 배포 계획에 연결하지 않습니다', planRelationDescription: '위 인증서 조건에 따라 실행 시 계획을 생성합니다.', planRelationHelp: '대상마다 별도의 DeploymentPlan을 만들고 계획 ID를 실행 상세에 표시합니다.', guardrails: '실행 안전 제어', guardrailsHelp: '배치 수, 사전 점검, 승인 및 실패 중지 조건을 제어합니다.' }, chain: { createPlan: '대상별 DeploymentPlan 생성', dryRun: 'Dry Run 사전 점검 실행', approval: '승인 대기', executePlan: '대상 DeploymentPlan 실행' } },
@@ -906,9 +920,22 @@ export default {
       riskLevel: '위험수준', runtime: '런타임', executionMode: '실행 모델', scope: '적용 범위', support: '지원 수준', capabilities: '기능', frameworks: '대상 프레임워크', products: '지원 제품', operations: '지원 작업'
     },
     labels: { permissions: '선언된 권한', runnerStatus: 'Runner 상태' },
-    permissionKeys: { network_http: '네트워크 요청', secret_read: '비밀 읽기', artifact_read: '아티팩트 읽기', device_write: '장치 쓰기' },
+    permissionKeys: {
+      network_http: '네트워크 요청', secret_read: '비밀 읽기', artifact_read: '아티팩트 읽기', device_write: '장치 쓰기',
+      agent_execution_receipt: 'Agent 실행 영수증', agent_fact_collect: 'Agent 정보 수집', agent_plan_execute: 'Agent 계획 실행', agent_plan_validate: 'Agent 계획 검증',
+      audit_append: '감사 기록 추가', cloud_service_get: '클라우드 서비스 읽기', execution_cancel_read: '실행 취소 상태 읽기', execution_checkpoint: '실행 체크포인트',
+      execution_checkpoint_read: '실행 체크포인트 읽기', execution_checkpoint_write: '실행 체크포인트 쓰기', execution_progress: '실행 진행률', execution_progress_write: '실행 진행률 쓰기',
+      resource_lock: '리소스 잠금', secret_resolve: '비밀 확인'
+    },
     runnerStatuses: { ready: 'Runner 준비됨', busy: 'Runner 실행 중', unavailable: 'Runner 사용 불가', notObserved: 'Runner 관측되지 않음' },
-    capabilityKeys: { device_connection_test: '연결 테스트', device_identity_detect: '장치 식별', device_discover: '장치 검색', device_logs_read: '장치 로그 읽기', certificate_discover: '인증서 검색', certificate_deploy: '인증서 배포', certificate_rollback: '인증서 롤백', certificate_verify: '인증서 검증' },
+    capabilityKeys: {
+      device_connection_test: '연결 테스트', device_identity_detect: '장치 식별', device_discover: '장치 검색', device_logs_read: '장치 로그 읽기',
+      certificate_discover: '인증서 검색', certificate_deploy: '인증서 배포', certificate_rollback: '인증서 롤백', certificate_verify: '인증서 검증',
+      application_discover: '애플리케이션 검색', ca_account_manage: 'CA 계정 관리', ca_order_manage: 'CA 주문 관리', ca_challenge_orchestrate: 'CA 챌린지 조정',
+      ca_challenge_dns_solver: 'CA DNS 챌린지 해결', ca_certificate_issue: 'CA 인증서 발급', ca_certificate_renew: 'CA 인증서 갱신', ca_certificate_revoke: 'CA 인증서 폐기',
+      cloud_service_connection_test: '클라우드 서비스 연결 테스트', cloud_service_discover: '클라우드 서비스 검색'
+    },
+    unknownCatalogValue: '알 수 없는 카탈로그 값: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '사용자 지정 런타임', runtime_custom: '사용자 지정 런타임', adc_load_balancer: 'ADC 로드 밸런서', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 원자 실행', workflow_dsl: '워크플로 DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
@@ -921,7 +948,7 @@ export default {
       executionMode: 'Agent 실행 모드', nativeHandler: '기본 핸들러', pluginMode: 'Agent 플러그인', mountedPlugin: '마운트된 플러그인', selectMountedPlugin: '마운트된 플러그인 선택',
       plugin: '배포 플러그인', selectPlugin: '배포 플러그인 선택', noCompatiblePlugin: '현재 플랫폼 및 프레임워크와 일치하는 활성 플러그인이 없습니다', compatiblePluginHint: '자산 플랫폼 및 프레임워크와 일치하는 활성 플러그인만 표시합니다.',
       secretRefPlaceholder: 'SecretRef 식별자 입력', artifactBinding: '인증서 산출물 {name}', artifactBindingPlaceholder: '예: value=fullchain,key=private', preview: '플러그인 설정 검증', previewFailed: 'Agent 플러그인 설정 검증에 실패했습니다',
-      approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다',
+      approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다', disableFailed: 'Agent 플러그인 비활성화에 실패했습니다',
       types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', UNIFIED_PLUGIN: '통합 기능 플러그인' }
     },
     changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
@@ -1183,6 +1210,12 @@ export default {
       view: '인증서 보기',
       viewProjectDetail: '이 항목의 인증서에 대한 자세한 정보를 참조하세요'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}, {days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Agent IIS 사이트',
       linuxSite: 'Agent Linux 사이트',
@@ -1418,6 +1451,20 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: '운영 개요'
+    },
+    resources: {
+      title: '시스템 리소스', description: '대시보드 호스트의 CPU 및 메모리 실시간 사용량입니다.', cpu: 'CPU 사용량', memory: '메모리 사용량', host: '호스트', abnormal: '주의', usageAria: '{metric} 사용량 {value}%', unavailableAria: '{metric}을 사용할 수 없습니다'
+    },
+    quickStart: {
+      title: '다음 인증서 배포 자동화', description: '하나의 안내된 입구에서 준비, 검증, 배포를 수행합니다.', addCertificate: '새 인증서 가져오기 또는 신청', deployExistingApplication: '웹 사이트 또는 애플리케이션에 배포', unavailable: '사용 가능한 입구 없음', safeExecution: '안전한 실행', guidedFlow: '안내 흐름'
+    },
+    trends: {
+      title: '실행 추세', noDelta: '--', auditSuccess: { title: '감사 성공률', suffix: '성공률' }, managedObjects: { title: '객체 상태', suffix: '정상 객체' }, certificateAttention: { title: '인증서 주의', suffix: '검토 필요' }
+    },
+    statusPanel: { description: '인증서, Agent, 게이트웨이 및 애플리케이션 자산의 현재 표시 상태.', objects: '객체' },
+    recentLog: { title: '최근 로그', live: '실시간' },
     aria: {
       assetHeatmap: '응용자산상태 열력그래프',
       certificateStatusList: '인증서 상태 목록',
@@ -1433,7 +1480,8 @@ export default {
     },
     audit: {
       description: '실패, 거부, 위험 및 중요한 비즈니스 변화의 우선순위를 표시합니다.',
-      title: '최근 감사 로그'
+      title: '최근 감사 로그',
+      activityTitle: '감사 활동'
     },
     certificateState: {
       critical: '만기가 다가오다',
@@ -1451,7 +1499,9 @@ export default {
     empty: {
       noAuditLogs: '아직 로그가 없습니다.',
       noCertificateStatus: '인증서 없음',
-      noObjects: '잠시 파트너가 없다.'
+      noObjects: '잠시 파트너가 없다.',
+      noTrend: '추세 데이터가 없습니다.',
+      noQuickActions: '사용 가능한 빠른 입구가 없습니다.'
     },
     errors: {
       loadFailed: '전체 보기 데이터를 불러올 수 없습니다',
@@ -1469,6 +1519,10 @@ export default {
       title: '로드 중'
     },
     metrics: {
+      attention: '주의',
+      sparklineLabel: '{metric} 추세',
+      stable: '안정적',
+      tracked: '추적 중',
       activeAgents: {
         title: 'Agent를 활성화합니다',
         description: '현재 온라인으로 예약할 수 있는 Agent.'
@@ -1493,6 +1547,25 @@ export default {
         title: '활성 인증서 수',
         description: '상태가 활성이고 아직 만료되지 않은 인증서 버전입니다.'
       }
+    },
+    health: {
+      title: '시스템 상태',
+      description: '인증서, Agent, 게이트웨이 및 애플리케이션 자산 상태 요약.',
+      healthy: '정상',
+      attention: '주의',
+      abnormal: '비정상',
+      noData: '데이터 없음',
+      score: '정상 객체 비율',
+      progressAria: '정상 시스템 객체 비율',
+      normalObjects: '정상 객체',
+      attentionObjects: '검토할 객체'
+    },
+    quickWizard: {
+      title: '빠른 안내'
+    },
+    typeStats: {
+      title: '객체 유형 분포',
+      description: '현재 표시되는 객체를 유형별로 나눕니다.'
     },
     quickActions: {
       agents: {
@@ -1958,6 +2031,7 @@ export default {
       fields: {
         sourceId: 'ID',
         externalGroup: '외부 그룹',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: '"ID"'
       }
     },
@@ -2660,6 +2734,7 @@ export default {
       deleteRisk: '삭제하면 이 응용 자산과 수동 대상 연결이 목록에서 제거됩니다. 검색된 프레임워크, 사이트, Virtual Server 및 ManagedTarget은 유지됩니다.',
       rollbackFromLatestSnapshot: '최신 스냅샷을 취소합니다',
       rollingBack: '뒤로...',
+      deployCertificate: '인증서 배포',
       saving: '저장 중...',
       creating: '생성 중...',
       saveChanges: '저장변경',
@@ -2685,6 +2760,7 @@ export default {
       platform: '플랫폼',
       frameworkType: '프레임 형식',
       deploymentStrategyCompatibility: '배포 전략 호환 모드',
+      selectWorkflow: '워크플로 선택',
       serviceInstanceId: '서비스 인스턴스 ID',
       siteId: '사이트 ID',
       managedTargetId: '관리 대상대상 ID',
@@ -2761,6 +2837,9 @@ export default {
           description: '배포 전후와 후퇴 후의 현장 상태는 반드시 직접 볼 수 있어야 하며, 임무기록만 남겨둬서는 안 된다.'
         }
       }
+    },
+    deployment: {
+      title: '인증서 배포', description: '이 애플리케이션 자산에 적용할 인증서 버전을 선택합니다. 시스템은 배포 스냅샷 생성, 사전 점검, 승인 제출 및 승인 후 실행을 수행합니다.', dialogTitle: '인증서 배포', dialogDescription: '현재 애플리케이션 자산에만 적용됩니다. 배포 계획은 백엔드의 스냅샷, 승인 및 실행 경계로 유지됩니다.', deployThisVersion: '이 인증서 버전 배포', loadingRecords: '배포 기록을 불러오는 중...', emptyRecords: '이 애플리케이션 자산에는 배포 기록이 없습니다.', preflightAvailable: '사전 점검 {count}개 반환됨', preflightUnavailable: '사전 점검이 아직 실행되지 않았습니다', rollbackUnavailable: '롤백이 요청되지 않았습니다', fields: { status: '배포 상태', approval: '승인 상태', latestRun: '최근 실행', preflight: '사전 점검', rollback: '롤백', updatedAt: '업데이트 시간' }, feedback: { preflightRunning: '사전 점검 실행이 완료되기를 기다리는 중입니다.', pendingApproval: '사전 점검이 완료되었으며 배포는 승인을 기다리고 있습니다.', executionStarted: '사전 점검과 승인이 완료되어 배포 실행이 시작되었습니다.' }, errors: { missingApplicationAssetId: '인증서 배포를 만들려면 애플리케이션 자산 ID가 필요합니다.', loadOptionsFailed: '배포 가능한 인증서 버전을 불러오지 못했습니다.', createPlanMissingId: '배포 스냅샷 생성 후 계획 ID가 반환되지 않았습니다.', deployFailed: '인증서 배포에 실패했습니다.', preflightFailed: '인증서 배포 사전 점검을 통과하지 못했습니다.', preflightTimeout: '인증서 배포 사전 점검 시간이 초과되었습니다.', loadRecordsFailed: '애플리케이션 자산 배포 기록을 불러오지 못했습니다.' }
     },
     compatibilityModes: {
       unified: '통합 플러그인 바인딩',
@@ -2960,6 +3039,7 @@ export default {
       pluginFormLoadFailed: '플러그인 설정 양식을 불러올 수 없습니다',
       pluginBindingCreateFailed: '플러그인 바인딩을 저장할 수 없습니다',
       loadWorkflowCredentialsFailed: '워크플로 자격 증명을 불러오는 데 실패했습니다',
+      loadCredentialProfilesFailed: '자격 증명 프로필을 불러오지 못했습니다',
       noAvailableSiteInstance: '사용 가능한 사이트 인스턴스가 없습니다. 장치 검색이 프레임워크와 사이트를 보고했는지 확인하세요.',
       managedTargetRediscoveryRequired: '이 사이트에 관리 대상이 없습니다. 장치 검색을 다시 실행하세요.',
       noCompatibleManagedPlugin: '현재 관리 대상과 호환되는 활성 플러그인이 없습니다.',
@@ -3300,6 +3380,14 @@ export default {
           description: '이 콘솔에는 사용할 수 있는 ACME 발급 진입점이 없습니다. 기존 인증서를 가져오거나 자동 발급 채널을 구성한 후 다시 시도하세요.'
         }
       },
+      acme: {
+        title: 'ACME 인증서 신청', loading: '발급 경로를 확인하는 중...', blocked: '신청 경로가 준비되지 않았습니다. 표시된 조건을 해결한 후 새로 고치세요.',
+        status: { ready: '신청 가능', blocked: '설정 필요', unknown: '상태 알 수 없음' },
+        fields: { directoryUrl: 'ACME Directory URL', email: '연락처 이메일', identifiers: '도메인 이름', csrPem: 'CSR PEM', accountKeySecretRef: '계정 키 SecretRef', certificatePrivateKeySecretRef: '인증서 키 SecretRef', provider: 'DNS 공급자', zoneId: 'DNS 영역 ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 자격 증명 SecretRef', ttl: 'DNS TTL', name: '인증서 이름' },
+        actions: { create: '신청 제출', refresh: '상태 새로 고침', poll: '계속 조회', retry: '신청 재시도', recover: '상태 복구' },
+        requests: { title: '신청 기록', status: { pending: '주문 생성 대기', challenge: '도메인 검증 대기', finalizing: '발급 대기', succeeded: '발급됨', failed: '신청 실패', unknown: '상태 알 수 없음', cancelled: '취소됨' } },
+        errors: { requestFailed: 'ACME 요청 실패' }
+      },
       hints: {
         pemChainCheck: '서버 인증서, 전체 중간 인증서 체인과 개인 키를 업로드하거나 붙여넣으십시오. 그러면 시스템이 인증서 체인과 개인 키 일치 관계를 검사합니다.',
         pfxChainCheck: 'PFX/P12 파일을 업로드하고 비밀번호를 기입하세요. 그러면 컨테이너 안에 있는 서버 인증서, 인증서 체인 및 개인 전용 키가 분석됩니다.',
@@ -3409,6 +3497,7 @@ export default {
         internal_ca: '내부 CA',
         enterprise_ca: '엔터프라이즈 CA',
         external_api: '외부 API',
+        acme: 'ACME',
         unknown: '알 수 없음'
       },
       lifecycle: {

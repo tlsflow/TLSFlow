@@ -1,4 +1,4 @@
-import { defaultLocale, isSupportedLocale, type SupportedLocale } from '@/i18n'
+import { defaultLocale, normalizeLocale, type SupportedLocale } from '@/i18n'
 
 export type ThemeMode = 'light' | 'dark'
 export type AppViewMode = 'user' | 'professional'
@@ -25,7 +25,7 @@ export function normalizePreferences(value: unknown): AppPreferences {
   const record = value as Record<string, unknown>
   return {
     theme: isThemeMode(record.theme) ? record.theme : defaultPreferences.theme,
-    locale: isSupportedLocale(record.locale) ? record.locale : defaultPreferences.locale,
+    locale: normalizeLocale(record.locale),
     version: 1
   }
 }

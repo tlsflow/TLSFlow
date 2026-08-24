@@ -171,7 +171,7 @@ async function updateRoute() {
 }
 
 function statusLabel(status: string): string {
-  return t('caOperations.statuses.' + status)
+  return caOperationsLabel('statuses', status)
 }
 
 function statusTone(status: string): StatusTone {

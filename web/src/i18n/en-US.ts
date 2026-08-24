@@ -31,6 +31,8 @@ export default {
     notAvailable: 'Not available',
     close: 'Close',
     unknownError: 'Unknown error',
+    unknownValue: 'Unknown value: {value}',
+    saving: 'Saving…',
     userFallback: 'Guest user',
     tenantFallback: 'Default tenant'
   },
@@ -966,9 +968,22 @@ export default {
       riskLevel: 'Risk level', runtime: 'Runtime', executionMode: 'Execution model', scope: 'Scope', support: 'Support level', capabilities: 'Capabilities', frameworks: 'Target frameworks', products: 'Supported products', operations: 'Supported operations'
     },
     labels: { permissions: 'Declared permissions', runnerStatus: 'Runner status' },
-    permissionKeys: { network_http: 'Network requests', secret_read: 'Read secrets', artifact_read: 'Read artifacts', device_write: 'Write devices' },
+    permissionKeys: {
+      network_http: 'Network requests', secret_read: 'Read secrets', artifact_read: 'Read artifacts', device_write: 'Write devices',
+      agent_execution_receipt: 'Agent execution receipts', agent_fact_collect: 'Agent fact collection', agent_plan_execute: 'Agent plan execution', agent_plan_validate: 'Agent plan validation',
+      audit_append: 'Append audit records', cloud_service_get: 'Read cloud services', execution_cancel_read: 'Read execution cancellation state', execution_checkpoint: 'Execution checkpoints',
+      execution_checkpoint_read: 'Read execution checkpoints', execution_checkpoint_write: 'Write execution checkpoints', execution_progress: 'Execution progress', execution_progress_write: 'Write execution progress',
+      resource_lock: 'Resource locks', secret_resolve: 'Resolve secrets'
+    },
     runnerStatuses: { ready: 'Runner ready', busy: 'Runner busy', unavailable: 'Runner unavailable', notObserved: 'Runner not observed' },
-    capabilityKeys: { device_connection_test: 'Connection test', device_identity_detect: 'Device identity detection', device_discover: 'Device discovery', device_logs_read: 'Device log reading', certificate_discover: 'Certificate discovery', certificate_deploy: 'Certificate deployment', certificate_rollback: 'Certificate rollback', certificate_verify: 'Certificate verification' },
+    capabilityKeys: {
+      device_connection_test: 'Connection test', device_identity_detect: 'Device identity detection', device_discover: 'Device discovery', device_logs_read: 'Device log reading',
+      certificate_discover: 'Certificate discovery', certificate_deploy: 'Certificate deployment', certificate_rollback: 'Certificate rollback', certificate_verify: 'Certificate verification',
+      application_discover: 'Application discovery', ca_account_manage: 'CA account management', ca_order_manage: 'CA order management', ca_challenge_orchestrate: 'CA challenge orchestration',
+      ca_challenge_dns_solver: 'CA DNS challenge solver', ca_certificate_issue: 'CA certificate issuance', ca_certificate_renew: 'CA certificate renewal', ca_certificate_revoke: 'CA certificate revocation',
+      cloud_service_connection_test: 'Cloud service connection test', cloud_service_discover: 'Cloud service discovery'
+    },
+    unknownCatalogValue: 'Unknown catalog value: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Custom runtime', runtime_custom: 'Custom runtime', adc_load_balancer: 'ADC load balancer', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
@@ -988,7 +1003,7 @@ export default {
       executionMode: 'Agent execution mode', nativeHandler: 'Native handler', pluginMode: 'Agent plugin', mountedPlugin: 'Mounted plugin', selectMountedPlugin: 'Select a mounted plugin',
       plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the asset platform and framework are shown.',
       secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
-      approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin',
+      approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin', disableFailed: 'Failed to disable Agent plugin',
       types: { WORKFLOW_TEMPLATE: 'Workflow template', UNIFIED_PLUGIN: 'Unified capability plugin' }
     },
     changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
@@ -1250,6 +1265,12 @@ export default {
       view: 'View certificate',
       viewProjectDetail: 'View project certificate details'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}, {days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Agent IIS site',
       linuxSite: 'Agent Linux site',
@@ -1485,6 +1506,43 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: 'Operations overview'
+    },
+    resources: {
+      title: 'System resources',
+      description: 'Live CPU and memory usage from the dashboard host.',
+      cpu: 'CPU usage',
+      memory: 'Memory usage',
+      host: 'Host',
+      abnormal: 'Attention',
+      usageAria: '{metric} usage {value}%',
+      unavailableAria: '{metric} is unavailable'
+    },
+    quickStart: {
+      title: 'Automate your next certificate rollout',
+      description: 'Prepare, validate, and deploy from one guided entry point.',
+      addCertificate: 'Import or request a new certificate',
+      deployExistingApplication: 'Deploy to a website or application',
+      unavailable: 'No entry available',
+      safeExecution: 'Safe execution',
+      guidedFlow: 'Guided flow'
+    },
+    trends: {
+      title: 'Runtime trends',
+      noDelta: '--',
+      auditSuccess: { title: 'Audit success rate', suffix: 'success rate' },
+      managedObjects: { title: 'Object health', suffix: 'healthy objects' },
+      certificateAttention: { title: 'Certificate attention', suffix: 'to review' }
+    },
+    statusPanel: {
+      description: 'Current visible status across certificates, Agents, gateways, and application assets.',
+      objects: 'objects'
+    },
+    recentLog: {
+      title: 'Recent logs',
+      live: 'Live'
+    },
     aria: {
       assetHeatmap: 'Application asset status heatmap',
       certificateStatusList: 'Certificate status list',
@@ -1500,7 +1558,8 @@ export default {
     },
     audit: {
       description: 'Prioritizes failures, denials, high-risk events, and key business changes.',
-      title: 'Recent audit logs'
+      title: 'Recent audit logs',
+      activityTitle: 'Audit activity'
     },
     certificateState: {
       critical: 'Near expiry',
@@ -1518,7 +1577,9 @@ export default {
     empty: {
       noAuditLogs: 'No audit logs',
       noCertificateStatus: 'No certificate status data',
-      noObjects: 'No objects'
+      noObjects: 'No objects',
+      noTrend: 'No trend data',
+      noQuickActions: 'No quick entries available'
     },
     errors: {
       loadFailed: 'Failed to load overview data',
@@ -1536,6 +1597,10 @@ export default {
       title: 'Loading'
     },
     metrics: {
+      attention: 'Attention',
+      sparklineLabel: '{metric} trend',
+      stable: 'Stable',
+      tracked: 'Tracked',
       activeAgents: {
         title: 'Active Agents',
         description: 'Agents currently online and schedulable.'
@@ -1560,6 +1625,25 @@ export default {
         title: 'Active certificates',
         description: 'Certificate versions that are active and not expired.'
       }
+    },
+    health: {
+      title: 'System health',
+      description: 'Summary across certificates, Agents, gateways, and application assets.',
+      healthy: 'Healthy',
+      attention: 'Attention',
+      abnormal: 'Abnormal',
+      noData: 'No data',
+      score: 'healthy objects',
+      progressAria: 'Share of healthy system objects',
+      normalObjects: 'normal objects',
+      attentionObjects: 'objects to review'
+    },
+    quickWizard: {
+      title: 'Quick guide'
+    },
+    typeStats: {
+      title: 'Object type distribution',
+      description: 'Current visible objects by type.'
     },
     quickActions: {
       agents: {
@@ -2066,6 +2150,7 @@ export default {
       fields: {
         sourceId: 'Identity source ID',
         externalGroup: 'External group',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: 'Local role ID'
       }
     },
@@ -2776,6 +2861,7 @@ export default {
       deleteRisk: 'Deleting removes this application asset and its manual target association from the asset list. Discovered frameworks, sites, virtual servers, and managed targets are preserved.',
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
+      deployCertificate: 'Deploy certificate',
       saving: 'Saving...',
       creating: 'Creating...',
       saveChanges: 'Save changes',
@@ -2801,6 +2887,8 @@ export default {
       platform: 'Platform',
       frameworkType: 'Framework type',
       deploymentStrategyCompatibility: 'Deployment strategy compatibility',
+      selectWorkflow: 'Select workflow',
+      workflowVersionSelection: 'Workflow version strategy',
       serviceInstanceId: 'Service instance ID',
       siteId: 'Site ID',
       managedTargetId: 'Managed target ID',
@@ -2876,6 +2964,21 @@ export default {
           description: 'Pre-deploy, post-deploy, and rollback state must be visible directly, not only as task records.'
         }
       }
+    },
+    deployment: {
+      title: 'Certificate deployment',
+      description: 'Choose a certificate version for this application asset. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
+      dialogTitle: 'Certificate deployment',
+      dialogDescription: 'This applies only to the current application asset. The deployment plan remains the backend snapshot, approval, and execution boundary.',
+      deployThisVersion: 'Deploy this certificate version',
+      loadingRecords: 'Loading deployment records...',
+      emptyRecords: 'This application asset has no deployment records.',
+      preflightAvailable: '{count} preflight checks returned',
+      preflightUnavailable: 'No preflight run yet',
+      rollbackUnavailable: 'No rollback requested',
+      fields: { status: 'Deployment status', approval: 'Approval', latestRun: 'Latest run', preflight: 'Preflight', rollback: 'Rollback', updatedAt: 'Updated at' },
+      feedback: { preflightRunning: 'Waiting for the preflight run to finish.', pendingApproval: 'Preflight completed. The deployment is awaiting approval.', executionStarted: 'Preflight and approval passed. The deployment run has started.' },
+      errors: { missingApplicationAssetId: 'Application asset ID is required to create a certificate deployment.', loadOptionsFailed: 'Failed to load deployable certificate versions.', createPlanMissingId: 'The deployment snapshot was created without a plan ID.', deployFailed: 'Certificate deployment failed.', preflightFailed: 'The certificate deployment preflight did not pass.', preflightTimeout: 'The certificate deployment preflight timed out.', loadRecordsFailed: 'Failed to load application asset deployment records.' }
     },
     compatibilityModes: {
       unified: 'Unified plugin binding',
@@ -3005,6 +3108,10 @@ export default {
       sniNameLabel: 'TLS certificate name',
       sniNameHelp: 'Change only when the TLS handshake name differs from the access host.'
     },
+    workflowVersionSelection: {
+      pinned: 'Pin the current version',
+      latestPublished: 'Always use the latest published version'
+    },
     workflowVariables: {
       title: 'Workflow variables',
       configuredCount: '{configured}/{total} configured',
@@ -3071,6 +3178,7 @@ export default {
       pluginFormLoadFailed: 'Failed to load the plugin configuration form',
       pluginBindingCreateFailed: 'Failed to save the plugin binding',
       loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
+      loadCredentialProfilesFailed: 'Failed to load credential profiles',
       noAvailableSiteInstance: 'No available site instance was found. Confirm device discovery reported frameworks and sites.',
       managedTargetRediscoveryRequired: 'This site has no managed targets. Run device discovery again.',
       noCompatibleManagedPlugin: 'No enabled plugin is compatible with this managed target.',
@@ -3411,6 +3519,14 @@ export default {
           description: 'This console does not have an available ACME issuance entry point. Import an existing certificate, or retry after an automated issuance channel is configured.'
         }
       },
+      acme: {
+        title: 'Request an ACME certificate', loading: 'Checking issuance availability...', blocked: 'The issuance path is not ready. Resolve the listed conditions and refresh.',
+        status: { ready: 'Ready to request', blocked: 'Setup required', unknown: 'Status unknown' },
+        fields: { directoryUrl: 'ACME Directory URL', email: 'Contact email', identifiers: 'Domain names', csrPem: 'CSR PEM', accountKeySecretRef: 'Account key SecretRef', certificatePrivateKeySecretRef: 'Certificate key SecretRef', provider: 'DNS provider', zoneId: 'DNS zone ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS credential SecretRef', ttl: 'DNS TTL', name: 'Certificate name' },
+        actions: { create: 'Submit request', refresh: 'Refresh status', poll: 'Continue polling', retry: 'Retry request', recover: 'Recover status' },
+        requests: { title: 'Requests', status: { pending: 'Waiting to create order', challenge: 'Waiting for domain validation', finalizing: 'Waiting for issuance', succeeded: 'Issued', failed: 'Request failed', unknown: 'Status unknown', cancelled: 'Cancelled' } },
+        errors: { requestFailed: 'ACME request failed' }
+      },
       hints: {
         pemChainCheck: 'Upload or paste the server certificate, full intermediate chain, and private key. The system will verify the chain and private key match.',
         pfxChainCheck: 'Upload a PFX/P12 file and enter its password. The system will parse the server certificate, chain, and private key from the container.',
@@ -3520,6 +3636,7 @@ export default {
         internal_ca: 'Internal CA',
         enterprise_ca: 'Enterprise CA',
         external_api: 'External API',
+        acme: 'ACME',
         unknown: 'Unknown'
       },
       lifecycle: {

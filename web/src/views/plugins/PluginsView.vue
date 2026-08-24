@@ -5,6 +5,7 @@ import type { PluginRuntimeMetric, PluginVersionRecord } from '@/api/generated/s
 import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, listPluginRuntimeMetrics, listUnifiedPluginVersions, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 import { aggregateRunnerStatus, toCatalogPluginRecord, type PluginRecord } from './plugin-record'
 
 type SourceFilter = 'all' | PluginSource
@@ -18,7 +19,7 @@ interface PluginChip {
   hiddenItems?: Array<Pick<PluginChip, 'key' | 'label' | 'kind'>>
 }
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const loading = ref(false)
 const loadError = ref('')
 const plugins = ref<PluginRecord[]>([])
@@ -154,16 +155,8 @@ function readRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function catalogTranslationToken(value: string): string {
-  return value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-}
-
 function translateCatalogValue(namespace: string, value?: string): string {
-  const rawValue = value?.trim() ?? ''
-  if (!rawValue) return t('common.notAvailable')
-  const key = `${namespace}.${catalogTranslationToken(rawValue)}`
-  const label = t(key)
-  return label === key ? rawValue : label
+  return translateDynamic(t, te, namespace, value, 'common.notAvailable', 'plugins.unknownCatalogValue')
 }
 
 function pluginCapabilityLabel(capability: string): string {

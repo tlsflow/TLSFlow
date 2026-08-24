@@ -5,8 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { listAutomationRuns, type AutomationRunRecord } from '@/api/modules/automations.api'
 import { GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const items = ref<AutomationRunRecord[]>([])
@@ -59,10 +60,10 @@ onMounted(() => { void loadRuns() })
         </div>
         <button v-for="run in items" :key="run.id" class="runs-table__row" type="button" role="row" @click="router.push(`/automation-runs/${run.id}`)">
           <span class="runs-table__name" role="cell">{{ run.automationNameSnapshot }}</span>
-          <span role="cell">{{ t(`automations.triggerTypes.${run.triggerType}`) }}</span>
+          <span role="cell">{{ translateDynamic(t, te, 'automations.triggerTypes', run.triggerType) }}</span>
           <span role="cell"><GcStatusTag :status="run.status" /></span>
           <span role="cell">{{ t('automations.runs.progress', { succeeded: run.targetSummary.succeeded || 0, total: run.targetSummary.total || 0 }) }}</span>
-          <span role="cell">{{ run.failureStage ? t(`automations.failureStages.${run.failureStage}`) : t('automations.common.notAvailable') }}</span>
+          <span role="cell">{{ run.failureStage ? translateDynamic(t, te, 'automations.failureStages', run.failureStage) : t('automations.common.notAvailable') }}</span>
           <time role="cell">{{ formatMaybeLocalTime(run.createdAt, t('automations.common.notAvailable')) }}</time>
         </button>
       </div>

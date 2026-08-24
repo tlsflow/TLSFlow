@@ -832,8 +832,8 @@ function firstNumber(...values: unknown[]): number | undefined {
               </select>
             </label>
             <label>
-              <span>{{ t('certificates.fields.verifyUrl') }}</span>
-              <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: t('certificates.fields.verifyUrl'), kind: 'text' }, $event)" />
+              <span>{{ t('assets.fields.verifyUrl') }}</span>
+              <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: t('assets.fields.verifyUrl'), kind: 'text' }, $event)" />
             </label>
             <div class="workflow-canvas-editor__property-group">
               <strong>{{ t('workflows.canvasEditor.sections.httpAuth') }}</strong>

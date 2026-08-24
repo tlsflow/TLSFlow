@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePermissionStore } from '@/stores/permission.store'
+import { translateDynamic } from '@/i18n/translate'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import {
   createReportRun,
@@ -133,8 +134,15 @@ function columnLabel(column: string): string {
 }
 
 function groupLabel(kind: 'dimensions' | 'values', value: string): string {
-  const key = `reports.groups.${kind}.${value}`
-  return te(key) ? t(key) : value
+  return translateDynamic(t, te, `reports.groups.${kind}`, value, 'reports.common.emptyValue')
+}
+
+function metricLabel(value: string): string {
+  return translateDynamic(t, te, 'reports.metrics', value, 'reports.common.emptyValue')
+}
+
+function exportStatusLabel(value: string): string {
+  return translateDynamic(t, te, 'reports.export.status', value, 'reports.common.emptyValue')
 }
 </script>
 
@@ -233,7 +241,7 @@ function groupLabel(kind: 'dimensions' | 'values', value: string): string {
 
     <section class="panel">
       <h2>{{ t('reports.common.drilldown') }}</h2>
-      <p v-if="selectedMetric">{{ t('reports.common.selectedMetric', { metric: t(`reports.metrics.${selectedMetric}`) }) }}</p>
+      <p v-if="selectedMetric">{{ t('reports.common.selectedMetric', { metric: metricLabel(selectedMetric) }) }}</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th v-for="column in itemColumns" :key="column">{{ columnLabel(column) }}</th></tr></thead>
@@ -250,7 +258,7 @@ function groupLabel(kind: 'dimensions' | 'values', value: string): string {
       <ul class="run-list">
         <li v-for="run in runs" :key="run.id">
           <span>{{ formatBrowserLocalTime(run.createdAt) }}</span>
-          <span>{{ t(`reports.export.status.${run.status}`) }}</span>
+          <span>{{ exportStatusLabel(run.status) }}</span>
           <button v-if="run.status === 'succeeded'" type="button" @click="downloadReportRun(run.id)">{{ t('reports.export.download') }}</button>
         </li>
         <li v-if="runs.length === 0">{{ t('reports.export.noHistory') }}</li>

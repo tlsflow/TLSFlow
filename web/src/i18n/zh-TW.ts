@@ -6,11 +6,15 @@ import { credentialsZhTW } from './credentials.locale'
 import { providersZhTW } from './providers.locale'
 import { monitoringTlsZhTW } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { notificationsEnglish } from './notifications.locale'
+import { reportsEnglish } from './reports.locale'
 export default {
   credentials: credentialsZhTW,
   devices: devicesZhTW,
   caOperations: caOperationsZhTW,
   providers: providersZhTW,
+  notifications: notificationsEnglish,
+  reports: reportsEnglish,
   app: {
     brand: "GCAC 控制台",
     platform: "企業 SSL 憑證生命週期管理平台",
@@ -31,6 +35,8 @@ export default {
     notAvailable: "暫無",
     close: "關閉",
     unknownError: "未知錯誤",
+    unknownValue: "未知值：{value}",
+    saving: "儲存中…",
     userFallback: "未登入使用者",
     tenantFallback: "預設租戶"
   },
@@ -520,17 +526,17 @@ export default {
     mismatch: "兩次輸入的新密碼不一致",
     tooShort: "新密碼長度不能少於 8 位"
   },
+  viewMode: {
+    switchLabel: '應用程式視圖模式',
+    user: '使用者視圖',
+    professional: '專業視圖',
+    steps: {
+      certificates: '憑證',
+      applications: '應用程式',
+      deployments: '部署'
+    }
+  },
   nav: {
-    viewMode: {
-      switchLabel: 'Application view mode',
-      user: 'User view',
-      professional: 'Professional view',
-      steps: {
-        certificates: 'Certificates',
-        applications: 'Applications',
-        deployments: 'Deployments'
-      }
-    },
     dashboard: "儀表板",
     dashboardDesc: "應用、憑證、Agent、閘道和審計狀態總覽",
     certificates: "憑證管理",
@@ -571,6 +577,14 @@ export default {
     monitorTlsDesc: "證書認證路徑、協議套件、相容性模擬與協議細節",
     audits: "審計記錄",
     auditsDesc: "操作證據與合規匯出",
+    reports: "報表",
+    reportsDesc: "憑證事故窗口、風險處置與自動化成效",
+    incidentWindowReport: "事故窗口",
+    incidentWindowReportDesc: "即將到期與已到期憑證的處置優先順序",
+    riskResponseReport: "風險處置",
+    riskResponseReportDesc: "風險確認、解決時長與 SLA",
+    automationEffectivenessReport: "自動化成效",
+    automationEffectivenessReportDesc: "執行級、目標級成功率與失敗階段",
     settings: "系統設定",
     settingsDesc: "租戶、使用者、權限和系統設定",
     systemSettings: "系統設定",
@@ -604,10 +618,10 @@ export default {
     actionTypes: { create_deployment_plan: "建立憑證更新計畫", execute_deployment_plan: "執行憑證更新計畫", send_notification: "傳送通知" },
     values: { enabled: "已啟用", disabled: "未啟用", latest: "自動使用最新版本", specific: "使用指定憑證版本", fixedByEvent: "由憑證新版本事件固定" },
     summaries: { targets: "最多 {count} 個目標" },
-    preview: { title: "資產影響預覽", description: "查看已選取應用資產目前憑證到期時間與目標憑證到期時間的關係。", matched: "符合 {count} 項", executable: "可執行 {count} 項", excluded: "排除 {count} 項", affected: "受影響 {count} 項", upgrade: "有效期延長 {count} 項", same: "到期一致 {count} 項", downgrade: "需注意 {count} 項", version: "版本 {version}", versionUnknown: "版本未知", ready: "可執行", impact: { upgrade: "有效期延長", same: "到期時間一致", downgrade: "有效期縮短風險", missing_current: "缺少目前憑證", unknown: "影響未知" } },
+    preview: { title: "資產影響預覽", description: "查看已選取應用資產目前憑證到期時間與目標憑證到期時間的關係。", matched: "符合 {count} 項", executable: "可執行 {count} 項", excluded: "排除 {count} 項", affected: "受影響 {count} 項", upgrade: "有效期延長 {count} 項", same: "到期一致 {count} 項", skip: "跳過更新 {count} 項", downgrade: "需注意 {count} 項", version: "版本 {version}", versionUnknown: "版本未知", ready: "可執行", skipUpdate: "跳過更新", expiryLabel: "有效期", impact: { upgrade: "有效期延長", same: "到期時間一致", downgrade: "有效期縮短風險", missing_current: "缺少目前憑證", unknown: "影響未知" } },
     detail: { title: "自動化詳情", description: "查看目前自動化配置、觸發條件與執行護欄。", assetCount: "涉及 {count} 個應用資產", assetsResolvedAtRuntime: "目標資產會在執行時依憑證網域與繫結關係解析。", sections: { summary: "概覽", execution: "執行鏈", guardrails: "執行安全控制" }, fields: { automationId: "自動化 ID", currentVersion: "目前配置版本", recordVersion: "記錄版本號", eventSources: "事件來源", certificateDomains: "憑證網域", versionSelection: "憑證版本策略", actionChain: "執行動作鏈", involvedAssets: "涉及資產", nextRun: "下次執行", lastRun: "最近執行" } },
     history: { title: "執行歷史", description: "查看目前自動化最近的執行記錄。", summary: "共 {count} 筆執行記錄", latestTarget: "自動化：{name}", empty: "目前還沒有執行記錄。" },
-    exclusions: { permission_denied: "無目標權限", missing_version: "缺少憑證版本", version_not_deployable: "憑證版本不可部署", binding_not_managed: "綁定未納管", environment_not_allowed: "環境不在允許範圍", binding_missing: "缺少綁定", asset_missing_deployment_capability: "目標資產不支援部署", certificate_version_downgrade: "目標憑證版本低於資產目前版本", filter_not_matched: "不符合過濾條件", runtime_context_required: "缺少執行期上下文", unknown: "未知排除原因" },
+    exclusions: { permission_denied: "無目標權限", missing_version: "缺少憑證版本", version_not_deployable: "憑證版本不可部署", binding_not_managed: "綁定未納管", environment_not_allowed: "環境不在允許範圍", binding_missing: "缺少綁定", asset_missing_deployment_capability: "目標資產不支援部署", certificate_version_downgrade: "目標憑證版本低於資產目前版本", certificate_already_up_to_date: "目標有效期已與目前資產憑證一致，因此跳過更新", filter_not_matched: "不符合過濾條件", runtime_context_required: "缺少執行期上下文", unknown: "未知排除原因" },
     failureStages: { selection: "目標選擇", plan_creation: "計畫建立", dry_run: "Dry Run", approval: "審批", execution: "執行", verification: "驗證", rollback: "回滾", notification: "通知" },
     progress: { total: "總數", pending: "等待中", running: "執行中", waitingApproval: "等待審批", succeeded: "成功", failed: "失敗", skipped: "已跳過", cancelled: "已取消" },
     editor: { createTitle: "新增自動化", editTitle: "編輯自動化", description: "設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。", exactVersionFromEvent: "憑證新版本事件會把這次產生的精確憑證版本固定到執行快照中，審批恢復後也不會漂移到後續版本。", sections: { basic: "基本資料", basicHelp: "為自動化命名，說明它負責哪類憑證變更。", trigger: "觸發器", triggerHelp: "先定義由什麼事實啟動自動化，再決定後續的執行和條件。", targets: "處理哪些憑證", targetsHelp: "這裡選擇的是憑證目標，不是既有部署計畫；執行開始時會固定目標快照。", execution: "執行器", executionHelp: "先決定自動化如何更新資產，再追加條件與安全護欄。", conditions: "條件與安全", conditionsHelp: "這一步同時定義命中條件、範圍過濾、審批與並行等護欄。", plan: "憑證部署計畫", planRelationTitle: "不會繫結既有部署計畫", planRelationDescription: "自動化會根據上面的憑證篩選條件，在每次執行時建立部署計畫。", planRelationHelp: "每個命中的憑證目標都有自己的 DeploymentPlan，計畫 ID 會顯示在執行詳情中。", guardrails: "執行安全控制", guardrailsHelp: "這些限制決定單次最多處理多少目標、是否預檢/審批，以及失敗何時停止。" }, chain: { createPlan: "按目標建立 DeploymentPlan", dryRun: "執行 Dry Run 預檢", approval: "等待審批通過", executePlan: "執行該目標的 DeploymentPlan" } },
@@ -931,9 +945,22 @@ export default {
       riskLevel: "風險等級", runtime: "執行環境", executionMode: "執行模型", scope: "適用範圍", support: "支援等級", capabilities: "能力", frameworks: "面向框架", products: "支援產品", operations: "支援操作"
     },
     labels: { permissions: "宣告權限", runnerStatus: "Runner 狀態" },
-    permissionKeys: { network_http: "網路請求", secret_read: "讀取密鑰", artifact_read: "讀取產物", device_write: "寫入裝置" },
+    permissionKeys: {
+      network_http: "網路請求", secret_read: "讀取密鑰", artifact_read: "讀取產物", device_write: "寫入裝置",
+      agent_execution_receipt: "Agent 執行回執", agent_fact_collect: "Agent 資訊收集", agent_plan_execute: "Agent 計畫執行", agent_plan_validate: "Agent 計畫驗證",
+      audit_append: "追加稽核記錄", cloud_service_get: "讀取雲端服務", execution_cancel_read: "讀取執行取消狀態", execution_checkpoint: "執行檢查點",
+      execution_checkpoint_read: "讀取執行檢查點", execution_checkpoint_write: "寫入執行檢查點", execution_progress: "執行進度", execution_progress_write: "寫入執行進度",
+      resource_lock: "資源鎖", secret_resolve: "解析密鑰"
+    },
     runnerStatuses: { ready: "Runner 就緒", busy: "Runner 執行中", unavailable: "Runner 無法使用", notObserved: "Runner 未觀測" },
-    capabilityKeys: { device_connection_test: "連線測試", device_identity_detect: "裝置身分識別", device_discover: "裝置發現", device_logs_read: "裝置記錄讀取", certificate_discover: "憑證發現", certificate_deploy: "憑證部署", certificate_rollback: "憑證復原", certificate_verify: "憑證驗證" },
+    capabilityKeys: {
+      device_connection_test: "連線測試", device_identity_detect: "裝置身分識別", device_discover: "裝置發現", device_logs_read: "裝置記錄讀取",
+      certificate_discover: "憑證發現", certificate_deploy: "憑證部署", certificate_rollback: "憑證復原", certificate_verify: "憑證驗證",
+      application_discover: "應用程式發現", ca_account_manage: "CA 帳戶管理", ca_order_manage: "CA 訂單管理", ca_challenge_orchestrate: "CA 挑戰編排",
+      ca_challenge_dns_solver: "CA DNS 挑戰解析", ca_certificate_issue: "CA 憑證簽發", ca_certificate_renew: "CA 憑證續期", ca_certificate_revoke: "CA 憑證撤銷",
+      cloud_service_connection_test: "雲端服務連線測試", cloud_service_discover: "雲端服務發現"
+    },
+    unknownCatalogValue: "未知目錄值：{value}",
     frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", runtime_custom: "自訂執行環境", adc_load_balancer: "ADC 負載平衡", cloud_aliyun_cdn: "阿里雲 CDN", cloud_aliyun_alb: "阿里雲 ALB", cloud_aliyun_clb: "阿里雲 CLB", cloud_aliyun_oss: "阿里雲 OSS", cloud_aliyun_waf_cname: "阿里雲 WAF CNAME", cloud_aliyun_waf_cloud: "阿里雲 WAF 雲產品", cloud_aliyun_live: "阿里雲 Live", cloud_aliyun_vod: "阿里雲 VOD", cloud_tencent_cdn: "騰訊雲 CDN", cloud_tencent_clb: "騰訊雲 CLB", cloud_tencent_live: "騰訊雲直播", cloud_huawei_cdn: "華為雲 CDN", cloud_huawei_elb: "華為雲 ELB", cloud_volcengine_cdn: "火山引擎 CDN", cloud_volcengine_alb: "火山引擎 ALB", cloud_volcengine_clb: "火山引擎 CLB", cloud_volcengine_live: "火山引擎直播", cloud_volcengine_vod: "火山引擎 VOD" },
     runtimeTypes: { agent_atomic: "Agent 原子執行", workflow_dsl: "工作流 DSL" },
     providerKeys: { cloud_aliyun: "阿里雲", cloud_tencent: "騰訊雲", cloud_huawei: "華為雲", cloud_volcengine: "火山引擎" },
@@ -946,7 +973,7 @@ export default {
       executionMode: 'Agent 執行模式', nativeHandler: '原生處理器', pluginMode: 'Agent 外掛', mountedPlugin: '已掛載外掛', selectMountedPlugin: '請選擇已掛載外掛',
       plugin: '部署外掛', selectPlugin: '請選擇部署外掛', noCompatiblePlugin: '沒有符合目前平台與框架的已啟用外掛', compatiblePluginHint: '僅顯示與目前資產平台及框架相符的已啟用外掛。',
       secretRefPlaceholder: '輸入 SecretRef 識別碼', artifactBinding: '憑證產物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '驗證外掛設定', previewFailed: 'Agent 外掛設定驗證失敗',
-      approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗',
+      approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗', disableFailed: '停用 Agent 外掛失敗',
       types: { WORKFLOW_TEMPLATE: '工作流程範本', UNIFIED_PLUGIN: '統一能力外掛' }
     },
     changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
@@ -1208,6 +1235,12 @@ export default {
       view: "檢視憑證",
       viewProjectDetail: "檢視本專案憑證詳情"
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: "{name}，{days}"
+      }
+    },
     certificateUsage: {
       iisSite: "Agent IIS 站點",
       linuxSite: "Agent Linux 站點",
@@ -1443,6 +1476,20 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: "執行總覽"
+    },
+    resources: {
+      title: "系統資源", description: "顯示儀表板主機的 CPU 與記憶體即時使用率。", cpu: "CPU 使用率", memory: "記憶體使用率", host: "主機", abnormal: "需關注", usageAria: "{metric}使用率 {value}%", unavailableAria: "{metric}暫無資料"
+    },
+    quickStart: {
+      title: "自動化下一次憑證發布", description: "透過一個入口完成準備、驗證和部署。", addCertificate: "匯入或申請新憑證", deployExistingApplication: "部署到網站或應用", unavailable: "暫無可用入口", safeExecution: "安全執行", guidedFlow: "向導流程"
+    },
+    trends: {
+      title: "執行趨勢", noDelta: "--", auditSuccess: { title: "審計操作成功率", suffix: "成功率" }, managedObjects: { title: "物件健康度", suffix: "正常物件" }, certificateAttention: { title: "憑證到期關注", suffix: "待處理" }
+    },
+    statusPanel: { description: "憑證、Agent、閘道和應用資產的目前可見狀態。", objects: "物件" },
+    recentLog: { title: "最近記錄", live: "即時" },
     aria: {
       assetHeatmap: "應用資產狀態熱力圖",
       certificateStatusList: "憑證狀態列表",
@@ -1458,7 +1505,8 @@ export default {
     },
     audit: {
       description: "優先展示失敗、拒絕、高風險和關鍵業務變更。",
-      title: "最近審計記錄"
+      title: "最近審計記錄",
+      activityTitle: "審計活動"
     },
     certificateState: {
       critical: "臨近到期",
@@ -1476,7 +1524,9 @@ export default {
     empty: {
       noAuditLogs: "暫無審計記錄",
       noCertificateStatus: "暫無憑證狀態資料",
-      noObjects: "暫無物件"
+      noObjects: "暫無物件",
+      noTrend: "暫無趨勢資料",
+      noQuickActions: "暫無可用快速入口"
     },
     errors: {
       loadFailed: "總覽資料載入失敗",
@@ -1494,6 +1544,10 @@ export default {
       title: "載入中"
     },
     metrics: {
+      attention: "需關注",
+      sparklineLabel: "{metric}趨勢",
+      stable: "穩定",
+      tracked: "已追蹤",
       activeAgents: {
         title: "活躍 Agent 數量",
         description: "目前線上並可排程的 Agent。"
@@ -1518,6 +1572,25 @@ export default {
         title: "活躍憑證數量",
         description: "狀態活躍且尚未過期的憑證版本。"
       }
+    },
+    health: {
+      title: "系統健康",
+      description: "依憑證、Agent、閘道和應用資產狀態彙總。",
+      healthy: "健康",
+      attention: "需關注",
+      abnormal: "異常",
+      noData: "暫無資料",
+      score: "健康物件比例",
+      progressAria: "系統健康物件比例",
+      normalObjects: "正常物件",
+      attentionObjects: "需關注物件"
+    },
+    quickWizard: {
+      title: "快速向導"
+    },
+    typeStats: {
+      title: "物件類型統計",
+      description: "依目前可見物件數量分布。"
     },
     quickActions: {
       agents: {
@@ -1983,6 +2056,7 @@ export default {
       fields: {
         sourceId: "身分來源 ID",
         externalGroup: "外部群組",
+        externalGroupPlaceholder: "CN=GCAC-Ops,OU=Groups,DC=example,DC=com",
         roleId: "本機角色 ID"
       }
     },
@@ -2685,6 +2759,7 @@ export default {
       deleteRisk: "刪除後，此應用資產及其人工目標關聯將從應用資產清單中移除；裝置探索出的框架、站點、Virtual Server 和受管目標不會被刪除。",
       rollbackFromLatestSnapshot: "從最新快照啟動回復",
       rollingBack: "回復中...",
+      deployCertificate: "憑證部署",
       saving: "儲存中...",
       creating: "建立中...",
       saveChanges: "儲存修改",
@@ -2710,6 +2785,7 @@ export default {
       platform: "平台",
       frameworkType: "框架型別",
       deploymentStrategyCompatibility: "部署策略相容模式",
+      selectWorkflow: "選擇工作流",
       serviceInstanceId: "服務例項 ID",
       siteId: "站點 ID",
       managedTargetId: "受管目標 ID",
@@ -2786,6 +2862,9 @@ export default {
           description: "部署前後與回復後的現場狀態必須能直接看到，不能只剩任務記錄。"
         }
       }
+    },
+    deployment: {
+      title: "憑證部署", description: "為此應用資產選擇一個憑證版本。系統會建立部署快照、執行預檢、提交審核並在獲准後執行。", dialogTitle: "憑證部署", dialogDescription: "此操作只套用到目前應用資產。部署計畫仍保留作為後端快照、審核和執行邊界。", deployThisVersion: "部署此憑證版本", loadingRecords: "正在載入部署記錄...", emptyRecords: "此應用資產尚無部署記錄。", preflightAvailable: "已返回 {count} 項預檢", preflightUnavailable: "尚未執行預檢", rollbackUnavailable: "尚未發起回滾", fields: { status: "部署狀態", approval: "審核狀態", latestRun: "最新執行", preflight: "預檢", rollback: "回滾", updatedAt: "更新時間" }, feedback: { preflightRunning: "正在等待預檢執行完成。", pendingApproval: "預檢已完成，部署正在等待審核。", executionStarted: "預檢和審核已通過，部署執行已開始。" }, errors: { missingApplicationAssetId: "缺少應用資產 ID，無法建立憑證部署。", loadOptionsFailed: "載入可部署憑證版本失敗。", createPlanMissingId: "建立部署快照後未返回計畫 ID。", deployFailed: "憑證部署操作失敗。", preflightFailed: "憑證部署預檢未通過。", preflightTimeout: "憑證部署預檢等待逾時。", loadRecordsFailed: "載入應用資產部署記錄失敗。" }
     },
     compatibilityModes: {
       unified: "統一外掛繫結",
@@ -2985,6 +3064,7 @@ export default {
       pluginFormLoadFailed: "載入外掛設定表單失敗",
       pluginBindingCreateFailed: "儲存外掛綁定失敗",
       loadWorkflowCredentialsFailed: "載入工作流憑據失敗",
+      loadCredentialProfilesFailed: "載入憑據設定檔失敗",
       noAvailableSiteInstance: "未找到可用的站點例項，請先確認裝置探索已成功上報框架和站點。",
       managedTargetRediscoveryRequired: "目前站點沒有受管目標，請重新執行裝置探索。",
       noCompatibleManagedPlugin: "沒有與目前受管目標相容的已啟用外掛。",
@@ -3325,6 +3405,14 @@ export default {
           description: "目前控制台沒有可用的 ACME 申請入口。請選擇匯入既有憑證，或在設定自動化申請通道後重試。"
         }
       },
+      acme: {
+        title: '申請 ACME 憑證', loading: '正在檢查申請通道...', blocked: '目前申請通道尚未就緒，請依下列原因完成設定後重新整理。',
+        status: { ready: '可申請', blocked: '待設定', unknown: '狀態未知' },
+        fields: { directoryUrl: 'ACME Directory URL', email: '聯絡人電子郵件', identifiers: '網域名稱', csrPem: 'CSR PEM', accountKeySecretRef: '帳戶私密金鑰 SecretRef', certificatePrivateKeySecretRef: '憑證私密金鑰 SecretRef', provider: 'DNS 供應商', zoneId: 'DNS 區域識別碼', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 認證 SecretRef', ttl: 'DNS TTL', name: '憑證名稱' },
+        actions: { create: '提交申請', refresh: '重新整理狀態', poll: '繼續查詢', retry: '重新申請', recover: '恢復狀態' },
+        requests: { title: '申請記錄', status: { pending: '等待建立訂單', challenge: '等待網域驗證', finalizing: '等待簽發', succeeded: '已簽發', failed: '申請失敗', unknown: '狀態未知', cancelled: '已取消' } },
+        errors: { requestFailed: 'ACME 請求失敗' }
+      },
       hints: {
         pemChainCheck: "請上傳或貼上伺服器憑證、完整中間憑證鏈和私密金鑰，系統會驗證憑證鏈與私密金鑰匹配關係。",
         pfxChainCheck: "請上傳 PFX/P12 檔案並填寫密碼，系統會解析容器中的伺服器憑證、憑證鏈和私密金鑰。",
@@ -3434,6 +3522,7 @@ export default {
         internal_ca: "內部 CA",
         enterprise_ca: "企業 CA",
         external_api: "外部 API",
+        acme: "ACME",
         unknown: "未知"
       },
       lifecycle: {

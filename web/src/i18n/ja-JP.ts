@@ -7,11 +7,15 @@ import { credentialsJaJP } from './credentials.locale'
 import { providersJaJP } from './providers.locale'
 import { monitoringTlsJaJP } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { notificationsEnglish } from './notifications.locale'
+import { reportsEnglish } from './reports.locale'
 export default {
   credentials: credentialsJaJP,
   devices: devicesJaJP,
   caOperations: caOperationsJaJP,
   providers: providersJaJP,
+  notifications: notificationsEnglish,
+  reports: reportsEnglish,
   app: {
     brand: 'GCAC コンソール',
     platform: '企業向け SSL 証明書ライフサイクル管理プラットフォーム',
@@ -32,6 +36,8 @@ export default {
     notAvailable: '利用不可',
     close: '閉じる',
     unknownError: '不明なエラー',
+    unknownValue: '不明な値: {value}',
+    saving: '保存中…',
     userFallback: '未ログインユーザー',
     tenantFallback: 'デフォルトテナント'
   },
@@ -521,17 +527,17 @@ export default {
     mismatch: '2 回入力した新しいパスワードが一致しません',
     tooShort: '新しいパスワードは 8 文字以上で入力してください'
   },
+  viewMode: {
+    switchLabel: 'アプリケーション表示モード',
+    user: 'ユーザー表示',
+    professional: 'プロフェッショナル表示',
+    steps: {
+      certificates: '証明書',
+      applications: 'アプリケーション',
+      deployments: 'デプロイ'
+    }
+  },
   nav: {
-    viewMode: {
-      switchLabel: 'Application view mode',
-      user: 'User view',
-      professional: 'Professional view',
-      steps: {
-        certificates: 'Certificates',
-        applications: 'Applications',
-        deployments: 'Deployments'
-      }
-    },
     dashboard: 'ダッシュボード',
     dashboardDesc: 'アプリケーション、証明書、Agent、ゲートウェイと監査ステータス概要',
     certificates: '証明書管理',
@@ -556,6 +562,14 @@ export default {
     deploymentPlansDesc: '証明書デプロイプランと承認導線',
     executions: '実行記録',
     executionsDesc: '実行ステップ、ログ、失敗とロールバック',
+    reports: 'レポート',
+    reportsDesc: '証明書インシデント期間、リスク対応、自動化効果',
+    incidentWindowReport: 'インシデント期間レポート',
+    incidentWindowReportDesc: '期限切れが近い証明書を優先表示',
+    riskResponseReport: 'リスク対応レポート',
+    riskResponseReportDesc: '確認、解決時間、SLA を確認',
+    automationEffectivenessReport: '自動化効果レポート',
+    automationEffectivenessReportDesc: '実行と対象の成功率、失敗段階を確認',
     workflows: 'ワークフロー',
     workflowsDesc: 'ワークフローとプラグイン',
     workflowTemplates: 'ワークフロー',
@@ -605,10 +619,10 @@ export default {
     actionTypes: { create_deployment_plan: '証明書更新計画を作成', execute_deployment_plan: '証明書更新計画を実行', send_notification: '通知を送信' },
     values: { enabled: 'Enabled', disabled: 'Disabled', latest: 'Use the latest version', specific: 'Use specific certificate versions', fixedByEvent: 'Pinned by the certificate new-version event' },
     summaries: { targets: '最大 {count} 件' },
-    preview: { title: '資産への影響プレビュー', description: '選択した各アプリケーション資産の現在の証明書有効期限と対象証明書の有効期限を比較します。', matched: '{count} 件一致', executable: '{count} 件実行可能', excluded: '{count} 件除外', affected: '{count} 件影響あり', upgrade: '{count} 件有効期限延長', same: '{count} 件同じ有効期限', downgrade: '{count} 件要確認', version: 'バージョン {version}', versionUnknown: 'バージョン不明', ready: '実行可能', impact: { upgrade: '有効期限延長', same: '同じ有効期限', downgrade: '有効期限短縮のリスク', missing_current: '現在の証明書なし', unknown: '影響不明' } },
+    preview: { title: '資産への影響プレビュー', description: '選択した各アプリケーション資産の現在の証明書有効期限と対象証明書の有効期限を比較します。', matched: '{count} 件一致', executable: '{count} 件実行可能', excluded: '{count} 件除外', affected: '{count} 件影響あり', upgrade: '{count} 件有効期限延長', same: '{count} 件同じ有効期限', skip: '{count} 件スキップ', downgrade: '{count} 件要確認', version: 'バージョン {version}', versionUnknown: 'バージョン不明', ready: '実行可能', skipUpdate: '更新をスキップ', expiryLabel: '有効期限', impact: { upgrade: '有効期限延長', same: '同じ有効期限', downgrade: '有効期限短縮のリスク', missing_current: '現在の証明書なし', unknown: '影響不明' } },
     detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} application assets involved', assetsResolvedAtRuntime: 'Target assets are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved assets', nextRun: 'Next run', lastRun: 'Last run' } },
     history: { title: 'Run history', description: 'Review the latest runs for this automation.', summary: '{count} runs', latestTarget: 'Automation: {name}', empty: 'No runs yet.' },
-    exclusions: { permission_denied: '対象への権限がありません', missing_version: '証明書バージョンがありません', version_not_deployable: '証明書バージョンをデプロイできません', binding_not_managed: 'バインディングが管理対象外です', environment_not_allowed: '環境が許可されていません', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', certificate_version_downgrade: '対象バージョンが現在の資産より古いです', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: '不明な除外理由' },
+    exclusions: { permission_denied: '対象への権限がありません', missing_version: '証明書バージョンがありません', version_not_deployable: '証明書バージョンをデプロイできません', binding_not_managed: 'バインディングが管理対象外です', environment_not_allowed: '環境が許可されていません', binding_missing: 'バインディングがありません', asset_missing_deployment_capability: '対象アセットは証明書をデプロイできません', certificate_version_downgrade: '対象バージョンが現在の資産より古いです', certificate_already_up_to_date: '対象の有効期限が現在の証明書と一致するため、更新をスキップします', filter_not_matched: 'フィルター条件に一致しません', runtime_context_required: '実行コンテキストが必要です', unknown: '不明な除外理由' },
     failureStages: { selection: '対象選択', plan_creation: '計画作成', dry_run: 'Dry Run', approval: '承認', execution: '実行', verification: '検証', rollback: 'ロールバック', notification: '通知' },
     progress: { total: '合計', pending: '待機中', running: '実行中', waitingApproval: '承認待ち', succeeded: '成功', failed: '失敗', skipped: 'スキップ', cancelled: 'キャンセル済み' },
     editor: { createTitle: '自動化を作成', editTitle: '自動化を編集', description: '実行時期、対象証明書、計画の作成方法、失敗時の安全境界を設定します。', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: '基本情報', basicHelp: '自動化の名前と、対象となる証明書変更を説明します。', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: '処理する証明書', targetsHelp: '選択するのは証明書対象であり既存計画ではありません。実行開始時にスナップショットを固定します。', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: '証明書デプロイ計画', planRelationTitle: '既存のデプロイ計画には紐付けません', planRelationDescription: '上の証明書条件から実行時に計画を作成します。', planRelationHelp: '対象ごとに固有の DeploymentPlan を作成し、計画 ID は実行詳細に表示します。', guardrails: '実行の安全制御', guardrailsHelp: 'バッチ数、事前チェック、承認、失敗時の停止条件を制御します。' }, chain: { createPlan: '対象ごとに DeploymentPlan を作成', dryRun: 'Dry Run 事前チェックを実行', approval: '承認を待機', executePlan: '対象の DeploymentPlan を実行' } },
@@ -932,9 +946,22 @@ export default {
       riskLevel: 'リスク等级', runtime: 'ランタイム', executionMode: '実行モデル', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ', frameworks: '対象フレームワーク', products: '対応製品', operations: '対応操作'
     },
     labels: { permissions: '宣言された権限', runnerStatus: 'Runner の状態' },
-    permissionKeys: { network_http: 'ネットワーク要求', secret_read: 'Secret の読み取り', artifact_read: '成果物の読み取り', device_write: 'デバイスへの書き込み' },
+    permissionKeys: {
+      network_http: 'ネットワーク要求', secret_read: 'Secret の読み取り', artifact_read: '成果物の読み取り', device_write: 'デバイスへの書き込み',
+      agent_execution_receipt: 'Agent 実行レシート', agent_fact_collect: 'Agent 情報収集', agent_plan_execute: 'Agent 計画実行', agent_plan_validate: 'Agent 計画検証',
+      audit_append: '監査記録の追加', cloud_service_get: 'クラウドサービスの読み取り', execution_cancel_read: '実行キャンセル状態の読み取り', execution_checkpoint: '実行チェックポイント',
+      execution_checkpoint_read: '実行チェックポイントの読み取り', execution_checkpoint_write: '実行チェックポイントの書き込み', execution_progress: '実行進捗', execution_progress_write: '実行進捗の書き込み',
+      resource_lock: 'リソースロック', secret_resolve: 'Secret の解決'
+    },
     runnerStatuses: { ready: 'Runner 準備完了', busy: 'Runner 実行中', unavailable: 'Runner 使用不可', notObserved: 'Runner 未観測' },
-    capabilityKeys: { device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り', certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証' },
+    capabilityKeys: {
+      device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り',
+      certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証',
+      application_discover: 'アプリケーション検出', ca_account_manage: 'CA アカウント管理', ca_order_manage: 'CA オーダー管理', ca_challenge_orchestrate: 'CA チャレンジ調整',
+      ca_challenge_dns_solver: 'CA DNS チャレンジ解決', ca_certificate_issue: 'CA 証明書発行', ca_certificate_renew: 'CA 証明書更新', ca_certificate_revoke: 'CA 証明書失効',
+      cloud_service_connection_test: 'クラウドサービス接続テスト', cloud_service_discover: 'クラウドサービス検出'
+    },
+    unknownCatalogValue: '不明なカタログ値: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
@@ -947,7 +974,7 @@ export default {
       executionMode: 'Agent 実行モード', nativeHandler: 'ネイティブハンドラー', pluginMode: 'Agent プラグイン', mountedPlugin: 'マウント済みプラグイン', selectMountedPlugin: 'マウント済みプラグインを選択',
       plugin: 'デプロイプラグイン', selectPlugin: 'デプロイプラグインを選択', noCompatiblePlugin: '現在のプラットフォームとフレームワークに一致する有効なプラグインがありません', compatiblePluginHint: '資産のプラットフォームとフレームワークに一致する有効なプラグインのみ表示します。',
       secretRefPlaceholder: 'SecretRef 識別子を入力', artifactBinding: '証明書成果物 {name}', artifactBindingPlaceholder: '例: value=fullchain,key=private', preview: 'プラグイン設定を検証', previewFailed: 'Agent プラグイン設定の検証に失敗しました',
-      approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました',
+      approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました', disableFailed: 'Agent プラグインの無効化に失敗しました',
       types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', UNIFIED_PLUGIN: '統合ケイパビリティプラグイン' }
     },
     changeSummaries: { createWorkflow: 'プラグインマーケットのテンプレートからワークフローを作成' }
@@ -1209,6 +1236,12 @@ export default {
       view: '表示証明書',
       viewProjectDetail: '表示本件目証明書詳細'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}、{days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Agent IIS サイト',
       linuxSite: 'Agent Linux サイト',
@@ -1444,6 +1477,20 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: '運用概要'
+    },
+    resources: {
+      title: 'システムリソース', description: 'ダッシュボードホストの CPU とメモリのリアルタイム使用率です。', cpu: 'CPU 使用率', memory: 'メモリ使用率', host: 'ホスト', abnormal: '要確認', usageAria: '{metric}使用率 {value}%', unavailableAria: '{metric}は利用できません'
+    },
+    quickStart: {
+      title: '次の証明書配布を自動化', description: '準備、検証、配布をひとつの導線で実行します。', addCertificate: '証明書をインポートまたは申請', deployExistingApplication: 'Web サイトまたはアプリケーションへ配布', unavailable: '利用可能な入口なし', safeExecution: '安全な実行', guidedFlow: 'ガイド付きフロー'
+    },
+    trends: {
+      title: '実行トレンド', noDelta: '--', auditSuccess: { title: '監査成功率', suffix: '成功率' }, managedObjects: { title: 'オブジェクト健全性', suffix: '正常なオブジェクト' }, certificateAttention: { title: '証明書の要確認', suffix: '確認対象' }
+    },
+    statusPanel: { description: '証明書、Agent、ゲートウェイ、アプリ資産の現在の表示状態。', objects: 'オブジェクト' },
+    recentLog: { title: '最近のログ', live: 'ライブ' },
     aria: {
       assetHeatmap: 'アプリケーションアセットステータス热力图',
       certificateStatusList: '証明書ステータス一覧',
@@ -1459,7 +1506,8 @@ export default {
     },
     audit: {
       description: '優先表示失敗、拒否、高リスクとキー業務変更。',
-      title: '直近監査ログ'
+      title: '直近監査ログ',
+      activityTitle: '監査アクティビティ'
     },
     certificateState: {
       critical: '期限切れ間近',
@@ -1477,7 +1525,9 @@ export default {
     empty: {
       noAuditLogs: '監査ログはまだありません',
       noCertificateStatus: '証明書ステータスデータはまだありません',
-      noObjects: 'オブジェクトはまだありません'
+      noObjects: 'オブジェクトはまだありません',
+      noTrend: '傾向データはありません',
+      noQuickActions: '利用可能なクイック入口はありません'
     },
     errors: {
       loadFailed: '概要データの読み込みに失敗しました',
@@ -1495,6 +1545,10 @@ export default {
       title: '読み込み中'
     },
     metrics: {
+      attention: '要確認',
+      sparklineLabel: '{metric}の傾向',
+      stable: '安定',
+      tracked: '追跡中',
       activeAgents: {
         title: 'アクティブ Agent 数',
         description: '現在オンラインかつスケジューリングの Agent。'
@@ -1519,6 +1573,25 @@ export default {
         title: 'アクティブ証明書数',
         description: 'ステータスアクティブかつまだ期限切れの証明書バージョン。'
       }
+    },
+    health: {
+      title: 'システムの健全性',
+      description: '証明書、Agent、ゲートウェイ、アプリ資産の状態を集計します。',
+      healthy: '正常',
+      attention: '要確認',
+      abnormal: '異常',
+      noData: 'データなし',
+      score: '正常なオブジェクト',
+      progressAria: '正常なシステムオブジェクトの割合',
+      normalObjects: '正常なオブジェクト',
+      attentionObjects: '確認が必要なオブジェクト'
+    },
+    quickWizard: {
+      title: 'クイックガイド'
+    },
+    typeStats: {
+      title: 'オブジェクト種別',
+      description: '現在表示可能なオブジェクトの種別ごとの分布。'
     },
     quickActions: {
       agents: {
@@ -1984,6 +2057,7 @@ export default {
       fields: {
         sourceId: 'ID ソース ID',
         externalGroup: '外部グループ',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: 'ローカルロール ID'
       }
     },
@@ -2686,6 +2760,7 @@ export default {
       deleteRisk: '削除すると、このアプリケーションアセットと手動ターゲット関連付けが一覧から削除されます。検出されたフレームワーク、サイト、Virtual Server、ManagedTarget は保持されます。',
       rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
       rollingBack: 'ロールバック中...',
+      deployCertificate: '証明書をデプロイ',
       saving: '保存中...',
       creating: '作成中...',
       saveChanges: '保存変更',
@@ -2711,6 +2786,7 @@ export default {
       platform: 'プラットフォーム',
       frameworkType: 'フレームワークタイプ',
       deploymentStrategyCompatibility: 'デプロイ戦略の互換モード',
+      selectWorkflow: 'ワークフローを選択',
       serviceInstanceId: 'サービスインスタンス ID',
       siteId: 'サイト ID',
       managedTargetId: '管理対象ターゲット ID',
@@ -2787,6 +2863,9 @@ export default {
           description: 'デプロイ前後とロールバック後の現場状態を直接確認できる必要があります。タスク記録だけを残してはいけません。'
         }
       }
+    },
+    deployment: {
+      title: '証明書デプロイ', description: 'このアプリケーション資産の証明書バージョンを選択します。システムはデプロイスナップショットの作成、事前確認、承認申請、承認後の実行を行います。', dialogTitle: '証明書デプロイ', dialogDescription: '現在のアプリケーション資産だけに適用されます。デプロイプランはバックエンドのスナップショット、承認、実行の境界として保持されます。', deployThisVersion: 'この証明書バージョンをデプロイ', loadingRecords: 'デプロイ記録を読み込み中...', emptyRecords: 'このアプリケーション資産にはデプロイ記録がありません。', preflightAvailable: '{count} 件の事前確認が返されました', preflightUnavailable: '事前確認は未実行です', rollbackUnavailable: 'ロールバックは要求されていません', fields: { status: 'デプロイ状態', approval: '承認状態', latestRun: '最新実行', preflight: '事前確認', rollback: 'ロールバック', updatedAt: '更新日時' }, feedback: { preflightRunning: '事前確認の完了を待っています。', pendingApproval: '事前確認が完了し、デプロイは承認待ちです。', executionStarted: '事前確認と承認が完了し、デプロイ実行を開始しました。' }, errors: { missingApplicationAssetId: '証明書デプロイを作成するにはアプリケーション資産 ID が必要です。', loadOptionsFailed: 'デプロイ可能な証明書バージョンを読み込めませんでした。', createPlanMissingId: 'デプロイスナップショットの作成後にプラン ID が返されませんでした。', deployFailed: '証明書デプロイに失敗しました。', preflightFailed: '証明書デプロイの事前確認に失敗しました。', preflightTimeout: '証明書デプロイの事前確認がタイムアウトしました。', loadRecordsFailed: 'アプリケーション資産のデプロイ記録を読み込めませんでした。' }
     },
     compatibilityModes: {
       unified: '統一プラグインバインド',
@@ -2986,6 +3065,7 @@ export default {
       pluginFormLoadFailed: 'プラグイン設定フォームの読み込みに失敗しました',
       pluginBindingCreateFailed: 'プラグインバインディングの保存に失敗しました',
       loadWorkflowCredentialsFailed: 'ワークフロー認証情報の読み込みに失敗しました',
+      loadCredentialProfilesFailed: '資格情報プロファイルの読み込みに失敗しました',
       noAvailableSiteInstance: '利用可能なサイトインスタンスがありません。デバイス検出でフレームワークとサイトが報告されたことを確認してください。',
       managedTargetRediscoveryRequired: 'このサイトには管理対象がありません。デバイス検出を再実行してください。',
       noCompatibleManagedPlugin: 'この管理対象と互換性のある有効なプラグインがありません。',
@@ -3326,6 +3406,14 @@ export default {
           description: 'このコンソールには利用可能な ACME 発行エントリがありません。既存の証明書をインポートするか、自動発行チャネルを設定してから再試行してください。'
         }
       },
+      acme: {
+        title: 'ACME 証明書を申請', loading: '発行経路を確認しています...', blocked: '申請経路の準備ができていません。表示された条件を解決してから更新してください。',
+        status: { ready: '申請可能', blocked: '設定が必要', unknown: '状態不明' },
+        fields: { directoryUrl: 'ACME Directory URL', email: '連絡先メール', identifiers: 'ドメイン名', csrPem: 'CSR PEM', accountKeySecretRef: 'アカウント鍵 SecretRef', certificatePrivateKeySecretRef: '証明書鍵 SecretRef', provider: 'DNS プロバイダー', zoneId: 'DNS ゾーン ID', endpointUrl: 'DNS API URL', solverSecretRef: 'DNS 認証情報 SecretRef', ttl: 'DNS TTL', name: '証明書名' },
+        actions: { create: '申請を送信', refresh: '状態を更新', poll: '照会を続行', retry: '再申請', recover: '状態を復旧' },
+        requests: { title: '申請履歴', status: { pending: '注文作成待ち', challenge: 'ドメイン検証待ち', finalizing: '発行待ち', succeeded: '発行済み', failed: '申請失敗', unknown: '状態不明', cancelled: '取消済み' } },
+        errors: { requestFailed: 'ACME リクエストに失敗しました' }
+      },
       hints: {
         pemChainCheck: 'サーバー証明書、完全な中間証明書チェーン、秘密鍵をアップロードまたは貼り付けてください。システムが証明書チェーンと秘密鍵の一致関係を検証します。',
         pfxChainCheck: 'PFX/P12 ファイルをアップロードし、パスワードを入力してください。システムがコンテナ内のサーバー証明書、証明書チェーン、秘密鍵を解析します。',
@@ -3435,6 +3523,7 @@ export default {
         internal_ca: '内部 CA',
         enterprise_ca: 'エンタープライズ CA',
         external_api: '外部 API',
+        acme: 'ACME',
         unknown: '不明'
       },
       lifecycle: {

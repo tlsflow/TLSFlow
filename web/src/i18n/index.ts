@@ -1,6 +1,6 @@
 import { createI18n } from 'vue-i18n'
 import type { LocaleMessage } from '@intlify/core-base'
-import { defaultLocale, supportedLocales, type SupportedLocale } from './locales'
+import { defaultLocale, supportedLocales, normalizeLocale, type SupportedLocale } from './locales'
 
 // 静态导入默认语言，确保应用启动后立即可用。
 import zhCN from './zh-CN'
@@ -47,6 +47,7 @@ let requestedLocale: SupportedLocale = defaultLocale
  * 目标语言加载失败时回退到 defaultLocale。
  */
 export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
+  locale = normalizeLocale(locale)
   requestedLocale = locale
   document.documentElement.lang = locale
 
@@ -83,4 +84,4 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
   }
 }
 
-export { defaultLocale, localeLabels, supportedLocales, isSupportedLocale, type SupportedLocale } from './locales'
+export { defaultLocale, localeLabels, supportedLocales, isSupportedLocale, normalizeLocale, type SupportedLocale } from './locales'

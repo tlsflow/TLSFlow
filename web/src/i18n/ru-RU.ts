@@ -7,11 +7,15 @@ import { credentialsRuRU } from './credentials.locale'
 import { providersRuRU } from './providers.locale'
 import { monitoringTlsRuRU } from './monitoring-tls.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { notificationsEnglish } from './notifications.locale'
+import { reportsEnglish } from './reports.locale'
 export default {
   credentials: credentialsRuRU,
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
   providers: providersRuRU,
+  notifications: notificationsEnglish,
+  reports: reportsEnglish,
   app: {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',
@@ -32,6 +36,8 @@ export default {
     notAvailable: 'Недоступно',
     close: 'Закрыть',
     unknownError: 'Неизвестная ошибка',
+    unknownValue: 'Неизвестное значение: {value}',
+    saving: 'Сохранение…',
     userFallback: 'Пользователь не вошел',
     tenantFallback: 'Тенант по умолчанию'
   },
@@ -521,17 +527,17 @@ export default {
     mismatch: 'Введенные новые пароли не совпадают',
     tooShort: 'Новый пароль должен быть не короче 8 символов'
   },
+  viewMode: {
+    switchLabel: 'Режим отображения приложения',
+    user: 'Пользовательский вид',
+    professional: 'Профессиональный вид',
+    steps: {
+      certificates: 'Сертификаты',
+      applications: 'Приложения',
+      deployments: 'Развертывания'
+    }
+  },
   nav: {
-    viewMode: {
-      switchLabel: 'Application view mode',
-      user: 'User view',
-      professional: 'Professional view',
-      steps: {
-        certificates: 'Certificates',
-        applications: 'Applications',
-        deployments: 'Deployments'
-      }
-    },
     dashboard: 'Панель управления',
     dashboardDesc: 'Обзор состояния приложений, сертификатов, Agent, шлюзов и аудита',
     certificates: 'Управление сертификатами',
@@ -556,6 +562,14 @@ export default {
     deploymentPlansDesc: 'Планы развертывания сертификатов и входы согласования',
     executions: 'Записи выполнения',
     executionsDesc: 'Шаги выполнения, журналы, ошибки и откат',
+    reports: 'Отчеты',
+    reportsDesc: 'Окна инцидентов сертификатов, реагирование на риски и эффективность автоматизации',
+    incidentWindowReport: 'Отчет об окне инцидента',
+    incidentWindowReportDesc: 'Приоритизация истекающих и просроченных сертификатов',
+    riskResponseReport: 'Отчет по реагированию на риски',
+    riskResponseReportDesc: 'Подтверждение, время решения и SLA',
+    automationEffectivenessReport: 'Отчет об эффективности автоматизации',
+    automationEffectivenessReportDesc: 'Успешность запусков и целей, а также этапы ошибок',
     workflows: 'Рабочие процессы',
     workflowsDesc: 'Рабочие процессы и плагины',
     workflowTemplates: 'Рабочие процессы',
@@ -605,10 +619,10 @@ export default {
     actionTypes: { create_deployment_plan: 'Создать план обновления сертификата', execute_deployment_plan: 'Выполнить план обновления сертификата', send_notification: 'Отправить уведомление' },
     values: { enabled: 'Enabled', disabled: 'Disabled', latest: 'Use the latest version', specific: 'Use specific certificate versions', fixedByEvent: 'Pinned by the certificate new-version event' },
     summaries: { targets: 'До {count} целей' },
-    preview: { title: 'Предпросмотр влияния на активы', description: 'Сравните текущий срок действия сертификата на каждом выбранном активе со сроком действия целевого сертификата.', matched: 'Совпадений: {count}', executable: 'Можно выполнить: {count}', excluded: 'Исключено: {count}', affected: 'Затронуто: {count}', upgrade: 'Срок длиннее: {count}', same: 'Срок одинаковый: {count}', downgrade: 'Требуют внимания: {count}', version: 'Версия {version}', versionUnknown: 'Версия неизвестна', ready: 'Готово', impact: { upgrade: 'Срок действия длиннее', same: 'Срок действия одинаковый', downgrade: 'Риск сокращения срока действия', missing_current: 'Текущий сертификат отсутствует', unknown: 'Влияние неизвестно' } },
+    preview: { title: 'Предпросмотр влияния на активы', description: 'Сравните текущий срок действия сертификата на каждом выбранном активе со сроком действия целевого сертификата.', matched: 'Совпадений: {count}', executable: 'Можно выполнить: {count}', excluded: 'Исключено: {count}', affected: 'Затронуто: {count}', upgrade: 'Срок длиннее: {count}', same: 'Срок одинаковый: {count}', skip: 'Пропущено обновлений: {count}', downgrade: 'Требуют внимания: {count}', version: 'Версия {version}', versionUnknown: 'Версия неизвестна', ready: 'Готово', skipUpdate: 'Пропустить обновление', expiryLabel: 'Срок действия', impact: { upgrade: 'Срок действия длиннее', same: 'Срок действия одинаковый', downgrade: 'Риск сокращения срока действия', missing_current: 'Текущий сертификат отсутствует', unknown: 'Влияние неизвестно' } },
     detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} application assets involved', assetsResolvedAtRuntime: 'Target assets are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved assets', nextRun: 'Next run', lastRun: 'Last run' } },
     history: { title: 'Run history', description: 'Review the latest runs for this automation.', summary: '{count} runs', latestTarget: 'Automation: {name}', empty: 'No runs yet.' },
-    exclusions: { permission_denied: 'Нет доступа к цели', missing_version: 'Версия сертификата отсутствует', version_not_deployable: 'Версия сертификата недоступна для развертывания', binding_not_managed: 'Привязка не управляется', environment_not_allowed: 'Среда не разрешена', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', certificate_version_downgrade: 'Целевая версия старше текущей версии актива', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Неизвестная причина исключения' },
+    exclusions: { permission_denied: 'Нет доступа к цели', missing_version: 'Версия сертификата отсутствует', version_not_deployable: 'Версия сертификата недоступна для развертывания', binding_not_managed: 'Привязка не управляется', environment_not_allowed: 'Среда не разрешена', binding_missing: 'Привязка отсутствует', asset_missing_deployment_capability: 'Цель не может развернуть сертификаты', certificate_version_downgrade: 'Целевая версия старше текущей версии актива', certificate_already_up_to_date: 'Срок действия цели уже совпадает с текущим сертификатом, обновление пропущено', filter_not_matched: 'Условия фильтра не совпали', runtime_context_required: 'Требуется контекст выполнения', unknown: 'Неизвестная причина исключения' },
     failureStages: { selection: 'Выбор целей', plan_creation: 'Создание плана', dry_run: 'Dry Run', approval: 'Согласование', execution: 'Выполнение', verification: 'Проверка', rollback: 'Откат', notification: 'Уведомление' },
     progress: { total: 'Всего', pending: 'Ожидание', running: 'Выполняется', waitingApproval: 'Ожидает согласования', succeeded: 'Успешно', failed: 'Ошибка', skipped: 'Пропущено', cancelled: 'Отменено' },
     editor: { createTitle: 'Создать автоматизацию', editTitle: 'Изменить автоматизацию', description: 'Настройте время запуска, сертификаты, создание планов и поведение при ошибке.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot.', sections: { basic: 'Основная информация', basicHelp: 'Укажите понятное имя автоматизации и опишите изменения сертификатов.', trigger: 'Trigger', triggerHelp: 'Define what fact starts the automation before choosing execution and conditions.', targets: 'Обрабатываемые сертификаты', targetsHelp: 'Выбираются цели-сертификаты, а не существующие планы; снимок целей фиксируется при запуске.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'План развертывания сертификата', planRelationTitle: 'Существующий план развертывания не привязывается', planRelationDescription: 'План создается во время запуска по фильтрам сертификатов.', planRelationHelp: 'Для каждой цели создается собственный DeploymentPlan, его ID отображается в деталях запуска.', guardrails: 'Контроль безопасности', guardrailsHelp: 'Эти ограничения управляют размером пакета, проверкой, согласованием и остановкой при ошибках.' }, chain: { createPlan: 'Создать DeploymentPlan для каждой цели', dryRun: 'Выполнить предварительную проверку Dry Run', approval: 'Дождаться согласования', executePlan: 'Выполнить DeploymentPlan цели' } },
@@ -906,9 +920,22 @@ export default {
       riskLevel: 'Уровень риска', runtime: 'Среда выполнения', executionMode: 'Модель выполнения', scope: 'Область применения', support: 'Уровень поддержки', capabilities: 'Возможности', frameworks: 'Целевые фреймворки', products: 'Поддерживаемые продукты', operations: 'Поддерживаемые операции'
     },
     labels: { permissions: 'Заявленные разрешения', runnerStatus: 'Состояние Runner' },
-    permissionKeys: { network_http: 'Сетевые запросы', secret_read: 'Чтение секретов', artifact_read: 'Чтение артефактов', device_write: 'Запись на устройства' },
+    permissionKeys: {
+      network_http: 'Сетевые запросы', secret_read: 'Чтение секретов', artifact_read: 'Чтение артефактов', device_write: 'Запись на устройства',
+      agent_execution_receipt: 'Квитанции выполнения Agent', agent_fact_collect: 'Сбор фактов Agent', agent_plan_execute: 'Выполнение плана Agent', agent_plan_validate: 'Проверка плана Agent',
+      audit_append: 'Добавление записей аудита', cloud_service_get: 'Чтение облачных сервисов', execution_cancel_read: 'Чтение состояния отмены выполнения', execution_checkpoint: 'Контрольные точки выполнения',
+      execution_checkpoint_read: 'Чтение контрольных точек', execution_checkpoint_write: 'Запись контрольных точек', execution_progress: 'Ход выполнения', execution_progress_write: 'Запись хода выполнения',
+      resource_lock: 'Блокировки ресурсов', secret_resolve: 'Разрешение секретов'
+    },
     runnerStatuses: { ready: 'Runner готов', busy: 'Runner занят', unavailable: 'Runner недоступен', notObserved: 'Runner не наблюдался' },
-    capabilityKeys: { device_connection_test: 'Проверка подключения', device_identity_detect: 'Определение устройства', device_discover: 'Обнаружение устройства', device_logs_read: 'Чтение журналов устройства', certificate_discover: 'Обнаружение сертификатов', certificate_deploy: 'Развертывание сертификата', certificate_rollback: 'Откат сертификата', certificate_verify: 'Проверка сертификата' },
+    capabilityKeys: {
+      device_connection_test: 'Проверка подключения', device_identity_detect: 'Определение устройства', device_discover: 'Обнаружение устройства', device_logs_read: 'Чтение журналов устройства',
+      certificate_discover: 'Обнаружение сертификатов', certificate_deploy: 'Развертывание сертификата', certificate_rollback: 'Откат сертификата', certificate_verify: 'Проверка сертификата',
+      application_discover: 'Обнаружение приложений', ca_account_manage: 'Управление учетной записью CA', ca_order_manage: 'Управление заказами CA', ca_challenge_orchestrate: 'Оркестрация проверок CA',
+      ca_challenge_dns_solver: 'Решение DNS-проверок CA', ca_certificate_issue: 'Выпуск сертификата CA', ca_certificate_renew: 'Продление сертификата CA', ca_certificate_revoke: 'Отзыв сертификата CA',
+      cloud_service_connection_test: 'Проверка подключения к облачному сервису', cloud_service_discover: 'Обнаружение облачных сервисов'
+    },
+    unknownCatalogValue: 'Неизвестное значение каталога: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Пользовательская среда', runtime_custom: 'Пользовательская среда', adc_load_balancer: 'ADC-балансировщик', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
@@ -921,7 +948,7 @@ export default {
       executionMode: 'Режим выполнения Agent', nativeHandler: 'Встроенный обработчик', pluginMode: 'Плагин Agent', mountedPlugin: 'Подключенный плагин', selectMountedPlugin: 'Выберите подключенный плагин',
       plugin: 'Плагин развертывания', selectPlugin: 'Выберите плагин развертывания', noCompatiblePlugin: 'Нет включенного плагина для текущей платформы и фреймворка', compatiblePluginHint: 'Показываются только включенные плагины, совместимые с платформой и фреймворком ресурса.',
       secretRefPlaceholder: 'Введите идентификатор SecretRef', artifactBinding: 'Артефакт сертификата {name}', artifactBindingPlaceholder: 'Пример: value=fullchain,key=private', preview: 'Проверить настройки', previewFailed: 'Не удалось проверить настройки плагина Agent',
-      approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent',
+      approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent', disableFailed: 'Не удалось отключить плагин Agent',
       types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', UNIFIED_PLUGIN: 'Унифицированный плагин возможностей' }
     },
     changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
@@ -1183,6 +1210,12 @@ export default {
       view: 'Посмотреть сертификат',
       viewProjectDetail: 'Посмотреть детали сертификата проекта'
     },
+    // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
+    statusBlock: {
+      detail: {
+        certificateRemaining: '{name}, {days}'
+      }
+    },
     certificateUsage: {
       iisSite: 'Сайт IIS Agent',
       linuxSite: 'Сайт Linux Agent',
@@ -1418,6 +1451,20 @@ export default {
     }
   },
   dashboard: {
+    overview: {
+      eyebrow: 'Операционный обзор'
+    },
+    resources: {
+      title: 'Системные ресурсы', description: 'Текущее использование CPU и памяти хоста панели мониторинга.', cpu: 'Использование CPU', memory: 'Использование памяти', host: 'Хост', abnormal: 'Внимание', usageAria: 'Использование {metric}: {value}%', unavailableAria: '{metric} недоступен'
+    },
+    quickStart: {
+      title: 'Автоматизируйте следующий выпуск сертификата', description: 'Подготовьте, проверьте и разверните сертификат через один вход.', addCertificate: 'Импортировать или запросить новый сертификат', deployExistingApplication: 'Развернуть на сайте или в приложении', unavailable: 'Нет доступного входа', safeExecution: 'Безопасное выполнение', guidedFlow: 'Пошаговый процесс'
+    },
+    trends: {
+      title: 'Тренды выполнения', noDelta: '--', auditSuccess: { title: 'Успешность аудита', suffix: 'успешность' }, managedObjects: { title: 'Состояние объектов', suffix: 'объектов в норме' }, certificateAttention: { title: 'Внимание к сертификатам', suffix: 'на проверку' }
+    },
+    statusPanel: { description: 'Текущее видимое состояние сертификатов, Agent, шлюзов и активов приложений.', objects: 'объектов' },
+    recentLog: { title: 'Последние журналы', live: 'Онлайн' },
     aria: {
       assetHeatmap: 'Тепловая карта состояния активов приложений',
       certificateStatusList: 'Список статусов сертификатов',
@@ -1433,7 +1480,8 @@ export default {
     },
     audit: {
       description: 'В первую очередь показываются ошибки, отказы, высокие риски и ключевые бизнес-изменения.',
-      title: 'Последние журналы аудита'
+      title: 'Последние журналы аудита',
+      activityTitle: 'Активность аудита'
     },
     certificateState: {
       critical: 'Близко к истечению',
@@ -1451,7 +1499,9 @@ export default {
     empty: {
       noAuditLogs: 'Журналов аудита пока нет',
       noCertificateStatus: 'Нет данных о статусе сертификатов',
-      noObjects: 'Объектов пока нет'
+      noObjects: 'Объектов пока нет',
+      noTrend: 'Нет данных о тренде',
+      noQuickActions: 'Нет доступных быстрых входов'
     },
     errors: {
       loadFailed: 'Не удалось загрузить обзорные данные',
@@ -1469,6 +1519,10 @@ export default {
       title: 'Загрузка'
     },
     metrics: {
+      attention: 'Внимание',
+      sparklineLabel: 'Тренд: {metric}',
+      stable: 'Стабильно',
+      tracked: 'Отслеживается',
       activeAgents: {
         title: 'Активные Agent',
         description: 'Agent, которые сейчас онлайн и доступны для планирования.'
@@ -1493,6 +1547,25 @@ export default {
         title: 'Активные сертификаты',
         description: 'Версии сертификатов, активные и еще не истекшие.'
       }
+    },
+    health: {
+      title: 'Состояние системы',
+      description: 'Сводка по сертификатам, Agent, шлюзам и активам приложений.',
+      healthy: 'Норма',
+      attention: 'Внимание',
+      abnormal: 'Ошибка',
+      noData: 'Нет данных',
+      score: 'здоровых объектов',
+      progressAria: 'Доля здоровых объектов системы',
+      normalObjects: 'объектов в норме',
+      attentionObjects: 'объектов для проверки'
+    },
+    quickWizard: {
+      title: 'Быстрый запуск'
+    },
+    typeStats: {
+      title: 'Распределение по типам',
+      description: 'Текущие видимые объекты по типу.'
     },
     quickActions: {
       agents: {
@@ -1958,6 +2031,7 @@ export default {
       fields: {
         sourceId: 'ID источника идентификации',
         externalGroup: 'Внешняя группа',
+        externalGroupPlaceholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com',
         roleId: 'ID локальной роли'
       }
     },
@@ -2660,6 +2734,7 @@ export default {
       deleteRisk: 'Удаление уберет этот актив приложения и его ручную связь с целью из списка. Обнаруженные фреймворки, сайты, Virtual Server и ManagedTarget сохраняются.',
       rollbackFromLatestSnapshot: 'Запустить откат из последнего снимка',
       rollingBack: 'Откат...',
+      deployCertificate: 'Развернуть сертификат',
       saving: 'Сохранение...',
       creating: 'Создание...',
       saveChanges: 'Сохранить изменения',
@@ -2685,6 +2760,7 @@ export default {
       platform: 'Платформа',
       frameworkType: 'Тип фреймворка',
       deploymentStrategyCompatibility: 'Режим совместимости стратегии развертывания',
+      selectWorkflow: 'Выберите рабочий процесс',
       serviceInstanceId: 'ID экземпляра сервиса',
       siteId: 'ID сайта',
       managedTargetId: 'ID управляемой цели',
@@ -2761,6 +2837,21 @@ export default {
           description: 'Состояние до развертывания, после развертывания и после отката должно быть видно напрямую, а не только через записи задач.'
         }
       }
+    },
+    deployment: {
+      title: 'Развертывание сертификата',
+      description: 'Выберите версию сертификата для этого актива приложения. Система создаст снимок, выполнит предпроверку, запросит согласование и запустит выполнение после разрешения.',
+      dialogTitle: 'Развертывание сертификата',
+      dialogDescription: 'Операция относится только к текущему активу приложения. План остается серверной границей снимка, согласования и выполнения.',
+      deployThisVersion: 'Развернуть эту версию сертификата',
+      loadingRecords: 'Загрузка записей развертывания...',
+      emptyRecords: 'Для этого актива приложения записей развертывания пока нет.',
+      preflightAvailable: 'Получено проверок предпроверки: {count}',
+      preflightUnavailable: 'Предпроверка еще не запускалась',
+      rollbackUnavailable: 'Откат не запрашивался',
+      fields: { status: 'Статус развертывания', approval: 'Согласование', latestRun: 'Последний запуск', preflight: 'Предпроверка', rollback: 'Откат', updatedAt: 'Обновлено' },
+      feedback: { preflightRunning: 'Ожидание завершения предпроверки.', pendingApproval: 'Предпроверка завершена; развертывание ожидает согласования.', executionStarted: 'Предпроверка и согласование завершены; выполнение запущено.' },
+      errors: { missingApplicationAssetId: 'Требуется идентификатор актива приложения.', loadOptionsFailed: 'Не удалось загрузить доступные версии сертификата.', createPlanMissingId: 'Созданный снимок не вернул идентификатор плана.', deployFailed: 'Не удалось развернуть сертификат.', preflightFailed: 'Предпроверка развертывания не пройдена.', preflightTimeout: 'Предпроверка развертывания завершилась по тайм-ауту.', loadRecordsFailed: 'Не удалось загрузить записи развертывания.' }
     },
     compatibilityModes: {
       unified: 'Единая привязка плагина',
@@ -2960,6 +3051,7 @@ export default {
       pluginFormLoadFailed: 'Не удалось загрузить форму настройки плагина',
       pluginBindingCreateFailed: 'Не удалось сохранить привязку плагина',
       loadWorkflowCredentialsFailed: 'Не удалось загрузить учетные данные рабочего процесса',
+      loadCredentialProfilesFailed: 'Не удалось загрузить профили учетных данных',
       noAvailableSiteInstance: 'Нет доступного экземпляра сайта. Убедитесь, что обнаружение устройства передало фреймворки и сайты.',
       managedTargetRediscoveryRequired: 'У этого сайта нет управляемых целей. Повторите обнаружение устройства.',
       noCompatibleManagedPlugin: 'Нет включённого плагина, совместимого с этой управляемой целью.',
@@ -3300,6 +3392,14 @@ export default {
           description: 'В этой консоли нет доступной точки входа ACME. Импортируйте существующий сертификат или повторите попытку после настройки канала автоматической выдачи.'
         }
       },
+      acme: {
+        title: 'Запросить сертификат ACME', loading: 'Проверка канала выпуска...', blocked: 'Канал выпуска не готов. Устраните указанные условия и обновите страницу.',
+        status: { ready: 'Можно запросить', blocked: 'Требуется настройка', unknown: 'Состояние неизвестно' },
+        fields: { directoryUrl: 'ACME Directory URL', email: 'Контактный e-mail', identifiers: 'Доменные имена', csrPem: 'CSR PEM', accountKeySecretRef: 'SecretRef ключа аккаунта', certificatePrivateKeySecretRef: 'SecretRef ключа сертификата', provider: 'DNS-провайдер', zoneId: 'ID DNS-зоны', endpointUrl: 'DNS API URL', solverSecretRef: 'SecretRef учетных данных DNS', ttl: 'DNS TTL', name: 'Имя сертификата' },
+        actions: { create: 'Отправить запрос', refresh: 'Обновить состояние', poll: 'Продолжить опрос', retry: 'Повторить запрос', recover: 'Восстановить состояние' },
+        requests: { title: 'Запросы', status: { pending: 'Ожидание создания заказа', challenge: 'Ожидание проверки домена', finalizing: 'Ожидание выпуска', succeeded: 'Выпущен', failed: 'Запрос не выполнен', unknown: 'Состояние неизвестно', cancelled: 'Отменен' } },
+        errors: { requestFailed: 'Сбой запроса ACME' }
+      },
       hints: {
         pemChainCheck: 'Загрузите или вставьте серверный сертификат, полную цепочку промежуточных сертификатов и закрытый ключ; система проверит цепочку сертификатов и соответствие закрытого ключа.',
         pfxChainCheck: 'Загрузите файл PFX/P12 и введите пароль; система разберет из контейнера серверный сертификат, цепочку и закрытый ключ.',
@@ -3409,6 +3509,7 @@ export default {
         internal_ca: 'Внутренний CA',
         enterprise_ca: 'Корпоративный CA',
         external_api: 'Внешний API',
+        acme: 'ACME',
         unknown: 'Неизвестно'
       },
       lifecycle: {
