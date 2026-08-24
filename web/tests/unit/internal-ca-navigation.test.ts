@@ -20,6 +20,10 @@ describe('内部 CA 导航与国际化', () => {
   it('8 种语言都提供内部 CA 完整入口', () => {
     for (const locale of [zhCN, zhTW, enUS, jaJP, frFR, ruRU, ptBR, koKR]) {
       expect(locale.internalCa.title).toBeTruthy()
+      expect(locale.internalCa.tabs.trustDomains).toBeTruthy()
+      expect(locale.internalCa.actions.createTrustDomain).toBeTruthy()
+      expect(locale.internalCa.fields.trustDomain).toBeTruthy()
+      expect(locale.internalCa.labels.trustDomainCount).toBeTruthy()
       expect(locale.internalCa.topology.rootOnlyRisk).toBeTruthy()
       expect(locale.internalCa.actions.queryResult).toBeTruthy()
       expect(locale.internalCa.riskTypes.public_key_reuse).toBeTruthy()

@@ -757,6 +757,8 @@ export class InternalCaApplicationService {
       display_name: string | null;
       environment: string | null;
       metadata: unknown;
+      trust_domain_id: string | null;
+      trust_domain_name: string | null;
     }>(`select
       cb.id as binding_id,
       cb.service_asset_id,
@@ -767,10 +769,13 @@ export class InternalCaApplicationService {
       cv.sans,
       sa.display_name,
       sa.environment,
-      sa.metadata
+      sa.metadata,
+      cv.trust_domain_id,
+      td.name as trust_domain_name
     from pg_certificate_bindings cb
     join pg_certificate_versions cv on cv.id = coalesce(cb.certificate_version_id, cb.target_certificate_version_id)
     left join pg_service_assets sa on sa.id = cb.service_asset_id and sa.tenant_id = cb.tenant_id
+    left join pg_ca_trust_domains td on td.id = cv.trust_domain_id
     where cb.tenant_id = $1 and cb.deleted_at is null and cb.service_asset_id is not null`, [tenantId])).rows;
     return [
       ...buildReuseRisks(rows, 'certificate_fingerprint_reuse', (row) => row.fingerprint_sha256),
@@ -1111,6 +1116,12 @@ export class InternalCaApplicationService {
       tags: ['internal-ca', authority.securityDomain],
       createdBy: actorId,
     }, context);
+    if (authority.trustDomainId) {
+      await this.dependencies.db.query(
+        'update pg_certificate_versions set trust_domain_id = $2 where id = $1',
+        [imported.version.id, authority.trustDomainId],
+      );
+    }
     const completed: CertificateRequestEntity = {
       ...request,
       status: 'issued',
@@ -1280,7 +1291,7 @@ function normalizeExtendedKeyUsages(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean).map((value) => aliases[value.toLowerCase()] ?? value))];
 }
 
-type CertificateReuseRow = {
+export type CertificateReuseRow = {
   binding_id: string;
   service_asset_id: string | null;
   certificate_version_id: string;
@@ -1291,9 +1302,11 @@ type CertificateReuseRow = {
   display_name: string | null;
   environment: string | null;
   metadata: unknown;
+  trust_domain_id: string | null;
+  trust_domain_name: string | null;
 };
 
-function buildReuseRisks(
+export function buildReuseRisks(
   rows: CertificateReuseRow[],
   riskType: CertificateReuseRisk['riskType'],
   fingerprintOf: (row: CertificateReuseRow) => string,
@@ -1323,8 +1336,13 @@ function buildReuseRisks(
     const redundantInstanceOnly = logicalIds.size === 1 && applicationAssets.every((asset) => Boolean(asset.logicalApplicationId));
     const securityDomains = new Set(applicationAssets.map((asset) => asset.securityDomain));
     const crossSecurityDomain = securityDomains.size > 1;
+    const trustDomainIds = [...new Set(group.map((row) => row.trust_domain_id).filter((value): value is string => Boolean(value)))];
+    const trustDomainNames = [...new Set(group.map((row) => row.trust_domain_name).filter((value): value is string => Boolean(value)))];
+    const crossTrustDomain = trustDomainIds.length > 1;
     const wildcard = group.some((row) => row.common_name?.startsWith('*.') || arrayValue(row.sans).some((item) => String(item).startsWith('*.')));
-    const severity: CertificateReuseRisk['severity'] = crossSecurityDomain && wildcard
+    const severity: CertificateReuseRisk['severity'] = crossTrustDomain && riskType === 'public_key_reuse'
+      ? 'critical'
+      : crossSecurityDomain && wildcard
       ? 'critical'
       : redundantInstanceOnly
         ? 'warning'
@@ -1342,7 +1360,12 @@ function buildReuseRisks(
       redundantInstanceOnly,
       wildcard,
       crossSecurityDomain,
-      explanation: redundantInstanceOnly
+      trustDomainIds,
+      trustDomainNames,
+      crossTrustDomain,
+      explanation: crossTrustDomain
+        ? '同一公钥跨多个根 CA 信任域复用，任一私钥副本失陷都会同时破坏原本独立的密码学信任边界。'
+        : redundantInstanceOnly
         ? '同一逻辑应用的冗余实例共享证书，故障域仍然集中，但影响范围小于跨应用复用。'
         : crossSecurityDomain
           ? '同一证书或公钥跨安全域用于多个应用资产，任一资产失陷都可能扩大到其他安全域。'

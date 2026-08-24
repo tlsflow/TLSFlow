@@ -301,6 +301,9 @@ export interface CertificateReuseRisk {
   redundantInstanceOnly: boolean;
   wildcard: boolean;
   crossSecurityDomain: boolean;
+  trustDomainIds: string[];
+  trustDomainNames: string[];
+  crossTrustDomain: boolean;
   explanation: string;
   remediation: string;
 }

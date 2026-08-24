@@ -11,9 +11,16 @@ function post(path: string, body: ApiBody = {}) {
   return apiClient.post<InternalCaRecord>(toClientPath(path), body, { idempotencyKey: createIdempotencyKey('internal_ca') })
 }
 
+function patch(path: string, body: ApiBody = {}) {
+  return apiClient.request<InternalCaRecord>(toClientPath(path), { method: 'PATCH', body })
+}
+
 export const internalCaApi = {
   listProviders: () => getList('/api/v1/ca-providers'),
   createProvider: (body: ApiBody) => post('/api/v1/ca-providers', body),
+  listTrustDomains: () => getList('/api/v1/ca-trust-domains'),
+  createTrustDomain: (body: ApiBody) => post('/api/v1/ca-trust-domains', body),
+  updateTrustDomain: (trustDomainId: string, body: ApiBody) => patch(`/api/v1/ca-trust-domains/${encodeURIComponent(trustDomainId)}`, body),
   listAuthorities: () => getList('/api/v1/certificate-authorities'),
   previewAuthority: (body: ApiBody) => post('/api/v1/certificate-authorities/preview', body),
   createAuthority: (body: ApiBody) => post('/api/v1/certificate-authorities', body),

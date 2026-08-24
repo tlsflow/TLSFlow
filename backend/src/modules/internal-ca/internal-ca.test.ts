@@ -4,7 +4,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
-import { InternalCaApplicationService } from './application/internal-ca.application-service.js';
+import { buildReuseRisks, InternalCaApplicationService } from './application/internal-ca.application-service.js';
 
 async function createFixture() {
   const db = new PgliteDatabase();
@@ -202,6 +202,22 @@ test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async (
     }),
     (error: unknown) => typeof error === 'object' && error !== null && 'errorCode' in error && error.errorCode === 'CA_TRUST_DOMAIN_STATE_INVALID',
   );
+});
+
+test('同一公钥跨根 CA 信任域复用时报告严重隔离风险', () => {
+  const common = {
+    fingerprint_sha256: '11'.repeat(32), public_key_fingerprint_sha256: '22'.repeat(32),
+    common_name: 'service.example.com', sans: ['service.example.com'], environment: 'production', metadata: {},
+  };
+  const risks = buildReuseRisks([
+    { ...common, binding_id: 'binding-a', service_asset_id: 'asset-a', certificate_version_id: 'version-a', display_name: '应用 A', trust_domain_id: 'domain-a', trust_domain_name: '生产根 CA' },
+    { ...common, binding_id: 'binding-b', service_asset_id: 'asset-b', certificate_version_id: 'version-b', display_name: '应用 B', trust_domain_id: 'domain-b', trust_domain_name: '设备根 CA' },
+  ], 'public_key_reuse', (row) => row.public_key_fingerprint_sha256!);
+  assert.equal(risks.length, 1);
+  assert.equal(risks[0].severity, 'critical');
+  assert.equal(risks[0].crossTrustDomain, true);
+  assert.deepEqual(risks[0].trustDomainIds.sort(), ['domain-a', 'domain-b']);
+  assert.match(risks[0].explanation, /根 CA 信任域/);
 });
 
 test('CA Node 注册令牌只能使用一次，主备拒绝双主且多活允许多节点', async () => {
