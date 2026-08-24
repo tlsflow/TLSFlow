@@ -340,6 +340,23 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
     authMode: 'SESSION',
     tlsVerify: false,
   });
+  await database.query(
+    `insert into unified_plugin_versions (
+       id, tenant_id, plugin_id, plugin_version, source, runtime, scope, trust, support,
+       manifest, package_sha256, manifest_sha256, resource_sha256, status,
+       permission_approval_status, approved_permissions, validation_report,
+       created_at, updated_at, owner_type, owner_id
+     ) values (
+       'system-plugin-version', 'SYSTEM', 'fixture.system-plugin', '7.4.2', 'BUILTIN', 'WORKFLOW_DSL',
+       'BOTH', 'OFFICIAL_SIGNED', 'OFFICIAL', '{}'::jsonb, 'sha256:package', 'sha256:manifest',
+       '{}'::jsonb, 'ENABLED', 'NOT_REQUIRED', '[]'::jsonb, '{}'::jsonb,
+       now(), now(), 'SYSTEM', null
+     )`,
+  );
+  await database.query(
+    'update pg_device_assets set plugin_version_id=$1 where service_asset_id=$2',
+    ['system-plugin-version', adc.id],
+  );
 
   database.resetQueryCount();
   const result = await new PgDevicesRepository(database).list(tenantId, {
@@ -357,6 +374,7 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === host.id)?.softwareVersion, 'Windows Server 2022 21H2');
   assert.equal(result.items.find((item) => item.id === host.id)?.lastContactAt, heartbeatAt);
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.managementMethod, 'PLUGIN');
+  assert.equal(result.items.find((item) => item.id === adc.hostId)?.controlVersion, '7.4.2');
 });
 
 test('Spec033 统一设备列表支持筛选、分页和 Host 权限范围', async () => {

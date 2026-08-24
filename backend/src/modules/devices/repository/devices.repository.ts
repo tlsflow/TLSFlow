@@ -350,7 +350,7 @@ const DEVICE_LIST_SQL = `
     and liveness.resource_type=case when host.agent_id is not null then 'AGENT' else 'DEVICE' end
     and liveness.resource_id=coalesce(host.agent_id, host.id)
   left join pg_device_assets device on device.tenant_id = host.tenant_id and device.host_id = host.id
-  left join unified_plugin_versions plugin_version on plugin_version.tenant_id = device.tenant_id and plugin_version.id = device.plugin_version_id
+  left join unified_plugin_versions plugin_version on plugin_version.id = device.plugin_version_id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
   where host.tenant_id = $1
