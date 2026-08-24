@@ -14,8 +14,13 @@ const props = withDefaults(defineProps<{
   description?: string
   /** 模态框宽度档位。 */
   size?: ModalSize
+  /** 点击遮罩是否关闭模态框，默认 true。 */
+  closeOnBackdrop?: boolean
+  /** 自定义模态框宽度，优先级高于 size（例如 '60vw'、'800px'）。 */
+  width?: string
 }>(), {
   size: 'md',
+  closeOnBackdrop: true,
 })
 
 const emit = defineEmits<{
@@ -34,9 +39,14 @@ const isOpen = computed({
 })
 
 const modalClass = computed(() => `gc-modal gc-modal--${props.size}`)
+const modalStyle = computed(() => (props.width ? { '--gc-modal-width': props.width } : undefined))
 
 function closeModal() {
   isOpen.value = false
+}
+
+function handleMaskClick() {
+  if (props.closeOnBackdrop) closeModal()
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -65,10 +75,11 @@ onBeforeUnmount(() => {
       v-if="isOpen"
       class="gc-modal__mask"
       role="presentation"
-      @click="closeModal"
+      @click="handleMaskClick"
     >
       <section
         :class="modalClass"
+        :style="modalStyle"
         class="gc-card"
         role="dialog"
         aria-modal="true"
