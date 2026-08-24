@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAppStore } from '@/stores/app.store'
+import { defaultPreferences } from '@/preferences/app-preferences'
 
 const preferenceApi = vi.hoisted(() => ({
   getCurrentUserPreferences: vi.fn(),
@@ -64,7 +65,7 @@ describe('App 偏好 Store', () => {
     await store.setTheme('dark')
 
     expect(document.documentElement.dataset.theme).toBe('dark')
-    expect(preferenceApi.updateCurrentUserPreferences).toHaveBeenCalledWith({ theme: 'dark', locale: 'zh-CN' })
+    expect(preferenceApi.updateCurrentUserPreferences).toHaveBeenCalledWith({ theme: 'dark', locale: defaultPreferences.locale })
     expect(store.preferenceError).toBeNull()
   })
 

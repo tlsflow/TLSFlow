@@ -1,21 +1,25 @@
 import { createI18n } from 'vue-i18n'
 import type { LocaleMessage } from '@intlify/core-base'
 import { applyProductBranding } from '@/brand/product-brand'
-import { defaultLocale, supportedLocales, normalizeLocale, type SupportedLocale } from './locales'
+import { defaultLocale, fallbackLocale, resolveBrowserLocale, supportedLocales, normalizeLocale, type SupportedLocale } from './locales'
 
-// 静态导入默认语言，确保应用启动后立即可用。
+// 静态导入默认语言和全局第二语言，确保默认文案与回退文案立即可用。
 import zhCN from './zh-CN'
+import enUS from './en-US'
 
-// 创建只加载默认语言的 i18n 实例，其余语言按需加载。
+const initialLocale = resolveBrowserLocale()
+
+// 创建包含默认语言和全局第二语言的 i18n 实例，其余语言按需加载。
 export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
-  locale: defaultLocale,
-  fallbackLocale: defaultLocale,
+  locale: initialLocale,
+  fallbackLocale,
   missingWarn: import.meta.env.DEV,
   fallbackWarn: import.meta.env.DEV,
   messages: {
-    [defaultLocale]: applyProductBranding(zhCN)
+    [defaultLocale]: applyProductBranding(zhCN),
+    [fallbackLocale]: applyProductBranding(enUS)
   }
 })
 
@@ -29,7 +33,8 @@ type LocaleModule = {
 const localeLoaders: Record<SupportedLocale, () => Promise<LocaleModule>> = {
   'zh-CN': () => import('./zh-CN'),
   'zh-TW': () => import('./zh-TW'),
-  'en-US': () => import('./en-US'),
+  // 英文作为全局回退语言已静态加载，避免再次生成重复的异步包。
+  'en-US': async () => ({ default: enUS }),
   'ja-JP': () => import('./ja-JP'),
   'fr-FR': () => import('./fr-FR'),
   'ru-RU': () => import('./ru-RU'),
@@ -40,12 +45,12 @@ const localeLoaders: Record<SupportedLocale, () => Promise<LocaleModule>> = {
 /**
  * 记录已经加载过语言包的语言。
  */
-const loadedLocales = new Set<SupportedLocale>([defaultLocale])
-let requestedLocale: SupportedLocale = defaultLocale
+const loadedLocales = new Set<SupportedLocale>([defaultLocale, fallbackLocale])
+let requestedLocale: SupportedLocale = initialLocale
 
 /**
  * 切换语言，首次使用时按需加载语言包。
- * 目标语言加载失败时回退到 defaultLocale。
+ * 目标语言加载失败时回退到全局第二语言。
  */
 export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
   locale = normalizeLocale(locale)
@@ -61,10 +66,10 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
   try {
     const loader = localeLoaders[locale]
     if (!loader) {
-      console.warn(`[i18n] No loader for locale "${locale}", falling back to "${defaultLocale}"`)
+      console.warn(`[i18n] No loader for locale "${locale}", falling back to "${fallbackLocale}"`)
       if (requestedLocale === locale) {
-        i18n.global.locale.value = defaultLocale
-        document.documentElement.lang = defaultLocale
+        i18n.global.locale.value = fallbackLocale
+        document.documentElement.lang = fallbackLocale
       }
       return
     }
@@ -79,10 +84,10 @@ export async function setI18nLocale(locale: SupportedLocale): Promise<void> {
   } catch (err) {
     console.error(`[i18n] Failed to load locale "${locale}":`, err)
     if (requestedLocale === locale) {
-      i18n.global.locale.value = defaultLocale
-      document.documentElement.lang = defaultLocale
+      i18n.global.locale.value = fallbackLocale
+      document.documentElement.lang = fallbackLocale
     }
   }
 }
 
-export { defaultLocale, localeLabels, supportedLocales, isSupportedLocale, normalizeLocale, type SupportedLocale } from './locales'
+export { defaultLocale, fallbackLocale, localeLabels, supportedLocales, isSupportedLocale, normalizeLocale, resolveBrowserLocale, type SupportedLocale } from './locales'

@@ -10,7 +10,7 @@ import ptBR from '@/i18n/pt-BR'
 import ruRU from '@/i18n/ru-RU'
 import zhCN from '@/i18n/zh-CN'
 import zhTW from '@/i18n/zh-TW'
-import { localeLabels, normalizeLocale, supportedLocales, type SupportedLocale } from '@/i18n'
+import { fallbackLocale, localeLabels, normalizeLocale, resolveBrowserLocale, supportedLocales, type SupportedLocale } from '@/i18n'
 import { i18n } from '@/i18n'
 import { translateDynamic } from '@/i18n/translate'
 
@@ -67,6 +67,8 @@ function collectStaticTranslationKeys(): string[] {
 
 describe('i18n 消息字典', () => {
   it('动态翻译优先匹配后端大写枚举键', () => {
+    // 该断言固定使用中文资源，避免受测试运行环境浏览器语言影响。
+    i18n.global.locale.value = 'zh-CN'
     const translate = ((key: string, params?: Record<string, string | number>) => String(i18n.global.t(key, params ?? {}))) as unknown as ComposerTranslation
     const translated = translateDynamic(
       translate,
@@ -109,10 +111,16 @@ describe('i18n 消息字典', () => {
   })
 
   it('兼容旧版本短 locale 并统一到正式语言代码', () => {
+    expect(fallbackLocale).toBe('en-US')
+    expect(i18n.global.fallbackLocale.value).toBe('en-US')
     expect(normalizeLocale('zh')).toBe('zh-CN')
     expect(normalizeLocale('en')).toBe('en-US')
+    expect(normalizeLocale('en-GB')).toBe('en-US')
+    expect(normalizeLocale('fr-CA')).toBe('fr-FR')
+    expect(normalizeLocale('zh-Hant-TW')).toBe('zh-TW')
     expect(normalizeLocale('zh-CN')).toBe('zh-CN')
-    expect(normalizeLocale('de')).toBe('zh-CN')
+    expect(normalizeLocale('de')).toBe('en-US')
+    expect(resolveBrowserLocale()).toBe('en-US')
   })
 
   it('兼容旧 bundle 的证书剩余时间 key', () => {

@@ -1,4 +1,4 @@
-import { defaultLocale, normalizeLocale, type SupportedLocale } from '@/i18n'
+import { normalizeLocale, resolveBrowserLocale, type SupportedLocale } from '@/i18n'
 
 export type ThemeMode = 'light' | 'dark'
 export type AppViewMode = 'user' | 'professional'
@@ -11,7 +11,7 @@ export interface AppPreferences {
 
 const storageKey = 'gcac.app.preferences'
 const viewModeStorageKey = 'gcac.app.view-mode'
-export const defaultPreferences: AppPreferences = { theme: 'light', locale: defaultLocale, version: 1 }
+export const defaultPreferences: AppPreferences = { theme: 'light', locale: resolveBrowserLocale(), version: 1 }
 export const defaultViewMode: AppViewMode = 'professional'
 
 export function isThemeMode(value: unknown): value is ThemeMode {
