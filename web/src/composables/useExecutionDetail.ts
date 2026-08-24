@@ -9,7 +9,7 @@ import {
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from '@/design-system/components/GcExecutionLogViewer.vue'
 import { usePolling } from './usePolling'
-import { readPath, readString, type ViewRow } from './useBusinessPage'
+import { readPath, readString, translateWithFallback, type I18nParams, type I18nTranslate, type ViewRow } from './useBusinessPage'
 
 export interface ExecutionDryRunSummary {
   readonly state: 'queued' | 'running' | 'pending' | 'passed' | 'warning' | 'failed'
@@ -22,10 +22,69 @@ export interface ExecutionDryRunSummary {
 }
 
 type DryRunStatus = 'passed' | 'failed' | 'warning' | 'unknown'
+type ExecutionDetailText = (key: ExecutionDetailI18nKey, params?: I18nParams) => string
+
+export interface UseExecutionDetailOptions {
+  readonly t?: I18nTranslate
+}
 
 const terminalRunStatuses = new Set(['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'])
+const EXECUTION_DETAIL_I18N_KEYS = [
+  'executionDetail.error.loadStepsFailed',
+  'executionDetail.error.streamConnectFailed',
+  'executionDetail.step.nameFallback',
+  'executionDetail.dryRun.failedNoChecks.label',
+  'executionDetail.dryRun.failedNoChecks.detail',
+  'executionDetail.dryRun.queued.label',
+  'executionDetail.dryRun.queued.detail',
+  'executionDetail.dryRun.running.label',
+  'executionDetail.dryRun.running.detail',
+  'executionDetail.dryRun.pending.label',
+  'executionDetail.dryRun.pending.detail',
+  'executionDetail.dryRun.receiving.label',
+  'executionDetail.dryRun.receiving.detail',
+  'executionDetail.dryRun.failed.label',
+  'executionDetail.dryRun.failed.detail',
+  'executionDetail.dryRun.warning.label',
+  'executionDetail.dryRun.warning.detail',
+  'executionDetail.dryRun.passed.label',
+  'executionDetail.dryRun.passed.detail',
+  'executionDetail.step.dryRunCheckSummary',
+  'executionDetail.step.dryRunPending.queued',
+  'executionDetail.step.dryRunPending.running',
+  'executionDetail.step.dryRunPending.failed',
+  'executionDetail.step.dryRunPending.finished',
+  'executionDetail.step.dryRunDiscover',
+  'executionDetail.step.dryRunVerify',
+  'executionDetail.step.dryRunCreated',
+  'executionDetail.step.failure.emptyMessage',
+  'executionDetail.agent.taskSuffix',
+  'executionDetail.step.running.dispatched',
+  'executionDetail.step.running.waitingAgentResult',
+  'executionDetail.step.pending.waitingDependency',
+  'executionDetail.step.verifyRecovered.detail',
+  'executionDetail.step.verifyRecovered.originalSuffix',
+  'executionDetail.step.resultReturned.withTask',
+  'executionDetail.step.resultReturned.withoutTask',
+  'executionDetail.step.createdFallback',
+  'executionDetail.log.verifyRecovered',
+  'executionDetail.workflowStep.failedDefault',
+  'executionDetail.workflowStep.skipped',
+  'executionDetail.workflowStep.successAssertions',
+  'executionDetail.workflowStep.success',
+  'executionDetail.binding.hostMissing',
+  'executionDetail.site.unnamed',
+  'executionDetail.provider.target',
+] as const
 
-export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null }) {
+type ExecutionDetailI18nKey = typeof EXECUTION_DETAIL_I18N_KEYS[number]
+
+function createExecutionDetailText(t: I18nTranslate | undefined): ExecutionDetailText {
+  return (key, params) => translateWithFallback(t, key, key, params)
+}
+
+export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null }, options: UseExecutionDetailOptions = {}) {
+  const text = createExecutionDetailText(options.t)
   const loading = ref(false)
   const requestId = ref('')
   const steps = ref<ExecutionStepLine[]>([])
@@ -74,7 +133,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       lastLoadedRunId = runId.value
     } catch (cause) {
       resetState()
-      error.value = cause instanceof Error ? cause.message : '查询执行步骤失败'
+      error.value = cause instanceof Error ? cause.message : text('executionDetail.error.loadStepsFailed')
     } finally {
       loading.value = false
     }
@@ -94,15 +153,15 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     const items = expandWorkflowStepRecords(stepRecords.value)
     steps.value = items.map((record, index) => ({
       id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
-      name: readString(record, ['name', 'stepName'], `步骤 ${index + 1}`),
+      name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
       status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
-      detail: buildStepDetail(record, index),
+      detail: buildStepDetail(record, index, text),
       startedAt: formatStepRange(record, 'start'),
       finishedAt: formatStepRange(record, 'end'),
       requestId: readString(record, ['requestId'], ''),
     }))
-    lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? []))
-    dryRunSummary.value = summarizeDryRun(items)
+    lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text))
+    dryRunSummary.value = summarizeDryRun(items, text)
     dryRunChecks.value = collectDryRunChecks(items)
   }
 
@@ -129,7 +188,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       isStreaming.value = true
     } catch (cause) {
       isStreaming.value = false
-      error.value = cause instanceof Error ? cause.message : '连接执行详情流失败'
+      error.value = cause instanceof Error ? cause.message : text('executionDetail.error.streamConnectFailed')
     }
   }
 
@@ -282,7 +341,7 @@ function collectDryRunChecks(items: readonly Record<string, unknown>[]): ApiReco
   return mergeDryRunChecks(checks)
 }
 
-function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDryRunSummary | null {
+function summarizeDryRun(items: readonly Record<string, unknown>[], text: ExecutionDetailText): ExecutionDryRunSummary | null {
   const dryRunItems = expandWorkflowStepRecords(items).filter((item) => readPath(item, 'inputSnapshot.dryRun') === true)
   if (dryRunItems.length === 0) return null
 
@@ -316,27 +375,27 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
   if (failedStepCount > 0 && !hasChecks) {
     return {
       state: 'failed',
-      label: 'Dry-run 执行失败',
-      detail: `已有 ${failedStepCount} 个预检步骤失败或超时，Agent 没有回传结构化结论。`,
+      label: text('executionDetail.dryRun.failedNoChecks.label'),
+      detail: text('executionDetail.dryRun.failedNoChecks.detail', { failedStepCount }),
       ...counts,
     }
   }
 
   if (!hasChecks) {
     if (queuedCount === dryRunItems.length) {
-      return { state: 'queued', label: 'Dry-run 排队中', detail: '预检任务已创建，等待开始执行。', passed: 0, warning: 0, failed: 0, unknown: 0 }
+      return { state: 'queued', label: text('executionDetail.dryRun.queued.label'), detail: text('executionDetail.dryRun.queued.detail'), passed: 0, warning: 0, failed: 0, unknown: 0 }
     }
     if (runningCount > 0 || queuedCount > 0) {
-      return { state: 'running', label: 'Dry-run 执行中', detail: '预检已开始，等待结构化结果回传。', passed: 0, warning: 0, failed: 0, unknown: 0 }
+      return { state: 'running', label: text('executionDetail.dryRun.running.label'), detail: text('executionDetail.dryRun.running.detail'), passed: 0, warning: 0, failed: 0, unknown: 0 }
     }
-    return { state: 'pending', label: 'Dry-run 已结束但无结论', detail: `共有 ${finishedWithoutChecks} 个步骤已结束，但没有 dryRunChecks / dryRunSummary。`, passed: 0, warning: 0, failed: 0, unknown: 0 }
+    return { state: 'pending', label: text('executionDetail.dryRun.pending.label'), detail: text('executionDetail.dryRun.pending.detail', { finishedWithoutChecks }), passed: 0, warning: 0, failed: 0, unknown: 0 }
   }
 
   if (queuedCount > 0 || runningCount > 0) {
     return {
       state: 'running',
-      label: 'Dry-run 回传中',
-      detail: `已收到部分结论：通过 ${counts.passed}，警告 ${counts.warning}，失败 ${counts.failed}，未知 ${counts.unknown}。`,
+      label: text('executionDetail.dryRun.receiving.label'),
+      detail: text('executionDetail.dryRun.receiving.detail', counts),
       ...counts,
     }
   }
@@ -344,8 +403,8 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
   if (counts.failed > 0) {
     return {
       state: 'failed',
-      label: 'Dry-run 失败',
-      detail: `预检失败 ${counts.failed} 项，警告 ${counts.warning} 项，通过 ${counts.passed} 项。`,
+      label: text('executionDetail.dryRun.failed.label'),
+      detail: text('executionDetail.dryRun.failed.detail', counts),
       ...counts,
     }
   }
@@ -353,24 +412,24 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
   if (counts.warning > 0 || counts.unknown > 0) {
     return {
       state: 'warning',
-      label: 'Dry-run 有风险提示',
-      detail: `预检已完成：通过 ${counts.passed} 项，警告 ${counts.warning} 项，未知 ${counts.unknown} 项。`,
+      label: text('executionDetail.dryRun.warning.label'),
+      detail: text('executionDetail.dryRun.warning.detail', counts),
       ...counts,
     }
   }
 
   return {
     state: 'passed',
-    label: 'Dry-run 成功',
-    detail: `预检全部通过，共 ${counts.passed} 项。`,
+    label: text('executionDetail.dryRun.passed.label'),
+    detail: text('executionDetail.dryRun.passed.detail', counts),
     ...counts,
   }
 }
 
-function buildStepDetail(record: Record<string, unknown>, index: number): string {
+function buildStepDetail(record: Record<string, unknown>, index: number, text: ExecutionDetailText): string {
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
   const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
-  if (workflowStepResult) return buildWorkflowStepDetail(workflowStepResult, index)
+  if (workflowStepResult) return buildWorkflowStepDetail(workflowStepResult, index, text)
   const dispatchDetail = readObject(record, 'inputSnapshot.dispatchDetail')
   const failureDetail = readObject(resultDetail, 'failure')
   const verificationRecovery = readObject(resultDetail, 'verificationRecovery')
@@ -389,7 +448,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number): string
   const bindingSelector = readObject(record, 'inputSnapshot.bindingSelector')
   const hostHeader = readPath(bindingSelector ?? {}, 'hostHeader')
   const port = readPath(bindingSelector ?? {}, 'port')
-  const providerLabel = inferProviderLabel(record)
+  const providerLabel = inferProviderLabel(record, text)
 
   if (dryRunChecks.length > 0) {
     const passed = readCount(dryRunSummary, 'passed')
@@ -400,64 +459,80 @@ function buildStepDetail(record: Record<string, unknown>, index: number): string
       .slice(0, 3)
       .map((item) => `${stringValue(item.label ?? item.key, 'check')}: ${stringValue(item.status, 'unknown')}`)
       .join('；')
-    return `预检结论：通过 ${passed} / 警告 ${warning} / 失败 ${failed} / 未知 ${unknown}。${topChecks}`
+    return text('executionDetail.step.dryRunCheckSummary', { passed, warning, failed, unknown, topChecks })
   }
 
   if (readPath(record, 'inputSnapshot.dryRun') === true) {
     const pendingText = stepStatus === 'PENDING' || stepStatus === 'DISPATCHED'
-      ? '当前仍在队列中，尚未开始执行。'
+      ? text('executionDetail.step.dryRunPending.queued')
       : stepStatus === 'RUNNING'
-        ? '当前步骤执行中，等待 Agent 回传结论。'
+        ? text('executionDetail.step.dryRunPending.running')
         : ['FAILED', 'TIMEOUT', 'CANCELLED'].includes(stepStatus)
-          ? '当前步骤执行失败，且还没有拿到结构化预检结论。'
-          : '当前步骤已结束，但还没有拿到结构化预检结论。'
+          ? text('executionDetail.step.dryRunPending.failed')
+          : text('executionDetail.step.dryRunPending.finished')
     if (stepType === 'DISCOVER') {
-      return `只读预检：识别部署目标与 ${providerLabel} 站点上下文。站点 ${stringValue(siteName, '未命名站点')}，绑定 ${formatBinding(hostHeader, port)}。${pendingText}`
+      return text('executionDetail.step.dryRunDiscover', {
+        providerLabel,
+        siteName: stringValue(siteName, text('executionDetail.site.unnamed')),
+        binding: formatBinding(hostHeader, port, text),
+        pendingText,
+      })
     }
     if (stepType === 'VERIFY') {
-      return `只读预检：校验证书材料、目标绑定和域名匹配。目标 ${providerLabel} 绑定 ${formatBinding(hostHeader, port)}。${pendingText}`
+      return text('executionDetail.step.dryRunVerify', {
+        providerLabel,
+        binding: formatBinding(hostHeader, port, text),
+        pendingText,
+      })
     }
-    return `只读预检已创建。${pendingText}`
+    return text('executionDetail.step.dryRunCreated', { pendingText })
   }
 
   if (['FAILED', 'TIMEOUT', 'CANCELLED'].includes(stepStatus)) {
     const code = lastErrorCode || resultErrorCode || stringValue(readPath(failureDetail ?? {}, 'errorCode'), 'STEP_FAILED')
-    const message = lastErrorMessage || resultErrorMessage || failureMessage || '后端未收到具体错误消息'
-    return `${code}: ${message}${taskId ? `（Agent taskId=${taskId}）` : ''}`
+    const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
+    return `${code}: ${message}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}`
   }
 
   if (stepStatus === 'RUNNING') {
     return taskId
-      ? `已派发 Agent 任务 taskId=${taskId}，等待 Agent 回传执行结果。`
-      : '步骤正在执行，尚未拿到 Agent taskId 或执行结果。'
+      ? text('executionDetail.step.running.dispatched', { taskId })
+      : text('executionDetail.step.running.waitingAgentResult')
   }
 
   if (stepStatus === 'PENDING') {
-    return '步骤等待前置步骤完成。'
+    return text('executionDetail.step.pending.waitingDependency')
   }
 
   if (stepStatus === 'SUCCESS' && stepType === 'VERIFY' && verificationRecovery) {
-    const remoteTarget = readString(resultDetail ?? {}, ['verify.target'], verifyUrl || formatBinding(hostHeader, port))
+    const remoteTarget = readString(resultDetail ?? {}, ['verify.target'], verifyUrl || formatBinding(hostHeader, port, text))
     const originalError = readString(verificationRecovery, ['originalErrorMessage'], '')
-    return `Agent 侧远程 TLS 探测失败，但控制面已对 ${remoteTarget} 完成真实 TLS 验证并确认目标证书匹配。${originalError ? `原始 Agent 错误：${originalError}` : ''}`
+    return text('executionDetail.step.verifyRecovered.detail', {
+      remoteTarget,
+      originalError: originalError ? text('executionDetail.step.verifyRecovered.originalSuffix', { originalError }) : '',
+    })
   }
 
   if (resultDetail) {
     const mode = readString(resultDetail, ['mode'], '')
     const executor = readString(resultDetail, ['executor'], '')
-    if (mode || executor) return `${executor || 'executor'} ${mode || 'result'} 已返回。${taskId ? `Agent taskId=${taskId}` : ''}`
+    if (mode || executor) {
+      return taskId
+        ? text('executionDetail.step.resultReturned.withTask', { executor: executor || 'executor', mode: mode || 'result', taskId })
+        : text('executionDetail.step.resultReturned.withoutTask', { executor: executor || 'executor', mode: mode || 'result' })
+    }
   }
 
-  return readString(record, ['message', 'detail', 'summary'], `步骤 ${index + 1} 已创建，等待后端补充说明`)
+  return readString(record, ['message', 'detail', 'summary'], text('executionDetail.step.createdFallback', { index: index + 1 }))
 }
 
-function buildLogLines(record: Record<string, unknown>, index: number, agentLogs: readonly ApiRecord[] = []): ExecutionLogLine[] {
+function buildLogLines(record: Record<string, unknown>, index: number, agentLogs: readonly ApiRecord[], text: ExecutionDetailText): ExecutionLogLine[] {
   const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
-  const baseStep = readString(record, ['name', 'stepName'], `步骤 ${index + 1}`)
+  const baseStep = readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 }))
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
   const workflowStepResult = readObject(resultDetail, 'workflowStepResult')
-  if (workflowStepResult) return buildWorkflowStepLogLines(record, workflowStepResult, baseId, baseTime, baseStep)
+  if (workflowStepResult) return buildWorkflowStepLogLines(record, workflowStepResult, baseId, baseTime, baseStep, text)
   const verificationRecovery = readObject(resultDetail, 'verificationRecovery')
   const dryRunChecks = readArray(resultDetail, 'dryRunChecks')
 
@@ -477,17 +552,14 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     time: baseTime,
     level: normalizeLevel(readPath(record, 'logLevel') ?? readPath(record, 'severity') ?? readPath(record, 'status')),
     step: baseStep,
-    message: buildStepDetail(record, index),
+    message: buildStepDetail(record, index, text),
     requestId: readString(record, ['requestId'], ''),
   }
   const recoveredVerifySuccess = String(readPath(record, 'status') ?? '').toUpperCase() === 'SUCCESS'
     && verificationRecovery
     && readString(record, ['stepType', 'type'], '') === 'VERIFY'
   const normalizedAgentLogs = recoveredVerifySuccess
-    ? agentLogs.filter((log) => {
-      const message = readString(log, ['message'], '')
-      return !message.includes('TLS 证书验证失败') && !message.includes('任务执行失败: TLS 连接失败')
-    })
+    ? agentLogs.filter((log) => !matchesRecoveredVerificationFailure(verificationRecovery, log))
     : agentLogs
 
   const agentLines = normalizedAgentLogs.map((log, logIndex) => ({
@@ -503,10 +575,24 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     time: baseTime,
     level: 'warn' as const,
     step: baseStep,
-    message: '[ControlPlane] Agent 侧远程 TLS 探测失败，但控制面已完成真实 TLS 验证并确认目标证书匹配。',
+    message: text('executionDetail.log.verifyRecovered'),
     requestId: readString(record, ['requestId'], ''),
   }] : []
   return [baseLine, ...recoveryLine, ...agentLines]
+}
+
+function matchesRecoveredVerificationFailure(
+  verificationRecovery: Record<string, unknown> | undefined,
+  log: ApiRecord,
+): boolean {
+  if (!verificationRecovery) return false
+  const message = readString(log, ['message'], '')
+  const originalErrorCode = readString(verificationRecovery, ['originalErrorCode'], '')
+  const originalErrorMessage = readString(verificationRecovery, ['originalErrorMessage'], '')
+  return Boolean(
+    (originalErrorCode && message.includes(originalErrorCode))
+    || (originalErrorMessage && message.includes(originalErrorMessage)),
+  )
 }
 
 function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
@@ -554,23 +640,23 @@ function mapWorkflowStepStatus(status: string): string {
   return status.toUpperCase() || 'UNKNOWN'
 }
 
-function buildWorkflowStepDetail(step: Record<string, unknown>, index: number): string {
+function buildWorkflowStepDetail(step: Record<string, unknown>, index: number, text: ExecutionDetailText): string {
   const status = readString(step, ['status'], '')
   const errorCode = readString(step, ['errorCode'], '')
   const errorMessage = readString(step, ['errorMessage'], '')
   const assertions = readArray(step, 'assertions')
   const failedAssertions = assertions.filter((item) => readPath(item, 'passed') === false)
   if (status === 'failed') {
-    return `${errorCode || 'WORKFLOW_STEP_FAILED'}: ${errorMessage || failedAssertions[0]?.message || `工作流节点 ${index + 1} 执行失败`}`
+    return `${errorCode || 'WORKFLOW_STEP_FAILED'}: ${errorMessage || failedAssertions[0]?.message || text('executionDetail.workflowStep.failedDefault', { index: index + 1 })}`
   }
-  if (status === 'skipped') return '工作流节点已跳过，条件未满足。'
+  if (status === 'skipped') return text('executionDetail.workflowStep.skipped')
   if (assertions.length > 0) {
-    return `工作流节点执行成功，断言通过 ${assertions.length - failedAssertions.length}/${assertions.length}。`
+    return text('executionDetail.workflowStep.successAssertions', { passed: assertions.length - failedAssertions.length, total: assertions.length })
   }
-  return '工作流节点执行成功。'
+  return text('executionDetail.workflowStep.success')
 }
 
-function buildWorkflowStepLogLines(record: Record<string, unknown>, step: Record<string, unknown>, baseId: string, baseTime: string, baseStep: string): ExecutionLogLine[] {
+function buildWorkflowStepLogLines(record: Record<string, unknown>, step: Record<string, unknown>, baseId: string, baseTime: string, baseStep: string, text: ExecutionDetailText): ExecutionLogLine[] {
   const logs = readStringList(readPath(step, 'logs'))
   const status = readString(step, ['status'], '')
   const requestId = readString(record, ['requestId'], '')
@@ -579,7 +665,7 @@ function buildWorkflowStepLogLines(record: Record<string, unknown>, step: Record
     time: baseTime,
     level: normalizeLevel(status),
     step: baseStep,
-    message: buildWorkflowStepDetail(step, 0),
+    message: buildWorkflowStepDetail(step, 0, text),
     requestId,
   }
   return [
@@ -691,8 +777,8 @@ function readCount(record: Record<string, unknown> | undefined, key: string): nu
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
-function formatBinding(hostHeader: unknown, port: unknown): string {
-  const host = stringValue(hostHeader, '未提供 host header')
+function formatBinding(hostHeader: unknown, port: unknown, text: ExecutionDetailText): string {
+  const host = stringValue(hostHeader, text('executionDetail.binding.hostMissing'))
   const portValue = typeof port === 'number' || typeof port === 'string' ? String(port) : '443'
   return `${host}:${portValue}`
 }
@@ -703,12 +789,12 @@ function stringValue(value: unknown, fallback: string): string {
   return fallback
 }
 
-function inferProviderLabel(record: Record<string, unknown>): string {
+function inferProviderLabel(record: Record<string, unknown>, text: ExecutionDetailText): string {
   const providerType = readString(record, ['inputSnapshot.providerType'], '').trim().toUpperCase()
   if (providerType === 'NGINX') return 'NGINX'
   if (providerType === 'IIS') return 'IIS'
   const type = readString(record, ['inputSnapshot.type'], '').trim().toLowerCase()
   if (type.startsWith('linux.nginx.')) return 'NGINX'
   if (type.startsWith('windows.iis.')) return 'IIS'
-  return '目标'
+  return text('executionDetail.provider.target')
 }

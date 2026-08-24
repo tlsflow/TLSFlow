@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { listExecutions, rollbackExecution } from '@/api/modules/executions.api'
@@ -10,52 +11,53 @@ import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 
 const route = useRoute()
+const { t } = useI18n()
 const detailModalOpen = ref(false)
 const detailRow = ref<ViewRow | null>(null)
 const activeTab = ref<'summary' | 'steps' | 'logs'>('summary')
 
-const config: BusinessPageConfig = {
-  title: '执行记录',
-  description: '查看部署执行状态、步骤日志、dry-run 预检结论、失败原因和回滚入口。',
+const config = computed<BusinessPageConfig>(() => ({
+  title: t('executions.title'),
+  description: t('executions.description'),
   readPermission: 'execution.read',
   primaryPermission: 'execution.read',
-  primaryActionLabel: '刷新列表',
+  primaryActionLabel: t('executions.actions.refreshList'),
   primaryAction: async () => {},
   moduleName: 'executions',
-  resourceName: '执行运行',
+  resourceName: t('executions.resourceName'),
   defaultStatus: 'RUNNING',
   defaultRisk: 'MEDIUM',
   showDetailPanel: false,
   showActionPanel: false,
   columns: [
-    { key: 'name', title: '执行编号', candidates: ['runNo', 'name', 'id'] },
-    { key: 'status', title: '状态', candidates: ['status', 'state', 'result'] },
-    { key: 'risk', title: '风险', candidates: ['risk', 'riskLevel'] },
-    { key: 'planId', title: '部署计划', candidates: ['deploymentPlanId', 'planId'] },
-    { key: 'startedAt', title: '开始时间', candidates: ['startedAt', 'createdAt'], kind: 'date' },
+    { key: 'name', title: t('executions.columns.name'), candidates: ['runNo', 'name', 'id'] },
+    { key: 'status', title: t('executions.columns.status'), candidates: ['status', 'state', 'result'] },
+    { key: 'risk', title: t('executions.columns.risk'), candidates: ['risk', 'riskLevel'] },
+    { key: 'planId', title: t('executions.columns.planId'), candidates: ['deploymentPlanId', 'planId'] },
+    { key: 'startedAt', title: t('executions.columns.startedAt'), candidates: ['startedAt', 'createdAt'], kind: 'date' },
   ],
   metrics: [
-    { title: '执行总数', description: '当前可追踪的执行运行。', status: 'RUNNING', risk: 'MEDIUM' },
-    { title: '高危待处理', description: '失败、部分成功或需要回滚的执行。', status: 'FAILED', risk: 'HIGH' },
+    { title: t('executions.metrics.total.title'), description: t('executions.metrics.total.description'), status: 'RUNNING', risk: 'MEDIUM', kind: 'total' },
+    { title: t('executions.metrics.risky.title'), description: t('executions.metrics.risky.description'), status: 'FAILED', risk: 'HIGH' },
   ],
   detailFields: [
-    { label: '执行 ID', candidates: ['id', 'runId'] },
-    { label: '部署计划', candidates: ['deploymentPlanId', 'planId'] },
-    { label: '运行类型', candidates: ['type'] },
-    { label: '执行状态', candidates: ['status', 'state', 'result'] },
-    { label: '执行目标', candidates: ['executionTargetId', 'targetSummary', 'targetIds.0'] },
-    { label: '外部运行 ID', candidates: ['externalRunId'] },
-    { label: '开始时间', candidates: ['startedAt', 'createdAt'] },
-    { label: '结束时间', candidates: ['finishedAt', 'updatedAt'] },
-    { label: '错误码', candidates: ['errorCode'] },
-    { label: '失败原因', candidates: ['failureReason', 'errorMessage', 'error.message'] },
+    { label: t('executions.fields.executionId'), candidates: ['id', 'runId'] },
+    { label: t('executions.fields.deploymentPlan'), candidates: ['deploymentPlanId', 'planId'] },
+    { label: t('executions.fields.runType'), candidates: ['type'] },
+    { label: t('executions.fields.status'), candidates: ['status', 'state', 'result'] },
+    { label: t('executions.fields.target'), candidates: ['executionTargetId', 'targetSummary', 'targetIds.0'] },
+    { label: t('executions.fields.externalRunId'), candidates: ['externalRunId'] },
+    { label: t('executions.fields.startedAt'), candidates: ['startedAt', 'createdAt'] },
+    { label: t('executions.fields.finishedAt'), candidates: ['finishedAt', 'updatedAt'] },
+    { label: t('executions.fields.errorCode'), candidates: ['errorCode'] },
+    { label: t('executions.fields.failureReason'), candidates: ['failureReason', 'errorMessage', 'error.message'] },
   ],
   contextLinks: [
-    { label: '查看部署计划', to: '/deployment-plans', queryKey: 'planId', candidates: ['deploymentPlanId', 'planId'] },
-    { label: '查看审计事件', to: '/audits', queryKey: 'runId', candidates: ['id', 'runId'] },
+    { label: t('executions.links.deploymentPlan'), to: '/deployment-plans', queryKey: 'planId', candidates: ['deploymentPlanId', 'planId'] },
+    { label: t('executions.links.auditEvents'), to: '/audits', queryKey: 'runId', candidates: ['id', 'runId'] },
   ],
-  emptyTitle: '暂无执行记录',
-  emptyDescription: '部署计划执行后会在这里展示日志、状态和审计关联。',
+  emptyTitle: t('executions.empty.title'),
+  emptyDescription: t('executions.empty.description'),
   load: () => listExecutions({
     page: 1,
     pageSize: 20,
@@ -69,7 +71,7 @@ const config: BusinessPageConfig = {
   }),
   rowActions: [
     {
-      label: '查看详情',
+      label: t('executions.actions.viewDetail'),
       permission: 'execution.read',
       reloadAfterRun: false,
       run: async (row) => {
@@ -79,26 +81,26 @@ const config: BusinessPageConfig = {
   ],
   actions: [
     {
-      label: '发起回滚',
+      label: t('executions.actions.rollback'),
       permission: 'execution.rollback',
       danger: true,
       confirmText: 'ROLLBACK',
-      riskText: '回滚会再次改动目标服务证书配置，必须确认备份引用和影响范围。',
+      riskText: t('executions.actions.rollbackRisk'),
       requiresSelection: true,
       run: (row) => rollbackExecution(row?.id ?? '', { dryRun: true }),
     },
   ],
-}
+}))
 
-const modalExecutionDetail = useExecutionDetail(detailRow)
+const modalExecutionDetail = useExecutionDetail(detailRow, { t })
 const modalSummaryCards = computed(() => {
   const summary = modalExecutionDetail.dryRunSummary.value
   if (!summary) return []
   return [
-    { label: '通过', value: summary.passed },
-    { label: '警告', value: summary.warning },
-    { label: '失败', value: summary.failed },
-    { label: '未知', value: summary.unknown },
+    { label: t('executions.summary.passed'), value: summary.passed },
+    { label: t('executions.summary.warning'), value: summary.warning },
+    { label: t('executions.summary.failed'), value: summary.failed },
+    { label: t('executions.summary.unknown'), value: summary.unknown },
   ]
 })
 
@@ -116,8 +118,8 @@ function openExecutionDetail(row: ViewRow) {
 
     <GcModal
       v-model:open="detailModalOpen"
-      :title="detailRow ? `执行详情 ${detailRow.id}` : '执行详情'"
-      description="查看执行运行的基础信息、步骤状态和日志。"
+      :title="detailRow ? t('executions.detail.titleWithId', { id: detailRow.id }) : t('executions.detail.title')"
+      :description="t('executions.detail.description')"
       size="xxl"
       width="min(1280px, calc(100vw - 32px))"
     >
@@ -126,55 +128,55 @@ function openExecutionDetail(row: ViewRow) {
           <div class="execution-detail-modal__hero-copy">
             <p class="execution-detail-modal__eyebrow">Execution Run</p>
             <h2>{{ readString(detailRow.raw, ['runNo', 'name', 'id'], detailRow.id) }}</h2>
-            <span>部署计划 {{ readString(detailRow.raw, ['deploymentPlanId', 'planId']) }}</span>
+            <span>{{ t('executions.detail.planLabel', { plan: readString(detailRow.raw, ['deploymentPlanId', 'planId']) }) }}</span>
           </div>
           <div class="execution-detail-modal__hero-side">
             <GcStatusTag :status="readString(detailRow.raw, ['status', 'state', 'result'])" />
             <div class="execution-detail-modal__spotlight">
-              <small>运行类型</small>
+              <small>{{ t('executions.fields.runType') }}</small>
               <strong>{{ readString(detailRow.raw, ['type']) }}</strong>
             </div>
           </div>
         </section>
 
         <div class="execution-detail-modal__tabs">
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">概览</button>
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'steps'" @click="activeTab = 'steps'">步骤</button>
-          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'logs'" @click="activeTab = 'logs'">日志</button>
+          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">{{ t('executions.tabs.summary') }}</button>
+          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'steps'" @click="activeTab = 'steps'">{{ t('executions.tabs.steps') }}</button>
+          <button class="execution-detail-modal__tab" type="button" :data-active="activeTab === 'logs'" @click="activeTab = 'logs'">{{ t('executions.tabs.logs') }}</button>
         </div>
 
         <section v-if="activeTab === 'summary'" class="execution-detail-modal__section">
           <dl class="execution-detail-modal__facts">
             <div>
-              <dt>执行 ID</dt>
+              <dt>{{ t('executions.fields.executionId') }}</dt>
               <dd>{{ readString(detailRow.raw, ['id', 'runId'], detailRow.id) }}</dd>
             </div>
             <div>
-              <dt>部署计划</dt>
+              <dt>{{ t('executions.fields.deploymentPlan') }}</dt>
               <dd>{{ readString(detailRow.raw, ['deploymentPlanId', 'planId']) }}</dd>
             </div>
             <div>
-              <dt>运行类型</dt>
+              <dt>{{ t('executions.fields.runType') }}</dt>
               <dd>{{ readString(detailRow.raw, ['type']) }}</dd>
             </div>
             <div>
-              <dt>执行状态</dt>
+              <dt>{{ t('executions.fields.status') }}</dt>
               <dd>{{ readString(detailRow.raw, ['status', 'state', 'result']) }}</dd>
             </div>
             <div>
-              <dt>开始时间</dt>
+              <dt>{{ t('executions.fields.startedAt') }}</dt>
               <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['startedAt', 'createdAt'])) || readString(detailRow.raw, ['startedAt', 'createdAt']) }}</dd>
             </div>
             <div>
-              <dt>结束时间</dt>
+              <dt>{{ t('executions.fields.finishedAt') }}</dt>
               <dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['finishedAt', 'updatedAt'])) || readString(detailRow.raw, ['finishedAt', 'updatedAt']) }}</dd>
             </div>
             <div>
-              <dt>错误码</dt>
+              <dt>{{ t('executions.fields.errorCode') }}</dt>
               <dd>{{ readString(detailRow.raw, ['errorCode']) }}</dd>
             </div>
             <div>
-              <dt>失败原因</dt>
+              <dt>{{ t('executions.fields.failureReason') }}</dt>
               <dd>{{ readString(detailRow.raw, ['failureReason', 'errorMessage', 'error.message']) }}</dd>
             </div>
           </dl>
@@ -198,7 +200,7 @@ function openExecutionDetail(row: ViewRow) {
         </section>
 
         <section v-else-if="activeTab === 'steps'" class="execution-detail-modal__section">
-          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">正在加载步骤...</p>
+          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">{{ t('executions.detail.loadingSteps') }}</p>
           <p v-else-if="modalExecutionDetail.error.value" class="execution-detail-modal__error">{{ modalExecutionDetail.error.value }}</p>
           <ul v-else-if="modalExecutionDetail.steps.value.length" class="execution-detail-modal__list">
             <li v-for="step in modalExecutionDetail.steps.value" :key="step.id" class="execution-detail-modal__list-item">
@@ -206,31 +208,31 @@ function openExecutionDetail(row: ViewRow) {
                 <strong>{{ step.name }}</strong>
                 <GcStatusTag :status="step.status" />
               </div>
-              <p>{{ step.detail ?? '暂无步骤说明' }}</p>
-              <small>{{ step.startedAt ?? '未开始' }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
+              <p>{{ step.detail ?? t('executions.detail.noStepDetail') }}</p>
+              <small>{{ step.startedAt ?? t('executions.detail.notStarted') }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
             </li>
           </ul>
-          <p v-else class="execution-detail-modal__loading">暂无步骤。</p>
+          <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noSteps') }}</p>
         </section>
 
         <section v-else class="execution-detail-modal__section">
-          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">正在加载日志...</p>
+          <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">{{ t('executions.detail.loadingLogs') }}</p>
           <p v-else-if="modalExecutionDetail.error.value" class="execution-detail-modal__error">{{ modalExecutionDetail.error.value }}</p>
           <ul v-else-if="modalExecutionDetail.lines.value.length" class="execution-detail-modal__logs">
             <li v-for="line in modalExecutionDetail.lines.value" :key="line.id" class="execution-detail-modal__log-item" :data-level="line.level">
               <div class="execution-detail-modal__log-meta">
                 <span>{{ line.time }}</span>
-                <strong>{{ line.step || '执行日志' }}</strong>
+                <strong>{{ line.step || t('executions.tabs.logs') }}</strong>
               </div>
               <p>{{ line.message }}</p>
             </li>
           </ul>
-          <p v-else class="execution-detail-modal__loading">暂无日志。</p>
+          <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noLogs') }}</p>
         </section>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="detailModalOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
       </template>
     </GcModal>
   </section>

@@ -1,10 +1,11 @@
 import { listRecords, postAction, type ApiBody, type BusinessListQuery } from './common'
+import { i18n } from '@/i18n'
 
 const DEPLOYMENT_PLANS_PATH = '/api/v1/deployment-plans'
 
 function requireId(value: string, actionName: string): string {
   const id = value.trim()
-  if (!id) throw new Error(`${actionName} 缺少部署计划 ID，已阻止空 planId 请求`)
+  if (!id) throw new Error(i18n.global.t('deploymentPlans.errors.missingPlanIdForAction', { action: actionName }))
   return id
 }
 
@@ -30,17 +31,17 @@ export function dryRunDeploymentPlan(payload: ApiBody) {
 }
 
 export function submitDeploymentPlan(planId: string, payload: ApiBody = {}) {
-  return postAction(`${DEPLOYMENT_PLANS_PATH}/submit`, { ...payload, planId: requireId(planId, '提交部署计划') }, 'deployment_submit')
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/submit`, { ...payload, planId: requireId(planId, i18n.global.t('deploymentPlans.apiActions.submit')) }, 'deployment_submit')
 }
 
 export function executeDeploymentPlan(planId: string, payload: ApiBody = {}) {
-  return postAction(`${DEPLOYMENT_PLANS_PATH}/execute`, { ...payload, planId: requireId(planId, '执行部署计划') }, 'deployment_execute')
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/execute`, { ...payload, planId: requireId(planId, i18n.global.t('deploymentPlans.apiActions.execute')) }, 'deployment_execute')
 }
 
 export function cancelDeploymentPlan(planId: string, payload: ApiBody = {}) {
-  return postAction(`${DEPLOYMENT_PLANS_PATH}/cancel`, { ...payload, planId: requireId(planId, '取消部署计划') }, 'deployment_cancel')
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/cancel`, { ...payload, planId: requireId(planId, i18n.global.t('deploymentPlans.apiActions.cancel')) }, 'deployment_cancel')
 }
 
 export function deleteDraftDeploymentPlan(planId: string, payload: ApiBody = {}) {
-  return postAction(`${DEPLOYMENT_PLANS_PATH}/delete`, { ...payload, planId: requireId(planId, '删除部署计划') }, 'deployment_delete')
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/delete`, { ...payload, planId: requireId(planId, i18n.global.t('deploymentPlans.apiActions.delete')) }, 'deployment_delete')
 }

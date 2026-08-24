@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from './GcExecutionLogViewer.vue'
 import GcExecutionProgressPanel from './GcExecutionProgressPanel.vue'
@@ -30,15 +32,18 @@ const props = withDefaults(defineProps<{
   showChecklist?: boolean
   mode?: 'dry-run' | 'execution'
 }>(), {
-  title: 'Dry-run 执行结果',
   description: '',
   showChecklist: true,
   mode: 'dry-run',
 })
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   'update:open': [value: boolean]
 }>()
+
+const displayTitle = computed(() => props.title ?? t('designSystem.dryRunResult.title'))
 
 function closeModal() {
   emit('update:open', false)
@@ -48,7 +53,7 @@ function closeModal() {
 <template>
   <GcModal
     :open="open"
-    :title="props.title"
+    :title="displayTitle"
     :description="props.description"
     size="xxl"
     width="min(1320px, calc(100vw - 24px))"
@@ -70,7 +75,7 @@ function closeModal() {
     />
 
     <template #actions>
-      <button class="gc-button" type="button" @click="closeModal">关闭</button>
+      <button class="gc-button" type="button" @click="closeModal">{{ t('designSystem.dryRunResult.close') }}</button>
     </template>
   </GcModal>
 </template>

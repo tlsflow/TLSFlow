@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from './GcExecutionLogViewer.vue'
 import GcDryRunChecklist from './GcDryRunChecklist.vue'
@@ -66,6 +67,7 @@ const props = withDefaults(defineProps<{
 const revealedTaskCount = ref(0)
 const eventsExpanded = ref(false)
 const logExpanded = ref(false)
+const { t } = useI18n()
 let revealTimer: ReturnType<typeof setTimeout> | null = null
 
 const taskChecksByStep = computed(() => groupLinesByStep(props.lines ?? []))
@@ -82,7 +84,7 @@ const counts = computed(() => {
 const allTasksRevealed = computed(() => revealedTaskCount.value >= rawTasks.value.length)
 
 const isDryRunMode = computed(() => props.mode === 'dry-run')
-const processLabel = computed(() => isDryRunMode.value ? 'Dry-run' : '执行')
+const processLabel = computed(() => isDryRunMode.value ? 'Dry-run' : t('designSystem.executionProgress.process.execution'))
 
 const heroState = computed<SummaryState>(() => {
   if (props.error) return 'failed'
@@ -103,19 +105,30 @@ const displayCounts = computed(() => ({
 const heroDetail = computed(() => {
   if (props.error) return props.error
   if (!allTasksRevealed.value && counts.value.total > 0) {
-    return `${displayCounts.value.completed}/${Math.max(displayCounts.value.total, 1)} 步骤已完成`
+    return t('designSystem.executionProgress.detail.stepsCompleted', {
+      completed: displayCounts.value.completed,
+      total: Math.max(displayCounts.value.total, 1),
+    })
   }
   if (props.summary) {
     const total = props.summary.passed + props.summary.warning + props.summary.failed + props.summary.unknown
-    if (props.summary.state === 'passed') return `${props.summary.passed} 项检查通过`
-    if (props.summary.state === 'warning') return `${total} 项已完成，${props.summary.warning} 项警告`
-    if (props.summary.state === 'failed') return `${total} 项已完成，${props.summary.failed} 项失败`
-    if (props.summary.state === 'running') return `${displayCounts.value.completed}/${Math.max(displayCounts.value.total, 1)} 步骤已完成`
-    if (props.summary.state === 'queued') return '等待任务开始执行'
-    return `${total} 项检查结果已返回`
+    if (props.summary.state === 'passed') return t('designSystem.executionProgress.detail.summaryPassed', { passed: props.summary.passed })
+    if (props.summary.state === 'warning') return t('designSystem.executionProgress.detail.summaryWarning', { total, warning: props.summary.warning })
+    if (props.summary.state === 'failed') return t('designSystem.executionProgress.detail.summaryFailed', { total, failed: props.summary.failed })
+    if (props.summary.state === 'running') {
+      return t('designSystem.executionProgress.detail.stepsCompleted', {
+        completed: displayCounts.value.completed,
+        total: Math.max(displayCounts.value.total, 1),
+      })
+    }
+    if (props.summary.state === 'queued') return t('designSystem.executionProgress.detail.waitingStart')
+    return t('designSystem.executionProgress.detail.summaryReturned', { total })
   }
-  if (counts.value.total === 0) return '等待后端返回执行步骤'
-  return `${displayCounts.value.completed}/${Math.max(displayCounts.value.total, 1)} 步骤已完成`
+  if (counts.value.total === 0) return t('designSystem.executionProgress.detail.waitingSteps')
+  return t('designSystem.executionProgress.detail.stepsCompleted', {
+    completed: displayCounts.value.completed,
+    total: Math.max(displayCounts.value.total, 1),
+  })
 })
 
 const progressPercent = computed(() => {
@@ -128,13 +141,13 @@ const progressPercent = computed(() => {
 })
 
 const progressLabel = computed(() => {
-  if (props.error) return `${processLabel.value}失败`
-  if (displayState.value === 'queued') return '等待调度'
-  if (displayState.value === 'running') return '任务推进中'
-  if (displayState.value === 'pending') return '等待结果回写'
-  if (displayState.value === 'warning') return '已完成，存在风险提示'
-  if (displayState.value === 'failed') return '已完成，存在失败项'
-  return '全部完成'
+  if (props.error) return t('designSystem.executionProgress.progress.processFailed', { process: processLabel.value })
+  if (displayState.value === 'queued') return t('designSystem.executionProgress.progress.queued')
+  if (displayState.value === 'running') return t('designSystem.executionProgress.progress.running')
+  if (displayState.value === 'pending') return t('designSystem.executionProgress.progress.pending')
+  if (displayState.value === 'warning') return t('designSystem.executionProgress.progress.warning')
+  if (displayState.value === 'failed') return t('designSystem.executionProgress.progress.failed')
+  return t('designSystem.executionProgress.progress.completed')
 })
 const heroBadgeLabel = computed(() => (
   allTasksRevealed.value ? (props.summary?.label ?? progressLabel.value) : progressLabel.value
@@ -183,17 +196,17 @@ const heroMetrics = computed(() => {
   const summary = props.summary
   if (summary && allTasksRevealed.value) {
     return [
-      { label: '通过', value: String(summary.passed) },
-      { label: '警告', value: String(summary.warning) },
-      { label: '失败', value: String(summary.failed) },
-      { label: '未知', value: String(summary.unknown) },
+      { label: t('designSystem.executionProgress.metrics.passed'), value: String(summary.passed) },
+      { label: t('designSystem.executionProgress.metrics.warning'), value: String(summary.warning) },
+      { label: t('designSystem.executionProgress.metrics.failed'), value: String(summary.failed) },
+      { label: t('designSystem.executionProgress.metrics.unknown'), value: String(summary.unknown) },
     ]
   }
   return [
-    { label: '总任务', value: String(Math.max(displayCounts.value.total, 1)) },
-    { label: '已完成', value: String(displayCounts.value.completed) },
-    { label: '执行中', value: String(displayCounts.value.running) },
-    { label: '排队中', value: String(displayCounts.value.queued) },
+    { label: t('designSystem.executionProgress.metrics.totalTasks'), value: String(Math.max(displayCounts.value.total, 1)) },
+    { label: t('designSystem.executionProgress.metrics.completed'), value: String(displayCounts.value.completed) },
+    { label: t('designSystem.executionProgress.metrics.running'), value: String(displayCounts.value.running) },
+    { label: t('designSystem.executionProgress.metrics.queued'), value: String(displayCounts.value.queued) },
   ]
 })
 
@@ -289,7 +302,10 @@ function splitMessage(message: string): { title: string; detail: string } {
   const normalized = message.trim()
   const index = normalized.indexOf(':')
   if (index <= 0) {
-    return { title: normalized || '任务事件', detail: normalized || '等待事件回传' }
+    return {
+      title: normalized || t('designSystem.executionProgress.event.defaultTitle'),
+      detail: normalized || t('designSystem.executionProgress.event.waitingDetail'),
+    }
   }
   return {
     title: normalized.slice(0, index).trim(),
@@ -321,19 +337,23 @@ function inferStateFromTasks(tasks: readonly VisibleTask[]): SummaryState {
 
 function humanizeStepTitle(name: string, mode: 'dry-run' | 'execution'): string {
   const upper = name.toUpperCase()
-  if (upper.startsWith('DISCOVER')) return '环境识别'
-  if (upper.startsWith('VERIFY')) return '结果校验'
-  if (upper.startsWith('BACKUP')) return '前置备份'
-  if (upper.startsWith('INSTALL')) return mode === 'execution' ? '证书安装' : '材料加载'
-  if (upper.startsWith('RELOAD')) return '服务刷新'
+  if (upper.startsWith('DISCOVER')) return t('designSystem.executionProgress.step.discover')
+  if (upper.startsWith('VERIFY')) return t('designSystem.executionProgress.step.verify')
+  if (upper.startsWith('BACKUP')) return t('designSystem.executionProgress.step.backup')
+  if (upper.startsWith('INSTALL')) {
+    return mode === 'execution'
+      ? t('designSystem.executionProgress.step.installExecution')
+      : t('designSystem.executionProgress.step.installDryRun')
+  }
+  if (upper.startsWith('RELOAD')) return t('designSystem.executionProgress.step.reload')
   return name
 }
 
 function defaultSubtitle(status: TaskStatus): string {
-  if (status === 'running') return '任务已开始，等待后续结果回传。'
-  if (status === 'queued') return '任务已创建，等待执行。'
-  if (status === 'failed') return '任务已结束，但返回了失败结果。'
-  return '任务已完成。'
+  if (status === 'running') return t('designSystem.executionProgress.subtitle.running')
+  if (status === 'queued') return t('designSystem.executionProgress.subtitle.queued')
+  if (status === 'failed') return t('designSystem.executionProgress.subtitle.failed')
+  return t('designSystem.executionProgress.subtitle.completed')
 }
 
 function buildTaskSubtitle(
@@ -344,10 +364,10 @@ function buildTaskSubtitle(
   if (checks.length > 0) {
     const summary = countCheckStatuses(checks)
     const total = summary.passed + summary.warning + summary.failed + summary.unknown
-    if (summary.failed > 0) return `${total} 项检查，${summary.failed} 项失败`
-    if (summary.warning > 0) return `${total} 项检查，${summary.warning} 项警告`
-    if (status === 'running') return `已回传 ${total} 项检查`
-    return `${total} 项检查通过`
+    if (summary.failed > 0) return t('designSystem.executionProgress.subtitle.failedChecks', { total, failed: summary.failed })
+    if (summary.warning > 0) return t('designSystem.executionProgress.subtitle.warningChecks', { total, warning: summary.warning })
+    if (status === 'running') return t('designSystem.executionProgress.subtitle.runningChecks', { total })
+    return t('designSystem.executionProgress.subtitle.passedChecks', { total })
   }
   return detail?.trim() || defaultSubtitle(status)
 }
@@ -366,7 +386,7 @@ function countCheckStatuses(checks: Array<{ status: CheckStatus }>): Record<Chec
 
 function formatTimeLabel(startedAt?: string, finishedAt?: string): string {
   if (startedAt && finishedAt) return `${startedAt} -> ${finishedAt}`
-  return startedAt || finishedAt || '等待开始'
+  return startedAt || finishedAt || t('designSystem.executionProgress.time.waitingStart')
 }
 
 function taskTitleKey(task: VisibleTask): string {
@@ -375,11 +395,11 @@ function taskTitleKey(task: VisibleTask): string {
 }
 
 function statusBadgeText(status: TaskStatus): string {
-  if (status === 'queued') return '等待中'
-  if (status === 'running') return '执行中'
-  if (status === 'warning') return '有警告'
-  if (status === 'failed') return '失败'
-  return '已完成'
+  if (status === 'queued') return t('designSystem.executionProgress.status.queued')
+  if (status === 'running') return t('designSystem.executionProgress.status.running')
+  if (status === 'warning') return t('designSystem.executionProgress.status.warning')
+  if (status === 'failed') return t('designSystem.executionProgress.status.failed')
+  return t('designSystem.executionProgress.status.completed')
 }
 
 function taskDotText(status: TaskStatus): string {
@@ -390,9 +410,9 @@ function taskDotText(status: TaskStatus): string {
 }
 
 function feedStatusText(status: TaskStatus): string {
-  if (status === 'failed') return '执行失败'
-  if (status === 'warning') return '完成，带警告'
-  return '执行完成'
+  if (status === 'failed') return t('designSystem.executionProgress.feed.failed')
+  if (status === 'warning') return t('designSystem.executionProgress.feed.warning')
+  return t('designSystem.executionProgress.feed.completed')
 }
 </script>
 
@@ -400,7 +420,7 @@ function feedStatusText(status: TaskStatus): string {
   <section class="gc-dry-run-modern">
     <p v-if="error" class="gc-dry-run-modern__error">{{ error }}</p>
 
-    <section class="gc-dry-run-modern__hero" :data-state="displayState" aria-label="执行进度总览">
+    <section class="gc-dry-run-modern__hero" :data-state="displayState" :aria-label="t('designSystem.executionProgress.aria.progressOverview')">
       <div class="gc-dry-run-modern__hero-copy">
         <div class="gc-dry-run-modern__hero-head">
           <strong>{{ progressLabel }}</strong>
@@ -408,8 +428,8 @@ function feedStatusText(status: TaskStatus): string {
         </div>
         <p>{{ heroDetail }}</p>
         <div class="gc-dry-run-modern__hero-meta">
-          <span v-if="loading">刷新中</span>
-          <span v-if="polling">自动刷新兜底中</span>
+          <span v-if="loading">{{ t('designSystem.executionProgress.loading.refreshing') }}</span>
+          <span v-if="polling">{{ t('designSystem.executionProgress.loading.pollingFallback') }}</span>
         </div>
       </div>
         <div class="gc-dry-run-modern__hero-side">
@@ -430,13 +450,13 @@ function feedStatusText(status: TaskStatus): string {
     </section>
 
     <section class="gc-dry-run-modern__layout">
-      <section class="gc-card gc-dry-run-modern__tasks" aria-label="任务列表">
+      <section class="gc-card gc-dry-run-modern__tasks" :aria-label="t('designSystem.executionProgress.aria.taskList')">
         <header class="gc-dry-run-modern__section-head">
           <div>
-            <strong>任务进度</strong>
+            <strong>{{ t('designSystem.executionProgress.section.taskProgress') }}</strong>
           </div>
           <span class="gc-dry-run-modern__section-pill">
-            {{ displayCounts.completed }}/{{ displayCounts.total || 1 }} 已完成
+            {{ t('designSystem.executionProgress.section.completedCount', { completed: displayCounts.completed, total: displayCounts.total || 1 }) }}
           </span>
         </header>
 
@@ -470,31 +490,31 @@ function feedStatusText(status: TaskStatus): string {
           </li>
         </ol>
 
-        <p v-else class="gc-dry-run-modern__empty">任务尚未创建，等待后端返回执行步骤。</p>
+        <p v-else class="gc-dry-run-modern__empty">{{ t('designSystem.executionProgress.empty.tasks') }}</p>
 
-        <section v-if="isDryRunMode" class="gc-card gc-dry-run-modern__events" aria-label="最新事件">
+        <section v-if="isDryRunMode" class="gc-card gc-dry-run-modern__events" :aria-label="t('designSystem.executionProgress.aria.latestEvents')">
           <header class="gc-dry-run-modern__section-head">
             <div>
-              <strong>最新事件</strong>
+              <strong>{{ t('designSystem.executionProgress.section.latestEvents') }}</strong>
             </div>
             <button class="gc-button" type="button" @click="eventsExpanded = !eventsExpanded">
-              {{ eventsExpanded ? '收起事件' : '展开事件' }}
+              {{ eventsExpanded ? t('designSystem.executionProgress.event.collapse') : t('designSystem.executionProgress.event.expand') }}
             </button>
           </header>
 
           <ul v-if="recentEvents.length && eventsExpanded" class="gc-dry-run-modern__event-list">
             <li v-for="line in recentEvents" :key="line.id" :data-level="line.level">
               <small>{{ line.time }}</small>
-              <strong>{{ line.step || '事件' }}</strong>
+              <strong>{{ line.step || t('designSystem.executionProgress.event.defaultLabel') }}</strong>
               <span>{{ line.message }}</span>
             </li>
           </ul>
           <article v-else-if="latestEvent" class="gc-dry-run-modern__event-preview" :data-level="latestEvent.level">
             <small>{{ latestEvent.time }}</small>
-            <strong>{{ latestEvent.step || '事件' }}</strong>
+            <strong>{{ latestEvent.step || t('designSystem.executionProgress.event.defaultLabel') }}</strong>
             <span>{{ latestEvent.message }}</span>
           </article>
-          <p v-else class="gc-dry-run-modern__empty">还没有事件回传。</p>
+          <p v-else class="gc-dry-run-modern__empty">{{ t('designSystem.executionProgress.empty.events') }}</p>
 
           <button
             v-if="requestId"
@@ -503,16 +523,16 @@ function feedStatusText(status: TaskStatus): string {
             :title="requestId"
             @click="logExpanded = !logExpanded"
           >
-            {{ logExpanded ? '收起完整日志' : '查看完整日志' }}
+            {{ logExpanded ? t('designSystem.executionProgress.log.collapse') : t('designSystem.executionProgress.log.expand') }}
           </button>
         </section>
       </section>
 
       <aside class="gc-dry-run-modern__aside">
-        <section v-if="!isDryRunMode" class="gc-card gc-dry-run-modern__activity" aria-label="执行日志">
+        <section v-if="!isDryRunMode" class="gc-card gc-dry-run-modern__activity" :aria-label="t('designSystem.executionProgress.aria.executionLog')">
           <header class="gc-dry-run-modern__section-head">
             <div>
-              <strong>执行日志</strong>
+              <strong>{{ t('designSystem.executionProgress.section.executionLog') }}</strong>
             </div>
             <button
               v-if="requestId"
@@ -520,7 +540,7 @@ function feedStatusText(status: TaskStatus): string {
               type="button"
               @click="logExpanded = !logExpanded"
             >
-              {{ logExpanded ? '收起完整日志' : '查看完整日志' }}
+              {{ logExpanded ? t('designSystem.executionProgress.log.collapse') : t('designSystem.executionProgress.log.expand') }}
             </button>
           </header>
 
@@ -536,13 +556,13 @@ function feedStatusText(status: TaskStatus): string {
               </div>
             </li>
           </ul>
-          <p v-else class="gc-dry-run-modern__empty">等待任务完成后逐条写入执行日志。</p>
+          <p v-else class="gc-dry-run-modern__empty">{{ t('designSystem.executionProgress.empty.activity') }}</p>
         </section>
 
         <GcDryRunChecklist
           v-else-if="showChecklist"
           :items="checks ?? []"
-          title="检查结论"
+          :title="t('designSystem.executionProgress.checklist.title')"
         />
       </aside>
     </section>

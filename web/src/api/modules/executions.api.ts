@@ -1,4 +1,5 @@
 import { apiClient, createRequestId, readApiRequestContext } from '@/api/client'
+import { i18n } from '@/i18n'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 import { buildListPath } from './common'
 import type { ApiPage } from './common'
@@ -89,7 +90,7 @@ export async function streamExecutionDetail(
   })
 
   if (!response.ok || !response.body) {
-    throw new Error(`连接执行详情流失败: HTTP ${response.status}`)
+    throw new Error(i18n.global.t('executions.errors.streamConnectFailed', { status: response.status }))
   }
 
   const reader = response.body.getReader()

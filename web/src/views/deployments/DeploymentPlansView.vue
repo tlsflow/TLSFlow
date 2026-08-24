@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -20,7 +21,7 @@ import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
-import { deploymentPlansPageConfig } from './deployment-plan.config'
+import { createDeploymentPlansPageConfig } from './deployment-plan.config'
 import { enrichDeploymentPlanRecord, resolveApplicationAssetIdForPlan } from './deployment-plan-update-state'
 
 type RelatedRecordKind = 'dry-run' | 'certificate-update'
@@ -43,6 +44,7 @@ interface RelatedExecutionRecord {
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
+const { t } = useI18n()
 const createDialogOpen = ref(false)
 const loading = ref(false)
 const editingPlanId = ref('')
@@ -60,7 +62,7 @@ const relatedRecordsLoading = ref(false)
 const relatedRecordsError = ref('')
 const activeDetailTab = ref<'summary' | 'versions' | 'execution'>('summary')
 const relatedExecutionRow = ref<ViewRow | null>(null)
-const relatedExecutionDetail = useExecutionDetail(relatedExecutionRow)
+const relatedExecutionDetail = useExecutionDetail(relatedExecutionRow, { t })
 
 const certificateItems = ref<ApiRecord[]>([])
 const certificateVersionItems = ref<ApiRecord[]>([])
@@ -69,7 +71,7 @@ const targetItems = ref<ApiRecord[]>([])
 const workflowTemplateItems = ref<ApiRecord[]>([])
 const workflowVersionItemsByTemplateId = ref<Record<string, ApiRecord[]>>({})
 const dryRunChecks = ref<ApiRecord[]>([])
-const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow)
+const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow, { t })
 const dryRunResultModalOpen = ref(false)
 const dryRunActionError = ref('')
 const activeExecutionSource = ref<'plan' | 'related'>('plan')
@@ -82,55 +84,86 @@ const dryRunRequiredActionLabel = ref('')
 const dryRunRequiredRow = ref<ViewRow | null>(null)
 const refreshedTerminalRunIds = new Set<string>()
 
-const pageConfig: BusinessPageConfig = {
-  ...deploymentPlansPageConfig,
-  showHeader: false,
-  showMetrics: false,
-  showDetailPanel: false,
-  showActionPanel: false,
-  showToolbarDangerHint: false,
-  load: loadDeploymentPlansPage,
-  primaryAction: openCreateDialog,
-  actions: (deploymentPlansPageConfig.actions ?? []).map((action) => ({
-    ...action,
-    run: async (row) => {
-      try {
-        const result = await runPlanAction(action.label, row ?? null, () => action.run?.(row))
-        await handleActionFeedback(action.label, row ?? null, result)
-      } catch (cause) {
-        handleActionError(action.label, row ?? null, cause)
-      }
-    },
-  })),
-  rowActions: [
-    {
-      label: '详情',
-      permission: 'deployment.plan.read',
-      reloadAfterRun: false,
-      run: async (row) => {
-        await openDetailDialog(row)
-      },
-    },
-    {
-      label: '编辑计划',
-      permission: 'deployment.plan.write',
-      reloadAfterRun: false,
-      run: async (row) => {
-        await openEditDialog(row)
-      },
-    },
-    ...((deploymentPlansPageConfig.rowActions ?? []).map((action) => ({
+const pageConfig = computed<BusinessPageConfig>(() => {
+  const baseConfig = createDeploymentPlansPageConfig(t)
+  return {
+    ...baseConfig,
+    showHeader: false,
+    showMetrics: false,
+    showDetailPanel: false,
+    showActionPanel: false,
+    showToolbarDangerHint: false,
+    load: loadDeploymentPlansPage,
+    primaryAction: openCreateDialog,
+    actions: (baseConfig.actions ?? []).map((action) => ({
       ...action,
-      run: async (row: ViewRow) => {
+      run: async (row) => {
         try {
-          const result = await runPlanAction(action.label, row, () => action.run?.(row))
-          await handleActionFeedback(action.label, row, result)
+          const result = await runPlanAction(action.label, row ?? null, () => action.run?.(row))
+          await handleActionFeedback(action.label, row ?? null, result)
         } catch (cause) {
-          handleActionError(action.label, row, cause)
+          handleActionError(action.label, row ?? null, cause)
         }
       },
-    }))),
-  ],
+    })),
+    rowActions: [
+      {
+        label: t('deploymentPlans.actions.detail'),
+        permission: 'deployment.plan.read',
+        reloadAfterRun: false,
+        run: async (row) => {
+          await openDetailDialog(row)
+        },
+      },
+      {
+        label: t('deploymentPlans.actions.edit'),
+        permission: 'deployment.plan.write',
+        reloadAfterRun: false,
+        run: async (row) => {
+          await openEditDialog(row)
+        },
+      },
+      ...((baseConfig.rowActions ?? []).map((action) => ({
+        ...action,
+        run: async (row: ViewRow) => {
+          try {
+            const result = await runPlanAction(action.label, row, () => action.run?.(row))
+            await handleActionFeedback(action.label, row, result)
+          } catch (cause) {
+            handleActionError(action.label, row, cause)
+          }
+        },
+      }))),
+    ],
+  }
+})
+
+const deploymentPlanActionLabelKeys = {
+  dryRun: 'deploymentPlans.actions.dryRun',
+  submit: 'deploymentPlans.actions.submit',
+  execute: 'deploymentPlans.actions.execute',
+  cancel: 'deploymentPlans.actions.cancel',
+  rollback: 'deploymentPlans.actions.rollback',
+  delete: 'deploymentPlans.actions.delete',
+  edit: 'deploymentPlans.actions.edit',
+} as const
+
+type DeploymentPlanActionKey = keyof typeof deploymentPlanActionLabelKeys
+
+function deploymentPlanActionLabel(key: DeploymentPlanActionKey): string {
+  return t(deploymentPlanActionLabelKeys[key])
+}
+
+function isDeploymentPlanActionLabel(label: string, key: DeploymentPlanActionKey): boolean {
+  return label === deploymentPlanActionLabel(key)
+}
+
+function messageWithOptionalPlanId(keyWithPlanId: string, keyWithoutPlanId: string, planId: string): string {
+  return planId ? t(keyWithPlanId, { planId }) : t(keyWithoutPlanId)
+}
+
+function isDryRunActionLabel(label: string): boolean {
+  return isDeploymentPlanActionLabel(label, 'dryRun') || label.toLowerCase().includes('dry-run')
 }
 
 const latestExecutionTitle = computed(() => resolveExecutionDialogTitle(latestExecutionMode.value))
@@ -288,7 +321,7 @@ async function loadWizardOptions() {
       .map(normalizeApplicationAssetTarget)
       .filter((item): item is ApiRecord => item !== null)
   } catch (cause) {
-    errorMessage.value = toErrorMessage(cause, '加载部署计划创建数据失败')
+    errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.loadCreateDataFailed'))
   } finally {
     loading.value = false
   }
@@ -296,7 +329,7 @@ async function loadWizardOptions() {
 
 async function handleSave(plan: DeploymentWizardPlan) {
   if (!plan.applicationAssetId) {
-    errorMessage.value = '缺少应用资产 ID，无法保存部署计划。'
+    errorMessage.value = t('deploymentPlans.errors.missingApplicationAssetIdForSave')
     return
   }
   loading.value = true
@@ -304,18 +337,18 @@ async function handleSave(plan: DeploymentWizardPlan) {
   try {
     if (editingPlanId.value) {
       const updated = await updateDeploymentPlanDraft(editingPlanId.value, plan)
-      infoMessage.value = `部署计划已保存。planId: ${String(updated.data?.id ?? editingPlanId.value)}`
+      infoMessage.value = t('deploymentPlans.feedback.savedWithPlanId', { planId: String(updated.data?.id ?? editingPlanId.value) })
       await pageRef.value?.reload()
       closeCreateDialog(true)
       return
     }
     const planId = await createPlanDraft(plan)
-    infoMessage.value = `部署计划已保存。planId: ${planId}`
+    infoMessage.value = t('deploymentPlans.feedback.savedWithPlanId', { planId })
     editingPlanId.value = planId
     await pageRef.value?.reload()
     closeCreateDialog(true)
   } catch (cause) {
-    errorMessage.value = toErrorMessage(cause, '保存部署计划失败')
+    errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.saveFailed'))
   } finally {
     loading.value = false
   }
@@ -354,7 +387,7 @@ async function loadRelatedRecords(row: ViewRow) {
 
     relatedRecords.value = dedupeRelatedRecords(records)
   } catch (cause) {
-    relatedRecordsError.value = toErrorMessage(cause, '加载关联记录失败')
+    relatedRecordsError.value = toErrorMessage(cause, t('deploymentPlans.errors.loadRelatedRecordsFailed'))
   } finally {
     relatedRecordsLoading.value = false
   }
@@ -372,7 +405,7 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
   const runType = readString(latestRun, ['type'], readString(row.raw, ['latestRunType', 'type'], 'dry_run'))
   dryRunRunRow.value = {
     id: runId,
-    name: `执行 ${runId}`,
+    name: t('deploymentPlans.execution.fallbackName', { runId }),
     status: runStatus,
     risk: normalizeRisk(readString(row.raw, ['risk', 'riskLevel'], 'HIGH')),
     raw: { id: runId, runId, status: runStatus, type: runType },
@@ -405,7 +438,7 @@ function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
 
 async function handleDryRun(plan: DeploymentWizardPlan) {
   if (!plan.applicationAssetId) {
-    errorMessage.value = '缺少应用资产 ID，无法发起 dry-run。'
+    errorMessage.value = t('deploymentPlans.errors.missingApplicationAssetIdForDryRun')
     return
   }
   loading.value = true
@@ -419,12 +452,12 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     dryRunChecks.value = extractDryRunChecks(dryRun.data)
     const runId = dryRunRunRow.value?.id ?? ''
     infoMessage.value = runId
-      ? `dry-run 已发起，当前在模态框中显示执行状态。runId: ${runId}`
-      : 'dry-run 已发起，但返回中缺少 runId。'
+      ? t('deploymentPlans.feedback.dryRunStartedWithRunId', { runId })
+      : t('deploymentPlans.feedback.dryRunStartedMissingRunId')
     await pageRef.value?.reload()
   } catch (cause) {
     dryRunRunRow.value = null
-    errorMessage.value = toErrorMessage(cause, '发起 dry-run 失败')
+    errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
   } finally {
     loading.value = false
   }
@@ -444,7 +477,7 @@ async function createPlanDraft(plan: DeploymentWizardPlan): Promise<string> {
     targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
   })
   const planId = String(created.data?.id ?? '')
-  if (!planId) throw new Error('创建部署计划成功但未返回 planId')
+  if (!planId) throw new Error(t('deploymentPlans.errors.createReturnedMissingPlanId'))
   return planId
 }
 
@@ -459,11 +492,11 @@ async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardP
 
 async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () => Promise<unknown> | undefined): Promise<unknown> {
   const result = await run()
-  if (actionLabel === 'Dry-run 影响预览') {
+  if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) {
     openExecutionModalFromResult(result, 'dry-run', row)
-  } else if (actionLabel === '执行部署') {
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'execute')) {
     openExecutionModalFromResult(result, 'apply', row)
-  } else if (actionLabel === '回滚执行') {
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'rollback')) {
     openExecutionModalFromResult(result, 'rollback', row)
   }
   return result
@@ -473,22 +506,22 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   const planId = row ? readString(row.raw, ['id', 'planId']) : ''
   const runId = readString(readRecord(readResponseData(result), ['run']), ['id', 'runId'])
     || readString(readResponseData(result), ['runId', 'id'])
-  if (actionLabel === '删除计划' || actionLabel === '删除草稿') {
-    infoMessage.value = planId ? `部署计划已删除。planId: ${planId}` : '部署计划已删除。'
-  } else if (actionLabel === '提交审批') {
-    infoMessage.value = planId ? `部署计划已提交。planId: ${planId}` : '部署计划已提交。'
-  } else if (actionLabel === '执行部署') {
+  if (isDeploymentPlanActionLabel(actionLabel, 'delete')) {
+    infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.deletedWithPlanId', 'deploymentPlans.feedback.deleted', planId)
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'submit')) {
+    infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.submittedWithPlanId', 'deploymentPlans.feedback.submitted', planId)
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'execute')) {
     infoMessage.value = runId
-      ? `部署执行已触发，正在模态框中显示执行过程。runId: ${runId}`
-      : (planId ? `部署执行已触发。planId: ${planId}` : '部署执行已触发。')
-  } else if (actionLabel === 'Dry-run 影响预览') {
+      ? t('deploymentPlans.feedback.executeTriggeredWithRunId', { runId })
+      : messageWithOptionalPlanId('deploymentPlans.feedback.executeTriggeredWithPlanId', 'deploymentPlans.feedback.executeTriggered', planId)
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) {
     infoMessage.value = runId
-      ? `dry-run 已触发，正在模态框中显示预检过程。runId: ${runId}`
-      : (planId ? `dry-run 已触发。planId: ${planId}` : 'dry-run 已触发。')
-  } else if (actionLabel === '取消计划') {
-    infoMessage.value = planId ? `部署计划已取消。planId: ${planId}` : '部署计划已取消。'
-  } else if (actionLabel === '编辑计划') {
-    infoMessage.value = planId ? `已加载草稿计划。planId: ${planId}` : '已加载草稿计划。'
+      ? t('deploymentPlans.feedback.dryRunTriggeredWithRunId', { runId })
+      : messageWithOptionalPlanId('deploymentPlans.feedback.dryRunTriggeredWithPlanId', 'deploymentPlans.feedback.dryRunTriggered', planId)
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'cancel')) {
+    infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.cancelledWithPlanId', 'deploymentPlans.feedback.cancelled', planId)
+  } else if (isDeploymentPlanActionLabel(actionLabel, 'edit')) {
+    infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.loadedDraftWithPlanId', 'deploymentPlans.feedback.loadedDraft', planId)
   }
   await pageRef.value?.reload()
 }
@@ -497,33 +530,28 @@ function handleActionError(actionLabel: string, row: ViewRow | null, cause: unkn
   if (shouldPromptDryRun(actionLabel, cause)) {
     dryRunRequiredRow.value = row
     dryRunRequiredActionLabel.value = actionLabel
-    dryRunRequiredMessage.value = toErrorMessage(cause, '执行前必须先完成一次成功的 Dry-run 影响预览。')
+    dryRunRequiredMessage.value = toErrorMessage(cause, t('deploymentPlans.disabled.needDryRun'))
     dryRunRequiredModalOpen.value = true
     errorMessage.value = ''
     infoMessage.value = ''
     return
   }
-  if (actionLabel.includes('Dry-run')) {
+  if (isDryRunActionLabel(actionLabel)) {
     dryRunResultModalOpen.value = true
     errorMessage.value = ''
     infoMessage.value = ''
     dryRunChecks.value = []
     dryRunRunRow.value = null
-    dryRunActionError.value = toErrorMessage(cause, '发起 dry-run 失败')
+    dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
     return
   }
-  errorMessage.value = toErrorMessage(cause, `${actionLabel}失败`)
+  errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.actionFailed', { action: actionLabel }))
 }
 
 function shouldPromptDryRun(actionLabel: string, cause: unknown): boolean {
-  if (actionLabel !== '执行部署') return false
+  if (!isDeploymentPlanActionLabel(actionLabel, 'execute')) return false
   const message = toErrorMessage(cause, '').toLowerCase()
-  return (
-    message.includes('dry-run')
-    || message.includes('影响预览')
-    || message.includes('预检')
-    || message.includes('必须先完成一次成功')
-  )
+  return message.includes('dry-run')
 }
 
 async function runRequiredDryRun() {
@@ -532,14 +560,15 @@ async function runRequiredDryRun() {
   dryRunRequiredPending.value = true
   closeDryRunRequiredModal(true)
   try {
+    const dryRunLabel = deploymentPlanActionLabel('dryRun')
     const result = await runPlanAction(
-      'Dry-run 影响预览',
+      dryRunLabel,
       row,
       () => dryRunDeploymentPlan({ planId: readString(row.raw, ['id', 'planId']) }),
     )
-    await handleActionFeedback('Dry-run 影响预览', row, result)
+    await handleActionFeedback(dryRunLabel, row, result)
   } catch (cause) {
-    handleActionError('Dry-run 影响预览', row, cause)
+    handleActionError(deploymentPlanActionLabel('dryRun'), row, cause)
   } finally {
     dryRunRequiredPending.value = false
   }
@@ -558,7 +587,7 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
-    name: mode === 'dry-run' ? `Dry-run ${runId}` : `部署执行 ${runId}`,
+    name: mode === 'dry-run' ? `Dry-run ${runId}` : t('deploymentPlans.execution.applyName', { runId }),
     status: readString(run, ['status'], 'DISPATCHED'),
     risk: mode === 'dry-run' ? 'MEDIUM' : normalizeRisk(readString(fallbackRow?.raw, ['risk', 'riskLevel'], 'HIGH')),
     raw: run ?? { id: runId },
@@ -571,9 +600,9 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
 }
 
 function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
-  if (mode === 'rollback') return '证书回滚执行'
-  if (mode === 'apply') return '证书更新执行'
-  return 'Dry-run 结果'
+  if (mode === 'rollback') return t('deploymentPlans.execution.rollbackTitle')
+  if (mode === 'apply') return t('deploymentPlans.execution.applyTitle')
+  return t('deploymentPlans.execution.dryRunTitle')
 }
 
 function isTerminalExecutionStepStatus(status: string): boolean {
@@ -631,12 +660,12 @@ function normalizeAgentApplicationAssetTarget(item: ApiRecord): ApiRecord | null
   const bindingSummary = readString(
     item,
     ['targetBindingDetail.siteAsset.bindingInformation', 'targetBinding.metadata.bindingInformation', 'targetBinding.bindingKey'],
-    '未提供绑定信息',
+    t('deploymentPlans.target.noBindingInfo'),
   )
   const hostHeader = readString(
     item,
     ['targetBindingDetail.siteAsset.hostHeader', 'targetBinding.metadata.hostHeader', 'address'],
-    '未提供 host header',
+    t('deploymentPlans.target.noHostHeader'),
   )
   const port = readString(item, ['targetBindingDetail.siteAsset.port', 'targetBinding.metadata.port', 'port'], '443')
 
@@ -674,7 +703,9 @@ function normalizeWorkflowApplicationAssetTarget(item: ApiRecord): ApiRecord | n
     const record = asRecord(binding) ?? {}
     const formatId = String(record.certificateFormatId ?? '')
     const outputs = asRecord(record.outputBindings)
-    const outputSummary = outputs ? Object.entries(outputs).map(([slot, output]) => `${slot}:${String(output)}`).join(', ') : '未选择输出项'
+    const outputSummary = outputs
+      ? Object.entries(outputs).map(([slot, output]) => `${slot}:${String(output)}`).join(', ')
+      : t('deploymentPlans.target.noOutputSelected')
     return `${variableName} -> ${certificateFormatLabelById(formatId)} (${outputSummary})`
   })
   return {
@@ -688,14 +719,14 @@ function normalizeWorkflowApplicationAssetTarget(item: ApiRecord): ApiRecord | n
     workflowLabel: workflowTemplateLabelById(workflowId),
     workflowVersionLabel: workflowVersionLabelById(workflowId, workflowVersionId),
     runner,
-    runnerLabel: runner === 'GATEWAY' ? `Gateway${gatewayId ? `：${gatewayId}` : ''}` : '控制平面',
+    runnerLabel: runner === 'GATEWAY' ? `Gateway${gatewayId ? `：${gatewayId}` : ''}` : t('deploymentPlans.target.controlPlane'),
     verifyUrl: readString(item, ['verifyUrl', 'metadata.verifyUrl']),
-    certificateBindingSummary: bindingNames.length > 0 ? bindingNames.join('；') : '未绑定证书变量',
+    certificateBindingSummary: bindingNames.length > 0 ? bindingNames.join('；') : t('deploymentPlans.target.noCertificateVariables'),
   }
 }
 
 function certificateFormatLabelById(certificateFormatId: string): string {
-  if (!certificateFormatId) return '未配置'
+  if (!certificateFormatId) return t('deploymentPlans.common.notConfigured')
   const item = certificateFormatItems.value.find((format) => readString(format, ['id']) === certificateFormatId)
   if (!item) return certificateFormatId
   const configName = readString(item, ['parameters.configName', 'parameters.alias', 'parameters.friendlyName', 'name'], certificateFormatId)
@@ -921,8 +952,8 @@ async function fetchAllPages(
 
     <GcModal
       v-model:open="dryRunRequiredModalOpen"
-      title="需要先执行 Dry-run"
-      description="正式执行前需要先完成一次成功的 Dry-run 影响预览。"
+      :title="t('deploymentPlans.dryRunRequired.title')"
+      :description="t('deploymentPlans.dryRunRequired.description')"
       size="md"
       width="560px"
       :close-on-backdrop="!dryRunRequiredPending"
@@ -930,22 +961,22 @@ async function fetchAllPages(
       <section class="deployment-plans-page__dry-run-required">
         <p class="deployment-plans-page__error">{{ dryRunRequiredMessage }}</p>
         <p class="deployment-plans-page__dry-run-required-copy">
-          当前操作：{{ dryRunRequiredActionLabel || '执行部署' }}。请先做一次 Dry-run，确认影响范围和检查结论后再继续正式执行。
+          {{ t('deploymentPlans.dryRunRequired.copy', { action: dryRunRequiredActionLabel || deploymentPlanActionLabel('execute') }) }}
         </p>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="dryRunRequiredPending" @click="closeDryRunRequiredModal()">取消</button>
+        <button class="gc-button" type="button" :disabled="dryRunRequiredPending" @click="closeDryRunRequiredModal()">{{ t('deploymentPlans.common.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="button" :disabled="dryRunRequiredPending" @click="runRequiredDryRun">
-          {{ dryRunRequiredPending ? '正在发起 Dry-run…' : '先做 Dry-run' }}
+          {{ dryRunRequiredPending ? t('deploymentPlans.dryRunRequired.runningAction') : t('deploymentPlans.dryRunRequired.primaryAction') }}
         </button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="detailModalOpen"
-      :title="detailPlanRow ? `部署计划 ${readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id)}` : '部署计划详情'"
-      description="查看计划基础信息、关联记录与最近一次执行结果。"
+      :title="detailPlanRow ? t('deploymentPlans.detail.titleWithName', { name: readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id) }) : t('deploymentPlans.detail.title')"
+      :description="t('deploymentPlans.detail.description')"
       size="xxl"
       width="min(1240px, calc(100vw - 32px))"
     >
@@ -954,38 +985,38 @@ async function fetchAllPages(
           <div class="deployment-plan-detail__hero-copy">
             <p class="deployment-plan-detail__eyebrow">Deployment Plan</p>
             <h2>{{ readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id) }}</h2>
-            <span>计划 ID {{ readString(detailPlanRow.raw, ['id', 'planId']) }}</span>
+            <span>{{ t('deploymentPlans.detail.planIdLine', { planId: readString(detailPlanRow.raw, ['id', 'planId']) }) }}</span>
           </div>
           <div class="deployment-plan-detail__hero-side">
             <GcStatusTag :status="readString(detailPlanRow.raw, ['status', 'state'])" />
             <div class="deployment-plan-detail__spotlight">
-              <small>需要更新</small>
+              <small>{{ t('deploymentPlans.fields.updateNeeded') }}</small>
               <GcStatusTag :status="readString(detailPlanRow.raw, ['updateNeeded'], 'UNKNOWN')" />
             </div>
           </div>
         </section>
 
         <div class="deployment-plan-detail__tabs">
-          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'summary'" @click="activeDetailTab = 'summary'">概览</button>
-          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'versions'" @click="activeDetailTab = 'versions'">关联记录</button>
-          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'execution'" @click="activeDetailTab = 'execution'">最近执行</button>
+          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'summary'" @click="activeDetailTab = 'summary'">{{ t('deploymentPlans.detail.tabs.summary') }}</button>
+          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'versions'" @click="activeDetailTab = 'versions'">{{ t('deploymentPlans.detail.tabs.relatedRecords') }}</button>
+          <button class="deployment-plan-detail__tab" type="button" :data-active="activeDetailTab === 'execution'" @click="activeDetailTab = 'execution'">{{ t('deploymentPlans.detail.tabs.latestExecution') }}</button>
         </div>
 
         <section v-if="activeDetailTab === 'summary'" class="deployment-plan-detail__section">
           <dl class="deployment-plan-detail__facts">
-            <div><dt>计划 ID</dt><dd>{{ readString(detailPlanRow.raw, ['id', 'planId']) }}</dd></div>
-            <div><dt>计划状态</dt><dd>{{ readString(detailPlanRow.raw, ['status', 'state']) }}</dd></div>
-            <div><dt>审批状态</dt><dd>{{ readString(detailPlanRow.raw, ['approval.status', 'approvalStatus']) }}</dd></div>
-            <div><dt>证书版本 ID</dt><dd>{{ readString(detailPlanRow.raw, ['certificateVersionId']) }}</dd></div>
-            <div><dt>证书格式配置 ID</dt><dd>{{ readString(detailPlanRow.raw, ['certificateFormatId']) }}</dd></div>
-            <div><dt>目标绑定摘要</dt><dd>{{ readString(detailPlanRow.raw, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId']) }}</dd></div>
-            <div><dt>最新执行批次</dt><dd>{{ readString(detailPlanRow.raw, ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id']) }}</dd></div>
-            <div><dt>失败原因</dt><dd>{{ readString(detailPlanRow.raw, ['failureReason', 'error.message', 'latestRun.failureReason']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.planId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['id', 'planId']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.status') }}</dt><dd>{{ readString(detailPlanRow.raw, ['status', 'state']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.approvalStatus') }}</dt><dd>{{ readString(detailPlanRow.raw, ['approval.status', 'approvalStatus']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.certificateVersionId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['certificateVersionId']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.certificateFormatId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['certificateFormatId']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.targetSummary') }}</dt><dd>{{ readString(detailPlanRow.raw, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.latestRun') }}</dt><dd>{{ readString(detailPlanRow.raw, ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id']) }}</dd></div>
+            <div><dt>{{ t('deploymentPlans.fields.failureReason') }}</dt><dd>{{ readString(detailPlanRow.raw, ['failureReason', 'error.message', 'latestRun.failureReason']) }}</dd></div>
           </dl>
         </section>
 
         <section v-else-if="activeDetailTab === 'versions'" class="deployment-plan-detail__section">
-          <p v-if="relatedRecordsLoading" class="deployment-plan-detail__loading">正在加载关联记录...</p>
+          <p v-if="relatedRecordsLoading" class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.loadingRelatedRecords') }}</p>
           <p v-else-if="relatedRecordsError" class="deployment-plan-detail__error">{{ relatedRecordsError }}</p>
           <ul v-else-if="relatedRecords.length" class="deployment-plan-detail__list deployment-plan-detail__related-list">
             <li v-for="item in relatedRecords" :key="item.id" class="deployment-plan-detail__list-item deployment-plan-detail__related-item">
@@ -998,32 +1029,32 @@ async function fetchAllPages(
                     class="deployment-plan-detail__record-tag"
                     :data-kind="item.kind"
                   >
-                    {{ item.kind === 'dry-run' ? 'Dry-run' : '证书更新' }}
+                    {{ item.kind === 'dry-run' ? t('deploymentPlans.detail.recordKinds.dryRun') : t('deploymentPlans.detail.recordKinds.certificateUpdate') }}
                   </span>
                   <GcStatusTag :status="item.status" />
-                  <button class="gc-button deployment-plan-detail__related-action" type="button" @click="openRelatedExecutionDetail(item)">查看日志</button>
+                  <button class="gc-button deployment-plan-detail__related-action" type="button" @click="openRelatedExecutionDetail(item)">{{ t('deploymentPlans.detail.viewLogs') }}</button>
                 </div>
               </div>
               <div class="deployment-plan-detail__related-meta">
-                <span>计划 {{ item.planId }}</span>
-                <span>运行 {{ item.runId }}</span>
-                <span>来源 {{ item.createdReason }}</span>
+                <span>{{ t('deploymentPlans.detail.relatedPlan', { planId: item.planId }) }}</span>
+                <span>{{ t('deploymentPlans.detail.relatedRun', { runId: item.runId }) }}</span>
+                <span>{{ t('deploymentPlans.detail.relatedSource', { source: item.createdReason }) }}</span>
                 <span>{{ formatBrowserLocalTime(item.updatedAt || item.createdAt) || item.updatedAt || item.createdAt }}</span>
               </div>
               <p>
-                <span class="deployment-plan-detail__related-label">目标</span>
-                {{ item.targetSummary || '未提供目标摘要' }}
+                <span class="deployment-plan-detail__related-label">{{ t('deploymentPlans.detail.targetLabel') }}</span>
+                {{ item.targetSummary || t('deploymentPlans.detail.noTargetSummary') }}
                 <span class="deployment-plan-detail__related-separator">·</span>
-                <span class="deployment-plan-detail__related-label">证书版本</span>
-                {{ item.certificateVersionId || '未提供' }}
+                <span class="deployment-plan-detail__related-label">{{ t('deploymentPlans.detail.certificateVersionLabel') }}</span>
+                {{ item.certificateVersionId || t('deploymentPlans.common.notProvided') }}
               </p>
             </li>
           </ul>
-          <p v-else class="deployment-plan-detail__loading">暂无关联记录。</p>
+          <p v-else class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.emptyRelatedRecords') }}</p>
         </section>
 
         <section v-else class="deployment-plan-detail__section">
-          <p v-if="!dryRunRunRow" class="deployment-plan-detail__loading">当前计划还没有执行记录。</p>
+          <p v-if="!dryRunRunRow" class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.noExecutionRecords') }}</p>
           <GcExecutionProgressPanel
             v-else
             :run-id="dryRunRunRow.id"
@@ -1042,7 +1073,7 @@ async function fetchAllPages(
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="detailModalOpen = false">{{ t('deploymentPlans.common.close') }}</button>
       </template>
     </GcModal>
   </section>

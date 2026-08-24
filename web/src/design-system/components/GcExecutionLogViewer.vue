@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 export interface ExecutionLogLine {
   readonly id: string
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{
 
 const keyword = ref('')
 const level = ref('all')
+const { t } = useI18n()
 
 const filteredLines = computed(() => props.lines.filter((line) => {
   const matchLevel = level.value === 'all' || line.level === level.value
@@ -47,12 +49,14 @@ const filteredLines = computed(() => props.lines.filter((line) => {
   <section class="gc-card gc-log-viewer">
     <header>
       <div class="gc-log-viewer__title">
-        <strong>执行日志</strong>
-        <span v-if="mode === 'live'" class="gc-log-viewer__mode">{{ streaming ? '实时更新' : '自动刷新' }}</span>
+        <strong>{{ t('designSystem.executionProgress.aria.executionLog') }}</strong>
+        <span v-if="mode === 'live'" class="gc-log-viewer__mode">
+          {{ streaming ? t('designSystem.executionLogViewer.mode.realtime') : t('designSystem.executionLogViewer.mode.autoRefresh') }}
+        </span>
       </div>
-      <input v-model="keyword" placeholder="搜索日志内容" />
-      <select v-model="level" aria-label="日志级别">
-        <option value="all">全部</option>
+      <input v-model="keyword" :placeholder="t('designSystem.executionLogViewer.search.placeholder')" />
+      <select v-model="level" :aria-label="t('designSystem.executionLogViewer.level.aria')">
+        <option value="all">{{ t('designSystem.executionLogViewer.level.all') }}</option>
         <option value="debug">debug</option>
         <option value="info">info</option>
         <option value="warn">warn</option>
@@ -60,22 +64,28 @@ const filteredLines = computed(() => props.lines.filter((line) => {
       </select>
     </header>
     <p v-if="mode === 'live'" class="gc-log-viewer__hint">
-      {{ streaming ? '任务状态与日志会持续实时更新。' : '任务状态与日志会自动刷新。' }}
-      <span v-if="polling && !streaming">当前处于刷新兜底模式。</span>
+      {{ streaming ? t('designSystem.executionLogViewer.hint.streaming') : t('designSystem.executionLogViewer.hint.autoRefresh') }}
+      <span v-if="polling && !streaming">
+        {{ t('designSystem.executionLogViewer.hint.pollingFallback') }}
+      </span>
     </p>
-    <section v-if="steps.length" class="gc-log-viewer__steps" aria-label="执行步骤">
+    <section
+      v-if="steps.length"
+      class="gc-log-viewer__steps"
+      :aria-label="t('designSystem.executionLogViewer.steps.aria')"
+    >
       <article v-for="step in steps" :key="step.id" class="gc-log-viewer__step">
         <div class="gc-log-viewer__step-head">
           <strong>{{ step.name }}</strong>
           <span>{{ step.status }}</span>
         </div>
-        <p>{{ step.detail ?? '暂无步骤说明' }}</p>
-        <small>{{ step.startedAt ?? '未开始' }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
+        <p>{{ step.detail ?? t('designSystem.executionLogViewer.steps.emptyDetail') }}</p>
+        <small>{{ step.startedAt ?? t('designSystem.executionProgress.time.waitingStart') }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
       </article>
     </section>
     <pre v-if="filteredLines.length"><code v-for="line in filteredLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
 </code></pre>
-    <p v-else class="gc-log-viewer__empty">暂无日志。</p>
+    <p v-else class="gc-log-viewer__empty">{{ t('designSystem.executionLogViewer.empty.logs') }}</p>
   </section>
 </template>
 

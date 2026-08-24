@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { CapabilityMatrixItem } from './GcCapabilityMatrix.vue'
@@ -36,6 +37,8 @@ const emit = defineEmits<{
   execute: [plan: DeploymentWizardPlan]
   cancel: []
 }>()
+
+const { t } = useI18n()
 
 const LATEST_VERSION_MARKER = '__LATEST__'
 
@@ -185,17 +188,19 @@ watch(currentAvailableStep, (step) => {
 
 const capabilityItems = computed<CapabilityMatrixItem[]>(() => [{
   key: 'target-selection',
-  label: '部署目标选择',
+  label: t('designSystem.deploymentWizard.capability.targetSelection'),
   state: selectedTargets.value.length > 0 ? 'manualRisk' : 'missing',
   level: 'L3',
-  source: '部署目标',
-  detail: selectedTargets.value.length > 0 ? '已选择部署目标，建议先完成 dry-run 再提交执行。' : '尚未选择部署目标。',
+  source: t('designSystem.deploymentWizard.capability.targetSource'),
+  detail: selectedTargets.value.length > 0
+    ? t('designSystem.deploymentWizard.capability.targetSelectedDetail')
+    : t('designSystem.deploymentWizard.capability.targetMissingDetail'),
 }])
 
 const previewSummary = computed(() => {
-  if (!stepOneReady.value) return '先完成证书材料选择。'
-  if (!stepTwoReady.value) return '完成证书材料选择后，再指定要下发的应用资产目标。'
-  return `将把已选证书版本部署到 ${selectedTargets.value.length} 个应用资产目标。`
+  if (!stepOneReady.value) return t('designSystem.deploymentWizard.preview.needCertificate')
+  if (!stepTwoReady.value) return t('designSystem.deploymentWizard.preview.needTarget')
+  return t('designSystem.deploymentWizard.preview.ready', { count: selectedTargets.value.length })
 })
 
 const canOperate = computed(() => Boolean(
@@ -221,10 +226,10 @@ const dryRunCheckSummary = computed(() => props.dryRunChecks.reduce<{
 const hasDryRunChecks = computed(() => props.dryRunChecks.length > 0)
 const latestStatusText = computed(() => {
   if (props.approvalHint) return props.approvalHint
-  if (hasDryRunChecks.value) return '预检结果已返回，可根据结果决定保存、提交或直接执行。'
-  if (props.dryRunRequestId) return 'Dry-run 已发起，请在执行结果面板中查看进度。'
-  if (props.submitRequestId) return '计划已提交。'
-  return '建议先发起 dry-run，再决定是否提交执行。'
+  if (hasDryRunChecks.value) return t('designSystem.deploymentWizard.status.checksReturned')
+  if (props.dryRunRequestId) return t('designSystem.deploymentWizard.status.dryRunStarted')
+  if (props.submitRequestId) return t('designSystem.deploymentWizard.status.submitted')
+  return t('designSystem.deploymentWizard.status.default')
 })
 
 const readinessTone = computed(() => {
@@ -254,8 +259,8 @@ function buildPlan(): DeploymentWizardPlan {
     capabilityItems: capabilityItems.value,
     dryRunChecks: props.dryRunChecks,
     previewSummary: previewSummary.value,
-    dryRunSummary: props.dryRunRequestId ? '最近一次 dry-run 已完成。' : undefined,
-    submitSummary: props.submitRequestId ? '最近一次提交已完成。' : undefined,
+    dryRunSummary: props.dryRunRequestId ? t('designSystem.deploymentWizard.plan.dryRunCompleted') : undefined,
+    submitSummary: props.submitRequestId ? t('designSystem.deploymentWizard.plan.submitCompleted') : undefined,
   }
 }
 
@@ -275,23 +280,27 @@ function goNext() {
 }
 
 function versionLabel(item: ApiRecord): string {
-  const id = readString(item, ['id', 'certificateVersionId'], '未命名版本')
+  const id = readString(item, ['id', 'certificateVersionId'], t('designSystem.deploymentWizard.fallback.unnamedVersion'))
   const notBefore = formatDate(readString(item, ['notBefore', 'validFrom', 'issuedAt']))
   const notAfter = formatDate(readString(item, ['notAfter', 'validTo', 'expiresAt']))
   if (!notBefore && !notAfter) return id
-  return `${id} (${notBefore || '未知开始'} ~ ${notAfter || '未知结束'})`
+  return t('designSystem.deploymentWizard.version.range', {
+    id,
+    notBefore: notBefore || t('designSystem.deploymentWizard.fallback.unknownStart'),
+    notAfter: notAfter || t('designSystem.deploymentWizard.fallback.unknownEnd'),
+  })
 }
 
 function autoLatestVersionLabel(current: ApiRecord | null): string {
-  const currentLabel = current ? versionLabel(current) : '当前暂无可部署证书版本'
-  return `始终自动选择最新可部署证书（当前为 ${currentLabel}）`
+  const currentLabel = current ? versionLabel(current) : t('designSystem.deploymentWizard.version.noDeployableVersion')
+  return t('designSystem.deploymentWizard.version.autoLatest', { current: currentLabel })
 }
 
 function selectedVersionSummary(): string {
   if (selectedCertificateVersionId.value === LATEST_VERSION_MARKER) {
     return autoLatestVersionLabel(latestVersion.value)
   }
-  return selectedVersion.value ? versionLabel(selectedVersion.value) : '未选择'
+  return selectedVersion.value ? versionLabel(selectedVersion.value) : t('designSystem.deploymentWizard.fallback.unselected')
 }
 
 function certificateAssetLabel(item: ApiRecord): string {
@@ -308,12 +317,12 @@ function targetLabel(item: ApiRecord): string {
   const name = readString(item, ['name', 'displayName', 'domainName'], readString(item, ['id']))
   const targetMode = readString(item, ['targetMode'])
   if (targetMode === 'WORKFLOW') {
-    const workflow = readString(item, ['workflowLabel'], '未选择工作流')
-    const runner = readString(item, ['runnerLabel'], '未配置运行位置')
-    return `${name} / 工作流 / ${workflow} / ${runner}`
+    const workflow = readString(item, ['workflowLabel'], t('designSystem.deploymentWizard.fallback.unselectedWorkflow'))
+    const runner = readString(item, ['runnerLabel'], t('designSystem.deploymentWizard.fallback.unconfiguredRunner'))
+    return `${name} / ${t('designSystem.deploymentWizard.target.workflowMode')} / ${workflow} / ${runner}`
   }
-  const siteName = readString(item, ['siteName'], '未命名站点')
-  const binding = readString(item, ['bindingName', 'bindingSummary'], '未提供绑定信息')
+  const siteName = readString(item, ['siteName'], t('designSystem.deploymentWizard.fallback.unnamedSite'))
+  const binding = readString(item, ['bindingName', 'bindingSummary'], t('designSystem.deploymentWizard.fallback.missingBinding'))
   return `${name} / ${siteName} / ${binding}`
 }
 
@@ -330,9 +339,9 @@ function stepState(step: WizardStep): 'done' | 'active' | 'pending' {
 
 function stepStateLabel(step: WizardStep): string {
   const state = stepState(step)
-  if (state === 'done') return '已完成'
-  if (state === 'active') return '进行中'
-  return '待开始'
+  if (state === 'done') return t('designSystem.deploymentWizard.stepState.done')
+  if (state === 'active') return t('designSystem.deploymentWizard.stepState.active')
+  return t('designSystem.deploymentWizard.stepState.pending')
 }
 
 function readCheckDetail(item: ApiRecord): string {
@@ -367,17 +376,17 @@ function normalizeDomainKey(value: string): string {
 </script>
 
 <template>
-  <section class="gc-card gc-deployment-wizard" aria-label="部署向导">
+  <section class="gc-card gc-deployment-wizard" :aria-label="t('designSystem.deploymentWizard.aria.wizard')">
     <header class="gc-deployment-wizard__header">
       <div class="gc-deployment-wizard__title">
-        <span class="gc-deployment-wizard__eyebrow">部署向导</span>
-        <strong>分步骤完成部署计划配置</strong>
+        <span class="gc-deployment-wizard__eyebrow">{{ t('designSystem.deploymentWizard.title') }}</span>
+        <strong>{{ t('designSystem.deploymentWizard.subtitle') }}</strong>
       </div>
       <div class="gc-deployment-wizard__header-meta">
         <span class="gc-deployment-wizard__status" :class="`is-${readinessTone}`">
-          步骤 {{ currentStep }} / 3
+          {{ t('designSystem.deploymentWizard.currentStep', { current: currentStep, total: 3 }) }}
         </span>
-        <span class="gc-deployment-wizard__count">已选 {{ selectedTargets.length }} 个目标</span>
+        <span class="gc-deployment-wizard__count">{{ t('designSystem.deploymentWizard.selectedTargetCount', { count: selectedTargets.length }) }}</span>
       </div>
     </header>
 
@@ -385,13 +394,13 @@ function normalizeDomainKey(value: string): string {
       <div class="gc-deployment-wizard__progress-bar">
         <span class="gc-deployment-wizard__progress-fill" :style="{ width: progressPercent }"></span>
       </div>
-      <ol class="gc-deployment-wizard__steps" aria-label="部署步骤">
+      <ol class="gc-deployment-wizard__steps" :aria-label="t('designSystem.deploymentWizard.aria.steps')">
         <li class="gc-deployment-wizard__step" :class="`is-${stepState(1)}`">
           <button type="button" class="gc-deployment-wizard__step-button" @click="goToStep(1)">
             <span class="gc-deployment-wizard__step-index">1</span>
             <div class="gc-deployment-wizard__step-copy">
-              <strong>选择证书材料</strong>
-              <p>证书资产与版本</p>
+              <strong>{{ t('designSystem.deploymentWizard.steps.certificate.title') }}</strong>
+              <p>{{ t('designSystem.deploymentWizard.steps.certificate.description') }}</p>
               <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(1) }}</span>
             </div>
           </button>
@@ -400,8 +409,8 @@ function normalizeDomainKey(value: string): string {
           <button type="button" class="gc-deployment-wizard__step-button" :disabled="currentAvailableStep < 2" @click="goToStep(2)">
             <span class="gc-deployment-wizard__step-index">2</span>
             <div class="gc-deployment-wizard__step-copy">
-              <strong>选择部署目标</strong>
-              <p>应用资产、站点与绑定</p>
+              <strong>{{ t('designSystem.deploymentWizard.steps.target.title') }}</strong>
+              <p>{{ t('designSystem.deploymentWizard.steps.target.description') }}</p>
               <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(2) }}</span>
             </div>
           </button>
@@ -410,8 +419,8 @@ function normalizeDomainKey(value: string): string {
           <button type="button" class="gc-deployment-wizard__step-button" :disabled="currentAvailableStep < 3" @click="goToStep(3)">
             <span class="gc-deployment-wizard__step-index">3</span>
             <div class="gc-deployment-wizard__step-copy">
-              <strong>预检并提交</strong>
-              <p>Dry-run、保存、提交、执行</p>
+              <strong>{{ t('designSystem.deploymentWizard.steps.submit.title') }}</strong>
+              <p>{{ t('designSystem.deploymentWizard.steps.submit.description') }}</p>
               <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(3) }}</span>
             </div>
           </button>
@@ -423,16 +432,16 @@ function normalizeDomainKey(value: string): string {
       <template v-if="currentStep === 1">
         <header class="gc-deployment-wizard__panel-header">
           <div>
-            <h3>1. 证书材料</h3>
+            <h3>{{ t('designSystem.deploymentWizard.panels.certificateTitle') }}</h3>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${stepOneReady ? 'done' : 'active'}`">
-            {{ stepOneReady ? '可进入下一步' : '待完成' }}
+            {{ stepOneReady ? t('designSystem.deploymentWizard.panelState.readyNext') : t('designSystem.deploymentWizard.panelState.pending') }}
           </span>
         </header>
 
         <div class="gc-deployment-wizard__field-grid">
           <label class="gc-form-field">
-            <span>证书资产</span>
+            <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
             <select v-model="selectedCertificateId" :disabled="loading">
               <option v-for="item in certificateAssetOptions" :key="readString(item, ['id', 'certificateId'])" :value="readString(item, ['id', 'certificateId'])">
                 {{ certificateAssetLabel(item) }}
@@ -441,7 +450,7 @@ function normalizeDomainKey(value: string): string {
           </label>
 
           <label class="gc-form-field">
-            <span>证书版本</span>
+            <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
             <select v-model="selectedCertificateVersionId" :disabled="loading || sortedVersions.length === 0">
               <option v-if="latestVersion" :value="LATEST_VERSION_MARKER">
                 {{ autoLatestVersionLabel(latestVersion) }}
@@ -456,11 +465,11 @@ function normalizeDomainKey(value: string): string {
 
         <div class="gc-deployment-wizard__summary-grid">
           <div class="gc-deployment-wizard__summary-item">
-            <span>证书资产</span>
-            <strong>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], '未选择') }}</strong>
+            <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
+            <strong>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], t('designSystem.deploymentWizard.fallback.unselected')) }}</strong>
           </div>
           <div class="gc-deployment-wizard__summary-item">
-            <span>证书版本</span>
+            <span>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</span>
             <strong>{{ selectedVersionSummary() }}</strong>
           </div>
         </div>
@@ -469,23 +478,23 @@ function normalizeDomainKey(value: string): string {
       <template v-else-if="currentStep === 2">
         <header class="gc-deployment-wizard__panel-header">
           <div>
-            <h3>2. 部署目标</h3>
+            <h3>{{ t('designSystem.deploymentWizard.panels.targetTitle') }}</h3>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${stepTwoReady ? 'done' : 'active'}`">
-            {{ stepTwoReady ? '可进入下一步' : '待完成' }}
+            {{ stepTwoReady ? t('designSystem.deploymentWizard.panelState.readyNext') : t('designSystem.deploymentWizard.panelState.pending') }}
           </span>
         </header>
 
         <div class="gc-deployment-wizard__field-grid">
           <label class="gc-form-field gc-deployment-wizard__field-span-2">
-            <span>关键字检索</span>
-            <input v-model.trim="targetKeyword" type="text" :disabled="loading || targets.length === 0" placeholder="按域名、站点、绑定信息检索" />
+            <span>{{ t('designSystem.deploymentWizard.fields.keyword') }}</span>
+            <input v-model.trim="targetKeyword" type="text" :disabled="loading || targets.length === 0" :placeholder="t('designSystem.deploymentWizard.placeholders.targetKeyword')" />
           </label>
 
           <label class="gc-form-field gc-deployment-wizard__field-span-2">
-            <span>应用资产部署目标</span>
+            <span>{{ t('designSystem.deploymentWizard.fields.applicationTarget') }}</span>
             <select v-model="selectedTargetId" :disabled="loading || filteredTargets.length === 0">
-              <option value="">{{ filteredTargets.length === 0 ? '暂无可选应用资产目标' : '请选择应用资产目标' }}</option>
+              <option value="">{{ filteredTargets.length === 0 ? t('designSystem.deploymentWizard.empty.noTargets') : t('designSystem.deploymentWizard.placeholders.selectTarget') }}</option>
               <option v-for="item in filteredTargets" :key="readString(item, ['id'])" :value="readString(item, ['id'])">
                 {{ targetLabel(item) }}
               </option>
@@ -496,95 +505,95 @@ function normalizeDomainKey(value: string): string {
         <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
           <div class="gc-deployment-wizard__target-head">
             <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
-            <span>{{ readString(selectedTarget, ['targetMode']) === 'WORKFLOW' ? '工作流模式' : readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], '未识别受管目标') }}</span>
+            <span>{{ readString(selectedTarget, ['targetMode']) === 'WORKFLOW' ? t('designSystem.deploymentWizard.target.workflowMode') : readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
           </div>
           <dl v-if="readString(selectedTarget, ['targetMode']) === 'WORKFLOW'" class="gc-deployment-wizard__target-meta">
             <div>
-              <dt>工作流</dt>
-              <dd>{{ readString(selectedTarget, ['workflowLabel'], '未选择工作流') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.workflow') }}</dt>
+              <dd>{{ readString(selectedTarget, ['workflowLabel'], t('designSystem.deploymentWizard.fallback.unselectedWorkflow')) }}</dd>
             </div>
             <div>
-              <dt>版本</dt>
-              <dd>{{ readString(selectedTarget, ['workflowVersionLabel'], '未选择版本') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.version') }}</dt>
+              <dd>{{ readString(selectedTarget, ['workflowVersionLabel'], t('designSystem.deploymentWizard.fallback.unselectedVersion')) }}</dd>
             </div>
             <div>
-              <dt>运行位置</dt>
-              <dd>{{ readString(selectedTarget, ['runnerLabel'], '未配置') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.runner') }}</dt>
+              <dd>{{ readString(selectedTarget, ['runnerLabel'], t('designSystem.deploymentWizard.fallback.unconfigured')) }}</dd>
             </div>
             <div>
-              <dt>验证 URL</dt>
-              <dd>{{ readString(selectedTarget, ['verifyUrl'], '按应用入口生成') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.verifyUrl') }}</dt>
+              <dd>{{ readString(selectedTarget, ['verifyUrl'], t('designSystem.deploymentWizard.fallback.generatedByApplicationEntry')) }}</dd>
             </div>
             <div>
-              <dt>证书变量</dt>
-              <dd>{{ readString(selectedTarget, ['certificateBindingSummary'], '未绑定证书变量') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.certificateVariable') }}</dt>
+              <dd>{{ readString(selectedTarget, ['certificateBindingSummary'], t('designSystem.deploymentWizard.fallback.unboundCertificateVariable')) }}</dd>
             </div>
           </dl>
           <dl v-else class="gc-deployment-wizard__target-meta">
             <div>
-              <dt>站点</dt>
-              <dd>{{ readString(selectedTarget, ['siteName'], '未命名站点') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.site') }}</dt>
+              <dd>{{ readString(selectedTarget, ['siteName'], t('designSystem.deploymentWizard.fallback.unnamedSite')) }}</dd>
             </div>
             <div>
-              <dt>绑定</dt>
-              <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary'], '未提供绑定信息') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.binding') }}</dt>
+              <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary'], t('designSystem.deploymentWizard.fallback.missingBinding')) }}</dd>
             </div>
             <div>
-              <dt>受管目标</dt>
-              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], '未识别受管目标') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.managedTarget') }}</dt>
+              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</dd>
             </div>
             <div>
-              <dt>产物配置</dt>
-              <dd>{{ readString(selectedTarget, ['certificateFormatLabel'], '未配置') }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.artifactConfig') }}</dt>
+              <dd>{{ readString(selectedTarget, ['certificateFormatLabel'], t('designSystem.deploymentWizard.fallback.unconfigured')) }}</dd>
             </div>
           </dl>
         </div>
-        <p v-else class="gc-deployment-wizard__empty">请选择一个应用资产部署目标。</p>
+        <p v-else class="gc-deployment-wizard__empty">{{ t('designSystem.deploymentWizard.empty.selectTarget') }}</p>
       </template>
 
       <template v-else>
         <header class="gc-deployment-wizard__panel-header">
           <div>
-            <h3>3. 预检与提交</h3>
+            <h3>{{ t('designSystem.deploymentWizard.panels.submitTitle') }}</h3>
           </div>
           <span class="gc-deployment-wizard__panel-state" :class="`is-${canOperate ? 'active' : 'pending'}`">
-            {{ canOperate ? '可操作' : '待完成前置选择' }}
+            {{ canOperate ? t('designSystem.deploymentWizard.panelState.operable') : t('designSystem.deploymentWizard.panelState.needPrerequisites') }}
           </span>
         </header>
 
         <dl class="gc-deployment-wizard__review-list">
           <div>
-            <dt>证书资产</dt>
-            <dd>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], '未选择') }}</dd>
+            <dt>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</dt>
+            <dd>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], t('designSystem.deploymentWizard.fallback.unselected')) }}</dd>
           </div>
           <div>
-            <dt>证书版本</dt>
+            <dt>{{ t('designSystem.deploymentWizard.fields.certificateVersion') }}</dt>
             <dd>{{ selectedVersionSummary() }}</dd>
           </div>
           <div>
-            <dt>部署目标</dt>
-            <dd>{{ selectedTarget ? targetLabel(selectedTarget) : '未选择' }}</dd>
+            <dt>{{ t('designSystem.deploymentWizard.fields.deploymentTarget') }}</dt>
+            <dd>{{ selectedTarget ? targetLabel(selectedTarget) : t('designSystem.deploymentWizard.fallback.unselected') }}</dd>
           </div>
         </dl>
 
         <p class="gc-deployment-wizard__preview-text">{{ previewSummary }}</p>
 
         <div class="gc-deployment-wizard__feedback-inline" :class="`is-${readinessTone}`">
-          <strong>当前状态</strong>
+          <strong>{{ t('designSystem.deploymentWizard.status.current') }}</strong>
           <p>{{ latestStatusText }}</p>
         </div>
 
         <div v-if="hasDryRunChecks" class="gc-deployment-wizard__check-summary">
-          <span class="gc-deployment-wizard__check-pill is-passed">通过 {{ dryRunCheckSummary.passed }}</span>
-          <span class="gc-deployment-wizard__check-pill is-warning">警告 {{ dryRunCheckSummary.warning }}</span>
-          <span class="gc-deployment-wizard__check-pill is-failed">失败 {{ dryRunCheckSummary.failed }}</span>
-          <span class="gc-deployment-wizard__check-pill is-unknown">未知 {{ dryRunCheckSummary.unknown }}</span>
+          <span class="gc-deployment-wizard__check-pill is-passed">{{ t('designSystem.deploymentWizard.checks.passed', { count: dryRunCheckSummary.passed }) }}</span>
+          <span class="gc-deployment-wizard__check-pill is-warning">{{ t('designSystem.deploymentWizard.checks.warning', { count: dryRunCheckSummary.warning }) }}</span>
+          <span class="gc-deployment-wizard__check-pill is-failed">{{ t('designSystem.deploymentWizard.checks.failed', { count: dryRunCheckSummary.failed }) }}</span>
+          <span class="gc-deployment-wizard__check-pill is-unknown">{{ t('designSystem.deploymentWizard.checks.unknown', { count: dryRunCheckSummary.unknown }) }}</span>
         </div>
 
         <ul v-if="hasDryRunChecks" class="gc-deployment-wizard__check-list">
           <li v-for="item in dryRunChecks" :key="String(item.key ?? item.label ?? item.id)" class="gc-deployment-wizard__check-item">
             <div class="gc-deployment-wizard__check-head">
-              <strong>{{ String(item.label ?? item.key ?? '未命名检查项') }}</strong>
+              <strong>{{ String(item.label ?? item.key ?? t('designSystem.deploymentWizard.checks.unnamed')) }}</strong>
               <span class="gc-deployment-wizard__check-status" :class="`is-${String(item.status ?? 'unknown')}`">
                 {{ String(item.status ?? 'unknown') }}
               </span>
@@ -596,14 +605,14 @@ function normalizeDomainKey(value: string): string {
     </section>
 
     <footer class="gc-deployment-wizard__footer">
-      <button class="gc-button" type="button" :disabled="!canGoPrevious || loading" @click="goPrevious">上一步</button>
+      <button class="gc-button" type="button" :disabled="!canGoPrevious || loading" @click="goPrevious">{{ t('designSystem.deploymentWizard.actions.previous') }}</button>
 
       <div class="gc-deployment-wizard__footer-actions">
-        <button class="gc-button" type="button" :disabled="loading" @click="emit('cancel')">取消</button>
-        <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" :disabled="!canGoNext || loading" @click="goNext">下一步</button>
+        <button class="gc-button" type="button" :disabled="loading" @click="emit('cancel')">{{ t('designSystem.deploymentWizard.actions.cancel') }}</button>
+        <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" :disabled="!canGoNext || loading" @click="goNext">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
         <template v-else>
-          <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">先做 Dry-run</button>
-          <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('save', buildPlan())">保存计划</button>
+          <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">{{ t('designSystem.deploymentWizard.actions.dryRun') }}</button>
+          <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('save', buildPlan())">{{ t('designSystem.deploymentWizard.actions.save') }}</button>
         </template>
       </div>
     </footer>

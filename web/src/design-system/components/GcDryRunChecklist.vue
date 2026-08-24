@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   items: readonly ApiRecord[]
   title?: string
-}>(), {
-  title: 'Dry-run 预检结论',
-})
+}>()
+
+const { t } = useI18n()
+
+const displayTitle = computed(() => props.title ?? t('designSystem.dryRunChecklist.title'))
 
 function readDetail(item: ApiRecord): string {
   const detail = item.detail
@@ -17,17 +21,17 @@ function readDetail(item: ApiRecord): string {
 </script>
 
 <template>
-  <section class="gc-card gc-dry-run-checklist" aria-label="dry-run 预检结论">
+  <section class="gc-card gc-dry-run-checklist" :aria-label="t('designSystem.dryRunChecklist.ariaLabel')">
     <header class="gc-dry-run-checklist__header">
-      <strong>{{ title }}</strong>
+      <strong>{{ displayTitle }}</strong>
     </header>
 
-    <p v-if="items.length === 0" class="gc-dry-run-checklist__empty">尚未生成 dry-run 预检结果。</p>
+    <p v-if="items.length === 0" class="gc-dry-run-checklist__empty">{{ t('designSystem.dryRunChecklist.empty') }}</p>
 
     <ul v-else class="gc-dry-run-checklist__list">
       <li v-for="item in items" :key="String(item.key ?? item.label ?? item.id)" class="gc-dry-run-checklist__item">
         <div class="gc-dry-run-checklist__main">
-          <strong>{{ String(item.label ?? item.key ?? '未命名检查项') }}</strong>
+          <strong>{{ String(item.label ?? item.key ?? t('designSystem.dryRunChecklist.unnamedCheck')) }}</strong>
           <span class="gc-dry-run-checklist__status" :class="`is-${String(item.status ?? 'unknown')}`">
             {{ String(item.status ?? 'unknown') }}
           </span>
