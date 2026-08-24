@@ -53,6 +53,7 @@ import {
 } from '../../assets/application/deployment-strategy.service.js';
 import { deploymentAssetContextBuilder, requireManagedTargetMetadata } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
+import { migrateInputBindingsToContract } from '../../deployment-inputs/application/input-binding-contract-migrator.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { ResolveDeploymentInputPhase, ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { emptyInputBindingsV1, type InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
@@ -1143,13 +1144,13 @@ export class DeploymentPlansApplicationService {
     artifact?: DeploymentArtifactSnapshotDto,
   ): Promise<{ resolvedInput: ResolvedDeploymentInputV1; effectiveBinding: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1 }> {
     const contract = new DeploymentInputContractLoader().fromPlugin(capability.plugin, capability.assignment.capabilityKey);
-    const bindingLayers = await this.resolveCapabilityBindingLayers(tenantId, capability, context, asset.id);
+    const bindingLayers = await this.resolveCapabilityBindingLayers(tenantId, capability, context, asset.id, contract);
     const request = {
       phase,
       contract,
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
       bindingLayers,
-      credentialSnapshots: await this.snapshotCredentials(tenantId, capability.binding.inputBindings.credentials),
+      credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
       artifactSnapshots: artifact
         ? artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts))
         : undefined,
@@ -1164,6 +1165,7 @@ export class DeploymentPlansApplicationService {
     capability: ResolvedDeploymentCapability,
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     applicationAssetId: string,
+    contract: DeploymentInputContractV1,
   ) {
     if (!this.pluginBindings) throw new AppError('SYSTEM_INTERNAL_ERROR', 'PluginBinding 服务未接入');
     const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, capability.assignment.capabilityKey, {
@@ -1172,10 +1174,15 @@ export class DeploymentPlansApplicationService {
       applicationAssetId,
     });
     const layers: Record<string, { pluginVersionId: string; inputBindings: InputBindingsV1 }> = {};
-    for (const assignment of assignments.filter((item) => item.pluginVersionId === capability.pluginVersionId)) {
+    // 设备和受管目标是可继承的事实层，旧版本按当前契约迁移；应用资产层必须严格匹配当前版本。
+    for (const assignment of assignments) {
       const binding = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
-      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== capability.pluginVersionId) continue;
-      const layer = { pluginVersionId: capability.pluginVersionId, inputBindings: binding.inputBindings };
+      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== assignment.pluginVersionId) continue;
+      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginVersionId !== capability.pluginVersionId) continue;
+      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginVersionId !== capability.pluginVersionId
+        ? migrateInputBindingsToContract(contract, binding.inputBindings)
+        : binding.inputBindings;
+      const layer = { pluginVersionId: capability.pluginVersionId, inputBindings };
       if (assignment.ownerType === 'DEVICE') layers.deviceDefault = layer;
       if (assignment.ownerType === 'MANAGED_TARGET') layers.targetOverride = layer;
       if (assignment.ownerType === 'APPLICATION_ASSET') layers.assetOverride = layer;
@@ -1275,10 +1282,15 @@ export class DeploymentPlansApplicationService {
       assetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
     } = {};
     let pinnedAssignmentFound = false;
-    for (const assignment of assignments.filter((item) => item.pluginVersionId === pluginVersionId)) {
+    // 运行时重放必须与投影阶段使用同一套跨版本父级 Binding 规则。
+    for (const assignment of assignments) {
       const candidate = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
-      if (candidate.status !== 'ACTIVE' || candidate.pluginVersionId !== pluginVersionId) continue;
-      const layer = { pluginVersionId, inputBindings: candidate.inputBindings };
+      if (candidate.status !== 'ACTIVE' || candidate.pluginVersionId !== assignment.pluginVersionId) continue;
+      if (assignment.ownerType === 'APPLICATION_ASSET' && assignment.pluginVersionId !== pluginVersionId) continue;
+      const inputBindings = assignment.ownerType !== 'APPLICATION_ASSET' && assignment.pluginVersionId !== pluginVersionId
+        ? migrateInputBindingsToContract(contract, candidate.inputBindings)
+        : candidate.inputBindings;
+      const layer = { pluginVersionId, inputBindings };
       if (assignment.ownerType === 'DEVICE') bindingLayers.deviceDefault = layer;
       else if (assignment.ownerType === 'MANAGED_TARGET') bindingLayers.targetOverride = layer;
       else if (assignment.ownerType === 'APPLICATION_ASSET') bindingLayers.assetOverride = layer;
