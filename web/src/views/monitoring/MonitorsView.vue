@@ -14,7 +14,7 @@ import {
   probeMonitorServiceAsset,
   updateMonitorTarget,
 } from '@/api/modules/monitors.api'
-import { GcEmptyState, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
+import { GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
@@ -69,7 +69,6 @@ const loading = ref(false)
 const probing = ref(false)
 const addDialogOpen = ref(false)
 const error = ref('')
-const actionMessage = ref('')
 const activeProbeIds = new Set<string>()
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
@@ -170,7 +169,6 @@ async function addMonitorTarget() {
     selectedTargetId.value = target.id
     selectedAssetId.value = ''
     addDialogOpen.value = false
-    actionMessage.value = '监控目标已添加。'
     void probeTarget(target)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '监控目标添加失败'
@@ -200,7 +198,6 @@ async function removeMonitorTarget(targetId: string) {
     probeResults.value = nextProbeResults
   }
   selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
-  actionMessage.value = '监控目标已移除。'
 }
 
 function handleTargetIntervalInput(targetId: string, event: Event) {
@@ -219,7 +216,6 @@ async function updateTargetInterval(targetId: string, value: number) {
     monitorTargets.value = monitorTargets.value.map((item) =>
       item.id === targetId ? updated : item,
     )
-    actionMessage.value = '探测频率已更新。'
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '探测频率更新失败'
   }
@@ -227,12 +223,10 @@ async function updateTargetInterval(targetId: string, value: number) {
 
 async function probeAllTargets(options: { silent?: boolean } = {}) {
   probing.value = true
-    if (!options.silent) actionMessage.value = ''
   try {
     for (const target of monitorTargets.value) {
       await probeTarget(target)
     }
-    if (!options.silent) actionMessage.value = '站点检测已完成，可访问性、延时和证书信息已同步采集。'
   } finally {
     probing.value = false
   }
@@ -594,24 +588,18 @@ function trimProbeStateToTargets() {
 
 <template>
   <section class="gc-page monitor-page">
-    <GcPageHeader
-      title="监控"
-      description="从应用资产列表手动添加监控目标，按资产查看可访问性、访问延时、证书信息和证书历史。"
-    >
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="loading" @click="refreshAll">
-          {{ loading ? '刷新中...' : '刷新数据' }}
-        </button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
-          {{ probing ? '检测中...' : '检测站点' }}
-        </button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="loading" @click="openAddDialog">
-          添加监控
-        </button>
-      </template>
-    </GcPageHeader>
+    <div class="monitor-page__actions">
+      <button class="gc-button" type="button" :disabled="loading" @click="refreshAll">
+        {{ loading ? '刷新中...' : '刷新数据' }}
+      </button>
+      <button class="gc-button gc-button--danger" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
+        {{ probing ? '检测中...' : '检测站点' }}
+      </button>
+      <button class="gc-button gc-button--danger" type="button" :disabled="loading" @click="openAddDialog">
+        添加监控
+      </button>
+    </div>
 
-    <p v-if="actionMessage" class="monitor-page__message">{{ actionMessage }}</p>
     <GcEmptyState v-if="error" title="监控数据加载失败" :description="error" />
 
     <GcEmptyState
@@ -874,11 +862,16 @@ function trimProbeStateToTargets() {
   gap: var(--gc-space-4);
 }
 
-.monitor-page__message {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: 13px;
-  font-weight: 750;
+.monitor-page__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gc-space-2);
+  flex-wrap: wrap;
+}
+
+.monitor-page__actions .gc-button {
+  min-height: 36px;
+  padding-inline: 14px;
 }
 
 .monitor-page__workspace {
@@ -1159,8 +1152,11 @@ function trimProbeStateToTargets() {
 
 .monitor-page__kpi-grid strong {
   color: #0f172a;
-  font-size: 18px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .monitor-page__panels {
