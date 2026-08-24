@@ -62,11 +62,9 @@ import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/bu
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { BuiltinPluginCompatibilityUpgradeService } from './modules/plugins/application/builtin-plugin-compatibility-upgrade.service.js';
-import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { DeploymentCapabilityResolver } from './modules/plugins/application/deployment-capability.resolver.js';
 import { HistoricalAgentActionResolver } from './modules/plugins/application/historical-agent-action-resolver.js';
-import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
@@ -164,7 +162,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agentCapabilityDiscoveryProjector,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
-  const pluginsRepository = new PgPluginsRepository(appDb);
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
     new WorkflowTemplatesDomainService(
       new PgDocumentRepository(appDb, 'workflow.templates'),
@@ -173,10 +170,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     {
       stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
     },
-    pluginsRepository,
     new PluginWorkflowBindingsRepository(appDb),
   );
-  const pluginsService = new PluginsApplicationService(pluginsRepository);
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
@@ -391,7 +386,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
   new PluginsController(
-    pluginsService,
     unifiedPluginsService,
     pluginBindingsService,
     new PluginPromotionService(appDb),

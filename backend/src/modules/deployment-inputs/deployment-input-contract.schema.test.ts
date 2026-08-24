@@ -45,7 +45,6 @@ describe('DeploymentInputContractV1 Schema', () => {
       kind: 'CurlSshWorkflow',
       metadata: { name: 'shared-contract', version: '1.0.0' },
       inputContract,
-      variables: {},
       steps: [{ name: 'confirm', type: 'manual', instruction: '确认执行结果' }],
     });
 

@@ -7,15 +7,48 @@ import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates
 import { WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
 import type { ExecutionStepEntity } from './schema/executions.schema.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import type { DeploymentInputContractV1 } from '../deployment-inputs/dto/deployment-input-contract.dto.js';
+
+function workflowInputContract(): DeploymentInputContractV1 {
+  const requiredField = (type: 'string' | 'number') => ({
+    type, required: true, configurationMode: 'required' as const, source: { kind: 'binding' as const },
+    lifecycle: 'pre_execution' as const, bindingPolicy: 'required_binding' as const,
+  });
+  return {
+    apiVersion: 'gcac.deployment-input/v1',
+    variables: {
+      deviceHost: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+    },
+    connections: {
+      management: { transport: 'http', host: requiredField('string'), port: requiredField('number') },
+      targetSsh: { transport: 'ssh', host: requiredField('string'), port: requiredField('number'), username: requiredField('string'), credentialSlot: 'credential', hostKey: { policy: 'strict' } },
+    },
+    credentials: {
+      credential: { allowedKinds: ['USERNAME_PASSWORD', 'SSH_KEY'], required: true, configurationMode: 'required', lifecycle: 'pre_execution' },
+    },
+    artifacts: {
+      cert: certificateArtifact({ pem: 'public_certificate', privateKey: 'private_key' }),
+      certificate: certificateArtifact({ pem: 'public_certificate' }),
+      serverCert: certificateArtifact({ certFile: 'public_certificate', keyFile: 'private_key' }),
+    },
+  };
+}
+
+function certificateArtifact(outputs: Record<string, string>): DeploymentInputContractV1['artifacts'][string] {
+  return {
+    kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution',
+    artifactContract: {
+      outputs: Object.fromEntries(Object.entries(outputs).map(([name, role]) => [name, { role, required: true, sensitive: role === 'private_key' }])),
+    },
+  };
+}
 
 function workflowFixture(): WorkflowDslV1 {
   return {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'workflow-executor-adapter-test' },
-    variables: {
-      deviceHost: { type: 'string', required: true },
-    },
+    inputContract: workflowInputContract(),
     steps: [
       {
         name: 'uploadCert',
@@ -48,9 +81,7 @@ function sensitiveHttpChainWorkflowFixture(): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'workflow-sensitive-http-chain-test' },
-    variables: {
-      deviceHost: { type: 'string', required: true },
-    },
+    inputContract: workflowInputContract(),
     steps: [
       {
         name: 'login',
@@ -85,9 +116,7 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'workflow-file-transfer-adapter-test' },
-    variables: {
-      deviceHost: { type: 'string', required: true },
-    },
+    inputContract: workflowInputContract(),
     steps: [
       {
         name: 'uploadCert',
@@ -125,9 +154,7 @@ function certificateAliasWorkflowFixture(): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'workflow-certificate-alias-test' },
-    variables: {
-      deviceHost: { type: 'string', required: true },
-    },
+    inputContract: workflowInputContract(),
     steps: [
       {
         name: 'uploadCert',
@@ -151,9 +178,7 @@ function certificateOutputsWorkflowFixture(): WorkflowDslV1 {
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'workflow-certificate-outputs-test' },
-    variables: {
-      deviceHost: { type: 'string', required: true },
-    },
+    inputContract: workflowInputContract(),
     steps: [
       {
         name: 'uploadCert',

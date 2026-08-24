@@ -9,6 +9,7 @@ import type {
   WorkflowVariableDefinition,
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
+import type { DeploymentInputContractV1, DeploymentVariableDefinitionV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
 type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
@@ -39,6 +40,7 @@ interface WorkflowCanvasDefinition {
     readonly tags?: readonly string[];
   };
   readonly variables?: Record<string, WorkflowVariableDefinition>;
+  readonly inputContract?: DeploymentInputContractV1;
   readonly nodes?: readonly CanvasNode[];
   readonly edges?: readonly CanvasEdge[];
   readonly draftState?: Record<string, unknown>;
@@ -132,6 +134,8 @@ function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): { content: Workf
   const normalized = normalizeWorkflowCanvasFlow(canvas);
   const orderedNodes = getExecutableDslNodes(normalized);
   const stepNames = Object.fromEntries(orderedNodes.map((node, index) => [node.id, buildDslStepName(node, index)]));
+  const steps = orderedNodes.map((node, index) => nodeToDslStep(node, index));
+  const rollback = resolveRollbackSteps(normalized);
   return {
     stepNames,
     content: {
@@ -143,11 +147,70 @@ function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): { content: Workf
       category: canvas.metadata?.category,
       tags: [...(canvas.metadata?.tags ?? [])],
     },
-    variables: cloneRecord(canvas.variables ?? {}),
-    steps: orderedNodes.map((node, index) => nodeToDslStep(node, index)),
-    rollback: resolveRollbackSteps(normalized),
+    inputContract: canvas.inputContract
+      ? cloneRecord(canvas.inputContract)
+      : buildCanvasInputContract(canvas.variables ?? {}, [...steps, ...rollback]),
+    steps,
+    rollback,
     },
   };
+}
+
+function buildCanvasInputContract(variables: Record<string, WorkflowVariableDefinition>, steps: WorkflowStep[]): DeploymentInputContractV1 {
+  return {
+    apiVersion: 'gcac.deployment-input/v1',
+    variables: Object.fromEntries(Object.entries(variables).map(([name, definition]) => [name, canvasVariableToContract(definition)])),
+    connections: inferCanvasConnections(steps),
+    credentials: {},
+    artifacts: {},
+  };
+}
+
+function canvasVariableToContract(definition: WorkflowVariableDefinition): DeploymentVariableDefinitionV1 {
+  const hasDefault = definition.default !== undefined;
+  const source = definition.source ?? (hasDefault ? { kind: 'default' as const } : { kind: 'binding' as const });
+  return {
+    type: definition.type,
+    required: definition.required ?? !hasDefault,
+    configurationMode: definition.configurationMode ?? (hasDefault ? 'advanced' : 'required'),
+    source,
+    lifecycle: definition.lifecycle ?? 'pre_execution',
+    bindingPolicy: definition.bindingPolicy ?? (hasDefault ? 'default_overridable' : 'required_binding'),
+    ...(hasDefault ? { default: cloneRecord(definition.default) } : {}),
+    ...(definition.enum ? { enum: cloneRecord(definition.enum) } : {}),
+    ...(definition.sensitive === undefined ? {} : { sensitive: definition.sensitive }),
+  };
+}
+
+function inferCanvasConnections(steps: WorkflowStep[]): DeploymentInputContractV1['connections'] {
+  const transports = new Map<string, 'http' | 'ssh'>();
+  const visit = (step: WorkflowStep): void => {
+    const connectionRef = step.type === 'http' ? step.request.connectionRef
+      : step.type === 'ssh' ? step.ssh.connectionRef
+        : step.type === 'sftp' ? step.sftp.connectionRef
+          : step.type === 'scp' ? step.scp.connectionRef
+            : undefined;
+    const transport = step.type === 'http' ? 'http' : connectionRef ? 'ssh' : undefined;
+    if (connectionRef && transport) {
+      const previous = transports.get(connectionRef);
+      if (previous && previous !== transport) {
+        throw new AppError('VALIDATION_FAILED', '同一 connectionRef 不能同时用于 HTTP 和 SSH', { connectionRef });
+      }
+      transports.set(connectionRef, transport);
+    }
+    if (step.type === 'foreach') step.foreach.steps.forEach(visit);
+  };
+  steps.forEach(visit);
+  const requiredField = (type: 'string' | 'number') => ({
+    type, required: true, configurationMode: 'required' as const, source: { kind: 'binding' as const },
+    lifecycle: 'pre_execution' as const, bindingPolicy: 'required_binding' as const,
+  });
+  return Object.fromEntries([...transports].map(([name, transport]) => [name, {
+    transport,
+    host: requiredField('string'),
+    port: requiredField('number'),
+    ...(transport === 'ssh' ? { username: requiredField('string'), hostKey: { policy: 'strict' as const } } : {}),
+  }]));
 }
 
 function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {

@@ -18,7 +18,15 @@ describe('WorkflowTemplates 持久化', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'persisted-template' },
-        variables: { host: { type: 'string', required: true } },
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {
+            host: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+          },
+          connections: {},
+          credentials: {},
+          artifacts: {},
+        },
         steps: [{ name: 'wait', type: 'wait', seconds: 1 }],
       },
     });
