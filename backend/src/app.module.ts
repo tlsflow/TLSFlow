@@ -7,6 +7,7 @@ import { PgliteDatabase } from './database/pglite-database.js';
 import { getHealthRouteContracts, HealthController } from './modules/health/controller/health.controller.js';
 import { DeploymentPlansApplicationService } from './modules/deployment-plans/application/deployment-plans.application-service.js';
 import { DeploymentPlansController, getDeploymentPlanRouteContracts } from './modules/deployment-plans/controller/deployment-plans.controller.js';
+import { DeploymentInputProjectionController, getDeploymentInputRouteContracts } from './modules/deployment-inputs/controller/deployment-input-projection.controller.js';
 import { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
 import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
@@ -238,6 +239,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);
+  new DeploymentInputProjectionController().register(app.router);
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
@@ -468,6 +470,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),
     ...getAssetsRouteContracts(),
+    ...getDeploymentInputRouteContracts(),
     ...getDeviceAssetRouteContracts(),
     ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
