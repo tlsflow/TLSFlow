@@ -2639,7 +2639,7 @@ export default {
   assets: {
     presentation: {
       cards: 'カード表示',
-      list: 'リスト表示',
+      list: '表形式表示',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',

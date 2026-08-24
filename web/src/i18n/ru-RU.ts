@@ -2613,7 +2613,7 @@ export default {
   assets: {
     presentation: {
       cards: 'Карточки',
-      list: 'Список',
+      list: 'Таблица',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',

@@ -242,6 +242,15 @@ const rawVersionRows = computed<CertificateVersionRow[]>(() =>
     }
   }),
 )
+const assetColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'domain', title: t('certificates.list.filters.domain'), width: '18%' },
+  { key: 'status', title: t('certificates.list.columns.status'), width: '10%' },
+  { key: 'validity', title: t('certificates.detailPanel.validity.title'), width: '25%' },
+  { key: 'expires', title: t('certificates.userView.simple.fields.expires'), width: '13%' },
+  { key: 'source', title: t('certificates.userView.simple.fields.source'), width: '12%' },
+  { key: 'version', title: t('certificates.detailPanel.fields.version'), width: '10%' },
+  { key: 'actions', title: t('agents.columns.actions'), width: '12%' },
+])
 const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => [
   { key: 'certificateName', title: t('certificates.detailPanel.summary.certificateName'), width: '12%' },
   { key: 'notBefore', title: t('certificates.list.columns.notBefore'), width: '10%' },
@@ -1030,83 +1039,141 @@ async function removeVersion(row: CertificateVersionRow) {
           <GcEmptyState v-else-if="visibleAssets.length === 0" class="certificate-page__empty-state" :title="t('certificates.list.assets.empty')" />
 
           <div v-else class="certificate-page__asset-card-list" :class="`certificate-page__asset-card-list--${professionalAssetPresentation}`">
-            <div
-              v-for="asset in visibleAssets"
-              :key="readId(asset)"
-              class="certificate-page__asset-record"
-              :class="{ 'certificate-page__asset-record--selected': readId(asset) === selectedAssetId }"
-            >
-              <GcCard
-              as="article"
-              class="certificate-page__asset-card"
-              interactive
-              :class="`certificate-page__asset-card--${readAssetLifecycleStatusKey(asset)}`"
-              :selected="readId(asset) === selectedAssetId"
-              :ariaLabel="assetCardAriaLabel(asset)"
-              @click="openVersionsDialog(readId(asset))"
-            >
-              <template #header>
-                <span class="certificate-page__asset-card-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10A2.5 2.5 0 0 1 17 19.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" /><path d="m8.5 12 2.1 2.1L15.7 9" /></svg>
-                </span>
-                <button
-                  :id="versionTriggerId(readId(asset))"
-                  class="certificate-page__asset-record-trigger"
-                  type="button"
-                  :aria-expanded="versionsDialogOpen && readId(asset) === selectedAssetId"
-                  :aria-controls="versionDialogPanelId(readId(asset))"
-                  :aria-label="assetCardAriaLabel(asset)"
-                  @click.stop="openVersionsDialog(readId(asset))"
+            <template v-if="professionalAssetPresentation === 'cards'">
+              <div
+                v-for="asset in visibleAssets"
+                :key="readId(asset)"
+                class="certificate-page__asset-record"
+                :class="{ 'certificate-page__asset-record--selected': readId(asset) === selectedAssetId }"
+              >
+                <GcCard
+                  as="article"
+                  class="certificate-page__asset-card"
+                  interactive
+                  :class="`certificate-page__asset-card--${readAssetLifecycleStatusKey(asset)}`"
+                  :selected="readId(asset) === selectedAssetId"
+                  :ariaLabel="assetCardAriaLabel(asset)"
+                  @click="openVersionsDialog(readId(asset))"
                 >
-                  <span class="certificate-page__asset-card-heading">
-                    <strong>{{ readAssetName(asset) }}</strong>
-                    <span>{{ readAssetIssuer(asset) }}</span>
-                  </span>
-                  <span class="certificate-page__asset-card-status">
-                    <GcStatusTag
-                      :status="readAssetLifecycleStatusKey(asset)"
-                      :label="readAssetLifecycleStatus(asset)"
-                      :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
-                    />
-                  </span>
+                  <template #header>
+                    <span class="certificate-page__asset-card-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24"><path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10A2.5 2.5 0 0 1 17 19.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" /><path d="m8.5 12 2.1 2.1L15.7 9" /></svg>
+                    </span>
+                    <button
+                      :id="versionTriggerId(readId(asset))"
+                      class="certificate-page__asset-record-trigger"
+                      type="button"
+                      :aria-expanded="versionsDialogOpen && readId(asset) === selectedAssetId"
+                      :aria-controls="versionDialogPanelId(readId(asset))"
+                      :aria-label="assetCardAriaLabel(asset)"
+                      @click.stop="openVersionsDialog(readId(asset))"
+                    >
+                      <span class="certificate-page__asset-card-heading">
+                        <strong>{{ readAssetName(asset) }}</strong>
+                        <span>{{ readAssetIssuer(asset) }}</span>
+                      </span>
+                      <span class="certificate-page__asset-card-status">
+                        <GcStatusTag
+                          :status="readAssetLifecycleStatusKey(asset)"
+                          :label="readAssetLifecycleStatus(asset)"
+                          :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
+                        />
+                      </span>
+                    </button>
+                  </template>
+                  <template #body>
+                    <section class="certificate-page__asset-card-validity">
+                      <div class="certificate-page__asset-card-validity-header">
+                        <span>{{ t('certificates.detailPanel.validity.title') }}</span>
+                        <strong>{{ readAssetRemainingLabel(asset) }}</strong>
+                      </div>
+                      <GcProgressBar
+                        :value="readAssetValidityProgress(asset)"
+                        :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
+                        outlined
+                        :ariaLabel="assetCardAriaLabel(asset)"
+                      />
+                    </section>
+                    <dl class="certificate-page__asset-card-metadata">
+                      <div>
+                        <dt>{{ t('certificates.userView.simple.fields.expires') }}</dt>
+                        <dd>{{ readAssetExpiry(asset) ? formatDateOnly(readAssetExpiry(asset)) : t('certificates.userView.common.notAvailable') }}</dd>
+                      </div>
+                      <div>
+                        <dt>{{ t('certificates.userView.simple.fields.source') }}</dt>
+                        <dd class="certificate-page__asset-card-source-value">
+                          <GcStatusTag
+                            :status="readAssetCardSourceType(asset)"
+                            :label="assetCardSourceLabel(asset)"
+                            :tone="assetCardSourceTone(asset)"
+                          />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{{ t('certificates.detailPanel.fields.version') }}</dt>
+                        <dd>{{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
+                      </div>
+                    </dl>
+                  </template>
+                </GcCard>
+              </div>
+            </template>
+
+            <GcDataTable
+              v-else
+              class="certificate-page__asset-table"
+              :columns="assetColumns"
+              :rows="visibleAssets"
+              :ariaLabel="t('certificates.list.assets.title')"
+            >
+              <template #cell-domain="{ row }">
+                <button
+                  class="certificate-page__asset-table-domain"
+                  type="button"
+                  :aria-label="assetCardAriaLabel(row)"
+                  @click="openVersionsDialog(readId(row))"
+                >
+                  <strong>{{ readAssetName(row) }}</strong>
+                  <span>{{ readAssetIssuer(row) }}</span>
                 </button>
               </template>
-              <template #body>
-                <section class="certificate-page__asset-card-validity">
-                  <div class="certificate-page__asset-card-validity-header">
-                    <span>{{ t('certificates.detailPanel.validity.title') }}</span>
-                    <strong>{{ readAssetRemainingLabel(asset) }}</strong>
-                  </div>
-                  <GcProgressBar
-                    :value="readAssetValidityProgress(asset)"
-                    :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
-                    outlined
-                    :ariaLabel="assetCardAriaLabel(asset)"
-                  />
-                </section>
-                <dl class="certificate-page__asset-card-metadata">
-                  <div>
-                    <dt>{{ t('certificates.userView.simple.fields.expires') }}</dt>
-                    <dd>{{ readAssetExpiry(asset) ? formatDateOnly(readAssetExpiry(asset)) : t('certificates.userView.common.notAvailable') }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('certificates.userView.simple.fields.source') }}</dt>
-                    <dd class="certificate-page__asset-card-source-value">
-                      <GcStatusTag
-                        :status="readAssetCardSourceType(asset)"
-                        :label="assetCardSourceLabel(asset)"
-                        :tone="assetCardSourceTone(asset)"
-                      />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('certificates.detailPanel.fields.version') }}</dt>
-                    <dd>{{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
-                  </div>
-                </dl>
+              <template #cell-status="{ row }">
+                <GcStatusTag
+                  :status="readAssetLifecycleStatusKey(row)"
+                  :label="readAssetLifecycleStatus(row)"
+                  :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(row))"
+                />
               </template>
-              </GcCard>
-            </div>
+              <template #cell-validity="{ row }">
+                <div class="certificate-page__asset-table-validity">
+                  <strong>{{ readAssetRemainingLabel(row) }}</strong>
+                  <GcProgressBar
+                    :value="readAssetValidityProgress(row)"
+                    :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(row))"
+                    outlined
+                    :ariaLabel="assetCardAriaLabel(row)"
+                  />
+                </div>
+              </template>
+              <template #cell-expires="{ row }">
+                {{ readAssetExpiry(row) ? formatDateOnly(readAssetExpiry(row)) : t('certificates.userView.common.notAvailable') }}
+              </template>
+              <template #cell-source="{ row }">
+                <GcStatusTag
+                  :status="readAssetCardSourceType(row)"
+                  :label="assetCardSourceLabel(row)"
+                  :tone="assetCardSourceTone(row)"
+                />
+              </template>
+              <template #cell-version="{ row }">
+                {{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(row)] ?? 0 }) }}
+              </template>
+              <template #cell-actions="{ row }">
+                <GcButton variant="secondary" @click="openVersionsDialog(readId(row))">
+                  {{ t('agents.actions.detail') }}
+                </GcButton>
+              </template>
+            </GcDataTable>
           </div>
         </section>
 
@@ -1972,32 +2039,28 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__asset-card-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--gc-size-card-min) + var(--gc-space-10) + var(--gc-space-8)), 1fr));
+  grid-template-columns: repeat(auto-fill, var(--gc-size-certificate-card-min));
   gap: var(--gc-space-4);
   align-content: start;
+  justify-content: start;
   min-width: 0;
 }
 
 .certificate-page__asset-record {
   display: grid;
   gap: var(--gc-space-3);
+  width: var(--gc-size-certificate-card-min);
   min-width: 0;
   align-content: start;
 }
 
 .certificate-page__asset-card-list--list {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.certificate-page__asset-card-list--list .certificate-page__asset-card :deep(.gc-pro-card__body) {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--gc-space-5);
+  display: block;
 }
 
 .certificate-page__asset-card {
-  min-width: 0;
+  width: var(--gc-size-certificate-card-min);
+  min-width: var(--gc-size-certificate-card-min);
   border-color: var(--gc-color-border-muted);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
@@ -2159,6 +2222,79 @@ async function removeVersion(row: CertificateVersionRow) {
   display: flex;
   align-items: center;
   min-height: var(--gc-control-height-sm);
+}
+
+.certificate-page__asset-table {
+  min-width: 0;
+}
+
+.certificate-page__asset-table :deep(table) {
+  min-width: calc(var(--gc-size-certificate-card-min) * 3.5);
+  table-layout: fixed;
+}
+
+.certificate-page__asset-table :deep(th),
+.certificate-page__asset-table :deep(td) {
+  white-space: nowrap;
+}
+
+.certificate-page__asset-table :deep(td) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.certificate-page__asset-table :deep(td:last-child) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.certificate-page__asset-table-domain {
+  display: grid;
+  gap: var(--gc-space-1);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.certificate-page__asset-table-domain strong,
+.certificate-page__asset-table-domain span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.certificate-page__asset-table-domain strong {
+  color: var(--gc-color-text-strong);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.certificate-page__asset-table-domain span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.certificate-page__asset-table-domain:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.certificate-page__asset-table-validity {
+  display: grid;
+  gap: var(--gc-space-2);
+  min-width: 0;
+}
+
+.certificate-page__asset-table-validity strong {
+  overflow: hidden;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .certificate-page__state {

@@ -2729,7 +2729,7 @@ export default {
   assets: {
     presentation: {
       cards: 'Card view',
-      list: 'List view',
+      list: 'Table view',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',

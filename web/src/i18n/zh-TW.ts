@@ -2638,7 +2638,7 @@ export default {
   assets: {
     presentation: {
       cards: '卡片檢視',
-      list: '列表檢視',
+      list: '表格檢視',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',

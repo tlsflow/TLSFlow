@@ -2613,7 +2613,7 @@ export default {
   assets: {
     presentation: {
       cards: '카드 보기',
-      list: '목록 보기',
+      list: '표 보기',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',

@@ -1591,7 +1591,7 @@ export default {
   assets: {
     presentation: {
       cards: '卡片视图',
-      list: '列表视图',
+      list: '表格视图',
     },
     userView: {
       stepLabel: '第 2 步 / 3 · 应用',

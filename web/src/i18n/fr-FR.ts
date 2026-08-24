@@ -2688,7 +2688,7 @@ export default {
   assets: {
     presentation: {
       cards: 'Vue cartes',
-      list: 'Vue liste',
+      list: 'Vue tableau',
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
