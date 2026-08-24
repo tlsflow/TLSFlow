@@ -15,18 +15,10 @@ import type { ReportExportService } from '../reports/application/report-export.s
 import { buildAutomationTaskProgress } from '../automations/application/automation-task-progress.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
+import type { PluginRefreshResult } from '../plugins/dto/plugin-refresh-result.dto.js';
 
 export interface BuiltinPluginCatalogRefresher {
-  refresh(tenantId?: string): Promise<{
-    refreshedAt: string;
-    versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
-    projection?: {
-      attempted: number;
-      projected: number;
-      skipped: number;
-      failed: Array<{ tenantId: string; agentId: string; error: string }>;
-    };
-  }>;
+  refresh(tenantId?: string): Promise<PluginRefreshResult>;
 }
 
 export interface TaskWorkerAdapterDependencies {

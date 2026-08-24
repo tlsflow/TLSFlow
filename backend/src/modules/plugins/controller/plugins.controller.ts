@@ -25,18 +25,10 @@ import {
 } from '../../security/security-route-helpers.js';
 import { unifiedPluginVersionOwnerType } from '../application/unified-plugins.application-service.js';
 import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
+import type { PluginRefreshResult } from '../dto/plugin-refresh-result.dto.js';
 
 export interface BuiltinPluginCatalogRefresher {
-  refresh(tenantId?: string): Promise<{
-    refreshedAt: string;
-    versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
-    projection?: {
-      attempted: number;
-      projected: number;
-      skipped: number;
-      failed: Array<{ tenantId: string; agentId: string; error: string }>;
-    };
-  }>;
+  refresh(tenantId?: string): Promise<PluginRefreshResult>;
 }
 
 const tags = ['Plugins'];
@@ -864,7 +856,17 @@ function projectionRequestSchema(): OpenApiSchema { return strictSchema({ capabi
 function projectionSchema(): OpenApiSchema { return strictSchema({ contractVersion: { type: 'string' }, requiredVariables: { type: 'array', items: jsonObjectSchema() }, advancedVariables: { type: 'array', items: jsonObjectSchema() }, connections: { type: 'array', items: jsonObjectSchema() }, credentials: { type: 'array', items: jsonObjectSchema() }, artifacts: { type: 'array', items: jsonObjectSchema() }, fixedValues: { type: 'array', items: jsonObjectSchema() }, runtimeValues: { type: 'array', items: jsonObjectSchema() }, issues: { type: 'array', items: jsonObjectSchema() }, saveable: { type: 'boolean' } }, ['contractVersion', 'requiredVariables', 'advancedVariables', 'connections', 'credentials', 'artifacts', 'fixedValues', 'runtimeValues', 'issues', 'saveable']); }
 function managedTargetSaveSchema(): OpenApiSchema { return strictSchema({ managedTargetId: idSchema(), certificateFormatId: idSchema(), executionMode: { type: 'string', enum: ['PLUGIN', 'WORKFLOW_OVERRIDE'] }, expectedTargetVersion: { type: 'number' }, capabilityKey: { type: 'string' }, pluginOverride: strictSchema({ pluginVersionId: idSchema(), pluginBindingId: idSchema(), expectedBindingVersion: { type: 'number' }, inputBindings: inputBindingsSchema() }, ['pluginVersionId']), workflowExecution: jsonObjectSchema() }, ['managedTargetId']); }
 function managedTargetSaveResultSchema(): OpenApiSchema { return strictSchema({ target: jsonObjectSchema(), executionMode: { type: 'string' }, workflowExecutionBinding: jsonObjectSchema(), effectiveCapability: effectiveCapabilitySchema() }, ['target', 'executionMode']); }
-function refreshCatalogSchema(): OpenApiSchema { return strictSchema({ refreshedAt: { type: 'string', format: 'date-time' }, versions: { type: 'array', items: strictSchema({ id: idSchema(), pluginId: idSchema(), version: { type: 'string' }, status: { type: 'string' } }, ['id', 'pluginId', 'version', 'status']) }, projection: jsonObjectSchema() }, ['refreshedAt', 'versions']); }
+function refreshCatalogSchema(): OpenApiSchema {
+  const version = strictSchema({ id: idSchema(), pluginId: idSchema(), version: { type: 'string' }, status: { type: 'string' } }, ['id', 'pluginId', 'version', 'status']);
+  const change = strictSchema({ pluginId: idSchema(), before: version, after: version, changeType: { type: 'string', enum: ['ADDED', 'UPDATED', 'REMOVED', 'UNCHANGED'] } }, ['pluginId', 'changeType']);
+  return strictSchema({
+    refreshedAt: { type: 'string', format: 'date-time' },
+    versions: { type: 'array', items: version },
+    beforeVersions: { type: 'array', items: version },
+    changes: { type: 'array', items: change },
+    projection: jsonObjectSchema(),
+  }, ['refreshedAt', 'versions']);
+}
 
 function withPluginVersionIdentity<T extends { id: string }>(version: T): T & { pluginVersionId: string } {
   return { ...version, pluginVersionId: version.id };

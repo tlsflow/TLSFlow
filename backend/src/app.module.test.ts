@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { StructuredLogger, type LogEvent } from './common/logging/structured-logger.js';
 import { AppError } from './common/errors/app-error.js';
-import { initializeBuiltinPlugins } from './app.module.js';
+import { buildPluginRefreshChanges, initializeBuiltinPlugins } from './app.module.js';
+import type { PluginRefreshVersionSnapshot } from './modules/plugins/dto/plugin-refresh-result.dto.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import type { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
@@ -14,6 +15,23 @@ import { App } from './common/http/app.js';
 import { registerPolicyAuthorityServices } from './app.module.js';
 import type { ProductionPolicyAuthorityServicesV1 } from './modules/agents/security/policy-authority.service.js';
 import type { TaskExecutorRegistry } from './modules/tasks/task-worker-supervisor.js';
+
+test('插件刷新结果按版本和启用状态生成前后变化', () => {
+  const before: PluginRefreshVersionSnapshot[] = [
+    { id: 'old-nginx', pluginId: 'web.nginx', version: '1.0.0', status: 'DISABLED' },
+    { id: 'old-apache', pluginId: 'web.apache', version: '1.0.0', status: 'ENABLED' },
+  ];
+  const after: PluginRefreshVersionSnapshot[] = [
+    { id: 'new-nginx', pluginId: 'web.nginx', version: '1.1.0', status: 'ENABLED' },
+    { id: 'new-tomcat', pluginId: 'app.tomcat', version: '1.0.0', status: 'ENABLED' },
+  ];
+
+  assert.deepEqual(buildPluginRefreshChanges(before, after), [
+    { pluginId: 'app.tomcat', after: after[1], changeType: 'ADDED' },
+    { pluginId: 'web.apache', before: before[1], changeType: 'REMOVED' },
+    { pluginId: 'web.nginx', before: before[0], after: after[0], changeType: 'UPDATED' },
+  ]);
+});
 
 test('非生产 App 只注册显式注入的 Policy Authority 资源', () => {
   const app = new App();

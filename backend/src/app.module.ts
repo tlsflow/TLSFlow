@@ -26,7 +26,7 @@ import { ApplicationAssetExecutionService } from './modules/assets/application/a
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
-import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository } from './modules/devices/index.js';
+import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamily } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
@@ -106,6 +106,7 @@ import { createLocalAgentAuthorizationServicesV1 } from './modules/agents/securi
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
+import type { PluginRefreshChange, PluginRefreshResult, PluginRefreshVersionSnapshot } from './modules/plugins/dto/plugin-refresh-result.dto.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService } from './modules/plugins/application/managed-target-plugin-query.service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
@@ -167,6 +168,7 @@ import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/ap
 import { GlobalSearchApplicationService } from './modules/global-search/application/global-search.application-service.js';
 import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules/global-search/controller/global-search.controller.js';
 import { ApplicationOnboardingController, ApplicationOnboardingService, ApplicationOnboardingSessionRepository, OnboardingCommitService, PublishedDirectWorkflowOnboardingAdapter, getApplicationOnboardingRouteContracts } from './modules/application-onboarding/index.js';
+import type { LoadedApplicationOnboardingRecipe } from './modules/application-onboarding/recipe/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -617,6 +619,80 @@ export function createApp(dependencies: AppDependencies = {}): App {
     }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
+  /**
+   * Agent Host 不属于某个发现插件。向导只能从已投影的 Host -> Framework ->
+   * ManagedTarget 事实链筛选候选项，不能把发现插件 ID 当作设备产品族或能力。
+   */
+  const isAgentHostOnboardingRecipe = (recipe: LoadedApplicationOnboardingRecipe): boolean => (
+    recipe.recipe.deploymentMode === 'MANAGED_TARGET'
+      && (recipe.recipe.newDeviceOnboarding?.kind === 'AGENT_INSTALL'
+        || recipe.recipe.deviceResourceType === 'agent.host')
+  );
+  const listCompatibleAgentManagedTargets = async (
+    tenantId: string,
+    deviceId: string,
+    recipe: LoadedApplicationOnboardingRecipe,
+  ) => {
+    const targets = [] as Awaited<ReturnType<ReturnType<typeof assetsService.getRepository>['listManagedTargets']>>['items'];
+    for (let page = 1; ; page += 1) {
+      const result = await assetsService.getRepository().listManagedTargets(tenantId, {
+        page,
+        pageSize: 200,
+        filter: { deviceId },
+      });
+      targets.push(...result.items);
+      if (targets.length >= result.total) break;
+    }
+    const frameworkTypes = recipe.recipe.targetProjection.frameworkTypes?.length
+      ? recipe.recipe.targetProjection.frameworkTypes
+      : [recipe.pluginId];
+    const resolved = await Promise.all(targets
+      .filter((target) => target.status === 'ACTIVE'
+        && target.targetType === recipe.recipe.targetProjection.targetType
+        && target.supportedCapabilities.includes('certificate.deploy'))
+      .map(async (target) => {
+        const [framework, site, host] = await Promise.all([
+          target.frameworkInstanceId
+            ? assetsService.getRepository().getFrameworkInstance(tenantId, target.frameworkInstanceId)
+            : undefined,
+          target.siteId
+            ? assetsService.getRepository().getSiteAsset(tenantId, target.siteId)
+            : undefined,
+          assetsService.getRepository().getHost(tenantId, target.deviceId),
+        ]);
+        const configFingerprint = configFingerprintFromManagedTargetMetadata(target.metadata);
+        if (!framework || !frameworkTypes.includes(framework.frameworkType) || !configFingerprint) return undefined;
+        return { target, framework, site, host, configFingerprint };
+      }));
+    return resolved.filter((item): item is Exclude<typeof item, undefined> => item !== undefined);
+  };
+  const assertCompatibleAgentHost = async (
+    tenantId: string,
+    deviceId: string,
+    recipe: LoadedApplicationOnboardingRecipe,
+  ) => {
+    const detail = await devicesService.get(tenantId, deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
+    if (detail.health === 'DISABLED' || detail.health === 'UNREACHABLE' || detail.health === 'UNKNOWN') {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '已有设备当前不可用，请先恢复设备健康状态', {
+        code: 'ONBOARDING_DEVICE_UNHEALTHY', deviceId, health: detail.health,
+      });
+    }
+    if (detail.extension.type !== 'AGENT') {
+      throw new AppError('VALIDATION_FAILED', '该接入配方只接受已注册的 Agent Host', {
+        code: 'ONBOARDING_AGENT_HOST_REQUIRED', deviceId, extensionType: detail.extension.type,
+      });
+    }
+    const targets = await listCompatibleAgentManagedTargets(tenantId, deviceId, recipe);
+    if (targets.length === 0) {
+      throw new AppError('VALIDATION_FAILED', '已有 Agent Host 没有与当前接入配方匹配的已发现目标', {
+        code: 'ONBOARDING_DEVICE_INCOMPATIBLE',
+        deviceId,
+        frameworkTypes: recipe.recipe.targetProjection.frameworkTypes ?? [recipe.pluginId],
+        targetType: recipe.recipe.targetProjection.targetType,
+      });
+    }
+    return targets;
+  };
   const onboardingService = new ApplicationOnboardingService(
     new ApplicationOnboardingSessionRepository(appDb),
     unifiedPluginsService,
@@ -655,6 +731,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
         return { deviceId, assetId: device?.id ?? (onboarded as { assetId?: string }).assetId };
       },
       validateExistingDevice: async (tenantId, deviceId, _session, recipe) => {
+        if (isAgentHostOnboardingRecipe(recipe)) {
+          await assertCompatibleAgentHost(tenantId, deviceId, recipe);
+          return;
+        }
         const detail = await devicesService.get(tenantId, deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
         if (detail.health === 'DISABLED' || detail.health === 'UNREACHABLE' || detail.health === 'UNKNOWN') {
           throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '已有设备当前不可用，请先恢复设备健康状态', {
@@ -679,16 +759,38 @@ export function createApp(dependencies: AppDependencies = {}): App {
         }
       },
       listExistingDevices: async (tenantId, _session, recipe) => {
+        if (isAgentHostOnboardingRecipe(recipe)) {
+          const page = await devicesService.list(tenantId, { page: 1, pageSize: 200, filter: {} });
+          const candidates = await Promise.all(page.items.map(async (device) => {
+            const unavailable = device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN';
+            if (unavailable || device.extensionType !== 'AGENT') return undefined;
+            const targets = await listCompatibleAgentManagedTargets(tenantId, device.id, recipe);
+            if (targets.length === 0) return undefined;
+            return {
+              deviceId: device.id,
+              displayName: device.displayName,
+              address: device.managementAddress,
+              health: device.health,
+              selectable: true,
+            };
+          }));
+          return candidates.filter((device): device is NonNullable<typeof device> => device !== undefined);
+        }
         const directWorkflowDeviceIds = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
           ? await directWorkflowOnboarding.listCompatibleDeviceIds(tenantId, recipe)
           : undefined;
         const required = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
           ? []
           : [recipe.recipe.capabilities.connectionTest, recipe.recipe.capabilities.discovery];
+        // 设备摘要的 productFamily 来自插件 Manifest 的 compatibility.productFamilies，
+        // 不能用 device.citrix.netscaler-adc 这类插件 ID 直接比较，否则 Citrix 等设备会被错误过滤。
+        const productFamily = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
+          ? undefined
+          : resolvePluginDeviceFamily(await unifiedPluginsService.getVersionForTenant(tenantId, recipe.pluginVersionId));
         const page = await devicesService.list(tenantId, {
           page: 1,
           pageSize: 200,
-          filter: recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW' ? {} : { productFamily: recipe.pluginId },
+          filter: productFamily ? { productFamily } : {},
         });
         return page.items.map((device) => {
           const unavailable = device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN';
@@ -710,6 +812,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
           await directWorkflowOnboarding.test(tenantId, session, recipe);
           return;
         }
+        if (session.deviceId && isAgentHostOnboardingRecipe(recipe)) {
+          await assertCompatibleAgentHost(tenantId, session.deviceId, recipe);
+          return;
+        }
         if (session.deviceId) await devicesService.executeCapability(tenantId, session.deviceId, 'device.connection.test', session.actorId, 'application-onboarding');
       },
       discover: async (tenantId, session, recipe) => {
@@ -717,17 +823,43 @@ export function createApp(dependencies: AppDependencies = {}): App {
           return directWorkflowOnboarding.discover(tenantId, session, recipe);
         }
         if (!session.deviceId) return [];
+        if (isAgentHostOnboardingRecipe(recipe)) {
+          const targets = await listCompatibleAgentManagedTargets(tenantId, session.deviceId, recipe);
+          return targets.map(({ target, site, host, configFingerprint }) => {
+            const endpoint = {
+              host: site?.hostHeader ?? site?.listenIp ?? host?.hostname ?? host?.primaryIp,
+              ...(site?.port ? { port: site.port } : {}),
+              ...(site?.protocol ? { protocol: site.protocol } : {}),
+            };
+            return {
+              managedTargetId: target.id,
+              targetType: target.targetType,
+              displayName: site?.siteName ?? target.targetKey,
+              ...(endpoint.host ? { endpoint } : {}),
+              configFingerprint,
+              selectable: true,
+            };
+          });
+        }
         const detail = await devicesService.get(tenantId, session.deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
         return detail.sites
-          .map((site) => ({
-            managedTargetId: site.managedTargetId ?? site.id,
-            targetType: site.kind,
-            displayName: site.name,
-            endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
-            configFingerprint: `${site.id}:${detail.overview.updatedAt}`,
-            selectable: Boolean(site.managedTargetId),
-            reasonCode: site.managedTargetId ? undefined : 'MANAGED_TARGET_MISSING',
-          }))
+          .map((site) => {
+            const configFingerprint = configFingerprintFromDiscoveredSite(site);
+            const selectable = Boolean(site.managedTargetId && configFingerprint);
+            return {
+              managedTargetId: site.managedTargetId ?? site.id,
+              targetType: site.kind,
+              displayName: site.name,
+              endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
+              configFingerprint: configFingerprint ?? '',
+              selectable,
+              reasonCode: !site.managedTargetId
+                ? 'MANAGED_TARGET_MISSING'
+                : configFingerprint
+                  ? undefined
+                  : 'CONFIG_FINGERPRINT_MISSING',
+            };
+          })
           .filter((site) => site.selectable);
       },
       listCertificateOptions: async (tenantId, _session, recipe, certificateAssetId) => {
@@ -1030,36 +1162,26 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new CapabilitiesController(capabilitiesService).register(app.router);
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
-  const builtinPluginRefreshPromises = new Map<string, Promise<{
-    refreshedAt: string;
-    versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
-    projection?: {
-      attempted: number;
-      projected: number;
-      skipped: number;
-      failed: Array<{ tenantId: string; agentId: string; error: string }>;
-    };
-  }>>();
+  const builtinPluginRefreshPromises = new Map<string, Promise<PluginRefreshResult>>();
   const builtinCatalogRefresher = {
     refresh: (tenantId?: string) => {
       const refreshKey = tenantId ?? '*';
       const existing = builtinPluginRefreshPromises.get(refreshKey);
       if (existing) return existing;
       const refreshPromise = (async () => {
+        const beforeVersions = await unifiedPluginsService.listBuiltinVersions();
         const versions = await initializeBuiltinPlugins(
           unifiedPluginsService,
           pluginWorkflowPublisher,
           { registry: builtinPluginRegistry },
         );
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
+        const afterVersions = versions.map(toPluginRefreshVersionSnapshot);
         return {
           refreshedAt: new Date().toISOString(),
-          versions: versions.map((version) => ({
-            id: version.id,
-            pluginId: version.pluginId,
-            version: version.version,
-            status: version.status,
-          })),
+          versions: afterVersions,
+          beforeVersions: beforeVersions.map(toPluginRefreshVersionSnapshot),
+          changes: buildPluginRefreshChanges(beforeVersions.map(toPluginRefreshVersionSnapshot), afterVersions),
           projection,
         };
       })().finally(() => {
@@ -1448,6 +1570,79 @@ function readCloudCredentialContract(
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * 向导身份只能使用 Agent 投影保存的真实配置摘要。不能以目标 ID、更新时间或
+ * 任意字符串拼接替代，否则配置漂移后仍可能把旧选择提交到错误的 Nginx 位置。
+ */
+function configFingerprintFromManagedTargetMetadata(metadata: Record<string, unknown>): string | undefined {
+  const certificateLocation = isRecordValue(metadata.certificateLocation) ? metadata.certificateLocation : {};
+  const listener = isRecordValue(metadata.listener) ? metadata.listener : {};
+  return configFingerprintFromRecords([metadata, certificateLocation, listener]);
+}
+
+function configFingerprintFromDiscoveredSite(site: {
+  metadata?: Record<string, unknown>;
+  bindings?: Array<{ deploymentTarget?: Record<string, unknown> }>;
+}): string | undefined {
+  const bindingFacts = (site.bindings ?? []).flatMap((binding) => (
+    binding.deploymentTarget ? [binding.deploymentTarget] : []
+  ));
+  return configFingerprintFromRecords([
+    site.metadata ?? {},
+    ...bindingFacts,
+  ]);
+}
+
+function configFingerprintFromRecords(records: readonly Record<string, unknown>[]): string | undefined {
+  for (const record of records) {
+    const value = record.configFingerprint;
+    if (typeof value === 'string' && /^[A-Fa-f0-9]{64}$/.test(value.trim())) return value.trim();
+  }
+  return undefined;
+}
+
+function toPluginRefreshVersionSnapshot(version: UnifiedPluginVersionRecord): PluginRefreshVersionSnapshot {
+  return {
+    id: version.id,
+    pluginId: version.pluginId,
+    version: version.version,
+    status: version.status,
+  };
+}
+
+export function buildPluginRefreshChanges(
+  beforeVersions: readonly PluginRefreshVersionSnapshot[],
+  afterVersions: readonly PluginRefreshVersionSnapshot[],
+): PluginRefreshChange[] {
+  const beforeByPlugin = new Map<string, PluginRefreshVersionSnapshot>();
+  const afterByPlugin = new Map<string, PluginRefreshVersionSnapshot>();
+  beforeVersions.forEach((version) => {
+    if (!beforeByPlugin.has(version.pluginId)) beforeByPlugin.set(version.pluginId, version);
+  });
+  afterVersions.forEach((version) => {
+    if (!afterByPlugin.has(version.pluginId)) afterByPlugin.set(version.pluginId, version);
+  });
+
+  const pluginIds = new Set([...beforeByPlugin.keys(), ...afterByPlugin.keys()]);
+  return [...pluginIds].sort((left, right) => left.localeCompare(right)).map((pluginId) => {
+    const before = beforeByPlugin.get(pluginId);
+    const after = afterByPlugin.get(pluginId);
+    const changeType: PluginRefreshChange['changeType'] = !before
+      ? 'ADDED'
+      : !after
+        ? 'REMOVED'
+        : before.version !== after.version || before.status !== after.status
+          ? 'UPDATED'
+          : 'UNCHANGED';
+    return {
+      pluginId,
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+      changeType,
+    };
+  });
 }
 
 export function getRouteContracts(
