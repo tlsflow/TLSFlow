@@ -68,13 +68,22 @@ function readTextIfSafe(absolutePath) {
   return buffer.toString('utf8')
 }
 
-export function inspectPublicTree({ rootDirectory, config }) {
+export function inspectPublicTree({ rootDirectory, config, checkRequiredPublicFiles = true }) {
   const forbiddenPathPatterns = compilePatterns(config.forbiddenPathPatterns)
   const sensitiveFilePatterns = compilePatterns(config.sensitiveFilePatterns)
   const sensitiveContentPatterns = compilePatterns(config.sensitiveContentPatterns)
   const violations = []
   const files = listFiles(rootDirectory)
   const hashes = {}
+
+  if (checkRequiredPublicFiles) {
+    const requiredPublicFiles = (config.requiredPublicFiles ?? []).map(normalizeRelativePath)
+    for (const requiredPath of requiredPublicFiles) {
+      if (!files.some((file) => file.relativePath === requiredPath)) {
+        violations.push({ type: 'required-path', path: requiredPath })
+      }
+    }
+  }
 
   for (const file of files) {
     const pathIsAllowed = matchesPublicPath(file.relativePath, config)
@@ -103,16 +112,22 @@ export function inspectPublicTree({ rootDirectory, config }) {
     hashes[file.relativePath] = crypto.createHash('sha256').update(fs.readFileSync(file.absolutePath)).digest('hex')
   }
 
+  const migrationFiles = files
+    .map((file) => file.relativePath)
+    .filter((relativePath) => /^backend\/src\/database\/migrations\/[^/]+\.sql$/.test(relativePath))
+    .sort()
+
   return {
     ok: violations.length === 0,
     fileCount: files.length,
     hashes,
+    migrationFiles,
     violations,
   }
 }
 
-export function assertPublicTree({ rootDirectory, config }) {
-  const result = inspectPublicTree({ rootDirectory, config })
+export function assertPublicTree({ rootDirectory, config, checkRequiredPublicFiles = true }) {
+  const result = inspectPublicTree({ rootDirectory, config, checkRequiredPublicFiles })
   if (!result.ok) {
     const summary = result.violations.map((item) => `${item.type}: ${item.path}`).join('\n')
     throw new Error(`公开目录检查失败：\n${summary}`)
@@ -145,13 +160,14 @@ if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1
     const manifest = {
       generatedAt: new Date().toISOString(),
       fileCount: result.fileCount,
+      migrationFiles: result.migrationFiles,
       hashes: result.hashes,
       scanStatus: 'passed',
     }
     if (options.manifestPath) {
       fs.writeFileSync(options.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     }
-    process.stdout.write(`公开目录检查通过：${result.fileCount} 个文件\n`)
+    process.stdout.write(`公开目录检查通过：${result.fileCount} 个文件；活动迁移 ${result.migrationFiles.length} 个\n`)
   } catch (error) {
     process.stderr.write(`${error.message}\n`)
     process.exitCode = 1

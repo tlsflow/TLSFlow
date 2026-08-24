@@ -34,6 +34,9 @@
     "compatibility",
     "web"
   ],
+  "requiredPublicFiles": [
+    "backend/src/database/migrations/20260823000000_unified_current_baseline.sql"
+  ],
   "generatedFiles": [
     {
       "source": "scripts/public-release/public-repository.gitignore",
@@ -61,7 +64,6 @@
     "^AGENTS\\.md$",
     "^\\.workflow/0014-generate-public-candidate\\.yml$",
     "^backend/src/modules/licensing(?:/|$)",
-    "^backend/src/database/migrations/20260804000100_licensing_baseline\\.sql$",
     "^web/src/views/settings/LicensingView\\.vue$",
     "^web/src/api/modules/licensing\\.api\\.ts$",
     "^web/src/i18n/licensing\\.locale\\.ts$",

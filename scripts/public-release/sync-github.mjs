@@ -64,6 +64,7 @@ function main() {
     tagName: tagName || null,
     githubCommit: runGit(['rev-parse', 'HEAD'], repositoryRoot),
     fileCount: scanResult.fileCount,
+    migrationFiles: scanResult.migrationFiles,
     scanStatus: 'passed',
   }, null, 2)}\n`)
 }
