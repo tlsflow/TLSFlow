@@ -15,7 +15,7 @@ import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, Workflo
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
+import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
@@ -826,37 +826,24 @@ export class ControlPlaneTlsExecutor implements Executor {
     }
     try {
       const report = await probeTlsCertificate(target);
+      const expectedDomains = readStringArray(verification?.expectedDomains);
+      const evaluation = evaluateTlsVerification(report, expectedFingerprint, expectedDomains, input.dryRun);
       const actualFingerprint = normalizeCertificateFingerprint(report.remoteCertificateSha256);
-      if (!expectedFingerprint || actualFingerprint !== expectedFingerprint) {
+      if (!evaluation.success) {
         return {
           success: false,
-          errorCode: expectedFingerprint ? 'TLS_VERIFY_FINGERPRINT_MISMATCH' : 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING',
-          errorMessage: expectedFingerprint ? '宿主证书验证发现远端 TLS 证书与目标证书不一致' : '宿主证书验证缺少目标证书 SHA256 指纹',
-          detail: { mode: 'control_plane_tls_verify_failed', verify: report, expectedFingerprintSha256: expectedFingerprint },
+          errorCode: evaluation.errorCode,
+          errorMessage: evaluation.errorMessage,
+          detail: { mode: 'control_plane_tls_verify_failed', verify: report, expectedFingerprintSha256: expectedFingerprint, domainMismatches: evaluation.domainMismatches },
         };
-      }
-      const expectedDomains = readStringArray(verification?.expectedDomains);
-      for (const domain of expectedDomains) {
-        const normalized = domain.trim().toLowerCase();
-        if (!normalized) continue;
-        if (!certificateMatchesDomain(report, normalized)) {
-          return {
-            success: false,
-            errorCode: 'TLS_VERIFY_DOMAIN_MISMATCH',
-            errorMessage: `控制面 VERIFY 发现远端 TLS 证书域名不匹配: ${domain}`,
-            detail: {
-              mode: 'control_plane_tls_verify_failed',
-              verify: report,
-              expectedDomains,
-            },
-          };
-        }
       }
       return {
         success: true,
         detail: {
-          mode: 'control_plane_tls_verify',
+          mode: input.dryRun ? 'control_plane_tls_verify_preflight' : 'control_plane_tls_verify',
           executor: this.type,
+          warning: evaluation.warning === true,
+          changeRequired: evaluation.changeRequired === true,
           verify: report,
           certificateVerification: {
             capabilityKey: 'certificate.verify',
@@ -864,7 +851,8 @@ export class ControlPlaneTlsExecutor implements Executor {
             source: 'CONTROL_PLANE',
             expectedFingerprintSha256: expectedFingerprint,
             remoteCertificateSha256: actualFingerprint,
-            matched: true,
+            matched: evaluation.matched,
+            domainMismatches: evaluation.domainMismatches,
           },
           newThumbprint: report.remoteThumbprint,
         },

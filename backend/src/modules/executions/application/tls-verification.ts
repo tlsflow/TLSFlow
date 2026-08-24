@@ -17,6 +17,67 @@ export type TlsVerifyReport = Record<string, unknown> & {
   commonName?: string;
 };
 
+export type TlsVerificationEvaluation = {
+  success: boolean;
+  warning?: boolean;
+  changeRequired?: boolean;
+  matched: boolean;
+  domainMismatches: string[];
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export function evaluateTlsVerification(
+  report: TlsVerifyReport,
+  expectedFingerprint: string | undefined,
+  expectedDomains: string[],
+  dryRun: boolean,
+): TlsVerificationEvaluation {
+  if (!expectedFingerprint) {
+    return {
+      success: false,
+      matched: false,
+      domainMismatches: [],
+      errorCode: 'CERT_VERIFY_EXPECTED_FINGERPRINT_MISSING',
+      errorMessage: '宿主证书验证缺少目标证书 SHA256 指纹',
+    };
+  }
+
+  const actualFingerprint = normalizeCertificateFingerprint(report.remoteCertificateSha256);
+  const matched = actualFingerprint === expectedFingerprint;
+  const domainMismatches = expectedDomains
+    .map((domain) => domain.trim())
+    .filter((domain) => domain && !certificateMatchesDomain(report, domain));
+  if (dryRun) {
+    return {
+      success: true,
+      warning: !matched || domainMismatches.length > 0,
+      changeRequired: !matched,
+      matched,
+      domainMismatches,
+    };
+  }
+  if (!matched) {
+    return {
+      success: false,
+      matched,
+      domainMismatches,
+      errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH',
+      errorMessage: '宿主证书验证发现远端 TLS 证书与目标证书不一致',
+    };
+  }
+  if (domainMismatches.length > 0) {
+    return {
+      success: false,
+      matched,
+      domainMismatches,
+      errorCode: 'TLS_VERIFY_DOMAIN_MISMATCH',
+      errorMessage: `控制面 VERIFY 发现远端 TLS 证书域名不匹配: ${domainMismatches[0]}`,
+    };
+  }
+  return { success: true, matched, domainMismatches };
+}
+
 export function buildTlsVerifyTargetFromUrl(verifyUrl: string): TlsVerifyTarget {
   const parsed = new URL(verifyUrl);
   const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80;
@@ -129,6 +190,11 @@ function certificateNameMatchesDomain(pattern: string, domain: string): boolean 
 
 function normalizeDomainName(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase().replace(/\.$/, '');
+  return normalized || undefined;
+}
+
+function normalizeCertificateFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/:/g, '').trim().toLowerCase();
   return normalized || undefined;
 }
 
