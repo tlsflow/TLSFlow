@@ -10,7 +10,7 @@ import type { ApiRecord } from '@/api/modules/common'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
-import type { ViewRow } from '@/composables/useBusinessPage'
+import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
 const { t } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
@@ -177,7 +177,15 @@ const config = computed<BusinessPageConfig>(() => ({
   showTotalInPagination: true,
   columns: [
     { key: 'name', title: t('devices.columns.name'), candidates: ['displayName', 'id'], width: '13%' },
-    { key: 'category', title: t('devices.columns.category'), candidates: ['category'], width: '8%' },
+    {
+      key: 'category',
+      title: t('devices.columns.category'),
+      candidates: ['category'],
+      format: (record) => String(record.category ?? '').toUpperCase() === 'NETWORK_APPLIANCE'
+        ? t('devices.categories.appliance')
+        : readString(record, ['category']),
+      width: '8%',
+    },
     { key: 'productFamily', title: t('devices.columns.productFamily'), candidates: ['productFamily'], width: '11%' },
     { key: 'managementMethod', title: t('devices.columns.managementMethod'), candidates: ['managementMethod'], width: '10%' },
     { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '13%' },
