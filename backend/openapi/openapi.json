@@ -502,6 +502,68 @@
         }
       }
     },
+    "/api/v1/security/users/lookup-external": {
+      "post": {
+        "operationId": "lookupExternalSecurityUser",
+        "summary": "检索身份源用户",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/users/external": {
+      "post": {
+        "operationId": "createExternalSecurityUser",
+        "summary": "创建身份源用户",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/security/users/status": {
       "patch": {
         "operationId": "updateSecurityUserStatus",
@@ -1048,6 +1110,37 @@
         }
       }
     },
+    "/api/v1/deployment-plans/update-from-application-asset": {
+      "post": {
+        "operationId": "updateDeploymentPlanFromApplicationAsset",
+        "summary": "编辑应用资产部署计划草稿",
+        "tags": [
+          "DeploymentPlans"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/deployment-plans/submit": {
       "post": {
         "operationId": "submitDeploymentPlan",
@@ -1269,6 +1362,37 @@
       "get": {
         "operationId": "listExecutionSteps",
         "summary": "查询执行步骤",
+        "tags": [
+          "Executions"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/execution-runs/stream": {
+      "get": {
+        "operationId": "streamExecutionRunDetail",
+        "summary": "实时订阅执行详情",
         "tags": [
           "Executions"
         ],
@@ -1760,6 +1884,68 @@
       "get": {
         "operationId": "getServiceAssetDetail",
         "summary": "查询 ServiceAsset 详情",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/service-assets/:id/deployment-strategy": {
+      "patch": {
+        "operationId": "updateServiceAssetDeploymentStrategyById",
+        "summary": "按 ID 更新 ServiceAsset 证书部署策略",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/service-assets/deployment-strategy": {
+      "patch": {
+        "operationId": "updateServiceAssetDeploymentStrategy",
+        "summary": "更新 ServiceAsset 证书部署策略",
         "tags": [
           "Assets"
         ],
@@ -2419,6 +2605,37 @@
       "post": {
         "operationId": "previewDiscoveryMerge",
         "summary": "预览发现结果合并",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/assets/refresh-from-agent": {
+      "post": {
+        "operationId": "refreshAssetsFromAgent",
+        "summary": "通过 Agent 主动刷新资产",
         "tags": [
           "Assets"
         ],
@@ -6078,6 +6295,68 @@
         }
       }
     },
+    "/api/v1/workflow-template-runs/test-step": {
+      "post": {
+        "operationId": "testWorkflowTemplateStep",
+        "summary": "执行单节点模拟运行",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/overview": {
+      "get": {
+        "operationId": "getDashboardOverview",
+        "summary": "查询总览聚合",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/monitors/scan": {
       "post": {
         "operationId": "scanMonitorRisks",
@@ -6109,10 +6388,95 @@
         }
       }
     },
+    "/api/v1/monitors/probe": {
+      "post": {
+        "operationId": "probeMonitorServiceAsset",
+        "summary": "执行应用资产监控探测",
+        "tags": [
+          "Monitors"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/monitors/risks": {
       "get": {
         "operationId": "listMonitorRisks",
         "summary": "查询监控风险事件",
+        "tags": [
+          "Monitors"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/monitors/certificate-observations": {
+      "get": {
+        "operationId": "listMonitorCertificateObservations",
+        "summary": "查询实测证书变更历史",
         "tags": [
           "Monitors"
         ],
@@ -6435,5 +6799,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-06-30T07:54:28.899Z"
+  "x-generatedAt": "2026-07-03T05:45:58.117Z"
 }
