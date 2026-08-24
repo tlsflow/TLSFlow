@@ -16,7 +16,7 @@ lastVerified: 2026-08-22
 
 # 部署参数
 
-环境变量（Environment Variable，进程启动时读取的配置项）必须在容器启动前准备。带“必填”的变量缺失时，Compose 会拒绝启动；带“敏感”的变量只能放在受控 Secret 或本机权限受限的环境文件中。
+环境变量（Environment Variable，进程启动时读取的配置项）必须在容器启动前准备。带“必填”的变量缺失时，Compose 会拒绝启动；带“敏感”的变量只能放在权限受限的环境文件中。
 
 ## 两种拓扑固定值
 
@@ -40,11 +40,7 @@ lastVerified: 2026-08-22
 | `POSTGRES_PASSWORD` | 标准版 PostgreSQL 密码 |
 | `BROWSER_RUNTIME_SHARED_SECRET` | Backend 与浏览器运行时之间的共享密钥 |
 
-Plugin Runner 的固定路径和版本由镜像提供，不需要写入环境文件。Policy Authority
-和 Agent Local Policy 的实例级信任根、签名私钥、Bootstrap、KeySet 和策略包由生产
-容器首启随机生成，并使用 `GCAC_SECRET_KEK` 加密保存到 `/app/data/runtime/runtime-secrets.enc`。
-该目录必须持久化；删除它会生成全新的信任根，替换 `GCAC_SECRET_KEK` 会导致服务失败关闭。
-不要在文档、日志或工单中粘贴解密后的材料。
+运行时安全材料（信任根、签名私钥、密钥集合和策略包等）由容器首次启动时自动生成，并使用 `GCAC_SECRET_KEK` 加密保存到 `/app/data/runtime/runtime-secrets.enc`。该目录必须持久化：删除它会生成全新的信任根，更换 `GCAC_SECRET_KEK` 会导致服务无法启动。不要在任何文档、日志或工单中粘贴解密后的材料。
 
 ## 数据库与持久化目录
 
@@ -90,7 +86,7 @@ Plugin Runner 的固定路径和版本由镜像提供，不需要写入环境文
 | `BROWSER_RUNTIME_MAX_SESSIONS` | `4` | 浏览器会话上限 |
 | `VITE_PRODUCT_EDITION` | `public` | 构建时产品版本标识，只接受 `public` 或 `enterprise` |
 
-代码还读取 Agent 离线判断、设备存活探测、监控、自动化、CA 同步、ACME 续签和任务 Worker（后台任务进程）的间隔/并发变量，例如 `AGENT_OFFLINE_TIMEOUT_SECONDS`、`DEVICE_LIVENESS_PROBE_INTERVAL_MS`、`MONITOR_PROBE_SCHEDULER_INTERVAL_MS`、`AUTOMATION_SCHEDULER_INTERVAL_MS` 和 `GCAC_TASK_WORKER_INTERVAL_MS`。这些变量只用于容量调优，不是新功能开关；没有明确容量证据时保持代码默认值。
+系统还读取 Agent 离线判断、设备存活探测、监控、自动化、CA 同步、ACME 续签和任务 Worker（后台任务进程）的间隔/并发变量，例如 `AGENT_OFFLINE_TIMEOUT_SECONDS`、`DEVICE_LIVENESS_PROBE_INTERVAL_MS`、`MONITOR_PROBE_SCHEDULER_INTERVAL_MS`、`AUTOMATION_SCHEDULER_INTERVAL_MS` 和 `GCAC_TASK_WORKER_INTERVAL_MS`。这些变量只用于容量调优，不是新功能开关；没有明确容量证据时保持默认值。
 
 ## 明确不用于生产的变量
 

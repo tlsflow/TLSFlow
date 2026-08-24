@@ -18,11 +18,11 @@ lastVerified: 2026-08-22
 
 # 标准部署
 
-标准版由四个服务组成：PostgreSQL（关系数据库）保存业务数据，Backend 提供 API，Web 提供控制台，Browser Runtime 提供凭据浏览器会话。Browser Runtime 只在 Docker 内网暴露 `8787`，不应直接发布到公网。
+标准版由四个服务组成：PostgreSQL（关系数据库）保存业务数据，Backend 提供 API，Web 提供控制台，Browser Runtime 提供凭据浏览器会话。Browser Runtime 仅在内网使用，不应直接暴露到公网。
 
 ## 1. 准备变量
 
-在当前 Shell 或 CI Secret 中至少设置 `POSTGRES_PASSWORD`、`GCAC_TOKEN_SECRET`、`GCAC_INITIAL_ADMIN_PASSWORD`、`GCAC_SECRET_KEK`、`GCAC_CA_CONFIRMATION_SECRET`、`BROWSER_RUNTIME_SHARED_SECRET`，以及插件 Runner 和策略授权进程要求的变量。完整清单见[部署参数](./deployment-parameters.md)。如果用本地文件保存变量，执行 Compose 前必须先安全导出到当前 Shell。
+在当前 Shell 环境变量中至少设置 `POSTGRES_PASSWORD`、`GCAC_TOKEN_SECRET`、`GCAC_INITIAL_ADMIN_PASSWORD`、`GCAC_SECRET_KEK`、`GCAC_CA_CONFIRMATION_SECRET`、`BROWSER_RUNTIME_SHARED_SECRET`，以及插件 Runner 和策略授权进程要求的变量。完整清单见[部署参数](./deployment-parameters.md)。如果用本地文件保存变量，执行 Compose 前必须先安全导出到当前 Shell。
 
 ## 2. 构建 Agent 发布包和镜像
 
@@ -32,17 +32,15 @@ lastVerified: 2026-08-22
 node docker/build-tools/build-agent-release-bundle.mjs
 ```
 
-脚本会生成 Linux/Windows Agent、Windows Compatibility Agent 安装资源、`manifest.json` 和 SHA-256（安全散列）清单。缺少 Windows Compatibility Agent 产物时构建失败；不能把源码目录直接放入镜像。
+脚本会生成 Linux/Windows Agent、Windows Compatibility Agent 安装资源、`manifest.json` 和 SHA-256（安全散列）清单。
 
-公开仓库只做本地可复现构建，不执行 `docker login` 或 `--push`：
-
-公开仓库只做本地可复现构建，不执行 `docker login` 或 `--push`：
+然后构建镜像：
 
 ```bash
 node docker/build-tools/build-local.mjs --architecture standard
 ```
 
-跨平台构建只能使用发布矩阵中的 `linux/amd64` 和 `linux/arm64`。镜像发布属于私有发布流水线，不是本页的部署步骤。
+跨平台构建仅支持 `linux/amd64` 和 `linux/arm64`。
 
 ## 3. 启动服务
 
@@ -71,6 +69,4 @@ Compose 文件使用命名卷保存 PostgreSQL 和工作流数据：
 | `gcac_postgres` | PostgreSQL 数据库 |
 | `gcac_standard_workflows` | 用户工作流目录 `/app/data/workflows` |
 
-用户插件从宿主机 `data/plugins/<pluginId>/` 以只读方式挂载，目录需要纳入运维备份。升级前必须先备份；标准版不等于高可用集群，当前代码没有提供自动故障转移或多主复制承诺。
-
-本地构建脚本只把镜像加载到当前 Docker 主机，不会自动推送 Docker Hub；镜像发布属于独立发布流程。
+用户插件目录 `data/plugins/` 以只读方式挂载，需纳入运维备份。升级前必须先备份；标准版面向单机运行，未提供自动故障转移等集群能力。
