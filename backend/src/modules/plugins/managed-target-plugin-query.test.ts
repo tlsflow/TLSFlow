@@ -9,9 +9,12 @@ import { PgAgentsRepository } from '../agents/repository/agents.repository.js';
 import { ManagedTargetPluginQueryService } from './application/managed-target-plugin-query.service.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
+import { PluginWorkflowPublisherService } from './application/plugin-workflow-publisher.service.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
+import { PluginWorkflowBindingsRepository } from './repository/plugin-workflow-bindings.repository.js';
 import { PgUnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
+import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 
 test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assignment', async () => {
   const db = new PgliteDatabase();
@@ -42,45 +45,49 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     },
   });
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
-  const imported = await plugins.importVersion(tenantId, {
-    manifest: {
-      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'fixture.managed', version: '1.0.0', displayNameKey: 'fixture.managed', publisher: 'test',
-      defaultLocale: 'zh-CN',
-      runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED', permissions: [],
-      capabilities: [{ key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['CONTROL_PLANE'] }],
-      compatibility: { productFamilies: ['citrix.netscaler-adc'], frameworkTypes: ['adc.load-balancer'], targetTypes: ['tls.binding'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'], artifactContracts: ['certificate.deploy.v1'] },
-      resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' }, locales: { 'zh-CN': 'locales/zh-CN.json' } },
-    },
-    resources: {
-      'workflows/deploy.json': JSON.stringify({
-        apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'fixture-managed-deploy', version: '1.0.0' },
-        inputContract: {
-          apiVersion: 'gcac.deployment-input/v1',
-          variables: {
-            virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-            allowInsecureTls: { type: 'boolean', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
-          },
-          connections: {},
-          credentials: {},
-          artifacts: {
-            certificate: {
-              kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution',
-              artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
-            },
-          },
-        },
+  const manifest = {
+    apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'fixture.managed', version: '1.0.0', displayNameKey: 'fixture.managed', publisher: 'test',
+    defaultLocale: 'zh-CN',
+    runtime: 'WORKFLOW_DSL' as const, source: 'USER' as const, scope: 'MANAGED' as const, trust: 'UNSIGNED' as const, support: 'SELF_MANAGED' as const, permissions: [],
+    capabilities: [{ key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH' as const, executionLocations: ['CONTROL_PLANE' as const] }],
+    compatibility: { productFamilies: ['citrix.netscaler-adc'], frameworkTypes: ['adc.load-balancer'], targetTypes: ['tls.binding'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'], artifactContracts: ['certificate.deploy.v1'] },
+    resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' }, locales: { 'zh-CN': 'locales/zh-CN.json' } },
+  };
+  const resources = {
+    'workflows/deploy.json': JSON.stringify({
+      apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'fixture-managed-deploy', version: '1.0.0' },
+      inputContract: {
+        apiVersion: 'gcac.deployment-input/v1',
         variables: {
           virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+          allowInsecureTls: { type: 'boolean', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+        },
+        connections: {},
+        credentials: {},
+        artifacts: {
           certificate: {
-            type: 'certificate', required: true,
+            kind: 'certificate', required: true, configurationMode: 'required', lifecycle: 'pre_execution',
             artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
           },
         },
-        steps: [{ name: 'deploy', type: 'transform', stage: 'install', transform: { engine: 'jsonata', input: {}, outputs: { result: { expression: '{}' } } } }],
-      }),
-      'locales/zh-CN.json': JSON.stringify({ 'fixture.managed': 'Fixture 受管证书部署' }),
-    },
+      },
+      variables: {
+        virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+        certificate: {
+          type: 'certificate', required: true,
+          artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
+        },
+      },
+      steps: [{ name: 'deploy', type: 'transform', stage: 'install', transform: { engine: 'jsonata', input: {}, outputs: { result: { expression: '{}' } } } }],
+    }),
+    'locales/zh-CN.json': JSON.stringify({ 'fixture.managed': 'Fixture 受管证书部署' }),
+  };
+  const older = await plugins.importVersion(tenantId, {
+    manifest: { ...manifest, version: '0.9.0' },
+    resources,
   });
+  await plugins.enableVersion(older.id);
+  const imported = await plugins.importVersion(tenantId, { manifest, resources });
   await plugins.enableVersion(imported.id);
   const publishedWorkflow = {
     pluginVersionId: imported.id,
@@ -108,11 +115,6 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     publishedWorkflow.workflowVersionId,
     publishedWorkflow.contentHash,
   ]);
-  const older = await plugins.importVersion(tenantId, {
-    manifest: { ...imported.manifest, version: '0.9.0' },
-    resources: imported.resources,
-  });
-  await plugins.enableVersion(older.id);
   const builtinLatestVersionId = 'builtin-fixture-managed-1-1-25';
   const builtinLocales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'fr-FR', 'ru-RU', 'pt-BR'];
   const builtinManifest = {
@@ -144,6 +146,13 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
       `sha256:locale-builtin-${locale}`,
     ]);
   }
+  await db.query(`insert into unified_plugin_resources
+    (plugin_version_id,resource_path,resource_content,resource_sha256,created_at)
+    values ($1,'workflows/deploy.json',$2,$3,now())`, [
+    builtinLatestVersionId,
+    resources['workflows/deploy.json'],
+    'sha256:workflow-builtin-deploy',
+  ]);
   await db.query(`insert into unified_plugin_workflow_bindings
     (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
     values ($1,'SYSTEM',null,'certificate.deploy','certificate.deploy','workflows/deploy.json',$2,$3,$4,now())`, [
@@ -500,6 +509,11 @@ test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书�
   const packages = (await loader.loadPackages()).filter((item) => ['web.nginx.linux', 'web.nginx.windows'].includes(String((item.manifest as { pluginId?: string }).pluginId)));
   const installed = await loader.installPackages(plugins, packages);
   assert.equal(installed.some((item) => item.pluginId === 'web.nginx.windows'), true);
+  const workflowPublisher = new PluginWorkflowPublisherService(
+    new WorkflowTemplatesApplicationService(),
+    new PluginWorkflowBindingsRepository(db),
+  );
+  for (const plugin of installed) await workflowPublisher.publishPlugin(plugin);
 
   const compatible = await new ManagedTargetPluginQueryService(db).listCompatiblePlugins({
     tenantId,

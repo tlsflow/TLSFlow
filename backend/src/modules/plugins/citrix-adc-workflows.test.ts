@@ -112,6 +112,14 @@ test('Citrix ADC 所有 Workflow 只声明统一部署输入协议', async () =>
     helpKey: 'deploymentInputs.allowInsecureTls.help',
   });
   assert.deepEqual(Object.keys(deploy.inputContract.artifacts), ['certificate']);
+  assert.deepEqual(Object.keys(deploy.inputContract.artifacts.certificate.artifactContract.outputs), [
+    'leafPem', 'privateKeyPem', 'orderedChainPem', 'fingerprintSha256',
+  ]);
+  assert.equal(JSON.stringify(deploy).includes('artifacts.certificate.outputs.leafPemBase64'), false);
+  assert.equal(JSON.stringify(deploy).includes('artifacts.certificate.outputs.privateKeyPemBase64'), false);
+  assert.equal(deploy.steps.find((item: Record<string, any>) => item.name === 'prepareCertificatePayload')?.type, 'transform');
+  assert.equal(deploy.steps.find((item: Record<string, any>) => item.name === 'uploadLeafCertificate')?.request.body.systemfile.fileencoding, 'BASE64');
+  assert.equal(deploy.steps.find((item: Record<string, any>) => item.name === 'uploadPrivateKey')?.request.body.systemfile.fileencoding, 'BASE64');
   assert.equal(JSON.stringify(deploy).includes('deviceHost'), false);
   assert.equal(JSON.stringify(deploy).includes('managementPort'), false);
 });
@@ -544,6 +552,13 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
     mockResponses: deploymentResponses(),
   });
   assert.equal(result.status, 'success');
+  const payload = result.stepResults.find((item) => item.name === 'prepareCertificatePayload');
+  assert.equal(payload?.extracted.leafPemBase64, Buffer.from(String((deploymentVariables().certificate as Record<string, unknown>).leafPem)).toString('base64'));
+  assert.equal(payload?.extracted.privateKeyPemBase64, '[REDACTED]');
+  assert.deepEqual((payload?.extracted.orderedIntermediates as Array<Record<string, unknown>>).map((item) => ({ sequence: item.sequence, nextSequence: item.nextSequence, hasNext: item.hasNext })), [
+    { sequence: 1, nextSequence: 2, hasNext: true },
+    { sequence: 2, nextSequence: undefined, hasNext: false },
+  ]);
   assert.deepEqual(result.stepResults.map((item) => item.name).slice(-6), [
     'bindTargets', 'prepareOldBindingRemoval', 'selectOldBindingsToRemove', 'removeOldBindings', 'saveConfiguration', 'verifyCertificateControlPlane',
   ]);
@@ -567,8 +582,8 @@ test('Citrix ADC Dry-run 对运行时发现结果延迟展开 foreach', async ()
   assert.equal(result.plannedOnly, true);
   assert.match(result.stepResults.find((item) => item.name === 'readOldCertKeys')?.logs[0] ?? '', /:deferred:/);
   assert.equal((result.stepResults.find((item) => item.name === 'deploymentCheckpoint')?.plan as { deferred?: boolean }).deferred, true);
+  assert.match(result.stepResults.find((item) => item.name === 'installIntermediates')?.logs[0] ?? '', /:deferred:/);
   assert.match(result.stepResults.find((item) => item.name === 'removeOldBindings')?.logs[0] ?? '', /:deferred:/);
-  assert.equal((result.stepResults.find((item) => item.name === 'installIntermediates')?.plan as { itemCount?: number }).itemCount, 2);
 });
 
 test('Citrix ADC 部署目标缺少 SNI 元数据时默认 false，并继承已有 SNI 绑定', async () => {
@@ -821,9 +836,9 @@ test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接
   assetBinding.artifacts.certificate = {
     certificateFormatId: 'format_citrix_pem',
     outputBindings: {
-      leafPemBase64: 'leafPemBase64',
-      privateKeyPemBase64: 'privateKeyPemBase64',
-      orderedIntermediates: 'orderedIntermediates',
+      leafPem: 'leafPem',
+      privateKeyPem: 'privateKeyPem',
+      orderedChainPem: 'orderedChainPem',
       fingerprintSha256: 'fingerprintSha256',
     },
   };
@@ -954,9 +969,7 @@ test('Citrix ADC 中间证书同内容已存在时复用设备返回的 certkey 
   const { version } = await workflows.createTemplate({ content });
   const variables = deploymentVariables();
   const certificate = variables.certificate as Record<string, unknown>;
-  certificate.orderedIntermediates = [
-    { sequence: 1, hasNext: false, pemBase64: Buffer.from('ca-1').toString('base64') },
-  ];
+  certificate.orderedChainPem = '-----BEGIN CERTIFICATE-----\nCA-1\n-----END CERTIFICATE-----\n';
   const responses = deploymentResponses();
   responses.createIntermediateCertKey = {
     statusCode: 409,
@@ -1135,13 +1148,10 @@ function deploymentVariables(): Record<string, unknown> {
     allowInsecureTls: true,
     certificateKeyName: 'gcac-leaf-20260724',
     certificate: {
-      leafPemBase64: Buffer.from('leaf').toString('base64'),
-      privateKeyPemBase64: Buffer.from('private').toString('base64'),
+      leafPem: '-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n',
+      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nPRIVATE\n-----END PRIVATE KEY-----\n',
       fingerprintSha256: 'aa'.repeat(32),
-      orderedIntermediates: [
-        { sequence: 1, nextSequence: 2, hasNext: true, pemBase64: Buffer.from('ca-1').toString('base64') },
-        { sequence: 2, hasNext: false, pemBase64: Buffer.from('ca-2').toString('base64') },
-      ],
+      orderedChainPem: '-----BEGIN CERTIFICATE-----\nCA-1\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nCA-2\n-----END CERTIFICATE-----\n',
     },
     targetVirtualServers: [{ name: 'lb-one', serverName: 'lb.example.com', metadata: { sniCertificate: false, previousFingerprintSha256: 'bb'.repeat(32) } }],
   };

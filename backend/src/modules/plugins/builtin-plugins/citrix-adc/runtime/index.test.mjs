@@ -103,10 +103,10 @@ test('Citrix Runner 拒绝篡改的 Action Binding 和写操作标记', async ()
   }
 });
 
-test('Citrix 证书部署保留 26 个 DSL 步骤和 16 个 rollback 步骤', () => {
+test('Citrix 证书部署保留 27 个 DSL 步骤和 16 个 rollback 步骤', () => {
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(workflow.kind, 'CurlSshWorkflow');
-  assert.equal(workflow.steps.length, 26);
+  assert.equal(workflow.steps.length, 27);
   assert.equal(workflow.rollback.length, 16);
   assert.equal(workflow.steps.some((step) => step.type === 'plugin.action'), false);
   assert.equal(workflow.rollback.some((step) => step.type === 'plugin.action'), false);

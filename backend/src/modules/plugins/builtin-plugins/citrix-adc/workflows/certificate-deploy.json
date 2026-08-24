@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-deploy",
     "displayName": "Citrix ADC certificate deployment",
     "category": "certificate",
-    "version": "2.0.17",
+    "version": "2.0.18",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -55,10 +55,10 @@
         "lifecycle": "pre_execution",
         "artifactContract": {
           "outputs": {
-            "leafPemBase64": { "role": "public_certificate", "required": true, "format": "PEM_BASE64", "encoding": "Base64" },
-            "privateKeyPemBase64": { "role": "private_key", "required": true, "format": "PEM_BASE64", "encoding": "Base64", "sensitive": true },
-            "orderedIntermediates": { "role": "certificate_chain", "required": false, "format": "PEM_BASE64_ARRAY", "encoding": "Base64" },
-            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "HEX", "encoding": "UTF-8" }
+            "leafPem": { "role": "public_certificate", "required": true, "format": "pem", "encoding": "utf8" },
+            "privateKeyPem": { "role": "private_key", "required": true, "format": "pem", "encoding": "utf8", "sensitive": true },
+            "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "pem", "encoding": "utf8" },
+            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "hex", "encoding": "utf8" }
           }
         }
       }
@@ -228,6 +228,27 @@
       }
     },
     {
+      "name": "prepareCertificatePayload",
+      "type": "transform",
+      "stage": "install",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "leafPem": "{{artifacts.certificate.outputs.leafPem}}",
+          "privateKeyPem": "{{artifacts.certificate.outputs.privateKeyPem}}",
+          "orderedChainPem": "{{artifacts.certificate.outputs.orderedChainPem}}"
+        },
+        "outputs": {
+          "leafPemBase64": { "expression": "$base64encode($string(leafPem))", "sensitive": false },
+          "privateKeyPemBase64": { "expression": "$base64encode($string(privateKeyPem))", "sensitive": true },
+          "orderedIntermediates": {
+            "expression": "($blocks := $filter($split($string(orderedChainPem), '-----END CERTIFICATE-----'), function($block) { $contains($block, '-----BEGIN CERTIFICATE-----') }); $append([], $map($blocks, function($block, $index) { $merge([{'sequence': $index + 1, 'hasNext': $index + 1 < $count($blocks)}, $index + 1 < $count($blocks) ? {'nextSequence': $index + 2} : {}, {'pemBase64': $base64encode($block & '-----END CERTIFICATE-----\\n')}]) })))"
+          }
+        },
+        "timeoutMs": 1000
+      }
+    },
+    {
       "name": "uploadLeafCertificate",
       "type": "http",
       "stage": "install",
@@ -238,7 +259,7 @@
         "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
       "bodyType": "json",
-      "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.leafPemBase64}}", "fileencoding": "BASE64" } },
+      "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{steps.prepareCertificatePayload.extracted.leafPemBase64}}", "fileencoding": "BASE64" } },
       "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
       "successStatusCodes": [200, 201, 209]
       },
@@ -255,7 +276,7 @@
         "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
       "bodyType": "json",
-      "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{artifacts.certificate.outputs.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
+      "body": { "systemfile": { "filename": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{steps.prepareCertificatePayload.extracted.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
       "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
       "successStatusCodes": [200, 201, 209]
       },
@@ -266,7 +287,7 @@
       "type": "foreach",
       "stage": "install",
       "foreach": {
-        "itemsPath": "artifacts.certificate.outputs.orderedIntermediates",
+        "itemsPath": "steps.prepareCertificatePayload.extracted.orderedIntermediates",
         "itemVariable": "intermediate",
         "maxItems": 16,
         "steps": [
@@ -314,7 +335,7 @@
       "transform": {
         "engine": "jsonata",
         "input": {
-          "intermediates": "{{artifacts.certificate.outputs.orderedIntermediates}}",
+          "intermediates": "{{steps.prepareCertificatePayload.extracted.orderedIntermediates}}",
           "iterations": "{{steps.installIntermediates.output.iterations}}",
           "newCertificateKeyName": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}"
         },
