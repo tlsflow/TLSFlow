@@ -32,7 +32,6 @@ import { CertificatesController, createCertificateServices, getCertificateRouteC
 import { CaAutoSyncScheduler, CaOperationsRepository, CaSyncWorker, getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
-import { ProvidersApplicationService, ProvidersController, getProvidersRouteContracts, PgProvidersRepository } from './modules/providers/index.js';
 import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts } from './modules/compatibility-catalog/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
@@ -320,10 +319,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('executionDetailStream', executionDetailStream);
   new ExecutionsController(executionsService, executionDetailStream, workflowRecoveryService).register(app.router);
 
-  const providersService = new ProvidersApplicationService({
-    assetsService,
-    repository: new PgProvidersRepository(appDb),
-  });
   const automationsRepository = new AutomationsRepository(appDb);
   const automationTargetSelector = new AutomationTargetSelector(
     certificateServices.certificates.getRepository(),
@@ -389,7 +384,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new CapabilitiesController(capabilitiesService).register(app.router);
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
-  new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
   new PluginsController(
     unifiedPluginsService,
@@ -479,7 +473,6 @@ export function getRouteContracts(): RouteContract[] {
     ...getCapabilitiesRouteContracts(),
     ...getAgentsRouteContracts(),
     ...getGatewayRouteContracts(),
-    ...getProvidersRouteContracts(),
     ...getCompatibilityCatalogRouteContracts(),
     ...getPluginsRouteContracts(),
     ...getWorkflowTemplateRouteContracts(),
