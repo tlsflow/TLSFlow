@@ -39,6 +39,37 @@ export interface ListMonitorTargetsQuery {
   filter: Record<string, string>;
 }
 
+export interface ListMonitorProbeResultsQuery {
+  tenantId?: string;
+  monitorTargetId?: string;
+  serviceAssetId?: string;
+  pageSize?: number;
+}
+
+export interface MonitorProbeResultDto {
+  id: string;
+  tenantId: string;
+  monitorTargetId?: string;
+  serviceAssetId: string;
+  source: 'control_plane' | 'gateway';
+  url: string;
+  status: 'READY' | 'WARNING' | 'ERROR';
+  success: boolean;
+  latencyMs: number;
+  checkedAt: string;
+  message: string;
+  httpStatus?: number;
+  certificate?: Record<string, unknown>;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SaveMonitorProbeResultInput {
+  tenantId: string;
+  monitorTargetId?: string;
+  result: ProbeServiceAssetResult;
+}
+
 export interface CreateMonitorTargetInput {
   tenantId: string;
   serviceAssetId: string;
@@ -117,6 +148,7 @@ export interface AutomationHealthInput {
 
 export interface ProbeServiceAssetInput {
   tenantId?: string;
+  monitorTargetId?: string;
   serviceAssetId: string;
   timeoutMs?: number;
 }

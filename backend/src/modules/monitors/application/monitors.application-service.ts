@@ -12,9 +12,11 @@ import type {
   CollectMonitorRisksInput,
   CreateAlertRuleInput,
   CreateMonitorTargetInput,
+  ListMonitorProbeResultsQuery,
   ListMonitorTargetsQuery,
   ListRiskEventsQuery,
   MonitorDashboardDto,
+  MonitorProbeResultDto,
   MonitorTargetDto,
   MonitorTargetPageDto,
   ProbeServiceAssetInput,
@@ -137,6 +139,42 @@ export class MonitorsApplicationService {
     return this.repository.deleteMonitorTarget(tenantId, id);
   }
 
+  async listMonitorProbeResults(query: ListMonitorProbeResultsQuery = {}): Promise<MonitorProbeResultDto[]> {
+    return this.repository.listMonitorProbeResults(query);
+  }
+
+  async runDueMonitorTargetProbes(input: { maxTargets?: number; now?: string } = {}): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
+    const maxTargets = normalizeWorkerLimit(input.maxTargets);
+    const now = input.now ? new Date(input.now) : new Date();
+    const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3);
+    let checkedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+
+    for (const target of candidates) {
+      if (checkedCount >= maxTargets) break;
+      const latest = await this.repository.getLatestMonitorProbeResult(target.tenantId, target.id);
+      if (!isProbeDue(target, latest, now)) {
+        skippedCount += 1;
+        continue;
+      }
+
+      try {
+        await this.probeServiceAsset({
+          tenantId: target.tenantId,
+          monitorTargetId: target.id,
+          serviceAssetId: target.serviceAssetId,
+          timeoutMs: 10_000,
+        });
+        checkedCount += 1;
+      } catch {
+        failedCount += 1;
+      }
+    }
+
+    return { checkedCount, skippedCount, failedCount };
+  }
+
   async createAlertRule(input: CreateAlertRuleInput): Promise<AlertRuleDto> {
     return this.repository.createAlertRule(this.domain.normalizeCreateAlertRule(input));
   }
@@ -158,6 +196,13 @@ export class MonitorsApplicationService {
     const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
     const result = await probeFromControlPlane(asset.id, url, timeoutMs);
     await this.saveCertificateObservationIfChanged(tenantId, result);
+    if (input.monitorTargetId) {
+      await this.repository.saveMonitorProbeResult({
+        tenantId,
+        monitorTargetId: input.monitorTargetId,
+        result,
+      });
+    }
     return result;
   }
 
@@ -243,6 +288,18 @@ function normalizeMonitorMetrics(value: MonitorMetric[] | undefined): MonitorMet
 
 function normalizeMonitorTargetStatus(value: MonitorTargetStatus | undefined): MonitorTargetStatus {
   return value && monitorTargetStatuses.includes(value) ? value : 'active';
+}
+
+function normalizeWorkerLimit(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 20;
+  return Math.min(100, Math.max(1, Math.trunc(value!)));
+}
+
+function isProbeDue(target: MonitorTargetDto, latest: MonitorProbeResultDto | undefined, now: Date): boolean {
+  if (!latest) return true;
+  const latestCheckedAt = Date.parse(latest.checkedAt);
+  if (!Number.isFinite(latestCheckedAt)) return true;
+  return now.getTime() - latestCheckedAt >= normalizeMonitorInterval(target.intervalSeconds) * 1000;
 }
 
 function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {

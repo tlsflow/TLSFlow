@@ -8,11 +8,14 @@ import type {
   CreateAlertRuleInput,
   CreateMonitorTargetInput,
   ListCertificateObservationsQuery,
+  ListMonitorProbeResultsQuery,
   ListMonitorTargetsQuery,
+  MonitorProbeResultDto,
   ListRiskEventsQuery,
   MonitorTargetDto,
   MonitorTargetPageDto,
   SaveCertificateObservationInput,
+  SaveMonitorProbeResultInput,
   UpdateMonitorTargetInput,
   UpsertRiskEventInput,
 } from '../dto/monitors.dto.js';
@@ -21,9 +24,13 @@ export interface MonitorsRepository {
   readonly moduleName: 'monitors';
   createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
   listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto>;
+  listActiveMonitorTargetsForScheduler(limit: number): Promise<MonitorTargetDto[]>;
   getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined>;
   updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto>;
   deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto>;
+  saveMonitorProbeResult(input: SaveMonitorProbeResultInput): Promise<MonitorProbeResultDto>;
+  listMonitorProbeResults(query?: ListMonitorProbeResultsQuery): Promise<MonitorProbeResultDto[]>;
+  getLatestMonitorProbeResult(tenantId: string, monitorTargetId: string): Promise<MonitorProbeResultDto | undefined>;
   upsertRiskEvent(input: UpsertRiskEventInput): Promise<RiskEvent>;
   listRiskEvents(query?: ListRiskEventsQuery): Promise<RiskEvent[]>;
   getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined>;
@@ -82,6 +89,17 @@ export class PgMonitorsRepository implements MonitorsRepository {
       [query.tenantId],
     )).rows.map(toMonitorTarget);
     return page(rows, query, monitorTargetFilter);
+  }
+
+  async listActiveMonitorTargetsForScheduler(limit: number): Promise<MonitorTargetDto[]> {
+    const rows = (await this.db.query<MonitorTargetRow>(
+      `select * from pg_monitor_targets
+       where deleted_at is null and status = 'active'
+       order by updated_at asc
+       limit $1`,
+      [Math.max(1, Math.trunc(limit))],
+    )).rows;
+    return rows.map(toMonitorTarget);
   }
 
   async getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined> {
@@ -151,6 +169,73 @@ export class PgMonitorsRepository implements MonitorsRepository {
       [tenantId, serviceAssetId],
     )).rows[0];
     return row ? toMonitorTarget(row) : undefined;
+  }
+
+  async saveMonitorProbeResult(input: SaveMonitorProbeResultInput): Promise<MonitorProbeResultDto> {
+    const now = new Date().toISOString();
+    const item: MonitorProbeResultDto = {
+      id: newId('mprobe'),
+      tenantId: input.tenantId,
+      monitorTargetId: input.monitorTargetId,
+      serviceAssetId: input.result.serviceAssetId,
+      source: input.result.source,
+      url: input.result.url,
+      status: input.result.status,
+      success: input.result.success,
+      latencyMs: input.result.latencyMs,
+      checkedAt: input.result.checkedAt,
+      message: input.result.message,
+      httpStatus: input.result.httpStatus,
+      certificate: input.result.certificate,
+      detail: input.result.detail ?? {},
+      createdAt: now,
+    };
+    await this.db.query(`insert into pg_monitor_probe_results (
+      id, tenant_id, monitor_target_id, service_asset_id, source, probe_url, status,
+      success, latency_ms, checked_at, message, http_status, certificate, detail, created_at
+    ) values (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz,$11,$12,$13::jsonb,$14::jsonb,$15::timestamptz
+    )`, [
+      item.id,
+      item.tenantId,
+      item.monitorTargetId ?? null,
+      item.serviceAssetId,
+      item.source,
+      item.url,
+      item.status,
+      item.success,
+      item.latencyMs,
+      item.checkedAt,
+      item.message,
+      item.httpStatus ?? null,
+      JSON.stringify(item.certificate ?? null),
+      JSON.stringify(item.detail),
+      item.createdAt,
+    ]);
+    return item;
+  }
+
+  async listMonitorProbeResults(query: ListMonitorProbeResultsQuery = {}): Promise<MonitorProbeResultDto[]> {
+    const rows = (await this.db.query<MonitorProbeResultRow>(
+      `select * from pg_monitor_probe_results order by checked_at desc, created_at desc`,
+    )).rows.map(toMonitorProbeResult);
+    const pageSize = normalizePageSize(query.pageSize);
+    return rows
+      .filter((item) => query.tenantId === undefined || item.tenantId === query.tenantId)
+      .filter((item) => query.monitorTargetId === undefined || item.monitorTargetId === query.monitorTargetId)
+      .filter((item) => query.serviceAssetId === undefined || item.serviceAssetId === query.serviceAssetId)
+      .slice(0, pageSize);
+  }
+
+  async getLatestMonitorProbeResult(tenantId: string, monitorTargetId: string): Promise<MonitorProbeResultDto | undefined> {
+    const row = (await this.db.query<MonitorProbeResultRow>(
+      `select * from pg_monitor_probe_results
+       where tenant_id = $1 and monitor_target_id = $2
+       order by checked_at desc, created_at desc
+       limit 1`,
+      [tenantId, monitorTargetId],
+    )).rows[0];
+    return row ? toMonitorProbeResult(row) : undefined;
   }
 
   async upsertRiskEvent(input: UpsertRiskEventInput): Promise<RiskEvent> {
@@ -403,6 +488,24 @@ type MonitorTargetRow = {
   version: number;
 };
 
+type MonitorProbeResultRow = {
+  id: string;
+  tenant_id: string;
+  monitor_target_id?: string | null;
+  service_asset_id: string;
+  source: string;
+  probe_url: string;
+  status: string;
+  success: boolean;
+  latency_ms: number;
+  checked_at: string | Date;
+  message: string;
+  http_status?: number | null;
+  certificate?: unknown;
+  detail: unknown;
+  created_at: string | Date;
+};
+
 function toMonitorTarget(row: MonitorTargetRow): MonitorTargetDto {
   const metrics = Array.isArray(row.metrics)
     ? row.metrics.map(String).filter((item) => ['availability', 'latency', 'certificate', 'certificateHistory'].includes(item))
@@ -420,6 +523,26 @@ function toMonitorTarget(row: MonitorTargetRow): MonitorTargetDto {
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,
     version: row.version,
+  };
+}
+
+function toMonitorProbeResult(row: MonitorProbeResultRow): MonitorProbeResultDto {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    monitorTargetId: row.monitor_target_id ?? undefined,
+    serviceAssetId: row.service_asset_id,
+    source: row.source as MonitorProbeResultDto['source'],
+    url: row.probe_url,
+    status: row.status as MonitorProbeResultDto['status'],
+    success: row.success,
+    latencyMs: Number(row.latency_ms),
+    checkedAt: toIsoText(row.checked_at),
+    message: row.message,
+    httpStatus: row.http_status ?? undefined,
+    certificate: Object.keys(asObject(row.certificate)).length === 0 ? undefined : asObject(row.certificate),
+    detail: asObject(row.detail),
+    createdAt: toIsoText(row.created_at),
   };
 }
 
@@ -578,4 +701,8 @@ function asObject(value: unknown): Record<string, unknown> {
 function normalizePageSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return 200;
   return Math.min(500, Math.max(1, Math.trunc(value!)));
+}
+
+function toIsoText(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : String(value);
 }

@@ -253,13 +253,13 @@ describe('监控风险 API', () => {
     assert.equal(jobs.every((job) => job.scope.tenantId === 'tenant_jobs' && job.scope.hostId === 'host_1'), true);
   });
 
-  it('监控目标通过后端持久化，支持列表、新增、更新和删除', async () => {
-    const { app, assetsService } = await createMonitorHarness();
+  it('监控目标通过后端持久化，并由后端调度写入探测结果', async () => {
+    const { app, assetsService, monitors } = await createMonitorHarness();
     const headers = { 'x-tenant-id': 'tenant_monitor_targets', 'x-actor-id': 'monitor_bot' };
     const asset = await assetsService.createServiceAsset('tenant_monitor_targets', {
-      address: 'target.example.com',
-      port: 443,
-      protocol: 'HTTPS',
+      address: '127.0.0.1',
+      port: 9,
+      protocol: 'HTTP',
       platform: 'LINUX',
       discoverySource: 'MANUAL',
       status: 'ACTIVE',
@@ -289,6 +289,20 @@ describe('监控风险 API', () => {
     const listed = await app.inject({ method: 'GET', path: '/api/v1/monitors/targets?page=1&pageSize=20', headers });
     assert.equal(listed.statusCode, 200);
     assert.equal((listed.body as { total: number }).total, 1);
+
+    const firstRun = await monitors.runDueMonitorTargetProbes({ maxTargets: 5, now: '2026-07-04T00:00:00.000Z' });
+    assert.equal(firstRun.checkedCount, 1);
+    const probeResults = await app.inject({ method: 'GET', path: '/api/v1/monitors/probe-results?page=1&pageSize=20', headers });
+    assert.equal(probeResults.statusCode, 200);
+    const probePage = probeResults.body as { total: number; items: Array<{ monitorTargetId: string; serviceAssetId: string; status: string }> };
+    assert.equal(probePage.total, 1);
+    assert.equal(probePage.items[0]!.monitorTargetId, target.id);
+    assert.equal(probePage.items[0]!.serviceAssetId, asset.id);
+    assert.equal(['READY', 'WARNING', 'ERROR'].includes(probePage.items[0]!.status), true);
+
+    const secondRun = await monitors.runDueMonitorTargetProbes({ maxTargets: 5, now: '2026-07-04T00:00:10.000Z' });
+    assert.equal(secondRun.checkedCount, 0);
+    assert.equal(secondRun.skippedCount >= 1, true);
 
     const updated = await app.inject({
       method: 'PATCH',

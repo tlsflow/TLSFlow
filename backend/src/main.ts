@@ -6,6 +6,7 @@ import { loadEnvFile } from './config/load-env.js';
 import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
 import type { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
+import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -75,6 +76,28 @@ async function start(): Promise<void> {
           draining = false;
         });
     }, workerIntervalMs);
+  }
+
+  const monitorsService = app.getResource<MonitorsApplicationService>('monitorsService');
+  if (monitorsService) {
+    const monitorIntervalMs = Number(process.env.MONITOR_PROBE_WORKER_INTERVAL_MS ?? '5000');
+    const maxTargetsPerTick = Number(process.env.MONITOR_PROBE_WORKER_MAX_TARGETS_PER_TICK ?? '20');
+    let probing = false;
+    const tick = () => {
+      if (probing) return;
+      probing = true;
+      void monitorsService.runDueMonitorTargetProbes({ maxTargets: maxTargetsPerTick })
+        .catch((error: unknown) => {
+          structuredLogger.warn('Monitor probe worker failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'monitor-probe-worker' });
+        })
+        .finally(() => {
+          probing = false;
+        });
+    };
+    tick();
+    setInterval(tick, monitorIntervalMs);
   }
 
   const server = app.createNodeServer();

@@ -22,6 +22,7 @@ export class MonitorsController {
     router.post('/api/v1/monitors/scan', '触发监控风险扫描', tags, (request) => this.scan(request));
     router.post('/api/v1/monitors/probe', '执行应用资产监控探测', tags, (request) => this.probe(request));
     router.get('/api/v1/monitors/risks', '查询监控风险事件', tags, (request) => this.listRisks(request));
+    router.get('/api/v1/monitors/probe-results', '查询监控探测结果', tags, (request) => this.listProbeResults(request));
     router.get('/api/v1/monitors/certificate-observations', '查询实测证书变更历史', tags, (request) => this.listCertificateObservations(request));
     router.get('/api/v1/monitors/dashboard', '查询监控仪表盘聚合', tags, (request) => this.getDashboard(request));
     router.post('/api/v1/monitors/alert-rules', '创建监控告警规则', tags, (request) => this.createAlertRule(request));
@@ -104,6 +105,7 @@ export class MonitorsController {
 
   private async probe(request: HttpRequest) {
     const body = validateObject(request.body ?? {}, {
+      monitorTargetId: { type: 'string' },
       serviceAssetId: { type: 'string', required: true },
       timeoutMs: { type: 'number' },
     });
@@ -111,6 +113,7 @@ export class MonitorsController {
       statusCode: 200,
       body: await this.service.probeServiceAsset({
         tenantId: tenantId(request),
+        monitorTargetId: body.monitorTargetId === undefined ? undefined : String(body.monitorTargetId),
         serviceAssetId: String(body.serviceAssetId),
         timeoutMs: body.timeoutMs === undefined ? undefined : Number(body.timeoutMs),
       }),
@@ -123,6 +126,21 @@ export class MonitorsController {
       status: readOptionalQueryString(request, 'status') as typeof RiskStatuses[number] | undefined,
       severity: readOptionalQueryString(request, 'severity') as typeof severity[number] | undefined,
       type: readOptionalQueryString(request, 'type') as typeof riskEventTypes[number] | undefined,
+    });
+    return {
+      items,
+      page: 1,
+      pageSize: 200,
+      total: items.length,
+    };
+  }
+
+  private async listProbeResults(request: HttpRequest) {
+    const items = await this.service.listMonitorProbeResults({
+      tenantId: tenantId(request),
+      monitorTargetId: readOptionalQueryString(request, 'monitorTargetId') ?? readOptionalQueryString(request, 'filter[monitorTargetId]'),
+      serviceAssetId: readOptionalQueryString(request, 'serviceAssetId') ?? readOptionalQueryString(request, 'filter[serviceAssetId]'),
+      pageSize: Number(readOptionalQueryString(request, 'pageSize') ?? 200),
     });
     return {
       items,
@@ -219,6 +237,7 @@ export function getMonitorRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/monitors/scan', operationId: 'scanMonitorRisks', summary: '触发监控风险扫描', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/monitors/probe', operationId: 'probeMonitorServiceAsset', summary: '执行应用资产监控探测', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/monitors/risks', operationId: 'listMonitorRisks', summary: '查询监控风险事件', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/monitors/probe-results', operationId: 'listMonitorProbeResults', summary: '查询监控探测结果', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/monitors/certificate-observations', operationId: 'listMonitorCertificateObservations', summary: '查询实测证书变更历史', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/monitors/dashboard', operationId: 'getMonitorDashboard', summary: '查询监控仪表盘聚合', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/monitors/alert-rules', operationId: 'createMonitorAlertRule', summary: '创建监控告警规则', tags, responseSchema: objectSchema() },

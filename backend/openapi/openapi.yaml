@@ -4517,6 +4517,42 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500: 
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/monitors/probe-results: 
+    get: 
+      operationId: "listMonitorProbeResults"
+      summary: "查询监控探测结果"
+      tags: 
+        - "Monitors"
+      responses: 
+        200: 
+          description: "成功"
+          content: 
+            application/json: 
+              schema: 
+                type: "object"
+                required: 
+                  - "items"
+                  - "page"
+                  - "pageSize"
+                  - "total"
+                properties: 
+                  items: 
+                    type: "array"
+                    items: 
+                      type: "object"
+                      additionalProperties: true
+                  page: 
+                    type: "number"
+                  pageSize: 
+                    type: "number"
+                  total: 
+                    type: "number"
+        400: 
+          $ref: "#/components/responses/ErrorResponse"
+        404: 
+          $ref: "#/components/responses/ErrorResponse"
+        500: 
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/monitors/certificate-observations: 
     get: 
       operationId: "listMonitorCertificateObservations"
@@ -4735,4 +4771,4 @@ tags:
   - 
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-03T13:57:32.987Z"
+x-generatedAt: "2026-07-04T13:41:20.600Z"
