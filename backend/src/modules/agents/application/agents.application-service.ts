@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
@@ -6,8 +10,8 @@ import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 import {
@@ -20,7 +24,7 @@ import {
   type AgentSecurityStatus,
   type AgentV2ContractType,
 } from '../security/agent-security.contract.js';
-import { AGENT_RELEASE_SIGNING_KEY_ID, getLinuxAgentInstallMaterials, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
+import { AGENT_RELEASE_SIGNING_KEY_ID, buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest, getLinuxAgentInstallMaterials, LINUX_AGENT_RELEASE_VERSION, type LinuxAgentArtifactReference } from './linux-agent-bundle.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
@@ -98,6 +102,27 @@ export interface AgentInstallTaskProjection {
     dataDir: string;
     logDir: string;
   };
+}
+
+interface AgentInstallSessionManifest {
+  sessionId: string;
+  platform: AgentInstallSession['platform'];
+  serviceName: string;
+  displayName: string;
+  installRoot: string;
+  configDir: string;
+  dataDir: string;
+  logDir: string;
+  role: 'full_agent' | 'gateway';
+  startAfterInstall: boolean;
+  controlPlaneUrl: string;
+  agentKey: string;
+  tenantId: string;
+  enrollmentToken: string;
+  zone: string;
+  bundleUrl?: string;
+  bundleManifest?: ReturnType<typeof getLinuxAgentBundleManifest>;
+  artifacts?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
 }
 
 const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
@@ -980,6 +1005,89 @@ export class AgentsApplicationService {
     return { deleted: true, agentId: agent.id };
   }
 
+  async createAgentInstallSession(
+    tenantId: string,
+    input: CreateAgentInstallSessionInput,
+    requestId: string,
+    baseUrl: string,
+  ): Promise<AgentInstallSessionBootstrapProjection> {
+    if (input.platform === 'windows_go') await ensureWindowsGoBundleAvailable();
+    if (input.platform === 'windows_compatibility') await ensureWindowsCompatibilityBundleAvailable();
+    if (input.platform === 'linux_go') buildLinuxAgentBundleTarGz();
+    const session = this.domain.createAgentInstallSession(tenantId, input, requestId, baseUrl);
+    const { bootstrapToken, enrollmentTokenRecord, ...stored } = session;
+    await this.repository.createEnrollmentToken(enrollmentTokenRecord);
+    await this.repository.createInstallSession(stored);
+    const encodedToken = encodeURIComponent(bootstrapToken);
+    const route = installRouteForPlatform(stored.platform);
+    const bootstrapUrl = `${stored.controlPlaneUrl}${route}?token=${encodedToken}`;
+    const installCommand = installCommandForPlatform(stored.platform, bootstrapUrl);
+    return {
+      sessionId: stored.id,
+      platform: stored.platform,
+      expiresAt: stored.expiresAt,
+      bootstrapUrl,
+      installCommand,
+      bootstrapTokenPreview: stored.bootstrapTokenPreview,
+      serviceName: stored.serviceName,
+      displayName: stored.displayName,
+      installRoot: stored.installRoot,
+      configDir: stored.configDir,
+      dataDir: stored.dataDir,
+      logDir: stored.logDir,
+      agentKey: stored.agentKey,
+      zone: stored.zone,
+      enrollmentTokenPreview: enrollmentTokenRecord.tokenPreview,
+      ...optionalBundleUrl(stored),
+    };
+  }
+
+  async consumeInstallSessionByToken(bootstrapToken: string, usedByIp?: string): Promise<AgentInstallSession> {
+    const tokenHash = this.domain.hashInstallBootstrapToken(bootstrapToken);
+    const usedAt = new Date().toISOString();
+    const consumed = await this.repository.consumeInstallSessionByTokenHash(tokenHash, usedAt, usedByIp);
+    if (consumed) return consumed;
+
+    const existing = await this.repository.findInstallSessionByTokenHashAnyTenant(tokenHash);
+    if (!existing) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
+    if (new Date(existing.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
+    if (existing.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
+    throw new AppError('RESOURCE_VERSION_CONFLICT', '安装会话消费冲突');
+  }
+
+  async getInstallSessionByToken(bootstrapToken: string): Promise<AgentInstallSession> {
+    const session = await this.repository.findInstallSessionByTokenHashAnyTenant(this.domain.hashInstallBootstrapToken(bootstrapToken));
+    if (!session) throw new AppError('RESOURCE_NOT_FOUND', '安装会话不存在');
+    if (new Date(session.expiresAt).getTime() < Date.now()) throw new AppError('AUTH_FORBIDDEN', '安装会话已过期');
+    if (session.usedAt) throw new AppError('AUTH_FORBIDDEN', '安装会话已被使用');
+    return session;
+  }
+
+  async buildWindowsInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
+    requireInstallPlatform(session.platform, WINDOWS_INSTALL_PLATFORMS, '安装会话不是 Windows 平台');
+    return {
+      ...this.baseInstallManifest(session, baseUrl),
+      artifacts: await WINDOWS_ARTIFACT_LOADERS[session.platform](),
+    };
+  }
+
+  async buildWindowsGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
+    return this.buildWindowsInstallManifest(session, baseUrl);
+  }
+
+  buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): AgentInstallSessionManifest {
+    requireInstallPlatform(session.platform, ['linux_go_systemd'], '安装会话不是 Linux Go 平台');
+    return {
+      ...this.baseInstallManifest(session, baseUrl),
+      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
+      bundleManifest: getLinuxAgentBundleManifest(LINUX_AGENT_RELEASE_VERSION),
+    };
+  }
+
+  buildLinuxBundleTarGz(): Buffer {
+    return buildLinuxAgentBundleTarGz();
+  }
+
   async createAgentInstallMaterials(
     tenantId: string,
     input: AgentInstallMaterialRequest,
@@ -1024,6 +1132,26 @@ export class AgentsApplicationService {
       enrollmentToken,
       materials: [material],
       task,
+    };
+  }
+
+  private baseInstallManifest(session: AgentInstallSession, baseUrl: string): AgentInstallSessionManifest {
+    return {
+      sessionId: session.id,
+      platform: session.platform,
+      serviceName: session.serviceName,
+      displayName: session.displayName,
+      installRoot: session.installRoot,
+      configDir: session.configDir,
+      dataDir: session.dataDir,
+      logDir: session.logDir,
+      role: session.role,
+      startAfterInstall: session.startAfterInstall,
+      controlPlaneUrl: baseUrl,
+      agentKey: session.agentKey,
+      tenantId: session.tenantId,
+      enrollmentToken: session.enrollmentToken,
+      zone: session.zone,
     };
   }
 
@@ -1649,6 +1777,125 @@ function assertSupportedAgentTaskPayload(payload: Record<string, unknown>): void
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+const currentFilePath = fileURLToPath(import.meta.url);
+const currentDirPath = path.dirname(currentFilePath);
+const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
+const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
+const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'bin', 'Release');
+const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
+const WINDOWS_ARTIFACT_LOADERS: Record<typeof WINDOWS_INSTALL_PLATFORMS[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
+  windows_go_service: loadWindowsGoAgentArtifacts,
+  windows_compatibility_service: loadWindowsCompatibilityAgentArtifacts,
+};
+
+function installRouteForPlatform(platform: AgentInstallSession['platform']): string {
+  const routes: Record<AgentInstallSession['platform'], string> = {
+    windows_go_service: '/agent-install.ps1',
+    windows_compatibility_service: '/agent-install.ps1',
+    linux_go_systemd: '/agent-install',
+  };
+  return routes[platform];
+}
+
+function installCommandForPlatform(platform: AgentInstallSession['platform'], bootstrapUrl: string): string {
+  const commands: Record<AgentInstallSession['platform'], string> = {
+    windows_go_service: `irm '${bootstrapUrl}' | iex`,
+    windows_compatibility_service: `irm '${bootstrapUrl}' | iex`,
+    linux_go_systemd: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
+  };
+  return commands[platform];
+}
+
+function optionalBundleUrl(session: Pick<AgentInstallSession, 'platform' | 'controlPlaneUrl'>): { bundleUrl?: string } {
+  const bundlePathByPlatform: Partial<Record<AgentInstallSession['platform'], string>> = {
+    linux_go_systemd: '/api/v1/agents/install/linux/bundle.tar.gz',
+  };
+  const bundlePath = bundlePathByPlatform[session.platform];
+  return bundlePath ? { bundleUrl: `${session.controlPlaneUrl}${bundlePath}` } : {};
+}
+
+function requireInstallPlatform<T extends readonly AgentInstallSession['platform'][]>(platform: AgentInstallSession['platform'], supported: T, message: string): asserts platform is T[number] {
+  if (!supported.includes(platform)) throw new AppError('VALIDATION_FAILED', message);
+}
+
+async function ensureWindowsGoBundleAvailable(): Promise<void> {
+  if (!existsSync(path.join(windowsGoAgentRoot, 'gcac-agent.exe'))) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent 可执行文件未构建，不能生成一键安装命令');
+  }
+}
+
+async function loadWindowsGoAgentArtifacts() {
+  await ensureWindowsGoBundleAvailable();
+  const artifacts = await walkWindowsAgentArtifacts(windowsGoAgentRoot, [
+    'gcac-agent.exe',
+    'install-service.ps1',
+    'service-control.ps1',
+    'uninstall-service.ps1',
+    'config/agent.config.template.json',
+    'release/verify-signature.ps1',
+  ]);
+  return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function ensureWindowsCompatibilityBundleAvailable(): Promise<void> {
+  const executable = path.join(windowsCompatibilityReleaseRoot, 'GCAC.WindowsCompatibilityAgent.exe');
+  const config = `${executable}.config`;
+  if (!existsSync(executable) || !existsSync(config)) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows Compatibility Agent 可执行文件未构建，不能生成一键安装命令');
+  }
+}
+
+async function loadWindowsCompatibilityAgentArtifacts() {
+  await ensureWindowsCompatibilityBundleAvailable();
+  const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, [
+    'GCAC.WindowsCompatibilityAgent.exe',
+    'GCAC.WindowsCompatibilityAgent.exe.config',
+  ]);
+  return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function walkWindowsAgentArtifacts(
+  currentDir: string,
+  allowedPaths: readonly string[],
+  relativeDir = '',
+): Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>> {
+  const entries = await import('node:fs/promises').then(({ readdir }) => readdir(currentDir, { withFileTypes: true }));
+  const artifacts: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
+  for (const entry of entries) {
+    const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (allowedPaths.some((allowed) => allowed.startsWith(`${relativePath}/`))) {
+        artifacts.push(...await walkWindowsAgentArtifacts(path.join(currentDir, entry.name), allowedPaths, relativePath));
+      }
+      continue;
+    }
+    if (!allowedPaths.includes(relativePath)) continue;
+    const absolutePath = path.join(currentDir, entry.name);
+    const extension = path.extname(entry.name).toLowerCase();
+    const binary = extension === '.exe' || extension === '.dll';
+    artifacts.push({
+      path: relativePath.replace(/\\/gu, '/'),
+      content: binary ? (await readFile(absolutePath)).toString('base64') : stripUtf8Bom(await readFile(absolutePath, 'utf8')),
+      encoding: binary ? 'base64' : 'utf8',
+    });
+  }
+  return artifacts;
+}
+
+function resolveRepositoryAgentRoot(agentDirectoryName: string): string {
+  const backendMarker = `${path.sep}backend${path.sep}`;
+  const backendMarkerIndex = currentDirPath.lastIndexOf(backendMarker);
+  if (backendMarkerIndex >= 0) {
+    const repositoryRoot = currentDirPath.slice(0, backendMarkerIndex);
+    return path.join(repositoryRoot, 'agents', agentDirectoryName);
+  }
+  return path.resolve(process.cwd(), '..', 'agents', agentDirectoryName);
+}
+
+function stripUtf8Bom(value: string): string {
+  return value.replace(/^\uFEFF/u, '');
 }
 
 interface InstallMaterialProfile {

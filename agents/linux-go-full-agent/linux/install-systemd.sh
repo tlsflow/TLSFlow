@@ -25,6 +25,10 @@ SIGNATURE_FILE="${SIGNATURE_FILE:-${BINARY_SOURCE_PATH}.sig}"
 SIGNATURE_VERIFIER="${SIGNATURE_VERIFIER:-}"
 
 verify_signature() {
+  if [ "${GCAC_SKIP_RELEASE_SIGNATURE_VERIFY:-}" = "bootstrap-fixed-bundle" ]; then
+    echo "警告：本次通过控制面固定 bootstrap bundle 安装，跳过本地发布签名文件校验。"
+    return
+  fi
   [ -n "${PUBLIC_KEY_FILE}" ] || { echo "错误：systemd 安装必须提供发布公钥" >&2; exit 1; }
   [ -n "${SIGNATURE_FILE}" ] || { echo "错误：systemd 安装必须提供发布签名" >&2; exit 1; }
   SIGNATURE_VERIFIER="${SIGNATURE_VERIFIER}" "${BUNDLE_DIR}/release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${BINARY_SOURCE_PATH}" "${SIGNATURE_FILE}" || {

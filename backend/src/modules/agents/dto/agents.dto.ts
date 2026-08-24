@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import type { AgentSecurityStatus } from '../security/agent-security.contract.js';
 
@@ -190,6 +190,20 @@ export interface DeleteAgentInput {
   actorId: string;
 }
 
+export interface CreateAgentInstallSessionInput {
+  platform: 'windows_go' | 'windows_compatibility' | 'linux_go';
+  role?: 'full_agent' | 'gateway';
+  zone?: string;
+  agentKey?: string;
+  serviceName?: string;
+  displayName?: string;
+  installRoot?: string;
+  configDir?: string;
+  dataDir?: string;
+  logDir?: string;
+  startAfterInstall?: boolean;
+}
+
 export interface EnrollmentTokenDto extends EnrollmentToken {
   token?: string;
 }
@@ -206,6 +220,26 @@ export interface AgentTaskLogCursorDto extends AgentTaskLogCursor {}
 export interface AgentRuntimeLogEntryDto extends AgentRuntimeLogEntry {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
+export interface AgentInstallSessionDto extends AgentInstallSession {}
+
+export interface AgentInstallSessionBootstrapProjection {
+  sessionId: string;
+  platform: 'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd';
+  expiresAt: string;
+  bootstrapUrl: string;
+  installCommand: string;
+  bootstrapTokenPreview: string;
+  serviceName: string;
+  displayName: string;
+  installRoot: string;
+  configDir: string;
+  dataDir: string;
+  logDir: string;
+  agentKey: string;
+  zone: string;
+  enrollmentTokenPreview: string;
+  bundleUrl?: string;
+}
 
 export interface AgentCertificateIssueResult {
   csr: AgentCertificateSigningRequest;

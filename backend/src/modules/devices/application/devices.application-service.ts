@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { ManagedDeviceDetailDto, ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 import { DevicePlatformRegistry } from '../domain/device-platform.registry.js';
-import type { AgentInstallMaterialPlatform, AgentsApplicationService } from '../../agents/application/agents.application-service.js';
+import type { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import type { AgentDetailProjection } from '../../agents/dto/agents.dto.js';
 import { DeviceAssetsDomainService } from '../../device-assets/domain/device-assets.domain-service.js';
 import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
@@ -95,16 +95,16 @@ export class DevicesApplicationService {
     return this.platformRegistry.list();
   }
 
-  async onboard(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string, requestId: string) {
+  async onboard(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string, requestId: string, installBaseUrl?: string) {
     if (input.platformKey !== 'plugin') {
       const platform = this.platformRegistry.requireSupported(input.platformKey);
       if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 安装服务未注册');
       const installPlatform = resolveAgentInstallPlatform(platform.handlerKey);
-      const installMaterials = await this.agents.createAgentInstallMaterials(tenantId, {
+      const installSession = await this.agents.createAgentInstallSession(tenantId, {
         platform: installPlatform,
         role: 'full_agent',
-      }, requestId);
-      return { onboardingKind: 'AGENT_INSTALL' as const, installMaterials };
+      }, requestId, installBaseUrl ?? 'http://localhost');
+      return { onboardingKind: 'AGENT_INSTALL' as const, installSession };
     }
     return this.onboardPluginDevice(tenantId, input, actorId);
   }
@@ -378,7 +378,7 @@ function asPluginForm(resource: PluginPackageFormResource | undefined): PluginFo
     : undefined;
 }
 
-function resolveAgentInstallPlatform(handlerKey: string | undefined): AgentInstallMaterialPlatform {
+function resolveAgentInstallPlatform(handlerKey: string | undefined): 'windows_go' | 'windows_compatibility' | 'linux_go' {
   switch (handlerKey) {
     case 'WINDOWS_GO': return 'windows_go';
     case 'WINDOWS_COMPATIBILITY': return 'windows_compatibility';

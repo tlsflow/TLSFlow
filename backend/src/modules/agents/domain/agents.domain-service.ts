@@ -1,11 +1,12 @@
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomInt } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
-import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshotInput, CreateAgentInstallSessionInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
+const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -118,6 +119,61 @@ export class AgentsDomainService {
 
   hashEnrollmentToken(token: string): string {
     return hashToken(token);
+  }
+
+  hashInstallBootstrapToken(token: string): string {
+    return sha256Hex(token);
+  }
+
+  createAgentInstallSession(
+    tenantId: string,
+    input: CreateAgentInstallSessionInput,
+    requestId: string,
+    controlPlaneUrl: string,
+  ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
+    const platform = normalizeInstallSessionPlatform(input.platform);
+    const role = normalizeInstallSessionRole(input.role);
+    if ((platform === 'windows_go_service' || platform === 'windows_compatibility_service') && role !== 'full_agent') {
+      throw new AppError('VALIDATION_FAILED', 'Windows Agent 安装会话只允许 full_agent 角色');
+    }
+
+    const zone = normalizeOptionalKey(input.zone ?? 'default') || 'default';
+    const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
+      allowedRoles: [role],
+      allowedZones: [zone],
+      maxUses: 1,
+      ttlSeconds: 1800,
+      createdBy: 'agent.install-session',
+    }, requestId);
+    const now = new Date();
+    const id = newId('aginst');
+    const bootstrapToken = createInstallBootstrapToken();
+    const profile = platform === 'windows_go_service' || platform === 'windows_compatibility_service'
+      ? normalizeWindowsInstallProfile(input, id, platform)
+      : normalizeLinuxInstallProfile(input);
+    const defaultAgentKey = platform === 'windows_go_service'
+      ? `windowsgo.${id.toLowerCase()}`
+      : platform === 'windows_compatibility_service'
+        ? `windowscompat.${id.toLowerCase()}`
+        : `linuxgo.${id.toLowerCase()}`;
+    return {
+      id,
+      tenantId,
+      platform,
+      bootstrapToken,
+      bootstrapTokenHash: sha256Hex(bootstrapToken),
+      bootstrapTokenPreview: bootstrapToken,
+      enrollmentTokenRecord,
+      enrollmentToken: enrollmentTokenRecord.token,
+      agentKey: normalizeKey(input.agentKey ?? defaultAgentKey, 'agentKey'),
+      controlPlaneUrl: normalizeControlPlaneUrl(controlPlaneUrl),
+      zone,
+      role,
+      startAfterInstall: input.startAfterInstall !== false,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
+      ...profile,
+    };
   }
 
   assertMtlsSession(agent: AgentRegistration, certificateFingerprint: string): void {
@@ -491,6 +547,90 @@ function normalizeKey(value: string, field: string): string {
     throw new AppError('VALIDATION_FAILED', `${field} 格式不合法`, { field });
   }
   return normalized;
+}
+
+function normalizeInstallSessionPlatform(value: CreateAgentInstallSessionInput['platform']): AgentInstallSession['platform'] {
+  if (value === 'windows_go') return 'windows_go_service';
+  if (value === 'windows_compatibility') return 'windows_compatibility_service';
+  if (value === 'linux_go') return 'linux_go_systemd';
+  throw new AppError('VALIDATION_FAILED', '不支持的 Agent 安装平台', { platform: value });
+}
+
+function normalizeInstallSessionRole(value: CreateAgentInstallSessionInput['role']): 'full_agent' | 'gateway' {
+  if (!value) return 'full_agent';
+  if (value === 'full_agent' || value === 'gateway') return value;
+  throw new AppError('VALIDATION_FAILED', '不支持的 Agent 安装角色', { role: value });
+}
+
+function normalizeWindowsInstallProfile(
+  input: CreateAgentInstallSessionInput,
+  id: string,
+  platform: Extract<AgentInstallSession['platform'], 'windows_go_service' | 'windows_compatibility_service'>,
+): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir'> {
+  const compatibility = platform === 'windows_compatibility_service';
+  return {
+    serviceName: normalizeServiceName(input.serviceName ?? (compatibility ? 'GCACWindowsCompatibilityAgent' : `gcac-agent-${id.slice(-6).toLowerCase()}`)),
+    displayName: normalizeOptionalDisplayName(input.displayName) ?? (compatibility ? 'GCAC Windows Compatibility Agent' : 'GCAC Go Full Agent'),
+    installRoot: normalizeWindowsPath(input.installRoot ?? (compatibility ? 'C:\\Program Files\\GCAC\\WindowsCompatibilityAgent' : 'C:\\Program Files\\GCAC\\FullAgentGo'), 'installRoot'),
+    configDir: normalizeWindowsPath(input.configDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\config'), 'configDir'),
+    dataDir: normalizeWindowsPath(input.dataDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\data'), 'dataDir'),
+    logDir: normalizeWindowsPath(input.logDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs'), 'logDir'),
+  };
+}
+
+function normalizeLinuxInstallProfile(input: CreateAgentInstallSessionInput): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir'> {
+  return {
+    serviceName: normalizeServiceName(input.serviceName ?? 'gcac-linux-agent'),
+    displayName: normalizeOptionalDisplayName(input.displayName) ?? 'GCAC Linux Go Full Agent',
+    installRoot: normalizeUnixPath(input.installRoot ?? '/opt/gcac/linux-agent', 'installRoot'),
+    configDir: normalizeUnixPath(input.configDir ?? '/etc/gcac/linux-agent', 'configDir'),
+    dataDir: normalizeUnixPath(input.dataDir ?? '/var/lib/gcac/linux-agent', 'dataDir'),
+    logDir: normalizeUnixPath(input.logDir ?? '/var/log/gcac/linux-agent', 'logDir'),
+  };
+}
+
+function normalizeServiceName(value: string): string {
+  const normalized = normalizeRequired(value, 'serviceName');
+  if (!/^[A-Za-z][A-Za-z0-9_.-]{1,63}$/.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', 'serviceName 格式不合法', { serviceName: value });
+  }
+  return normalized;
+}
+
+function normalizeOptionalDisplayName(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (normalized.length > 120) throw new AppError('VALIDATION_FAILED', 'displayName 不能超过 120 个字符');
+  return normalized;
+}
+
+function normalizeWindowsPath(value: string, field: string): string {
+  const normalized = normalizeRequired(value, field).replace(/\//g, '\\').replace(/\\+$/u, '');
+  if (!/^[A-Za-z]:\\/.test(normalized)) throw new AppError('VALIDATION_FAILED', `${field} 必须是 Windows 绝对路径`, { field });
+  return normalized;
+}
+
+function normalizeUnixPath(value: string, field: string): string {
+  const normalized = normalizeRequired(value, field);
+  if (!normalized.startsWith('/')) throw new AppError('VALIDATION_FAILED', `${field} 必须是 Linux 绝对路径`, { field });
+  return normalized.length > 1 ? normalized.replace(/\/+$/u, '') : normalized;
+}
+
+function normalizeControlPlaneUrl(value: string): string {
+  try {
+    const parsed = new URL(normalizeRequired(value, 'controlPlaneUrl'));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('unsupported protocol');
+    }
+    return parsed.origin.replace(/\/+$/u, '');
+  } catch {
+    throw new AppError('VALIDATION_FAILED', 'controlPlaneUrl 格式不合法', { controlPlaneUrl: value });
+  }
+}
+
+function createInstallBootstrapToken(): string {
+  // 安装入口只暴露短期一次性数字码，内部仍只保存 SHA-256 摘要。
+  return randomInt(10_000_000, 100_000_000).toString();
 }
 
 function normalizeCapabilityKey(value: string, field: string): string {

@@ -33,6 +33,7 @@ export class DevicesController {
       (request.body ?? {}) as CreateManagedDeviceOnboardingDto,
       subject.id,
       request.context.requestId ?? 'device-onboarding',
+      resolveInstallPublicBaseUrl(request),
     );
     return { statusCode: 201, body: result };
   }
@@ -128,4 +129,50 @@ export function getDeviceRouteContracts(): RouteContract[] {
 
 function tenantId(request: HttpRequest): string {
   return requireTenantId(request);
+}
+
+function resolveInstallPublicBaseUrl(request: HttpRequest): string {
+  const candidates = [
+    process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL,
+    singleHeader(request, 'x-public-base-url'),
+    singleHeader(request, 'origin'),
+    originFromReferer(singleHeader(request, 'referer')),
+    inferredRequestOrigin(request),
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeBaseUrl(candidate);
+    if (normalized) return normalized;
+  }
+  return 'http://localhost';
+}
+
+function singleHeader(request: HttpRequest, key: string): string | undefined {
+  const value = request.headers[key];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function originFromReferer(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function inferredRequestOrigin(request: HttpRequest): string | undefined {
+  const proto = singleHeader(request, 'x-forwarded-proto')?.split(',')[0]?.trim() || 'http';
+  const host = singleHeader(request, 'x-forwarded-host')?.split(',')[0]?.trim() || singleHeader(request, 'host');
+  return host ? `${proto}://${host}` : undefined;
+}
+
+function normalizeBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return parsed.origin.replace(/\/+$/u, '');
+  } catch {
+    return undefined;
+  }
 }

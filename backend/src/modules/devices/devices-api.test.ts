@@ -565,63 +565,35 @@ test('Spec033 平台 Registry 只保留 Agent 安装入口', () => {
   assert.ok(platforms.every((item) => item.onboardingKind === 'AGENT_INSTALL'));
 });
 
-test('Spec033 统一添加复用固定 Agent 安装材料', async () => {
-  const material = {
-    platform: 'windows_go' as const,
-    arch: 'amd64' as const,
-    artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe',
-    version: '0.1.9',
-    digest: 'a'.repeat(64),
-    signature: 'artifact://gcac/signatures/agents/windows-go-full-agent/0.1.9/windows-amd64.sig',
-    signatureAlgorithm: 'Ed25519' as const,
-    signingKeyId: 'gcac-agent-release-v1',
-  };
-  const installMaterials = {
-    installationId: 'aginst_devices_test',
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    enrollmentToken: 'enrollment-once',
-    materials: [material],
-    task: {
-      type: 'agent.plan.execute' as const,
-      contractVersion: 'gcac.agent-security/v1' as const,
-      taskId: 'aginst_devices_test',
-      version: material.version,
-      artifactRefs: [material.artifactRef],
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      digest: 'b'.repeat(64),
-      signature: material.signature,
-      signatureAlgorithm: 'Ed25519' as const,
-      signingKeyId: material.signingKeyId,
-      input: {
-        role: 'full_agent' as const,
-        zone: 'default',
-        agentKey: 'windows-go-agent',
-        serviceName: 'GCACAgent',
-        displayName: 'GCAC Agent',
-        installRoot: 'C:\\Program Files\\GCAC',
-        configDir: 'C:\\ProgramData\\GCAC\\config',
-        dataDir: 'C:\\ProgramData\\GCAC\\data',
-        logDir: 'C:\\ProgramData\\GCAC\\logs',
-      },
-    },
-  };
+test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
   const agents = {
-    createAgentInstallMaterials: async (_tenantId: string, input: { platform: string }) => ({
-      ...installMaterials,
-      materials: [{ ...material, platform: input.platform }],
+    createAgentInstallSession: async (_tenantId: string, input: { platform: string }, _requestId: string, baseUrl: string) => ({
+      sessionId: 'aginst_devices_test',
+      platform: input.platform === 'windows_go' ? 'windows_go_service' : 'linux_go_systemd',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      bootstrapUrl: `${baseUrl}/agent-install.ps1?token=12345678`,
+      installCommand: `irm '${baseUrl}/agent-install.ps1?token=12345678' | iex`,
+      bootstrapTokenPreview: '12345678',
+      serviceName: 'GCACAgent',
+      displayName: 'GCAC Agent',
+      installRoot: 'C:\\Program Files\\GCAC',
+      configDir: 'C:\\ProgramData\\GCAC\\config',
+      dataDir: 'C:\\ProgramData\\GCAC\\data',
+      logDir: 'C:\\ProgramData\\GCAC\\logs',
+      agentKey: 'windows-go-agent',
+      zone: 'default',
+      enrollmentTokenPreview: 'enroll_redacted',
     }),
   } as unknown as AgentsApplicationService;
   const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, agents);
   const windows = await service.onboard('tenant-onboarding', {
     platformKey: 'windows',
-  }, 'user-onboarding', 'request-onboarding');
-  if (windows.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装材料');
-  assert.equal(windows.installMaterials.task.type, 'agent.plan.execute');
-  assert.deepEqual(windows.installMaterials.task.artifactRefs, [material.artifactRef]);
-  assert.equal(windows.installMaterials.materials[0]?.artifactRef, material.artifactRef);
-  assert.equal(windows.installMaterials.enrollmentToken, 'enrollment-once');
+  }, 'user-onboarding', 'request-onboarding', 'https://gcac.example.test');
+  if (windows.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装会话');
+  assert.match(windows.installSession.installCommand, /irm '.*agent-install\.ps1\?token=12345678' \| iex/);
+  assert.equal(windows.installSession.expiresAt, '2099-01-01T00:00:00.000Z');
   assert.equal('enrollmentToken' in windows, false);
-  assert.equal('installCommand' in windows.installMaterials, false);
+  assert.equal('installMaterials' in windows, false);
   assert.equal('installCommand' in windows, false);
 });
 
