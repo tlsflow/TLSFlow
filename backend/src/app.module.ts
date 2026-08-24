@@ -27,6 +27,7 @@ import { CompatibilityCatalogController, getCompatibilityCatalogRouteContracts }
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
 import { PgMonitorsRepository } from './modules/monitors/repository/monitors.repository.js';
 import { DashboardApplicationService, DashboardController, getDashboardRouteContracts } from './modules/dashboard/index.js';
+import { getReportRouteContracts, PgReportDataPort, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
@@ -210,6 +211,16 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deploymentPlans: deploymentPlans.getRepository(),
   })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
+  const reportScope = new ReportScopeResolver({
+    canRead: async (subject, object) => (await security.objectPermissions.can(subject, 'read', {
+      objectType: object.objectType,
+      objectId: object.objectId,
+      tenantId: object.tenantId,
+    })).allowed,
+  });
+  const reportsService = new ReportsApplicationService(new PgReportDataPort(appDb, deploymentPlans.getRepository()), new ReportsRepository(appDb), reportScope);
+  app.setResource('reportsService', reportsService);
+  new ReportsController(reportsService, security).register(app.router);
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
     statusCode: 200,
@@ -250,6 +261,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getWorkflowTemplateRouteContracts(),
     ...getDashboardRouteContracts(),
     ...getMonitorRouteContracts(),
+    ...getReportRouteContracts(),
     {
       method: 'GET',
       path: '/api/v1/openapi.json',
