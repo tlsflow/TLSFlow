@@ -16,6 +16,7 @@ import {
   addObjectSetMember,
   listAccessGrants,
   listGroups,
+  listObjectSetMembers,
   listObjectSets,
   listRoleBindings,
   listRoles,
@@ -66,6 +67,7 @@ const { t } = useI18n()
 
 const roleRows = ref<ApiRecord[]>([])
 const objectSetRows = ref<ApiRecord[]>([])
+const objectSetMemberRows = ref<ApiRecord[]>([])
 const accessGrantRows = ref<ApiRecord[]>([])
 const roleBindingRows = ref<ApiRecord[]>([])
 const userRows = ref<ApiRecord[]>([])
@@ -116,6 +118,17 @@ function auditLogCategories(): readonly ApiRecord[] {
     { id: 'secret', name: t('settings.roles.auditLogs.secret.name'), description: t('settings.roles.auditLogs.secret.description') },
     { id: 'system', name: t('settings.roles.auditLogs.system.name'), description: t('settings.roles.auditLogs.system.description') }
   ]
+}
+
+function normalizeTreeObjectType(objectType: string): string {
+  if (objectType === 'certificate_asset') return 'certificate'
+  if (objectType === 'workflow_template') return 'workflow'
+  return objectType
+}
+
+function categoryByObjectType(objectType: string): AssignableObjectCategory | undefined {
+  const normalized = normalizeTreeObjectType(objectType)
+  return assignableCategories.find((item) => item.objectType === normalized)
 }
 
 const roleColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
@@ -266,11 +279,15 @@ async function loadPageItems(loader: (query: { page: number; pageSize: number })
   return result.data?.items ?? []
 }
 
-function readValue(row: ApiRecord | null | undefined, key: string): string {
-  const value = key.split('.').reduce<unknown>((current, part) => {
+function readField(row: ApiRecord | null | undefined, key: string): unknown {
+  return key.split('.').reduce<unknown>((current, part) => {
     if (!current || typeof current !== 'object') return undefined
     return (current as Record<string, unknown>)[part]
   }, row)
+}
+
+function readValue(row: ApiRecord | null | undefined, key: string): string {
+  const value = readField(row, key)
   if (Array.isArray(value)) return value.map((item) => typeof item === 'object' ? JSON.stringify(item) : String(item)).join(', ')
   if (value && typeof value === 'object') return JSON.stringify(value)
   return value === undefined || value === null || value === '' ? '' : String(value)
@@ -295,6 +312,10 @@ function roleAccessGrants(roleId: string): ApiRecord[] {
 
 function roleObjectSetIds(roleId: string): string[] {
   return [...new Set(roleAccessGrants(roleId).map((item) => readValue(item, 'objectSetId')).filter(Boolean))]
+}
+
+function objectSetMembersForObjectSet(objectSetId: string): ApiRecord[] {
+  return objectSetMemberRows.value.filter((item) => readValue(item, 'objectSetId') === objectSetId)
 }
 
 function principalTypeText(type: string): string {
@@ -349,6 +370,92 @@ function recordLabel(record: ApiRecord, fallbackPrefix: string): string {
     : t('settings.roles.format.recordFallback', { category: fallbackPrefix, value: id || t('settings.roles.format.unnamedRecord') })
 }
 
+function uniqueObjectNodes(nodes: readonly ObjectTreeNode[]): ObjectTreeNode[] {
+  const seen = new Set<string>()
+  return nodes.filter((node) => {
+    if (seen.has(node.key)) return false
+    seen.add(node.key)
+    return true
+  })
+}
+
+function buildRoleScopeNodeFromMember(member: ApiRecord): ObjectTreeNode | null {
+  const objectId = readValue(member, 'objectId')
+  const category = categoryByObjectType(readValue(member, 'objectType'))
+  if (!category || !objectId) return null
+  const record = (objectTreeRecords.value[category.key] ?? []).find((item) => recordId(item) === objectId)
+  const categoryLabel = objectCategoryLabel(category)
+  return {
+    key: `${category.key}:${objectId}`,
+    label: record ? recordLabel(record, categoryLabel) : recordLabel({ id: objectId }, categoryLabel),
+    kind: 'record',
+    objectType: category.objectType,
+    objectId,
+    objectTypes: [category.objectType],
+    level: 2,
+    description: objectId
+  }
+}
+
+function buildScopeNodesForObjectSet(objectSet: ApiRecord): ObjectTreeNode[] {
+  const objectSetId = readValue(objectSet, 'id')
+  if (!objectSetId) return []
+  if (readValue(objectSet, 'kind') === 'static') {
+    return objectSetMembersForObjectSet(objectSetId)
+      .map((member) => buildRoleScopeNodeFromMember(member))
+      .filter((node): node is ObjectTreeNode => Boolean(node))
+  }
+  const rawObjectTypes = Array.isArray(readField(objectSet, 'objectTypes'))
+    ? (readField(objectSet, 'objectTypes') as unknown[]).map((item) => normalizeTreeObjectType(String(item))).filter(Boolean)
+    : []
+  const objectTypes = [...new Set(rawObjectTypes)]
+  if (objectTypes.length === 1) {
+    const category = categoryByObjectType(objectTypes[0])
+    if (!category) return []
+    const categoryLabel = objectCategoryLabel(category)
+    return [{
+      key: category.key,
+      label: categoryLabel,
+      kind: 'type',
+      objectType: category.objectType,
+      objectTypes: [category.objectType],
+      level: 1,
+      description: t('settings.roles.tree.typeDescription', { category: categoryLabel })
+    }]
+  }
+  return [{
+    key: 'root',
+    label: t('settings.roles.tree.rootLabel'),
+    kind: 'root',
+    objectTypes: assignableCategories.map((item) => item.objectType),
+    level: 0,
+    description: t('settings.roles.tree.rootDescription')
+  }]
+}
+
+function buildRoleScopeNodes(roleId: string): ObjectTreeNode[] {
+  const nodes: ObjectTreeNode[] = []
+  for (const grant of roleAccessGrants(roleId)) {
+    const objectSetId = readValue(grant, 'objectSetId')
+    const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
+    if (!objectSet) continue
+    nodes.push(...buildScopeNodesForObjectSet(objectSet))
+  }
+  return uniqueObjectNodes(nodes)
+}
+
+function syncGrantDraftWithExistingRoleScopes(roleId: string): void {
+  const grants = roleAccessGrants(roleId)
+  const accessLevels = [...new Set(grants.map((item) => readValue(item, 'accessLevel')).filter(Boolean))]
+  const effects = [...new Set(grants.map((item) => readValue(item, 'effect')).filter(Boolean))]
+  if (accessLevels.length === 1 && ['read', 'edit', 'control'].includes(accessLevels[0])) {
+    grantDraft.accessLevel = accessLevels[0] as AccessGrantDraft['accessLevel']
+  }
+  if (effects.length === 1 && ['allow', 'deny'].includes(effects[0])) {
+    grantDraft.effect = effects[0] as AccessGrantDraft['effect']
+  }
+}
+
 function isBuiltinRole(row: ApiRecord | null | undefined): boolean {
   return readValue(row, 'builtin') === 'true'
 }
@@ -373,7 +480,52 @@ function isObjectNodeSelected(node: ObjectTreeNode): boolean {
   return selectedObjectNodes.value.some((item) => item.key === node.key)
 }
 
+function isObjectNodePartiallySelected(node: ObjectTreeNode): boolean {
+  if (isObjectNodeSelected(node)) return false
+  if (node.kind === 'root') {
+    return selectedObjectNodes.value.some((item) => item.key !== node.key)
+  }
+  if (node.kind === 'type') {
+    return selectedObjectNodes.value.some((item) => item.key.startsWith(`${node.key}:`))
+  }
+  return false
+}
+
+function objectNodeSelectionIndicator(node: ObjectTreeNode): string {
+  if (isObjectNodeSelected(node)) return '✓'
+  if (isObjectNodePartiallySelected(node)) return '−'
+  return ''
+}
+
+function objectNodeSelectionState(node: ObjectTreeNode): 'checked' | 'partial' | 'none' {
+  if (isObjectNodeSelected(node)) return 'checked'
+  if (isObjectNodePartiallySelected(node)) return 'partial'
+  return 'none'
+}
+
+function isSameOrDescendantScope(candidate: ObjectTreeNode, target: ObjectTreeNode): boolean {
+  if (target.kind === 'root') return true
+  if (candidate.key === target.key) return true
+  if (target.kind === 'type') return candidate.key.startsWith(`${target.key}:`)
+  return false
+}
+
 function toggleObjectNodeSelection(node: ObjectTreeNode): void {
+  if (node.kind === 'root') {
+    selectedObjectNodes.value = isObjectNodeSelected(node) ? [] : [node]
+    if (!isExpanded(node.key)) toggleTreeNode(node)
+    return
+  }
+  if (node.kind === 'type') {
+    const remaining = selectedObjectNodes.value.filter((item) =>
+      item.key !== 'root' && !isSameOrDescendantScope(item, node),
+    )
+    selectedObjectNodes.value = isObjectNodeSelected(node)
+      ? remaining
+      : [...remaining, node]
+    if (!isExpanded(node.key)) toggleTreeNode(node)
+    return
+  }
   selectedObjectNodes.value = isObjectNodeSelected(node)
     ? selectedObjectNodes.value.filter((item) => item.key !== node.key)
     : [...selectedObjectNodes.value, node]
@@ -432,9 +584,10 @@ async function reloadAll(): Promise<void> {
   loading.value = true
   pageError.value = ''
   try {
-    const [roles, objectSets, grants, roleBindings, users, groups] = await Promise.all([
+    const [roles, objectSets, objectSetMembers, grants, roleBindings, users, groups] = await Promise.all([
       listRoles({ page: 1, pageSize: 100 }),
       listObjectSets({ page: 1, pageSize: 100 }),
+      listObjectSetMembers({ page: 1, pageSize: 500 }),
       listAccessGrants({ page: 1, pageSize: 100 }),
       listRoleBindings({ page: 1, pageSize: 200 }),
       listUsers({ page: 1, pageSize: 200 }),
@@ -442,6 +595,7 @@ async function reloadAll(): Promise<void> {
     ])
     roleRows.value = [...(roles.data?.items ?? [])]
     objectSetRows.value = [...(objectSets.data?.items ?? [])]
+    objectSetMemberRows.value = [...(objectSetMembers.data?.items ?? [])]
     accessGrantRows.value = [...(grants.data?.items ?? [])]
     roleBindingRows.value = [...(roleBindings.data?.items ?? [])]
     userRows.value = [...(users.data?.items ?? [])]
@@ -477,15 +631,21 @@ function openRoleDetail(row: ApiRecord): void {
 }
 
 function openGrantRole(): void {
+  const roleId = selectedRole.value ? readValue(selectedRole.value, 'id') : ''
   Object.assign(grantDraft, {
-    roleId: selectedRole.value ? readValue(selectedRole.value, 'id') : '',
+    roleId,
     accessLevel: 'read',
     effect: 'allow'
   })
   selectedObjectNodes.value = []
   modalError.value = ''
   grantEditorOpen.value = true
-  void loadObjectTree()
+  void (async () => {
+    await loadObjectTree()
+    if (!roleId) return
+    syncGrantDraftWithExistingRoleScopes(roleId)
+    selectedObjectNodes.value = buildRoleScopeNodes(roleId)
+  })()
 }
 
 function openGrantRoleFromRole(row: ApiRecord): void {
@@ -627,13 +787,59 @@ async function removeRole(row: ApiRecord): Promise<void> {
   }
 }
 
+async function ensureRoleSelfBinding(
+  roleId: string,
+  objectSetId: string,
+  existingBindingKeys: Set<string>
+): Promise<void> {
+  const key = ['group', roleId, roleId, objectSetId].join(':')
+  if (existingBindingKeys.has(key)) return
+  await createRoleBinding({
+    principalType: 'group',
+    principalId: roleId,
+    roleId,
+    objectSetId,
+    effect: 'allow',
+    enabled: true
+  })
+  existingBindingKeys.add(key)
+}
+
 async function createGrantsForRole(
   roleId: string,
   nodes: readonly ObjectTreeNode[],
   accessLevel: AccessGrantDraft['accessLevel'],
   effect: AccessGrantDraft['effect']
 ): Promise<void> {
+  const existingRoleBindingKeys = new Set(roleBindingRows.value
+    .filter((item) =>
+      readValue(item, 'principalType') === 'group'
+      && readValue(item, 'principalId') === roleId
+      && readValue(item, 'roleId') === roleId,
+    )
+    .map((item) => ['group', roleId, roleId, readValue(item, 'objectSetId')].join(':')))
+  const existingScopeObjectSetIds = new Map<string, string[]>()
+  for (const grant of roleAccessGrants(roleId)) {
+    const objectSetId = readValue(grant, 'objectSetId')
+    const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
+    if (!objectSet) continue
+    for (const node of buildScopeNodesForObjectSet(objectSet)) {
+      existingScopeObjectSetIds.set(node.key, [...(existingScopeObjectSetIds.get(node.key) ?? []), objectSetId])
+    }
+  }
+  for (const objectSetIds of existingScopeObjectSetIds.values()) {
+    for (const objectSetId of objectSetIds) {
+      await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
+    }
+  }
   for (const node of nodes) {
+    const existingObjectSetIds = existingScopeObjectSetIds.get(node.key) ?? []
+    if (existingObjectSetIds.length > 0) {
+      for (const objectSetId of existingObjectSetIds) {
+        await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
+      }
+      continue
+    }
     const objectSetResult = await createObjectSet({
       name: objectSetNameForNode(node),
       kind: node.kind === 'record' ? 'static' : 'dynamic',
@@ -650,12 +856,14 @@ async function createGrantsForRole(
         objectId: node.objectId
       })
     }
+    await ensureRoleSelfBinding(roleId, objectSetId, existingRoleBindingKeys)
     await createAccessGrant({
       roleId,
       objectSetId,
       accessLevel,
       effect
     })
+    existingScopeObjectSetIds.set(node.key, [...(existingScopeObjectSetIds.get(node.key) ?? []), objectSetId])
   }
 }
 
@@ -789,7 +997,7 @@ onMounted(() => void reloadAll())
                 <span class="roles-view__tree-toggle" @click.stop="toggleTreeNode(node)">
                   {{ node.kind === 'record' ? '•' : (isExpanded(node.key) ? '−' : '+') }}
                 </span>
-                <span class="roles-view__tree-check" :data-checked="isObjectNodeSelected(node)">✓</span>
+                <span class="roles-view__tree-check" :data-state="objectNodeSelectionState(node)">{{ objectNodeSelectionIndicator(node) }}</span>
                 <span class="roles-view__tree-copy">
                   <strong>{{ node.label }}</strong>
                   <small>{{ objectNodeKindText(node) }}<template v-if="node.description"> · {{ node.description }}</template></small>
@@ -863,7 +1071,7 @@ onMounted(() => void reloadAll())
                 <span class="roles-view__tree-toggle" @click.stop="toggleTreeNode(node)">
                   {{ node.kind === 'record' ? '•' : (isExpanded(node.key) ? '−' : '+') }}
                 </span>
-                <span class="roles-view__tree-check" :data-checked="isObjectNodeSelected(node)">✓</span>
+                <span class="roles-view__tree-check" :data-state="objectNodeSelectionState(node)">{{ objectNodeSelectionIndicator(node) }}</span>
                 <span class="roles-view__tree-copy">
                   <strong>{{ node.label }}</strong>
                   <small>{{ objectNodeKindText(node) }}<template v-if="node.description"> · {{ node.description }}</template></small>
@@ -1086,7 +1294,8 @@ onMounted(() => void reloadAll())
   font-size: 13px;
   font-weight: 950;
 }
-.roles-view__tree-check[data-checked='true'] {
+.roles-view__tree-check[data-state='checked'],
+.roles-view__tree-check[data-state='partial'] {
   border-color: var(--gc-color-primary);
   color: var(--gc-color-surface-solid);
   background: var(--gc-color-primary);

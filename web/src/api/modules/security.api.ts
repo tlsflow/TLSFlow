@@ -197,6 +197,10 @@ export function createObjectSet(body: Record<string, unknown>): Promise<ApiResul
   return apiClient.post<ApiRecord>('/v1/security/object-sets', body)
 }
 
+export function listObjectSetMembers(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/security/object-set-members', query)
+}
+
 export function addObjectSetMember(body: Record<string, unknown>): Promise<ApiResult<ApiRecord>> {
   return apiClient.post<ApiRecord>('/v1/security/object-set-members', body)
 }
