@@ -84,7 +84,7 @@ export async function buildAuditPresentationContext(input: {
     const label = labelWithId(serviceAssetLabel(asset), asset.id);
     setObjectLabel(objectLabelByKey, ['service_asset', 'application_asset'], asset.id, label);
   }
-  await addSecretLabels(objectLabelByKey, input.secrets);
+  await addSecretLabels(objectLabelByKey, input.secrets, input.tenantId);
   await addCertificateLabels(objectLabelByKey, input.certificates, input.tenantId);
 
   return {
@@ -128,12 +128,16 @@ function buildGenericAuditSummary(log: AuditLogEntity, context: AuditPresentatio
   return `${actorLabel(log)}${resultVerb(log.result)}“${readableAction(log)}”，对象：${resourceLabel(log, context)}。`;
 }
 
-async function addSecretLabels(objectLabelByKey: Map<string, string>, secrets: SecretService | undefined): Promise<void> {
+async function addSecretLabels(
+  objectLabelByKey: Map<string, string>,
+  secrets: SecretService | undefined,
+  tenantId: string,
+): Promise<void> {
   if (!secrets) return;
-  const secretItems = await secrets.listMetadata();
+  const secretItems = await secrets.listMetadata(tenantId);
   for (const secret of secretItems) {
     setObjectLabel(objectLabelByKey, ['secret'], secret.id, labelWithId(secret.name, secret.id));
-    const versions = await secrets.listSecretVersions(secret.id);
+    const versions = await secrets.listSecretVersions(secret.id, tenantId);
     for (const version of versions) {
       setObjectLabel(objectLabelByKey, ['secret_version'], version.id, labelWithId(`${secret.name} v${version.versionNo}`, version.id));
     }

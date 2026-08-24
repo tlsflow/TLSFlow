@@ -176,6 +176,7 @@ export class CredentialsApplicationService {
         continue;
       }
       const created = await secrets.createInTransaction({
+        tenantId: current.tenantId,
         name: `${current.name}:${slot}`, type: selectedType, scopeType: current.scopeType, scopeId: current.scopeId,
         metadata: { credentialId: current.id, credentialKind: current.kind, credentialSlot: slot }, plainText: requirePlainText(secretValue, slot), createdBy: actorId,
       }, tx, context);
@@ -203,6 +204,7 @@ export class CredentialsApplicationService {
       }
       const type = selectSecretType(secretValue, rule.allowedTypes, slot);
       const created = await secrets.createInTransaction({
+        tenantId,
         name: `${input.name}:${slot}`, type, scopeType: input.scopeType, scopeId: input.scopeId,
         metadata: { tenantId, credentialKind: input.kind, credentialSlot: slot }, plainText: requirePlainText(secretValue, slot), createdBy,
       }, tx, context);

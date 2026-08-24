@@ -69,6 +69,7 @@ export interface ObjectSetMemberEntity {
   objectSetId: string;
   objectType: string;
   objectId: string;
+  tenantId?: string;
   addedBy: string;
   createdAt: string;
 }

@@ -6,7 +6,7 @@ import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 
 export interface CreateExecutionGrantInput {
-  tenantId?: string;
+  tenantId: string;
   planId?: string;
   runId: string;
   stepId: string;
@@ -46,6 +46,9 @@ export class ExecutionGrantService {
   constructor(private readonly grants: AsyncRepositoryPort<ExecutionGrantEntity> = ExecutionGrantService.createDefaultRepository()) {}
 
   async create(input: CreateExecutionGrantInput): Promise<ExecutionGrantEntity> {
+    if (!input.tenantId.trim()) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant tenant required' });
+    }
     const now = new Date().toISOString();
     return this.grants.create({
       id: newId('grt'),

@@ -2,6 +2,7 @@ import type { ActorType, AuditResult, RiskLevel } from '../../shared/security-ty
 
 export interface AuditLogEntity {
   id: string;
+  tenantId?: string;
   eventType: string;
   actorType: ActorType;
   actorId: string;

@@ -11,6 +11,7 @@ import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 
 export interface CreateApprovalInput {
+  tenantId?: string;
   operationType: string;
   resourceRefs: ApprovalResourceRef[];
   riskLevel: RiskLevel;
@@ -21,6 +22,7 @@ export interface CreateApprovalInput {
 
 export interface DecideApprovalInput {
   approvalId: string;
+  tenantId?: string;
   decision: ApprovalDecision;
   approverId: string;
   comment?: string;
@@ -55,6 +57,7 @@ export class ApprovalService {
     const now = new Date().toISOString();
     const approval = await this.approvals.create({
       id: newId('apr'),
+      tenantId: input.tenantId ?? resolveContextTenantId(context),
       operationType: input.operationType,
       resourceRefs: input.resourceRefs,
       riskLevel: input.riskLevel,
@@ -83,7 +86,7 @@ export class ApprovalService {
   }
 
   async decide(input: DecideApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
-    const current = await this.getFresh(input.approvalId);
+    const current = await this.getFresh(input.approvalId, input.tenantId ?? resolveContextTenantId(context));
     if (current.status !== 'pending') {
       const message = current.status === 'approved' || current.status === 'consumed'
         ? '审批已处理，不能重复审批'
@@ -120,8 +123,8 @@ export class ApprovalService {
     return updated;
   }
 
-  async consume(approvalId: string, parameters: unknown): Promise<ApprovalRequestEntity> {
-    const current = await this.getFresh(approvalId);
+  async consume(approvalId: string, parameters: unknown, tenantId?: string): Promise<ApprovalRequestEntity> {
+    const current = await this.getFresh(approvalId, tenantId);
     if (current.status !== 'approved') {
       throw securityErrors.approvalInvalid({ reason: 'approval is not approved', status: current.status });
     }
@@ -133,19 +136,21 @@ export class ApprovalService {
     return this.approvals.update(current.id, { status: 'consumed', updatedAt: new Date().toISOString() });
   }
 
-  async get(id: string): Promise<ApprovalRequestEntity | undefined> {
-    return this.approvals.get(id);
+  async get(id: string, tenantId?: string): Promise<ApprovalRequestEntity | undefined> {
+    const approval = await this.approvals.get(id);
+    return matchesTenant(approval?.tenantId, tenantId) ? approval : undefined;
   }
 
-  async getMany(ids: readonly string[]): Promise<Map<string, ApprovalRequestEntity>> {
+  async getMany(ids: readonly string[], tenantId?: string): Promise<Map<string, ApprovalRequestEntity>> {
     const idSet = new Set(ids.filter(Boolean));
     if (idSet.size === 0) return new Map();
-    const approvals = await this.approvals.list((approval) => idSet.has(approval.id));
+    const approvals = await this.approvals.list((approval) => idSet.has(approval.id) && matchesTenant(approval.tenantId, tenantId));
     return new Map(approvals.map((approval) => [approval.id, approval]));
   }
 
-  async deleteByDeploymentPlan(planId: string, approvalId?: string): Promise<string[]> {
+  async deleteByDeploymentPlan(planId: string, approvalId?: string, tenantId?: string): Promise<string[]> {
     const matched = await this.approvals.list((approval) => {
+      if (!matchesTenant(approval.tenantId, tenantId)) return false;
       if (approvalId && approval.id === approvalId) return true;
       return approval.resourceRefs.some((ref) => ref.type === 'deploymentPlan' && ref.id === planId);
     });
@@ -164,9 +169,9 @@ export class ApprovalService {
     return ['plugin.install', 'plugin.enable', 'deployment.rollback', 'workflow_template.execute'].includes(operationType);
   }
 
-  private async getFresh(id: string): Promise<ApprovalRequestEntity> {
+  private async getFresh(id: string, tenantId?: string): Promise<ApprovalRequestEntity> {
     const current = await this.approvals.get(id);
-    if (!current) {
+    if (!current || !matchesTenant(current.tenantId, tenantId)) {
       throw securityErrors.approvalInvalid({ reason: 'approval not found', id });
     }
     if (current.expiresAt && new Date(current.expiresAt).getTime() < Date.now() && current.status === 'pending') {
@@ -174,4 +179,13 @@ export class ApprovalService {
     }
     return current;
   }
+}
+
+function resolveContextTenantId(context: RequestContext | undefined): string | undefined {
+  return context?.tenantId ?? context?.actor?.scope?.tenantId;
+}
+
+function matchesTenant(actualTenantId: string | undefined, expectedTenantId: string | undefined): boolean {
+  if (!expectedTenantId) return true;
+  return actualTenantId === expectedTenantId;
 }

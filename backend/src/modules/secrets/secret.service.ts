@@ -13,6 +13,7 @@ import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { DatabasePort } from '../../database/database-port.js';
 
 export interface CreateSecretInput {
+  tenantId?: string;
   name: string;
   type: SecretType;
   scopeType: SecretScopeType;
@@ -52,6 +53,7 @@ export interface ResolveSecretInput {
 
 export interface ResolveSecretForServiceInput {
   secretRef: string;
+  tenantId?: string;
   expectedType?: SecretType;
   purpose: string;
   actorId: string;
@@ -88,14 +90,14 @@ export class SecretService {
   ) {}
 
   async create(input: CreateSecretInput, context: RequestContext = {}): Promise<SecretMetadataOutput> {
-    const result = await this.persistCreate(input, this.secrets, this.versions);
+    const result = await this.persistCreate(input, context, this.secrets, this.versions);
     await this.auditCreated(input, result.secret, result.versionId, result.fingerprint, context);
     return this.toMetadata(result.secret);
   }
 
   async createInTransaction(input: CreateSecretInput, db: DatabasePort, context: RequestContext = {}): Promise<SecretMetadataOutput> {
     const repositories = this.repositoriesFor(db);
-    const result = await this.persistCreate(input, repositories.secrets, repositories.versions);
+    const result = await this.persistCreate(input, context, repositories.secrets, repositories.versions);
     await this.auditCreatedWith(new AuditService(new PgDocumentRepository(db, 'security.audit_logs')), input, result.secret, result.versionId, result.fingerprint, context);
     return this.toMetadataFrom(result.secret, repositories.versions);
   }
@@ -109,7 +111,7 @@ export class SecretService {
     const encrypted = this.crypto.encryptSecret(plainText);
     const versionId = newId('secv');
     await repositories.versions.create({
-      id: versionId, secretId, versionNo,
+      id: versionId, tenantId: secret.tenantId, secretId, versionNo,
       encryptedData: encrypted.encryptedData, encryptedDek: encrypted.encryptedDek,
       kekVersion: encrypted.kekVersion, algorithm: encrypted.algorithm, iv: encrypted.iv,
       authTag: encrypted.authTag, dekIv: encrypted.dekIv, dekAuthTag: encrypted.dekAuthTag,
@@ -146,6 +148,7 @@ export class SecretService {
 
   private async persistCreate(
     input: CreateSecretInput,
+    context: RequestContext,
     secrets: AsyncRepositoryPort<SecretEntity>,
     versions: AsyncRepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>,
   ) {
@@ -160,6 +163,7 @@ export class SecretService {
 
     await versions.create({
       id: versionId,
+      tenantId: input.tenantId ?? resolveContextTenantId(context),
       secretId,
       versionNo: 1,
       encryptedData: encrypted.encryptedData,
@@ -177,6 +181,7 @@ export class SecretService {
 
     const secret = await secrets.create({
       id: secretId,
+      tenantId: input.tenantId ?? resolveContextTenantId(context),
       name: input.name,
       type: input.type,
       scopeType: input.scopeType,
@@ -233,8 +238,8 @@ export class SecretService {
     });
   }
 
-  async listMetadata(): Promise<SecretMetadataOutput[]> {
-    const rows = await this.secrets.list();
+  async listMetadata(tenantId?: string): Promise<SecretMetadataOutput[]> {
+    const rows = await this.secrets.list((row) => matchesTenant(row.tenantId, tenantId));
     const output: SecretMetadataOutput[] = [];
     for (const row of rows) {
       if (row.status === 'deleted') continue;
@@ -243,9 +248,9 @@ export class SecretService {
     return output;
   }
 
-  async getMetadata(secretId: string): Promise<SecretMetadataOutput> {
+  async getMetadata(secretId: string, tenantId?: string): Promise<SecretMetadataOutput> {
     const secret = await this.secrets.get(secretId);
-    if (!secret || secret.status === 'deleted') {
+    if (!secret || secret.status === 'deleted' || !matchesTenant(secret.tenantId, tenantId)) {
       throw securityErrors.secretNotFound({ secretId });
     }
     return this.toMetadata(secret);
@@ -263,6 +268,7 @@ export class SecretService {
 
     await this.grants.validate({
       grantId: input.grantId,
+      tenantId: secret.tenantId,
       runId: input.runId,
       stepId: input.stepId,
       executorType: input.executorType,
@@ -309,7 +315,8 @@ export class SecretService {
   async resolveForService(input: ResolveSecretForServiceInput): Promise<ResolvedSecret> {
     const parsed = parseSecretRef(input.secretRef);
     const secret = await this.secrets.get(parsed.secretId);
-    if (!secret || secret.status !== 'active') {
+    const tenantId = input.tenantId ?? resolveContextTenantId(input.context);
+    if (!secret || secret.status !== 'active' || !matchesTenant(secret.tenantId, tenantId)) {
       throw securityErrors.secretNotFound({ secretId: parsed.secretId });
     }
     if (secret.type !== parsed.type) {
@@ -353,8 +360,9 @@ export class SecretService {
     };
   }
 
-  async listSecretVersions(secretId: string): Promise<SecretVersionEntity[]> {
-    return (await this.versions.list((version) => version.secretId === secretId)).map(({ dekIv: _dekIv, dekAuthTag: _dekAuthTag, ...safe }) => safe);
+  async listSecretVersions(secretId: string, tenantId?: string): Promise<SecretVersionEntity[]> {
+    return (await this.versions.list((version) => version.secretId === secretId && matchesTenant(version.tenantId, tenantId)))
+      .map(({ dekIv: _dekIv, dekAuthTag: _dekAuthTag, ...safe }) => safe);
   }
 
   async listAllMetadataForDiagnostics(): Promise<SecretMetadataDiagnosticOutput[]> {
@@ -370,14 +378,18 @@ export class SecretService {
   private async resolveVersion(secret: SecretEntity, version: string): Promise<SecretVersionEntity & { dekIv: string; dekAuthTag: string }> {
     if (version === 'current') {
       const current = await this.versions.get(secret.currentVersionId);
-      if (!current) {
+      if (!current || !matchesTenant(current.tenantId, secret.tenantId)) {
         throw securityErrors.secretNotFound({ reason: 'current version missing' });
       }
       return current;
     }
 
     const versionNo = Number(version.slice(1));
-    const matched = (await this.versions.list((row) => row.secretId === secret.id && row.versionNo === versionNo))[0];
+    const matched = (await this.versions.list((row) =>
+      row.secretId === secret.id
+      && row.versionNo === versionNo
+      && matchesTenant(row.tenantId, secret.tenantId),
+    ))[0];
     if (!matched) {
       throw securityErrors.secretNotFound({ reason: 'version missing', version });
     }
@@ -423,4 +435,13 @@ export class SecretService {
 function cloneMetadata(value: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!value || Array.isArray(value)) return {};
   return structuredClone(value);
+}
+
+function resolveContextTenantId(context?: RequestContext): string | undefined {
+  return context?.tenantId ?? context?.actor?.scope?.tenantId;
+}
+
+function matchesTenant(actualTenantId: string | undefined, expectedTenantId: string | undefined): boolean {
+  if (!expectedTenantId) return true;
+  return actualTenantId === expectedTenantId;
 }

@@ -140,10 +140,11 @@ export class ObjectPermissionService {
     if (!objectSet.objectTypes.includes(input.objectType)) {
       throw securityErrors.permissionDenied({ reason: 'object type not allowed in object set', objectType: input.objectType });
     }
+    const memberTenantId = resolveObjectSetMemberTenantId(objectSet, input.tenantId);
     const id = input.id ?? `${input.objectSetId}:${input.objectType}:${input.objectId}`;
     const existing = await this.objectSetMembers.get(id);
     if (existing) return existing;
-    return this.objectSetMembers.create({ ...input, id, createdAt: new Date().toISOString() });
+    return this.objectSetMembers.create({ ...input, tenantId: memberTenantId, id, createdAt: new Date().toISOString() });
   }
 
   async listObjectSetMembers(objectSetId?: string): Promise<ObjectSetMemberEntity[]> {
@@ -155,8 +156,23 @@ export class ObjectPermissionService {
   }
 
   async createRoleBinding(input: Omit<RoleBindingEntity, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<RoleBindingEntity> {
-    if (!await this.objectSets.get(input.objectSetId)) {
+    const objectSet = await this.objectSets.get(input.objectSetId);
+    if (!objectSet) {
       throw securityErrors.permissionDenied({ reason: 'object set not found', objectSetId: input.objectSetId });
+    }
+    if (objectSet.tenantId !== '*' && input.tenantId !== objectSet.tenantId) {
+      throw securityErrors.permissionDenied({
+        reason: 'role binding tenant must match object set tenant',
+        roleBindingTenantId: input.tenantId,
+        objectSetTenantId: objectSet.tenantId,
+        objectSetId: input.objectSetId,
+      });
+    }
+    if (input.tenantId === '*' && objectSet.tenantId !== '*') {
+      throw securityErrors.permissionDenied({
+        reason: 'tenant wildcard only allowed for historical global object sets',
+        objectSetId: input.objectSetId,
+      });
     }
     if (this.roles && !await this.roles.get(input.roleId)) {
       throw securityErrors.permissionDenied({ reason: 'role not found', roleId: input.roleId });
@@ -395,40 +411,48 @@ export class ObjectPermissionService {
 function defaultObjectTypes(): ObjectTypeEntity[] {
   const now = new Date().toISOString();
   return [
-    ['certificate', '证书', 'certificate_assets'],
-    ['certificate_asset', '证书资产', 'certificate_assets'],
-    ['certificate_version', '证书版本', 'certificate_versions'],
-    ['certificate_version_format', '证书版本格式', 'certificate_version_formats'],
-    ['gateway', '网关', 'gateways'],
-    ['agent', 'Agent', 'agents'],
-    ['application_asset', '应用资产', 'service_assets'],
-    ['device_asset', '设备资产', 'device_assets'],
-    ['host', '主机资产', 'hosts'],
-    ['service_instance', '服务实例', 'service_instances'],
-    ['service_asset', '应用资产', 'service_assets'],
-    ['site_asset', '站点资产', 'site_assets'],
-    ['service_endpoint', '服务端点', 'service_endpoints'],
-    ['managed_target', '托管目标', 'managed_targets'],
-    ['managed_target_snapshot', '托管目标快照', 'managed_target_snapshots'],
-    ['discovery_snapshot', '发现快照', 'discovery_snapshots'],
-    ['asset_conflict', '资产冲突', 'asset_conflicts'],
-    ['certificate_binding', '证书绑定', 'certificate_bindings'],
-    ['deployment_plan', '更新计划', 'deployment_plans'],
-    ['workflow', '工作流', 'workflow_templates'],
-    ['execution_run', '执行记录', 'execution_runs'],
-    ['audit_log', '审计日志', 'audit_logs'],
-    ['system_setting', '系统设置', 'settings'],
-    ['identity_source', '身份源', 'identity_sources'],
-  ].map(([code, name, tableName]) => ({
-    id: code,
-    code,
-    name,
-    tableName,
-    tenantField: 'tenant_id',
-    supportedActions: [`${code}.read`, `${code}.update`, `${code}.create`, `${code}.delete`],
-    createdAt: now,
-    updatedAt: now,
-  }));
+    rootObjectType('certificate', '证书', 'certificate_assets', now),
+    rootObjectType('certificate_asset', '证书资产', 'certificate_assets', now),
+    derivedObjectType('certificate_version', '证书版本', 'certificate_versions', ['certificate', 'certificate_asset'], now),
+    derivedObjectType('certificate_version_format', '证书版本格式', 'certificate_version_formats', ['certificate_version', 'certificate_asset'], now),
+    rootObjectType('certificate_authority', '证书颁发机构', 'certificate_authorities', now),
+    rootObjectType('trust_domain', '信任域', 'trust_domains', now),
+    rootObjectType('acme_account', 'ACME 账户', 'acme_accounts', now),
+    rootObjectType('ca_provider', 'CA Provider', 'ca_providers', now),
+    rootObjectType('ca_node', 'CA Node', 'ca_nodes', now),
+    derivedObjectType('certificate_request', '证书申请', 'certificate_requests', ['certificate_authority', 'acme_account'], now),
+    derivedObjectType('certificate_renewal', '证书续签', 'certificate_renewals', ['certificate_asset', 'certificate_authority', 'acme_account'], now),
+    derivedObjectType('trust_distribution', '信任分发', 'trust_distributions', ['trust_domain', 'certificate_authority'], now),
+    derivedObjectType('certificate_reuse_risk', '证书复用风险', 'certificate_reuse_risks', ['certificate_asset', 'service_asset'], now),
+    rootObjectType('gateway', '网关', 'gateways', now),
+    rootObjectType('agent', 'Agent', 'agents', now),
+    rootObjectType('device_asset', '设备资产', 'device_assets', now),
+    rootObjectType('host', '主机资产', 'hosts', now),
+    rootObjectType('application_asset', '应用资产', 'service_assets', now),
+    rootObjectType('service_asset', '应用资产', 'service_assets', now),
+    rootObjectType('site_asset', '站点资产', 'site_assets', now),
+    derivedObjectType('service_instance', '服务实例', 'service_instances', ['service_asset', 'site_asset'], now),
+    derivedObjectType('service_endpoint', '服务端点', 'service_endpoints', ['service_asset', 'site_asset'], now),
+    rootObjectType('managed_target', '托管目标', 'managed_targets', now),
+    derivedObjectType('managed_target_snapshot', '托管目标快照', 'managed_target_snapshots', ['managed_target'], now),
+    derivedObjectType('discovery_snapshot', '发现快照', 'discovery_snapshots', ['managed_target', 'service_asset', 'site_asset'], now),
+    derivedObjectType('asset_conflict', '资产冲突', 'asset_conflicts', ['device_asset', 'service_asset', 'site_asset'], now),
+    rootObjectType('certificate_binding', '证书绑定', 'certificate_bindings', now),
+    rootObjectType('deployment_plan', '更新计划', 'deployment_plans', now),
+    derivedObjectType('execution_run', '执行记录', 'execution_runs', ['deployment_plan', 'automation'], now),
+    derivedObjectType('execution_step', '执行步骤', 'execution_steps', ['execution_run'], now),
+    rootObjectType('workflow', '工作流', 'workflow_templates', now),
+    rootObjectType('workflow_template', '工作流模板', 'workflow_templates', now),
+    rootObjectType('automation', '自动化', 'automations', now),
+    rootObjectType('credential', '凭据', 'credential_profiles', now),
+    rootObjectType('secret', '密钥', 'secrets', now),
+    rootObjectType('plugin_binding', '插件绑定', 'unified_plugin_bindings', now),
+    rootObjectType('notification_channel', '通知通道', 'notification_channels', now),
+    rootObjectType('monitor_target', '监控目标', 'monitor_targets', now),
+    derivedObjectType('audit_log', '审计日志', 'audit_logs', [], now),
+    rootObjectType('system_setting', '系统设置', 'settings', now, { tenantField: 'owner_tenant_id' }),
+    rootObjectType('identity_source', '身份源', 'identity_sources', now),
+  ];
 }
 
 function validateDynamicConditions(conditions: Record<string, unknown>): void {
@@ -471,7 +495,12 @@ function isBindingCurrentlyActive(binding: RoleBindingEntity): boolean {
 function matchesObjectSet(objectSet: ObjectSetEntity, object: ObjectRef, members: ObjectSetMemberEntity[]): boolean {
   if (objectSet.kind === 'static') {
     if (!object.objectId) return true;
-    return members.some((item) => item.objectSetId === objectSet.id && item.objectType === object.objectType && item.objectId === object.objectId);
+    return members.some((item) =>
+      item.objectSetId === objectSet.id
+      && item.objectType === object.objectType
+      && item.objectId === object.objectId
+      && objectSetMemberTenantMatches(item.tenantId, object.tenantId),
+    );
   }
   const conditions = objectSet.conditions ?? {};
   for (const [key, expected] of Object.entries(conditions)) {
@@ -484,6 +513,58 @@ function matchesObjectSet(objectSet: ObjectSetEntity, object: ObjectRef, members
     if (actual !== expected) return false;
   }
   return true;
+}
+
+function rootObjectType(
+  code: string,
+  name: string,
+  tableName: string,
+  now: string,
+  overrides: Partial<Pick<ObjectTypeEntity, 'tenantField' | 'ownerFields' | 'parentTypes'>> = {},
+): ObjectTypeEntity {
+  return {
+    id: code,
+    code,
+    name,
+    tableName,
+    tenantField: overrides.tenantField ?? 'tenant_id',
+    ownerFields: overrides.ownerFields,
+    parentTypes: overrides.parentTypes,
+    supportedActions: [`${code}.read`, `${code}.update`, `${code}.create`, `${code}.delete`],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function derivedObjectType(
+  code: string,
+  name: string,
+  tableName: string,
+  parentTypes: string[],
+  now: string,
+): ObjectTypeEntity {
+  return rootObjectType(code, name, tableName, now, { parentTypes });
+}
+
+function resolveObjectSetMemberTenantId(objectSet: ObjectSetEntity, requestedTenantId?: string): string | undefined {
+  if (requestedTenantId === '*') {
+    throw securityErrors.permissionDenied({ reason: 'object set member tenant cannot use wildcard', objectSetId: objectSet.id });
+  }
+  if (objectSet.tenantId === '*') return requestedTenantId;
+  if (requestedTenantId && requestedTenantId !== objectSet.tenantId) {
+    throw securityErrors.permissionDenied({
+      reason: 'object set member tenant must match object set tenant',
+      memberTenantId: requestedTenantId,
+      objectSetTenantId: objectSet.tenantId,
+      objectSetId: objectSet.id,
+    });
+  }
+  return objectSet.tenantId;
+}
+
+function objectSetMemberTenantMatches(memberTenantId: string | undefined, objectTenantId: string | undefined): boolean {
+  if (!memberTenantId && !objectTenantId) return true;
+  return Boolean(memberTenantId) && memberTenantId === objectTenantId;
 }
 
 function actionFor(objectType: string, level: AccessLevel): string {

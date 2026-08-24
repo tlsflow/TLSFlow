@@ -10,6 +10,7 @@ export interface ApprovalResourceRef {
 
 export interface ApprovalRequestEntity {
   id: string;
+  tenantId?: string;
   operationType: string;
   resourceRefs: ApprovalResourceRef[];
   riskLevel: RiskLevel;

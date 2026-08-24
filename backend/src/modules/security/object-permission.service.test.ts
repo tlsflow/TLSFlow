@@ -115,8 +115,8 @@ test('结构化租户范围约束旧通配绑定和列表授权', async () => {
     objectTypes: ['host'],
     status: 'active',
   });
-  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_a', addedBy: 'admin' });
-  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_b', addedBy: 'admin' });
+  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_a', tenantId: 'company_a', addedBy: 'admin' });
+  await service.addObjectSetMember({ objectSetId: objectSet.id, objectType: 'host', objectId: 'host_b', tenantId: 'company_b', addedBy: 'admin' });
   await service.createRoleBinding({
     tenantId: '*',
     principalType: 'user',
@@ -209,6 +209,80 @@ test('SYSTEM 范围只允许系统所有权对象', async () => {
     objectId: 'setting_builtin',
     tenantId: 'tenant_a',
   })).allowed, false);
+});
+
+test('静态对象集合成员必须与真实租户一致，不能把同一对象 ID 扩散到其他租户', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_group_asset_reader', code: 'group_asset_reader', name: '集团资产只读', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_group_assets',
+    tenantId: '*',
+    name: '集团应用资产集合',
+    kind: 'static',
+    objectTypes: ['service_asset'],
+    status: 'active',
+  });
+  const member = await service.addObjectSetMember({
+    objectSetId: objectSet.id,
+    objectType: 'service_asset',
+    objectId: 'asset_shared_id',
+    tenantId: 'company_a',
+    addedBy: 'admin',
+  });
+  assert.equal(member.tenantId, 'company_a');
+  await service.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_group_asset_reader',
+    roleId: 'role_group_asset_reader',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createAccessGrant({
+    roleId: 'role_group_asset_reader',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+
+  const subject = {
+    id: 'user_group_asset_reader',
+    type: 'user' as const,
+    scope: {
+      tenantId: 'group_a',
+      tenantScope: {
+        type: 'SUBTREE' as const,
+        rootTenantId: 'group_a',
+        tenantIds: ['group_a', 'company_a', 'company_b'],
+      },
+    },
+  };
+  assert.equal((await service.can(subject, 'read', {
+    objectType: 'service_asset',
+    objectId: 'asset_shared_id',
+    tenantId: 'company_a',
+  })).allowed, true);
+  const crossTenant = await service.can(subject, 'read', {
+    objectType: 'service_asset',
+    objectId: 'asset_shared_id',
+    tenantId: 'company_b',
+  });
+  assert.equal(crossTenant.allowed, false);
+});
+
+test('默认对象目录覆盖阶段 3 的授权根对象与派生对象', async () => {
+  const { service } = createServiceWithRepos();
+  const types = await service.listObjectTypes();
+  const executionStep = types.find((item) => item.code === 'execution_step');
+  const certificateVersion = types.find((item) => item.code === 'certificate_version');
+  const workflowTemplate = types.find((item) => item.code === 'workflow_template');
+  const secret = types.find((item) => item.code === 'secret');
+  assert.deepEqual(executionStep?.parentTypes, ['execution_run']);
+  assert.deepEqual(certificateVersion?.parentTypes, ['certificate', 'certificate_asset']);
+  assert.equal(workflowTemplate?.tableName, 'workflow_templates');
+  assert.equal(secret?.tenantField, 'tenant_id');
 });
 
 test('列表授权查询支持静态成员、动态条件和 deny 优先', async () => {

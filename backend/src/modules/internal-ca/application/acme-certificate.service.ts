@@ -381,6 +381,7 @@ export class AcmeCertificateService {
       .export({ type: 'pkcs8', format: 'pem' })
       .toString();
     const secret = await this.secrets.create({
+      tenantId: input.tenantId,
       name: `ACME Account Key - ${provider.name}`,
       type: 'certificate_private_key',
       scopeType: 'global',

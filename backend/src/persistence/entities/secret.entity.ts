@@ -2,6 +2,7 @@ import type { SecretScopeType, SecretStatus, SecretType, SecretVersionStatus } f
 
 export interface SecretEntity {
   id: string;
+  tenantId?: string;
   name: string;
   type: SecretType;
   scopeType: SecretScopeType;
@@ -16,6 +17,7 @@ export interface SecretEntity {
 
 export interface SecretVersionEntity {
   id: string;
+  tenantId?: string;
   secretId: string;
   versionNo: number;
   encryptedData: string;

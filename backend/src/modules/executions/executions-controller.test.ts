@@ -52,6 +52,11 @@ test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步
     updatedAt: '2026-08-03T00:00:01.000Z',
     version: 3,
   };
+  const foreignTenantStep = {
+    ...successStep,
+    id: 'step-sse-foreign-tenant',
+    tenantId: 'tenant_2',
+  };
 
   let routeHandler: ((request: any) => Promise<any>) | undefined;
   const controller = new ExecutionsController({
@@ -90,6 +95,7 @@ test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步
   const streamPromise = body.stream(response as any);
   await new Promise<void>((resolve) => setImmediate(resolve));
   detailStream.publishStep(successStep as any);
+  detailStream.publishStep(foreignTenantStep as any);
   releaseSnapshot!();
   await new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -100,6 +106,7 @@ test('执行详情 SSE 在读取快照期间缓存事件，避免丢失首个步
   assert.ok(stepIndex > snapshotIndex);
   assert.match(output.slice(snapshotIndex, stepIndex), /"status":"PENDING"/);
   assert.match(output.slice(stepIndex), /"status":"SUCCESS"/);
+  assert.doesNotMatch(output, /step-sse-foreign-tenant/);
 
   response.closeListener?.();
   await Promise.race([

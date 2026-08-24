@@ -44,12 +44,12 @@ export class ExecutionResultSyncService {
   }
 
   async probeSuccessfulDeploymentPlanTargets(input: { tenantId?: string; deploymentPlanId: string }): Promise<void> {
-    if (!this.monitors || !this.deploymentPlans) return;
+    if (!input.tenantId || !this.monitors || !this.deploymentPlans) return;
     const targets = await this.resolveDeploymentPlanProbeTargets(input.tenantId, input.deploymentPlanId);
     for (const { serviceAssetId, workflowTarget } of targets) {
-      if (workflowTarget) await this.mergeServiceAssetWorkflowTarget(input.tenantId ?? '', serviceAssetId, workflowTarget);
-      const probeResult = await this.probeWorkflowServiceAsset(input.tenantId ?? '', serviceAssetId);
-      if (probeResult) await this.writeServiceAssetProbeMetadata(input.tenantId ?? '', serviceAssetId, probeResult);
+      if (workflowTarget) await this.mergeServiceAssetWorkflowTarget(input.tenantId, serviceAssetId, workflowTarget);
+      const probeResult = await this.probeWorkflowServiceAsset(input.tenantId, serviceAssetId);
+      if (probeResult) await this.writeServiceAssetProbeMetadata(input.tenantId, serviceAssetId, probeResult);
     }
   }
 
@@ -463,7 +463,7 @@ export class ExecutionResultSyncService {
   }
 
   private async resolveDeploymentPlanProbeTargets(tenantId: string | undefined, deploymentPlanId: string): Promise<Array<{ serviceAssetId: string; workflowTarget?: Record<string, unknown> }>> {
-    if (!this.deploymentPlans) return [];
+    if (!tenantId || !this.deploymentPlans) return [];
     const output = new Map<string, Record<string, unknown> | undefined>();
     const targets = await this.deploymentPlans.listTargetsByPlan(deploymentPlanId, tenantId);
     for (const target of targets) {
@@ -480,7 +480,7 @@ export class ExecutionResultSyncService {
       if (applicationAssetId) output.set(applicationAssetId, workflowTarget ?? output.get(applicationAssetId));
 
       if (!target.certificateBindingId) continue;
-      const binding = await this.bindings.getRepository().getCertificateBinding(tenantId ?? '', target.certificateBindingId);
+      const binding = await this.bindings.getRepository().getCertificateBinding(tenantId, target.certificateBindingId);
       if (binding?.serviceAssetId) output.set(binding.serviceAssetId, workflowTarget ?? output.get(binding.serviceAssetId));
     }
     return [...output].map(([serviceAssetId, workflowTarget]) => ({ serviceAssetId, workflowTarget }));

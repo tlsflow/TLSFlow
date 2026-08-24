@@ -25,7 +25,7 @@ import { StepGraphBuilder } from './step-graph-builder.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
-import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import { isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
@@ -439,16 +439,40 @@ export class ExecutionsApplicationService {
       input.allowMockExecutor === true,
       input.agentPayloadByTargetId,
     );
-    const jobId = this.tasks
-      ? run.id
-      : (await this.queue.enqueue({
-          jobType: 'DEPLOYMENT_EXECUTE',
-          resourceType: 'executionRun',
-          resourceId: run.id,
-          idempotencyKey: input.idempotencyKey,
-          payload: { runId: run.id, deploymentPlanId: input.deploymentPlanId, type: input.type, tenantId: input.tenantId, actorId: input.actorId },
-          retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
-        })).jobId;
+    const tasks = this.tasks;
+    const tenantId = input.tenantId;
+    const useUnifiedTaskControlPlane = tasks !== undefined
+      && tenantId !== undefined
+      && isUnifiedTaskWorkerEnabled();
+    let jobId: string;
+    if (useUnifiedTaskControlPlane && tasks && tenantId) {
+      const task = await tasks.enqueue({
+        tenantId,
+        taskType: taskTypeForExecutionRun(input.type),
+        requestedBy: input.actorId,
+        triggerSource: `execution.${input.type}.enqueue`,
+        idempotencyKey: `execution-run:${run.id}`,
+        payload: {
+          runId: run.id,
+          deploymentPlanId: input.deploymentPlanId,
+          executionType: input.type,
+        },
+        resourceRefs: [
+          { resourceType: 'deploymentPlan', resourceId: input.deploymentPlanId },
+          { resourceType: 'executionRun', resourceId: run.id },
+        ],
+      });
+      jobId = task.id;
+    } else {
+      jobId = (await this.queue.enqueue({
+        jobType: 'DEPLOYMENT_EXECUTE',
+        resourceType: 'executionRun',
+        resourceId: run.id,
+        idempotencyKey: input.idempotencyKey,
+        payload: { runId: run.id, deploymentPlanId: input.deploymentPlanId, type: input.type, tenantId: input.tenantId, actorId: input.actorId },
+        retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
+      })).jobId;
+    }
     const dispatched = await this.transitionRunEntity({ ...run, externalRunId: jobId }, 'DISPATCHED', input.actorId, 'queue.dispatched', { externalRunId: jobId });
 
     void this.audit.write({
@@ -462,7 +486,7 @@ export class ExecutionsApplicationService {
       riskLevel: input.type === 'dry_run' ? 'low' : 'high',
       context,
       failClosed: input.type !== 'dry_run',
-      detail: { deploymentPlanId: input.deploymentPlanId, jobId, stepCount: steps.length, queue: this.tasks ? 'unified-task-control-plane' : 'legacy-pg-job-runner' },
+      detail: { deploymentPlanId: input.deploymentPlanId, jobId, stepCount: steps.length, queue: useUnifiedTaskControlPlane ? 'unified-task-control-plane' : 'legacy-pg-job-runner' },
     }).catch(() => undefined);
 
     return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId };
@@ -757,8 +781,15 @@ export class ExecutionsApplicationService {
       return { success: true, asyncPending: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
     if (this.resultSync && shouldSyncExecutorResult(executorType, run.type)) {
+      const stepTenantId = tenantId ?? runningStep.tenantId;
+      if (!stepTenantId) {
+        throw new AppError('TENANT_CONTEXT_INVALID', '执行结果同步缺少租户上下文', {
+          runId: runningStep.executionRunId,
+          stepId: runningStep.id,
+        });
+      }
       await this.resultSync.applyAgentTaskResult({
-        tenantId: tenantId ?? runningStep.tenantId ?? '',
+        tenantId: stepTenantId,
         executionRunId: runningStep.executionRunId,
         executionStepId: runningStep.id,
         success: result.success,
@@ -966,6 +997,12 @@ export class ExecutionsApplicationService {
     const value = String(run.summary.failurePolicy ?? 'stop');
     return value === 'continue' || value === 'rollback' ? value : 'stop';
   }
+}
+
+function taskTypeForExecutionRun(type: CreateExecutionRunInput['type']): 'CERTIFICATE_DRY_RUN' | 'CERTIFICATE_DEPLOY' | 'CERTIFICATE_ROLLBACK' {
+  if (type === 'dry_run') return 'CERTIFICATE_DRY_RUN';
+  if (type === 'rollback') return 'CERTIFICATE_ROLLBACK';
+  return 'CERTIFICATE_DEPLOY';
 }
 
 interface ExecutionStepRef {

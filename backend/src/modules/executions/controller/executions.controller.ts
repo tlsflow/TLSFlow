@@ -25,14 +25,16 @@ export class ExecutionsController {
   }
 
   private async listRuns(request: HttpRequest) {
+    const tenantId = requireTenantId(request);
     const deploymentPlanId = this.readOptionalQueryString(request, 'deploymentPlanId');
-    const items = await this.service.listRuns({ tenantId: request.context.tenantId, deploymentPlanId });
+    const items = await this.service.listRuns({ tenantId, deploymentPlanId });
     return { items, page: 1, pageSize: 200, total: items.length };
   }
 
   private async listSteps(request: HttpRequest) {
+    const tenantId = requireTenantId(request);
     const executionRunId = this.readOptionalQueryString(request, 'executionRunId');
-    const items = await this.service.listSteps({ tenantId: request.context.tenantId, executionRunId });
+    const items = await this.service.listSteps({ tenantId, executionRunId });
     return { items, page: 1, pageSize: 200, total: items.length };
   }
 
@@ -44,6 +46,7 @@ export class ExecutionsController {
   }
 
   private retry(request: HttpRequest) {
+    const tenantId = requireTenantId(request);
     const body = validateObject(request.body, {
       runId: { type: 'string', required: true },
       idempotencyKey: { type: 'string', required: true },
@@ -52,11 +55,12 @@ export class ExecutionsController {
       runId: String(body.runId),
       idempotencyKey: String(body.idempotencyKey),
       actorId: this.actorId(request),
-      tenantId: request.context.tenantId,
+      tenantId,
     }, this.securityContext(request));
   }
 
   private rollback(request: HttpRequest) {
+    const tenantId = requireTenantId(request);
     const body = validateObject(request.body, {
       runId: { type: 'string', required: true },
       idempotencyKey: { type: 'string', required: true },
@@ -67,11 +71,12 @@ export class ExecutionsController {
       idempotencyKey: String(body.idempotencyKey),
       approvalId: body.approvalId === undefined ? undefined : String(body.approvalId),
       actorId: this.actorId(request),
-      tenantId: request.context.tenantId,
+      tenantId,
     }, this.securityContext(request));
   }
 
   private async streamDetail(request: HttpRequest) {
+    const tenantId = requireTenantId(request);
     const runId = this.readOptionalQueryString(request, 'runId');
     if (!runId) throw new AppError('VALIDATION_FAILED', '缺少 runId');
 
@@ -110,6 +115,7 @@ export class ExecutionsController {
 
         if (this.detailStream) {
           unsubscribe = this.detailStream.subscribe(runId, (event) => {
+            if (event.tenantId !== tenantId) return;
             if (snapshotReady) {
               writeEvent(event.type, event);
             } else {
@@ -119,8 +125,8 @@ export class ExecutionsController {
         }
 
         const [run, steps] = await Promise.all([
-          this.service.getRun(runId, request.context.tenantId),
-          this.service.listSteps({ tenantId: request.context.tenantId, executionRunId: runId }),
+          this.service.getRun(runId, tenantId),
+          this.service.listSteps({ tenantId, executionRunId: runId }),
         ]);
         if (closed) return;
 
@@ -149,7 +155,7 @@ export class ExecutionsController {
     return {
       requestId: request.context.requestId,
       sourceIp: request.context.ip,
-      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } },
+      actor: { id: this.actorId(request), type: 'user' as const, scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope } },
     };
   }
 

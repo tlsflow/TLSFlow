@@ -22,6 +22,7 @@ export interface WriteAuditInput {
 }
 
 export interface AuditQuery {
+  tenantId?: string;
   actorId?: string;
   eventType?: string;
   resourceType?: string;
@@ -54,6 +55,7 @@ export class AuditService {
       const redactedDetail = input.detail === undefined ? undefined : this.redaction.redact(input.detail).value;
       return this.logs.create({
         id: newId('aud'),
+        tenantId: resolveContextTenantId(input.context),
         eventType: input.eventType,
         actorType: input.actorType,
         actorId: input.actorId,
@@ -77,7 +79,8 @@ export class AuditService {
 
   async query(query: AuditQuery = {}): Promise<AuditLogEntity[]> {
     return this.logs.list((log) => {
-      return (!query.actorId || log.actorId === query.actorId)
+      return (!query.tenantId || log.tenantId === query.tenantId)
+        && (!query.actorId || log.actorId === query.actorId)
         && (!query.eventType || log.eventType === query.eventType)
         && (!query.resourceType || log.resourceType === query.resourceType)
         && (!query.resourceId || log.resourceId === query.resourceId)
@@ -104,6 +107,10 @@ export class AuditService {
       id: query.resourceId,
       scope: query.resourceScope,
     }, input.context);
-    return this.query(query);
+    return this.query({ tenantId: query.tenantId ?? input.subject.scope?.tenantId ?? resolveContextTenantId(input.context), ...query });
   }
+}
+
+function resolveContextTenantId(context: RequestContext | undefined): string | undefined {
+  return context?.tenantId ?? context?.actor?.scope?.tenantId;
 }

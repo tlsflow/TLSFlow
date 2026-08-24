@@ -62,8 +62,8 @@ export class RuntimeCredentialResolver {
       const secretRefs = Object.fromEntries(await Promise.all(Object.entries(profile.secretSlots).map(async ([name, secretRef]) => {
         const parsed = parseSecretRef(secretRef);
         if (parsed.version !== 'current') return [name, secretRef];
-        const metadata = await this.secrets!.getMetadata(parsed.secretId);
-        const version = (await this.secrets!.listSecretVersions(parsed.secretId)).find((item) => item.id === metadata.currentVersionId);
+        const metadata = await this.secrets!.getMetadata(parsed.secretId, tenantId);
+        const version = (await this.secrets!.listSecretVersions(parsed.secretId, tenantId)).find((item) => item.id === metadata.currentVersionId);
         if (!version) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 当前 Secret 版本不存在', { credentialId: profile.id, slot: name });
         return [name, buildSecretRef(parsed.type, parsed.secretId, version.versionNo)];
       })));

@@ -321,14 +321,16 @@ export class SecurityController {
       metadata: { type: 'object' },
     });
     const subject = await this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
     await this.services.rbac.assertCan(subject, 'secret.create', {
       type: 'secret',
-      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
+      scope: { tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, this.securityContext(request, subject));
 
     return {
       statusCode: 201,
       body: await this.services.secrets.create({
+        tenantId,
         name: String(body.name),
         type: body.type as SecretType,
         scopeType: body.scopeType as SecretScopeType,
@@ -342,14 +344,15 @@ export class SecurityController {
 
   private async listSecrets(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
     await this.services.rbac.assertCan(subject, 'secret.read', {
       type: 'secret',
-      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+      scope: { tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     const type = readOptionalQueryString(request, 'type');
     const scopeType = readOptionalQueryString(request, 'scopeType');
     const workflowCredential = readOptionalQueryString(request, 'workflowCredential');
-    const items = (await this.services.secrets.listMetadata()).filter((item) => {
+    const items = (await this.services.secrets.listMetadata(tenantId)).filter((item) => {
       if (type && item.type !== type) return false;
       if (scopeType && item.scopeType !== scopeType) return false;
       if (workflowCredential === 'true' && item.metadata.workflowCredential !== true) return false;
@@ -361,12 +364,13 @@ export class SecurityController {
   private async getSecretMetadata(request: HttpRequest) {
     const id = readQueryString(request, 'id');
     const subject = await this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
     await this.services.rbac.assertCan(subject, 'secret.read', {
       type: 'secret',
       id,
-      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+      scope: { tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
-    return this.services.secrets.getMetadata(id);
+    return this.services.secrets.getMetadata(id, tenantId);
   }
 
   private async createApproval(request: HttpRequest) {
@@ -378,13 +382,15 @@ export class SecurityController {
       expiresAt: { type: 'string' },
     });
     const subject = await this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
     await this.services.rbac.assertCan(subject, 'approval.create', {
       type: 'approval',
-      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+      scope: { tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     return {
       statusCode: 201,
       body: await this.services.approvals.create({
+        tenantId,
         operationType: String(body.operationType),
         resourceRefs: body.resourceRefs as Array<{ type: string; id: string }>,
         riskLevel: body.riskLevel as RiskLevel,
@@ -402,13 +408,15 @@ export class SecurityController {
       comment: { type: 'string' },
     });
     const subject = await this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
     await this.services.rbac.assertCan(subject, 'approval.decide', {
       type: 'approval',
       id: String(body.approvalId),
-      scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope },
+      scope: { tenantId, tenantScope: request.context.tenantScope },
     }, this.securityContext(request, subject));
     return this.services.approvals.decide({
       approvalId: String(body.approvalId),
+      tenantId,
       decision: body.decision as 'approved' | 'rejected',
       approverId: subject.id,
       comment: body.comment === undefined ? undefined : String(body.comment),
@@ -425,6 +433,7 @@ export class SecurityController {
     const items = await this.services.audit.queryWithPermission({
       subject,
       query: {
+        tenantId: requireTenantId(request),
         actorId: readOptionalQueryString(request, 'actorId'),
         eventType: readOptionalQueryString(request, 'eventType'),
         resourceType: readOptionalQueryString(request, 'resourceType'),
@@ -825,11 +834,13 @@ export class SecurityController {
       objectSetId: { type: 'string', required: true },
       objectType: { type: 'string', required: true },
       objectId: { type: 'string', required: true },
+      tenantId: { type: 'string' },
     });
     const created = await this.services.objectPermissions.addObjectSetMember({
       objectSetId: String(body.objectSetId),
       objectType: String(body.objectType),
       objectId: String(body.objectId),
+      tenantId: body.tenantId === undefined ? undefined : String(body.tenantId),
       addedBy: subject.id,
     });
     await this.writeAudit(request, subject, 'security.object_set_member.added', 'security.object_set_member.add', 'permissionObjectSet', created.objectSetId, { after: created });
@@ -1091,6 +1102,8 @@ export class SecurityController {
       requestId: request.context.requestId,
       sourceIp: request.context.ip,
       actor,
+      tenantId: actor.scope?.tenantId,
+      tenantScope: actor.scope?.tenantScope,
     };
   }
 

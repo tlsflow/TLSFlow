@@ -787,7 +787,7 @@ export class InternalCaController {
             }
           }
         };
-        const unsubscribe = this.service.subscribeNodeTasks(node.providerId, () => { void dispatch(); });
+        const unsubscribe = this.service.subscribeNodeTasks(node.tenantId, node.providerId, () => { void dispatch(); });
         const heartbeat = setInterval(() => {
           writeEvent('heartbeat', { emittedAt: new Date().toISOString() });
           void this.service.heartbeatNode(node.tenantId, node.id, { healthStatus: 'online' }).catch(cleanup);

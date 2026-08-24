@@ -1601,12 +1601,12 @@ export class InternalCaApplicationService {
       if (!raced) throw error;
       task = raced;
     }
-    this.nodeTaskChannel.notify(providerId);
+    this.nodeTaskChannel.notify(tenantId, providerId);
     return task;
   }
 
-  subscribeNodeTasks(providerId: string, listener: CaNodeTaskNotificationListener): () => void {
-    return this.nodeTaskChannel.subscribe(providerId, listener);
+  subscribeNodeTasks(tenantId: string, providerId: string, listener: CaNodeTaskNotificationListener): () => void {
+    return this.nodeTaskChannel.subscribe(tenantId, providerId, listener);
   }
 
   async leaseNodeTask(tenantId: string, nodeId: string): Promise<CaNodeTaskEntity | undefined> {
@@ -1637,7 +1637,7 @@ export class InternalCaApplicationService {
       errorMessage: input.success ? undefined : input.errorMessage ?? 'CA Node task failed',
       updatedAt: new Date().toISOString(),
     });
-    this.nodeTaskChannel.notify(task.providerId);
+    this.nodeTaskChannel.notify(task.tenantId, task.providerId);
     return completed;
   }
 

@@ -92,4 +92,6 @@ export interface RequestContext {
   requestId?: string;
   sourceIp?: string;
   actor?: SecuritySubject;
+  tenantId?: string;
+  tenantScope?: TenantScope;
 }

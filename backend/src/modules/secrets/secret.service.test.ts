@@ -40,6 +40,7 @@ test('SecretService 创建密钥后可通过执行授权解析', async () => {
   const grants = new ExecutionGrantService();
   const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 1))), grants, audit);
   const created = await service.create({
+    tenantId: 'tenant_secret_exec',
     name: '部署 SSH Key',
     type: 'ssh_key',
     scopeType: 'team',
@@ -51,12 +52,13 @@ test('SecretService 创建密钥后可通过执行授权解析', async () => {
   assert.match(created.secretRef, /^secret:\/\/ssh_key\/sec_/);
   assert.equal(JSON.stringify(created).includes('PRIVATE_KEY_VALUE'), false);
 
-  const versions = await service.listSecretVersions(created.id);
+  const versions = await service.listSecretVersions(created.id, 'tenant_secret_exec');
   assert.equal(versions.length, 1);
   assert.equal(JSON.stringify(versions).includes('PRIVATE_KEY_VALUE'), false);
   assert.ok(versions[0].encryptedData);
 
   const grant = await grants.create({
+    tenantId: 'tenant_secret_exec',
     runId: 'run_1',
     stepId: 'step_1',
     executorType: 'ssh',
@@ -88,6 +90,7 @@ test('SecretService 在重建后仍可解析持久化 Secret', async () => {
 
   const first = new SecretService(new CryptoService(new KeyManager()), grants, audit, secrets, versions);
   const created = await first.create({
+    tenantId: 'tenant_secret_persist',
     name: 'LDAP 服务账号密码',
     type: 'password',
     scopeType: 'global',
@@ -98,6 +101,7 @@ test('SecretService 在重建后仍可解析持久化 Secret', async () => {
   const rebuilt = new SecretService(new CryptoService(new KeyManager()), grants, audit, secrets, versions);
   const resolved = await rebuilt.resolveForService({
     secretRef: created.secretRef,
+    tenantId: 'tenant_secret_persist',
     expectedType: 'password',
     purpose: 'ldap.bind',
     actorId: 'user_admin',
@@ -111,6 +115,7 @@ test('SecretService 不为健康检查成功读取写入逐条审计', async () 
   const audit = new AuditService();
   const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 3))), new ExecutionGrantService(), audit);
   const created = await service.create({
+    tenantId: 'tenant_secret_health',
     name: '健康检查密码',
     type: 'password',
     scopeType: 'global',
@@ -120,6 +125,7 @@ test('SecretService 不为健康检查成功读取写入逐条审计', async () 
 
   await service.resolveForService({
     secretRef: created.secretRef,
+    tenantId: 'tenant_secret_health',
     expectedType: 'password',
     purpose: 'secret.health_check',
     actorId: 'system',
@@ -129,6 +135,7 @@ test('SecretService 不为健康检查成功读取写入逐条审计', async () 
 
   await service.resolveForService({
     secretRef: created.secretRef,
+    tenantId: 'tenant_secret_health',
     expectedType: 'password',
     purpose: 'ldap.bind',
     actorId: 'user_admin',
@@ -145,6 +152,7 @@ test('SecretService 支持持久化工作流凭据元数据且列表不泄露明
   const versions = new PgDocumentRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(db, 'security.secret_versions.metadata-test');
   const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 2))), new ExecutionGrantService(), new AuditService(), secrets, versions);
   await service.create({
+    tenantId: 'tenant_secret_meta',
     name: 'edge-01 root',
     type: 'password',
     scopeType: 'global',
@@ -157,7 +165,7 @@ test('SecretService 支持持久化工作流凭据元数据且列表不泄露明
     },
   });
 
-  const listed = await service.listMetadata();
+  const listed = await service.listMetadata('tenant_secret_meta');
   assert.equal(listed.length, 1);
   assert.deepEqual(listed[0]?.metadata, {
     workflowCredential: true,
@@ -165,4 +173,32 @@ test('SecretService 支持持久化工作流凭据元数据且列表不泄露明
     username: 'deploy',
   });
   assert.equal(JSON.stringify(listed).includes('secret-password'), false);
+});
+
+test('SecretService 元数据和版本列表按租户隔离', async () => {
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 4))), new ExecutionGrantService(), new AuditService());
+  const tenantA = await service.create({
+    tenantId: 'tenant_a',
+    name: 'tenant-a password',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'secret-a',
+    createdBy: 'user_admin',
+  });
+  await service.create({
+    tenantId: 'tenant_b',
+    name: 'tenant-b password',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'secret-b',
+    createdBy: 'user_admin',
+  });
+
+  const listed = await service.listMetadata('tenant_a');
+  assert.deepEqual(listed.map((item) => item.id), [tenantA.id]);
+  await assert.rejects(
+    () => service.getMetadata(tenantA.id, 'tenant_b'),
+    (error: any) => error.errorCode === 'SEC_SECRET_NOT_FOUND',
+  );
+  assert.equal((await service.listSecretVersions(tenantA.id, 'tenant_b')).length, 0);
 });

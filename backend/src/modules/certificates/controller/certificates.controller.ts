@@ -439,11 +439,11 @@ export class CertificatesController {
     if (query.certificateAssetId) {
       const detail = await this.services.certificates.getAssetDetail(query.certificateAssetId, tenantId);
       return detail.versions.flatMap((version) => this.services.bindings!.findCertificateBindingUsages(
-        request.context.tenantId ?? '',
+        tenantId,
         { certificateVersionId: version.id, fingerprint: version.fingerprintSha256, domains: collectCertificateDomains(version) },
       ));
     }
-    return this.services.bindings.findCertificateBindingUsages(request.context.tenantId ?? '', {
+    return this.services.bindings.findCertificateBindingUsages(tenantId, {
       certificateVersionId: query.certificateVersionId,
       fingerprint: query.fingerprintSha256,
       domains: query.domains,

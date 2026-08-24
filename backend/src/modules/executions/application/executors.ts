@@ -234,7 +234,8 @@ export class AgentExecutorAdapter implements Executor {
   }
 
   private async executeResolvedPayload(input: StepExecutionInput, agentId: string, payload: Record<string, unknown>, dispatch: AgentActionDispatchResolution): Promise<StepExecutionResult> {
-    const task = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
+    const tenantId = requireExecutionTenantId(input.step, 'agent direct task');
+    const task = await this.agents.enqueueDirectTask(tenantId, {
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
@@ -246,7 +247,7 @@ export class AgentExecutorAdapter implements Executor {
         ? async (detail: Record<string, unknown>) => input.reportProgress?.(normalizeAgentAtomicDryRunDetail(detail))
         : input.reportProgress;
       const direct = await this.agents.executeTaskDirect(
-        input.step.tenantId ?? '',
+        tenantId,
         task.id,
         `execution-direct:${input.step.id}`,
         reportDirectProgress,
@@ -303,7 +304,7 @@ export class AgentExecutorAdapter implements Executor {
     const resolvedInput = readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
     if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
     const plan = await this.agentPlanCompiler.compile({
-      tenantId: input.step.tenantId ?? '',
+      tenantId: requireExecutionTenantId(input.step, 'agent plan compile'),
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
@@ -490,7 +491,7 @@ export class WorkflowExecutorAdapter implements Executor {
   private async acquireWorkflowResourceLock(input: StepExecutionInput, request: Record<string, unknown>, assetContext: DeploymentAssetContextV1): Promise<PluginResourceLockRecord | undefined> {
     const pluginVersionId = stringFromSnapshot(request.pluginVersionId);
     if (!pluginVersionId) return undefined;
-    const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
+    const tenantId = requireExecutionTenantId(input.step, 'workflow resource lock');
     const requested = readRecord(request.resourceLock) ?? {};
     const hostId = assetContext.host?.id;
     const managedTargetId = assetContext.target?.id;
@@ -521,7 +522,7 @@ export class WorkflowExecutorAdapter implements Executor {
     if (!pluginVersionId || !capabilityKey) {
       throw new AppError('VALIDATION_FAILED', '插件工作流恢复账本必须同时固定 pluginVersionId 和 capabilityKey');
     }
-    const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
+    const tenantId = requireExecutionTenantId(input.step, 'workflow recovery ledger');
     return await this.recovery.begin({
       tenantId,
       executionRunId: input.step.executionRunId,
@@ -594,11 +595,12 @@ export class WorkflowExecutorAdapter implements Executor {
       ? 'workflow.tls.insecure'
       : undefined;
     const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
+    const tenantId = requireExecutionTenantId(input.step, 'workflow child grant');
     // dry-run 也签发仅绑定当前 dry_run step 的短期 Grant，使预检能完整验证授权链；
     // 该 Grant 的 runId 不同于正式执行，且始终在当前工作流节点结束后撤销。
     const grant = this.executionGrants && executor
       ? await this.executionGrants.create({
-          tenantId: input.step.tenantId,
+          tenantId,
           planId: authorization?.planId ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),
           runId: input.step.executionRunId,
           stepId: childStepId,
@@ -737,6 +739,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
   }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
+    const tenantId = requireExecutionTenantId(input.step, 'gateway route execute');
     const route = readRecord(input.step.inputSnapshot.gatewayRoute);
     const gatewayId = stringFromSnapshot(input.step.inputSnapshot.gatewayId) ?? stringFromSnapshot(route?.gatewayId) ?? `gw_${input.step.deploymentPlanTargetId ?? 'default'}`;
     const gatewayAgentId = stringFromSnapshot(route?.agentId);
@@ -758,7 +761,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
     });
     const task = this.gatewayTasks.dispatch({
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
-      tenantId: input.step.tenantId,
+      tenantId,
       planId: stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),
       executionRunId: input.step.executionRunId,
       stepId: input.step.id,
@@ -780,7 +783,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
       };
     }
 
-    const agentTask = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
+    const agentTask = await this.agents.enqueueDirectTask(tenantId, {
       agentId: gatewayAgentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
@@ -795,7 +798,7 @@ export class GatewayRouteExecutorAdapter implements Executor {
 
     try {
       const direct = await this.agents.executeTaskDirect(
-        input.step.tenantId ?? '',
+        tenantId,
         agentTask.id,
         `gateway-execution-direct:${input.step.id}`,
         input.reportProgress,
@@ -1128,6 +1131,18 @@ function buildWorkflowAssetVariables(snapshot: Record<string, unknown>, request:
     verifyUrl: target.verifyUrl ?? snapshot.verifyUrl,
     sniName: target.sniName,
   };
+}
+
+function requireExecutionTenantId(step: ExecutionStepEntity, reason: string): string {
+  const tenantId = step.tenantId ?? stringFromSnapshot(step.inputSnapshot.tenantId);
+  if (!tenantId) {
+    throw new AppError('TENANT_CONTEXT_INVALID', '执行步骤缺少租户上下文，拒绝继续执行', {
+      stepId: step.id,
+      executionRunId: step.executionRunId,
+      reason,
+    });
+  }
+  return tenantId;
 }
 
 function buildWorkflowCertificateMaterials(snapshot: Record<string, unknown>): Record<string, Record<string, unknown>> {
