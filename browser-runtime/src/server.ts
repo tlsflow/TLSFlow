@@ -217,7 +217,7 @@ async function connectBrowser(record: SessionRecord): Promise<void> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     try {
       if (!processLauncher.isAlive(record.processHandle)) throw new Error('Chromium 进程组已退出');
-      const browser = await chromium.connectOverCDP(record.cdpUrl);
+      const browser = await chromium.connectOverCDP(record.cdpUrl, { timeout: 60_000 });
       const context = browser.contexts()[0];
       if (!context) throw new Error('Chromium 未提供默认 BrowserContext');
       await context.route('**/*', async (route) => {

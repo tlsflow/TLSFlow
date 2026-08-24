@@ -41,10 +41,15 @@ x11vnc -display "${DISPLAY}" -forever -shared -nopw -localhost -rfbport "${RFB_P
   >"${SESSION_DIR}/logs/x11vnc.log" 2>&1 &
 pids+=("$!")
 
+# Runtime 已通过非 root、只读根文件系统、能力丢弃和 no-new-privileges 隔离，
+# Chromium 自带 sandbox 在该约束下无法初始化，因此显式关闭并固定会话目录。
 "${CHROMIUM_EXECUTABLE:-chromium}" \
   --no-sandbox \
   --disable-gpu \
+  --in-process-gpu \
+  --use-gl=swiftshader \
   --disable-crash-reporter \
+  --disable-features=TranslateUI,VizDisplayCompositor \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="${CDP_PORT}" \
   --user-data-dir="${HOME}/profile" \
@@ -54,7 +59,6 @@ pids+=("$!")
   --disable-background-networking \
   --disable-component-update \
   --disable-default-apps \
-  --disable-features=TranslateUI \
   --disable-sync \
   --metrics-recording-only \
   --password-store=basic \

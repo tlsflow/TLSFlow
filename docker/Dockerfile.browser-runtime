@@ -17,6 +17,30 @@ COPY browser-runtime/package.json browser-runtime/package-lock.json ./
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci --omit=dev --ignore-scripts
 
+FROM ${NODE_IMAGE} AS novnc-assets
+WORKDIR /tmp/novnc
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  set -eux; \
+  for attempt in 1 2 3 4 5; do \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=30 \
+      -o Acquire::https::Timeout=30 \
+      update \
+      && apt-get \
+        -o Acquire::Retries=5 \
+        -o Acquire::http::Timeout=30 \
+        -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends ca-certificates novnc \
+      && break; \
+    if [ "$attempt" = 5 ]; then exit 1; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    sleep 5; \
+  done; \
+  rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /novnc \
+  && cp -a /usr/share/novnc/. /novnc/
+
 FROM ${NODE_IMAGE}
 WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -61,7 +85,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   && mkdir -p /run/gcac-browser-sessions /app/container \
   && chown -R browser-runtime:browser-runtime /run/gcac-browser-sessions /app
 COPY --from=runtime-dependencies /src/browser-runtime/node_modules ./node_modules
-COPY --from=runtime-dependencies /src/browser-runtime/node_modules/@novnc/novnc ./novnc
+COPY --from=novnc-assets /novnc ./novnc
 COPY --from=build /src/browser-runtime/dist ./dist
 COPY browser-runtime/container/start-session.sh ./container/start-session.sh
 RUN chmod 0555 ./container/start-session.sh

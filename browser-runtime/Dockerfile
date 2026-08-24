@@ -13,6 +13,30 @@ COPY package.json package-lock.json* ./
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci --omit=dev --ignore-scripts
 
+FROM node:22-bookworm-slim AS novnc-assets
+WORKDIR /tmp/novnc
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  set -eux; \
+  for attempt in 1 2 3 4 5; do \
+    apt-get \
+      -o Acquire::Retries=5 \
+      -o Acquire::http::Timeout=30 \
+      -o Acquire::https::Timeout=30 \
+      update \
+      && apt-get \
+        -o Acquire::Retries=5 \
+        -o Acquire::http::Timeout=30 \
+        -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends ca-certificates novnc \
+      && break; \
+    if [ "$attempt" = 5 ]; then exit 1; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    sleep 5; \
+  done; \
+  rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /novnc \
+  && cp -a /usr/share/novnc/. /novnc/
+
 FROM node:22-bookworm-slim
 WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -62,7 +86,7 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin browser-runtime 
   && mkdir -p /run/gcac-browser-sessions /app/container \
   && chown -R browser-runtime:browser-runtime /run/gcac-browser-sessions /app
 COPY --from=runtime-dependencies /app/node_modules ./node_modules
-COPY --from=runtime-dependencies /app/node_modules/@novnc/novnc ./novnc
+COPY --from=novnc-assets /novnc ./novnc
 COPY --from=build /app/dist ./dist
 COPY container/start-session.sh ./container/start-session.sh
 RUN chmod 0555 ./container/start-session.sh
