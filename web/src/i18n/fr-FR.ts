@@ -893,7 +893,7 @@ export default {
     sources: { builtin: 'Intégré', user: 'Plugin utilisateur' },
     statuses: { valid: 'Disponible', invalid: 'Invalide', available: 'Prêt à créer', enabled: 'Activé', disabled: 'Non activé', pendingApproval: 'En attente d’approbation', inUse: 'Utilisé', notInUse: 'Non utilisé' },
     filters: { searchLabel: 'Rechercher des plugins', searchPlaceholder: 'Rechercher par nom, tag, catégorie ou chemin', allSources: 'Toutes les sources', allStatuses: 'Tous les états', statusLabel: 'État du plugin' },
-    card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution', trustedJsRuntime: 'Plugin Trusted JS', moreTags: '+{count} autres' },
+    card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution', moreTags: '+{count} autres' },
     columns: {
       name: 'Plugin name',
       status: 'Status',
@@ -941,7 +941,7 @@ export default {
     runnerStatuses: { ready: 'Runner prêt', busy: 'Runner occupé', unavailable: 'Runner indisponible', notObserved: 'Runner non observé' },
     capabilityKeys: { device_connection_test: 'Test de connexion', device_identity_detect: 'Détection d’identité appareil', device_discover: 'Découverte appareil', device_logs_read: 'Lecture des journaux appareil', certificate_discover: 'Découverte de certificats', certificate_deploy: 'Déploiement de certificat', certificate_rollback: 'Restauration de certificat', certificate_verify: 'Vérification de certificat' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personnalisé', runtime_custom: 'Runtime personnalisé', adc_load_balancer: 'Répartiteur de charge ADC', cloud_aliyun_cdn: 'CDN Alibaba Cloud', cloud_aliyun_alb: 'ALB Alibaba Cloud', cloud_aliyun_clb: 'CLB Alibaba Cloud', cloud_aliyun_oss: 'OSS Alibaba Cloud', cloud_aliyun_waf_cname: 'WAF CNAME Alibaba Cloud', cloud_aliyun_waf_cloud: 'WAF Cloud Alibaba Cloud', cloud_aliyun_live: 'Live Alibaba Cloud', cloud_aliyun_vod: 'VOD Alibaba Cloud', cloud_tencent_cdn: 'CDN Tencent Cloud', cloud_tencent_clb: 'CLB Tencent Cloud', cloud_tencent_live: 'Live Tencent Cloud', cloud_huawei_cdn: 'CDN Huawei Cloud', cloud_huawei_elb: 'ELB Huawei Cloud', cloud_volcengine_cdn: 'CDN Volcengine', cloud_volcengine_alb: 'ALB Volcengine', cloud_volcengine_clb: 'CLB Volcengine', cloud_volcengine_live: 'Live Volcengine', cloud_volcengine_vod: 'VOD Volcengine' },
-    runtimeTypes: { agent_atomic: 'Exécution atomique Agent', workflow_dsl: 'Workflow DSL', trusted_js: 'Trusted JS' },
+    runtimeTypes: { agent_atomic: 'Exécution atomique Agent', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Cible gérée', standalone: 'Cible autonome', both: 'Gérée / autonome' },
     supportTypes: { official: 'Support officiel', community: 'Support communautaire', self_managed: 'Auto-maintenu' },

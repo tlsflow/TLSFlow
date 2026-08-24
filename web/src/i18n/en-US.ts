@@ -906,7 +906,6 @@ export default {
       defaultDescription: 'This DSL plugin has no description yet.',
       unversioned: 'Unversioned',
       stepCount: '{count} execution steps',
-      trustedJsRuntime: 'Trusted JS plugin',
       moreTags: '+{count} more'
     },
     columns: {
@@ -968,7 +967,7 @@ export default {
     runnerStatuses: { ready: 'Runner ready', busy: 'Runner busy', unavailable: 'Runner unavailable', notObserved: 'Runner not observed' },
     capabilityKeys: { device_connection_test: 'Connection test', device_identity_detect: 'Device identity detection', device_discover: 'Device discovery', device_logs_read: 'Device log reading', certificate_discover: 'Certificate discovery', certificate_deploy: 'Certificate deployment', certificate_rollback: 'Certificate rollback', certificate_verify: 'Certificate verification' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Custom runtime', runtime_custom: 'Custom runtime', adc_load_balancer: 'ADC load balancer', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
-    runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL', trusted_js: 'Trusted JS' },
+    runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Managed target', standalone: 'Standalone target', both: 'Managed / standalone' },
     supportTypes: { official: 'Official support', community: 'Community support', self_managed: 'Self managed' },

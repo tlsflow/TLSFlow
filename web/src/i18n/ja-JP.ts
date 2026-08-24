@@ -885,7 +885,7 @@ export default {
     sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
     statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', enabled: '有効', disabled: '未有効化', pendingApproval: '承認待ち', inUse: '使用中', notInUse: '未使用' },
     filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
-    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', trustedJsRuntime: 'Trusted JS プラグイン', moreTags: 'ほか {count} 件' },
+    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', moreTags: 'ほか {count} 件' },
     columns: {
       name: 'プラグイン名前',
       status: 'ステータス',
@@ -933,7 +933,7 @@ export default {
     runnerStatuses: { ready: 'Runner 準備完了', busy: 'Runner 実行中', unavailable: 'Runner 使用不可', notObserved: 'Runner 未観測' },
     capabilityKeys: { device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り', certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
-    runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL', trusted_js: 'Trusted JS' },
+    runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: '管理対象', standalone: 'スタンドアロン対象', both: '管理対象 / スタンドアロン' },
     supportTypes: { official: '公式サポート', community: 'コミュニティサポート', self_managed: '自己管理' },

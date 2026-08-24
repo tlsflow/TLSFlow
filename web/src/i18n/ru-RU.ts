@@ -859,7 +859,7 @@ export default {
     sources: { builtin: 'Встроенный', user: 'Пользовательский' },
     statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', enabled: 'Включен', disabled: 'Не включен', pendingApproval: 'Ожидает одобрения', inUse: 'Используется', notInUse: 'Не используется' },
     filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
-    card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}', trustedJsRuntime: 'Плагин Trusted JS', moreTags: 'Еще {count}' },
+    card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}', moreTags: 'Еще {count}' },
     columns: {
       name: 'Название плагина',
       status: 'Статус',
@@ -907,7 +907,7 @@ export default {
     runnerStatuses: { ready: 'Runner готов', busy: 'Runner занят', unavailable: 'Runner недоступен', notObserved: 'Runner не наблюдался' },
     capabilityKeys: { device_connection_test: 'Проверка подключения', device_identity_detect: 'Определение устройства', device_discover: 'Обнаружение устройства', device_logs_read: 'Чтение журналов устройства', certificate_discover: 'Обнаружение сертификатов', certificate_deploy: 'Развертывание сертификата', certificate_rollback: 'Откат сертификата', certificate_verify: 'Проверка сертификата' },
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Пользовательская среда', runtime_custom: 'Пользовательская среда', adc_load_balancer: 'ADC-балансировщик', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
-    runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL', trusted_js: 'Trusted JS' },
+    runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL' },
     providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Управляемая цель', standalone: 'Автономная цель', both: 'Управляемая / автономная' },
     supportTypes: { official: 'Официальная поддержка', community: 'Поддержка сообщества', self_managed: 'Самостоятельное сопровождение' },
