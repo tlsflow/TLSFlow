@@ -123,6 +123,8 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 plan = RequiredDictionary(payload, "plan");
                 operations = ValidatePlan(plan, token, decision, agentId, tenantId, pluginId, pluginVersionId, capability, requestedPlanDigest);
+                if (string.Equals(task.action, AgentV2Actions.PlanExecute, StringComparison.Ordinal) && !RequiredBoolean(plan, "writeEffect"))
+                    Reject("AGENT_PLAN_INVALID", "agent.plan.execute 只接受包含写操作的计划");
                 ValidateOperationScopes(operations, token, decision, material.LocalPolicy);
             }
             AgentV2Authorization authorization = new AgentV2Authorization
@@ -227,6 +229,7 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             string planId = RequiredIdentifier(receipt, "planId");
             string planDigest = RequiredDigest(receipt, "planDigest");
+            ValidateReceipt(receipt, planId, planDigest);
             string directory = Path.Combine(config.dataDirectory, "agent-v2-receipts");
             Directory.CreateDirectory(directory);
             string path = ReceiptPath(config.dataDirectory, planId, planDigest);
@@ -361,8 +364,19 @@ namespace GCAC.WindowsCompatibilityAgent
             RequiredIdentifier(operation, "idempotencyKey");
             int timeoutSeconds = RequiredInteger(operation, "timeoutSeconds");
             if (timeoutSeconds < 1 || timeoutSeconds > 3600) Reject("AGENT_PLAN_INVALID", "Plan 操作超时范围无效");
-            if (operationType.StartsWith("filesystem.", StringComparison.Ordinal)) RequiredWindowsPath(input, "path");
-            if (operationType.StartsWith("service.", StringComparison.Ordinal)) RequiredIdentifier(input, "serviceName");
+            if (operationType == "filesystem.stat" || operationType == "filesystem.read" || operationType == "filesystem.atomic_replace") RequiredWindowsPath(input, "path");
+            if (operationType == "filesystem.backup")
+            {
+                RequiredWindowsPath(input, "sourcePath");
+                RequiredWindowsPath(input, "backupPath");
+            }
+            if (operationType == "filesystem.restore")
+            {
+                RequiredWindowsPath(input, "restorePath");
+                RequiredWindowsPath(input, "path");
+            }
+            if (operationType == "service.list") ValidateServiceListInput(input);
+            if (operationType == "service.status" || operationType == "service.start" || operationType == "service.stop" || operationType == "service.reload") RequiredIdentifier(input, "serviceName");
             if (operationType == "command.execute_allowlisted") ValidateAllowlistedCommand(input, timeoutSeconds);
             RejectDangerousKeys(input);
             if (operationType == "filesystem.atomic_replace" || operationType == "filesystem.restore" || operationType == "filesystem.backup" || operationType == "service.start" || operationType == "service.stop" || operationType == "service.reload" || operationType == "command.execute_allowlisted") hasWrite = true;
@@ -407,8 +421,18 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static void ValidateRequestScopes(Dictionary<string, object> payload, Dictionary<string, object> token, Dictionary<string, object> decision, Dictionary<string, object> localPolicy)
         {
-            if (!ListScopeAllowed(ListValueOrEmpty(payload, "paths"), StringList(token, "allowedPaths")) || !ListScopeAllowed(ListValueOrEmpty(payload, "paths"), StringList(decision, "allowedPaths"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求路径超出授权范围");
-            if (!ListScopeAllowedExact(ListValueOrEmpty(payload, "services"), StringList(token, "allowedServices")) || !ListScopeAllowedExact(ListValueOrEmpty(payload, "services"), StringList(decision, "allowedServices"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求服务超出授权范围");
+            List<string> requestActions = StringListOrEmpty(payload, "actions");
+            List<string> requestPaths = StringListOrEmpty(payload, "paths");
+            List<string> requestServices = StringListOrEmpty(payload, "services");
+            List<string> requestArtifacts = StringListOrEmpty(payload, "artifactDigests");
+            List<string> tokenPaths = StringList(token, "allowedPaths");
+            List<string> decisionPaths = StringList(decision, "allowedPaths");
+            List<string> tokenServices = StringList(token, "allowedServices");
+            List<string> decisionServices = StringList(decision, "allowedServices");
+            if (!SameStringSet(requestActions, StringList(token, "actions")) || !SameStringSet(requestActions, StringList(decision, "actions"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求动作范围与 Token 或 Policy Authority 决策不一致");
+            if (!SameStringSet(requestPaths, tokenPaths) || !SameStringSet(requestPaths, decisionPaths) || !ListScopeAllowed(new ArrayList(requestPaths.ToArray()), tokenPaths) || !ListScopeAllowed(new ArrayList(requestPaths.ToArray()), decisionPaths)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求路径范围与 Token 或 Policy Authority 决策不一致");
+            if (!SameStringSet(requestServices, tokenServices) || !SameStringSet(requestServices, decisionServices) || !ListScopeAllowedExact(new ArrayList(requestServices.ToArray()), tokenServices) || !ListScopeAllowedExact(new ArrayList(requestServices.ToArray()), decisionServices)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求服务范围与 Token 或 Policy Authority 决策不一致");
+            if (!SameStringSet(requestArtifacts, StringList(token, "artifactDigests")) || !SameStringSet(requestArtifacts, StringList(decision, "artifactDigests"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求制品摘要范围与 Token 或 Policy Authority 决策不一致");
             if (RequiredBoolean(localPolicy, "disabled")) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "Agent 本地策略已紧急禁用");
             if (!StringList(localPolicy, "authorityKeyIds").Contains(RequiredIdentifier(token, "authorityKeyId")) || !StringList(localPolicy, "allowedActions").Contains(RequiredIdentifier(token, "capability"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "Agent 本地策略不允许当前授权");
         }
@@ -429,16 +453,27 @@ namespace GCAC.WindowsCompatibilityAgent
                 Dictionary<string, object> input = RequiredDictionary(operation, "input");
                 if (operationType.StartsWith("filesystem.", StringComparison.Ordinal))
                 {
-                    string path = RequiredWindowsPath(input, "path");
-                    if (!ListScopeAllowed(new ArrayList { path }, allowedPaths) || !PathRuleAllowed(pathRules, path, operationType)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作路径超出授权或本地策略范围");
+                    foreach (string pathKey in FilePathKeys(operationType))
+                    {
+                        string path = RequiredWindowsPath(input, pathKey);
+                        if (!ListScopeAllowed(new ArrayList { path }, allowedPaths) || !PathRuleAllowed(pathRules, path, operationType)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作路径超出授权或本地策略范围");
+                    }
                 }
-                if (operationType.StartsWith("service.", StringComparison.Ordinal))
+                if (operationType == "service.list")
+                {
+                    foreach (string service in StringListOrEmpty(input, "serviceNames")) ValidateServiceScope(service, allowedServices, serviceRules);
+                }
+                if (operationType == "service.status" || operationType == "service.start" || operationType == "service.stop" || operationType == "service.reload")
                 {
                     string service = RequiredIdentifier(input, "serviceName");
-                    if (!ListScopeAllowedExact(new ArrayList { service }, allowedServices) || !serviceRules.Contains(service)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作服务超出授权或本地策略范围");
+                    ValidateServiceScope(service, allowedServices, serviceRules);
                 }
                 if (operationType == "command.execute_allowlisted")
                 {
+                    string[] args = Strings(input["args"], "args", false);
+                    if (args.Length != 2) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "固定外部程序参数数量无效");
+                    ValidateServiceScope(args[1], allowedServices, serviceRules);
+                    ValidateCommandLocalPolicy(input, localPolicy);
                     string executableDigest = RequiredDigest(input, "executableSha256");
                     string artifactDigest = RequiredDigest(input, "artifactDigest");
                     if (!StringList(token, "artifactDigests").Contains(executableDigest) || !StringList(decision, "artifactDigests").Contains(executableDigest) || !StringList(token, "artifactDigests").Contains(artifactDigest) || !StringList(decision, "artifactDigests").Contains(artifactDigest))
@@ -459,6 +494,46 @@ namespace GCAC.WindowsCompatibilityAgent
                 string normalized = key.ToLowerInvariant();
                 if (normalized == "shell" || normalized == "script" || normalized == "powershell" || normalized == "cmd" || normalized == "command" || normalized == "interpreter" || normalized == "eval" || normalized == "exec") Reject("AGENT_PLAN_INVALID", "Agent Core 拒绝 Shell、脚本和自由命令字段");
             }
+        }
+
+        private static string[] FilePathKeys(string operationType)
+        {
+            if (operationType == "filesystem.backup") return new string[] { "sourcePath", "backupPath" };
+            if (operationType == "filesystem.restore") return new string[] { "restorePath", "path" };
+            return new string[] { "path" };
+        }
+
+        private static void ValidateServiceListInput(Dictionary<string, object> input)
+        {
+            foreach (string service in StringListOrEmpty(input, "serviceNames"))
+                if (!IdentifierPattern.IsMatch(service)) Reject("AGENT_PLAN_INVALID", "服务名称无效");
+        }
+
+        private static void ValidateServiceScope(string service, List<string> allowedServices, List<string> serviceRules)
+        {
+            if (!IdentifierPattern.IsMatch(service) || !ListScopeAllowedExact(new ArrayList { service }, allowedServices) || !serviceRules.Contains(service)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作服务超出授权或本地策略范围");
+        }
+
+        private static void ValidateCommandLocalPolicy(Dictionary<string, object> input, Dictionary<string, object> localPolicy)
+        {
+            string executablePath = RequiredWindowsPath(input, "executablePath");
+            string executableDigest = RequiredDigest(input, "executableSha256");
+            IList rules = ListValue(localPolicy, "commandRules");
+            foreach (object item in rules)
+            {
+                Dictionary<string, object> rule = item as Dictionary<string, object>;
+                if (rule == null) continue;
+                if (!string.Equals(RequiredWindowsPath(rule, "executablePath"), executablePath, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.Equals(RequiredDigest(rule, "executableSha256"), executableDigest, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.Equals(RequiredWindowsPath(rule, "workingDirectory"), RequiredWindowsPath(input, "workingDirectory"), StringComparison.OrdinalIgnoreCase)) continue;
+                if (!SameStringSequence(ListValue(input, "argumentTemplate"), ListValue(rule, "argumentTemplate"))) continue;
+                if (!SameStringSet(StringList(input, "environmentAllowlist"), StringList(rule, "environmentAllowlist"))) continue;
+                if (!SameStringSet(StringList(input, "networkScopes"), StringList(rule, "networkScopes"))) continue;
+                if (RequiredString(rule, "childProcessPolicy") != RequiredString(input, "childProcessPolicy")) continue;
+                if (RequiredInteger(input, "timeoutSeconds") > RequiredInteger(rule, "timeoutSeconds") || RequiredInteger(input, "outputLimitBytes") > RequiredInteger(rule, "outputLimitBytes")) continue;
+                return;
+            }
+            Reject("AGENT_V2_AUTHORIZATION_REJECTED", "受控外部程序不在 Agent 本地命令策略内");
         }
 
         private static void ConsumeNonce(string dataDirectory, string nonce, string tokenId, string planDigest)
@@ -487,11 +562,17 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static void ValidateReceipt(Dictionary<string, object> receipt, string planId, string planDigest)
         {
-            if (RequiredString(receipt, "receiptVersion") != ContractVersion || RequiredIdentifier(receipt, "planId") != planId || RequiredDigest(receipt, "planDigest") != planDigest || !DigestPattern.IsMatch(RequiredDigest(receipt, "digest")))
+            if (RequiredString(receipt, "receiptVersion") != ContractVersion || RequiredIdentifier(receipt, "operationId") == string.Empty || RequiredIdentifier(receipt, "planId") != planId || RequiredDigest(receipt, "planDigest") != planDigest || RequiredIdentifier(receipt, "agentId") == string.Empty || RequiredIdentifier(receipt, "tenantId") == string.Empty || RequiredIdentifier(receipt, "tokenId") == string.Empty || !DigestPattern.IsMatch(RequiredDigest(receipt, "digest")))
                 throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执绑定无效", false);
             string status = RequiredString(receipt, "status");
             if (status != "SUCCESS" && status != "FAILED" && status != "UNKNOWN" && status != "CANCELLED") throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执状态无效", false);
-            if (status == "UNKNOWN" && !receipt.ContainsKey("unknownReason")) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "UNKNOWN 回执缺少原因", false);
+            DateTime startedAt = RequiredDateTime(receipt, "startedAt");
+            DateTime completedAt = RequiredDateTime(receipt, "completedAt");
+            if (completedAt < startedAt) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执完成时间早于开始时间", false);
+            if (!RequiredBoolean(receipt, "nonceConsumed")) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执未确认 Nonce 消费", false);
+            if (ListValue(receipt, "operationResults").Count > MaximumPlanOperations) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执操作结果超出限制", false);
+            if (status == "UNKNOWN" && TextUtility.IsBlank(OptionalString(receipt, "unknownReason"))) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "UNKNOWN 回执缺少原因", false);
+            if (status == "SUCCESS" && receipt.ContainsKey("errorCode") && !TextUtility.IsBlank(OptionalString(receipt, "errorCode"))) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "SUCCESS 回执不能包含错误码", false);
             Dictionary<string, object> unsigned = CopyWithout(receipt, new string[] { "digest" });
             if (ComputeDigest(unsigned) != RequiredDigest(receipt, "digest")) throw new AgentV2SecurityException("AGENT_RECEIPT_INVALID", "Agent 回执摘要不匹配", false);
         }
@@ -618,6 +699,12 @@ namespace GCAC.WindowsCompatibilityAgent
             return result;
         }
 
+        private static List<string> StringListOrEmpty(Dictionary<string, object> value, string key)
+        {
+            if (value == null || !value.ContainsKey(key)) return new List<string>();
+            return StringList(value, key);
+        }
+
         private static string RequiredString(Dictionary<string, object> value, string key)
         {
             object item;
@@ -699,6 +786,14 @@ namespace GCAC.WindowsCompatibilityAgent
             if (left.Count != right.Count) return false;
             HashSet<string> values = new HashSet<string>(left, StringComparer.Ordinal);
             return values.Count == right.Count && values.SetEquals(right);
+        }
+
+        private static bool SameStringSequence(IList left, IList right)
+        {
+            if (left.Count != right.Count) return false;
+            for (int index = 0; index < left.Count; index++)
+                if (!string.Equals(Convert.ToString(left[index], CultureInfo.InvariantCulture), Convert.ToString(right[index], CultureInfo.InvariantCulture), StringComparison.Ordinal)) return false;
+            return true;
         }
 
         private static byte[] DecodeBase64Url(string value)

@@ -21,7 +21,7 @@ namespace GCAC.WindowsCompatibilityAgent
         internal static bool Contains(string action)
         {
             foreach (string supported in All())
-                if (string.Equals(supported, action, StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(supported, action, StringComparison.Ordinal)) return true;
             return false;
         }
 
@@ -99,6 +99,22 @@ namespace GCAC.WindowsCompatibilityAgent
                 try
                 {
                     operationResults = AgentV2Operations.ExecutePlan(executionAuthorization);
+                    Dictionary<string, object> failedOperation = operationResults.Find(delegate(Dictionary<string, object> result)
+                    {
+                        object status;
+                        return result != null && result.TryGetValue("status", out status) && string.Equals(Convert.ToString(status), "FAILED", StringComparison.Ordinal);
+                    });
+                    if (failedOperation != null)
+                    {
+                        string errorCode = "AGENT_OPERATION_FAILED";
+                        string errorMessage = "计划中的固定原语返回已知失败结果";
+                        AgentExecutionReceiptV1 failedReceipt = AgentV2Authorizer.BuildReceipt(executionAuthorization, "FAILED", operationResults, startedAt, errorCode, errorMessage);
+                        AgentV2Authorizer.SaveReceipt(executionAuthorization, failedReceipt);
+                        return ActionResult.Failed(errorCode, errorMessage, new Dictionary<string, object>
+                        {
+                            { "contractVersion", AgentV2Security.Version }, { "action", action }, { "fallback", false }, { "replayed", false }, { "receipt", AgentV2Authorizer.ReceiptDictionary(failedReceipt) }
+                        });
+                    }
                     AgentExecutionReceiptV1 receipt = AgentV2Authorizer.BuildReceipt(executionAuthorization, "SUCCESS", operationResults, startedAt, null, null);
                     AgentV2Authorizer.SaveReceipt(executionAuthorization, receipt);
                     return ActionResult.Succeeded(new Dictionary<string, object>

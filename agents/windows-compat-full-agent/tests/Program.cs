@@ -18,6 +18,7 @@ internal static class Tests
     private static int Main()
     {
         Run("Registry 只接受规范动作", RegistryRequiresCanonicalAction);
+        Run("Registry 拒绝 Agent v2 大小写动作变体", RegistryRejectsCaseVariantAction);
         Run("Registry 拒绝退役动作别名", RegistryRejectsRetiredAlias);
         Run("未知 Schema Version 失败关闭", RegistryRejectsUnknownSchema);
         Run("前置检查按事实和通用操作符解析", PreflightUsesFacts);
@@ -69,6 +70,12 @@ internal static class Tests
         Run("Recovery Ledger 保存摘要并支持重试确认", RecoveryLedgerPersistsRetryState);
         Run("Recovery Ledger 损坏进入人工处理", RecoveryLedgerCorruptionRequiresManualIntervention);
         Run("结果提交失败注入默认关闭且可控", ResultSubmissionFailureInjectionIsControlled);
+        Run("文件备份和恢复的每条真实路径都受 Scope 约束", FileOperationScopesCoverEveryPath);
+        Run("service.list 使用真实服务列表字段", ServiceListUsesServiceNames);
+        Run("受控命令服务目标受 Token 和本地策略约束", AllowlistedCommandServiceScopeIsBound);
+        Run("受控命令缺少本地命令规则时拒绝", AllowlistedCommandRequiresLocalRule);
+        Run("请求 Scope 必须与签名授权精确一致", RequestScopesMustMatchAuthorization);
+        Run("Receipt 支持并校验成功失败未知取消四种状态", ReceiptStatusesAreValidated);
         Console.WriteLine("tests=" + executedTests + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
@@ -78,6 +85,13 @@ internal static class Tests
         ActionRegistry registry = Registry();
         ActionResult result = registry.Execute(new AgentTask { action = "test.action", schemaVersion = ProductIdentity.ActionSchemaVersion });
         Assert(result.Success, "规范动作未执行");
+    }
+
+    private static void RegistryRejectsCaseVariantAction()
+    {
+        Assert(!AgentV2Actions.Contains("AGENT.PLAN.EXECUTE"), "Agent v2 动作不应接受大小写变体");
+        ActionResult result = AgentV2Registry().Execute(new AgentTask { action = "AGENT.PLAN.EXECUTE", schemaVersion = ProductIdentity.ActionSchemaVersion });
+        Assert(!result.Success && result.ErrorCode == "AGENT_V2_ACTION_UNSUPPORTED", "大小写动作变体未在合同入口拒绝");
     }
 
     private static void RegistryRejectsRetiredAlias()
@@ -544,6 +558,183 @@ internal static class Tests
         Assert(ResultSubmissionFailureInjector.ShouldFail(), "always 失败注入未生效");
         Environment.SetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE", null);
         ResultSubmissionFailureInjector.ResetForTests();
+    }
+
+    private static void FileOperationScopesCoverEveryPath()
+    {
+        Dictionary<string, object> token = ScopeToken("filesystem.backup", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> decision = ScopeToken("filesystem.backup", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> localPolicy = LocalPolicy(new Dictionary<string, object>
+        {
+            { "prefix", @"C:\GCAC\allowed" },
+            { "operations", new string[] { "filesystem.backup" } }
+        });
+        Dictionary<string, object> operation = Operation("filesystem.backup", new Dictionary<string, object>
+        {
+            { "sourcePath", @"C:\GCAC\outside\secret.pfx" },
+            { "backupPath", @"C:\GCAC\allowed\backup.pfx" },
+            { "path", @"C:\GCAC\allowed\backup.pfx" }
+        });
+        AssertSecurityRejects("ValidateOperationScopes", new object[] { new ArrayList { operation }, token, decision, localPolicy }, "越界的 sourcePath 未被拒绝");
+
+        token = ScopeToken("filesystem.restore", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        decision = ScopeToken("filesystem.restore", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        localPolicy = LocalPolicy(new Dictionary<string, object>
+        {
+            { "prefix", @"C:\GCAC\allowed" },
+            { "operations", new string[] { "filesystem.restore" } }
+        });
+        operation = Operation("filesystem.restore", new Dictionary<string, object>
+        {
+            { "restorePath", @"C:\GCAC\outside\backup.pfx" },
+            { "path", @"C:\GCAC\allowed\target.pfx" }
+        });
+        AssertSecurityRejects("ValidateOperationScopes", new object[] { new ArrayList { operation }, token, decision, localPolicy }, "越界的 restorePath 未被拒绝");
+    }
+
+    private static void ServiceListUsesServiceNames()
+    {
+        Dictionary<string, object> operation = Operation("service.list", new Dictionary<string, object>
+        {
+            { "serviceNames", new string[] { "TrustedService" } }
+        });
+        InvokeSecurity("ValidateOperation", new object[] { operation, false });
+    }
+
+    private static void AllowlistedCommandServiceScopeIsBound()
+    {
+        Dictionary<string, object> token = ScopeToken("command.execute_allowlisted", new string[0], new string[] { "AllowedService" });
+        token["artifactDigests"] = new string[] { new string('a', 64), new string('b', 64) };
+        Dictionary<string, object> decision = ScopeToken("command.execute_allowlisted", new string[0], new string[] { "AllowedService" });
+        decision["artifactDigests"] = token["artifactDigests"];
+        Dictionary<string, object> localPolicy = LocalPolicy(null);
+        Dictionary<string, object> input = new Dictionary<string, object>
+        {
+            { "executablePath", @"C:\Windows\System32\sc.exe" },
+            { "executableSha256", new string('a', 64) },
+            { "args", new string[] { "start", "OtherService" } },
+            { "argumentTemplate", new string[] { "{verb}", "{serviceName}" } },
+            { "environmentAllowlist", new string[0] },
+            { "workingDirectory", @"C:\Windows\System32" },
+            { "networkScopes", new string[0] },
+            { "childProcessPolicy", "deny" },
+            { "timeoutSeconds", 10 },
+            { "outputLimitBytes", 1024 },
+            { "artifactDigest", new string('b', 64) }
+        };
+        AssertSecurityRejects("ValidateOperationScopes", new object[] { new ArrayList { Operation("command.execute_allowlisted", input) }, token, decision, localPolicy }, "越界的受控命令服务目标未被拒绝");
+    }
+
+    private static void AllowlistedCommandRequiresLocalRule()
+    {
+        Dictionary<string, object> token = ScopeToken("command.execute_allowlisted", new string[0], new string[] { "AllowedService" });
+        token["artifactDigests"] = new string[] { new string('a', 64), new string('b', 64) };
+        Dictionary<string, object> decision = ScopeToken("command.execute_allowlisted", new string[0], new string[] { "AllowedService" });
+        decision["artifactDigests"] = token["artifactDigests"];
+        Dictionary<string, object> input = new Dictionary<string, object>
+        {
+            { "executablePath", @"C:\Windows\System32\sc.exe" },
+            { "executableSha256", new string('a', 64) },
+            { "args", new string[] { "start", "AllowedService" } },
+            { "argumentTemplate", new string[] { "{verb}", "{serviceName}" } },
+            { "environmentAllowlist", new string[0] },
+            { "workingDirectory", @"C:\Windows\System32" },
+            { "networkScopes", new string[0] },
+            { "childProcessPolicy", "deny" },
+            { "timeoutSeconds", 10 },
+            { "outputLimitBytes", 1024 },
+            { "artifactDigest", new string('b', 64) }
+        };
+        AssertSecurityRejects("ValidateOperationScopes", new object[] { new ArrayList { Operation("command.execute_allowlisted", input) }, token, decision, LocalPolicy(null) }, "缺少本地 commandRules 时仍允许受控命令");
+    }
+
+    private static void RequestScopesMustMatchAuthorization()
+    {
+        Dictionary<string, object> token = ScopeToken("filesystem.read", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> decision = ScopeToken("filesystem.read", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> payload = new Dictionary<string, object>
+        {
+            { "actions", new string[] { "filesystem.read" } },
+            { "paths", new string[] { @"C:\GCAC\allowed" } },
+            { "services", new string[0] },
+            { "artifactDigests", new string[0] }
+        };
+        InvokeSecurity("ValidateRequestScopes", new object[] { payload, token, decision, LocalPolicy(null) });
+        payload["paths"] = new string[0];
+        AssertSecurityRejects("ValidateRequestScopes", new object[] { payload, token, decision, LocalPolicy(null) }, "请求路径缩小后未拒绝 Scope 脱绑定");
+    }
+
+    private static void ReceiptStatusesAreValidated()
+    {
+        string planDigest = new string('c', 64);
+        string[] statuses = new string[] { "SUCCESS", "FAILED", "UNKNOWN", "CANCELLED" };
+        foreach (string status in statuses)
+        {
+            Dictionary<string, object> receipt = AgentV2Security.BuildReceipt(
+                "operation-1", "plan-1", planDigest, "agent-1", "tenant-1", "token-1", status,
+                status == "SUCCESS" ? null : "AGENT_" + status,
+                status == "UNKNOWN" ? "状态未知" : null,
+                new ArrayList(), true, DateTime.UtcNow.AddSeconds(-1), DateTime.UtcNow);
+            InvokeSecurity("ValidateReceipt", new object[] { receipt, "plan-1", planDigest });
+        }
+    }
+
+    private static Dictionary<string, object> ScopeToken(string action, string[] paths, string[] services)
+    {
+        return new Dictionary<string, object>
+        {
+            { "actions", new string[] { action } },
+            { "allowedPaths", paths },
+            { "allowedServices", services },
+            { "artifactDigests", new string[0] },
+            { "authorityKeyId", "authority-key" },
+            { "capability", action }
+        };
+    }
+
+    private static Dictionary<string, object> LocalPolicy(Dictionary<string, object> pathRule)
+    {
+        return new Dictionary<string, object>
+        {
+            { "disabled", false },
+            { "authorityKeyIds", new string[] { "authority-key" } },
+            { "allowedActions", new string[] { "filesystem.read", "filesystem.backup", "command.execute_allowlisted" } },
+            { "pathRules", pathRule == null ? new List<Dictionary<string, object>>() : new List<Dictionary<string, object>> { pathRule } },
+            { "serviceRules", new string[] { "AllowedService" } }
+        };
+    }
+
+    private static Dictionary<string, object> Operation(string operationType, Dictionary<string, object> input)
+    {
+        return new Dictionary<string, object>
+        {
+            { "operationId", "operation-1" },
+            { "operationType", operationType },
+            { "stage", "execute" },
+            { "input", input },
+            { "dependsOn", new string[0] },
+            { "idempotencyKey", "idempotency-1" },
+            { "timeoutSeconds", 30 },
+            { "compensation", "" }
+        };
+    }
+
+    private static void InvokeSecurity(string methodName, object[] arguments)
+    {
+        MethodInfo method = typeof(AgentV2Security).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+        if (method == null) throw new InvalidOperationException("安全校验方法不存在：" + methodName);
+        try { method.Invoke(null, arguments); }
+        catch (TargetInvocationException error) { throw error.InnerException ?? error; }
+    }
+
+    private static void AssertSecurityRejects(string methodName, object[] arguments, string message)
+    {
+        try
+        {
+            InvokeSecurity(methodName, arguments);
+            throw new InvalidOperationException(message);
+        }
+        catch (AgentV2SecurityException) { }
     }
 
     private static AgentConfig TestConfig()
