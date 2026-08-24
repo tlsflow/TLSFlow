@@ -4,6 +4,7 @@ import { createApp } from '../../app.module.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { DeploymentPlansApplicationService } from './application/deployment-plans.application-service.js';
 import { DeploymentPlansController } from './controller/deployment-plans.controller.js';
+import { GatewaysApplicationService } from '../gateways/application/gateways.application-service.js';
 import type { CreateDeploymentPlanInput } from './dto/deployment-plans.dto.js';
 
 const userHeaders = { 'x-actor-id': 'user_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_test' };
@@ -16,7 +17,7 @@ function createPlanBody(idempotencyKey = 'idem_plan_1', riskLevel: 'low' | 'high
     idempotencyKey,
     policy: { riskLevel, approvalRequired: riskLevel === 'high', failurePolicy: 'rollback' },
     targets: [
-      { certificateBindingId: 'binding_1', executionTargetId: 'target_1', executorType: 'GATEWAY_SSH', gatewayId: 'gw_1', adapter: 'ssh' },
+      { certificateBindingId: 'binding_1', executionTargetId: 'target_1', executorType: 'GATEWAY_SSH', gatewayId: 'gw_1', adapter: 'ssh', gatewayRoute: { mockSafeLocalRuntime: true } },
     ],
   };
 }
@@ -56,6 +57,50 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(plan.targets.length, 1);
     assert.equal(plan.targets[0].certificateBindingId, 'binding_1');
     assert.ok(plan.targets[0].deploymentPlanId);
+  });
+
+  it('创建部署计划未手填 gatewayRoute 时自动调用 ZoneRouter 写入路由', () => {
+    const gateways = new GatewaysApplicationService();
+    const gateway = gateways.register('tenant_auto_route', {
+      agentId: 'agent_auto_route_001',
+      zoneIds: ['zone_prod'],
+      version: '1.0.0',
+      adapters: ['ssh'],
+      capabilities: ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'],
+      currentLoad: 0,
+      maxConcurrentTasks: 4,
+      successRate: 0.99,
+    });
+    gateways.probe('tenant_auto_route', { gatewayId: gateway.id, targetId: 'host_auto_route_001', zoneId: 'zone_prod', protocol: 'ssh', status: 'reachable', latencyMs: 12, ttlSeconds: 600 });
+
+    const deploymentService = new DeploymentPlansApplicationService({ gateways });
+    const plan = deploymentService.create({
+      name: '自动路由部署计划',
+      certificateVersionId: 'certver_auto_route',
+      idempotencyKey: 'idem_auto_route_plan',
+      actorId: 'user_1',
+      tenantId: 'tenant_auto_route',
+      policy: { riskLevel: 'low', approvalRequired: false, failurePolicy: 'stop' },
+      targets: [{
+        certificateBindingId: 'binding_auto_route',
+        executionTargetId: 'host_auto_route_001',
+        executorType: 'GATEWAY_SSH',
+        zoneId: 'zone_prod',
+        protocols: ['ssh'],
+      }],
+    });
+
+    const route = plan.targets[0].gatewayRoute;
+    assert.equal(route?.gatewayId, gateway.id);
+    assert.equal(route?.agentId, 'agent_auto_route_001');
+    assert.equal(route?.gatewayAgentId, 'agent_auto_route_001');
+    assert.equal(route?.zoneId, 'zone_prod');
+    assert.equal(route?.adapter, 'ssh');
+    assert.equal(route?.delegatedTargetId, 'host_auto_route_001');
+    assert.equal(route?.candidateGateways?.length, 1);
+    assert.equal(route?.fallbackSuggestions, undefined);
+    assert.equal(route?.missingCapabilities, undefined);
+    assert.equal(route?.approvalRequired, false);
   });
 
   it('部署计划创建、dry-run、execute 保留 Gateway 路由元数据到目标和步骤快照', async () => {

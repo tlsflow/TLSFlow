@@ -36,3 +36,11 @@ export const gatewayDetailSchema: OpenApiSchema = {
 
 export const gatewayRouteResultSchema: OpenApiSchema = { type: 'object', additionalProperties: true };
 export const gatewayReachabilitySchema: OpenApiSchema = { type: 'object', additionalProperties: true };
+export const gatewayTargetHistorySchema: OpenApiSchema = {
+  type: 'object',
+  additionalProperties: true,
+  properties: {
+    delegatedTargetId: { type: 'string' },
+    items: { type: 'array', items: { type: 'object', additionalProperties: true } },
+  },
+};

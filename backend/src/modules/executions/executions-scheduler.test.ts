@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
+import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
-import { ExecutorRegistry } from './application/executors.js';
+import { ExecutorRegistry, GatewayExecutorAdapter } from './application/executors.js';
 
 function createService() {
   return new ExecutionsApplicationService({
@@ -62,6 +63,50 @@ class TrackingExecutor implements Executor {
 }
 
 describe('ExecutionsApplicationService 调度与恢复', () => {
+  it('GatewayExecutor 默认只下发 Gateway Agent 任务，不在控制面本地伪执行', async () => {
+    const agents = new AgentsApplicationService();
+    const gateway = agents.register('tenant_1', {
+      agentKey: 'gateway.exec.01',
+      hostname: 'gateway-exec-01',
+      version: '1.0.0',
+      osType: 'linux',
+      role: 'gateway',
+      zoneIds: ['zone_prod'],
+      adapters: ['ssh'],
+      capabilities: ['adapter.ssh', 'cert.deploy'],
+    }, 'req_gateway_exec_register');
+    const executor = new GatewayExecutorAdapter({ agents });
+    const result = await executor.executeStep({
+      runType: 'apply',
+      dryRun: false,
+      step: {
+        id: 'step_gateway_enqueue',
+        tenantId: 'tenant_1',
+        executionRunId: 'run_gateway_enqueue',
+        deploymentPlanTargetId: 'target_gateway_enqueue',
+        stepType: 'INSTALL',
+        attemptCount: 0,
+        inputSnapshot: {
+          deploymentPlanId: 'plan_gateway_enqueue',
+          gatewayRoute: {
+            gatewayId: 'gw_exec_01',
+            agentId: gateway.id,
+            zoneId: 'zone_prod',
+            adapter: 'ssh',
+            delegatedTargetId: 'host_gateway_enqueue',
+          },
+        },
+      } as any,
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.detail?.mode, 'gateway_task_enqueued');
+    const queue = agents.listTaskQueue('tenant_1', gateway.id);
+    assert.equal(queue.tasks.length, 1);
+    assert.equal(queue.tasks[0].payload.type, 'gateway.task.run');
+    assert.equal((queue.tasks[0].payload.gatewayTask as { delegatedTargetId: string }).delegatedTargetId, 'host_gateway_enqueue');
+  });
+
   it('按 dependsOn 形成 DAG 调度，不满足依赖的步骤不会先跑', async () => {
     const service = createService();
     const created = await createRun(service, { idempotencyKey: 'idem_dag', targetIds: ['target_a', 'target_b'], concurrencyLimit: 2 });

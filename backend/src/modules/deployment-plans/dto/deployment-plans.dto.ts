@@ -14,12 +14,28 @@ export interface DeploymentPlanPolicyDto {
   retry?: { maxAttempts: number; backoffSeconds: number };
 }
 
+export interface DeploymentGatewayRouteCandidateDto {
+  gatewayId: string;
+  agentId?: string;
+  zoneId?: string;
+  adapter?: GatewayAdapterType;
+  score?: number;
+  reasons?: string[];
+}
+
 export interface DeploymentGatewayRouteDto {
   gatewayId?: string;
+  agentId?: string;
+  gatewayAgentId?: string;
   zoneId?: string;
   adapter?: GatewayAdapterType;
   delegatedTargetId?: string;
+  candidateGateways?: DeploymentGatewayRouteCandidateDto[];
   fallbackSuggestions?: FallbackSuggestion[];
+  missingCapabilities?: string[];
+  blockedReason?: string;
+  approvalRequired?: boolean;
+  mockSafeLocalRuntime?: boolean;
 }
 
 export interface DeploymentPlanTargetDto {
@@ -74,6 +90,9 @@ export interface CreateDeploymentPlanInput {
     gatewayId?: string;
     zoneId?: string;
     adapter?: GatewayAdapterType;
+    protocols?: GatewayAdapterType[];
+    action?: string;
+    destructive?: boolean;
     delegatedTargetId?: string;
     fallbackSuggestions?: FallbackSuggestion[];
   }>;

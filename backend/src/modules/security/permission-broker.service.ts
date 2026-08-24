@@ -18,6 +18,7 @@ export interface GrantForExecutorInput {
   stepId: string;
   executorType: string;
   allowedSecretRefs: string[];
+  grantActions?: string[];
   expiresAt: string;
   context?: RequestContext;
 }
@@ -50,7 +51,7 @@ export class PermissionBroker {
       stepId: input.stepId,
       executorType: input.executorType,
       allowedSecretRefs: input.allowedSecretRefs,
-      allowedActions: [input.action],
+      allowedActions: input.grantActions?.length ? [...new Set(input.grantActions)] : [input.action],
       expiresAt: input.expiresAt,
     });
   }

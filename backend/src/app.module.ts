@@ -5,6 +5,7 @@ import { getHealthRouteContracts, HealthController } from './modules/health/cont
 import { DeploymentPlansApplicationService } from './modules/deployment-plans/application/deployment-plans.application-service.js';
 import { DeploymentPlansController, getDeploymentPlanRouteContracts } from './modules/deployment-plans/controller/deployment-plans.controller.js';
 import { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
+import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
@@ -13,8 +14,9 @@ import { CertificatesController, createCertificateServices, getCertificateRouteC
 import { CapabilitiesController, getCapabilitiesRouteContracts } from './modules/capabilities/index.js';
 import { ProvidersController, getProvidersRouteContracts } from './modules/providers/index.js';
 import { MonitorsApplicationService, MonitorsController, getMonitorRouteContracts } from './modules/monitors/index.js';
-import { AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
-import { GatewaysController, getGatewayRouteContracts } from './modules/gateways/index.js';
+import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
+import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
+import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { WorkflowTemplatesController, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
@@ -23,12 +25,18 @@ export interface AppDependencies {
   security?: SecurityServices;
   deploymentPlans?: DeploymentPlansController;
   deploymentPersistence?: DeploymentPersistenceOptions;
+  gatewayPersistence?: GatewayPersistenceOptions;
   certificates?: CertificateServices;
 }
 
 export function createApp(dependencies: AppDependencies = {}): App {
   const app = new App();
   const security = dependencies.security ?? createSecurityServices();
+  const gatewayPersistence = createGatewayPersistenceRepositories(dependencies.gatewayPersistence);
+  const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
+  const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
+  const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
+  const agentsService = new AgentsApplicationService(undefined, undefined, gatewaysService.getRepository());
   app.setAuthTokenResolver((authorization) => security.auth.parseAuthorizationHeader(authorization));
   new HealthController().register(app.router);
   new SecurityController(security).register(app.router);
@@ -39,9 +47,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
       repository: deploymentPersistence!.executions,
       deploymentPlansRepository: deploymentPersistence!.deploymentPlans,
       audit: security.audit,
+      executorRegistry: createDefaultExecutorRegistryWithDependencies({
+        agents: agentsService,
+        gatewayTasks: gatewayTasksService,
+        gatewayTaskAuditWriter,
+      }),
     }),
     approval: security.approvals,
     audit: security.audit,
+    gateways: gatewaysService,
   }));
   deploymentPlans.register(app.router);
   new ExecutionsController(deploymentPlans.getExecutionsService()).register(app.router);
@@ -53,8 +67,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const certificateServices = dependencies.certificates ?? createCertificateServices(security);
   new CertificatesController(security, certificateServices).register(app.router);
   new CapabilitiesController().register(app.router);
-  new AgentsController().register(app.router);
-  new GatewaysController().register(app.router);
+  new AgentsController(agentsService).register(app.router);
+  new GatewaysController(gatewaysService).register(app.router);
   new ProvidersController().register(app.router);
   new PluginsController().register(app.router);
   new WorkflowTemplatesController().register(app.router);

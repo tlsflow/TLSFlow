@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { MockAdapterRuntime } from '../../gateway-agents/adapter-runtime.mock.js';
+import type { GatewayTaskAuditWriter } from '../../gateway-agents/gateway-target-history.service.js';
 import { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
 import { LegacyTaskDispatcher } from '../../legacy-agents/legacy-task-dispatcher.js';
 import { LegacyTaskTranslator } from '../../legacy-agents/legacy-task-translator.js';
@@ -48,6 +49,12 @@ export interface ExecutorRegistryOptions {
   allowMock?: boolean;
 }
 
+export interface DefaultExecutorDependencies {
+  agents?: AgentsApplicationService;
+  gatewayTasks?: GatewayTaskService;
+  gatewayTaskAuditWriter?: GatewayTaskAuditWriter;
+}
+
 export class ExecutorRegistry {
   private readonly executors = new Map<string, Executor>();
   private readonly allowMock: boolean;
@@ -91,14 +98,18 @@ export function createDefaultExecutorRegistry(options: ExecutorRegistryOptions =
   return new ExecutorRegistry(createDefaultExecutors(), options);
 }
 
-function createDefaultExecutors(): Executor[] {
+export function createDefaultExecutorRegistryWithDependencies(dependencies: DefaultExecutorDependencies, options: ExecutorRegistryOptions = {}): ExecutorRegistry {
+  return new ExecutorRegistry(createDefaultExecutors(dependencies), options);
+}
+
+function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}): Executor[] {
   return [
     new SSHExecutor(),
     new CurlExecutor(),
     new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
-    new AgentExecutorAdapter(),
-    new GatewayExecutorAdapter(),
+    new AgentExecutorAdapter(dependencies.agents),
+    new GatewayExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new LegacyAgentExecutorAdapter(),
   ];
 }
@@ -151,15 +162,29 @@ export class AgentExecutorAdapter implements Executor {
 export class GatewayExecutorAdapter implements Executor {
   readonly type = 'GATEWAY_SSH';
 
-  constructor(private readonly gatewayTasks = new GatewayTaskService(), private readonly runtime = new MockAdapterRuntime()) {}
+  private readonly gatewayTasks: GatewayTaskService;
+  private readonly runtime: MockAdapterRuntime;
+  private readonly agents: AgentsApplicationService;
+  private readonly allowLocalMockRuntime: boolean;
+
+  constructor(options: { gatewayTasks?: GatewayTaskService; runtime?: MockAdapterRuntime; agents?: AgentsApplicationService; allowLocalMockRuntime?: boolean; auditWriter?: GatewayTaskAuditWriter } = {}) {
+    this.gatewayTasks = options.gatewayTasks ?? new GatewayTaskService({ auditWriter: options.auditWriter });
+    this.runtime = options.runtime ?? new MockAdapterRuntime();
+    this.agents = options.agents ?? new AgentsApplicationService();
+    this.allowLocalMockRuntime = options.allowLocalMockRuntime ?? false;
+  }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const route = readRecord(input.step.inputSnapshot.gatewayRoute);
     const gatewayId = stringFromSnapshot(input.step.inputSnapshot.gatewayId) ?? stringFromSnapshot(route?.gatewayId) ?? `gw_${input.step.deploymentPlanTargetId ?? 'default'}`;
+    const gatewayAgentId = stringFromSnapshot(input.step.inputSnapshot.gatewayAgentId)
+      ?? stringFromSnapshot(route?.agentId)
+      ?? stringFromSnapshot(route?.gatewayAgentId);
     const delegatedTargetId = stringFromSnapshot(input.step.inputSnapshot.delegatedTargetId) ?? stringFromSnapshot(route?.delegatedTargetId) ?? input.step.deploymentPlanTargetId ?? input.step.id;
     const adapter = (stringFromSnapshot(input.step.inputSnapshot.gatewayAdapter) ?? stringFromSnapshot(route?.adapter) ?? 'ssh').toLowerCase();
     const task = this.gatewayTasks.dispatch({
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
+      tenantId: input.step.tenantId,
       planId: stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),
       executionRunId: input.step.executionRunId,
       stepId: input.step.id,
@@ -170,10 +195,48 @@ export class GatewayExecutorAdapter implements Executor {
       action: gatewayActionForStep(input.step),
       payload: { ...input.step.inputSnapshot, dryRun: input.dryRun },
     });
-    const result = await this.runtime.run({ gatewayId }, task);
-    return result.success
-      ? { success: true, detail: { mode: 'gateway_adapter', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } }
-      : { success: false, errorCode: 'GATEWAY_ADAPTER_FAILED', errorMessage: result.summary, detail: { mode: 'gateway_adapter', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } };
+    if (this.allowLocalMockRuntime || input.step.inputSnapshot.gatewayMockSafeLocalRuntime === true || route?.mockSafeLocalRuntime === true) {
+      const result = await this.runtime.run({ gatewayId }, task);
+      return result.success
+        ? { success: true, detail: { mode: 'gateway_adapter_mock_safe', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } }
+        : { success: false, errorCode: 'GATEWAY_ADAPTER_FAILED', errorMessage: result.summary, detail: { mode: 'gateway_adapter_mock_safe', taskId: task.id, status: result.status, summary: result.summary, evidence: result.evidence } };
+    }
+
+    if (!gatewayAgentId) {
+      return {
+        success: false,
+        errorCode: 'GATEWAY_AGENT_ID_REQUIRED',
+        errorMessage: 'Gateway 执行必须指定 gatewayRoute.agentId/gatewayAgentId，拒绝在控制面本地伪执行',
+        detail: { mode: 'gateway_task_dispatch_failed', gatewayId, taskId: task.id },
+      };
+    }
+
+    const agentTask = this.agents.enqueueTask(input.step.tenantId ?? '', {
+      agentId: gatewayAgentId,
+      executionRunId: input.step.executionRunId,
+      executionStepId: input.step.id,
+      idempotencyKey: task.idempotencyKey,
+      payload: {
+        type: 'gateway.task.run',
+        gatewayTask: task,
+        runType: input.runType,
+        dryRun: input.dryRun,
+      },
+    }, `gateway-execution-step:${input.step.id}`);
+
+    return {
+      success: true,
+      detail: {
+        mode: 'gateway_task_enqueued',
+        gatewayTaskId: task.id,
+        agentTaskId: agentTask.id,
+        gatewayId,
+        gatewayAgentId,
+        delegatedTargetId,
+        adapter,
+        status: agentTask.status,
+      },
+    };
   }
 }
 

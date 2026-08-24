@@ -27,6 +27,7 @@ export interface ExecutionsApplicationDependencies {
   queue?: QueuePort;
   audit?: AuditService;
   domain?: ExecutionsDomainService;
+  executorRegistry?: ExecutorRegistry;
 }
 
 export class ExecutionsApplicationService {
@@ -39,6 +40,7 @@ export class ExecutionsApplicationService {
   private readonly scheduler: Scheduler;
   private readonly failurePolicy: FailurePolicyEngine;
   private readonly recoveryWorker: RunRecoveryWorker;
+  private readonly executorRegistry: ExecutorRegistry;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -49,7 +51,8 @@ export class ExecutionsApplicationService {
     this.scheduler = new Scheduler(this.graphBuilder);
     this.failurePolicy = new FailurePolicyEngine();
     this.recoveryWorker = new RunRecoveryWorker(this.repository);
-    this.queue = dependencies.queue ?? new InMemoryJobRunner((job) => new StepRunner(this).run(job));
+    this.executorRegistry = dependencies.executorRegistry ?? new ExecutorRegistry();
+    this.queue = dependencies.queue ?? new InMemoryJobRunner((job) => new StepRunner(this, this.executorRegistry).run(job));
   }
 
   listRuns(input: { tenantId?: string; deploymentPlanId?: string } = {}): ExecutionRunDto[] {
@@ -466,15 +469,18 @@ export class ExecutionsApplicationService {
     }
   }
 
-  private readGatewayRoute(value: unknown): Record<string, string | string[] | undefined> | undefined {
+  private readGatewayRoute(value: unknown): Record<string, string | string[] | boolean | undefined> | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
     const route = value as Record<string, unknown>;
     const normalized = {
       gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
+      agentId: typeof route.agentId === 'string' ? route.agentId : undefined,
+      gatewayAgentId: typeof route.gatewayAgentId === 'string' ? route.gatewayAgentId : undefined,
       zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
       adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
       delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
       fallbackSuggestions: Array.isArray(route.fallbackSuggestions) ? route.fallbackSuggestions.map(String) : undefined,
+      mockSafeLocalRuntime: typeof route.mockSafeLocalRuntime === 'boolean' ? route.mockSafeLocalRuntime : undefined,
     };
     return Object.values(normalized).some((item) => Array.isArray(item) ? item.length > 0 : Boolean(item)) ? normalized : undefined;
   }

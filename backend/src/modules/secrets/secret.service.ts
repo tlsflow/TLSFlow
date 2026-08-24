@@ -44,6 +44,14 @@ export interface ResolveSecretInput {
   context?: RequestContext;
 }
 
+export interface ResolveSecretForServiceInput {
+  secretRef: string;
+  expectedType?: SecretType;
+  purpose: string;
+  actorId: string;
+  context?: RequestContext;
+}
+
 export interface ResolvedSecret {
   secretRef: string;
   versionId: string;
@@ -181,6 +189,51 @@ export class SecretService {
         secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
         runId: input.runId,
         stepId: input.stepId,
+        purpose: input.purpose,
+        fingerprint: version.fingerprint,
+      },
+    });
+
+    return {
+      secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
+      versionId: version.id,
+      plainText,
+      fingerprint: version.fingerprint,
+    };
+  }
+
+  resolveForService(input: ResolveSecretForServiceInput): ResolvedSecret {
+    const parsed = parseSecretRef(input.secretRef);
+    const secret = this.secrets.get(parsed.secretId);
+    if (!secret || secret.status !== 'active') {
+      throw securityErrors.secretNotFound({ secretId: parsed.secretId });
+    }
+    if (secret.type !== parsed.type) {
+      throw securityErrors.secretRefInvalid({ reason: 'secret type mismatch' });
+    }
+    if (input.expectedType && secret.type !== input.expectedType) {
+      throw securityErrors.secretRefInvalid({ reason: 'unexpected secret type', expectedType: input.expectedType, actualType: secret.type });
+    }
+
+    const version = this.resolveVersion(secret, parsed.version);
+    if (version.status !== 'active') {
+      throw securityErrors.secretResolveDenied({ reason: 'secret version is not active' });
+    }
+
+    const plainText = this.crypto.decryptSecret(version as EnvelopeEncryptedPayload);
+    this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.SECRET_USED,
+      actorType: 'user',
+      actorId: input.actorId,
+      action: 'secret.resolve.service',
+      resourceType: 'secret',
+      resourceId: secret.id,
+      result: 'success',
+      riskLevel: 'high',
+      context: input.context,
+      failClosed: true,
+      detail: {
+        secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
         purpose: input.purpose,
         fingerprint: version.fingerprint,
       },

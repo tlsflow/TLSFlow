@@ -6,7 +6,7 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { GatewaysApplicationService } from '../application/gateways.application-service.js';
 import type { ProbeGatewayInput, RegisterGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
-import { gatewayDetailSchema, gatewayPageSchema, gatewayReachabilitySchema, gatewayRouteResultSchema, gatewaySchema } from '../schema/gateways.schema.js';
+import { gatewayDetailSchema, gatewayPageSchema, gatewayReachabilitySchema, gatewayRouteResultSchema, gatewaySchema, gatewayTargetHistorySchema } from '../schema/gateways.schema.js';
 
 const tags = ['Gateways'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -20,6 +20,7 @@ export class GatewaysController {
   register(router: Router): void {
     router.get('/api/v1/gateways', '查询 Gateway 列表', tags, (request) => this.list(request));
     router.get('/api/v1/gateways/detail', '查询 Gateway 详情', tags, (request) => this.detail(request));
+    router.get('/api/v1/gateways/target-history', '查询 Gateway 代表目标历史', tags, (request) => this.targetHistory(request));
     router.post('/api/v1/gateways/route', '选择可用 Gateway 路由', tags, (request) => this.route(request));
     router.post('/api/v1/gateways/probe', '记录 Gateway 可达性探测', tags, (request) => this.probe(request));
     router.post('/api/v1/gateways/status', '注册或更新 Gateway 状态', tags, (request) => this.status(request));
@@ -41,6 +42,11 @@ export class GatewaysController {
     const detail = this.service.detail(tenantId(request), id);
     if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Gateway 不存在', { id });
     return detail;
+  }
+
+  private targetHistory(request: HttpRequest) {
+    const delegatedTargetId = readQuery(request, 'delegatedTargetId');
+    return this.service.targetHistory(tenantId(request), delegatedTargetId);
   }
 
   private status(request: HttpRequest) {
@@ -92,6 +98,7 @@ export function getGatewayRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/gateways', operationId: 'listGateways', summary: '查询 Gateway 列表', tags, responseSchema: gatewayPageSchema },
     { method: 'GET', path: '/api/v1/gateways/detail', operationId: 'getGatewayDetail', summary: '查询 Gateway 详情', tags, responseSchema: gatewayDetailSchema },
+    { method: 'GET', path: '/api/v1/gateways/target-history', operationId: 'listGatewayTargetHistory', summary: '查询 Gateway 代表目标历史', tags, responseSchema: gatewayTargetHistorySchema },
     { method: 'POST', path: '/api/v1/gateways/route', operationId: 'routeGateway', summary: '选择可用 Gateway 路由', tags, responseSchema: gatewayRouteResultSchema },
     { method: 'POST', path: '/api/v1/gateways/probe', operationId: 'probeGatewayReachability', summary: '记录 Gateway 可达性探测', tags, responseSchema: gatewayReachabilitySchema },
     { method: 'POST', path: '/api/v1/gateways/status', operationId: 'updateGatewayStatus', summary: '注册或更新 Gateway 状态', tags, responseSchema: gatewaySchema },

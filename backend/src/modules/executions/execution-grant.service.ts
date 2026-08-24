@@ -73,4 +73,15 @@ export class ExecutionGrantService {
   get(id: string): ExecutionGrantEntity | undefined {
     return this.grants.get(id);
   }
+
+  revoke(id: string): ExecutionGrantEntity {
+    const grant = this.grants.get(id);
+    if (!grant) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant not found' });
+    }
+    if (grant.status !== 'active') {
+      return grant;
+    }
+    return this.grants.update(id, { status: 'revoked', updatedAt: new Date().toISOString() });
+  }
 }

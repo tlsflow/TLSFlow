@@ -6,10 +6,12 @@ import { newId } from '../../../shared/id.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { CreateDeploymentPlanInput, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput } from '../dto/deployment-plans.dto.js';
+import type { CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
+import { GatewaysApplicationService } from '../../gateways/application/gateways.application-service.js';
+import type { GatewayAdapterType, GatewayCandidate, ZoneRouteResult } from '../../gateway-agents/index.js';
 
 export interface DeploymentPlansApplicationDependencies {
   repository?: DeploymentPlansRepository;
@@ -17,6 +19,7 @@ export interface DeploymentPlansApplicationDependencies {
   approval?: ApprovalService;
   audit?: AuditService;
   domain?: DeploymentPlansDomainService;
+  gateways?: GatewaysApplicationService;
 }
 
 export class DeploymentPlansApplicationService {
@@ -25,6 +28,7 @@ export class DeploymentPlansApplicationService {
   private readonly approval: ApprovalService;
   private readonly domain: DeploymentPlansDomainService;
   private readonly executions: ExecutionsApplicationService;
+  private readonly gateways: GatewaysApplicationService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -32,6 +36,7 @@ export class DeploymentPlansApplicationService {
     this.approval = dependencies.approval ?? new ApprovalService(undefined, this.audit);
     this.domain = dependencies.domain ?? new DeploymentPlansDomainService();
     this.executions = dependencies.executions ?? new ExecutionsApplicationService({ deploymentPlansRepository: this.repository, audit: this.audit });
+    this.gateways = dependencies.gateways ?? new GatewaysApplicationService();
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -61,14 +66,17 @@ export class DeploymentPlansApplicationService {
 
     const now = new Date().toISOString();
     const policy = this.domain.normalizePolicy(input.policy);
-    const targetDrafts = input.targets.map((target) => ({
-      certificateBindingId: target.certificateBindingId,
-      executionTargetId: target.executionTargetId,
-      executorType: this.domain.defaultExecutorType(target.executorType),
-      requiredCapabilities: [...new Set(target.requiredCapabilities ?? this.defaultCapabilities())],
-      matchResult: target.matchResult,
-      gatewayRoute: this.normalizeGatewayRoute(target),
-    }));
+    const targetDrafts = input.targets.map((target) => {
+      const gatewayRoute = this.normalizeGatewayRoute(target, input.tenantId, policy);
+      return {
+        certificateBindingId: target.certificateBindingId,
+        executionTargetId: target.executionTargetId,
+        executorType: this.domain.defaultExecutorType(target.executorType),
+        requiredCapabilities: [...new Set(target.requiredCapabilities ?? this.defaultCapabilities())],
+        matchResult: this.normalizeRouteMatchResult(target.matchResult, gatewayRoute),
+        gatewayRoute,
+      };
+    });
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
@@ -406,24 +414,118 @@ export class DeploymentPlansApplicationService {
     return ['certificate.backup', 'certificate.install', 'service.reload', 'tls.verify'];
   }
 
-  private normalizeGatewayRoute(target: CreateDeploymentPlanInput['targets'][number]): DeploymentPlanTargetEntity['gatewayRoute'] {
+  private normalizeRouteMatchResult(matchResult: Record<string, unknown> | undefined, route: DeploymentPlanTargetEntity['gatewayRoute']): Record<string, unknown> | undefined {
+    if (!route?.blockedReason && !route?.approvalRequired) return matchResult;
+    return {
+      ...(matchResult ?? {}),
+      status: 'manual_required',
+      reason: route.approvalRequired ? 'Zone 路由要求审批' : `Gateway 路由被阻断：${route.blockedReason}`,
+      gatewayRouteBlockedReason: route.blockedReason,
+      fallbackSuggestions: route.fallbackSuggestions,
+      missingCapabilities: route.missingCapabilities,
+    };
+  }
+
+  private normalizeGatewayRoute(target: CreateDeploymentPlanInput['targets'][number], tenantId: string | undefined, policy: DeploymentPlanEntity['policy']): DeploymentPlanTargetEntity['gatewayRoute'] {
+    const explicitRoute = this.normalizeExplicitGatewayRoute(target);
+    if (explicitRoute?.gatewayId || explicitRoute?.agentId || explicitRoute?.gatewayAgentId || target.gatewayRoute) return explicitRoute;
+
+    const zoneId = target.zoneId ?? explicitRoute?.zoneId;
+    const targetId = target.delegatedTargetId ?? target.executionTargetId ?? explicitRoute?.delegatedTargetId;
+    if (!zoneId || !targetId) return explicitRoute;
+
+    const protocols = this.routeProtocols(target);
+    if (protocols.length === 0) return explicitRoute;
+
+    const routeResult = this.gateways.route(tenantId ?? '', {
+      zoneId,
+      targetId,
+      protocols,
+      requiredCapabilities: target.requiredCapabilities ?? this.defaultCapabilities(),
+      destructive: target.destructive ?? this.isDestructivePlan(policy),
+      action: target.action ?? this.defaultRouteAction(policy),
+    });
+    return this.gatewayRouteFromRouteResult(target, zoneId, targetId, routeResult, protocols[0]);
+  }
+
+  private normalizeExplicitGatewayRoute(target: CreateDeploymentPlanInput['targets'][number]): DeploymentPlanTargetEntity['gatewayRoute'] {
     const hasExplicitRoute = Boolean(target.gatewayRoute)
       || target.gatewayId !== undefined
-      || target.zoneId !== undefined
       || target.adapter !== undefined
       || target.delegatedTargetId !== undefined
       || target.fallbackSuggestions !== undefined;
-    if (!hasExplicitRoute) return undefined;
+    const hasRoutingHintOnly = target.zoneId !== undefined || target.protocols !== undefined || target.action !== undefined || target.destructive !== undefined;
+    if (!hasExplicitRoute && !hasRoutingHintOnly) return undefined;
     const route = {
       ...(target.gatewayRoute ?? {}),
       gatewayId: target.gatewayId ?? target.gatewayRoute?.gatewayId,
+      agentId: target.gatewayRoute?.agentId,
+      gatewayAgentId: target.gatewayRoute?.gatewayAgentId,
       zoneId: target.zoneId ?? target.gatewayRoute?.zoneId,
       adapter: target.adapter ?? target.gatewayRoute?.adapter,
       delegatedTargetId: target.delegatedTargetId ?? target.gatewayRoute?.delegatedTargetId ?? target.executionTargetId,
       fallbackSuggestions: target.fallbackSuggestions ?? target.gatewayRoute?.fallbackSuggestions,
+      mockSafeLocalRuntime: target.gatewayRoute?.mockSafeLocalRuntime,
+      candidateGateways: target.gatewayRoute?.candidateGateways,
+      missingCapabilities: target.gatewayRoute?.missingCapabilities,
+      blockedReason: target.gatewayRoute?.blockedReason,
+      approvalRequired: target.gatewayRoute?.approvalRequired,
     };
-    const hasValue = Object.values(route).some((value) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '');
-    return hasValue ? route : undefined;
+    return this.compactGatewayRoute(route);
+  }
+
+  private gatewayRouteFromRouteResult(target: CreateDeploymentPlanInput['targets'][number], zoneId: string, delegatedTargetId: string, result: ZoneRouteResult, fallbackAdapter: GatewayAdapterType): DeploymentGatewayRouteDto {
+    const selected = result.selectedGateway;
+    return this.compactGatewayRoute({
+      gatewayId: selected?.id,
+      agentId: selected?.agentId,
+      gatewayAgentId: selected?.agentId,
+      zoneId,
+      adapter: result.candidateGateways[0]?.reachability.protocol ?? fallbackAdapter,
+      delegatedTargetId,
+      candidateGateways: result.candidateGateways.map((candidate) => this.toGatewayRouteCandidate(candidate)),
+      fallbackSuggestions: result.fallbackSuggestions,
+      missingCapabilities: result.missingCapabilities,
+      blockedReason: result.blockedReason,
+      approvalRequired: result.status === 'approvalRequired',
+      mockSafeLocalRuntime: target.gatewayRoute?.mockSafeLocalRuntime,
+    })!;
+  }
+
+  private toGatewayRouteCandidate(candidate: GatewayCandidate): NonNullable<DeploymentGatewayRouteDto['candidateGateways']>[number] {
+    return {
+      gatewayId: candidate.gateway.id,
+      agentId: candidate.gateway.agentId,
+      zoneId: candidate.gateway.zoneIds[0],
+      adapter: candidate.reachability.protocol,
+      score: candidate.score,
+      reasons: candidate.reasons,
+    };
+  }
+
+  private routeProtocols(target: CreateDeploymentPlanInput['targets'][number]): GatewayAdapterType[] {
+    const values = target.protocols ?? (target.adapter ? [target.adapter] : target.gatewayRoute?.adapter ? [target.gatewayRoute.adapter] : this.protocolsFromExecutorType(target.executorType));
+    return [...new Set(values.filter(Boolean))] as GatewayAdapterType[];
+  }
+
+  private protocolsFromExecutorType(executorType: CreateDeploymentPlanInput['targets'][number]['executorType']): GatewayAdapterType[] {
+    if (executorType === 'WINRM') return ['winrm'];
+    if (executorType === 'SMB_WMI') return ['smb', 'wmi'];
+    if (executorType === 'CURL') return ['curl'];
+    return ['ssh'];
+  }
+
+  private isDestructivePlan(policy: DeploymentPlanEntity['policy']): boolean {
+    return policy.failurePolicy === 'rollback' || policy.riskLevel === 'high' || policy.riskLevel === 'critical';
+  }
+
+  private defaultRouteAction(policy: DeploymentPlanEntity['policy']): string {
+    return this.isDestructivePlan(policy) ? 'install' : 'write';
+  }
+
+  private compactGatewayRoute(route: DeploymentGatewayRouteDto): DeploymentGatewayRouteDto | undefined {
+    const compact = Object.fromEntries(Object.entries(route).filter(([, value]) => Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '')) as DeploymentGatewayRouteDto;
+    return Object.keys(compact).length > 0 ? compact : undefined;
   }
 
   private toDto(plan: DeploymentPlanEntity): DeploymentPlanDto {

@@ -96,7 +96,9 @@ export interface RouteGatewayInput {
   protocols: GatewayAdapterType[];
   requiredCapabilities?: string[];
   destructive?: boolean;
+  action?: string;
 }
+
 
 export interface ProbeGatewayInput {
   gatewayId: string;

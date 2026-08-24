@@ -2,16 +2,24 @@ import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { GatewaysDomainService } from '../domain/gateways.domain-service.js';
 import type { ProbeGatewayInput, RegisterGatewayInput, RouteGatewayInput, UpdateGatewayStatusInput } from '../dto/gateways.dto.js';
 import { InMemoryGatewaysRepository, type GatewaysRepository } from '../repository/gateways.repository.js';
+import { InMemoryGatewayTargetHistoryRepository, type GatewayTargetHistoryRepositoryPort } from '../../gateway-agents/gateway-target-history.service.js';
 
 export class GatewaysApplicationService {
   private readonly domain: GatewaysDomainService;
 
-  constructor(private readonly repository: GatewaysRepository = new InMemoryGatewaysRepository()) {
+  constructor(
+    private readonly repository: GatewaysRepository = new InMemoryGatewaysRepository(),
+    private readonly targetHistoryRepository: GatewayTargetHistoryRepositoryPort = new InMemoryGatewayTargetHistoryRepository(),
+  ) {
     this.domain = new GatewaysDomainService(repository);
   }
 
   getRepository(): GatewaysRepository {
     return this.repository;
+  }
+
+  getTargetHistoryRepository(): GatewayTargetHistoryRepositoryPort {
+    return this.targetHistoryRepository;
   }
 
   list(tenantId: string, query: PageQuery) {
@@ -39,5 +47,12 @@ export class GatewaysApplicationService {
 
   probe(tenantId: string, input: ProbeGatewayInput) {
     return this.domain.probe(tenantId, input);
+  }
+
+  targetHistory(tenantId: string, delegatedTargetId: string) {
+    return {
+      delegatedTargetId,
+      items: this.targetHistoryRepository.listByTarget(delegatedTargetId, tenantId),
+    };
   }
 }

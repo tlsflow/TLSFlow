@@ -1,7 +1,12 @@
+import { join } from 'node:path';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
+import { FileJsonRepositoryFactory } from '../../../persistence/repositories/file-json-repository.js';
+import { MemoryRepository } from '../../../persistence/repositories/memory-repository.js';
+import type { RepositoryPort } from '../../../persistence/repositories/repository-port.js';
 import { newId } from '../../../shared/id.js';
 import type { GatewayAgentProfile, GatewayAdapterType, GatewayStatus, ReachabilityRecord, Zone } from '../../gateway-agents/index.js';
+import { InMemoryGatewayTargetHistoryRepository, RepositoryGatewayTargetHistoryRepository, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from '../../gateway-agents/gateway-target-history.service.js';
 import type { GatewayCredentialSessionDto, GatewayDto, GatewayReachabilityDto, GatewayZoneDto, RegisterGatewayInput } from '../dto/gateways.dto.js';
 
 export interface PageResult<T> {
@@ -9,6 +14,13 @@ export interface PageResult<T> {
   page: number;
   pageSize: number;
   total: number;
+}
+
+export interface GatewayRepositoryStores {
+  zones: RepositoryPort<StoredGatewayZoneDto>;
+  gateways: RepositoryPort<StoredGatewayDto>;
+  reachability: RepositoryPort<StoredGatewayReachabilityDto>;
+  credentialSessions: RepositoryPort<StoredGatewayCredentialSessionDto>;
 }
 
 export interface GatewaysRepository {
@@ -31,10 +43,8 @@ export interface GatewaysRepository {
 
 export class InMemoryGatewaysRepository implements GatewaysRepository {
   readonly moduleName = 'gateways' as const;
-  private readonly zones = new Map<string, GatewayZoneDto>();
-  private readonly gateways = new Map<string, GatewayDto>();
-  private readonly reachability = new Map<string, GatewayReachabilityDto>();
-  private readonly credentialSessions = new Map<string, GatewayCredentialSessionDto>();
+
+  constructor(private readonly stores: GatewayRepositoryStores = createInMemoryGatewayRepositoryStores()) {}
 
   ensureDefaultZones(tenantId: string): GatewayZoneDto[] {
     const existing = this.listZones(tenantId);
@@ -47,7 +57,7 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
 
   upsertZone(tenantId: string, input: Omit<Zone, 'id'> & { id?: string }): GatewayZoneDto {
     const id = input.id ?? newId('zone');
-    const current = this.zones.get(key(tenantId, id));
+    const current = this.stores.zones.get(key(tenantId, id));
     const now = nowIso();
     const zone: GatewayZoneDto = {
       id,
@@ -59,18 +69,18 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
       createdAt: current?.createdAt ?? now,
       updatedAt: now,
     };
-    this.zones.set(key(tenantId, id), zone);
+    this.stores.zones.upsert(withStorageId(zone));
     return zone;
   }
 
   listZones(tenantId: string): GatewayZoneDto[] {
-    return [...this.zones.values()].filter((zone) => zone.tenantId === tenantId);
+    return this.stores.zones.list((zone) => zone.tenantId === tenantId).map((zone) => stripStoredGatewayEntity<GatewayZoneDto>(zone));
   }
 
   registerGateway(tenantId: string, input: RegisterGatewayInput): GatewayDto {
     if (input.zoneIds.length === 0) throw new AppError('VALIDATION_FAILED', 'Gateway 必须绑定至少一个 Zone', { field: 'zoneIds' });
     this.ensureDefaultZones(tenantId);
-    const missingZone = input.zoneIds.find((zoneId) => !this.zones.has(key(tenantId, zoneId)));
+    const missingZone = input.zoneIds.find((zoneId) => !this.stores.zones.get(key(tenantId, zoneId)));
     if (missingZone) throw new AppError('RESOURCE_NOT_FOUND', 'Zone 不存在', { zoneId: missingZone });
 
     const current = input.id ? this.getGateway(tenantId, input.id) : this.findGatewayByAgentId(tenantId, input.agentId);
@@ -92,7 +102,7 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
       createdAt: current?.createdAt ?? now,
       updatedAt: now,
     };
-    this.gateways.set(key(tenantId, gateway.id), gateway);
+    this.stores.gateways.upsert(withStorageId(gateway));
     return gateway;
   }
 
@@ -113,36 +123,36 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
       updatedAt: now,
     };
     if (updated.zoneIds.length === 0) throw new AppError('VALIDATION_FAILED', 'Gateway 必须绑定至少一个 Zone', { field: 'zoneIds' });
-    this.gateways.set(key(tenantId, gatewayId), updated);
+    this.stores.gateways.upsert(withStorageId(updated));
     if (status === 'disabled' || status === 'revoked') this.revokeUnusedCredentialSessions(tenantId, gatewayId);
     return updated;
   }
 
   getGateway(tenantId: string, gatewayId: string): GatewayDto | undefined {
-    return this.gateways.get(key(tenantId, gatewayId));
+    return stripStorageId(this.stores.gateways.get(key(tenantId, gatewayId)));
   }
 
   findGatewayByAgentId(tenantId: string, agentId: string): GatewayDto | undefined {
-    return [...this.gateways.values()].find((gateway) => gateway.tenantId === tenantId && gateway.agentId === agentId);
+    return stripStorageId(this.stores.gateways.list((gateway) => gateway.tenantId === tenantId && gateway.agentId === agentId)[0]);
   }
 
   listGateways(tenantId: string, query: PageQuery): PageResult<GatewayDto> {
-    const filtered = [...this.gateways.values()].filter((gateway) => {
+    const filtered = this.stores.gateways.list((gateway) => {
       if (gateway.tenantId !== tenantId) return false;
       if (query.filter.zoneId && !gateway.zoneIds.includes(query.filter.zoneId)) return false;
       if (query.filter.status && gateway.status !== query.filter.status) return false;
       return true;
     });
-    return page(filtered, query);
+    return page(filtered.map((gateway) => stripStoredGatewayEntity<GatewayDto>(gateway)), query);
   }
 
   upsertReachability(tenantId: string, input: Omit<GatewayReachabilityDto, 'id' | 'tenantId' | 'checkedAt' | 'expiresAt' | 'createdAt' | 'updatedAt'> & { ttlSeconds: number; now?: Date }): GatewayReachabilityDto {
     this.requireGateway(tenantId, input.gatewayId);
     const now = input.now ?? new Date();
     const reachKey = reachabilityKey(tenantId, input.gatewayId, input.targetId, input.protocol);
-    const current = this.reachability.get(reachKey);
+    const current = this.stores.reachability.get(reachKey);
     const record: GatewayReachabilityDto = {
-      id: current?.id ?? newId('reach'),
+      id: current?.entityId ?? current?.id ?? newId('reach'),
       tenantId,
       gatewayId: input.gatewayId,
       targetId: input.targetId,
@@ -155,33 +165,35 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
       createdAt: current?.createdAt ?? now.toISOString(),
       updatedAt: now.toISOString(),
     };
-    this.reachability.set(reachKey, record);
+    this.stores.reachability.upsert(withStorageId(record, reachKey));
     return record;
   }
 
   listReachability(tenantId: string, gatewayId?: string, targetId?: string): GatewayReachabilityDto[] {
-    return [...this.reachability.values()].filter((record) => record.tenantId === tenantId && (!gatewayId || record.gatewayId === gatewayId) && (!targetId || record.targetId === targetId));
+    return this.stores.reachability.list((record) => record.tenantId === tenantId && (!gatewayId || record.gatewayId === gatewayId) && (!targetId || record.targetId === targetId)).map((record) => stripStoredGatewayEntity<GatewayReachabilityDto>(record));
   }
 
   findReachability(tenantId: string, gatewayId: string, targetId: string, protocol: GatewayAdapterType, now = new Date()): ReachabilityRecord | undefined {
-    const record = this.reachability.get(reachabilityKey(tenantId, gatewayId, targetId, protocol));
+    const record = this.stores.reachability.get(reachabilityKey(tenantId, gatewayId, targetId, protocol));
     if (!record) return undefined;
     const status = new Date(record.expiresAt).getTime() <= now.getTime() ? 'expired' : record.status;
-    return { id: record.id, gatewayId, targetId, protocol, port: record.port, status, latencyMs: record.latencyMs, checkedAt: record.checkedAt, expiresAt: record.expiresAt };
+    const persisted = stripStorageId<GatewayReachabilityDto>(record);
+    return { id: persisted.id, gatewayId, targetId, protocol, port: persisted.port, status, latencyMs: persisted.latencyMs, checkedAt: persisted.checkedAt, expiresAt: persisted.expiresAt };
   }
 
   recordCredentialSession(tenantId: string, input: Omit<GatewayCredentialSessionDto, 'tenantId'>): GatewayCredentialSessionDto {
     const session = { ...input, tenantId };
-    this.credentialSessions.set(key(tenantId, session.id), session);
+    this.stores.credentialSessions.upsert(withStorageId(session));
     return session;
   }
 
   revokeUnusedCredentialSessions(tenantId: string, gatewayId: string, now = new Date()): GatewayCredentialSessionDto[] {
     const revoked: GatewayCredentialSessionDto[] = [];
-    for (const session of this.credentialSessions.values()) {
+    for (const session of this.stores.credentialSessions.list()) {
       if (session.tenantId !== tenantId || session.gatewayId !== gatewayId || session.status !== 'active') continue;
-      const updated = { ...session, status: 'revoked' as const, revokedAt: now.toISOString() };
-      this.credentialSessions.set(key(tenantId, session.id), updated);
+      const current = stripStorageId<GatewayCredentialSessionDto>(session);
+      const updated = { ...current, status: 'revoked' as const, revokedAt: now.toISOString() };
+      this.stores.credentialSessions.upsert(withStorageId(updated));
       revoked.push(updated);
     }
     return revoked;
@@ -191,7 +203,7 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
     this.ensureDefaultZones(tenantId);
     return {
       zones: this.listZones(tenantId).map(({ id, name, type, policy, enabled }) => ({ id, name, type, policy, enabled })),
-      gateways: [...this.gateways.values()].filter((gateway) => gateway.tenantId === tenantId).map(toGatewayProfile),
+      gateways: this.stores.gateways.list((gateway) => gateway.tenantId === tenantId).map((gateway) => stripStoredGatewayEntity<GatewayDto>(gateway)).map(toGatewayProfile),
     };
   }
 
@@ -200,6 +212,88 @@ export class InMemoryGatewaysRepository implements GatewaysRepository {
     if (!gateway) throw new AppError('RESOURCE_NOT_FOUND', 'Gateway 不存在', { gatewayId });
     return gateway;
   }
+}
+
+export function createInMemoryGatewayRepositoryStores(): GatewayRepositoryStores {
+  return {
+    zones: new MemoryRepository<StoredGatewayZoneDto>(),
+    gateways: new MemoryRepository<StoredGatewayDto>(),
+    reachability: new MemoryRepository<StoredGatewayReachabilityDto>(),
+    credentialSessions: new MemoryRepository<StoredGatewayCredentialSessionDto>(),
+  };
+}
+
+export interface GatewayPersistenceOptions {
+  backend?: GatewayPersistenceBackend;
+  baseDir?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export type GatewayPersistenceBackend = 'memory' | 'file';
+
+export interface GatewayPersistenceRepositories {
+  backend: GatewayPersistenceBackend;
+  durable: boolean;
+  gateways: GatewaysRepository;
+  targetHistory: GatewayTargetHistoryRepositoryPort;
+}
+
+export function createGatewayRepository(options: GatewayPersistenceOptions = {}): GatewaysRepository {
+  const env = options.env ?? process.env;
+  const backend = options.backend ?? readGatewayBackend(env);
+  if (backend === 'memory') return new InMemoryGatewaysRepository();
+  return createFileGatewayRepository(gatewayBaseDir(options, env));
+}
+
+export function createGatewayTargetHistoryRepository(options: GatewayPersistenceOptions = {}): GatewayTargetHistoryRepositoryPort {
+  const env = options.env ?? process.env;
+  const backend = options.backend ?? readGatewayBackend(env);
+  if (backend === 'memory') return new InMemoryGatewayTargetHistoryRepository();
+  return createFileGatewayTargetHistoryRepository(gatewayBaseDir(options, env));
+}
+
+export function createGatewayPersistenceRepositories(options: GatewayPersistenceOptions = {}): GatewayPersistenceRepositories {
+  const env = options.env ?? process.env;
+  const backend = options.backend ?? readGatewayBackend(env);
+  if (backend === 'memory') {
+    return {
+      backend,
+      durable: false,
+      gateways: new InMemoryGatewaysRepository(),
+      targetHistory: new InMemoryGatewayTargetHistoryRepository(),
+    };
+  }
+
+  const factory = new FileJsonRepositoryFactory(join(options.baseDir ?? env.GCAC_PERSISTENCE_DIR ?? join(process.cwd(), '.gcac-data'), 'gateways'));
+  return {
+    backend,
+    durable: true,
+    gateways: new InMemoryGatewaysRepository(createFileGatewayRepositoryStores(factory)),
+    targetHistory: createFileGatewayTargetHistoryRepository(factory),
+  };
+}
+
+type Stored<T> = Omit<T, 'id'> & { id: string; entityId: string };
+type StoredGatewayZoneDto = Stored<GatewayZoneDto>;
+type StoredGatewayDto = Stored<GatewayDto>;
+type StoredGatewayReachabilityDto = Stored<GatewayReachabilityDto>;
+type StoredGatewayCredentialSessionDto = Stored<GatewayCredentialSessionDto>;
+
+function withStorageId<T extends { id: string; tenantId: string; entityId?: string }>(entity: T, storageId?: string): Stored<T> {
+  const entityId = entity.entityId ?? entity.id;
+  return { ...entity, entityId, id: storageId ?? key(entity.tenantId, entityId) };
+}
+
+function stripStorageId<T extends { id: string }>(entity: Stored<T>): T;
+function stripStorageId<T extends { id: string }>(entity: Stored<T> | undefined): T | undefined;
+function stripStorageId<T extends { id: string }>(entity: Stored<T> | undefined): T | undefined {
+  if (!entity) return undefined;
+  const { entityId, ...rest } = entity;
+  return { ...rest, id: entityId ?? entity.id } as unknown as T;
+}
+
+function stripStoredGatewayEntity<T extends { id: string }>(entity: Stored<T>): T {
+  return stripStorageId(entity);
 }
 
 function toGatewayProfile(gateway: GatewayDto): GatewayAgentProfile {
@@ -245,4 +339,36 @@ function nowIso(): string {
 
 function dedupe<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function gatewayBaseDir(options: GatewayPersistenceOptions, env: NodeJS.ProcessEnv): string {
+  return join(options.baseDir ?? env.GCAC_PERSISTENCE_DIR ?? join(process.cwd(), '.gcac-data'), 'gateways');
+}
+
+function createFileGatewayRepository(baseDir: string): GatewaysRepository {
+  return new InMemoryGatewaysRepository(createFileGatewayRepositoryStores(new FileJsonRepositoryFactory(baseDir)));
+}
+
+function createFileGatewayRepositoryStores(factory: FileJsonRepositoryFactory): GatewayRepositoryStores {
+  return {
+    zones: factory.collection<StoredGatewayZoneDto>('gateway-zones'),
+    gateways: factory.collection<StoredGatewayDto>('gateway-registry'),
+    reachability: factory.collection<StoredGatewayReachabilityDto>('gateway-reachability'),
+    credentialSessions: factory.collection<StoredGatewayCredentialSessionDto>('gateway-credential-sessions'),
+  };
+}
+
+function createFileGatewayTargetHistoryRepository(baseDir: string | FileJsonRepositoryFactory): GatewayTargetHistoryRepositoryPort {
+  const factory = typeof baseDir === 'string' ? new FileJsonRepositoryFactory(baseDir) : baseDir;
+  return new RepositoryGatewayTargetHistoryRepository(factory.collection<GatewayTargetHistoryRecord>('gateway-target-history'));
+}
+
+function readGatewayBackend(env: NodeJS.ProcessEnv): GatewayPersistenceBackend {
+  const configured = env.GCAC_PERSISTENCE_BACKEND;
+  if (configured === 'memory' || configured === 'file') return configured;
+
+  // node:test 默认并发执行，不能让默认 createApp 共享 .gcac-data。
+  // 显式指定目录或 backend=file 时，测试才进入非易失路径。
+  if (env.NODE_TEST_CONTEXT && !env.GCAC_PERSISTENCE_DIR) return 'memory';
+  return 'file';
 }

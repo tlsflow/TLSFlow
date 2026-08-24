@@ -145,6 +145,9 @@ export class DeploymentPlansController {
     gatewayId?: string;
     zoneId?: string;
     adapter?: string;
+    protocols?: string[];
+    action?: string;
+    destructive?: boolean;
     delegatedTargetId?: string;
     fallbackSuggestions?: FallbackSuggestion[];
   }> {
@@ -169,6 +172,9 @@ export class DeploymentPlansController {
         gatewayId: typeof target.gatewayId === 'string' ? target.gatewayId : undefined,
         zoneId: typeof target.zoneId === 'string' ? target.zoneId : undefined,
         adapter: typeof target.adapter === 'string' ? target.adapter : undefined,
+        protocols: Array.isArray(target.protocols) ? target.protocols.map(String) : undefined,
+        action: typeof target.action === 'string' ? target.action : undefined,
+        destructive: typeof target.destructive === 'boolean' ? target.destructive : undefined,
         delegatedTargetId: typeof target.delegatedTargetId === 'string' ? target.delegatedTargetId : undefined,
         fallbackSuggestions: parseFallbackSuggestions(target.fallbackSuggestions),
       };
@@ -178,10 +184,13 @@ export class DeploymentPlansController {
   private parseGatewayRoute(route: Record<string, unknown>): DeploymentGatewayRouteDto {
     return {
       gatewayId: typeof route.gatewayId === 'string' ? route.gatewayId : undefined,
+      agentId: typeof route.agentId === 'string' ? route.agentId : undefined,
+      gatewayAgentId: typeof route.gatewayAgentId === 'string' ? route.gatewayAgentId : undefined,
       zoneId: typeof route.zoneId === 'string' ? route.zoneId : undefined,
       adapter: typeof route.adapter === 'string' ? route.adapter : undefined,
       delegatedTargetId: typeof route.delegatedTargetId === 'string' ? route.delegatedTargetId : undefined,
       fallbackSuggestions: parseFallbackSuggestions(route.fallbackSuggestions),
+      mockSafeLocalRuntime: typeof route.mockSafeLocalRuntime === 'boolean' ? route.mockSafeLocalRuntime : undefined,
     };
   }
 
