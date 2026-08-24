@@ -22,6 +22,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
       agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
       siteAssetId: requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId'),
       managedTargetId: requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId'),
+      certificateFormatId: optionalNonEmpty(agent.certificateFormatId),
       deploymentMode: optionalNonEmpty(agent.deploymentMode),
     };
     return { type: 'AGENT', agent: normalized, updatedAt: now, updatedBy: context.actorId };
@@ -42,6 +43,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         credentialRefs,
+        certificateArtifactBindings: normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
         variableBindings: isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
@@ -91,6 +93,25 @@ function normalizeSecretRefRecord(value: unknown, path: string): Record<string, 
     output[key] = ref;
   }
   return output;
+}
+
+function normalizeCertificateArtifactBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw strategyError('workflow.certificateArtifactBindings 必须是对象');
+  const output: NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'] = {};
+  for (const [variableName, binding] of Object.entries(value)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(variableName)) throw strategyError(`workflow.certificateArtifactBindings.${variableName} 变量名不合法`);
+    if (!isRecord(binding)) throw strategyError(`workflow.certificateArtifactBindings.${variableName} 必须是对象`);
+    const certificateFormatId = requireNonEmpty(binding.certificateFormatId, `workflow.certificateArtifactBindings.${variableName}.certificateFormatId`);
+    if (!isRecord(binding.outputBindings)) throw strategyError(`workflow.certificateArtifactBindings.${variableName}.outputBindings 必须是对象`);
+    const outputBindings: Record<string, string> = {};
+    for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(slotName)) throw strategyError(`workflow.certificateArtifactBindings.${variableName}.outputBindings.${slotName} 名称不合法`);
+      outputBindings[slotName] = requireNonEmpty(outputKey, `workflow.certificateArtifactBindings.${variableName}.outputBindings.${slotName}`);
+    }
+    output[variableName] = { certificateFormatId, outputBindings };
+  }
+  return Object.keys(output).length > 0 ? output : undefined;
 }
 
 function requireNonEmpty(value: unknown, field: string): string {

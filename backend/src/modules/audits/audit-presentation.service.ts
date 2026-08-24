@@ -222,13 +222,17 @@ function deploymentTargetLabels(deploymentPlanId: string, context: AuditPresenta
 }
 
 function deploymentTargetLabel(target: DeploymentPlanTargetEntity, context: AuditPresentationContext): string {
-  const binding = context.bindingById.get(target.certificateBindingId);
+  const binding = target.certificateBindingId ? context.bindingById.get(target.certificateBindingId) : undefined;
   const serviceAssetLabelText = binding?.serviceAssetId ? context.applicationAssetLabelById.get(binding.serviceAssetId) : undefined;
   return serviceAssetLabelText
     ?? bindingLabel(binding)
+    ?? readDetailString(target.strategyPayload, 'workflowRequest.applicationAssetId')
+    ?? readDetailString(target.strategyPayload, 'workflowRequest.workflowId')
     ?? readDetailString(target.strategyPayload, 'targetName')
     ?? readDetailString(target.strategyPayload, 'assetName')
-    ?? target.certificateBindingId;
+    ?? target.certificateBindingId
+    ?? target.executionTargetId
+    ?? target.id;
 }
 
 function bindingLabel(binding: CertificateBindingDto | undefined): string | undefined {

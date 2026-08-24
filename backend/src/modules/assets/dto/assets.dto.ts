@@ -35,6 +35,7 @@ export interface AgentDeploymentStrategyDto {
   agentId: string;
   siteAssetId: string;
   managedTargetId: string;
+  certificateFormatId?: string;
   deploymentMode?: string;
 }
 
@@ -45,6 +46,10 @@ export interface WorkflowDeploymentStrategyDto {
   gatewayId?: string;
   credentialRefs?: Record<string, string>;
   variableBindings?: Record<string, unknown>;
+  certificateArtifactBindings?: Record<string, {
+    certificateFormatId: string;
+    outputBindings: Record<string, string>;
+  }>;
   rollbackWorkflowVersionId?: string;
 }
 

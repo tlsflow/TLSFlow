@@ -58,11 +58,13 @@ export class DeploymentPlansRepository {
   }
 
   async createTarget(target: DeploymentPlanTargetEntity): Promise<DeploymentPlanTargetEntity> {
-    const duplicated = (await this.targets.list((item) => sameTenant(item.tenantId, target.tenantId)
-      && item.deploymentPlanId === target.deploymentPlanId
-      && item.certificateBindingId === target.certificateBindingId))[0];
-    if (duplicated) {
-      throw new AppError('RESOURCE_ALREADY_EXISTS', '同一计划不能重复引用同一证书绑定', { certificateBindingId: target.certificateBindingId });
+    if (target.certificateBindingId) {
+      const duplicated = (await this.targets.list((item) => sameTenant(item.tenantId, target.tenantId)
+        && item.deploymentPlanId === target.deploymentPlanId
+        && item.certificateBindingId === target.certificateBindingId))[0];
+      if (duplicated) {
+        throw new AppError('RESOURCE_ALREADY_EXISTS', '同一计划不能重复引用同一证书绑定', { certificateBindingId: target.certificateBindingId });
+      }
     }
     return this.targets.create(target);
   }

@@ -44,7 +44,7 @@ export interface DeploymentPlanTargetDto {
   id: string;
   tenantId?: string;
   deploymentPlanId: string;
-  certificateBindingId: string;
+  certificateBindingId?: string;
   executionTargetId?: string;
   executorType: ExecutionTargetKind;
   requiredCapabilities: string[];

@@ -30,8 +30,8 @@ import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
-  certificateBindingId: string;
-  binding: CertificateBindingDto;
+  certificateBindingId?: string;
+  binding?: CertificateBindingDto;
   managedTarget?: ManagedTargetDto;
   siteAsset?: SiteAssetDto;
   strategyPayload?: Record<string, unknown>;
@@ -53,6 +53,11 @@ interface LinuxNginxBindingHints {
   testCommand?: string;
   permission?: Record<string, unknown>;
   helperCommand?: string;
+}
+
+interface WorkflowCertificateArtifactBinding {
+  certificateFormatId: string;
+  outputBindings: Record<string, string>;
 }
 
 export interface DeploymentPlansApplicationDependencies {
@@ -132,7 +137,7 @@ export class DeploymentPlansApplicationService {
         certificateBindingId: target.certificateBindingId,
         managedTargetId: target.managedTargetId ?? target.managedTarget?.id,
         siteAssetId: target.siteAssetId ?? target.siteAsset?.id,
-        domain: target.domain ?? target.binding.domainName ?? target.binding.domain,
+        domain: target.domain ?? target.binding?.domainName ?? target.binding?.domain,
         executionTargetId: target.executionTargetId,
         executorType: target.executorType,
         requiredCapabilities: target.requiredCapabilities,
@@ -278,7 +283,7 @@ export class DeploymentPlansApplicationService {
         certificateBindingId: target.certificateBindingId,
         managedTargetId: target.managedTargetId ?? target.managedTarget?.id,
         siteAssetId: target.siteAssetId ?? target.siteAsset?.id,
-        domain: target.domain ?? target.binding.domainName ?? target.binding.domain,
+        domain: target.domain ?? target.binding?.domainName ?? target.binding?.domain,
         executionTargetId: target.executionTargetId,
         executorType: target.executorType,
         requiredCapabilities: target.requiredCapabilities,
@@ -397,6 +402,18 @@ export class DeploymentPlansApplicationService {
     if (!applicationAsset) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
     }
+    if (applicationAsset.deploymentStrategy?.type === 'WORKFLOW') {
+      return this.buildWorkflowCreateInputFromApplicationAsset(input, applicationAsset);
+    }
+    return this.buildAgentCreateInputFromApplicationAsset(input);
+  }
+
+  private async buildAgentCreateInputFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput): Promise<CreateDeploymentPlanInput> {
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    const applicationAsset = await this.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
+    if (!applicationAsset) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
+    }
     const bindingTarget = await this.assets.getApplicationAssetTargetByApplicationAssetId(input.tenantId, input.applicationAssetId);
     if (!bindingTarget) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAssetTarget 不存在', { applicationAssetId: input.applicationAssetId });
@@ -463,6 +480,16 @@ export class DeploymentPlansApplicationService {
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
     const strategyAsset = applicationAssetDetail ?? applicationAsset;
+    const agentCertificateFormatId = strategyAsset.deploymentStrategy?.type === 'AGENT'
+      ? strategyAsset.deploymentStrategy.agent?.certificateFormatId
+      : undefined;
+    const certificateFormatId = input.certificateFormatId ?? agentCertificateFormatId;
+    if (!certificateFormatId) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 应用资产缺少证书产物配置', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: applicationAsset.id,
+      });
+    }
     const resolvedStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
       bindingTarget,
@@ -472,7 +499,7 @@ export class DeploymentPlansApplicationService {
     return {
       name: planName,
       certificateVersionId,
-      certificateFormatId: input.certificateFormatId,
+      certificateFormatId,
       selectionMode,
       targets: [{
         certificateBindingId: readyBinding.id,
@@ -480,6 +507,54 @@ export class DeploymentPlansApplicationService {
         siteAssetId: bindingTarget.siteAssetId,
         domain: readyBinding.domainName ?? readyBinding.domain ?? applicationAsset.address,
         executionTargetId: resolvedStrategy.executionTargetId,
+        executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
+        requiredCapabilities: resolvedStrategy.requiredCapabilities,
+        gatewayRoute: resolvedStrategy.gatewayRoute,
+        strategyPayload: resolvedStrategy.payload,
+      }],
+      planType: input.planType ?? 'UPDATE',
+      policy: input.policy,
+      createdReason: 'MANUAL',
+      idempotencyKey: input.idempotencyKey,
+      actorId: input.actorId,
+      tenantId: input.tenantId,
+    };
+  }
+
+  private async buildWorkflowCreateInputFromApplicationAsset(
+    input: CreateDeploymentPlanFromApplicationAssetInput,
+    applicationAsset: ServiceAssetDto,
+  ): Promise<CreateDeploymentPlanInput> {
+    const strategy = applicationAsset.deploymentStrategy;
+    const workflow = strategy?.workflow;
+    if (strategy?.type !== 'WORKFLOW' || !workflow) {
+      throw new AppError('VALIDATION_FAILED', '应用资产不是 WORKFLOW 部署策略', { applicationAssetId: applicationAsset.id });
+    }
+    if (!workflow.workflowId || !workflow.workflowVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflowId/workflowVersionId', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: applicationAsset.id,
+      });
+    }
+    const certificateArtifactBindings = readWorkflowCertificateArtifactBindings(workflow.certificateArtifactBindings);
+    if (Object.keys(certificateArtifactBindings).length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少证书产物绑定', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: applicationAsset.id,
+      });
+    }
+    const resolvedStrategy = this.deploymentStrategyResolver.resolve({
+      applicationAsset,
+    });
+    const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
+    const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
+    return {
+      name: planName,
+      certificateVersionId: input.targetCertificateVersionId,
+      selectionMode,
+      targets: [{
+        domain: applicationAsset.address,
+        executionTargetId: resolvedStrategy.executionTargetId ?? applicationAsset.id,
         executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
         requiredCapabilities: resolvedStrategy.requiredCapabilities,
         gatewayRoute: resolvedStrategy.gatewayRoute,
@@ -1181,14 +1256,19 @@ export class DeploymentPlansApplicationService {
   private async resolveCreateInput(input: CreateDeploymentPlanInput): Promise<ResolvedCreatePlanInput> {
     const selectionMode = input.selectionMode ?? (input.certificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const resolvedTargets = await Promise.all(input.targets.map((target) => this.resolveTarget(input.tenantId, target)));
-    const versionIds = await Promise.all(resolvedTargets.map((target) => this.resolveCertificateVersionId({
-      tenantId: input.tenantId,
-      selectionMode,
-      requestedCertificateVersionId: input.certificateVersionId,
-      requestedCertificateFormatId: input.certificateFormatId,
-      binding: target.binding,
-      requestedDomain: target.domain,
-    })));
+    const versionIds = await Promise.all(resolvedTargets.map((target) => target.binding
+      ? this.resolveCertificateVersionId({
+          tenantId: input.tenantId,
+          selectionMode,
+          requestedCertificateVersionId: input.certificateVersionId,
+          requestedCertificateFormatId: input.certificateFormatId,
+          binding: target.binding,
+          requestedDomain: target.domain,
+        })
+      : this.resolveWorkflowCertificateVersionId({
+          selectionMode,
+          requestedCertificateVersionId: input.certificateVersionId,
+        })));
     const uniqueVersionIds = [...new Set(versionIds)];
     if (uniqueVersionIds.length !== 1) {
       throw new AppError('VALIDATION_FAILED', '当前部署计划模型只支持单一 certificateVersionId，请按域名或版本拆分计划', { certificateVersionIds: uniqueVersionIds });
@@ -1203,6 +1283,9 @@ export class DeploymentPlansApplicationService {
 
   private async resolveTarget(tenantId: string | undefined, target: CreateDeploymentPlanInput['targets'][number]): Promise<ResolvedCreateTarget> {
     if (!tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    if (target.executorType === 'WORKFLOW' && !target.certificateBindingId) {
+      return { ...target };
+    }
     if (target.certificateBindingId) {
       const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
       if (!binding) {
@@ -1323,6 +1406,26 @@ export class DeploymentPlansApplicationService {
       return input.requestedCertificateVersionId;
     }
     return this.findLatestDeployableCertificateVersionId(input.binding, input.requestedDomain);
+  }
+
+  private async resolveWorkflowCertificateVersionId(input: {
+    selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
+    requestedCertificateVersionId?: string;
+  }): Promise<string> {
+    if (!input.requestedCertificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署计划必须指定 certificateVersionId', { selectionMode: input.selectionMode });
+    }
+    const version = await this.certificates.getVersion(input.requestedCertificateVersionId);
+    if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.requestedCertificateVersionId });
+    if (!this.isDeployableVersion(version)) {
+      throw new AppError('VALIDATION_FAILED', '证书版本不可部署', {
+        certificateVersionId: input.requestedCertificateVersionId,
+        status: version.status,
+        deployable: version.deployable,
+        notAfter: version.notAfter,
+      });
+    }
+    return input.requestedCertificateVersionId;
   }
 
   private async assertCertificateVersionDeployable(
@@ -1484,6 +1587,12 @@ export class DeploymentPlansApplicationService {
           deploymentPlanTargetId: target.id,
         });
       }
+      if (!target.certificateBindingId) {
+        throw new AppError('RESOURCE_NOT_FOUND', 'LATEST_AUTO 部署目标缺少 CertificateBinding，无法解析最新证书版本', {
+          deploymentPlanId: plan.id,
+          deploymentPlanTargetId: target.id,
+        });
+      }
       const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
       if (!binding) {
         throw new AppError('RESOURCE_NOT_FOUND', 'LATEST_AUTO 部署目标缺少 CertificateBinding，无法解析最新证书版本', {
@@ -1520,6 +1629,16 @@ export class DeploymentPlansApplicationService {
       throw new AppError('VALIDATION_FAILED', '部署目标缺少 tenantId，无法解析部署材料', {
         deploymentPlanTargetId: target.id,
         deploymentPlanId: target.deploymentPlanId,
+      });
+    }
+    const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(target.strategyPayload?.workflowRequest)?.certificateArtifactBindings);
+    if (Object.keys(workflowBindings).length > 0) {
+      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, workflowBindings);
+    }
+    if (!target.certificateBindingId) {
+      throw new AppError('RESOURCE_NOT_FOUND', '部署目标缺少 CertificateBinding，无法解析部署材料', {
+        deploymentPlanTargetId: target.id,
+        tenantId: resolvedTenantId,
       });
     }
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
@@ -1586,8 +1705,88 @@ export class DeploymentPlansApplicationService {
       privateKeyPem: generated.privateKeyPem,
       pfxBase64: generated.pfxBase64,
       pfxPassword: generated.pfxPassword,
+      files: generated.files.map((file) => ({ ...file, name: file.key })),
       expectedFingerprintSha256: version.fingerprintSha256,
       warnings: generated.warnings,
+    };
+  }
+
+  private async resolveWorkflowDeploymentArtifact(
+    certificateVersionId: string,
+    bindings: Record<string, WorkflowCertificateArtifactBinding>,
+  ): Promise<DeploymentArtifactSnapshotDto> {
+    const version = await this.certificates.getVersion(certificateVersionId);
+    if (!version) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    }
+    const workflowCertificateMaterials: Record<string, Record<string, unknown>> = {};
+    let first: DeploymentArtifactSnapshotDto | undefined;
+    const warnings: string[] = [];
+    for (const [variableName, binding] of Object.entries(bindings)) {
+      const generated = await this.certificatesApp.generateDeploymentArtifactFromFormat({
+        certificateVersionId,
+        certificateFormatId: binding.certificateFormatId,
+        createdBy: 'system',
+      });
+      const files = generated.files.map((file) => ({ ...file, name: file.key }));
+      const outputs: Record<string, Record<string, unknown>> = {};
+      for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
+        const file = files.find((item) => item.key === outputKey || item.name === outputKey);
+        if (!file) {
+          throw new AppError('VALIDATION_FAILED', '证书产物输出项不存在', {
+            certificateVersionId,
+            certificateFormatId: binding.certificateFormatId,
+            variableName,
+            slotName,
+            outputKey,
+            availableOutputKeys: files.map((item) => item.key ?? item.name).filter(Boolean),
+          });
+        }
+        outputs[slotName] = file;
+      }
+      const material = {
+        certificateVersionId,
+        certificateFormatId: generated.certificateFormatId,
+        format: generated.format,
+        containsPrivateKey: generated.containsPrivateKey,
+        fingerprintSha256: version.fingerprintSha256,
+        expectedFingerprintSha256: version.fingerprintSha256,
+        pem: generated.certificatePem,
+        certificatePem: generated.certificatePem,
+        privateKey: generated.privateKeyPem,
+        privateKeyPem: generated.privateKeyPem,
+        pfx: generated.pfxBase64,
+        pfxBase64: generated.pfxBase64,
+        pfxPassword: generated.pfxPassword,
+        files,
+        outputs,
+      };
+      workflowCertificateMaterials[variableName] = material;
+      warnings.push(...generated.warnings);
+      first ??= {
+        certificateVersionId,
+        certificateFormatId: generated.certificateFormatId,
+        format: generated.format,
+        containsPrivateKey: generated.containsPrivateKey,
+        certificatePem: generated.certificatePem,
+        privateKeyPem: generated.privateKeyPem,
+        pfxBase64: generated.pfxBase64,
+        pfxPassword: generated.pfxPassword,
+        files,
+        expectedFingerprintSha256: version.fingerprintSha256,
+        warnings: [],
+      };
+    }
+    return {
+      ...(first ?? {
+        certificateVersionId,
+        certificateFormatId: '',
+        format: 'workflow',
+        containsPrivateKey: false,
+      }),
+      expectedFingerprintSha256: version.fingerprintSha256,
+      workflowCertificateMaterials,
+      warnings: [...new Set(warnings)],
     };
   }
 
@@ -1596,8 +1795,10 @@ export class DeploymentPlansApplicationService {
     artifact: DeploymentArtifactSnapshotDto,
     tenantId?: string,
   ): Promise<Record<string, unknown> | undefined> {
+    if (target.executorType === 'WORKFLOW') return undefined;
     const resolvedTenantId = target.tenantId ?? tenantId;
     if (!resolvedTenantId) return undefined;
+    if (!target.certificateBindingId) return undefined;
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) return undefined;
 
@@ -1736,6 +1937,7 @@ export class DeploymentPlansApplicationService {
   ): Promise<DeploymentPlanDryRunCheckDto[]> {
     const resolvedTenantId = tenantId ?? target.tenantId;
     if (!resolvedTenantId) return [];
+    if (!target.certificateBindingId) return [];
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) return [];
 
@@ -2206,10 +2408,9 @@ export class DeploymentPlansApplicationService {
   }
 
   private protocolsFromExecutorType(executorType: CreateDeploymentPlanInput['targets'][number]['executorType']): GatewayAdapterType[] {
-    if (executorType === 'WINRM') return ['winrm'];
-    if (executorType === 'SMB_WMI') return ['smb', 'wmi'];
-    if (executorType === 'CURL') return ['curl'];
-    return ['ssh'];
+    if (executorType === 'CURL') return ['probe.http'];
+    if (executorType === 'GATEWAY_FORWARD') return ['forward.agent_task'];
+    return ['forward.agent_task'];
   }
 
   private isDestructivePlan(policy: DeploymentPlanEntity['policy']): boolean {
@@ -2284,6 +2485,27 @@ function parseVerifyUrl(value: string): { host: string; port: number; serverName
   } catch {
     return undefined;
   }
+}
+
+function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
+  const record = readRecord(value);
+  if (!record) return {};
+  const output: Record<string, WorkflowCertificateArtifactBinding> = {};
+  for (const [variableName, rawBinding] of Object.entries(record)) {
+    const binding = readRecord(rawBinding);
+    const certificateFormatId = readOptionalString(binding?.certificateFormatId);
+    const outputBindingsRecord = readRecord(binding?.outputBindings);
+    if (!certificateFormatId || !outputBindingsRecord) continue;
+    const outputBindings: Record<string, string> = {};
+    for (const [slotName, outputKey] of Object.entries(outputBindingsRecord)) {
+      const normalizedOutputKey = readOptionalString(outputKey);
+      if (normalizedOutputKey) outputBindings[slotName] = normalizedOutputKey;
+    }
+    if (Object.keys(outputBindings).length > 0) {
+      output[variableName] = { certificateFormatId, outputBindings };
+    }
+  }
+  return output;
 }
 
 function parseIisBindingInformation(value: string): { ip?: string; port?: number; hostHeader?: string } {

@@ -28,7 +28,12 @@ export class DeploymentPlansDomainService {
       throw new AppError('VALIDATION_FAILED', 'certificateFormatId 不能为空', { field: 'certificateFormatId' });
     }
     for (const [index, target] of input.targets.entries()) {
-      if (!target.certificateBindingId && !target.managedTargetId && !target.siteAssetId) {
+      const isWorkflowTarget = target.executorType === 'WORKFLOW';
+      const workflowPayload = target.strategyPayload?.workflowRequest;
+      if (isWorkflowTarget && !workflowPayload) {
+        throw new AppError('VALIDATION_FAILED', 'WORKFLOW 部署目标必须提供 workflowRequest', { index });
+      }
+      if (!isWorkflowTarget && !target.certificateBindingId && !target.managedTargetId && !target.siteAssetId) {
         throw new AppError('VALIDATION_FAILED', '部署目标必须提供 certificateBindingId、managedTargetId 或 siteAssetId 之一', { index });
       }
       if (target.matchResult?.status === 'blocked') {
@@ -80,7 +85,7 @@ export class DeploymentPlansDomainService {
         executorType: target.executorType,
         requiredCapabilities: [...target.requiredCapabilities].sort(),
         gatewayRoute: target.gatewayRoute,
-      })).sort((a, b) => a.certificateBindingId.localeCompare(b.certificateBindingId)),
+      })).sort((a, b) => (a.certificateBindingId ?? '').localeCompare(b.certificateBindingId ?? '')),
     });
   }
 

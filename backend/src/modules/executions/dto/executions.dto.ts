@@ -86,6 +86,16 @@ export interface DeploymentArtifactSnapshotDto {
   pfxPassword?: string;
   expectedFingerprintSha256?: string;
   warnings?: string[];
+  files?: Array<{
+    name?: string;
+    key?: string;
+    role: 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle' | string;
+    format?: string;
+    content?: string;
+    contentBase64?: string;
+    contentEncoding?: 'utf8' | 'base64' | string;
+  }>;
+  workflowCertificateMaterials?: Record<string, Record<string, unknown>>;
 }
 
 export interface RetryExecutionRunInput {

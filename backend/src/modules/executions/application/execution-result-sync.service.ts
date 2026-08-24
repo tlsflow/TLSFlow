@@ -408,7 +408,7 @@ export class ExecutionResultSyncService {
     if (!shouldSyncDeploymentState(input.runType, step.stepType, input.success, detail)) return undefined;
 
     const bindingId = typeof step.inputSnapshot.certificateBindingId === 'string' ? step.inputSnapshot.certificateBindingId : undefined;
-    if (!bindingId) return undefined;
+    if (!bindingId) return this.syncWorkflowDeploymentAssets(input, step, detail);
 
     const binding = await this.bindings.getRepository().getCertificateBinding(input.tenantId, bindingId);
     if (!binding) return undefined;
@@ -422,6 +422,50 @@ export class ExecutionResultSyncService {
     await this.writeBindingState(input, step, binding, detail, resultState);
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
     return resultState;
+  }
+
+  private async syncWorkflowDeploymentAssets(
+    input: { tenantId: string; executionRunId: string; executionStepId: string; success: boolean; errorCode?: string; detail?: Record<string, unknown>; runType: ExecutionRunEntity['type'] },
+    step: ExecutionStepEntity,
+    detail: Record<string, unknown>,
+  ): Promise<ResultState | undefined> {
+    const applicationAssetId = await this.resolveWorkflowApplicationAssetId(input.tenantId, step);
+    if (!applicationAssetId) return undefined;
+
+    const serviceAsset = await this.assets.getRepository().getServiceAsset(input.tenantId, applicationAssetId);
+    if (!serviceAsset) return undefined;
+
+    const resultState = deriveResultState(input.runType, step.stepType, input.success, detail, input.errorCode);
+    const assetBinding = await this.assets.getRepository().getApplicationAssetTargetByApplicationAssetId(input.tenantId, applicationAssetId);
+    const siteAsset = assetBinding?.siteAssetId ? await this.assets.getRepository().getSiteAsset(input.tenantId, assetBinding.siteAssetId) : undefined;
+    const managedTarget = assetBinding?.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, assetBinding.managedTargetId) : undefined;
+
+    await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
+    await this.assets.updateServiceAsset(input.tenantId, serviceAsset.id, {
+      metadata: {
+        ...serviceAsset.metadata,
+        lastDeploymentResultState: resultState.kind,
+        manualInterventionRequired: resultState.manualRequired,
+        currentFingerprintSha256: readString(detail, 'verify.remoteCertificateSha256') ?? readString(detail, 'installedCertificateSha256'),
+        currentThumbprint: readString(detail, 'verify.remoteThumbprint') ?? readString(detail, 'newThumbprint') ?? readString(detail, 'oldThumbprint'),
+        lastWorkflowExecutionRunId: input.executionRunId,
+        lastWorkflowExecutionStepId: input.executionStepId,
+        lastDeployedAt: new Date().toISOString(),
+      },
+    });
+    return resultState;
+  }
+
+  private async resolveWorkflowApplicationAssetId(tenantId: string, step: ExecutionStepEntity): Promise<string | undefined> {
+    const direct = readString(step.inputSnapshot, 'workflowRequest.applicationAssetId')
+      ?? readString(step.inputSnapshot, 'applicationAssetId');
+    if (direct) return direct;
+    if (!this.deploymentPlans || !step.deploymentPlanTargetId) return undefined;
+
+    const target = await this.deploymentPlans.getTarget(step.deploymentPlanTargetId, tenantId);
+    const strategyPayload = readRecord(target?.strategyPayload);
+    return readString(strategyPayload ?? {}, 'workflowRequest.applicationAssetId')
+      ?? readString(strategyPayload ?? {}, 'applicationAssetId');
   }
 
   private async syncDeploymentPlanAfterRun(

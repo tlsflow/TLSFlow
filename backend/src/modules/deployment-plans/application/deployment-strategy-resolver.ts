@@ -6,8 +6,8 @@ import type { DeploymentStrategyDto, ServiceAssetDto, ApplicationAssetTargetSumm
 
 export interface DeploymentStrategyResolutionInput {
   applicationAsset: ServiceAssetDto;
-  bindingTarget: ApplicationAssetTargetSummaryDto;
-  certificateBinding: CertificateBindingDto;
+  bindingTarget?: ApplicationAssetTargetSummaryDto;
+  certificateBinding?: CertificateBindingDto;
 }
 
 export interface ResolvedDeploymentStrategySnapshot {
@@ -34,8 +34,8 @@ export class DeploymentStrategyResolver {
   }
 
   private inferAgentStrategy(input: DeploymentStrategyResolutionInput): DeploymentStrategyDto | undefined {
-    const agentId = input.bindingTarget.agentId ?? input.applicationAsset.agentId;
-    if (!agentId || !input.bindingTarget.siteAssetId || !input.bindingTarget.managedTargetId) return undefined;
+    const agentId = input.bindingTarget?.agentId ?? input.applicationAsset.agentId;
+    if (!agentId || !input.bindingTarget?.siteAssetId || !input.bindingTarget.managedTargetId) return undefined;
     return {
       type: 'AGENT',
       agent: {
@@ -50,6 +50,12 @@ export class DeploymentStrategyResolver {
     const agent = strategy.agent;
     if (!agent?.agentId || !agent.siteAssetId || !agent.managedTargetId) {
       throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agentId/siteAssetId/managedTargetId', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: input.applicationAsset.id,
+      });
+    }
+    if (!input.certificateBinding) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 CertificateBinding', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: input.applicationAsset.id,
       });
@@ -82,7 +88,7 @@ export class DeploymentStrategyResolver {
       ? {
           gatewayId: workflow.gatewayId,
           adapter: 'ssh' as const,
-          delegatedTargetId: input.bindingTarget.managedTargetId,
+          delegatedTargetId: input.bindingTarget?.managedTargetId ?? input.applicationAsset.id,
           blockedReason: workflow.gatewayId ? undefined : 'runner=GATEWAY 但未配置 gatewayId',
         }
       : undefined;
@@ -96,7 +102,7 @@ export class DeploymentStrategyResolver {
     return {
       strategyType: 'WORKFLOW',
       executorType: 'WORKFLOW',
-      executionTargetId: input.bindingTarget.managedTargetId,
+      executionTargetId: input.bindingTarget?.managedTargetId ?? input.applicationAsset.id,
       requiredCapabilities: workflow.runner === 'GATEWAY' ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
       gatewayRoute,
       payload: {
@@ -108,11 +114,12 @@ export class DeploymentStrategyResolver {
           gatewayId: workflow.gatewayId,
           credentialRefs: workflow.credentialRefs ?? {},
           variableBindings: workflow.variableBindings ?? {},
+          certificateArtifactBindings: workflow.certificateArtifactBindings ?? {},
           rollbackWorkflowVersionId: workflow.rollbackWorkflowVersionId,
           applicationAssetId: input.applicationAsset.id,
-          certificateBindingId: input.certificateBinding.id,
-          managedTargetId: input.bindingTarget.managedTargetId,
-          siteAssetId: input.bindingTarget.siteAssetId,
+          certificateBindingId: input.certificateBinding?.id,
+          managedTargetId: input.bindingTarget?.managedTargetId,
+          siteAssetId: input.bindingTarget?.siteAssetId,
         },
       },
     };
