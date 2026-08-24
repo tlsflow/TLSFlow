@@ -4541,7 +4541,8 @@ export default {
       error: 'Error',
       none: 'Pending',
       ready: 'Healthy',
-      warning: 'Warning'
+      warning: 'Warning',
+      removed: 'Supprimé'
     },
     warnings: {
       certificateNotApplied: 'La dernière version du certificat de domaine n’est pas encore appliquée selon la sonde système',
@@ -4555,6 +4556,7 @@ export default {
       notCollected: 'Non collecté',
       notSelected: 'Non sélectionné',
       unknownAsset: 'Actif inconnu',
+      removedAsset: '{name} (supprimé)',
       unknownCertificate: 'Certificat inconnu',
       unknownIssuer: 'Émetteur inconnu',
       unnamedEvent: 'Événement sans nom'

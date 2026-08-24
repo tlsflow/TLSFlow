@@ -4478,7 +4478,8 @@ export default {
       error: 'Erro',
       none: 'Pendente',
       ready: 'Normal',
-      warning: 'Aviso'
+      warning: 'Aviso',
+      removed: 'Removido'
     },
     warnings: {
       certificateNotApplied: 'A versão mais recente do certificado de domínio ainda não foi aplicada segundo a sondagem do sistema',
@@ -4492,6 +4493,7 @@ export default {
       notCollected: 'Não coletado',
       notSelected: 'Não selecionado',
       unknownAsset: 'Ativo desconhecido',
+      removedAsset: '{name} (removido)',
       unknownCertificate: 'Certificado desconhecido',
       unknownIssuer: 'Emissor desconhecido',
       unnamedEvent: 'Evento sem nome'

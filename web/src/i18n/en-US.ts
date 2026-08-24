@@ -4632,7 +4632,8 @@ export default {
       error: 'Error',
       none: 'Pending',
       ready: 'Healthy',
-      warning: 'Warning'
+      warning: 'Warning',
+      removed: 'Removed'
     },
     warnings: {
       certificateNotApplied: 'The latest domain certificate version is not yet applied according to the system probe',
@@ -4646,6 +4647,7 @@ export default {
       notCollected: 'Not collected',
       notSelected: 'Not selected',
       unknownAsset: 'Unknown asset',
+      removedAsset: '{name} (removed)',
       unknownCertificate: 'Unknown certificate',
       unknownIssuer: 'Unknown issuer',
       unnamedEvent: 'Unnamed event'

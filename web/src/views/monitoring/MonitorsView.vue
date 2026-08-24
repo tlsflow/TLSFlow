@@ -30,8 +30,9 @@ import { translateDynamic } from '@/i18n/translate'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
-type TargetStatus = ProbeStatus | 'NONE'
-type MonitorFilterStatus = 'ALL' | TargetStatus
+type TargetStatus = ProbeStatus | 'NONE' | 'REMOVED'
+type RemovedStatus = 'REMOVED'
+type MonitorFilterStatus = 'ALL' | TargetStatus | RemovedStatus
 type MonitorWarningReason = 'certificateNotApplied' | 'chainVerificationFailed'
 
 interface MonitorTarget {
@@ -40,6 +41,10 @@ interface MonitorTarget {
   readonly metrics: MonitorMetric[]
   readonly intervalSeconds: number
   readonly createdAt: number
+  readonly deletedAt?: string
+  readonly assetDisplayName?: string
+  readonly assetAddress?: string
+  readonly assetDeletedAt?: string
 }
 
 interface ProbeResult {
@@ -132,7 +137,7 @@ const router = useRouter()
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
 
 const assetOptions = computed(() =>
-  assets.value.filter((asset) => !monitorTargets.value.some((target) => target.assetId === readId(asset))),
+  assets.value.filter((asset) => !monitorTargets.value.some((target) => !isRemovedTarget(target) && target.assetId === readId(asset))),
 )
 
 const selectedTarget = computed(() =>
@@ -175,13 +180,13 @@ const monitorRows = computed(() =>
     const assetRisks = risksForAsset(target.assetId)
     const probe = probeResults.value[target.assetId]
     const warningReasons = monitorWarningReasons(target.assetId, latestCertificateObservation(target.assetId))
-    const status = statusFromProbeAndRisks(probe, assetRisks, warningReasons)
+    const status = isRemovedTarget(target) ? 'REMOVED' : statusFromProbeAndRisks(probe, assetRisks, warningReasons)
     const tlsInspectorTarget = findTlsInspectorTarget(target.assetId)
     const tlsRating = tlsInspectorTarget ? tlsRatingForTarget(tlsInspectorTarget) : '—'
     return {
       target,
-      title: assetLabel(asset),
-      endpoint: endpointLabel(asset),
+      title: monitorAssetLabel(asset, target),
+      endpoint: asset ? endpointLabel(asset) : target.assetAddress ?? t('monitoring.fallback.noEndpoint'),
       status,
       statusLabel: probeStatusLabel(status),
       warningSummary: warningSummary(warningReasons),
@@ -195,6 +200,7 @@ const monitorRows = computed(() =>
 const filteredMonitorRows = computed(() => {
   const normalizedKeyword = monitorKeyword.value.trim().toLocaleLowerCase()
   return monitorRows.value.filter((row) => {
+    if (monitorStatusFilter.value === 'ALL' && row.status === 'REMOVED') return false
     if (monitorStatusFilter.value !== 'ALL' && row.status !== monitorStatusFilter.value) return false
     if (!normalizedKeyword) return true
     return [row.title, row.endpoint, row.statusLabel, row.warningSummary]
@@ -229,6 +235,7 @@ const monitorStatusOptions = computed(() => [
   { value: 'WARNING' as const, label: t('monitoring.status.warning') },
   { value: 'ERROR' as const, label: t('monitoring.status.error') },
   { value: 'NONE' as const, label: t('monitoring.status.none') },
+  { value: 'REMOVED' as const, label: t('monitoring.status.removed') },
 ])
 
 onMounted(() => {
@@ -303,7 +310,7 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     if (options.scanRisks) await scanMonitorRisks()
     // 第一批：监控目标列表（完整加载）与列表渲染所需的基础数据。
     const [targetResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
-      listMonitorTargets({ page: 1, pageSize: MONITOR_TARGETS_PAGE_SIZE, sort: 'createdAt:desc' }),
+      listMonitorTargets({ page: 1, pageSize: MONITOR_TARGETS_PAGE_SIZE, sort: 'createdAt:desc', includeRemoved: true }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -491,12 +498,15 @@ async function removeMonitorTarget(targetId: string) {
   if (!target) return
   error.value = ''
   try {
-    await deleteMonitorTarget(targetId)
+    const result = await deleteMonitorTarget(targetId)
+    const removed = normalizeMonitorTargetRecord(result.data)
+    monitorTargets.value = monitorTargets.value.map((item) => item.id === targetId
+      ? { ...item, ...(removed ?? {}), deletedAt: removed?.deletedAt ?? new Date().toISOString() }
+      : item)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('monitoring.errors.deleteFailed')
     return
   }
-  monitorTargets.value = monitorTargets.value.filter((item) => item.id !== targetId)
   if (target?.assetId) {
     const nextProbeResults = { ...probeResults.value }
     delete nextProbeResults[target.assetId]
@@ -529,7 +539,7 @@ async function updateTargetInterval(targetId: string, value: number) {
 async function probeAllTargets(options: { silent?: boolean } = {}) {
   probing.value = true
   try {
-    for (const target of monitorTargets.value) {
+    for (const target of monitorTargets.value.filter((item) => !isRemovedTarget(item))) {
       await probeTarget(target)
     }
     await refreshAll({ scanRisks: true })
@@ -539,6 +549,7 @@ async function probeAllTargets(options: { silent?: boolean } = {}) {
 }
 
 async function probeTarget(target: MonitorTarget) {
+  if (isRemovedTarget(target)) return
   if (activeProbeIds.has(target.id)) return
   activeProbeIds.add(target.id)
   try {
@@ -574,6 +585,7 @@ async function refreshCertificateObservations(assetId?: string) {
   const result = await listMonitorCertificateObservations({
     page: 1,
     pageSize: 200,
+    includeRemoved: true,
     filters: assetId ? { serviceAssetId: assetId } : undefined,
   })
   const grouped = groupCertificateObservations(result.data?.items ?? [])
@@ -610,6 +622,15 @@ function normalizeProbeInterval(value: number): number {
 
 function assetById(assetId: string): ApiRecord | null {
   return assets.value.find((asset) => readId(asset) === assetId) ?? null
+}
+
+function isRemovedTarget(target: MonitorTarget): boolean {
+  return Boolean(target.deletedAt || target.assetDeletedAt)
+}
+
+function monitorAssetLabel(asset: ApiRecord | null, target: MonitorTarget): string {
+  const name = assetLabel(asset, target.assetDisplayName || target.assetAddress || t('monitoring.fallback.unknownAsset'))
+  return isRemovedTarget(target) ? t('monitoring.fallback.removedAsset', { name }) : name
 }
 
 function risksForAsset(assetId: string): ApiRecord[] {
@@ -748,6 +769,7 @@ function probeStatusLabel(status: TargetStatus): string {
   if (status === 'READY') return t('monitoring.status.ready')
   if (status === 'WARNING') return t('monitoring.status.warning')
   if (status === 'NONE') return t('monitoring.status.none')
+  if (status === 'REMOVED') return t('monitoring.status.removed')
   return t('monitoring.status.error')
 }
 
@@ -852,8 +874,8 @@ function readQueryValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function assetLabel(asset: ApiRecord | null): string {
-  return readString(asset, ['displayName', 'address', 'domainName', 'name'], t('monitoring.fallback.unknownAsset'))
+function assetLabel(asset: ApiRecord | null, fallback = t('monitoring.fallback.unknownAsset')): string {
+  return readString(asset, ['displayName', 'address', 'domainName', 'name'], fallback)
 }
 
 function readId(record: ApiRecord | null | undefined): string {
@@ -1003,6 +1025,10 @@ function normalizeMonitorTargetRecord(value: unknown): MonitorTarget | null {
     metrics: Array.isArray(record.metrics) ? record.metrics.filter(isMonitorMetric) : [...defaultMetrics],
     intervalSeconds: normalizeProbeInterval(readNumber(record.intervalSeconds) ?? 60),
     createdAt: typeof createdAtValue === 'number' && Number.isFinite(createdAtValue) ? createdAtValue : Date.now(),
+    deletedAt: typeof record.deletedAt === 'string' ? record.deletedAt : undefined,
+    assetDisplayName: typeof record.assetDisplayName === 'string' ? record.assetDisplayName : undefined,
+    assetAddress: typeof record.assetAddress === 'string' ? record.assetAddress : undefined,
+    assetDeletedAt: typeof record.assetDeletedAt === 'string' ? record.assetDeletedAt : undefined,
   }
 }
 
@@ -1150,7 +1176,7 @@ function trimProbeStateToTargets() {
           <div class="monitor-page__summary-title">
             <div>
               <span>{{ t('monitoring.labels.currentTarget') }}</span>
-              <h2>{{ assetLabel(selectedAsset) }}</h2>
+              <h2>{{ selectedTarget ? monitorAssetLabel(selectedAsset, selectedTarget) : assetLabel(selectedAsset) }}</h2>
             </div>
             <div v-if="selectedTarget" class="monitor-page__target-actions">
               <label class="monitor-page__target-interval">
@@ -1160,11 +1186,12 @@ function trimProbeStateToTargets() {
                   type="number"
                   min="10"
                   step="10"
+                  :disabled="isRemovedTarget(selectedTarget)"
                   @change="handleTargetIntervalInput(selectedTarget.id, $event)"
                 />
                 <b>{{ t('monitoring.labels.secondsUnit') }}</b>
               </label>
-              <GcButton class="monitor-page__remove" variant="ghost" @click="removeMonitorTarget(selectedTarget.id)">
+              <GcButton class="monitor-page__remove" variant="ghost" :disabled="isRemovedTarget(selectedTarget)" @click="removeMonitorTarget(selectedTarget.id)">
                 {{ t('monitoring.actions.remove') }}
               </GcButton>
             </div>

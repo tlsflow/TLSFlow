@@ -4491,7 +4491,8 @@ export default {
       error: 'エラー',
       none: '実行待ち',
       ready: '正常',
-      warning: '警告'
+      warning: '警告',
+      removed: '削除済み'
     },
     warnings: {
       certificateNotApplied: 'システム検査でドメイン証明書の最新バージョンが適用されていないことを検出しました',
@@ -4505,6 +4506,7 @@ export default {
       notCollected: '未収集',
       notSelected: '未選択',
       unknownAsset: '不明な資産',
+      removedAsset: '{name}（削除済み）',
       unknownCertificate: '不明な証明書',
       unknownIssuer: '不明な発行者',
       unnamedEvent: '名前のないイベント'

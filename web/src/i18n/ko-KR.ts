@@ -4465,7 +4465,8 @@ export default {
       error: '오류',
       none: '실행 대기',
       ready: '정상',
-      warning: '경고'
+      warning: '경고',
+      removed: '제거됨'
     },
     warnings: {
       certificateNotApplied: '시스템 검사에서 도메인 인증서의 최신 버전이 적용되지 않은 것으로 확인되었습니다',
@@ -4479,6 +4480,7 @@ export default {
       notCollected: '수집되지 않음',
       notSelected: '선택되지 않음',
       unknownAsset: '알 수 없는 자산',
+      removedAsset: '{name} (제거됨)',
       unknownCertificate: '알 수 없는 인증서',
       unknownIssuer: '알 수 없는 발급자',
       unnamedEvent: '이름 없는 이벤트'

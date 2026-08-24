@@ -4490,7 +4490,8 @@ export default {
       error: "錯誤",
       none: "待執行",
       ready: "正常",
-      warning: "警告"
+      warning: "警告",
+      removed: "已移除"
     },
     warnings: {
       certificateNotApplied: "系統探測到站點仍未套用網域憑證的最新版本",
@@ -4504,6 +4505,7 @@ export default {
       notCollected: "未採集",
       notSelected: "未選擇",
       unknownAsset: "未知資產",
+      removedAsset: "{name}（已移除）",
       unknownCertificate: "未知憑證",
       unknownIssuer: "未知簽發者",
       unnamedEvent: "未命名事件"

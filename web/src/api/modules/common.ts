@@ -14,6 +14,7 @@ export interface BusinessListQuery {
   readonly sort?: string
   readonly keyword?: string
   readonly filters?: Readonly<Record<string, string | number | boolean | null | undefined>>
+  readonly includeRemoved?: boolean
 }
 
 export type ApiBody = Readonly<Record<string, unknown>>
@@ -24,6 +25,7 @@ export function buildListPath(path: string, query: BusinessListQuery = {}): stri
   params.set('pageSize', String(query.pageSize ?? 20))
   if (query.sort) params.set('sort', query.sort)
   if (query.keyword) params.set('keyword', query.keyword)
+  if (query.includeRemoved) params.set('includeRemoved', '1')
 
   Object.entries(query.filters ?? {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return

@@ -4692,7 +4692,8 @@ export default {
       error: '错误',
       none: '待执行',
       ready: '正常',
-      warning: '警告'
+      warning: '警告',
+      removed: '已移除'
     },
     warnings: {
       certificateNotApplied: '系统探测到站点仍未应用域名证书的最新版本',
@@ -4706,6 +4707,7 @@ export default {
       notCollected: '未采集',
       notSelected: '未选择',
       unknownAsset: '未知资产',
+      removedAsset: '{name}（移除）',
       unknownCertificate: '未知证书',
       unknownIssuer: '未知颁发者',
       unnamedEvent: '未命名事件'

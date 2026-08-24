@@ -4478,7 +4478,8 @@ export default {
       error: 'Ошибка',
       none: 'Ожидает выполнения',
       ready: 'Норма',
-      warning: 'Предупреждение'
+      warning: 'Предупреждение',
+      removed: 'Удалено'
     },
     warnings: {
       certificateNotApplied: 'По данным системной проверки последняя версия сертификата домена ещё не применена',
@@ -4492,6 +4493,7 @@ export default {
       notCollected: 'Не собрано',
       notSelected: 'Не выбрано',
       unknownAsset: 'Неизвестный актив',
+      removedAsset: '{name} (удалено)',
       unknownCertificate: 'Неизвестный сертификат',
       unknownIssuer: 'Неизвестный издатель',
       unnamedEvent: 'Безымянное событие'

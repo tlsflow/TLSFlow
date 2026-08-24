@@ -45,6 +45,7 @@ describe('MonitorsView', () => {
     certificateMocks.listCertificateVersions.mockResolvedValue(page([]))
     monitorMocks.listMonitorTargets.mockResolvedValue(page([
       { id: 'target-1', serviceAssetId: 'asset-1', intervalSeconds: 60, metrics: ['availability'] },
+      { id: 'target-removed', serviceAssetId: 'asset-old', intervalSeconds: 60, metrics: ['availability'], deletedAt: '2026-08-12T09:00:00.000Z', assetAddress: 'old.example.com', assetDeletedAt: '2026-08-12T08:59:00.000Z' },
     ]))
     monitorMocks.listMonitorProbeResults.mockResolvedValue(page([
       {
@@ -108,5 +109,10 @@ describe('MonitorsView', () => {
     expect(wrapper.find('.monitor-page__filtered-empty').exists()).toBe(true)
     await wrapper.find('.monitor-page__filter-reset').trigger('click')
     expect(wrapper.find('.monitor-page__target').exists()).toBe(true)
+    expect(wrapper.find('.monitor-page__target').text()).not.toContain('old.example.com（移除）')
+
+    await wrapper.find('.monitor-page__filter-status select').setValue('REMOVED')
+    expect(wrapper.find('.monitor-page__target').text()).toContain('old.example.com（移除）')
+    expect(wrapper.find('.monitor-page__target-status').text()).toBe(i18n.global.t('monitoring.status.removed'))
   })
 })
