@@ -1589,6 +1589,133 @@ describe('部署计划与执行编排 API', () => {
   });
 
 
+  it('按 MANAGED_TARGET 应用资产创建部署计划不再要求 CertificateBinding', async () => {
+    const security = createSecurityServices();
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_1',
+      effect: 'allow',
+      actions: ['host.create', 'service_instance.manage', 'site_asset.manage', 'managed_target.manage', 'secret.create', 'certificate.import', 'certificate.format.create', 'service_asset.manage', 'service_asset.read'],
+      resourceTypes: ['host', 'service_instance', 'site_asset', 'managed_target', 'secret', 'certificate_version', 'certificate_version_format', 'service_asset'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    const { app } = await createMigratedTestApp({ security });
+    const chain = createPemChainFixture('managed-no-binding.example.com');
+
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers: userHeaders,
+      body: {
+        agentKey: 'managed-no-binding-agent-01',
+        hostname: 'MANAGED-NO-BINDING-01',
+        version: '1.0.0',
+        osType: 'windows',
+      },
+    });
+    assert.equal(registered.statusCode, 201, JSON.stringify(registered.body));
+    const agentId = (registered.body as { id: string }).id;
+    const hostId = `host_${agentId}`;
+
+    const service = await app.inject({
+      method: 'POST',
+      path: '/api/v1/framework-instances',
+      headers: userHeaders,
+      body: { deviceId: hostId, frameworkType: 'web.iis', frameworkKey: 'iis', displayName: 'Default IIS', discoveryProviderKey: 'manual:test' },
+    });
+    assert.equal(service.statusCode, 201, JSON.stringify(service.body));
+    const serviceInstanceId = (service.body as { id: string }).id;
+
+    const { managedTargetId } = await createIisManagedTargetFixture(app, {
+      hostId,
+      frameworkInstanceId: serviceInstanceId,
+      domain: 'managed-no-binding.example.com',
+      keyPrefix: 'managed-no-binding-agent-01',
+      siteName: 'Default Web Site',
+    });
+
+    const secret = await app.inject({
+      method: 'POST',
+      path: '/api/v1/secrets',
+      headers: userHeaders,
+      body: { name: 'managed no binding pfx password', type: 'pfx_password', scopeType: 'global', plainText: 'No-Binding-123!' },
+    });
+    assert.equal(secret.statusCode, 201, JSON.stringify(secret.body));
+
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: userHeaders,
+      body: { certificatePem: chain.pem, privateKeyPem: chain.privateKeyPem },
+    });
+    assert.equal(imported.statusCode, 201, JSON.stringify(imported.body));
+    const certificateVersionId = (imported.body as { version: { id: string } }).version.id;
+
+    const format = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: userHeaders,
+      body: {
+        format: 'pfx',
+        containsPrivateKey: true,
+        passwordSecretRef: (secret.body as { secretRef: string }).secretRef,
+        parameters: { configName: 'Windows-IIS-PKCS12-No-Binding', systemPlatform: 'windows', runtimePlatform: 'iis' },
+      },
+    });
+    assert.equal(format.statusCode, 201, JSON.stringify(format.body));
+    const certificateFormatId = (format.body as { id: string }).id;
+
+    const applicationAssetId = await createApplicationAssetTargetFixture(app, {
+      managedTargetId,
+      domain: 'managed-no-binding.example.com',
+      displayName: 'Managed No Binding',
+    });
+    const strategy = await app.inject({
+      method: 'PATCH',
+      path: `/api/v1/service-assets/${applicationAssetId}/deployment-strategy`,
+      headers: userHeaders,
+      body: {
+        deploymentStrategy: {
+          type: 'MANAGED_TARGET',
+          managedTarget: { managedTargetId, certificateFormatId },
+        },
+      },
+    });
+    assert.equal(strategy.statusCode, 200, JSON.stringify(strategy.body));
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId,
+        selectionMode: 'LATEST_AUTO',
+        targetCertificateVersionId: certificateVersionId,
+        certificateFormatId,
+        idempotencyKey: 'idem_application_asset_plan_without_binding',
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const plan = created.body as { certificateFormatId?: string; targets: Array<{ certificateBindingId?: string; executionTargetId?: string; strategyPayload?: Record<string, unknown> }> };
+    assert.equal(plan.certificateFormatId, certificateFormatId);
+    assert.equal(plan.targets[0]?.certificateBindingId, undefined);
+    assert.equal(plan.targets[0]?.executionTargetId, managedTargetId);
+    assert.equal((plan.targets[0]?.strategyPayload?.deploymentStrategy as { type?: string } | undefined)?.type, 'MANAGED_TARGET');
+
+    const submitted = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans/submit', headers: userHeaders, body: { planId: (created.body as { id: string }).id } });
+    assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
+    const dryRun = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: (created.body as { id: string }).id, idempotencyKey: 'idem_application_asset_plan_without_binding_dry_run' },
+    });
+    assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
+    const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: { deploymentArtifact?: { certificateFormatId?: string } } }> };
+    assert.equal(dryRunBody.steps[0]?.inputSnapshot.deploymentArtifact?.certificateFormatId, certificateFormatId);
+  });
+
+
   it('支持按应用资产创建部署计划，并自动解析唯一 IIS 目标绑定', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({
@@ -2141,7 +2268,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(typeof installStep!.inputSnapshot.pluginRuntimeCapability.pluginVersionId, 'string');
   });
 
-  it('dry-run 执行结果回传后会把 dryRunChecks 和 dryRunSummary 写回步骤结果结构', async () => {
+  it('Agent Atomic dry-run 执行结果回传后会把 operationResults 转换为统一预检结果', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const ready = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_checks_plan');
 
@@ -2165,13 +2292,12 @@ describe('部署计划与执行编排 API', () => {
       actorId: fixture.agentId,
       success: true,
       detail: {
-        mode: 'dry_run_preflight',
-        dryRunChecks: [
-          { key: 'site_exists', label: '站点存在', status: 'passed', detail: '已命中 IIS 站点' },
-          { key: 'pfx_loadable', label: 'PFX 可解析', status: 'passed', detail: 'PFX 可被本机解析' },
-          { key: 'domain_match', label: '证书域名匹配', status: 'warning', detail: '域名存在回退判断' },
+        planId: 'agplan_dry_run_checks',
+        state: 'SUCCEEDED',
+        operationResults: [
+          { operationId: 'iis-pfx-inspect', operationType: 'windows.certificate.inspect_pfx', stage: 'prepare', status: 'SUCCEEDED', detail: { subject: 'CN=example.com' } },
+          { operationId: 'iis-binding-check', operationType: 'preflight.assert', stage: 'prepare', status: 'SUCCEEDED', detail: { passed: true } },
         ],
-        dryRunSummary: { passed: 2, failed: 0, warning: 1, unknown: 0 },
       },
     });
 
@@ -2185,13 +2311,19 @@ describe('部署计划与执行编排 API', () => {
       items: Array<{ id: string; inputSnapshot: any }>;
     }).items ?? []).find((item) => item.id === step.id);
     assert.ok(storedStep);
-    assert.deepEqual(storedStep!.inputSnapshot.resultDetail.dryRunSummary, { passed: 2, failed: 0, warning: 1, unknown: 0 });
-    assert.equal(storedStep!.inputSnapshot.resultDetail.dryRunChecks.length, 3);
+    assert.deepEqual(storedStep!.inputSnapshot.resultDetail.dryRunSummary, { passed: 2, failed: 0, warning: 0, unknown: 0 });
+    assert.equal(storedStep!.inputSnapshot.resultDetail.dryRunChecks.length, 2);
     assert.deepEqual(storedStep!.inputSnapshot.resultDetail.dryRunChecks[0], {
-      key: 'site_exists',
-      label: '站点存在',
+      key: 'atomic:iis-pfx-inspect',
+      label: 'windows.certificate.inspect_pfx',
       status: 'passed',
-      detail: '已命中 IIS 站点',
+      detail: '原子预检操作 iis-pfx-inspect 执行成功。',
+      evidence: {
+        operationId: 'iis-pfx-inspect',
+        operationType: 'windows.certificate.inspect_pfx',
+        stage: 'prepare',
+        result: { subject: 'CN=example.com' },
+      },
     });
   });
 

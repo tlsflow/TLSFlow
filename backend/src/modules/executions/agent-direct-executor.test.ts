@@ -119,6 +119,79 @@ test('AgentExecutorAdapter 直连成功时同步返回且不留下待拉取任�
   }
 });
 
+test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返回统一检查项', async () => {
+  let enqueueCount = 0;
+  let directCount = 0;
+  const agents = {
+    enqueueTask: async () => {
+      enqueueCount += 1;
+      return { id: 'task_atomic_preflight', status: 'PENDING' };
+    },
+    executeTaskDirect: async () => {
+      directCount += 1;
+      return {
+        success: true,
+        detail: {
+          planId: 'agplan_atomic_preflight',
+          state: 'SUCCEEDED',
+          operationResults: [
+            {
+              operationId: 'nginx-program-preflight',
+              operationType: 'preflight.assert',
+              stage: 'prepare',
+              status: 'SUCCEEDED',
+              detail: { passed: true },
+            },
+          ],
+        },
+      };
+    },
+  } as unknown as AgentsApplicationService;
+  const compiler = {
+    compile: async () => ({
+      planId: 'agplan_atomic_preflight',
+      operations: [{ id: 'nginx-program-preflight' }],
+    }),
+  };
+  const adapter = new AgentExecutorAdapter(agents, undefined, compiler as never);
+
+  const result = await adapter.executeStep({
+    step: {
+      id: 'stp_atomic_preflight',
+      tenantId: headers['x-tenant-id'],
+      executionRunId: 'run_atomic_preflight',
+      deploymentPlanTargetId: 'dpt_atomic_preflight',
+      stepNo: 1,
+      stepType: 'CUSTOM',
+      name: 'Agent Atomic PREFLIGHT',
+      dependsOn: [],
+      idempotent: true,
+      attemptCount: 1,
+      maxAttempts: 1,
+      inputSnapshot: {
+        executorType: 'AGENT',
+        agentId: 'agt_atomic_preflight',
+        actionType: 'agent.atomic_plan.execute',
+        pluginBindingId: 'plgb_atomic_preflight',
+        deploymentArtifact: { workflowCertificateMaterials: {} },
+      },
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: 'tester',
+      version: 1,
+    },
+    runType: 'dry_run',
+    dryRun: true,
+  });
+
+  assert.equal(enqueueCount, 1);
+  assert.equal(directCount, 1);
+  assert.equal(result.success, true);
+  assert.deepEqual(result.detail?.dryRunSummary, { passed: 1, failed: 0, warning: 0, unknown: 0 });
+  assert.equal((result.detail?.dryRunChecks as unknown[]).length, 1);
+});
+
 test('AgentExecutorAdapter 直连不可达时回退到轮询任务队列', async () => {
   const app = createApp();
   const register = await app.inject({

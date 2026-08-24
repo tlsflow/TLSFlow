@@ -465,55 +465,7 @@ export class DeploymentPlansApplicationService {
     if (!bindingTarget) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAssetTarget 不存在', { applicationAssetId: input.applicationAssetId });
     }
-    const targetManagedTarget = await this.assets.getManagedTarget(input.tenantId, bindingTarget.managedTargetId);
-    if (!targetManagedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: bindingTarget.managedTargetId });
-    const targetSiteAsset = targetManagedTarget.siteId
-      ? await this.assets.getSiteAsset(input.tenantId, targetManagedTarget.siteId)
-      : undefined;
-
     const applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
-    const candidates = this.resolveApplicationAssetBindingCandidates(
-      applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? [],
-      input.applicationAssetId,
-      targetManagedTarget,
-      applicationAsset.address,
-    );
-    if (candidates.length !== 1) {
-      throw new AppError(
-        candidates.length === 0 ? 'RESOURCE_NOT_FOUND' : 'VALIDATION_FAILED',
-        candidates.length === 0
-          ? 'ApplicationAsset 未找到可部署的 CertificateBinding'
-          : 'ApplicationAsset 命中多个 CertificateBinding，请补充更细粒度绑定关系',
-        {
-          tenantId: input.tenantId,
-          applicationAssetId: input.applicationAssetId,
-          applicationAddress: applicationAsset.address,
-          managedTargetId: bindingTarget.managedTargetId,
-          siteAssetId: targetManagedTarget.siteId,
-          bindingKey: targetManagedTarget.bindingKey,
-          bindingIds: candidates.map((item) => item.id),
-          targetBindingDetailBindings: (applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? []).map((item) => ({
-            id: item.id,
-            domain: item.domainName ?? item.domain,
-            bindingKey: item.bindingKey,
-            serviceAssetId: item.serviceAssetId,
-            siteAssetId: item.siteAssetId,
-            managedTargetId: item.managedTargetId,
-          })),
-        },
-      );
-    }
-
-    const binding = await this.bindings.getCertificateBinding(input.tenantId, candidates[0]!.id);
-    if (!binding) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId: candidates[0]!.id });
-    }
-    const managedTarget = binding.managedTargetId
-      ? await this.assets.getManagedTarget(input.tenantId, binding.managedTargetId)
-      : targetManagedTarget;
-    const siteAsset = binding.siteAssetId
-      ? await this.assets.getSiteAsset(input.tenantId, binding.siteAssetId)
-      : targetSiteAsset;
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
@@ -523,17 +475,21 @@ export class DeploymentPlansApplicationService {
     );
     const deploymentStrategy = strategyAsset.deploymentStrategy;
     const strategyType = deploymentStrategy?.type;
-    const targetContext = await this.resolveManagedTargetContext(input.tenantId, managedTarget?.id ?? bindingTarget.managedTargetId);
-    const readyBinding = binding;
-    const certificateFormatId = input.certificateFormatId;
     const managedTargetId = deploymentStrategy?.type === 'MANAGED_TARGET'
       ? deploymentStrategy.managedTarget?.managedTargetId
       : bindingTarget.managedTargetId;
     const managedTargetContext = strategyType === 'MANAGED_TARGET'
-      ? managedTargetId === targetContext.managedTarget.id
-        ? targetContext
-        : await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
+      ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
       : undefined;
+    const targetContext = managedTargetContext ?? await this.resolveManagedTargetContext(input.tenantId, bindingTarget.managedTargetId);
+    const readyBinding = await this.tryResolveApplicationAssetCertificateBinding(
+      input.tenantId,
+      applicationAssetDetail?.targetBindingDetail?.certificateBindings ?? [],
+      input.applicationAssetId,
+      targetContext.managedTarget.id,
+    );
+    const certificateFormatId = input.certificateFormatId
+      ?? (deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.certificateFormatId : undefined);
     const baseStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
       bindingTarget,
@@ -555,12 +511,12 @@ export class DeploymentPlansApplicationService {
       certificateFormatId,
       selectionMode,
       targets: [{
-        certificateBindingId: readyBinding.id,
+        certificateBindingId: readyBinding?.id,
         applicationAssetId: applicationAsset.id,
         serviceAssetId: applicationAsset.id,
-        managedTargetId: resolvedStrategy.executionTargetId ?? bindingTarget.managedTargetId,
-        siteAssetId: targetManagedTarget.siteId,
-        domain: readyBinding.domainName ?? readyBinding.domain ?? applicationAsset.address,
+        managedTargetId: targetContext.managedTarget.id,
+        siteAssetId: targetContext.siteAsset?.id,
+        domain: readyBinding?.domainName ?? readyBinding?.domain ?? applicationAsset.address,
         executionTargetId: resolvedStrategy.executionTargetId,
         executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
         requiredCapabilities: resolvedStrategy.requiredCapabilities,
@@ -794,35 +750,15 @@ export class DeploymentPlansApplicationService {
     };
   }
 
-  private resolveApplicationAssetBindingCandidates(
-    items: Array<Pick<CertificateBindingDto, 'id' | 'serviceAssetId' | 'siteAssetId' | 'managedTargetId' | 'bindingKey' | 'domainName' | 'domain'>>,
+  private async tryResolveApplicationAssetCertificateBinding(
+    tenantId: string,
+    items: Array<Pick<CertificateBindingDto, 'id' | 'serviceAssetId' | 'managedTargetId'>>,
     applicationAssetId: string,
-    bindingTarget: Pick<ManagedTargetDto, 'id' | 'siteId' | 'bindingKey'>,
-    applicationAddress?: string,
-  ): Array<Pick<CertificateBindingDto, 'id' | 'serviceAssetId' | 'siteAssetId' | 'managedTargetId' | 'bindingKey' | 'domainName' | 'domain'>> {
-    const explicit = items.filter((item) => item.serviceAssetId === applicationAssetId);
-    if (explicit.length > 0) return explicit;
-
-    const normalizedAddress = this.normalizeCompareValue(applicationAddress);
-    const normalizedBindingKey = this.normalizeCompareValue(bindingTarget.bindingKey);
-
-    const matched = items.filter((item) => {
-      if (item.managedTargetId !== bindingTarget.id) return false;
-      if (item.siteAssetId !== bindingTarget.siteId) return false;
-
-      const itemBindingKey = this.normalizeCompareValue(item.bindingKey);
-      const itemDomain = this.normalizeCompareValue(item.domainName ?? item.domain);
-
-      if (normalizedBindingKey && itemBindingKey === normalizedBindingKey) return true;
-      if (normalizedAddress && itemDomain === normalizedAddress) return true;
-      return !normalizedBindingKey && !normalizedAddress;
-    });
-
-    return matched;
-  }
-
-  private normalizeCompareValue(value: string | undefined): string {
-    return String(value ?? '').trim().toLowerCase();
+    managedTargetId: string,
+  ): Promise<CertificateBindingDto | undefined> {
+    const explicit = items.find((item) => item.serviceAssetId === applicationAssetId)
+      ?? items.find((item) => item.managedTargetId === managedTargetId);
+    return explicit ? this.tryGetBinding(tenantId, explicit.id) : undefined;
   }
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -1130,6 +1066,15 @@ export class DeploymentPlansApplicationService {
     if (target.siteAssetId && !siteAsset) {
       throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: target.siteAssetId });
     }
+    if (target.applicationAssetId && (managedTarget?.id ?? target.managedTargetId)) {
+      return {
+        ...target,
+        managedTargetId: managedTarget?.id ?? target.managedTargetId,
+        siteAssetId: siteAsset?.id ?? target.siteAssetId,
+        managedTarget,
+        siteAsset,
+      };
+    }
     const binding = await this.resolveBindingForTarget(tenantId, target, managedTarget, siteAsset);
     return {
       ...target,
@@ -1324,6 +1269,29 @@ export class DeploymentPlansApplicationService {
     return selected.version.id;
   }
 
+  private async findLatestDeployableCertificateVersionIdFromSeed(certificateVersionId: string): Promise<string> {
+    const seed = await this.certificates.getVersion(certificateVersionId);
+    if (!seed) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} });
+    const matched = versionsPage.items
+      .filter((version) => version.certificateAssetId === seed.certificateAssetId && this.isDeployableVersion(version))
+      .sort((left, right) => {
+        const notAfter = compareTimeDesc(left.notAfter, right.notAfter);
+        if (notAfter !== 0) return notAfter;
+        const versionNo = right.versionNo - left.versionNo;
+        if (versionNo !== 0) return versionNo;
+        return compareTimeDesc(left.createdAt, right.createdAt);
+      });
+    const selected = matched[0];
+    if (!selected) {
+      throw new AppError('RESOURCE_NOT_FOUND', '未找到同一证书资产的最新可部署版本', {
+        certificateAssetId: seed.certificateAssetId,
+        seedCertificateVersionId: certificateVersionId,
+      });
+    }
+    return selected.id;
+  }
+
   private async buildDeploymentArtifactByTargetIds(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
@@ -1459,10 +1427,7 @@ export class DeploymentPlansApplicationService {
         });
       }
       if (!target.certificateBindingId) {
-        throw new AppError('RESOURCE_NOT_FOUND', 'LATEST_AUTO 部署目标缺少 CertificateBinding，无法解析最新证书版本', {
-          deploymentPlanId: plan.id,
-          deploymentPlanTargetId: target.id,
-        });
+        return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId);
       }
       const binding = await this.tryGetBinding(tenantId, target.certificateBindingId);
       if (!binding) {
@@ -1515,10 +1480,10 @@ export class DeploymentPlansApplicationService {
       return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings);
     }
     if (!target.certificateBindingId) {
-      throw new AppError('RESOURCE_NOT_FOUND', '部署目标缺少 CertificateBinding，无法解析部署材料', {
-        deploymentPlanTargetId: target.id,
-        tenantId: resolvedTenantId,
-      });
+      const managedTargetId = readOptionalString(strategyPayload.managedTargetId)
+        ?? readOptionalString(readRecord(strategyPayload.workflowRequest)?.managedTargetId);
+      const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContext(resolvedTenantId, managedTargetId));
+      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, frameworkType);
     }
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) {

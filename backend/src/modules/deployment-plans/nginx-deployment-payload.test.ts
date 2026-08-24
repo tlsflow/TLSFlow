@@ -255,14 +255,18 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const discoverStep = dryRunBody.steps.find((step) => step.stepType === 'DISCOVER');
-  assert.ok(discoverStep, JSON.stringify(dryRunBody));
-  assert.equal(discoverStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
-  assert.equal(discoverStep!.inputSnapshot.applicationAssetId, serviceAssetId);
-  assert.equal(discoverStep!.inputSnapshot.managedTargetId, managedTargetId);
-  assert.equal(discoverStep!.inputSnapshot.deploymentArtifact.format, 'pem');
+  assert.equal(dryRunBody.steps.length, 1, JSON.stringify(dryRunBody));
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.ok(atomicStep, JSON.stringify(dryRunBody));
+  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(atomicStep!.inputSnapshot.applicationAssetId, serviceAssetId);
+  assert.equal(atomicStep!.inputSnapshot.managedTargetId, managedTargetId);
+  assert.equal(atomicStep!.inputSnapshot.siteName, 'nginx-site.example.com');
+  assert.equal(atomicStep!.inputSnapshot.bindingSelector.hostHeader, 'nginx-site.example.com');
+  assert.equal(atomicStep!.inputSnapshot.bindingSelector.port, 443);
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
 });
 
 async function configureApplicationAssetManagedTarget(
@@ -580,14 +584,15 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const discoverStep = dryRunBody.steps.find((step) => step.stepType === 'DISCOVER');
-  assert.ok(discoverStep);
-  assert.equal(discoverStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
-  assert.equal(discoverStep!.inputSnapshot.deploymentArtifact.format, 'pem');
-  assert.equal(discoverStep!.inputSnapshot.deploymentArtifact.containsPrivateKey, false);
-  assert.equal(discoverStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(dryRunBody.steps.length, 1);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.ok(atomicStep);
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
+  assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.containsPrivateKey, false);
+  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
 });
 
 test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async () => {
@@ -827,9 +832,10 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  const discoverStep = dryRunBody.steps.find((step) => step.stepType === 'DISCOVER');
-  assert.ok(discoverStep);
-  assert.equal(discoverStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
-  assert.equal(discoverStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
+  assert.equal(dryRunBody.steps.length, 1);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
+  assert.ok(atomicStep);
+  assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
+  assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.capabilityKey, 'certificate.deploy');
 });
