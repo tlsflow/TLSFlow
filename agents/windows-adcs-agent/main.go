@@ -236,6 +236,7 @@ func (a *agent) register(discovery map[string]any) error {
 		"token": a.config.EnrollmentToken, "name": a.config.NodeName, "platform": "windows", "role": "member",
 		"identityFingerprint": hex.EncodeToString(identity[:]), "keyBackend": "file", "exportability": "exportable",
 		"authenticationPublicKeyPem": a.publicKeyPEM, "capabilities": capabilities(), "version": version,
+		"discovery": discovery,
 	}
 	var response struct {
 		ID string `json:"id"`

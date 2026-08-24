@@ -401,9 +401,19 @@ test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能�
     exportability: 'exportable',
     capabilities: provider!.capabilities,
     version: '0.1.0',
+    discovery: {
+      caConfig: 'CA01\\Contoso Issuing CA',
+      caName: 'Contoso Issuing CA',
+      computerName: 'CA01',
+      status: 'ready',
+      templates: ['WebServer', 'SubCA'],
+    },
   });
   assert.equal(node.providerId, provider?.id);
   assert.equal(node.platform, 'windows');
+  const registeredProvider = (await service.listProviders(tenantId)).find((item) => item.id === provider?.id);
+  assert.deepEqual((registeredProvider?.configuration.discovered as Record<string, unknown>)?.templates, ['WebServer', 'SubCA']);
+  assert.equal((registeredProvider?.configuration.discovered as Record<string, unknown>)?.caConfig, 'CA01\\Contoso Issuing CA');
   const body = { nodeId: node.id, healthStatus: 'online' };
   const timestamp = new Date().toISOString();
   const nonce = 'nonce_0123456789abcdef';

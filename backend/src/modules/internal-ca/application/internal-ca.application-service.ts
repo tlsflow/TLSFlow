@@ -51,6 +51,16 @@ export interface CreateCaProviderInput {
   configuration?: Record<string, unknown>;
 }
 
+export interface AdcsDiscoveryInput {
+  caConfig?: string;
+  caName?: string;
+  caInfo?: string;
+  templates?: string[];
+  templatesRaw?: string;
+  computerName?: string;
+  status?: string;
+}
+
 export interface CreateCaTrustDomainInput {
   name: string;
   code: string;
@@ -1039,6 +1049,7 @@ export class InternalCaApplicationService {
     capabilities: CaProviderEntity['capabilities'];
     endpoint?: string;
     version?: string;
+    discovery?: AdcsDiscoveryInput;
   }): Promise<CaNodeEntity> {
     const now = new Date().toISOString();
     const consumed = await this.repository.consumeNodeEnrollmentToken(createHash('sha256').update(input.token).digest('hex'), now);
@@ -1074,7 +1085,20 @@ export class InternalCaApplicationService {
       updatedAt: now,
     };
     await this.assertNoActiveNodeConflict(node);
-    return this.repository.saveNode(node);
+    const savedNode = await this.repository.saveNode(node);
+    if (provider.type === 'microsoft_adcs' && input.discovery) {
+      const discovered = normalizeAdcsDiscovery(input.discovery, now);
+      await this.repository.saveProvider({
+        ...provider,
+        configuration: {
+          ...provider.configuration,
+          adapterMode: 'managed_agent',
+          discovered,
+        },
+        updatedAt: now,
+      });
+    }
+    return savedNode;
   }
 
   async verifyNodeRequest(input: {
@@ -1576,6 +1600,19 @@ function sanitizeProvider(provider: CaProviderEntity): Omit<CaProviderEntity, 'c
   const { credentialSecretRef, ...safe } = provider;
   void credentialSecretRef;
   return safe;
+}
+
+function normalizeAdcsDiscovery(input: AdcsDiscoveryInput, observedAt: string): Record<string, unknown> {
+  return {
+    caConfig: optionalText(input.caConfig),
+    caName: optionalText(input.caName),
+    caInfo: optionalText(input.caInfo),
+    templates: Array.isArray(input.templates) ? input.templates.map((item) => String(item).trim()).filter(Boolean) : [],
+    templatesRaw: optionalText(input.templatesRaw),
+    computerName: optionalText(input.computerName),
+    status: optionalText(input.status),
+    observedAt,
+  };
 }
 
 function sanitizeAuthority(authority: CertificateAuthorityEntity): Omit<CertificateAuthorityEntity, 'privateKeySecretRef'> {
