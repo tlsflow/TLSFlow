@@ -1,0 +1,15 @@
+{
+  "plugin.appJavaKeystore.name": "Java KeyStore",
+  "plugin.appJavaKeystore.description": "Identify targets from raw Agent facts and produce fixed-version bindings and typed plans.",
+  "plugin.appJavaKeystore.section.identity": "Application identity",
+  "plugin.appJavaKeystore.section.certificate": "Certificate binding",
+  "plugin.appJavaKeystore.field.profile": "Platform profile",
+  "plugin.appJavaKeystore.field.version": "Software version",
+  "plugin.appJavaKeystore.field.path": "Certificate path",
+  "plugin.appJavaKeystore.field.service": "Service",
+  "plugin.appJavaKeystore.field.port": "Port",
+  "plugin.appJavaKeystore.action.discover": "Rediscover",
+  "plugin.appJavaKeystore.action.deploy": "Deploy certificate",
+  "plugin.appJavaKeystore.action.verify": "Verify certificate",
+  "plugin.appJavaKeystore.action.rollback": "Roll back certificate"
+}

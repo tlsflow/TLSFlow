@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "gcac.certificate-binding-presentation/v1",
+  "fields": [
+    {
+      "key": "targetPath",
+      "labelKey": "plugin.appJavaKeystore.field.path",
+      "valuePath": "targetKey",
+      "type": "text"
+    },
+    {
+      "key": "serviceName",
+      "labelKey": "plugin.appJavaKeystore.field.service",
+      "valuePath": "serviceName",
+      "type": "text"
+    },
+    {
+      "key": "port",
+      "labelKey": "plugin.appJavaKeystore.field.port",
+      "valuePath": "port",
+      "type": "number"
+    },
+    {
+      "key": "profile",
+      "labelKey": "plugin.appJavaKeystore.field.profile",
+      "valuePath": "profile",
+      "type": "text"
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appJavaKeystore.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appJavaKeystore.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appJavaKeystore.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

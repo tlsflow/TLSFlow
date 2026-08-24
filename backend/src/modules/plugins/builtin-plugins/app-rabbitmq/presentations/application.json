@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.appRabbitmq.name",
+    "profile": "plugin.appRabbitmq.field.profile"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.appRabbitmq.section.identity",
+      "fields": [
+        {
+          "key": "productFamily",
+          "labelKey": "plugin.appRabbitmq.name",
+          "valuePath": "productFamily",
+          "type": "text"
+        },
+        {
+          "key": "profile",
+          "labelKey": "plugin.appRabbitmq.field.profile",
+          "valuePath": "profile",
+          "type": "text"
+        },
+        {
+          "key": "softwareVersion",
+          "labelKey": "plugin.appRabbitmq.field.version",
+          "valuePath": "softwareVersion",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.appRabbitmq.section.certificate",
+      "fields": [
+        {
+          "key": "certificatePath",
+          "labelKey": "plugin.appRabbitmq.field.path",
+          "valuePath": "metadata.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "service",
+          "labelKey": "plugin.appRabbitmq.field.service",
+          "valuePath": "endpoint.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "port",
+          "labelKey": "plugin.appRabbitmq.field.port",
+          "valuePath": "endpoint.port",
+          "type": "number"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "application.discover",
+      "labelKey": "plugin.appRabbitmq.action.discover",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appRabbitmq.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appRabbitmq.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appRabbitmq.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

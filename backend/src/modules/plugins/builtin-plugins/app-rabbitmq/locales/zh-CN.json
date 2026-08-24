@@ -1,0 +1,15 @@
+{
+  "plugin.appRabbitmq.name": "RabbitMQ 应用",
+  "plugin.appRabbitmq.description": "从 Agent 原始事实识别目标，生成固定版本的证书绑定和类型化计划。",
+  "plugin.appRabbitmq.section.identity": "应用身份",
+  "plugin.appRabbitmq.section.certificate": "证书绑定",
+  "plugin.appRabbitmq.field.profile": "平台 Profile",
+  "plugin.appRabbitmq.field.version": "软件版本",
+  "plugin.appRabbitmq.field.path": "证书路径",
+  "plugin.appRabbitmq.field.service": "服务",
+  "plugin.appRabbitmq.field.port": "端口",
+  "plugin.appRabbitmq.action.discover": "重新发现",
+  "plugin.appRabbitmq.action.deploy": "部署证书",
+  "plugin.appRabbitmq.action.verify": "验证证书",
+  "plugin.appRabbitmq.action.rollback": "回滚证书"
+}

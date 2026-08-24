@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.appJavaKeystore.name",
+    "profile": "plugin.appJavaKeystore.field.profile"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.appJavaKeystore.section.identity",
+      "fields": [
+        {
+          "key": "productFamily",
+          "labelKey": "plugin.appJavaKeystore.name",
+          "valuePath": "productFamily",
+          "type": "text"
+        },
+        {
+          "key": "profile",
+          "labelKey": "plugin.appJavaKeystore.field.profile",
+          "valuePath": "profile",
+          "type": "text"
+        },
+        {
+          "key": "softwareVersion",
+          "labelKey": "plugin.appJavaKeystore.field.version",
+          "valuePath": "softwareVersion",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.appJavaKeystore.section.certificate",
+      "fields": [
+        {
+          "key": "certificatePath",
+          "labelKey": "plugin.appJavaKeystore.field.path",
+          "valuePath": "metadata.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "service",
+          "labelKey": "plugin.appJavaKeystore.field.service",
+          "valuePath": "endpoint.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "port",
+          "labelKey": "plugin.appJavaKeystore.field.port",
+          "valuePath": "endpoint.port",
+          "type": "number"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "application.discover",
+      "labelKey": "plugin.appJavaKeystore.action.discover",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appJavaKeystore.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appJavaKeystore.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appJavaKeystore.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

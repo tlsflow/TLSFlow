@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "gcac.certificate-binding-presentation/v1",
+  "fields": [
+    {
+      "key": "targetPath",
+      "labelKey": "plugin.appServiceCertificateFile.field.path",
+      "valuePath": "targetKey",
+      "type": "text"
+    },
+    {
+      "key": "serviceName",
+      "labelKey": "plugin.appServiceCertificateFile.field.service",
+      "valuePath": "serviceName",
+      "type": "text"
+    },
+    {
+      "key": "port",
+      "labelKey": "plugin.appServiceCertificateFile.field.port",
+      "valuePath": "port",
+      "type": "number"
+    },
+    {
+      "key": "profile",
+      "labelKey": "plugin.appServiceCertificateFile.field.profile",
+      "valuePath": "profile",
+      "type": "text"
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appServiceCertificateFile.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appServiceCertificateFile.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appServiceCertificateFile.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

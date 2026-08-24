@@ -1,0 +1,15 @@
+{
+  "plugin.appServiceCertificateFile.name": "Service Certificate File",
+  "plugin.appServiceCertificateFile.description": "Identify targets from raw Agent facts and produce fixed-version bindings and typed plans.",
+  "plugin.appServiceCertificateFile.section.identity": "Application identity",
+  "plugin.appServiceCertificateFile.section.certificate": "Certificate binding",
+  "plugin.appServiceCertificateFile.field.profile": "Platform profile",
+  "plugin.appServiceCertificateFile.field.version": "Software version",
+  "plugin.appServiceCertificateFile.field.path": "Certificate path",
+  "plugin.appServiceCertificateFile.field.service": "Service",
+  "plugin.appServiceCertificateFile.field.port": "Port",
+  "plugin.appServiceCertificateFile.action.discover": "Rediscover",
+  "plugin.appServiceCertificateFile.action.deploy": "Deploy certificate",
+  "plugin.appServiceCertificateFile.action.verify": "Verify certificate",
+  "plugin.appServiceCertificateFile.action.rollback": "Roll back certificate"
+}

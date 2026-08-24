@@ -1,0 +1,164 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "app-service-certificate-file-certificate-verify",
+    "displayName": "Service Certificate File 证书材料验证",
+    "description": "Service Certificate File 插件通过固定 Agent 事实和受授权执行绑定完成证书材料验证。",
+    "category": "application",
+    "tags": [
+      "plugin",
+      "app-service-certificate-file",
+      "certificate",
+      "verify"
+    ],
+    "version": "1.0.0",
+    "platforms": [
+      "linux",
+      "windows"
+    ],
+    "maintainer": "GCAC"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "certificatePath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.certificatePath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "configPath": {
+        "type": "string",
+        "required": true,
+        "configurationMode": "required",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.sourceConfigPath"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      },
+      "serviceName": {
+        "type": "string",
+        "required": false,
+        "configurationMode": "advanced",
+        "source": {
+          "kind": "asset",
+          "path": "target.certificateLocation.serviceName"
+        },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "fixed"
+      }
+    },
+    "connections": {},
+    "credentials": {},
+    "artifacts": {
+      "certificateArtifact": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "certificate": {
+              "role": "certificate",
+              "required": true,
+              "format": "PEM",
+              "encoding": "base64",
+              "sensitive": false
+            },
+            "privateKey": {
+              "role": "private-key",
+              "required": true,
+              "format": "PEM",
+              "encoding": "base64",
+              "sensitive": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "bindVerificationInputs",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{variables.certificatePath}}",
+          "configPath": "{{variables.configPath}}",
+          "artifact": "{{artifacts.certificateArtifact}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configPath": {
+            "expression": "configPath"
+          },
+          "artifactBound": {
+            "expression": "$exists(artifact)"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "requireVerificationInputs",
+      "type": "condition",
+      "stage": "prepare",
+      "condition": {
+        "variable": "steps.bindVerificationInputs.extracted.artifactBound",
+        "equals": true
+      },
+      "description": "验证必须绑定目标路径和证书 Artifact"
+    },
+    {
+      "name": "describeMaterialValidation",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "targetPath": "{{steps.bindVerificationInputs.extracted.targetPath}}",
+          "configPath": "{{steps.bindVerificationInputs.extracted.configPath}}",
+          "artifactBound": "{{steps.bindVerificationInputs.extracted.artifactBound}}"
+        },
+        "outputs": {
+          "targetPath": {
+            "expression": "targetPath"
+          },
+          "configPath": {
+            "expression": "configPath"
+          },
+          "artifactBound": {
+            "expression": "artifactBound"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 65536,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "requireMaterialValidationTarget",
+      "type": "condition",
+      "stage": "verify",
+      "condition": {
+        "variable": "steps.describeMaterialValidation.extracted.targetPath",
+        "exists": true
+      },
+      "description": "材料验证不得脱离原始事实目标"
+    }
+  ]
+}

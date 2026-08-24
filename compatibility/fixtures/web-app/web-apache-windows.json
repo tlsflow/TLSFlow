@@ -1,0 +1,49 @@
+{
+  "contractVersion": "gcac.agent-security/v1",
+  "factId": "fixture-web-apache-windows",
+  "agentId": "agent-web-windows",
+  "tenantId": "tenant-fixture",
+  "collectedAt": "2026-08-11T00:00:00.000Z",
+  "ttlSeconds": 3600,
+  "source": "windows",
+  "facts": [
+    {
+      "kind": "process",
+      "pid": 202,
+      "parentPid": 4,
+      "executablePath": "C:/Apache24/bin/httpd.exe",
+      "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "kind": "service",
+      "name": "Apache2.4",
+      "status": "running",
+      "executablePath": "C:/Apache24/bin/httpd.exe",
+      "startType": "automatic"
+    },
+    {
+      "kind": "listening_port",
+      "address": "0.0.0.0",
+      "port": 443,
+      "protocol": "tcp",
+      "pid": 202
+    },
+    {
+      "kind": "file_content",
+      "path": "C:/Apache24/conf/httpd.conf",
+      "contentBase64": "TG9hZE1vZHVsZSBzc2xf",
+      "bytesRead": 15,
+      "truncated": false,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "file_stat",
+      "path": "C:/Apache24/conf/certs/server.pem",
+      "exists": true,
+      "sizeBytes": 2048,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "digest": "6b37f101f877babfeda34fd91a44034f2f8b371157d942974b79f686e22c490c",
+  "warnings": []
+}

@@ -1,0 +1,15 @@
+{
+  "plugin.appTomcat.name": "Tomcat Java 应用",
+  "plugin.appTomcat.description": "从 Agent 原始事实识别目标，生成固定版本的证书绑定和类型化计划。",
+  "plugin.appTomcat.section.identity": "应用身份",
+  "plugin.appTomcat.section.certificate": "证书绑定",
+  "plugin.appTomcat.field.profile": "平台 Profile",
+  "plugin.appTomcat.field.version": "软件版本",
+  "plugin.appTomcat.field.path": "证书路径",
+  "plugin.appTomcat.field.service": "服务",
+  "plugin.appTomcat.field.port": "端口",
+  "plugin.appTomcat.action.discover": "重新发现",
+  "plugin.appTomcat.action.deploy": "部署证书",
+  "plugin.appTomcat.action.verify": "验证证书",
+  "plugin.appTomcat.action.rollback": "回滚证书"
+}

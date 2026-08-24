@@ -1,0 +1,15 @@
+{
+  "plugin.appTomcat.name": "Apache Tomcat",
+  "plugin.appTomcat.description": "Identify targets from raw Agent facts and produce fixed-version bindings and typed plans.",
+  "plugin.appTomcat.section.identity": "Application identity",
+  "plugin.appTomcat.section.certificate": "Certificate binding",
+  "plugin.appTomcat.field.profile": "Platform profile",
+  "plugin.appTomcat.field.version": "Software version",
+  "plugin.appTomcat.field.path": "Certificate path",
+  "plugin.appTomcat.field.service": "Service",
+  "plugin.appTomcat.field.port": "Port",
+  "plugin.appTomcat.action.discover": "Rediscover",
+  "plugin.appTomcat.action.deploy": "Deploy certificate",
+  "plugin.appTomcat.action.verify": "Verify certificate",
+  "plugin.appTomcat.action.rollback": "Roll back certificate"
+}

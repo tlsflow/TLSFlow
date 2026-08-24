@@ -1,0 +1,60 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "app.tomcat",
+  "version": "1.0.0",
+  "profiles": [
+    {
+      "id": "linux.agent_plan.pkcs12",
+      "pluginId": "app.tomcat",
+      "version": "1.0.0",
+      "sources": [
+        "linux"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "/opt/tomcat/conf/keystore.p12"
+      ],
+      "configPaths": [
+        "/opt/tomcat/conf/server.xml"
+      ],
+      "processExecutables": [
+        "/usr/lib/jvm/java/bin/java"
+      ],
+      "serviceNames": [
+        "tomcat"
+      ],
+      "listeningPorts": [
+        8443
+      ],
+      "frameworkType": "app.tomcat",
+      "defaultPort": 8443
+    },
+    {
+      "id": "windows.agent_plan.pkcs12",
+      "pluginId": "app.tomcat",
+      "version": "1.0.0",
+      "sources": [
+        "windows"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "C:/Tomcat/conf/keystore.p12"
+      ],
+      "configPaths": [
+        "C:/Tomcat/conf/server.xml"
+      ],
+      "processExecutables": [
+        "C:/Program Files/Java/bin/java.exe"
+      ],
+      "serviceNames": [
+        "Tomcat10"
+      ],
+      "listeningPorts": [
+        8443
+      ],
+      "frameworkType": "app.tomcat",
+      "defaultPort": 8443
+    }
+  ]
+}

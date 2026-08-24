@@ -1,0 +1,50 @@
+{
+  "contractVersion": "gcac.agent-security/v1",
+  "factId": "fixture-app-tomcat-linux",
+  "agentId": "agent-tomcat-linux",
+  "tenantId": "tenant-fixture",
+  "collectedAt": "2026-08-11T00:00:00.000Z",
+  "ttlSeconds": 3600,
+  "source": "linux",
+  "facts": [
+    {
+      "kind": "process",
+      "pid": 303,
+      "parentPid": 1,
+      "executablePath": "/usr/lib/jvm/java/bin/java",
+      "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "commandLine": "java -Dcatalina.base=/opt/tomcat"
+    },
+    {
+      "kind": "service",
+      "name": "tomcat",
+      "status": "running",
+      "executablePath": "/usr/lib/jvm/java/bin/java",
+      "startType": "automatic"
+    },
+    {
+      "kind": "listening_port",
+      "address": "0.0.0.0",
+      "port": 8443,
+      "protocol": "tcp",
+      "pid": 303
+    },
+    {
+      "kind": "file_content",
+      "path": "/opt/tomcat/conf/server.xml",
+      "contentBase64": "PHNlcnZlciBwb3J0PSc4NDQzJy8+",
+      "bytesRead": 24,
+      "truncated": false,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "file_stat",
+      "path": "/opt/tomcat/conf/keystore.p12",
+      "exists": true,
+      "sizeBytes": 4096,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "digest": "ca8b0154e7d291f7f0518f94a9aba4b268212ed3584abb289bb32d9b2d23585b",
+  "warnings": []
+}

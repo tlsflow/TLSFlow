@@ -1,0 +1,49 @@
+{
+  "contractVersion": "gcac.agent-security/v1",
+  "factId": "fixture-web-nginx-linux",
+  "agentId": "agent-web-linux",
+  "tenantId": "tenant-fixture",
+  "collectedAt": "2026-08-11T00:00:00.000Z",
+  "ttlSeconds": 3600,
+  "source": "linux",
+  "facts": [
+    {
+      "kind": "process",
+      "pid": 101,
+      "parentPid": 1,
+      "executablePath": "/usr/sbin/nginx",
+      "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "kind": "service",
+      "name": "nginx",
+      "status": "running",
+      "executablePath": "/usr/sbin/nginx",
+      "startType": "automatic"
+    },
+    {
+      "kind": "listening_port",
+      "address": "0.0.0.0",
+      "port": 443,
+      "protocol": "tcp",
+      "pid": 101
+    },
+    {
+      "kind": "file_content",
+      "path": "/etc/nginx/nginx.conf",
+      "contentBase64": "ZXZlbnRzIHt9Cg==",
+      "bytesRead": 10,
+      "truncated": false,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "file_stat",
+      "path": "/etc/nginx/tls/server.pem",
+      "exists": true,
+      "sizeBytes": 2048,
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "digest": "f385c79c35efe67dc321883bf5e98a506a8857ca53d2c75190222873aa170724",
+  "warnings": []
+}

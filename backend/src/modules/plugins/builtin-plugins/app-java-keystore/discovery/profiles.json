@@ -1,0 +1,27 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "app.java-keystore",
+  "version": "1.0.0",
+  "profiles": [
+    {
+      "id": "cross-platform.agent_plan.pkcs12",
+      "pluginId": "app.java-keystore",
+      "version": "1.0.0",
+      "sources": [
+        "linux",
+        "windows"
+      ],
+      "pathMode": "fact-selected",
+      "pathSuffix": ".p12",
+      "processExecutables": [
+        "/usr/lib/jvm/java/bin/java",
+        "C:/Program Files/Java/bin/java.exe"
+      ],
+      "serviceNames": [],
+      "listeningPorts": [],
+      "frameworkType": "app.java-keystore",
+      "defaultPort": 8443
+    }
+  ]
+}

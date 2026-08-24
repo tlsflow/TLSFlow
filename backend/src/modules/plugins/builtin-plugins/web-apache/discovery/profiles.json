@@ -1,0 +1,60 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "web.apache",
+  "version": "1.0.0",
+  "profiles": [
+    {
+      "id": "linux.agent_plan.pem",
+      "pluginId": "web.apache",
+      "version": "1.0.0",
+      "sources": [
+        "linux"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "/etc/apache2/tls/server.pem"
+      ],
+      "configPaths": [
+        "/etc/apache2/apache2.conf"
+      ],
+      "processExecutables": [
+        "/usr/sbin/apache2"
+      ],
+      "serviceNames": [
+        "apache2"
+      ],
+      "listeningPorts": [
+        443
+      ],
+      "frameworkType": "web.apache",
+      "defaultPort": 443
+    },
+    {
+      "id": "windows.agent_plan.pem",
+      "pluginId": "web.apache",
+      "version": "1.0.0",
+      "sources": [
+        "windows"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "C:/Apache24/conf/certs/server.pem"
+      ],
+      "configPaths": [
+        "C:/Apache24/conf/httpd.conf"
+      ],
+      "processExecutables": [
+        "C:/Apache24/bin/httpd.exe"
+      ],
+      "serviceNames": [
+        "Apache2.4"
+      ],
+      "listeningPorts": [
+        443
+      ],
+      "frameworkType": "web.apache",
+      "defaultPort": 443
+    }
+  ]
+}

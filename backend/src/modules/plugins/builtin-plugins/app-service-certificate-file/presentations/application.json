@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.appServiceCertificateFile.name",
+    "profile": "plugin.appServiceCertificateFile.field.profile"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.appServiceCertificateFile.section.identity",
+      "fields": [
+        {
+          "key": "productFamily",
+          "labelKey": "plugin.appServiceCertificateFile.name",
+          "valuePath": "productFamily",
+          "type": "text"
+        },
+        {
+          "key": "profile",
+          "labelKey": "plugin.appServiceCertificateFile.field.profile",
+          "valuePath": "profile",
+          "type": "text"
+        },
+        {
+          "key": "softwareVersion",
+          "labelKey": "plugin.appServiceCertificateFile.field.version",
+          "valuePath": "softwareVersion",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.appServiceCertificateFile.section.certificate",
+      "fields": [
+        {
+          "key": "certificatePath",
+          "labelKey": "plugin.appServiceCertificateFile.field.path",
+          "valuePath": "metadata.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "service",
+          "labelKey": "plugin.appServiceCertificateFile.field.service",
+          "valuePath": "endpoint.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "port",
+          "labelKey": "plugin.appServiceCertificateFile.field.port",
+          "valuePath": "endpoint.port",
+          "type": "number"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "application.discover",
+      "labelKey": "plugin.appServiceCertificateFile.action.discover",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appServiceCertificateFile.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appServiceCertificateFile.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appServiceCertificateFile.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "web.nginx",
+  "version": "1.0.0",
+  "profiles": [
+    {
+      "id": "linux.agent_plan.pem",
+      "pluginId": "web.nginx",
+      "version": "1.0.0",
+      "sources": [
+        "linux"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "/etc/nginx/tls/server.pem"
+      ],
+      "configPaths": [
+        "/etc/nginx/nginx.conf"
+      ],
+      "processExecutables": [
+        "/usr/sbin/nginx"
+      ],
+      "serviceNames": [
+        "nginx"
+      ],
+      "listeningPorts": [
+        443
+      ],
+      "frameworkType": "web.nginx",
+      "defaultPort": 443
+    },
+    {
+      "id": "windows.agent_plan.pem",
+      "pluginId": "web.nginx",
+      "version": "1.0.0",
+      "sources": [
+        "windows"
+      ],
+      "pathMode": "explicit",
+      "targetPaths": [
+        "C:/nginx/conf/certs/server.pem"
+      ],
+      "configPaths": [
+        "C:/nginx/conf/nginx.conf"
+      ],
+      "processExecutables": [
+        "C:/nginx/nginx.exe"
+      ],
+      "serviceNames": [
+        "nginx"
+      ],
+      "listeningPorts": [
+        443
+      ],
+      "frameworkType": "web.nginx",
+      "defaultPort": 443
+    }
+  ]
+}

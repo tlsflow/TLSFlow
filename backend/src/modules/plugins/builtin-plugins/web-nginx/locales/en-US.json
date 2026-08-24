@@ -1,0 +1,15 @@
+{
+  "plugin.webNginx.name": "Nginx",
+  "plugin.webNginx.description": "Identify targets from raw Agent facts and produce fixed-version bindings and typed plans.",
+  "plugin.webNginx.section.identity": "Application identity",
+  "plugin.webNginx.section.certificate": "Certificate binding",
+  "plugin.webNginx.field.profile": "Platform profile",
+  "plugin.webNginx.field.version": "Software version",
+  "plugin.webNginx.field.path": "Certificate path",
+  "plugin.webNginx.field.service": "Service",
+  "plugin.webNginx.field.port": "Port",
+  "plugin.webNginx.action.discover": "Rediscover",
+  "plugin.webNginx.action.deploy": "Deploy certificate",
+  "plugin.webNginx.action.verify": "Verify certificate",
+  "plugin.webNginx.action.rollback": "Roll back certificate"
+}

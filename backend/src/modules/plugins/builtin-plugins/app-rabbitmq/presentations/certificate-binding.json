@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "gcac.certificate-binding-presentation/v1",
+  "fields": [
+    {
+      "key": "targetPath",
+      "labelKey": "plugin.appRabbitmq.field.path",
+      "valuePath": "targetKey",
+      "type": "text"
+    },
+    {
+      "key": "serviceName",
+      "labelKey": "plugin.appRabbitmq.field.service",
+      "valuePath": "serviceName",
+      "type": "text"
+    },
+    {
+      "key": "port",
+      "labelKey": "plugin.appRabbitmq.field.port",
+      "valuePath": "port",
+      "type": "number"
+    },
+    {
+      "key": "profile",
+      "labelKey": "plugin.appRabbitmq.field.profile",
+      "valuePath": "profile",
+      "type": "text"
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appRabbitmq.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appRabbitmq.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appRabbitmq.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

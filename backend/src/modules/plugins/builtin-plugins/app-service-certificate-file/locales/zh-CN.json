@@ -1,0 +1,15 @@
+{
+  "plugin.appServiceCertificateFile.name": "服务证书文件应用",
+  "plugin.appServiceCertificateFile.description": "从 Agent 原始事实识别目标，生成固定版本的证书绑定和类型化计划。",
+  "plugin.appServiceCertificateFile.section.identity": "应用身份",
+  "plugin.appServiceCertificateFile.section.certificate": "证书绑定",
+  "plugin.appServiceCertificateFile.field.profile": "平台 Profile",
+  "plugin.appServiceCertificateFile.field.version": "软件版本",
+  "plugin.appServiceCertificateFile.field.path": "证书路径",
+  "plugin.appServiceCertificateFile.field.service": "服务",
+  "plugin.appServiceCertificateFile.field.port": "端口",
+  "plugin.appServiceCertificateFile.action.discover": "重新发现",
+  "plugin.appServiceCertificateFile.action.deploy": "部署证书",
+  "plugin.appServiceCertificateFile.action.verify": "验证证书",
+  "plugin.appServiceCertificateFile.action.rollback": "回滚证书"
+}

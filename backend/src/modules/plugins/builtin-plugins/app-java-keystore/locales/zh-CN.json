@@ -1,0 +1,15 @@
+{
+  "plugin.appJavaKeystore.name": "Java 密钥库应用",
+  "plugin.appJavaKeystore.description": "从 Agent 原始事实识别目标，生成固定版本的证书绑定和类型化计划。",
+  "plugin.appJavaKeystore.section.identity": "应用身份",
+  "plugin.appJavaKeystore.section.certificate": "证书绑定",
+  "plugin.appJavaKeystore.field.profile": "平台 Profile",
+  "plugin.appJavaKeystore.field.version": "软件版本",
+  "plugin.appJavaKeystore.field.path": "证书路径",
+  "plugin.appJavaKeystore.field.service": "服务",
+  "plugin.appJavaKeystore.field.port": "端口",
+  "plugin.appJavaKeystore.action.discover": "重新发现",
+  "plugin.appJavaKeystore.action.deploy": "部署证书",
+  "plugin.appJavaKeystore.action.verify": "验证证书",
+  "plugin.appJavaKeystore.action.rollback": "回滚证书"
+}

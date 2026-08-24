@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "gcac.certificate-binding-presentation/v1",
+  "fields": [
+    {
+      "key": "targetPath",
+      "labelKey": "plugin.appTomcat.field.path",
+      "valuePath": "targetKey",
+      "type": "text"
+    },
+    {
+      "key": "serviceName",
+      "labelKey": "plugin.appTomcat.field.service",
+      "valuePath": "serviceName",
+      "type": "text"
+    },
+    {
+      "key": "port",
+      "labelKey": "plugin.appTomcat.field.port",
+      "valuePath": "port",
+      "type": "number"
+    },
+    {
+      "key": "profile",
+      "labelKey": "plugin.appTomcat.field.profile",
+      "valuePath": "profile",
+      "type": "text"
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.appTomcat.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.appTomcat.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.appTomcat.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

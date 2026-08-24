@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "gcac.application-presentation/v1",
+  "resourceLabels": {
+    "applicationType": "plugin.webApache.name",
+    "profile": "plugin.webApache.field.profile"
+  },
+  "overview": [
+    {
+      "id": "identity",
+      "titleKey": "plugin.webApache.section.identity",
+      "fields": [
+        {
+          "key": "productFamily",
+          "labelKey": "plugin.webApache.name",
+          "valuePath": "productFamily",
+          "type": "text"
+        },
+        {
+          "key": "profile",
+          "labelKey": "plugin.webApache.field.profile",
+          "valuePath": "profile",
+          "type": "text"
+        },
+        {
+          "key": "softwareVersion",
+          "labelKey": "plugin.webApache.field.version",
+          "valuePath": "softwareVersion",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "id": "certificate",
+      "titleKey": "plugin.webApache.section.certificate",
+      "fields": [
+        {
+          "key": "certificatePath",
+          "labelKey": "plugin.webApache.field.path",
+          "valuePath": "metadata.certificatePath",
+          "type": "text"
+        },
+        {
+          "key": "service",
+          "labelKey": "plugin.webApache.field.service",
+          "valuePath": "endpoint.serviceName",
+          "type": "text"
+        },
+        {
+          "key": "port",
+          "labelKey": "plugin.webApache.field.port",
+          "valuePath": "endpoint.port",
+          "type": "number"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "application.discover",
+      "labelKey": "plugin.webApache.action.discover",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.webApache.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.webApache.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.webApache.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}

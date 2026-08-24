@@ -1,0 +1,25 @@
+{
+  "apiVersion": "gcac.plugin-discovery/v1",
+  "kind": "AgentFactProfileSet",
+  "pluginId": "app.service-certificate-file",
+  "version": "1.0.0",
+  "profiles": [
+    {
+      "id": "windows.agent_plan.file",
+      "pluginId": "app.service-certificate-file",
+      "version": "1.0.0",
+      "sources": [
+        "windows"
+      ],
+      "pathMode": "fact-selected",
+      "pathSuffix": ".pem",
+      "processExecutables": [],
+      "serviceNames": [
+        "gcac-certificate-service"
+      ],
+      "listeningPorts": [],
+      "frameworkType": "app.service-certificate-file",
+      "defaultPort": 443
+    }
+  ]
+}

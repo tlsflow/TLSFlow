@@ -1,0 +1,15 @@
+{
+  "plugin.appRabbitmq.name": "RabbitMQ",
+  "plugin.appRabbitmq.description": "Identify targets from raw Agent facts and produce fixed-version bindings and typed plans.",
+  "plugin.appRabbitmq.section.identity": "Application identity",
+  "plugin.appRabbitmq.section.certificate": "Certificate binding",
+  "plugin.appRabbitmq.field.profile": "Platform profile",
+  "plugin.appRabbitmq.field.version": "Software version",
+  "plugin.appRabbitmq.field.path": "Certificate path",
+  "plugin.appRabbitmq.field.service": "Service",
+  "plugin.appRabbitmq.field.port": "Port",
+  "plugin.appRabbitmq.action.discover": "Rediscover",
+  "plugin.appRabbitmq.action.deploy": "Deploy certificate",
+  "plugin.appRabbitmq.action.verify": "Verify certificate",
+  "plugin.appRabbitmq.action.rollback": "Roll back certificate"
+}

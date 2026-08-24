@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "gcac.certificate-binding-presentation/v1",
+  "fields": [
+    {
+      "key": "targetPath",
+      "labelKey": "plugin.webNginx.field.path",
+      "valuePath": "targetKey",
+      "type": "text"
+    },
+    {
+      "key": "serviceName",
+      "labelKey": "plugin.webNginx.field.service",
+      "valuePath": "serviceName",
+      "type": "text"
+    },
+    {
+      "key": "port",
+      "labelKey": "plugin.webNginx.field.port",
+      "valuePath": "port",
+      "type": "number"
+    },
+    {
+      "key": "profile",
+      "labelKey": "plugin.webNginx.field.profile",
+      "valuePath": "profile",
+      "type": "text"
+    }
+  ],
+  "actions": [
+    {
+      "capabilityKey": "certificate.deploy",
+      "labelKey": "plugin.webNginx.action.deploy",
+      "tone": "warning"
+    },
+    {
+      "capabilityKey": "certificate.verify",
+      "labelKey": "plugin.webNginx.action.verify",
+      "tone": "info"
+    },
+    {
+      "capabilityKey": "certificate.rollback",
+      "labelKey": "plugin.webNginx.action.rollback",
+      "tone": "danger"
+    }
+  ]
+}
