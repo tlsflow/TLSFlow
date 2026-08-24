@@ -154,6 +154,39 @@ describe('DashboardView', () => {
     expect(heatmapBlock.classes()).toContain('dashboard-heatmap__block-wrap--tooltip-open')
   })
 
+  it('不展示没有证书版本 ID 的陈旧证书热力图块', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-08-18T08:57:00.000Z',
+        systemResources: { cpuUsage: null, memoryUsage: 62 },
+        metrics: [],
+        quickActions: [],
+        statusGroups: [{
+          key: 'certificates',
+          title: '证书',
+          summary: '1 个需要关注',
+          total: 2,
+          blocks: [
+            { id: 'certificate-empty', label: '*.ginease.cn', status: '未知', tone: 'unknown' },
+            { id: 'certificate-live', label: '*.codingns.com', status: '正常', tone: 'ok' },
+          ],
+        }],
+        certificateStatuses: [
+          { certificateAssetId: 'certificate-empty', name: '*.ginease.cn', primaryDomain: '*.ginease.cn', state: 'unknown', bindingCount: 0 },
+          { certificateAssetId: 'certificate-live', certificateVersionId: 'version-live', name: '*.codingns.com', primaryDomain: '*.codingns.com', state: 'valid', bindingCount: 0 },
+        ],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+
+    await vi.waitFor(() => expect(wrapper.find('.dashboard-status-group').exists()).toBe(true))
+    expect(wrapper.find('.dashboard-status-group__total').text()).toBe('1')
+    expect(wrapper.findAll('.dashboard-heatmap__block-wrap')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('*.ginease.cn')
+  })
+
   it('应用资产悬浮框展示当前证书剩余天数', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {

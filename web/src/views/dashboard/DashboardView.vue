@@ -185,14 +185,33 @@ async function loadOverviewOnce() {
   try {
     const result = await getDashboardOverview()
     if (!result.data) throw new Error(t('dashboard.errors.missingOverviewData'))
-    overview.value = result.data
-    systemResources.value = result.data.systemResources
+    overview.value = sanitizeDashboardOverview(result.data)
+    systemResources.value = overview.value.systemResources
     error.value = ''
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('dashboard.errors.loadFailed')
   } finally {
     loading.value = false
   }
+}
+
+function sanitizeDashboardOverview(value: DashboardOverview): DashboardOverview {
+  // 旧服务可能把无活跃版本的证书资产作为 unknown 返回；没有版本 ID 的状态不能进入热力图。
+  if (value.certificateStatuses.length === 0) return value
+  const visibleCertificateAssetIds = new Set(
+    value.certificateStatuses
+      .filter((item) => Boolean(item.certificateVersionId))
+      .map((item) => item.certificateAssetId),
+  )
+  const certificateStatuses = value.certificateStatuses.filter((item) => Boolean(item.certificateVersionId))
+  const statusGroups = value.statusGroups.map((group) => {
+    if (group.key !== 'certificates') return group
+    const blocks = group.blocks.filter((block) => visibleCertificateAssetIds.has(block.id))
+    return blocks.length === group.blocks.length && group.total === blocks.length
+      ? group
+      : { ...group, total: blocks.length, blocks }
+  })
+  return { ...value, certificateStatuses, statusGroups }
 }
 
 function resourceTone(value: number | null): StatusTone {
