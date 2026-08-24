@@ -29,6 +29,7 @@ export interface RiskEventScope {
   certificateAssetId?: string;
   certificateVersionId?: string;
   bindingId?: string;
+  serviceAssetId?: string;
   executionRunId?: string;
   serviceInstanceId?: string;
   hostId?: string;
@@ -38,7 +39,7 @@ export interface RiskEvent {
   id: string;
   dedupKey: string;
   type: RiskEventType;
-  source: 'certificate' | 'binding' | 'execution' | 'agent' | 'capability';
+  source: 'certificate' | 'binding' | 'monitor' | 'execution' | 'agent' | 'capability';
   status: RiskStatus;
   severity: RiskSeverity;
   title: string;

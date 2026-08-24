@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, X509Certificate } from 'node:crypto';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
@@ -9,6 +10,7 @@ import { AssetsApplicationService } from '../assets/application/assets.applicati
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { BindingsApplicationService } from '../bindings/application/bindings.application-service.js';
 import { PgBindingsRepository } from '../bindings/repository/bindings.repository.js';
+import type { CertificateBindingDto } from '../bindings/dto/bindings.dto.js';
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
 import { MonitorsApplicationService } from './application/monitors.application-service.js';
 import { MonitorsController } from './controller/monitors.controller.js';
@@ -432,6 +434,61 @@ describe('监控风险 API', () => {
     assert.equal((response.body as { serviceAssetId: string }).serviceAssetId, asset.id);
   });
 
+  it('应用资产存在活动风险时每次探测都持久化为警告状态', async () => {
+    const server = createHttpServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/plain' });
+      response.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { assetsService, monitors } = await createMonitorHarness();
+      const tenantId = 'tenant_probe_active_risk';
+      const asset = await assetsService.createServiceAsset(tenantId, {
+        address: '127.0.0.1',
+        port,
+        protocol: 'HTTP',
+        platform: 'LINUX',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+      });
+      const target = await monitors.createMonitorTarget({
+        tenantId,
+        serviceAssetId: asset.id,
+        intervalSeconds: 60,
+        metrics: ['availability', 'latency'],
+        createdBy: 'monitor_test',
+      });
+      await monitors.getRepository().upsertRiskEvent({
+        dedupKey: riskDedupKey(['certificate', 'expiring', tenantId, asset.id]),
+        type: 'certificate_expiring',
+        source: 'certificate',
+        severity: 'medium',
+        title: '证书待更新',
+        summary: '系统探测证书尚未应用最新版本',
+        scope: { tenantId, serviceAssetId: asset.id },
+        detectedAt: '2026-08-01T00:00:00.000Z',
+      });
+
+      const result = await monitors.probeServiceAsset({
+        tenantId,
+        monitorTargetId: target.id,
+        serviceAssetId: asset.id,
+        timeoutMs: 1000,
+      });
+      assert.equal(result.status, 'WARNING');
+      assert.match(result.message, /系统探测证书尚未应用最新版本/);
+      assert.deepEqual(result.detail?.activeRiskTypes, ['certificate_expiring']);
+
+      const saved = await monitors.listMonitorProbeResults({ tenantId, serviceAssetId: asset.id });
+      assert.equal(saved[0]?.status, 'WARNING');
+      assert.deepEqual(saved[0]?.detail.activeRiskTypes, ['certificate_expiring']);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('监控 URL 含 @ 时返回明确配置错误，避免误测到用户名后的主机', async () => {
     const { assetsService, monitors } = await createMonitorHarness();
     const asset = await assetsService.createServiceAsset('tenant_probe_userinfo', {
@@ -503,12 +560,18 @@ describe('监控风险 API', () => {
       assert.equal(observationPage.items[0]!.serviceAssetId, asset.id);
       assert.equal(observationPage.items[0]!.verified, false);
       assert.ok(observationPage.items[0]!.verificationError);
+
+      const risks = await monitors.listRiskEvents({ tenantId: 'tenant_probe_tls_warning' });
+      const chainRisk = risks.find((risk) => risk.type === 'tls_chain_invalid');
+      assert.equal(chainRisk?.source, 'monitor');
+      assert.equal(chainRisk?.scope.serviceAssetId, asset.id);
+      assert.match(chainRisk?.summary ?? '', /系统探测证书链验证失败/);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }
   });
 
-  it('HTTPS 实测证书指纹未变化且超过旧防抖窗口时不重复新增证书观测版本', async () => {
+  it('HTTPS 实测证书指纹未变化但链状态变化时更新原有证书观测', async () => {
     const server = createHttpsServer({
       key: PRIVATE_KEY_PEM,
       cert: CERT_PEM,
@@ -635,6 +698,105 @@ describe('监控风险 API', () => {
     const dashboard = await monitors.getDashboard('tenant_tls');
     assert.equal(dashboard.tlsIssueCount, 3);
     assert.equal(dashboard.totalActiveCount, 3);
+  });
+
+  it('绑定目标版本或目标指纹可单独作为证书映射依据', () => {
+    const baseBinding: CertificateBindingDto = {
+      id: 'binding_target_mapping',
+      tenantId: 'tenant_target_mapping',
+      serviceInstanceId: 'service_target_mapping',
+      bindingKey: 'test.jacksonz.cn:443',
+      bindingType: 'FILE_PATH',
+      verifyMethod: 'TLS_CONNECT',
+      status: 'MANAGED',
+      metadata: {},
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      version: 1,
+    };
+    const domain = new MonitorsDomainService();
+
+    assert.equal(domain.buildBindingRiskEvent({ ...baseBinding, targetCertificateVersionId: 'certver_target' }), undefined);
+    assert.equal(domain.buildBindingRiskEvent({ ...baseBinding, targetFingerprintSha256: 'a'.repeat(64) }), undefined);
+    assert.equal(domain.buildBindingRiskEvent(baseBinding)?.type, 'binding_unknown_certificate');
+  });
+
+  it('绑定补齐证书映射后自动解决历史未知证书风险', async () => {
+    const { assetsService, bindingsService, monitors } = await createMonitorHarness();
+    const tenantId = 'tenant_binding_mapping_reconciled';
+    const host = await assetsService.createHost(tenantId, {
+      hostname: 'mapping-reconciled.example.com',
+      osType: 'LINUX',
+      compatibilityLevel: 'L1',
+      managementMode: 'AGENT',
+    });
+    const service = await assetsService.createFrameworkInstance(tenantId, {
+      deviceId: host.id,
+      frameworkType: 'web.nginx',
+      frameworkKey: 'nginx:mapping-reconciled',
+      discoveryProviderKey: 'manual.discovery',
+      displayName: 'mapping reconciled nginx',
+    });
+    const binding = await bindingsService.createCertificateBinding(tenantId, {
+      serviceInstanceId: service.id,
+      domainName: 'mapping-reconciled.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      bindingType: 'FILE_PATH',
+      certPath: '/etc/nginx/mapping-reconciled.pem',
+      verifyMethod: 'TLS_CONNECT',
+    });
+
+    await monitors.collectRisks({ tenantId, scanStartedAt: '2026-08-01T10:00:00.000Z' });
+    const openRisk = (await monitors.listRiskEvents({ tenantId }))
+      .find((risk) => risk.type === 'binding_unknown_certificate');
+    assert.equal(openRisk?.status, 'OPEN');
+
+    await bindingsService.updateCertificateBinding(tenantId, binding.id, {
+      targetFingerprintSha256: 'a'.repeat(64),
+    });
+    await monitors.collectRisks({ tenantId, scanStartedAt: '2026-08-01T10:05:00.000Z' });
+    const resolvedRisk = (await monitors.listRiskEvents({ tenantId }))
+      .find((risk) => risk.id === openRisk?.id);
+    assert.equal(resolvedRisk?.status, 'RESOLVED');
+  });
+
+  it('绑定移出监控范围后自动解决历史未知证书风险', async () => {
+    const { assetsService, bindingsService, monitors } = await createMonitorHarness();
+    const tenantId = 'tenant_binding_removed';
+    const host = await assetsService.createHost(tenantId, {
+      hostname: 'binding-removed.example.com',
+      osType: 'LINUX',
+      compatibilityLevel: 'L1',
+      managementMode: 'AGENT',
+    });
+    const service = await assetsService.createFrameworkInstance(tenantId, {
+      deviceId: host.id,
+      frameworkType: 'web.nginx',
+      frameworkKey: 'nginx:binding-removed',
+      discoveryProviderKey: 'manual.discovery',
+      displayName: 'binding removed nginx',
+    });
+    const binding = await bindingsService.createCertificateBinding(tenantId, {
+      serviceInstanceId: service.id,
+      domainName: 'binding-removed.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      bindingType: 'FILE_PATH',
+      certPath: '/etc/nginx/binding-removed.pem',
+      verifyMethod: 'TLS_CONNECT',
+    });
+
+    await monitors.collectRisks({ tenantId, scanStartedAt: '2026-08-01T10:00:00.000Z' });
+    const openRisk = (await monitors.listRiskEvents({ tenantId }))
+      .find((risk) => risk.type === 'binding_unknown_certificate');
+    assert.equal(openRisk?.status, 'OPEN');
+
+    await bindingsService.deleteCertificateBinding(tenantId, { bindingId: binding.id });
+    await monitors.collectRisks({ tenantId, scanStartedAt: '2026-08-01T10:05:00.000Z' });
+    const resolvedRisk = (await monitors.listRiskEvents({ tenantId }))
+      .find((risk) => risk.id === openRisk?.id);
+    assert.equal(resolvedRisk?.status, 'RESOLVED');
   });
 
   it('自动化健康采集能生成 Agent 离线和 Capability 降级风险', async () => {

@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { ExecutionRunEntity } from '../../executions/schema/executions.schema.js';
-import type { AutomationHealthInput, CreateAlertRuleInput, RemoteTlsObservationInput, UpsertRiskEventInput } from '../dto/monitors.dto.js';
+import type { AutomationHealthInput, CreateAlertRuleInput, MonitorTlsProbeRiskInput, RemoteTlsObservationInput, UpsertRiskEventInput } from '../dto/monitors.dto.js';
 import type { AlertRule, MonitorDashboardSnapshot, RiskEvent } from '../schema/monitors.schema.js';
 
 export function riskDedupKey(parts: Array<string | undefined>): string {
@@ -54,9 +54,11 @@ export class MonitorsDomainService {
 
   buildBindingRiskEvent(binding: CertificateBindingDto): UpsertRiskEventInput | undefined {
     const bindingLabel = binding.domainName ?? binding.id;
+    const certificateVersionId = binding.certificateVersionId ?? binding.targetCertificateVersionId ?? binding.localCertificateVersionId;
+    const desiredFingerprintSha256 = binding.desiredFingerprintSha256 ?? binding.targetFingerprintSha256;
     if (binding.status === 'DRIFTED') {
       return {
-        dedupKey: riskDedupKey(['binding', 'drift', binding.tenantId, binding.id, binding.desiredFingerprintSha256]),
+        dedupKey: riskDedupKey(['binding', 'drift', binding.tenantId, binding.id, desiredFingerprintSha256]),
         type: 'binding_drift',
         source: 'binding',
         severity: 'high',
@@ -67,18 +69,18 @@ export class MonitorsDomainService {
           bindingId: binding.id,
           serviceInstanceId: binding.serviceInstanceId,
           hostId: binding.hostId,
-          certificateVersionId: binding.certificateVersionId,
+          certificateVersionId,
         },
         metadata: {
           observedFingerprintSha256: binding.observedFingerprintSha256,
-          desiredFingerprintSha256: binding.desiredFingerprintSha256,
+          desiredFingerprintSha256,
           bindingType: binding.bindingType,
         },
         detectedAt: new Date().toISOString(),
       };
     }
 
-    if (!binding.certificateVersionId || !binding.desiredFingerprintSha256) {
+    if (!certificateVersionId && !desiredFingerprintSha256) {
       return {
         dedupKey: riskDedupKey(['binding', 'unknown-certificate', binding.tenantId, binding.id]),
         type: 'binding_unknown_certificate',
@@ -93,8 +95,8 @@ export class MonitorsDomainService {
           hostId: binding.hostId,
         },
         metadata: {
-          certificateVersionId: binding.certificateVersionId,
-          desiredFingerprintSha256: binding.desiredFingerprintSha256,
+          certificateVersionId,
+          desiredFingerprintSha256,
           observedFingerprintSha256: binding.observedFingerprintSha256,
         },
         detectedAt: new Date().toISOString(),
@@ -102,6 +104,22 @@ export class MonitorsDomainService {
     }
 
     return undefined;
+  }
+
+  buildMonitorTlsProbeRiskEvent(input: MonitorTlsProbeRiskInput): UpsertRiskEventInput | undefined {
+    if (!input.verificationError) return undefined;
+    const label = input.domainName ?? input.serviceAssetId;
+    return {
+      dedupKey: riskDedupKey(['tls', 'chain', 'monitor', input.tenantId, input.serviceAssetId]),
+      type: 'tls_chain_invalid',
+      source: 'monitor',
+      severity: 'high',
+      title: `TLS 证书链异常: ${label}`,
+      summary: `应用资产 ${label} 的系统探测证书链验证失败：${input.verificationError}`,
+      scope: { tenantId: input.tenantId, serviceAssetId: input.serviceAssetId },
+      metadata: { url: input.url, verificationError: input.verificationError },
+      detectedAt: input.checkedAt,
+    };
   }
 
   buildExecutionRiskEvent(run: ExecutionRunEntity): UpsertRiskEventInput | undefined {
