@@ -120,6 +120,17 @@ export class WorkflowTemplatesDomainService {
     return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
   }
 
+  async createPluginInternalDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.origin !== 'plugin_internal') {
+      throw new AppError('VALIDATION_FAILED', '仅插件内部工作流允许通过插件发布器追加版本');
+    }
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const content = workflowTemplatesSchemaRegistry.validate(input.content);
+    return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
+  }
+
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);

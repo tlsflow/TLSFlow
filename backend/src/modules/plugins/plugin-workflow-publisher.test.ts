@@ -40,7 +40,7 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
   assert.equal((await workflows.listTemplates()).length, templateCountBefore + 1);
   assert.equal(first?.workflowTemplateId, second?.workflowTemplateId);
   assert.notEqual(first?.workflowVersionId, second?.workflowVersionId);
-  assert.equal((await workflows.listTemplates()).find((item) => item.id === first?.workflowTemplateId)?.origin, 'plugin');
+  assert.equal((await workflows.listTemplates()).find((item) => item.id === first?.workflowTemplateId)?.origin, 'plugin_internal');
   assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version), [1, 2]);
 });
 
@@ -81,7 +81,13 @@ function pluginRecord(id: string, pluginVersion: string, workflowVersion: string
     apiVersion: 'gcac.workflow/v1',
     kind: 'CurlSshWorkflow',
     metadata: { name: 'fixture-deploy', version: workflowVersion },
-    variables: {},
+    inputContract: {
+      apiVersion: 'gcac.deployment-input/v1',
+      variables: {},
+      connections: {},
+      credentials: {},
+      artifacts: {},
+    },
     steps: [{ name: 'deploy', type: 'transform', stage: 'install', transform: { engine: 'jsonata', input: {}, outputs: { result: { expression: '{}' } } } }],
   });
   return {

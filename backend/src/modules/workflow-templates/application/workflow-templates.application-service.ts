@@ -58,6 +58,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.createDraftVersion(input);
   }
 
+  async createPluginInternalDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    return this.domain.createPluginInternalDraftVersion(input);
+  }
+
   async createDraftFromPluginCapability(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     return this.domain.createDraftFromPluginCapability(input);
   }

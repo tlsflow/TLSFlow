@@ -72,7 +72,7 @@ export class PluginWorkflowPublisherService {
       const published = await this.workflows.publishPluginVersion(created.version.id);
       return { templateId: created.template.id, versionId: published.id };
     }
-    const draft = await this.workflows.createDraftVersion({
+    const draft = await this.workflows.createPluginInternalDraftVersion({
       templateId: previous.workflowTemplateId,
       content,
       changeSummary,
