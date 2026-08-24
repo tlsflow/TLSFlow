@@ -236,8 +236,11 @@ function projectAgentSystemVersion(
   descriptor: Record<string, unknown>,
   source: ManagedDeviceProjectionSource,
 ): string | undefined {
-  const rawVersion = stringValue(descriptor.osVersion) ?? source.osVersion;
-  const osVersion = rawVersion && rawVersion.toUpperCase() !== 'WINDOWS_NT' ? rawVersion : undefined;
+  const descriptorVersion = stringValue(descriptor.osVersion);
+  const rawVersion = descriptorVersion && !isWindowsVersionPlaceholder(osType, descriptorVersion)
+    ? descriptorVersion
+    : stringValue(source.osVersion);
+  const osVersion = rawVersion && !isWindowsVersionPlaceholder(osType, rawVersion) ? rawVersion : undefined;
   const projector = agentSystemVersionProjectors[osType] ?? projectDefaultAgentSystemVersion;
   return projector(descriptor, source, osVersion);
 }
@@ -289,7 +292,14 @@ function projectWindowsCapabilityVersion(source: ManagedDeviceProjectionSource):
   const build = firstString(detail, ['BuildRevision', 'buildRevision', 'CurrentBuild', 'currentBuild', 'BuildNumber', 'buildNumber']);
   if (productName && displayVersion) return `${productName} ${displayVersion}`;
   if (productName && build) return `${productName} (Build ${build})`;
-  return productName ?? firstString(detail, ['osVersion', 'Version', 'version']);
+  const version = firstString(detail, ['osVersion', 'Version', 'version']);
+  return productName ?? (version && !isWindowsVersionPlaceholder('WINDOWS', version) ? version : undefined);
+}
+
+function isWindowsVersionPlaceholder(osType: string, value: string): boolean {
+  if (osType.toUpperCase() !== 'WINDOWS') return false;
+  const normalized = value.trim().toUpperCase();
+  return normalized === 'WINDOWS' || normalized === 'WINDOWS_NT';
 }
 
 function requireNetworkAppliance(source: ManagedDeviceProjectionSource) {

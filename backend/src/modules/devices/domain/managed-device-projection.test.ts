@@ -67,6 +67,54 @@ test('统一设备投影不把历史 Windows_NT 占位值当作系统版本', ()
   assert.equal(result.softwareVersion, 'Windows Server');
 });
 
+test('统一设备投影不把 Full Agent 的 windows 占位值遮蔽能力快照版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'WINDOWS',
+    osName: 'Windows Server',
+    osVersion: 'windows',
+    agent: {
+      payload: {
+        descriptor: {
+          osType: 'WINDOWS',
+          osVersion: 'windows',
+        },
+      },
+      capabilitySnapshot: {
+        capabilities: [{
+          capabilityKey: 'windows.os.detail',
+          value: {
+            ProductName: 'Windows Server 2022 Datacenter',
+            BuildRevision: '20348.2402',
+          },
+        }],
+      },
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Windows Server 2022 Datacenter (Build 20348.2402)');
+});
+
+test('统一设备投影忽略 descriptor 占位值并回退主机系统版本', () => {
+  const result = new AgentManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    osType: 'WINDOWS',
+    osName: 'Windows Server',
+    osVersion: 'Windows Server 2019 Standard',
+    agent: {
+      payload: {
+        descriptor: {
+          osType: 'WINDOWS',
+          osVersion: 'windows',
+        },
+      },
+      capabilitySnapshot: {},
+    },
+  });
+
+  assert.equal(result.softwareVersion, 'Windows Server 2019 Standard');
+});
+
 test('统一设备投影为 Linux Agent 合并发行版和系统版本', () => {
   const result = new AgentManagedDeviceProjectionAdapter().project({
     ...commonSource,
