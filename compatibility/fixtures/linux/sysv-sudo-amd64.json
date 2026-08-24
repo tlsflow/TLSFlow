@@ -1,0 +1,9 @@
+{
+  "apiVersion": "gcac.linux.fact-fixture/v1",
+  "fixtureId": "linux-sysv-sudo-amd64",
+  "certificationStatus": "fixture_only",
+  "environment": { "distribution": "Enterprise Linux SysV representative environment", "kernel": "3.10", "architecture": "amd64" },
+  "facts": { "serviceManager": "sysv", "privilege": "sudo-noninteractive", "filesystem": "posix-atomic-rename", "securityModule": "none" },
+  "products": ["nginx", "apache", "tomcat"],
+  "expectedCapabilities": ["linux.sysv.v1", "linux.privilege.sudo-noninteractive.v1", "linux.filesystem.posix-atomic.v1", "linux.security.none.v1"]
+}

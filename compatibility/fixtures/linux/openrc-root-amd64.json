@@ -1,0 +1,9 @@
+{
+  "apiVersion": "gcac.linux.fact-fixture/v1",
+  "fixtureId": "linux-openrc-root-amd64",
+  "certificationStatus": "fixture_only",
+  "environment": { "distribution": "Alpine 3 representative environment", "kernel": "6.6", "architecture": "amd64" },
+  "facts": { "serviceManager": "openrc", "privilege": "root", "filesystem": "posix-atomic-rename", "securityModule": "none" },
+  "products": ["nginx", "apache", "tomcat"],
+  "expectedCapabilities": ["linux.openrc.v1", "linux.privilege.root.v1", "linux.filesystem.posix-atomic.v1", "linux.security.none.v1"]
+}

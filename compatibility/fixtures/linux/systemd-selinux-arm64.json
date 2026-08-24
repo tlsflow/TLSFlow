@@ -1,0 +1,9 @@
+{
+  "apiVersion": "gcac.linux.fact-fixture/v1",
+  "fixtureId": "linux-systemd-selinux-arm64",
+  "certificationStatus": "fixture_only",
+  "environment": { "distribution": "RHEL compatible 9 representative environment", "kernel": "5.14", "architecture": "arm64" },
+  "facts": { "serviceManager": "systemd", "privilege": "root", "filesystem": "posix-atomic-rename", "securityModule": "selinux-enforcing" },
+  "products": ["nginx", "apache", "tomcat"],
+  "expectedCapabilities": ["linux.systemd.v1", "linux.privilege.root.v1", "linux.filesystem.posix-atomic.v1", "linux.security.selinux.v1"]
+}
