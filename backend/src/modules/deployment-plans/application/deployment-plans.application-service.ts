@@ -56,6 +56,7 @@ import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import { DeploymentInputSnapshotService } from '../../deployment-inputs/application/deployment-input-snapshot.service.js';
 import { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
+import { DeploymentInputPreflightService, type DeploymentInputPreflightIssue } from '../../deployment-inputs/application/deployment-input-preflight.service.js';
 import type {
   DeploymentInputSnapshotEntity,
   DeploymentInputSnapshotIdentityV1,
@@ -84,13 +85,7 @@ interface WorkflowCertificateArtifactBinding {
   outputBindings: Record<string, string>;
 }
 
-interface DeploymentPreflightIssue {
-  stage: 'TARGET' | 'VERSION' | 'ARTIFACT';
-  targetIndex: number;
-  errorCode: string;
-  message: string;
-  details?: unknown;
-}
+type DeploymentPreflightIssue = DeploymentInputPreflightIssue;
 
 export interface DeploymentPlansApplicationDependencies {
   repository?: DeploymentPlansRepository;
@@ -120,6 +115,7 @@ export interface DeploymentPlansApplicationDependencies {
 }
 
 export class DeploymentPlansApplicationService {
+  private readonly inputPreflight = new DeploymentInputPreflightService();
   private readonly repository: DeploymentPlansRepository;
   private readonly audit: AuditService;
   private readonly approval: ApprovalService;
@@ -1369,7 +1365,7 @@ export class DeploymentPlansApplicationService {
     const selectionMode = input.selectionMode ?? (input.certificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const issues: DeploymentPreflightIssue[] = [];
     const targetResults = await Promise.allSettled(input.targets.map((target) => this.resolveTarget(input.tenantId, target)));
-    issues.push(...collectPreflightIssues('TARGET', targetResults));
+    issues.push(...this.inputPreflight.collect('TARGET', targetResults));
     const resolvedTargetEntries = targetResults.flatMap((result, targetIndex) => result.status === 'fulfilled'
       ? [{ targetIndex, target: result.value }]
       : []);
@@ -1386,7 +1382,7 @@ export class DeploymentPlansApplicationService {
           selectionMode,
           requestedCertificateVersionId: input.certificateVersionId,
         })));
-    issues.push(...collectPreflightIssues('VERSION', versionResults, resolvedTargetEntries.map((entry) => entry.targetIndex)));
+    issues.push(...this.inputPreflight.collect('VERSION', versionResults, resolvedTargetEntries.map((entry) => entry.targetIndex)));
     const resolvedVersionEntries = versionResults.flatMap((result, index) => result.status === 'fulfilled'
       ? [{ ...resolvedTargetEntries[index]!, certificateVersionId: result.value }]
       : []);
@@ -1403,7 +1399,7 @@ export class DeploymentPlansApplicationService {
     }
     const artifactResults = await Promise.allSettled(resolvedVersionEntries.map((entry) =>
       this.preflightDeploymentArtifact(input, entry.target, entry.targetIndex, entry.certificateVersionId)));
-    issues.push(...collectPreflightIssues('ARTIFACT', artifactResults, resolvedVersionEntries.map((entry) => entry.targetIndex)));
+    issues.push(...this.inputPreflight.collect('ARTIFACT', artifactResults, resolvedVersionEntries.map((entry) => entry.targetIndex)));
     if (issues.length > 0) throwDeploymentPreflightError(issues);
     const resolvedTargets = resolvedTargetEntries.map((entry) => entry.target);
     const certificateVersionId = uniqueVersionIds[0];
@@ -2527,24 +2523,6 @@ function deploymentInputSnapshotIdentity(strategyPayload: Record<string, unknown
       ?? readOptionalString(workflowRequest?.workflowVersionId),
     workflowExecutionBindingId: readOptionalString(executionSource?.workflowExecutionBindingId),
   };
-}
-
-function collectPreflightIssues<T>(
-  stage: DeploymentPreflightIssue['stage'],
-  results: readonly PromiseSettledResult<T>[],
-  targetIndexes: readonly number[] = results.map((_, index) => index),
-): DeploymentPreflightIssue[] {
-  return results.flatMap((result, index) => {
-    if (result.status === 'fulfilled') return [];
-    const error = result.reason;
-    return [{
-      stage,
-      targetIndex: targetIndexes[index] ?? index,
-      errorCode: error instanceof AppError ? error.errorCode : 'SYSTEM_INTERNAL_ERROR',
-      message: error instanceof Error ? error.message : String(error),
-      ...(error instanceof AppError && error.details !== undefined ? { details: error.details } : {}),
-    }];
-  });
 }
 
 function throwDeploymentPreflightError(issues: DeploymentPreflightIssue[]): never {
