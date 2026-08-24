@@ -38,6 +38,8 @@ interface CertificateUsageRow extends ApiRecord {
   readonly resourceName: string
   readonly targetName: string
   readonly domainName: string
+  readonly agentName: string
+  readonly siteName: string
   readonly bindingType: string
   readonly usageSource: string
   readonly status: string
@@ -65,6 +67,8 @@ const mergedUsages = computed<CertificateUsageRow[]>(() => {
 
 const usageColumns: DataTableColumn<ApiRecord>[] = [
   { key: 'domainName', title: '域名/目标' },
+  { key: 'agentName', title: 'Agent名称', width: '160px' },
+  { key: 'siteName', title: '站点名称', width: '180px' },
   { key: 'bindingType', title: '绑定类型', width: '140px' },
   { key: 'usageSource', title: '来源', width: '140px' },
   { key: 'status', title: '状态', width: '120px' },
@@ -184,15 +188,23 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
   const serviceAsset = readPath(record, 'serviceAsset')
   const service = readPath(record, 'service')
   const host = readPath(record, 'host')
+  const siteAsset = readPath(record, 'siteAsset')
+  const managedTarget = readPath(record, 'managedTarget')
+  const metadata = readPath(record, 'metadata')
 
   const bindingRecord = binding && typeof binding === 'object' ? binding as ApiRecord : null
   const serviceAssetRecord = serviceAsset && typeof serviceAsset === 'object' ? serviceAsset as ApiRecord : null
   const serviceRecord = service && typeof service === 'object' ? service as ApiRecord : null
   const hostRecord = host && typeof host === 'object' ? host as ApiRecord : null
+  const siteAssetRecord = siteAsset && typeof siteAsset === 'object' ? siteAsset as ApiRecord : null
+  const managedTargetRecord = managedTarget && typeof managedTarget === 'object' ? managedTarget as ApiRecord : null
+  const metadataRecord = metadata && typeof metadata === 'object' ? metadata as ApiRecord : null
 
   const resourceId = readString(record, ['resourceId', 'id'], '')
     || readString(bindingRecord, ['id', 'bindingKey'], '')
     || readString(serviceAssetRecord, ['id'], '')
+    || readString(siteAssetRecord, ['id'], '')
+    || readString(managedTargetRecord, ['id'], '')
     || readString(serviceRecord, ['id'], '')
     || readString(hostRecord, ['id'], '')
 
@@ -210,9 +222,23 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
 
   const resourceName = readString(record, ['resourceName', 'assetName'], '')
     || readString(serviceAssetRecord, ['address'], '')
+    || readString(siteAssetRecord, ['siteName'], '')
     || readString(serviceRecord, ['displayName'], '')
     || readString(hostRecord, ['hostname', 'primaryIp'], '')
     || targetName
+
+  const agentName = readString(record, ['agentName'], '')
+    || readString(hostRecord, ['displayName', 'hostname', 'agentId', 'primaryIp'], '')
+    || readString(managedTargetRecord, ['agentId'], '')
+    || readString(siteAssetRecord, ['agentId'], '')
+    || readString(metadataRecord, ['agentName', 'agentId'], '')
+    || '—'
+
+  const siteName = readString(record, ['siteName'], '')
+    || readString(siteAssetRecord, ['siteName'], '')
+    || readString(metadataRecord, ['siteName'], '')
+    || readString(bindingRecord, ['metadata.siteName'], '')
+    || '—'
 
   const bindingType = readString(record, ['bindingType', 'resourceType', 'type'], '')
     || readString(bindingRecord, ['bindingType'], '')
@@ -234,6 +260,8 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     resourceName: resourceName || domainName || '未知资源',
     targetName: targetName || domainName || '未知目标',
     domainName: domainName || '未知目标',
+    agentName,
+    siteName,
     bindingType,
     usageSource,
     status,
@@ -356,6 +384,12 @@ async function loadDetail() {
           <template #toolbar><strong>关联资产</strong></template>
           <template #cell-domainName="{ row }">
             {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], '未知目标') }}
+          </template>
+          <template #cell-agentName="{ row }">
+            {{ readUsageField(row, ['agentName'], '—') }}
+          </template>
+          <template #cell-siteName="{ row }">
+            {{ readUsageField(row, ['siteName'], '—') }}
           </template>
           <template #cell-bindingType="{ row }">
             {{ readUsageField(row, ['bindingType', 'resourceType', 'type'], '未知类型') }}
