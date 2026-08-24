@@ -509,17 +509,20 @@ export class AgentsApplicationService {
 
   async ackTask(tenantId: string, input: AckAgentTaskInput): Promise<AgentTaskEnvelope> {
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
-    if (task.status === 'queued' && input.leaseId.startsWith('direct:')) {
-      return this.repository.updateTask(task.id, { status: 'acked', leaseId: input.leaseId, ackedAt: new Date().toISOString() });
+    if (task.status === 'queued') {
+      const claimed = await this.repository.claimQueuedTask(task.id, input.agentId, input.leaseId, new Date().toISOString());
+      if (claimed) return claimed;
+
+      const current = await this.requireTask(tenantId, input.agentId, input.taskId);
+      if (current.status !== 'queued') return current;
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '任务 lease 抢占冲突，请重试', { taskId: task.id });
     }
-    if (task.status === 'acked' && task.leaseId === input.leaseId) return task;
-    if (task.status !== 'queued' && task.status !== 'leased') {
-      throw new AppError('VALIDATION_FAILED', '任务不能重复 ack', { taskId: task.id, status: task.status });
-    }
-    if (task.leaseId && task.leaseId !== input.leaseId) {
-      throw new AppError('IDEMPOTENCY_CONFLICT', '任务 leaseId 冲突', { taskId: task.id });
-    }
-    return this.repository.updateTask(task.id, { status: 'acked', leaseId: input.leaseId, ackedAt: new Date().toISOString() });
+    // 拉取和直连可能同时看到同一条任务。已被其他 lease 占有时返回当前所有权，
+    // 让调用方放弃执行，而不是把正常竞态伪装成“重复 ack”失败。
+    if (task.status === 'acked') return task;
+    if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') return task;
+    if (task.status === 'leased') return task;
+    throw new AppError('VALIDATION_FAILED', '任务状态不允许 ack', { taskId: task.id, status: task.status });
   }
 
   async submitResult(tenantId: string, input: SubmitAgentTaskResultInput): Promise<AgentTaskEnvelope> {
@@ -635,12 +638,23 @@ export class AgentsApplicationService {
   ): Promise<{
     task: AgentTaskEnvelope;
     success: boolean;
+    asyncPending?: boolean;
     errorCode?: string;
     errorMessage?: string;
     detail: Record<string, unknown>;
   }> {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
+    if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') {
+      const result = readRecord(task.result);
+      return {
+        task,
+        success: task.status === 'succeeded',
+        errorCode: readStringValue(result.errorCode),
+        errorMessage: readStringValue(result.errorMessage),
+        detail: readRecord(result.detail),
+      };
+    }
     const actionType = resolveAgentTaskActionType(task.payload);
     if (!actionType) {
       throw new AppError('VALIDATION_FAILED', 'Agent task 缺少 actionType/type，不能直连执行', { taskId });
@@ -648,7 +662,24 @@ export class AgentsApplicationService {
 
     const agent = await this.requireAgent(tenantId, task.agentId);
     const leaseId = `direct:${task.id}`;
-    await this.ackTask(tenantId, { agentId: task.agentId, taskId: task.id, leaseId });
+    const acknowledged = await this.ackTask(tenantId, { agentId: task.agentId, taskId: task.id, leaseId });
+    if (acknowledged.leaseId && acknowledged.leaseId !== leaseId) {
+      if (actionType === 'certificate.trust.inspect') {
+        return this.waitForTaskResult(tenantId, task.id);
+      }
+      return {
+        task: acknowledged,
+        success: true,
+        asyncPending: true,
+        errorCode: 'AGENT_TASK_ALREADY_CLAIMED',
+        errorMessage: 'Agent 已占有该任务，等待 Agent 返回结果',
+        detail: {
+          executionMode: 'queued',
+          taskId: task.id,
+          status: acknowledged.status,
+        },
+      };
+    }
 
     let direct;
     try {
@@ -699,6 +730,40 @@ export class AgentsApplicationService {
         ...(direct.detail ?? {}),
       },
     };
+  }
+
+  private async waitForTaskResult(
+    tenantId: string,
+    taskId: string,
+    timeoutMs = 125_000,
+  ): Promise<{
+    task: AgentTaskEnvelope;
+    success: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    detail: Record<string, unknown>;
+  }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const task = await this.repository.getTask(tenantId, taskId);
+      if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
+      if (task.status === 'succeeded' || task.status === 'failed' || task.status === 'rejected') {
+        const result = readRecord(task.result);
+        return {
+          task,
+          success: task.status === 'succeeded',
+          errorCode: readStringValue(result.errorCode),
+          errorMessage: readStringValue(result.errorMessage),
+          detail: readRecord(result.detail),
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '等待 Agent 根信任检查结果超时', {
+      code: 'AGENT_TASK_RESULT_TIMEOUT',
+      taskId,
+      timeoutMs,
+    });
   }
 
   async submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): Promise<AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number }> {

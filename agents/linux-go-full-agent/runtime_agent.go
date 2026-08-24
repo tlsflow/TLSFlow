@@ -114,6 +114,7 @@ type agentTaskEnvelope struct {
 	IdempotencyKey  string         `json:"idempotencyKey"`
 	Payload         map[string]any `json:"payload"`
 	Status          string         `json:"status"`
+	LeaseID         string         `json:"leaseId,omitempty"`
 }
 
 type ackTaskRequest struct {
@@ -1605,8 +1606,13 @@ func pullTasks(ctx context.Context, client *http.Client, config *AgentConfig, ag
 
 func processTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, ledger *resultLedger, task agentTaskEnvelope) error {
 	leaseID := newLeaseID(task.ID)
-	if _, err := ackTask(ctx, client, config, state.AgentID, task.ID, leaseID); err != nil {
+	acknowledged, err := ackTask(ctx, client, config, state.AgentID, task.ID, leaseID)
+	if err != nil {
 		return fmt.Errorf("ack 任务失败: %w", err)
+	}
+	if acknowledged.LeaseID != "" && acknowledged.LeaseID != leaseID {
+		fmt.Fprintf(os.Stderr, "[task] skip taskId=%s because it is already owned by another lease\n", task.ID)
+		return nil
 	}
 	if counters != nil {
 		counters.Running++

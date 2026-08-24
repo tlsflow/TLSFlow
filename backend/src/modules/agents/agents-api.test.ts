@@ -35,6 +35,159 @@ describe('Agent direct control api', () => {
     assert.deepEqual((await agentsService.pullTasks('tenant_agent_queued_rescan', registered.id)).map((task) => task.id), [first.id]);
   });
 
+  it('Agent 轮询与控制面直连竞态时，重复 ack 返回已有 lease 而不是失败', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_ack_race';
+    const agent = await agentsService.register(tenantId, {
+      agentKey: 'ack-race-agent',
+      hostname: 'ACK-RACE-AGENT',
+      version: '0.1.0',
+      osType: 'linux',
+    }, 'req_ack_race_register');
+    const task = await agentsService.enqueueTask(tenantId, {
+      agentId: agent.id,
+      executionRunId: 'run_ack_race',
+      executionStepId: 'step_ack_race',
+      idempotencyKey: 'run_ack_race:step_ack_race:1',
+      payload: { type: 'agent.atomic_plan.execute' },
+    }, 'req_ack_race_enqueue');
+
+    const agentLease = 'lease_agent_poll';
+    const firstAck = await agentsService.ackTask(tenantId, {
+      agentId: agent.id,
+      taskId: task.id,
+      leaseId: agentLease,
+    });
+    const staleDirectAck = await agentsService.ackTask(tenantId, {
+      agentId: agent.id,
+      taskId: task.id,
+      leaseId: `direct:${task.id}`,
+    });
+
+    assert.equal(firstAck.status, 'acked');
+    assert.equal(firstAck.leaseId, agentLease);
+    assert.equal(staleDirectAck.status, 'acked');
+    assert.equal(staleDirectAck.leaseId, agentLease);
+  });
+
+  it('并发 ack 只能由一个 lease 原子占有任务', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_atomic_ack';
+    const agent = await agentsService.register(tenantId, {
+      agentKey: 'atomic-ack-agent',
+      hostname: 'ATOMIC-ACK-AGENT',
+      version: '0.1.0',
+      osType: 'linux',
+    }, 'req_atomic_ack_register');
+    const task = await agentsService.enqueueTask(tenantId, {
+      agentId: agent.id,
+      executionRunId: 'run_atomic_ack',
+      executionStepId: 'step_atomic_ack',
+      idempotencyKey: 'run_atomic_ack:step_atomic_ack:1',
+      payload: { type: 'agent.atomic_plan.execute' },
+    }, 'req_atomic_ack_enqueue');
+
+    const results = await Promise.all([
+      agentsService.ackTask(tenantId, { agentId: agent.id, taskId: task.id, leaseId: 'lease_atomic_a' }),
+      agentsService.ackTask(tenantId, { agentId: agent.id, taskId: task.id, leaseId: 'lease_atomic_b' }),
+    ]);
+
+    assert.equal(results[0].status, 'acked');
+    assert.equal(results[1].status, 'acked');
+    assert.equal(results[0].leaseId, results[1].leaseId);
+    assert.ok(['lease_atomic_a', 'lease_atomic_b'].includes(results[0].leaseId ?? ''));
+  });
+
+  it('直连发现任务已被 Agent 占有时，返回异步等待而不再次执行', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_direct_claimed';
+    const agent = await agentsService.register(tenantId, {
+      agentKey: 'direct-claimed-agent',
+      hostname: 'DIRECT-CLAIMED-AGENT',
+      version: '0.1.0',
+      osType: 'linux',
+    }, 'req_direct_claimed_register');
+    const task = await agentsService.enqueueTask(tenantId, {
+      agentId: agent.id,
+      executionRunId: 'run_direct_claimed',
+      executionStepId: 'step_direct_claimed',
+      idempotencyKey: 'run_direct_claimed:step_direct_claimed:1',
+      payload: { type: 'agent.atomic_plan.execute' },
+    }, 'req_direct_claimed_enqueue');
+    await agentsService.ackTask(tenantId, {
+      agentId: agent.id,
+      taskId: task.id,
+      leaseId: 'lease_agent_owner',
+    });
+
+    const result = await agentsService.executeTaskDirect(tenantId, task.id, 'req_direct_claimed_execute');
+
+    assert.equal(result.success, true);
+    assert.equal(result.asyncPending, true);
+    assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
+    assert.equal(result.detail.executionMode, 'queued');
+  });
+
+  it('根信任检查被 Agent 轮询占有时，直连等待最终检查结果', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database, allowLegacyHeaderContext: true });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_trust_inspect_wait';
+    const agent = await agentsService.register(tenantId, {
+      agentKey: 'trust-inspect-wait-agent',
+      hostname: 'TRUST-INSPECT-WAIT-AGENT',
+      version: '0.1.0',
+      osType: 'linux',
+    }, 'req_trust_inspect_wait_register');
+    const task = await agentsService.enqueueTask(tenantId, {
+      agentId: agent.id,
+      executionRunId: 'run_trust_inspect_wait',
+      executionStepId: 'step_trust_inspect_wait',
+      idempotencyKey: 'certificate.trust.inspect:trust-inspect-wait-agent:root',
+      payload: {
+        actionType: 'certificate.trust.inspect',
+        actionSchemaVersion: '1.0',
+        fingerprintSha256: 'a'.repeat(64),
+        store: 'root',
+      },
+    }, 'req_trust_inspect_wait_enqueue');
+    await agentsService.ackTask(tenantId, {
+      agentId: agent.id,
+      taskId: task.id,
+      leaseId: 'lease_trust_inspect_agent',
+    });
+
+    const resultPromise = agentsService.executeTaskDirect(tenantId, task.id, 'req_trust_inspect_wait_execute');
+    setTimeout(() => {
+      void agentsService.submitResult(tenantId, {
+        agentId: agent.id,
+        taskId: task.id,
+        leaseId: 'lease_trust_inspect_agent',
+        success: true,
+        detail: {
+          status: 'not_found',
+          fingerprintSha256: 'a'.repeat(64),
+          store: 'root',
+        },
+      });
+    }, 20);
+
+    const result = await resultPromise;
+    assert.equal(result.success, true);
+    assert.equal(result.asyncPending, undefined);
+    assert.equal(result.detail.status, 'not_found');
+  });
+
   it('同一 Agent 可复用原始一次性令牌完成幂等重注册', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');

@@ -55,6 +55,7 @@ export interface AgentsRepository {
   getLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<AgentCapabilitySnapshot | undefined>;
   createTask(task: AgentTaskEnvelope): Promise<AgentTaskEnvelope>;
   updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope>;
+  claimQueuedTask(taskId: string, agentId: string, leaseId: string, ackedAt: string): Promise<AgentTaskEnvelope | undefined>;
   getTask(tenantId: string, taskId: string): Promise<AgentTaskEnvelope | undefined>;
   findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined>;
   listTasks(tenantId: string, agentId: string, statuses?: string[]): Promise<AgentTaskEnvelope[]>;
@@ -294,6 +295,24 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async updateTask(taskId: string, patch: Partial<AgentTaskEnvelope>): Promise<AgentTaskEnvelope> {
     return this.tasks.update(taskId, patch);
+  }
+
+  async claimQueuedTask(taskId: string, agentId: string, leaseId: string, ackedAt: string): Promise<AgentTaskEnvelope | undefined> {
+    // 用带状态条件的 UPDATE 抢占任务，避免并发 ack 先读后写导致 lease 互相覆盖。
+    await this.tasks.get(taskId);
+    const result = await this.db.query<{ document_id: string; payload: AgentTaskEnvelope }>(
+      `update pg_documents
+          set payload = payload || $3::jsonb,
+              updated_at = now()
+        where namespace = 'agents:tasks'
+          and document_id = $1
+          and payload->>'agentId' = $2
+          and payload->>'status' = 'queued'
+      returning document_id, payload`,
+      [taskId, agentId, JSON.stringify({ status: 'acked', leaseId, ackedAt })],
+    );
+    const row = result.rows[0];
+    return row ? structuredClone({ ...row.payload, id: row.document_id }) : undefined;
   }
 
   async getTask(tenantId: string, taskId: string): Promise<AgentTaskEnvelope | undefined> {

@@ -196,6 +196,55 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
   assert.equal(compiledResolvedInput?.apiVersion, 'gcac.resolved-deployment-input/v1');
 });
 
+test('Agent 已通过轮询占有任务时，执行器将结果标记为异步等待', async () => {
+  const agents = {
+    enqueueDirectTask: async () => ({ id: 'task_agent_owned', status: 'acked' }),
+    executeTaskDirect: async () => ({
+      success: true,
+      asyncPending: true,
+      errorCode: 'AGENT_TASK_ALREADY_CLAIMED',
+      errorMessage: 'Agent 已占有该任务，等待 Agent 返回结果',
+      detail: { executionMode: 'queued' },
+    }),
+  } as unknown as AgentsApplicationService;
+  const compiler = {
+    compile: async () => ({
+      planId: 'agplan_agent_owned',
+      operations: [{ id: 'operation-agent-owned' }],
+    }),
+  };
+  const adapter = new AgentExecutorAdapter(agents, undefined, compiler as never);
+
+  const result = await adapter.executeStep({
+    step: {
+      id: 'stp_agent_owned',
+      tenantId: headers['x-tenant-id'],
+      executionRunId: 'run_agent_owned',
+      deploymentPlanTargetId: 'dpt_agent_owned',
+      stepNo: 1,
+      stepType: 'CUSTOM',
+      name: 'Agent owned task',
+      dependsOn: [],
+      idempotent: true,
+      attemptCount: 1,
+      maxAttempts: 1,
+      inputSnapshot: atomicInputSnapshot('agt_agent_owned'),
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: 'tester',
+      version: 1,
+    },
+    runType: 'dry_run',
+    dryRun: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.asyncPending, true);
+  assert.equal(result.errorCode, 'AGENT_TASK_ALREADY_CLAIMED');
+  assert.equal(result.detail?.executionMode, 'queued');
+});
+
 test('AgentExecutorAdapter 允许受控根信任安装动作直连下发', async () => {
   let enqueueCount = 0;
   let directCount = 0;

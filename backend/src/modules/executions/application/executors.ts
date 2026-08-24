@@ -262,7 +262,8 @@ export class AgentExecutorAdapter implements Executor {
         && payload.actionType === 'agent.atomic_plan.execute'
         && isSuccessfulAtomicDryRun(detail);
       return {
-        success: direct.success || normalizedDryRunSuccess,
+        success: direct.asyncPending === true || direct.success || normalizedDryRunSuccess,
+        asyncPending: direct.asyncPending,
         errorCode: normalizedDryRunSuccess ? undefined : direct.errorCode,
         errorMessage: normalizedDryRunSuccess ? undefined : direct.errorMessage,
         detail,

@@ -2309,8 +2309,13 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	}
 
 	leaseID := newLeaseID(task.ID)
-	if _, err := ackTask(ctx, client, config, registration.AgentID, task.ID, leaseID); err != nil {
+	acknowledged, err := ackTask(ctx, client, config, registration.AgentID, task.ID, leaseID)
+	if err != nil {
 		return fmt.Errorf("ack 任务失败: %w", err)
+	}
+	if acknowledged.LeaseID != "" && acknowledged.LeaseID != leaseID {
+		logger.Info("skip task already owned by another lease taskId=%s", task.ID)
+		return nil
 	}
 	if _, err := deps.taskLedger.markAcked(task.ID, leaseID); err != nil {
 		return err

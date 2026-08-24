@@ -22,8 +22,15 @@ export interface AgentDirectActionExecuteResult {
 export class AgentDirectClient {
   async executeAction(agent: AgentRegistration, request: AgentDirectActionExecuteRequest): Promise<AgentDirectActionExecuteResult> {
     const actionType = request.actionType.trim();
-    const directControl = requireReachableDirectControl(agent, actionType);
-    const baseUrl = buildDirectControlBaseUrl(directControl.listenAddress!);
+    const persistedDirectControl = requireReachableDirectControl(agent);
+    const baseUrl = buildDirectControlBaseUrl(persistedDirectControl.listenAddress!);
+    const directControl = await resolveDirectControlForAction(
+      baseUrl,
+      agent,
+      persistedDirectControl,
+      actionType,
+      request.requestId,
+    );
     try {
       const startResponse = await fetchWithTimeout(`${baseUrl}/api/v1/control/actions/start`, {
         method: 'POST',
@@ -185,7 +192,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-function requireReachableDirectControl(agent: AgentRegistration, action: string): AgentDirectControlState {
+function requireReachableDirectControl(agent: AgentRegistration): AgentDirectControlState {
   const directControl = agent.directControl;
   if (!directControl?.enabled) {
     throw new AppError('VALIDATION_FAILED', 'Agent 未启用直连控制', { agentId: agent.id });
@@ -196,11 +203,57 @@ function requireReachableDirectControl(agent: AgentRegistration, action: string)
   if (!directControl.listenAddress) {
     throw new AppError('VALIDATION_FAILED', 'Agent 直连控制缺少监听地址', { agentId: agent.id });
   }
+  return directControl;
+}
+
+async function resolveDirectControlForAction(
+  baseUrl: string,
+  agent: AgentRegistration,
+  persistedDirectControl: AgentDirectControlState,
+  action: string,
+  requestId?: string,
+): Promise<AgentDirectControlState> {
+  if (persistedDirectControl.supportedActions.includes(action)) return persistedDirectControl;
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${baseUrl}/api/v1/control/health`, {
+      method: 'GET',
+      headers: {
+        'x-request-id': requestId ?? `agent-direct-health:${action}`,
+      },
+    }, 5_000);
+  } catch (error) {
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连健康检查失败', {
+      agentId: agent.id,
+      action,
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const body = await safeReadJson(response);
+  const directControl = readDirectControlState(readRecord(body)?.directControl);
+  if (!response.ok || !directControl) {
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连健康检查返回异常', {
+      agentId: agent.id,
+      action,
+      statusCode: response.status,
+      response: body,
+    });
+  }
+  if (!directControl.enabled || !directControl.reachable) {
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 直连控制当前不可达', {
+      agentId: agent.id,
+      action,
+      directControl,
+    });
+  }
   if (!directControl.supportedActions.includes(action)) {
     throw new AppError('CAPABILITY_MISSING', `Agent 未声明 ${action} 能力`, {
       agentId: agent.id,
       action,
       supportedActions: directControl.supportedActions,
+      capabilitySource: 'runtime-health',
     });
   }
   return directControl;
@@ -224,6 +277,21 @@ async function safeReadJson(response: Response): Promise<unknown> {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readDirectControlState(value: unknown): AgentDirectControlState | undefined {
+  const record = readRecord(value);
+  if (!record || typeof record.enabled !== 'boolean' || typeof record.reachable !== 'boolean') return undefined;
+  if (!Array.isArray(record.supportedActions) || !record.supportedActions.every((item) => typeof item === 'string')) return undefined;
+  return {
+    enabled: record.enabled,
+    reachable: record.reachable,
+    listenAddress: typeof record.listenAddress === 'string' ? record.listenAddress : undefined,
+    protocolVersion: typeof record.protocolVersion === 'string' ? record.protocolVersion : undefined,
+    supportedActions: record.supportedActions,
+    lastReadyAt: typeof record.lastReadyAt === 'string' ? record.lastReadyAt : undefined,
+    lastDirectError: typeof record.lastDirectError === 'string' ? record.lastDirectError : undefined,
+  };
 }
 
 function sleep(ms: number): Promise<void> {
