@@ -10,13 +10,15 @@ import type {
 const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'variables', 'steps', 'rollback']);
 const metadataKeys = new Set(['name', 'displayName', 'category', 'tags']);
 const variableKeys = new Set(['type', 'required', 'default', 'enum', 'sensitive', 'description']);
-const stepBaseKeys = new Set(['name', 'type', 'when', 'retry', 'extract', 'assert']);
+const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
+const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'secret', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'condition', 'wait', 'manual']);
+const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'steps']);
 
 export class WorkflowSchemaRegistry {
@@ -81,26 +83,43 @@ function validateStepByType(step: WorkflowStep, path: string): void {
   if (step.type === 'http') {
     rejectUnknown(step as unknown as Record<string, unknown>, httpStepKeys, path);
     if (!isRecord(step.request)) throw validationError(`${path}.request 必须是对象`);
-    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'headers', 'body', 'timeoutSeconds']), `${path}.request`);
+    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
+    if (step.request.headerRefs !== undefined && !isSecretRefRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 字符串对象`);
+    if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);
+    if (step.request.bodyType !== undefined && !['json', 'form', 'multipart', 'raw', 'none'].includes(step.request.bodyType)) throw validationError(`${path}.request.bodyType 不支持`);
+    if (step.request.form !== undefined && !isPrimitiveRecord(step.request.form)) throw validationError(`${path}.request.form 必须是字符串、数字或布尔对象`);
+    if (step.request.multipart !== undefined) validateMultipart(step.request.multipart, `${path}.request.multipart`);
+    if (step.request.auth !== undefined) validateHttpAuth(step.request.auth, `${path}.request.auth`);
+    if (step.request.tls !== undefined) validateHttpTls(step.request.tls, `${path}.request.tls`);
     if (step.request.timeoutSeconds !== undefined && !isPositiveInteger(step.request.timeoutSeconds)) throw validationError(`${path}.request.timeoutSeconds 必须是正整数`);
+    if (step.request.maxResponseBytes !== undefined && !isPositiveInteger(step.request.maxResponseBytes)) throw validationError(`${path}.request.maxResponseBytes 必须是正整数`);
+    if (step.request.successStatusCodes !== undefined && (!Array.isArray(step.request.successStatusCodes) || !step.request.successStatusCodes.every((item) => Number.isInteger(item) && item >= 100 && item <= 599))) throw validationError(`${path}.request.successStatusCodes 必须是 HTTP 状态码数组`);
+    if (step.request.failOnNon2xx !== undefined && typeof step.request.failOnNon2xx !== 'boolean') throw validationError(`${path}.request.failOnNon2xx 必须是布尔值`);
     return;
   }
   if (step.type === 'ssh') {
     rejectUnknown(step as unknown as Record<string, unknown>, sshStepKeys, path);
     if (!isRecord(step.ssh)) throw validationError(`${path}.ssh 必须是对象`);
-    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'command', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
+    rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
     if (!['command', 'script', 'interactive'].includes(step.ssh.mode)) throw validationError(`${path}.ssh.mode 不支持`);
     if (!isRecord(step.ssh.connection)) throw validationError(`${path}.ssh.connection 必须是对象`);
     rejectUnknown(step.ssh.connection as unknown as Record<string, unknown>, new Set(['host', 'port', 'username', 'credentialSecretRef', 'expectedHostKeyFingerprint', 'hostKeyPolicy']), `${path}.ssh.connection`);
     if (!isNonEmptyString(step.ssh.connection.host) || !isNonEmptyString(step.ssh.connection.username)) throw validationError(`${path}.ssh.connection host/username 必填`);
     if (!isSecretRef(step.ssh.connection.credentialSecretRef)) throw validationError(`${path}.ssh.connection.credentialSecretRef 必须是 SecretRef`);
-    if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command)) throw validationError(`${path}.ssh.command 必填`);
+    if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command) && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0)) throw validationError(`${path}.ssh.command 或 commands 必填`);
+    if (step.ssh.commands !== undefined && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0 || !step.ssh.commands.every(isNonEmptyString))) throw validationError(`${path}.ssh.commands 必须是非空命令数组`);
     if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
     if (step.ssh.mode === 'interactive' && (!Array.isArray(step.ssh.dialogue) || step.ssh.dialogue.length === 0)) throw validationError(`${path}.ssh.dialogue 必填`);
     if (step.ssh.timeoutSeconds !== undefined && !isPositiveInteger(step.ssh.timeoutSeconds)) throw validationError(`${path}.ssh.timeoutSeconds 必须是正整数`);
+    return;
+  }
+  if (step.type === 'condition') {
+    rejectUnknown(step as unknown as Record<string, unknown>, conditionStepKeys, path);
+    validateCondition(step.condition, `${path}.condition`);
+    if (step.description !== undefined && typeof step.description !== 'string') throw validationError(`${path}.description 必须是字符串`);
     return;
   }
   if (step.type === 'wait') {
@@ -113,17 +132,18 @@ function validateStepByType(step: WorkflowStep, path: string): void {
 }
 
 function validateCommonStep(step: Record<string, unknown>, path: string): void {
+  if (step.stage !== undefined && !workflowStages.has(String(step.stage))) throw validationError(`${path}.stage 不支持`);
   if (step.retry !== undefined) {
     if (!isRecord(step.retry)) throw validationError(`${path}.retry 必须是对象`);
-    rejectUnknown(step.retry, new Set(['count', 'intervalSeconds']), `${path}.retry`);
+    rejectUnknown(step.retry, new Set(['count', 'intervalSeconds', 'retryOnStatus', 'retryOnNetworkError']), `${path}.retry`);
     const retryCount = step.retry.count;
     if (retryCount !== undefined && (typeof retryCount !== 'number' || !Number.isInteger(retryCount) || retryCount < 0 || retryCount > 5)) throw validationError(`${path}.retry.count 必须在 0-5 之间`);
     if (step.retry.intervalSeconds !== undefined && !isPositiveInteger(step.retry.intervalSeconds)) throw validationError(`${path}.retry.intervalSeconds 必须是正整数`);
+    if (step.retry.retryOnStatus !== undefined && (!Array.isArray(step.retry.retryOnStatus) || !step.retry.retryOnStatus.every((item) => Number.isInteger(item) && item >= 100 && item <= 599))) throw validationError(`${path}.retry.retryOnStatus 必须是 HTTP 状态码数组`);
+    if (step.retry.retryOnNetworkError !== undefined && typeof step.retry.retryOnNetworkError !== 'boolean') throw validationError(`${path}.retry.retryOnNetworkError 必须是布尔值`);
   }
   if (step.when !== undefined) {
-    if (!isRecord(step.when)) throw validationError(`${path}.when 必须是对象`);
-    rejectUnknown(step.when, new Set(['variable', 'equals', 'notEquals', 'exists']), `${path}.when`);
-    if (!isNonEmptyString(step.when.variable)) throw validationError(`${path}.when.variable 必填`);
+    validateCondition(step.when, `${path}.when`);
   }
   normalizeExtractors(step.extract as WorkflowStep['extract']).forEach((extractor) => validateExtractor(extractor, path));
   if (step.assert !== undefined && !Array.isArray(step.assert)) throw validationError(`${path}.assert 必须是数组`);
@@ -142,6 +162,69 @@ function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
+}
+
+function validateCondition(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['variable', 'equals', 'notEquals', 'exists']), path);
+  if (!isNonEmptyString(value.variable)) throw validationError(`${path}.variable 必填`);
+  const operators = [value.equals !== undefined, value.notEquals !== undefined, value.exists !== undefined].filter(Boolean).length;
+  if (operators !== 1) throw validationError(`${path} 必须且只能声明一个判断操作符`);
+  if (value.exists !== undefined && typeof value.exists !== 'boolean') throw validationError(`${path}.exists 必须是布尔值`);
+}
+
+function validateMultipart(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  for (const [name, part] of Object.entries(value)) {
+    if (!isRecord(part)) throw validationError(`${path}.${name} 必须是对象`);
+    rejectUnknown(part, new Set(['value', 'filename', 'contentType', 'secretRef']), `${path}.${name}`);
+    if (part.value !== undefined && !isPrimitive(part.value)) throw validationError(`${path}.${name}.value 必须是字符串、数字或布尔值`);
+    if (part.filename !== undefined && typeof part.filename !== 'string') throw validationError(`${path}.${name}.filename 必须是字符串`);
+    if (part.contentType !== undefined && typeof part.contentType !== 'string') throw validationError(`${path}.${name}.contentType 必须是字符串`);
+    if (part.secretRef !== undefined && !isSecretRef(part.secretRef)) throw validationError(`${path}.${name}.secretRef 必须是 SecretRef`);
+  }
+}
+
+function validateHttpAuth(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  if (!isNonEmptyString(value.type)) throw validationError(`${path}.type 必填`);
+  if (!['none', 'basic', 'bearer', 'api_key', 'cookie', 'custom_header', 'mtls'].includes(value.type)) throw validationError(`${path}.type 不支持`);
+  if (value.type === 'none') {
+    rejectUnknown(value, new Set(['type']), path);
+    return;
+  }
+  if (value.type === 'basic' || value.type === 'bearer' || value.type === 'cookie') {
+    rejectUnknown(value, new Set(['type', 'secretRef', 'name']), path);
+    if (!isSecretRef(value.secretRef)) throw validationError(`${path}.secretRef 必须是 SecretRef`);
+    if (value.name !== undefined && typeof value.name !== 'string') throw validationError(`${path}.name 必须是字符串`);
+    return;
+  }
+  if (value.type === 'api_key') {
+    rejectUnknown(value, new Set(['type', 'secretRef', 'in', 'name']), path);
+    if (!isSecretRef(value.secretRef)) throw validationError(`${path}.secretRef 必须是 SecretRef`);
+    if (!isNonEmptyString(value.name)) throw validationError(`${path}.name 必填`);
+    if (value.in !== undefined && !['header', 'query'].includes(String(value.in))) throw validationError(`${path}.in 不支持`);
+    return;
+  }
+  if (value.type === 'custom_header') {
+    rejectUnknown(value, new Set(['type', 'secretRef', 'headerName']), path);
+    if (!isSecretRef(value.secretRef)) throw validationError(`${path}.secretRef 必须是 SecretRef`);
+    if (!isNonEmptyString(value.headerName)) throw validationError(`${path}.headerName 必填`);
+    return;
+  }
+  rejectUnknown(value, new Set(['type', 'certSecretRef', 'keySecretRef']), path);
+  if (!isSecretRef(value.certSecretRef) || !isSecretRef(value.keySecretRef)) throw validationError(`${path} mTLS 必须使用证书和私钥 SecretRef`);
+}
+
+function validateHttpTls(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['verify', 'caSecretRef', 'clientCertSecretRef', 'clientKeySecretRef', 'sni', 'allowInsecure']), path);
+  if (value.verify !== undefined && typeof value.verify !== 'boolean') throw validationError(`${path}.verify 必须是布尔值`);
+  if (value.allowInsecure !== undefined && typeof value.allowInsecure !== 'boolean') throw validationError(`${path}.allowInsecure 必须是布尔值`);
+  if (value.caSecretRef !== undefined && !isSecretRef(value.caSecretRef)) throw validationError(`${path}.caSecretRef 必须是 SecretRef`);
+  if (value.clientCertSecretRef !== undefined && !isSecretRef(value.clientCertSecretRef)) throw validationError(`${path}.clientCertSecretRef 必须是 SecretRef`);
+  if (value.clientKeySecretRef !== undefined && !isSecretRef(value.clientKeySecretRef)) throw validationError(`${path}.clientKeySecretRef 必须是 SecretRef`);
+  if (value.sni !== undefined && typeof value.sni !== 'string') throw validationError(`${path}.sni 必须是字符串`);
 }
 
 function validateVariableReferences(content: WorkflowDslV1): void {
@@ -217,6 +300,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return isRecord(value) && Object.values(value).every((item) => typeof item === 'string');
+}
+
+function isSecretRefRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((item) => isSecretRef(item));
+}
+
+function isPrimitiveRecord(value: unknown): value is Record<string, string | number | boolean> {
+  return isRecord(value) && Object.values(value).every(isPrimitive);
+}
+
+function isPrimitive(value: unknown): value is string | number | boolean {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
 }
 
 function isNonEmptyString(value: unknown): value is string {

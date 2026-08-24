@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { MockAdapterRuntime } from '../../gateway-agents/adapter-runtime.mock.js';
 import type { GatewayTaskAuditWriter } from '../../gateway-agents/gateway-target-history.service.js';
@@ -7,6 +8,10 @@ import { LegacyTaskDispatcher } from '../../legacy-agents/legacy-task-dispatcher
 import { LegacyTaskTranslator } from '../../legacy-agents/legacy-task-translator.js';
 import type { LegacyAgentProfile, UnifiedLegacyStep } from '../../legacy-agents/legacy-agent.types.js';
 import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor } from '../../executors/index.js';
+import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
+import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
+import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
+import type { WorkflowExecutorDispatchResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
@@ -55,6 +60,8 @@ export interface DefaultExecutorDependencies {
   agents?: AgentsApplicationService;
   gatewayTasks?: GatewayTaskService;
   gatewayTaskAuditWriter?: GatewayTaskAuditWriter;
+  secrets?: SecretService;
+  workflows?: WorkflowTemplatesApplicationService;
 }
 
 export class ExecutorRegistry {
@@ -105,10 +112,12 @@ export function createDefaultExecutorRegistryWithDependencies(dependencies: Defa
 }
 
 function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}): Executor[] {
+  const sshExecutor = new SSHExecutor(dependencies.secrets ? { secretResolver: new SecretServiceSshResolver(dependencies.secrets) } : {});
+  const curlExecutor = new CurlExecutor(dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {});
   return [
-	    new SSHExecutor(),
-	    new CurlExecutor(),
-	    new WorkflowExecutorAdapter(),
+	    sshExecutor,
+	    curlExecutor,
+	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents),
@@ -203,26 +212,74 @@ export class AgentExecutorAdapter implements Executor {
 
 export class WorkflowExecutorAdapter implements Executor {
   readonly type = 'WORKFLOW';
+  private readonly workflows: WorkflowTemplatesApplicationService;
+  private readonly curlExecutor: CurlExecutor;
+  private readonly sshExecutor: SSHExecutor;
+
+  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor } = {}) {
+    this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
+    this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
+    this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
+  }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const request = readRecord(input.step.inputSnapshot.workflowRequest);
     if (!request) {
       return { success: false, errorCode: 'WORKFLOW_REQUEST_REQUIRED', errorMessage: 'WORKFLOW 执行器缺少 workflowRequest，拒绝伪成功' };
     }
-    const detail = {
-      mode: input.dryRun ? 'workflow_plan' : 'workflow_runner_pending',
-      workflowRequest: maskWorkflowRequest(request),
-      stepType: input.step.stepType,
-    };
-    if (input.dryRun) {
-      return { success: true, detail };
+    const workflowVersionId = stringFromSnapshot(request.workflowVersionId);
+    if (!workflowVersionId) {
+      return { success: false, errorCode: 'WORKFLOW_VERSION_REQUIRED', errorMessage: 'WORKFLOW 执行器缺少 workflowVersionId' };
     }
-    return {
-      success: false,
-      errorCode: 'WORKFLOW_RUNNER_NOT_IMPLEMENTED',
-      errorMessage: '工作流运行壳已进入执行记录，但真实 WorkflowRunService 尚未接入',
-      detail,
+    const runtimeInput = {
+      templateVersionId: workflowVersionId,
+      mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
+      userVariables: readRecord(request.variableBindings) ?? {},
+      assetVariables: buildWorkflowAssetVariables(input.step.inputSnapshot, request),
+      certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
+      secretRefs: readRecord(request.credentialRefs) as Record<string, string | Record<string, unknown>> | undefined,
     };
+    try {
+      const workflowRun = input.dryRun
+        ? await this.workflows.preview(runtimeInput)
+        : await this.workflows.runWithDispatcher(runtimeInput, async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.attempt));
+      const detail = {
+        mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
+        workflowRequest: maskWorkflowRequest(request),
+        workflowRun,
+        stepType: input.step.stepType,
+      };
+      return workflowRun.status === 'success'
+        ? { success: true, detail: detail as unknown as Record<string, unknown> }
+        : { success: false, errorCode: 'WORKFLOW_RUN_FAILED', errorMessage: '工作流执行失败', detail: detail as unknown as Record<string, unknown> };
+    } catch (error) {
+      if (error instanceof AppError) {
+        return { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: error.details as Record<string, unknown> | undefined };
+      }
+      return { success: false, errorCode: 'WORKFLOW_RUN_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, attempt: number): Promise<WorkflowExecutorDispatchResult> {
+    const plan = readRecord(renderedPlan);
+    const executor = stringFromSnapshot(plan?.executor);
+    if (executor === '017.CURL_HTTP') {
+      const result = await this.curlExecutor.executeStep({
+        ...input,
+        step: workflowChildStep(input.step, `workflow-curl-${attempt}`, { curlRequest: readRecord(plan?.curlRequest) }),
+        dryRun: false,
+      });
+      return curlWorkflowOutput(result);
+    }
+    if (executor === '015.SSH') {
+      const result = await this.sshExecutor.executeStep({
+        ...input,
+        step: workflowChildStep(input.step, `workflow-ssh-${attempt}`, { sshRequest: toWorkflowSshRequest(plan, input.step, attempt) }),
+        dryRun: false,
+      });
+      return sshWorkflowOutput(result);
+    }
+    return { success: true, body: { success: true }, logs: [`workflow:${executor ?? 'internal'}:planned`] };
   }
 }
 
@@ -444,6 +501,88 @@ function maskWorkflowRequest(value: unknown): unknown {
     key,
     /(password|token|privateKey|secret|credential|pfx|jks)/i.test(key) ? '[REDACTED]' : maskWorkflowRequest(child),
   ]));
+}
+
+function workflowChildStep(parent: ExecutionStepEntity, suffix: string, inputSnapshot: Record<string, unknown>): ExecutionStepEntity {
+  return {
+    ...parent,
+    id: `${parent.id}:${suffix}`,
+    inputSnapshot,
+  };
+}
+
+function buildWorkflowAssetVariables(snapshot: Record<string, unknown>, request: Record<string, unknown>): Record<string, unknown> {
+  return {
+    applicationAssetId: request.applicationAssetId,
+    managedTargetId: request.managedTargetId,
+    siteAssetId: request.siteAssetId,
+    certificateBindingId: request.certificateBindingId ?? snapshot.certificateBindingId,
+    deploymentPlanId: snapshot.deploymentPlanId,
+    deploymentPlanTargetId: snapshot.deploymentPlanTargetId,
+    verifyUrl: snapshot.verifyUrl,
+  };
+}
+
+function buildWorkflowCertificateMaterials(snapshot: Record<string, unknown>): Record<string, Record<string, unknown>> {
+  const artifact = readRecord(snapshot.deploymentArtifact) ?? readRecord(snapshot.artifact);
+  if (!artifact) return {};
+  return {
+    cert: {
+      pem: artifact.certificatePem,
+      privateKey: artifact.privateKeyPem,
+      pfx: artifact.pfxBase64,
+      pfxPassword: artifact.pfxPassword,
+      fingerprintSha256: artifact.expectedFingerprintSha256 ?? snapshot.expectedCertificateFingerprintSha256,
+    },
+  };
+}
+
+function toWorkflowSshRequest(plan: Record<string, unknown> | undefined, parent: ExecutionStepEntity, attempt: number): Record<string, unknown> {
+  const connection = readRecord(plan?.connection);
+  const command = stringFromSnapshot(plan?.command);
+  const timeoutMs = typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : undefined;
+  const directRequest = readRecord(plan?.sshRequest);
+  return {
+    idempotencyKey: `${parent.executionRunId}:${parent.id}:workflow-ssh:${attempt}`,
+    connection,
+    command,
+    commands: readStringArray(plan?.commands),
+    script: stringFromSnapshot(plan?.script),
+    timeoutMs,
+    dryRun: false,
+    ...(directRequest ?? {}),
+  };
+}
+
+function curlWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatchResult {
+  const detail = readRecord(result.detail);
+  const response = readRecord(detail?.response) ?? detail;
+  return {
+    success: result.success,
+    statusCode: typeof response?.statusCode === 'number' ? response.statusCode : result.success ? 200 : 500,
+    headers: readRecord(response?.headers) as Record<string, string> | undefined,
+    body: response?.bodyJson ?? response?.bodyText ?? detail,
+    stdout: typeof response?.bodyText === 'string' ? response.bodyText : JSON.stringify(response?.bodyJson ?? detail ?? {}),
+    logs: readStringArray(detail?.logs),
+    raw: detail,
+    errorCode: result.errorCode,
+    errorMessage: result.errorMessage,
+  };
+}
+
+function sshWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatchResult {
+  const detail = readRecord(result.detail);
+  const commandResult = readRecord(detail?.commandResult);
+  return {
+    success: result.success,
+    exitCode: typeof commandResult?.exitCode === 'number' ? commandResult.exitCode : result.success ? 0 : 1,
+    stdout: typeof commandResult?.stdout === 'string' ? commandResult.stdout : '',
+    body: detail,
+    logs: readStringArray(commandResult?.logs),
+    raw: detail,
+    errorCode: result.errorCode,
+    errorMessage: result.errorMessage,
+  };
 }
 
 function shouldPreferDirectExecute(snapshot: Record<string, unknown>): boolean {

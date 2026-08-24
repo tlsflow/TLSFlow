@@ -5,7 +5,8 @@ import { DeploymentPlansRepository } from '../deployment-plans/repository/deploy
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
-import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayExecutorAdapter } from './application/executors.js';
+import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayExecutorAdapter, WorkflowExecutorAdapter } from './application/executors.js';
+import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 
 function createService() {
   return new ExecutionsApplicationService({
@@ -112,6 +113,17 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
 
   it('WORKFLOW 执行目标只生成一个 CUSTOM 步骤，dry-run 可预览，apply 失败关闭', async () => {
     const service = createService();
+    const workflows = new WorkflowTemplatesApplicationService();
+    const workflow = await workflows.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'workflow-shell-dry-run' },
+        variables: { deviceHost: { type: 'string', required: true } },
+        steps: [{ name: 'wait', type: 'wait', seconds: 1 }],
+      },
+    });
+    await workflows.publishVersion(workflow.version.id);
     const targetId = 'target_workflow_shell';
     const created = await service.createApplyRun({
       deploymentPlanId: 'plan_workflow_shell',
@@ -123,9 +135,10 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       executorTypeByTargetId: new Map([[targetId, 'WORKFLOW']]),
       agentPayloadByTargetId: new Map([[targetId, {
         workflowRequest: {
-          workflowId: 'wf_1',
-          workflowVersionId: 'wfv_1',
+          workflowId: workflow.template.id,
+          workflowVersionId: workflow.version.id,
           runner: 'CONTROL_PLANE',
+          variableBindings: { deviceHost: 'workflow-shell.example.com' },
           credentialRefs: { ssh: 'secret://ssh/workflow' },
         },
       }]]),
@@ -136,7 +149,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(steps[0].inputSnapshot.executorType, 'WORKFLOW');
     assert.equal(steps[0].inputSnapshot.operation, 'workflow');
 
-    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
+    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows })]));
     assert.equal(dryRunResult.success, true);
     const dryRunStep = await service.getStep(steps[0].id, 'tenant_1');
     assert.equal(dryRunStep.status, 'SUCCESS');
@@ -162,7 +175,101 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
     assert.equal(applyResult.success, false);
     const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))[0];
-    assert.equal(applyStep.lastErrorCode, 'WORKFLOW_RUNNER_NOT_IMPLEMENTED');
+    assert.equal(applyStep.lastErrorCode, 'RESOURCE_NOT_FOUND');
+  });
+
+  it('WORKFLOW apply 通过工作流运行时分发 HTTP 和 SSH 子步骤', async () => {
+    const workflows = new WorkflowTemplatesApplicationService();
+    const created = await workflows.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'runtime-dispatch' },
+        variables: {
+          deviceHost: { type: 'string', required: true },
+          credential: { type: 'secret', required: true },
+        },
+        steps: [
+          {
+            name: 'upload',
+            type: 'http',
+            request: {
+              method: 'PUT',
+              url: 'https://{{deviceHost}}/api/cert',
+              headers: { Authorization: 'Bearer {{credential.token}}' },
+              body: { ok: true },
+            },
+            assert: [{ type: 'statusCode', equals: 200 }],
+          },
+          {
+            name: 'reload',
+            type: 'ssh',
+            ssh: {
+              mode: 'command',
+              connection: {
+                host: '{{deviceHost}}',
+                username: 'deploy',
+                credentialSecretRef: 'secret://ssh/runtime',
+                expectedHostKeyFingerprint: 'aabbccddeeff0011',
+              },
+              command: 'reload cert',
+            },
+            assert: [{ type: 'contains', value: 'ok' }],
+          },
+        ],
+      },
+    });
+    await workflows.publishVersion(created.version.id);
+    const calls: string[] = [];
+    const adapter = new WorkflowExecutorAdapter({
+      workflows,
+      curlExecutor: {
+        type: 'CURL',
+        async executeStep(input: StepExecutionInput) {
+          calls.push(`curl:${input.step.inputSnapshot.curlRequest.template.method}`);
+          return { success: true, detail: { response: { statusCode: 200, headers: {}, bodyJson: { success: true }, bodyText: '{"success":true}' }, logs: ['curl:ok'] } };
+        },
+      },
+      sshExecutor: {
+        type: 'SSH',
+        async executeStep(input: StepExecutionInput) {
+          calls.push(`ssh:${input.step.inputSnapshot.sshRequest.command}`);
+          return { success: true, detail: { commandResult: { exitCode: 0, stdout: 'reload ok', stderr: '', logs: ['ssh:ok'] } } };
+        },
+      },
+    });
+
+    const result = await adapter.executeStep({
+      dryRun: false,
+      runType: 'apply',
+      step: {
+        id: 'stp_workflow_runtime',
+        tenantId: 'tenant_1',
+        executionRunId: 'run_workflow_runtime',
+        deploymentPlanTargetId: 'target_workflow_runtime',
+        stepNo: 1,
+        stepType: 'CUSTOM',
+        name: 'workflow runtime',
+        attemptCount: 0,
+        maxAttempts: 1,
+        inputSnapshot: {
+          workflowRequest: {
+            workflowId: created.template.id,
+            workflowVersionId: created.version.id,
+            runner: 'CONTROL_PLANE',
+            variableBindings: { deviceHost: 'edge-runtime.example.com', credential: { token: 'secret-token' } },
+          },
+        },
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        version: 1,
+      },
+    });
+
+    assert.equal(result.success, true);
+    assert.deepEqual(calls, ['curl:PUT', 'ssh:reload cert']);
+    assert.equal(result.detail.workflowRun.status, 'success');
   });
 
   it('按 dependsOn 形成 DAG 调度，不满足依赖的步骤不会先跑', async () => {

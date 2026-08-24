@@ -52,6 +52,7 @@ export class ExecutionResultSyncService {
       ...((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
       ...(input.detail ?? {}),
     };
+    normalizeWorkflowDeploymentDetail(mergedDetail);
     const installDetail = await this.resolveTargetInstallDetail(input.tenantId, step);
     if (installDetail) {
       mergedDetail.installResult = installDetail;
@@ -404,7 +405,7 @@ export class ExecutionResultSyncService {
     step: ExecutionStepEntity,
     detail: Record<string, unknown>,
   ): Promise<ResultState | undefined> {
-    if (!shouldSyncDeploymentState(input.runType, step.stepType, input.success)) return undefined;
+    if (!shouldSyncDeploymentState(input.runType, step.stepType, input.success, detail)) return undefined;
 
     const bindingId = typeof step.inputSnapshot.certificateBindingId === 'string' ? step.inputSnapshot.certificateBindingId : undefined;
     if (!bindingId) return undefined;
@@ -418,7 +419,7 @@ export class ExecutionResultSyncService {
     const managedTarget = binding.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, binding.managedTargetId) : undefined;
 
     await this.captureSnapshots(input, binding, assetBinding, siteAsset, managedTarget, detail, resultState);
-    await this.writeBindingState(input, binding, detail, resultState);
+    await this.writeBindingState(input, step, binding, detail, resultState);
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
     return resultState;
   }
@@ -556,7 +557,7 @@ export class ExecutionResultSyncService {
     await this.assets.createManagedTargetSnapshot(input.tenantId, {
       ...base,
       storeThumbprint: readString(detail, 'newThumbprint') ?? readString(detail, 'verify.remoteThumbprint') ?? binding.storeThumbprint,
-      fingerprintSha256: binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256,
+      fingerprintSha256: readString(detail, 'verify.remoteCertificateSha256') ?? binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256,
       certificateVersionId: resultState.useTargetCertificate ? (binding.targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
       snapshotType: resultState.snapshotType,
       metadata: {
@@ -568,14 +569,19 @@ export class ExecutionResultSyncService {
 
   private async writeBindingState(
     input: { tenantId: string },
+    step: ExecutionStepEntity,
     binding: CertificateBindingDto,
     detail: Record<string, unknown>,
     resultState: ResultState,
   ): Promise<void> {
     const targetThumbprint = readString(detail, 'verify.remoteThumbprint') ?? readString(detail, 'newThumbprint') ?? binding.storeThumbprint;
+    const observedFingerprint = readString(detail, 'verify.remoteCertificateSha256') ?? binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256;
+    const targetCertificateVersionId = binding.targetCertificateVersionId
+      ?? readString(step.inputSnapshot, 'deploymentArtifact.certificateVersionId')
+      ?? readString(step.inputSnapshot, 'workflowRequest.certificateVersionId');
     await this.bindings.updateCertificateBinding(input.tenantId, binding.id, {
-      certificateVersionId: resultState.useTargetCertificate ? (binding.targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
-      observedFingerprintSha256: binding.targetFingerprintSha256 ?? binding.observedFingerprintSha256,
+      certificateVersionId: resultState.useTargetCertificate ? (targetCertificateVersionId ?? binding.certificateVersionId) : binding.certificateVersionId,
+      observedFingerprintSha256: observedFingerprint,
       storeThumbprint: targetThumbprint ?? binding.storeThumbprint,
       lastVerifiedAt: new Date().toISOString(),
       lastDeployedAt: new Date().toISOString(),
@@ -732,11 +738,81 @@ function shouldSyncDeploymentState(
   runType: ExecutionRunEntity['type'],
   stepType: ExecutionStepEntity['stepType'],
   success: boolean,
+  detail?: Record<string, unknown>,
 ): boolean {
   if (stepType === 'VERIFY') return true;
+  if (stepType === 'CUSTOM' && isWorkflowExecutionDetail(detail)) return true;
   if (runType === 'rollback' && stepType === 'ROLLBACK' && !success) return true;
   if ((stepType === 'INSTALL' || stepType === 'RELOAD') && !success) return true;
   return false;
+}
+
+function normalizeWorkflowDeploymentDetail(detail: Record<string, unknown>): void {
+  if (!isWorkflowExecutionDetail(detail)) return;
+  const workflowRun = readRecord(detail.workflowRun);
+  const status = readString(workflowRun ?? {}, 'status');
+  if (status === 'rolled_back') detail.rolledBack = true;
+
+  const extractedRecords = readWorkflowExtractedRecords(workflowRun);
+  const remoteFingerprint = firstStringByKeys(extractedRecords, [
+    'remoteCertificateSha256',
+    'remoteFingerprintSha256',
+    'remoteFingerprint',
+    'certificateFingerprintSha256',
+    'fingerprintSha256',
+    'fingerprint',
+  ]);
+  const remoteThumbprint = firstStringByKeys(extractedRecords, ['remoteThumbprint', 'certificateThumbprint', 'thumbprint']);
+  const deployedThumbprint = firstStringByKeys(extractedRecords, ['newThumbprint', 'deployedThumbprint']);
+  const installedFingerprint = firstStringByKeys(extractedRecords, [
+    'installedCertificateSha256',
+    'installedFingerprintSha256',
+    'localCertificateSha256',
+    'localFingerprintSha256',
+  ]);
+
+  if (remoteFingerprint) {
+    const verify = ensureRecord(detail, 'verify');
+    if (!readString(verify, 'remoteCertificateSha256')) verify.remoteCertificateSha256 = remoteFingerprint;
+  }
+  if (remoteThumbprint) {
+    const verify = ensureRecord(detail, 'verify');
+    if (!readString(verify, 'remoteThumbprint')) verify.remoteThumbprint = remoteThumbprint;
+  }
+  if (deployedThumbprint && !readString(detail, 'newThumbprint')) detail.newThumbprint = deployedThumbprint;
+  if (installedFingerprint && !readString(detail, 'installedCertificateSha256')) detail.installedCertificateSha256 = installedFingerprint;
+}
+
+function isWorkflowExecutionDetail(detail: Record<string, unknown> | undefined): boolean {
+  if (!detail) return false;
+  return readString(detail, 'executionMode') === 'workflow' || Boolean(readRecord(detail.workflowRun));
+}
+
+function readWorkflowExtractedRecords(workflowRun: Record<string, unknown> | undefined): Record<string, unknown>[] {
+  const stepResults = workflowRun?.stepResults;
+  if (!Array.isArray(stepResults)) return [];
+  return stepResults
+    .map((item) => readRecord(item))
+    .map((item) => readRecord(item?.extracted))
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+}
+
+function firstStringByKeys(records: readonly Record<string, unknown>[], keys: readonly string[]): string | undefined {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = readString(record, key);
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
+function ensureRecord(parent: Record<string, unknown>, key: string): Record<string, unknown> {
+  const existing = readRecord(parent[key]);
+  if (existing) return existing;
+  const created: Record<string, unknown> = {};
+  parent[key] = created;
+  return created;
 }
 
 function readRunFailurePolicy(summary: Record<string, unknown>): 'stop' | 'continue' | 'rollback' {

@@ -3,6 +3,8 @@ import type {
   CreateWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   WorkflowRuntimeInput,
+  WorkflowStepRuntimeInput,
+  WorkflowExecutorDispatcher,
   WorkflowTemplate,
   WorkflowTemplateVersion,
 } from '../dto/workflow-templates.dto.js';
@@ -44,5 +46,13 @@ export class WorkflowTemplatesApplicationService {
 
   async testRun(input: WorkflowRuntimeInput) {
     return this.domain.testRun(input);
+  }
+
+  async testStep(input: WorkflowStepRuntimeInput) {
+    return this.domain.testStep(input);
+  }
+
+  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher) {
+    return this.domain.runWithDispatcher(input, dispatcher);
   }
 }

@@ -448,6 +448,97 @@ test('BACKUP 成功不会提前污染绑定与资产状态', async () => {
   assert.equal(assetsWrites.snapshots.length, 0);
 });
 
+test('WORKFLOW CUSTOM 成功会从 workflowRun 提取远端指纹并回写绑定状态', async () => {
+  const repository = new ExecutionsRepository();
+  const assetsWrites = createAssetWriteRecorder({
+    certificateVersionId: 'cert_old',
+    targetCertificateVersionId: 'cert_target',
+    targetFingerprintSha256: expectedFingerprint,
+    observedFingerprintSha256: mismatchedFingerprint,
+  });
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+  );
+
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_workflow_asset_sync',
+    tenantId,
+    deploymentPlanId: 'dplan_workflow_asset_sync',
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'workflow-asset-sync',
+    requestHash: 'hash-workflow-asset-sync',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_workflow_asset_sync',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_workflow_asset_sync',
+    stepNo: 1,
+    stepType: 'CUSTOM',
+    name: 'WORKFLOW certificate update',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: false,
+      executorType: 'WORKFLOW',
+      certificateBindingId: String(assetsWrites.binding.id),
+      expectedCertificateFingerprintSha256: expectedFingerprint,
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    actorId,
+    detail: {
+      executionMode: 'workflow',
+      workflowRun: {
+        status: 'success',
+        stepResults: [
+          { name: 'upload', type: 'http', status: 'success', extracted: { remoteFingerprintSha256: expectedFingerprint } },
+          { name: 'verify', type: 'ssh', status: 'success', extracted: { remoteThumbprint: '8'.repeat(40) } },
+        ],
+      },
+    },
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const resultDetail = updatedStep.inputSnapshot.resultDetail as Record<string, unknown>;
+  const verify = resultDetail.verify as Record<string, unknown>;
+
+  assert.equal(updatedStep.status, 'SUCCESS');
+  assert.equal(updatedRun.status, 'SUCCESS');
+  assert.equal(verify.remoteCertificateSha256, expectedFingerprint);
+  assert.equal(verify.remoteThumbprint, '8'.repeat(40));
+  assert.equal(assetsWrites.bindingUpdates.length, 1);
+  assert.equal(assetsWrites.bindingUpdates[0]?.certificateVersionId, 'cert_target');
+  assert.equal(assetsWrites.bindingUpdates[0]?.status, 'MANAGED');
+  assert.equal(assetsWrites.bindingUpdates[0]?.observedFingerprintSha256, expectedFingerprint);
+  assert.equal(assetsWrites.snapshots.at(-1)?.snapshotType, 'POST_DEPLOY');
+  assert.equal(assetsWrites.snapshots.at(-1)?.status, 'SUCCESS');
+});
+
 test('rollback VERIFY 成功后应写回回滚状态而不是目标证书状态', async () => {
   const repository = new ExecutionsRepository();
   const assetsWrites = createAssetWriteRecorder({

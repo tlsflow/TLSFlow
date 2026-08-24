@@ -140,7 +140,7 @@ export class ExecutionsApplicationService {
     this.domain.assertRollbackAllowed(sourceRun);
 
     const transitioned = await this.transitionRunEntity(sourceRun, 'ROLLBACK_RUNNING', input.actorId, 'rollback.requested');
-    this.audit.write({
+    void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -152,7 +152,7 @@ export class ExecutionsApplicationService {
       context,
       failClosed: true,
       detail: { sourceRunId: sourceRun.id, approvalId: input.approvalId },
-    });
+    }).catch(() => undefined);
 
     const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
     const targetIds = [...new Set(sourceSteps.map((step) => step.deploymentPlanTargetId).filter((id): id is string => Boolean(id)))];
@@ -246,6 +246,13 @@ export class ExecutionsApplicationService {
       const currentRun = await this.repository.getRunOrThrow(run.id, tenantId);
       if (currentRun.status === 'CANCELLED') {
         return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: '执行运行已取消' };
+      }
+      if (isTerminalRunStatus(currentRun.status)) {
+        return {
+          success: currentRun.status === 'SUCCESS',
+          errorCode: currentRun.errorCode,
+          errorMessage: currentRun.errorMessage,
+        };
       }
 
       const steps = (await this.repository.listSteps(tenantId, run.id)).sort((left, right) => left.stepNo - right.stepNo);
@@ -427,7 +434,7 @@ export class ExecutionsApplicationService {
     });
     const dispatched = await this.transitionRunEntity({ ...run, externalRunId: job.jobId }, 'DISPATCHED', input.actorId, 'queue.dispatched', { externalRunId: job.jobId });
 
-    this.audit.write({
+    void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -439,7 +446,7 @@ export class ExecutionsApplicationService {
       context,
       failClosed: input.type !== 'dry_run',
       detail: { deploymentPlanId: input.deploymentPlanId, jobId: job.jobId, stepCount: steps.length },
-    });
+    }).catch(() => undefined);
 
     return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId: job.jobId };
   }
@@ -707,7 +714,7 @@ export class ExecutionsApplicationService {
       this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
       return { success: true, asyncPending: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
-    if (this.resultSync && executorType === 'CONTROL_PLANE_TLS') {
+    if (this.resultSync && shouldSyncExecutorResult(executorType, run.type)) {
       await this.resultSync.applyAgentTaskResult({
         tenantId: tenantId ?? runningStep.tenantId ?? '',
         executionRunId: runningStep.executionRunId,
@@ -716,7 +723,7 @@ export class ExecutionsApplicationService {
         errorCode: result.errorCode,
         errorMessage: result.errorMessage,
         detail: {
-          executionMode: 'control_plane',
+          executionMode: executorType === 'WORKFLOW' ? 'workflow' : 'control_plane',
           ...(result.detail ?? {}),
         },
         actorId,
@@ -765,6 +772,9 @@ export class ExecutionsApplicationService {
   }
 
   private async finishFailedRun(run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, policy: FailurePolicy, errorCode: string, errorMessage: string, timeout = false): Promise<{ success: boolean; errorCode?: string; errorMessage?: string }> {
+    if (run.status === 'FAILED' || run.status === 'TIMEOUT') {
+      return { success: false, errorCode: run.errorCode ?? errorCode, errorMessage: run.errorMessage ?? errorMessage };
+    }
     const nextStatus = timeout || errorCode.toLowerCase().includes('timeout') ? 'TIMEOUT' : 'FAILED';
     await this.skipPendingStepsForRun(run.id, actorId, tenantId, 'runner.failed.skip_pending', errorCode, errorMessage);
     const failedRun = await this.transitionRunEntity(run, nextStatus, actorId, 'runner.failed', { errorCode, errorMessage });
@@ -861,6 +871,15 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
   const providerType = typeof payload.providerType === 'string' ? payload.providerType.toUpperCase() : undefined;
   if (providerType === 'NGINX' && stepType === 'VERIFY') return 'CONTROL_PLANE_TLS';
   return baseExecutorType;
+}
+
+function shouldSyncExecutorResult(executorType: string, runType: ExecutionRunEntity['type']): boolean {
+  if (executorType === 'CONTROL_PLANE_TLS') return true;
+  return executorType === 'WORKFLOW' && runType !== 'dry_run';
+}
+
+function isTerminalRunStatus(status: ExecutionRunEntity['status']): boolean {
+  return ['SUCCESS', 'FAILED', 'TIMEOUT', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'].includes(status);
 }
 
 function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: ExecutionStepEntity[], targetId: string): Record<string, unknown> {

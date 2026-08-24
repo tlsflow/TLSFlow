@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { App } from '../../common/http/app.js';
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
+import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import type { WorkflowDslV1 } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 
@@ -158,6 +160,29 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /duplicate workflow version content/);
   });
 
+  it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
+    const app = new App();
+    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      body: { content: templateFixture(), changeSummary: '初始版本' },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdBody = created.body as { template: { id: string } };
+
+    const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
+    assert.equal(templates.statusCode, 200);
+    const templatePage = templates.body as { items: unknown };
+    assert.equal(Array.isArray(templatePage.items), true);
+    assert.equal((templatePage.items as Array<{ id: string }>).some((item) => item.id === createdBody.template.id), true);
+
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    assert.equal(versions.statusCode, 200);
+    assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
+  });
+
   it('变量解析、SecretRef、证书材料占位和预览脱敏生效', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content: templateFixture() });
@@ -169,6 +194,67 @@ describe('WorkflowTemplates', () => {
     assert.match(text, /edge-01\.example\.com/);
     assert.doesNotMatch(text, /token-secret-value|super-private-key|runtime-token-secret/);
     assert.match(text, /\[REDACTED\]/);
+  });
+
+  it('支持单节点模拟运行，并返回脱敏后的执行计划和结果', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    const run = await service.testStep({
+      content,
+      stepName: 'reload',
+      mode: 'mock',
+      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+      secretRefs: runtimeInput('single').secretRefs,
+      mockResponses: { reload: { exitCode: 0, stdout: 'single node ok' } },
+    });
+
+    assert.equal(run.stepResult.name, 'reload');
+    assert.equal(run.stepResult.status, 'success');
+    assert.equal((run.stepResult.plan as { executor: string }).executor, '015.SSH');
+    assert.match(run.logs.join('\n'), /step:reload/);
+  });
+
+  it('condition 判断节点按变量结果决定成功或失败', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'isLinux',
+        type: 'condition',
+        condition: { variable: 'deviceOs', equals: 'linux' },
+        description: '只允许 Linux 目标继续',
+      },
+    ];
+    content.variables = { deviceOs: { type: 'string', required: true } };
+    content.rollback = undefined;
+
+    const passed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', userVariables: { deviceOs: 'linux' } });
+    assert.equal(passed.stepResult.status, 'success');
+    assert.equal((passed.stepResult.plan as { executor: string }).executor, 'workflow.condition');
+
+    const failed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', userVariables: { deviceOs: 'windows' } });
+    assert.equal(failed.stepResult.status, 'failed');
+  });
+
+  it('按 stage 固定顺序执行，并在结果中保留阶段', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
+      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { method: 'GET', url: 'https://{{deviceHost}}/login' } },
+      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{deviceHost}}', username: 'admin', credentialSecretRef: 'secret://ssh/device' }, commands: ['echo one', 'echo two'] } },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: { prepareSecondInArray: { statusCode: 200, body: { ok: true } }, refreshThirdInArray: { exitCode: 0, stdout: 'ok' } },
+    });
+
+    assert.deepEqual(run.stepResults.map((step) => step.name), ['prepareSecondInArray', 'refreshThirdInArray', 'verifyFirstInArray']);
+    assert.deepEqual(run.stepResults.map((step) => step.stage), ['prepare', 'refresh', 'verify']);
+    assert.deepEqual((run.stepResults[1]!.plan as { commands: string[] }).commands, ['echo one', 'echo two']);
   });
 
   it('HTTP 和 SSH step adapter 只生成 017/015 请求形状，不访问真实网络或 SSH', async () => {
@@ -185,9 +271,74 @@ describe('WorkflowTemplates', () => {
 
     assert.equal(run.status, 'success');
     assert.equal((run.stepResults[0]!.plan as { executor: string }).executor, '017.CURL_HTTP');
+    assert.equal((run.stepResults[0]!.plan as { curlRequest: { template: { method: string; url: string } } }).curlRequest.template.method, 'POST');
     assert.equal((run.stepResults[2]!.plan as { executor: string }).executor, '015.SSH');
     assert.equal((run.stepResults[2]!.plan as { realSsh: boolean }).realSsh, false);
     assert.equal((run.stepResults[0]!.plan as { realNetwork: boolean }).realNetwork, false);
+  });
+
+  it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'submit',
+        type: 'http',
+        retry: { count: 2, intervalSeconds: 1, retryOnStatus: [500, 503], retryOnNetworkError: true },
+        request: {
+          method: 'POST',
+          url: 'https://{{deviceHost}}/api/submit',
+          query: { dryRun: true },
+          headers: { Accept: 'application/json' },
+          headerRefs: { 'X-Trace-Secret': 'secret://trace/id' },
+          bodyType: 'multipart',
+          multipart: {
+            cert: { value: '{{cert.pem}}', filename: 'cert.pem', contentType: 'application/x-pem-file' },
+            key: { secretRef: 'secret://cert/key' },
+          },
+          auth: { type: 'bearer', secretRef: 'secret://device/login' },
+          tls: { verify: true, caSecretRef: 'secret://ca/root' },
+          timeoutSeconds: 12,
+          maxResponseBytes: 4096,
+          successStatusCodes: [200, 202],
+        },
+        extract: [{ name: 'status', type: 'jsonPath', path: '$.status' }],
+        assert: [{ type: 'statusCode', equals: 202 }],
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: { submit: { statusCode: 202, body: { status: 'accepted' } } },
+    });
+
+    const plan = run.stepResults[0]!.plan as {
+      curlRequest: {
+        template: {
+          query: Record<string, unknown>;
+          headerRefs: Record<string, string>;
+          bodyType: string;
+          multipart: Record<string, unknown>;
+          auth: { type: string; secretRef: string };
+          tls: { verify: boolean; caSecretRef: string };
+          timeoutMs: number;
+          maxResponseBytes: number;
+        };
+        retryPolicy: { maxAttempts: number; retryOnStatus: number[]; retryOnNetworkError: boolean };
+      };
+    };
+    assert.equal(run.status, 'success');
+    assert.deepEqual(plan.curlRequest.template.query, { dryRun: true });
+    assert.equal(plan.curlRequest.template.headerRefs['X-Trace-Secret'], '[REDACTED]');
+    assert.equal(plan.curlRequest.template.bodyType, 'multipart');
+    assert.equal(plan.curlRequest.template.auth.type, 'bearer');
+    assert.equal(plan.curlRequest.template.auth.secretRef, '[REDACTED]');
+    assert.equal(plan.curlRequest.template.tls.caSecretRef, '[REDACTED]');
+    assert.equal(plan.curlRequest.template.timeoutMs, 12_000);
+    assert.equal(plan.curlRequest.template.maxResponseBytes, 4096);
+    assert.equal(plan.curlRequest.retryPolicy.maxAttempts, 3);
+    assert.deepEqual(plan.curlRequest.retryPolicy.retryOnStatus, [500, 503]);
   });
 
   it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {
@@ -209,6 +360,6 @@ describe('WorkflowTemplates', () => {
 
     const realPlan = await service.testRun({ ...runtimeInput(version.id), mode: 'real_test' });
     assert.equal(realPlan.mode, 'real_test');
-    assert.equal(realPlan.plannedOnly, true);
+    assert.equal(realPlan.plannedOnly, false);
   });
 });

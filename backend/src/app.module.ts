@@ -120,6 +120,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
     gatewayTaskAuditWriter,
+    secrets: security.secrets,
+    workflows: workflowTemplatesService,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans

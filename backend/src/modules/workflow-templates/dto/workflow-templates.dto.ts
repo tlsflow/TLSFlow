@@ -1,7 +1,8 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'condition' | 'wait' | 'manual';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'secret' | 'certificate';
+export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 
@@ -24,6 +25,8 @@ export interface WorkflowMetadata {
 export interface WorkflowRetryPolicy {
   count?: number;
   intervalSeconds?: number;
+  retryOnStatus?: number[];
+  retryOnNetworkError?: boolean;
 }
 
 export interface WorkflowCondition {
@@ -55,9 +58,26 @@ export type WorkflowAssertion =
 export interface WorkflowHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
+  query?: Record<string, string | number | boolean>;
   headers?: Record<string, string>;
+  headerRefs?: Record<string, string>;
+  bodyType?: 'json' | 'form' | 'multipart' | 'raw' | 'none';
   body?: unknown;
+  form?: Record<string, string | number | boolean>;
+  multipart?: Record<string, { value?: string | number | boolean; filename?: string; contentType?: string; secretRef?: string }>;
+  auth?:
+    | { type: 'none' }
+    | { type: 'basic'; secretRef: string }
+    | { type: 'bearer'; secretRef: string }
+    | { type: 'api_key'; secretRef: string; in?: 'header' | 'query'; name: string }
+    | { type: 'cookie'; secretRef: string; name?: string }
+    | { type: 'custom_header'; secretRef: string; headerName: string }
+    | { type: 'mtls'; certSecretRef: string; keySecretRef: string };
+  tls?: { verify?: boolean; caSecretRef?: string; clientCertSecretRef?: string; clientKeySecretRef?: string; sni?: string; allowInsecure?: boolean };
   timeoutSeconds?: number;
+  maxResponseBytes?: number;
+  successStatusCodes?: number[];
+  failOnNon2xx?: boolean;
 }
 
 export interface WorkflowSshConnection {
@@ -79,6 +99,7 @@ export interface WorkflowSshStepConfig {
   mode: 'command' | 'script' | 'interactive';
   connection: WorkflowSshConnection;
   command?: string;
+  commands?: string[];
   script?: string;
   dialogue?: WorkflowSshDialogueItem[];
   timeoutSeconds?: number;
@@ -87,6 +108,7 @@ export interface WorkflowSshStepConfig {
 export interface WorkflowStepBase {
   name: string;
   type: WorkflowStepType;
+  stage?: WorkflowStage;
   when?: WorkflowCondition;
   retry?: WorkflowRetryPolicy;
   extract?: WorkflowExtractor[] | Record<string, Omit<WorkflowExtractor, 'name'>>;
@@ -103,6 +125,12 @@ export interface WorkflowSshStep extends WorkflowStepBase {
   ssh: WorkflowSshStepConfig;
 }
 
+export interface WorkflowConditionStep extends WorkflowStepBase {
+  type: 'condition';
+  condition: WorkflowCondition;
+  description?: string;
+}
+
 export interface WorkflowWaitStep extends WorkflowStepBase {
   type: 'wait';
   seconds: number;
@@ -113,7 +141,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowConditionStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';
@@ -171,6 +199,11 @@ export interface WorkflowRuntimeInput {
   mode: WorkflowTestRunMode;
 }
 
+export interface WorkflowStepRuntimeInput extends Omit<WorkflowRuntimeInput, 'templateVersionId'> {
+  content: WorkflowDslV1;
+  stepName: string;
+}
+
 export interface WorkflowMockStepOutput {
   statusCode?: number;
   headers?: Record<string, string>;
@@ -182,6 +215,7 @@ export interface WorkflowMockStepOutput {
 export interface WorkflowRenderedStep {
   name: string;
   type: WorkflowStepType;
+  stage?: WorkflowStage;
   skipped?: boolean;
   reason?: string;
   request?: unknown;
@@ -191,6 +225,7 @@ export interface WorkflowRenderedStep {
 export interface WorkflowStepRunResult {
   name: string;
   type: WorkflowStepType;
+  stage?: WorkflowStage;
   status: 'success' | 'failed' | 'skipped';
   attempts: number;
   plan: unknown;
@@ -209,3 +244,29 @@ export interface WorkflowRunResult {
   rollbackResults: WorkflowStepRunResult[];
   logs: string[];
 }
+
+export interface WorkflowSingleStepRunResult {
+  id: string;
+  mode: WorkflowTestRunMode;
+  plannedOnly: boolean;
+  renderedStep: WorkflowRenderedStep;
+  stepResult: WorkflowStepRunResult;
+  logs: string[];
+}
+
+export interface WorkflowExecutorDispatchInput {
+  step: WorkflowStep;
+  renderedPlan: unknown;
+  attempt: number;
+  rollback: boolean;
+}
+
+export interface WorkflowExecutorDispatchResult extends WorkflowMockStepOutput {
+  success: boolean;
+  logs?: string[];
+  raw?: unknown;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export type WorkflowExecutorDispatcher = (input: WorkflowExecutorDispatchInput) => Promise<WorkflowExecutorDispatchResult>;

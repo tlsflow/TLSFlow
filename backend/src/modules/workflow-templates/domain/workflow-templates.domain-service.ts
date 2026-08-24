@@ -10,9 +10,13 @@ import type {
   WorkflowDslV1,
   WorkflowMockStepOutput,
   WorkflowRenderedStep,
+  WorkflowExecutorDispatcher,
   WorkflowRunResult,
   WorkflowRuntimeInput,
+  WorkflowSingleStepRunResult,
+  WorkflowStage,
   WorkflowStep,
+  WorkflowStepRuntimeInput,
   WorkflowStepRunResult,
   WorkflowTemplate,
   WorkflowTemplateVersion,
@@ -145,6 +149,36 @@ export class WorkflowTemplatesDomainService {
 
   async testRun(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
     await this.ready;
+    return this.executeRuntime(input);
+  }
+
+  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher): Promise<WorkflowRunResult> {
+    await this.ready;
+    return this.executeRuntime(input, dispatcher);
+  }
+
+  async testStep(input: WorkflowStepRuntimeInput): Promise<WorkflowSingleStepRunResult> {
+    await this.ready;
+    const content = workflowTemplatesSchemaRegistry.validate(input.content);
+    const step = content.steps.find((item) => item.name === input.stepName) ?? content.rollback?.find((item) => item.name === input.stepName);
+    if (!step) throw new AppError('RESOURCE_NOT_FOUND', 'workflow step not found', { stepName: input.stepName });
+    const context = resolveRuntimeContext(content, input);
+    // 中文说明：单节点模拟允许调用方补上游步骤产物，但不能覆盖已经解析过的 Secret/证书变量。
+    for (const [key, value] of Object.entries(input.userVariables ?? {})) {
+      if (context.values[key] === undefined) context.values[key] = value;
+    }
+    const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false);
+    return {
+      id: `wfstep_${randomUUID()}`,
+      mode: input.mode,
+      plannedOnly: input.mode === 'render_only',
+      renderedStep: result.rendered,
+      stepResult: result.result,
+      logs: result.result.logs.map((line) => maskText(line, context.secretPaths, context.values)),
+    };
+  }
+
+  private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
     const context = resolveRuntimeContext(version.content, input);
     const renderedSteps: WorkflowRenderedStep[] = [];
@@ -153,8 +187,8 @@ export class WorkflowTemplatesDomainService {
     const logs: string[] = [];
     let failed = false;
 
-    for (const step of version.content.steps) {
-      const result = this.runStep(step, context, input, false);
+    for (const step of orderStepsByStage(version.content.steps)) {
+      const result = await this.runStep(step, context, input, false, dispatcher);
       renderedSteps.push(result.rendered);
       stepResults.push(result.result);
       logs.push(...result.result.logs);
@@ -167,7 +201,7 @@ export class WorkflowTemplatesDomainService {
     if (failed && version.content.rollback?.length) {
       logs.push('rollback:started');
       for (const step of version.content.rollback) {
-        const result = this.runStep(step, context, input, true);
+        const result = await this.runStep(step, context, input, true, dispatcher);
         rollbackResults.push(result.result);
         logs.push(...result.result.logs);
       }
@@ -176,7 +210,7 @@ export class WorkflowTemplatesDomainService {
     return {
       id: `wfrun_${randomUUID()}`,
       mode: input.mode,
-      plannedOnly: true,
+      plannedOnly: input.mode === 'render_only',
       status: failed ? (rollbackResults.length ? 'rolled_back' : 'failed') : 'success',
       renderedSteps,
       stepResults,
@@ -185,11 +219,11 @@ export class WorkflowTemplatesDomainService {
     };
   }
 
-  private runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean): { rendered: WorkflowRenderedStep; result: WorkflowStepRunResult } {
+  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult }> {
     const type = step.type;
     if (!evaluateCondition(step.when, context.values)) {
       return {
-        rendered: { name: step.name, type, skipped: true, reason: 'condition_not_matched', preview: { skipped: true } },
+        rendered: { name: step.name, type, stage: step.stage, skipped: true, reason: 'condition_not_matched', preview: { skipped: true } },
         result: emptyStepResult(step, 'skipped', { skipped: true }, ['step:skipped:condition']),
       };
     }
@@ -197,30 +231,39 @@ export class WorkflowTemplatesDomainService {
     const attempts = (step.retry?.count ?? 0) + 1;
     let last: WorkflowStepRunResult | undefined;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const output = input.mockResponses?.[step.name] ?? defaultMockOutput(step, rollback, attempt);
-      const extracted = input.mode === 'render_only' ? {} : runExtractors(step, output);
+      const mockOutput = input.mockResponses?.[step.name] ?? defaultMockOutput(step, rollback, attempt);
+      const preOutput = normalizeStepOutput(step, mockOutput);
+      const plan = adaptStep(step, context, input.mode, preOutput);
+      const dispatchOutput = dispatcher && input.mode !== 'render_only'
+        ? await dispatcher({ step, renderedPlan: plan, attempt, rollback })
+        : undefined;
+      const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
+      const extracted = input.mode === 'render_only' ? {} : runExtractors(step, structuredOutput);
       const localValues = { ...context.values, ...extracted };
-      const plan = adaptStep(step, { ...context, values: localValues }, input.mode);
-      const assertions = input.mode === 'render_only' ? [] : evaluateAssertions(step.assert ?? [], output, localValues);
-      const success = input.mode === 'render_only' || (assertions.every((item) => item.passed) && stepOutputSuccess(step, output));
+      const finalPlan = extracted && Object.keys(extracted).length > 0
+        ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
+        : plan;
+      const assertions = input.mode === 'render_only' ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
+      const success = input.mode === 'render_only' || (dispatchOutput ? dispatchOutput.success : true) && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
       last = {
         name: step.name,
         type,
+        stage: step.stage,
         status: success ? 'success' : 'failed',
         attempts: attempt,
-        plan: maskUnknown(plan, context.secretPaths, context.values),
+        plan: maskUnknown(finalPlan, context.secretPaths, context.values),
         extracted: maskUnknown(extracted, context.secretPaths, context.values) as Record<string, unknown>,
         assertions,
-        logs: [`step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`],
+        logs: [`step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`, ...(dispatchOutput?.logs ?? [])],
       };
       if (success || attempt === attempts) {
         for (const [key, value] of Object.entries(extracted)) {
           context.values[key] = value;
           context.outputs[`${step.name}.${key}`] = value;
         }
-        context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: { output, extracted } };
+        context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: { output: structuredOutput, extracted } };
         return {
-          rendered: { name: step.name, type, request: maskUnknown(plan, context.secretPaths, context.values), preview: maskUnknown(plan, context.secretPaths, context.values) },
+          rendered: { name: step.name, type, stage: step.stage, request: maskUnknown(finalPlan, context.secretPaths, context.values), preview: maskUnknown(finalPlan, context.secretPaths, context.values) },
           result: last,
         };
       }
@@ -277,7 +320,7 @@ export class WorkflowTemplatesDomainService {
   }
 }
 
-function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput): RuntimeContext {
+function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput | WorkflowStepRuntimeInput): RuntimeContext {
   const values: Record<string, unknown> = {};
   const secretPaths = new Set<string>();
   const source = { ...(input.assetVariables ?? {}), ...(input.userVariables ?? {}) };
@@ -286,7 +329,7 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
     if (definition.type === 'certificate') value = input.certificateMaterials?.[name] ?? value;
     if (definition.type === 'secret') value = resolveSecretValue(name, value, input.secretRefs);
     if (value === undefined) {
-      if (definition.required) throw new AppError('VALIDATION_FAILED', '鍙橀噺缂哄け', { name });
+      if (definition.required) throw new AppError('VALIDATION_FAILED', '变量缺失', { name });
       continue;
     }
     validateVariableValue(definition, value, `variables.${name}`);
@@ -320,37 +363,80 @@ function collectValuePaths(path: string, value: unknown, paths: Set<string>): vo
   }
 }
 
-function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode']): unknown {
+function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode'], output?: WorkflowMockStepOutput): unknown {
   if (step.type === 'http') {
-    return {
-      executor: '017.CURL_HTTP',
-      dryRun: true,
-      realNetwork: false,
+    const curlRequest = {
       idempotencyKey: `workflow:${step.name}`,
+      dryRun: mode !== 'real_test',
       template: {
         method: step.request.method,
         url: renderString(step.request.url, context.values, mode === 'render_only'),
+        query: renderUnknown(step.request.query, context.values, mode === 'render_only'),
         headers: renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only'),
+        headerRefs: step.request.headerRefs,
+        bodyType: step.request.bodyType,
         body: renderUnknown(step.request.body, context.values, mode === 'render_only'),
+        form: renderUnknown(step.request.form, context.values, mode === 'render_only'),
+        multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
+        auth: step.request.auth,
+        tls: step.request.tls,
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
+        maxResponseBytes: step.request.maxResponseBytes,
       },
+      responsePolicy: {
+        successStatusCodes: step.request.successStatusCodes,
+        failOnNon2xx: step.request.failOnNon2xx,
+        assertions: (step.assert ?? []).filter((item) => item.type === 'statusCode').map((item) => ({ type: 'status', equals: item.equals })),
+      },
+      extractors: normalizeExtractors(step.extract).map((extractor) => {
+        if (extractor.type === 'statusCode') return { name: extractor.name, source: 'status', required: !extractor.optional, secret: extractor.sensitive };
+        if (extractor.type === 'header') return { name: extractor.name, source: 'header', header: extractor.header, required: !extractor.optional, secret: extractor.sensitive };
+        if (extractor.type === 'regex') return { name: extractor.name, source: 'body', pattern: extractor.pattern, required: !extractor.optional, secret: extractor.sensitive };
+        return { name: extractor.name, source: 'json', path: extractor.path, required: !extractor.optional, secret: extractor.sensitive };
+      }),
+      retryPolicy: {
+        maxAttempts: (step.retry?.count ?? 0) + 1,
+        intervalMs: (step.retry?.intervalSeconds ?? 0) * 1000,
+        retryOnStatus: step.retry?.retryOnStatus,
+        retryOnNetworkError: step.retry?.retryOnNetworkError,
+      },
+      mockResponse: mode === 'mock' ? output : undefined,
+    };
+    return {
+      executor: '017.CURL_HTTP',
+      dryRun: mode !== 'real_test',
+      realNetwork: mode === 'real_test',
+      idempotencyKey: curlRequest.idempotencyKey,
+      curlRequest,
       mode,
     };
   }
   if (step.type === 'ssh') {
     const command = step.ssh.mode === 'interactive'
       ? step.ssh.dialogue?.map((item) => renderString(item.send, context.values, mode === 'render_only')).join('\n')
-      : renderString(step.ssh.command ?? step.ssh.script ?? '', context.values, mode === 'render_only');
+      : renderString(buildSshCommandText(step), context.values, mode === 'render_only');
     return {
       executor: '015.SSH',
-      dryRun: true,
-      realSsh: false,
+      dryRun: mode !== 'real_test',
+      realSsh: mode === 'real_test',
       idempotencyKey: `workflow:${step.name}`,
+      stage: step.stage,
       connection: renderUnknown(step.ssh.connection, context.values, mode === 'render_only'),
       command,
+      commands: step.ssh.commands?.map((item) => renderString(item, context.values, mode === 'render_only')),
       mode: step.ssh.mode,
       timeoutMs: (step.ssh.timeoutSeconds ?? 60) * 1000,
       testMode: mode,
+    };
+  }
+  if (step.type === 'condition') {
+    const passed = evaluateCondition(step.condition, context.values);
+    return {
+      executor: 'workflow.condition',
+      condition: step.condition,
+      description: step.description,
+      passed,
+      mode,
     };
   }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
@@ -366,7 +452,7 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput): Reco
     if (extractor.type === 'jsonPath') value = readJsonPath(output.body, extractor.path ?? '');
     if (extractor.type === 'regex') value = String(output.stdout ?? output.body ?? '').match(new RegExp(extractor.pattern ?? ''))?.[1];
     if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(extractor.value ?? '');
-    if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '鎻愬彇鍙橀噺澶辫触', { step: step.name, extractor: extractor.name });
+    if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '提取变量失败', { step: step.name, extractor: extractor.name });
     if (value !== undefined && value !== null) extracted[extractor.name] = extractor.sensitive ? '[SECRET_CAPTURED]' : value;
   }
   return extracted;
@@ -401,12 +487,50 @@ function evaluateCondition(condition: WorkflowStep['when'], values: Record<strin
 function defaultMockOutput(step: WorkflowStep, rollback: boolean, attempt: number): WorkflowMockStepOutput {
   if (step.type === 'http') return { statusCode: rollback ? 204 : 200, headers: { 'x-workflow-mock': 'true' }, body: { success: true, attempt } };
   if (step.type === 'ssh') return { exitCode: 0, stdout: `mock ssh ${step.name} ok`, body: { success: true } };
+  if (step.type === 'condition') return { body: { passed: true, attempt } };
   return { body: { success: true } };
 }
 
-function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput): boolean {
+function orderStepsByStage(steps: WorkflowStep[]): WorkflowStep[] {
+  if (!steps.some((step) => step.stage)) return steps;
+  const order = new Map<WorkflowStage, number>([
+    ['prepare', 0],
+    ['backup', 1],
+    ['install', 2],
+    ['refresh', 3],
+    ['verify', 4],
+  ]);
+  return steps
+    .map((step, index) => ({ step, index }))
+    .sort((left, right) => {
+      const leftOrder = left.step.stage ? order.get(left.step.stage) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.step.stage ? order.get(right.step.stage) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map((item) => item.step);
+}
+
+function buildSshCommandText(step: Extract<WorkflowStep, { type: 'ssh' }>): string {
+  if (step.ssh.commands?.length) return step.ssh.commands.join('\n');
+  return step.ssh.command ?? step.ssh.script ?? '';
+}
+
+function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput): WorkflowMockStepOutput {
+  if (step.type !== 'http') return output;
+  const bodyText = typeof output.body === 'string' ? output.body : output.body === undefined ? '' : JSON.stringify(output.body);
+  return {
+    ...output,
+    statusCode: output.statusCode ?? 200,
+    headers: output.headers ?? {},
+    body: output.body ?? {},
+    stdout: output.stdout ?? bodyText,
+  };
+}
+
+function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, values: Record<string, unknown>): boolean {
   if (step.type === 'http') return [200, 201, 202, 204].includes(output.statusCode ?? 200);
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
+  if (step.type === 'condition') return evaluateCondition(step.condition, values);
   return true;
 }
 
@@ -421,7 +545,7 @@ function renderString(template: string, variables: Record<string, unknown>, keep
   return template.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g, (_match, key: string) => {
     const value = readPath(variables, key);
     if (value === undefined && keepMissing) return `{{${key}}}`;
-    if (value === undefined) throw new AppError('VALIDATION_FAILED', '鍙橀噺缂哄け', { key });
+    if (value === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key });
     if (isRecord(value) || Array.isArray(value)) return JSON.stringify(value);
     return String(value);
   });
@@ -452,7 +576,7 @@ function assertionResult(type: string, passed: boolean, message: string): Workfl
 }
 
 function emptyStepResult(step: WorkflowStep, status: WorkflowStepRunResult['status'], plan: unknown, logs: string[]): WorkflowStepRunResult {
-  return { name: step.name, type: step.type, status, attempts: 0, plan, extracted: {}, assertions: [], logs };
+  return { name: step.name, type: step.type, stage: step.stage, status, attempts: 0, plan, extracted: {}, assertions: [], logs };
 }
 
 function readJsonPath(body: unknown, path: string): unknown {
