@@ -446,19 +446,25 @@ export class ExecutionsApplicationService {
       && isUnifiedTaskWorkerEnabled();
     let jobId: string;
     if (useUnifiedTaskControlPlane && tasks && tenantId) {
+      const deploymentPlan = await this.deploymentPlansRepository.getPlan(input.deploymentPlanId, tenantId);
       const task = await tasks.enqueue({
         tenantId,
         taskType: taskTypeForExecutionRun(input.type),
         requestedBy: input.actorId,
         triggerSource: `execution.${input.type}.enqueue`,
         idempotencyKey: `execution-run:${run.id}`,
+        resourceSummary: {
+          displayName: deploymentPlan?.name ?? input.deploymentPlanId,
+          deploymentPlanId: input.deploymentPlanId,
+          executionType: input.type,
+        },
         payload: {
           runId: run.id,
           deploymentPlanId: input.deploymentPlanId,
           executionType: input.type,
         },
         resourceRefs: [
-          { resourceType: 'deploymentPlan', resourceId: input.deploymentPlanId },
+          { resourceType: 'deploymentPlan', resourceId: input.deploymentPlanId, displayKey: deploymentPlan?.name ?? input.deploymentPlanId },
           { resourceType: 'executionRun', resourceId: run.id },
         ],
       });
