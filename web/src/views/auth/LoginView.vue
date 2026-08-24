@@ -124,7 +124,8 @@ async function submit(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-4);
-  max-width: 74rem;
+  width: 100%;
+  max-width: 100rem;
   margin: 0 auto;
 }
 
@@ -177,16 +178,19 @@ async function submit(): Promise<void> {
 
 .login-page__content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(20rem, 27.5rem);
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, clamp(27.5rem, 28vw, 32rem));
   align-items: center;
-  gap: var(--gc-space-12);
-  max-width: 74rem;
-  min-height: calc(100vh - var(--gc-space-12));
+  gap: clamp(var(--gc-space-8), 3vw, var(--gc-space-12));
+  width: 100%;
+  max-width: 100rem;
+  /* 扣除页面上下内边距和顶部栏高度，避免宽屏页面产生额外滚动空间。 */
+  min-height: calc(100vh - var(--gc-space-6) - var(--gc-space-10) - var(--gc-space-10));
+  min-height: calc(100dvh - var(--gc-space-6) - var(--gc-space-10) - var(--gc-space-10));
   margin: 0 auto;
 }
 
 .login-page__intro {
-  max-width: 42.5rem;
+  max-width: 56rem;
 }
 
 .login-page__eyebrow {
@@ -198,7 +202,7 @@ async function submit(): Promise<void> {
 }
 
 .login-page__intro h1 {
-  max-width: 41.25rem;
+  max-width: 56rem;
   margin: 0;
   color: var(--gc-color-text-strong);
   font-size: var(--gc-font-size-2xl);
@@ -210,7 +214,7 @@ async function submit(): Promise<void> {
 }
 
 .login-page__intro > p {
-  max-width: 38.75rem;
+  max-width: 50rem;
   margin: var(--gc-space-5) 0 0;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-md);
@@ -266,6 +270,7 @@ async function submit(): Promise<void> {
 .login-page__panel {
   display: grid;
   place-items: center;
+  width: 100%;
 }
 
 .login-card {
@@ -391,6 +396,11 @@ async function submit(): Promise<void> {
 
   .login-page__intro {
     max-width: none;
+  }
+
+  .login-page__panel {
+    max-width: 32rem;
+    margin-inline: auto;
   }
 
   .login-page__intro h1 {
