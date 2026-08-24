@@ -47,16 +47,16 @@ export class App {
       const route = this.router.match(request.method, request.path);
       if (!route) {
         const handled = toErrorResponse(new AppError('RESOURCE_NOT_FOUND', '接口不存在', { path: request.path }), request.context.requestId);
-        return this.json(handled.statusCode, handled.body, request.context);
+        return this.respond(handled.statusCode, handled.body, request.context);
       }
       try {
         const result = await route.handler(request);
         await this.flushPersistence();
-        if (isResponseBody(result)) return this.json(result.statusCode ?? 200, result.body, request.context, result.headers);
-        return this.json(200, result, request.context);
+        if (isResponseBody(result)) return this.respond(result.statusCode ?? 200, await resolveBody(result.body), request.context, result.headers);
+        return this.respond(200, await resolveBody(result), request.context);
       } catch (error) {
         const handled = toErrorResponse(error, request.context.requestId);
-        return this.json(handled.statusCode, handled.body, request.context);
+        return this.respond(handled.statusCode, handled.body, request.context);
       }
     });
   }
@@ -107,11 +107,12 @@ export class App {
     };
   }
 
-  private json(statusCode: number, body: unknown, context: RequestContext, headers: Record<string, string> = {}): InjectResponse {
+  private respond(statusCode: number, body: unknown, context: RequestContext, headers: Record<string, string> = {}): InjectResponse {
+    const contentType = headers['content-type'] ?? headers['Content-Type'] ?? 'application/json; charset=utf-8';
     return {
       statusCode,
       headers: {
-        'content-type': 'application/json; charset=utf-8',
+        'content-type': contentType,
         'x-request-id': context.requestId,
         'x-trace-id': context.traceId,
         ...headers,
@@ -131,6 +132,10 @@ function isResponseBody(value: unknown): value is { statusCode?: number; headers
   return Boolean(value && typeof value === 'object' && ('statusCode' in value || 'body' in value || 'headers' in value));
 }
 
+async function resolveBody<T>(value: T | Promise<T>): Promise<T> {
+  return await value;
+}
+
 function parseQuery(searchParams: URLSearchParams): Record<string, string | string[] | undefined> {
   const output: Record<string, string | string[] | undefined> = {};
   for (const [key, value] of searchParams.entries()) {
@@ -147,7 +152,7 @@ function readHeader(headers: Record<string, string | string[] | undefined>, key:
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  if (!['POST', 'PUT', 'PATCH'].includes(req.method ?? '')) return undefined;
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '')) return undefined;
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -162,5 +167,14 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 function writeNodeResponse(res: ServerResponse, response: InjectResponse): void {
   res.statusCode = response.statusCode;
   for (const [key, value] of Object.entries(response.headers)) res.setHeader(key, value);
-  res.end(JSON.stringify(response.body ?? null));
+  const contentType = String(response.headers['content-type'] ?? 'application/json; charset=utf-8').toLowerCase();
+  if (contentType.startsWith('application/json')) {
+    res.end(JSON.stringify(response.body ?? null));
+    return;
+  }
+  if (typeof response.body === 'string' || Buffer.isBuffer(response.body)) {
+    res.end(response.body);
+    return;
+  }
+  res.end(String(response.body ?? ''));
 }
