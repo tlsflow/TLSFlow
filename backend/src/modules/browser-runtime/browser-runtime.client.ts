@@ -5,6 +5,7 @@ import type {
   BrowserRuntimeCreateRequest,
   BrowserRuntimeSession,
 } from './browser-runtime.types.js';
+import type { BrowserRuntimeHttpProxyResponse } from './browser-credential-session.service.js';
 
 export interface BrowserRuntimeClientOptions {
   baseUrl?: string;
@@ -48,6 +49,29 @@ export class BrowserRuntimeClient {
 
   async stopSession(sessionId: string): Promise<void> {
     await this.request(`/v1/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+  }
+
+  async proxyVncHttp(sessionId: string, innerPath: string, search: string): Promise<BrowserRuntimeHttpProxyResponse> {
+    if (!this.baseUrl) throw new AppError('BROWSER_RUNTIME_UNAVAILABLE', 'Browser Runtime Service 未配置');
+    const response = await this.fetchImpl(
+      `${this.baseUrl}/vnc/${encodeURIComponent(sessionId)}${innerPath}${search}`,
+      { method: 'GET', headers: { ...(this.sharedSecret ? { 'x-browser-runtime-secret': this.sharedSecret } : {}) } },
+    );
+    return {
+      statusCode: response.status,
+      headers: {
+        'content-type': response.headers.get('content-type') ?? 'application/octet-stream',
+        ...(response.headers.get('cache-control') ? { 'cache-control': response.headers.get('cache-control')! } : {}),
+      },
+      body: Buffer.from(await response.arrayBuffer()),
+    };
+  }
+
+  getVncWebSocketUrl(sessionId: string): string {
+    if (!this.baseUrl) throw new AppError('BROWSER_RUNTIME_UNAVAILABLE', 'Browser Runtime Service 未配置');
+    const url = new URL(`${this.baseUrl}/vnc/${encodeURIComponent(sessionId)}/websockify`);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return url.toString();
   }
 
   private async request<T = unknown>(

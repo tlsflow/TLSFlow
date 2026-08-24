@@ -838,12 +838,15 @@ export function getRouteContracts(
           tags: ['BrowserCredentials'],
           requestSchema: {
             type: 'object',
-            required: ['pluginVersionId', 'loginUrl', 'sharePassword'],
+            required: ['credentialId', 'pluginVersionId', 'loginUrl', 'sharePassword'],
             properties: {
+              credentialId: { type: 'string' },
               assetId: { type: 'string' },
               pluginVersionId: { type: 'string' },
               loginUrl: { type: 'string' },
               ttlSeconds: { type: 'number' },
+              screenWidth: { type: 'number' },
+              screenHeight: { type: 'number' },
               sharePassword: { type: 'string', writeOnly: true, 'x-sensitive': true },
             },
           },

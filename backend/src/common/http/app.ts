@@ -38,6 +38,7 @@ export type AgentTokenResolver = (
   | { actorId: string; tenantId: string }
   | undefined;
 export type PersistenceFlusher = { flush: () => Promise<void> };
+export type UpgradeHandler = (request: IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => Promise<boolean> | boolean;
 
 export interface AppOptions {
   config?: AppConfig;
@@ -55,6 +56,7 @@ export class App {
   private agentTokenResolver?: AgentTokenResolver;
   private readonly persistenceFlushers: PersistenceFlusher[] = [];
   private readonly resources = new Map<string, unknown>();
+  private readonly upgradeHandlers: UpgradeHandler[] = [];
 
   constructor(options: AppOptions = {}) {
     this.config = options.config ?? loadAppConfig();
@@ -79,6 +81,10 @@ export class App {
 
   getResource<T>(key: string): T | undefined {
     return this.resources.get(key) as T | undefined;
+  }
+
+  registerUpgradeHandler(handler: UpgradeHandler): void {
+    this.upgradeHandlers.push(handler);
   }
 
   async handle(request: HttpRequest): Promise<InjectResponse> {
@@ -130,7 +136,7 @@ export class App {
   }
 
   createNodeServer() {
-    return createServer(async (req, res) => {
+    const server = createServer(async (req, res) => {
       const host = req.headers.host ?? 'localhost';
       const url = new URL(req.url ?? '/', `http://${host}`);
       const method = (req.method ?? 'GET').toUpperCase();
@@ -176,6 +182,15 @@ export class App {
       }
       writeNodeResponse(res, response);
     });
+    server.on('upgrade', (request, socket, head) => {
+      void (async () => {
+        for (const handler of this.upgradeHandlers) {
+          if (await handler(request, socket, head)) return;
+        }
+        socket.destroy();
+      })().catch(() => socket.destroy());
+    });
+    return server;
   }
 
   private async tryServeStatic(

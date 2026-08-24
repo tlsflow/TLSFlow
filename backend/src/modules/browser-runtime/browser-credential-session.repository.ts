@@ -6,6 +6,7 @@ export type BrowserCredentialSessionStatus = 'created' | 'ready' | 'acquiring' |
 export interface BrowserCredentialSessionRecord {
   id: string;
   tenantId: string;
+  loginUrl?: string;
   assetId: string;
   pluginVersionId: string;
   workflowTemplateId: string;
@@ -13,6 +14,8 @@ export interface BrowserCredentialSessionRecord {
   capabilityKey: 'credential.acquire';
   runtimeSessionId: string;
   oneTimeUrlHash: string;
+  sharePasswordSalt?: string;
+  sharePasswordHash?: string;
   idempotencyKeyHash?: string;
   status: BrowserCredentialSessionStatus;
   credentialProfileId?: string;
@@ -30,10 +33,11 @@ export class BrowserCredentialSessionRepository {
   async save(record: BrowserCredentialSessionRecord): Promise<BrowserCredentialSessionRecord> {
     await this.db.query(`
       insert into browser_credential_sessions (
-        id, tenant_id, asset_id, plugin_version_id, workflow_template_id, workflow_version_id,
-        capability_key, runtime_session_id, one_time_url_hash, idempotency_key_hash, status, credential_profile_id,
-        expires_at, created_by, last_error_code, last_error_message, created_at, updated_at
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        id, tenant_id, login_url, asset_id, plugin_version_id, workflow_template_id, workflow_version_id,
+        capability_key, runtime_session_id, one_time_url_hash, share_password_salt, share_password_hash,
+        idempotency_key_hash, status, credential_profile_id, expires_at, created_by, last_error_code,
+        last_error_message, created_at, updated_at
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       on conflict (id) do update set
         status=excluded.status,
         credential_profile_id=excluded.credential_profile_id,
@@ -43,6 +47,7 @@ export class BrowserCredentialSessionRepository {
     `, [
       record.id,
       record.tenantId,
+      record.loginUrl ?? null,
       record.assetId,
       record.pluginVersionId,
       record.workflowTemplateId,
@@ -50,6 +55,8 @@ export class BrowserCredentialSessionRepository {
       record.capabilityKey,
       record.runtimeSessionId,
       record.oneTimeUrlHash,
+      record.sharePasswordSalt ?? null,
+      record.sharePasswordHash ?? null,
       record.idempotencyKeyHash ?? null,
       record.status,
       record.credentialProfileId ?? null,
@@ -67,6 +74,14 @@ export class BrowserCredentialSessionRepository {
     const row = (await this.db.query<SessionRow>(
       'select * from browser_credential_sessions where tenant_id=$1 and id=$2',
       [tenantId, id],
+    )).rows[0];
+    return row ? map(row) : undefined;
+  }
+
+  async getById(id: string): Promise<BrowserCredentialSessionRecord | undefined> {
+    const row = (await this.db.query<SessionRow>(
+      'select * from browser_credential_sessions where id=$1',
+      [id],
     )).rows[0];
     return row ? map(row) : undefined;
   }
@@ -136,6 +151,7 @@ export class BrowserCredentialSessionRepository {
 interface SessionRow extends Record<string, unknown> {
   id: string;
   tenant_id: string;
+  login_url: string | null;
   asset_id: string;
   plugin_version_id: string;
   workflow_template_id: string;
@@ -143,6 +159,8 @@ interface SessionRow extends Record<string, unknown> {
   capability_key: 'credential.acquire';
   runtime_session_id: string;
   one_time_url_hash: string;
+  share_password_salt: string | null;
+  share_password_hash: string | null;
   idempotency_key_hash: string | null;
   status: BrowserCredentialSessionStatus;
   credential_profile_id: string | null;
@@ -158,6 +176,7 @@ function map(row: SessionRow): BrowserCredentialSessionRecord {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    ...(row.login_url ? { loginUrl: row.login_url } : {}),
     assetId: row.asset_id,
     pluginVersionId: row.plugin_version_id,
     workflowTemplateId: row.workflow_template_id,
@@ -165,6 +184,8 @@ function map(row: SessionRow): BrowserCredentialSessionRecord {
     capabilityKey: 'credential.acquire',
     runtimeSessionId: row.runtime_session_id,
     oneTimeUrlHash: row.one_time_url_hash,
+    ...(row.share_password_salt ? { sharePasswordSalt: row.share_password_salt } : {}),
+    ...(row.share_password_hash ? { sharePasswordHash: row.share_password_hash } : {}),
     ...(row.idempotency_key_hash ? { idempotencyKeyHash: row.idempotency_key_hash } : {}),
     status: row.status,
     ...(row.credential_profile_id ? { credentialProfileId: row.credential_profile_id } : {}),

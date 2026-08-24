@@ -3,6 +3,8 @@ export interface BrowserRuntimeCreateRequest {
   loginUrl: string;
   allowedOrigins: string[];
   ttlSeconds: number;
+  screenWidth?: number;
+  screenHeight?: number;
 }
 
 export interface BrowserRuntimeSession {
@@ -10,6 +12,7 @@ export interface BrowserRuntimeSession {
   status: 'created' | 'ready' | 'stopped' | 'expired' | 'failed';
   vncUrl: string;
   cdpConnected?: boolean;
+  screenSize?: string;
   expiresAt: string;
 }
 

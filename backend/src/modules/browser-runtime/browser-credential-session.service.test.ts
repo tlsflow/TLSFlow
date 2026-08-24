@@ -19,9 +19,13 @@ describe('BrowserCredentialSessionService', () => {
   it('使用同一个 Runtime session 执行获取工作流，并按输出合同保存多参数临时凭据', async () => {
     const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
     const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
       assetId: 'asset_1',
       pluginVersionId: 'plugin_version_1',
       ttlSeconds: 120,
+      sharePassword: 'test-password',
+      screenWidth: 1600,
+      screenHeight: 900,
       idempotencyKey: 'request-001',
     });
 
@@ -31,20 +35,54 @@ describe('BrowserCredentialSessionService', () => {
     const acquired = await fixture.service.acquire(tenantId, actor, created.id);
 
     assert.equal(acquired.status, 'SAVED');
-    assert.equal(acquired.credentialId, 'cred_saved_1');
+    assert.equal(acquired.credentialId, 'cred_existing_1');
     assert.deepEqual(fixture.runtime.executedSessionIds, [created.id]);
-    assert.equal(fixture.credentials.created.length, 1);
-    assert.deepEqual(Object.keys(fixture.credentials.created[0]!.input.secretValues).sort(), ['sid', 'token']);
-    assert.equal(fixture.credentials.created[0]!.input.secretValues.token.plainText, 'token-value');
-    assert.equal(fixture.credentials.created[0]!.input.secretValues.sid.type, 'session_id');
+    assert.equal(fixture.credentials.created.length, 0);
+    assert.equal(fixture.credentials.updated.length, 1);
+    assert.deepEqual(Object.keys(fixture.credentials.updated[0]!.input.secretValues ?? {}).sort(), ['sid', 'token']);
+    assert.equal(fixture.credentials.updated[0]!.input.secretValues?.token?.plainText, 'token-value');
+    assert.equal(fixture.credentials.updated[0]!.input.secretValues?.sid?.type, 'session_id');
+    assert.equal(fixture.credentials.updated[0]!.input.expiresAt, created.expiresAt);
+    assert.equal(fixture.credentials.updated[0]!.input.expectedVersion, 1);
+    assert.deepEqual(fixture.runtime.createdScreenSizes, [{ width: 1600, height: 900 }]);
     assert.equal(fixture.runtime.stoppedSessionIds.includes(created.id), true);
+  });
+
+  it('同一资产重复获取时更新同一个凭据并保留应用资产关联', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+    const first = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      assetId: 'asset_1',
+      pluginVersionId: 'plugin_version_1',
+      ttlSeconds: 120,
+      sharePassword: 'test-password',
+    });
+    const second = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      assetId: 'asset_1',
+      pluginVersionId: 'plugin_version_1',
+      ttlSeconds: 120,
+      sharePassword: 'test-password',
+    });
+
+    await fixture.service.acquire(tenantId, actor, first.id);
+    await fixture.service.acquire(tenantId, actor, second.id);
+
+    assert.equal(fixture.credentials.created.length, 0);
+    assert.equal(fixture.credentials.updated.length, 2);
+    assert.equal(fixture.credentials.updated[0]!.credentialId, 'cred_existing_1');
+    assert.equal(fixture.credentials.updated[1]!.credentialId, 'cred_existing_1');
+    assert.equal(fixture.credentials.updated[0]!.input.metadata?.assetId, 'asset_1');
+    assert.equal(fixture.credentials.updated[1]!.input.metadata?.assetId, 'asset_1');
   });
 
   it('拒绝输出合同外字段，且不创建正式凭据', async () => {
     const fixture = createFixture({ token: 'token-value', sid: 'session-value', unexpected: 'leak' });
     const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
       assetId: 'asset_1',
       pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
       ttlSeconds: 120,
     });
 
@@ -53,14 +91,17 @@ describe('BrowserCredentialSessionService', () => {
       (error) => error instanceof AppError && error.errorCode === 'CREDENTIAL_OUTPUT_INVALID',
     );
     assert.equal(fixture.credentials.created.length, 0);
+    assert.equal(fixture.credentials.updated.length, 0);
     assert.equal((await fixture.sessions.get(tenantId, created.id))?.status, 'failed');
   });
 
   it('拒绝缺少必填输出字段，且不创建正式凭据', async () => {
     const fixture = createFixture({ token: 'token-value' });
     const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
       assetId: 'asset_1',
       pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
       ttlSeconds: 120,
     });
 
@@ -69,22 +110,27 @@ describe('BrowserCredentialSessionService', () => {
       (error) => error instanceof AppError && error.errorCode === 'CREDENTIAL_OUTPUT_INVALID',
     );
     assert.equal(fixture.credentials.created.length, 0);
+    assert.equal(fixture.credentials.updated.length, 0);
   });
 
   it('同一幂等键重复创建会话时明确返回冲突', async () => {
     const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
     await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
       assetId: 'asset_1',
       pluginVersionId: 'plugin_version_1',
       ttlSeconds: 120,
+      sharePassword: 'test-password',
       idempotencyKey: 'request-002',
     });
 
     await assert.rejects(
       () => fixture.service.create(tenantId, actor, {
+        credentialId: 'cred_existing_1',
         assetId: 'asset_1',
         pluginVersionId: 'plugin_version_1',
         ttlSeconds: 120,
+        sharePassword: 'test-password',
         idempotencyKey: 'request-002',
       }),
       (error) => error instanceof AppError && error.errorCode === 'RESOURCE_VERSION_CONFLICT',
@@ -92,21 +138,114 @@ describe('BrowserCredentialSessionService', () => {
     assert.equal(fixture.runtime.createdSessionIds.length, 1);
   });
 
-  it('临时 URL 首次连接后即被消费', async () => {
+  it('临时 URL 需要密码，并在同一会话内允许重复访问', async () => {
     const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
     const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
       assetId: 'asset_1',
       pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
       ttlSeconds: 120,
     });
     const url = new URL(created.temporaryUrl ?? '', 'https://gcac.example.test');
     const token = url.searchParams.get('token') ?? '';
 
-    const connected = await fixture.service.connect(tenantId, created.id, token);
-    assert.equal(connected.vncUrl, '/vnc/session');
+    const pending = await fixture.service.authorizeShare(created.id, token, undefined, undefined);
+    assert.equal(pending.authorized, false);
     await assert.rejects(
-      () => fixture.service.connect(tenantId, created.id, token),
-      (error) => error instanceof AppError && error.errorCode === 'TEMPORARY_URL_INVALID',
+      () => fixture.service.authorizeShare(created.id, token, 'wrong-password', undefined),
+      (error) => error instanceof AppError && error.errorCode === 'AUTH_FORBIDDEN',
+    );
+    const connected = await fixture.service.authorizeShare(created.id, token, 'test-password', undefined);
+    assert.equal(connected.authorized, true);
+    assert.match(connected.setCookie ?? '', /HttpOnly/);
+    const repeated = await fixture.service.authorizeShare(created.id, token, undefined, connected.setCookie);
+    assert.equal(repeated.authorized, true);
+  });
+
+  it('使用用户输入的认证地址，并允许不绑定应用资产', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+    const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      pluginVersionId: 'plugin_version_1',
+      loginUrl: 'https://asset.example.test/device/login',
+      sharePassword: 'test-password',
+      ttlSeconds: 120,
+    });
+
+    assert.equal(fixture.runtime.createdLoginUrls[0], 'https://asset.example.test/device/login');
+    const queried = await fixture.service.get(tenantId, created.id);
+    assert.equal(queried.loginUrl, 'https://asset.example.test/device/login');
+    assert.equal(queried.capability.loginUrl, 'https://asset.example.test/device/login');
+  });
+
+  it('未显式传入认证地址时使用凭据保存的 browserLoginUrl', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+    const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
+      ttlSeconds: 120,
+    });
+
+    assert.equal(fixture.runtime.createdLoginUrls[0], 'https://asset.example.test/saved-login');
+    assert.equal(created.loginUrl, 'https://asset.example.test/saved-login');
+  });
+
+  it('查询到过期会话时主动停止 Runtime 并标记 EXPIRED', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+    const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
+      ttlSeconds: 120,
+    });
+    fixture.sessions.expire(created.id);
+
+    const expired = await fixture.service.get(tenantId, created.id);
+
+    assert.equal(expired.status, 'EXPIRED');
+    assert.deepEqual(fixture.runtime.stoppedSessionIds, [created.id]);
+  });
+
+  it('允许插件白名单外的认证地址，并将其加入当前会话访问范围', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+
+    const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      pluginVersionId: 'plugin_version_1',
+      loginUrl: 'https://untrusted.example.test/login',
+      sharePassword: 'test-password',
+      ttlSeconds: 120,
+    });
+
+    assert.equal(created.loginUrl, 'https://untrusted.example.test/login');
+    assert.deepEqual(fixture.runtime.createdAllowedOrigins[0], [
+      'https://asset.example.test',
+      'https://untrusted.example.test',
+    ]);
+  });
+
+  it('只有完成密码校验后才能通过同源代理读取 VNC 资源', async () => {
+    const fixture = createFixture({ token: 'token-value', sid: 'session-value' });
+    const created = await fixture.service.create(tenantId, actor, {
+      credentialId: 'cred_existing_1',
+      assetId: 'asset_1',
+      pluginVersionId: 'plugin_version_1',
+      sharePassword: 'test-password',
+      ttlSeconds: 120,
+    });
+    const token = new URL(created.temporaryUrl ?? '').searchParams.get('token') ?? '';
+    const access = await fixture.service.authorizeShare(created.id, token, 'test-password', undefined);
+
+    const proxied = await fixture.service.proxyVncHttp(created.id, access.setCookie, 'vnc.html', '?autoconnect=true');
+    assert.equal(proxied.statusCode, 200);
+    assert.equal(proxied.headers['content-type'], 'text/html; charset=utf-8');
+    assert.equal(proxied.body.toString('utf8'), 'vnc-html');
+    assert.equal(fixture.runtime.proxiedSessionIds.at(-1), created.id);
+    await assert.rejects(
+      () => fixture.service.proxyVncHttp(created.id, undefined, 'vnc.html', ''),
+      (error) => error instanceof AppError && error.errorCode === 'AUTH_UNAUTHENTICATED',
     );
   });
 });
@@ -168,6 +307,11 @@ class InMemoryBrowserCredentialSessions implements BrowserCredentialSessionStore
     return record?.tenantId === tenant ? { ...record } : undefined;
   }
 
+  async getById(id: string): Promise<BrowserCredentialSessionRecord | undefined> {
+    const record = this.records.get(id);
+    return record ? { ...record } : undefined;
+  }
+
   async findByIdempotencyKeyHash(tenant: string, createdBy: string, idempotencyKeyHash: string): Promise<BrowserCredentialSessionRecord | undefined> {
     return [...this.records.values()].find((record) => record.tenantId === tenant
       && record.createdBy === createdBy
@@ -201,17 +345,29 @@ class InMemoryBrowserCredentialSessions implements BrowserCredentialSessionStore
     this.records.set(id, next);
     return { ...next };
   }
+
+  expire(id: string): void {
+    const record = this.records.get(id);
+    if (record) this.records.set(id, { ...record, expiresAt: new Date(Date.now() - 1_000).toISOString() });
+  }
 }
 
 class FakeBrowserRuntime implements BrowserRuntimePort {
   readonly createdSessionIds: string[] = [];
+  readonly createdLoginUrls: string[] = [];
+  readonly createdAllowedOrigins: string[][] = [];
+  readonly createdScreenSizes: Array<{ width?: number; height?: number }> = [];
   readonly executedSessionIds: string[] = [];
   readonly stoppedSessionIds: string[] = [];
+  readonly proxiedSessionIds: string[] = [];
 
   constructor(private readonly parameters: Record<string, string>) {}
 
   async createSession(input: BrowserRuntimeCreateRequest) {
     this.createdSessionIds.push(input.sessionId);
+    this.createdLoginUrls.push(input.loginUrl);
+    this.createdAllowedOrigins.push(input.allowedOrigins);
+    this.createdScreenSizes.push({ width: input.screenWidth, height: input.screenHeight });
     return {
       sessionId: input.sessionId,
       status: 'ready' as const,
@@ -238,27 +394,73 @@ class FakeBrowserRuntime implements BrowserRuntimePort {
   async stopSession(sessionId: string): Promise<void> {
     this.stoppedSessionIds.push(sessionId);
   }
+
+  async proxyVncHttp(sessionId: string, _innerPath: string, _search: string) {
+    this.proxiedSessionIds.push(sessionId);
+    return { statusCode: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: Buffer.from('vnc-html') };
+  }
+
+  getVncWebSocketUrl(sessionId: string): string {
+    return `ws://runtime.test/vnc/${sessionId}/websockify`;
+  }
 }
 
 class FakeCredentialWriter implements CredentialProfileWriter {
-  readonly created: Array<{ tenantId: string; createdBy: string; input: Parameters<CredentialProfileWriter['create']>[2] }> = [];
+  readonly created: never[] = [];
+  readonly updated: Array<{
+    tenantId: string;
+    credentialId: string;
+    actorId: string;
+    input: Parameters<CredentialProfileWriter['update']>[3];
+  }> = [];
+  private current = {
+    id: 'cred_existing_1',
+    tenantId,
+    name: '现有浏览器凭据',
+    kind: 'BROWSER_SESSION' as const,
+    scopeType: 'global' as const,
+      secretSlots: { cookie: 'secret://cookie/sec_existing#current' } as Record<string, string>,
+    metadata: {
+      assetId: 'asset_1',
+      browserLoginUrl: 'https://asset.example.test/saved-login',
+      lifecycle: 'temporary',
+      outputContract: {
+        version: 'credential.output/v1',
+        parameters: {
+          cookie: { secretType: 'cookie', required: true, delivery: { location: 'cookie', name: 'sid' } },
+          token: { secretType: 'api_token', required: true, delivery: { location: 'header', name: 'Authorization' } },
+        },
+      },
+    },
+    status: 'active' as const,
+    version: 1,
+    createdBy: actor.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
-  async create(tenant: string, createdBy: string, input: Parameters<CredentialProfileWriter['create']>[2]) {
-    this.created.push({ tenantId: tenant, createdBy, input });
-    return {
-      id: 'cred_saved_1',
-      tenantId: tenant,
-      name: input.name,
-      kind: input.kind,
-      scopeType: input.scopeType,
-      secretSlots: Object.fromEntries(Object.keys(input.secretValues).map((name) => [name, `secret://${name}/sec_${name}#current`])),
-      metadata: input.metadata,
-      status: 'active',
-      version: 1,
-      createdBy,
-      createdAt: new Date().toISOString(),
+  async get() {
+    return { ...this.current, metadata: { ...this.current.metadata } };
+  }
+
+  async update(
+    tenant: string,
+    credentialId: string,
+    actorId: string,
+    input: Parameters<CredentialProfileWriter['update']>[3],
+  ) {
+    assert.equal(tenant, this.current.tenantId);
+    assert.equal(credentialId, this.current.id);
+    assert.equal(input.expectedVersion, this.current.version);
+    this.updated.push({ tenantId: tenant, credentialId, actorId, input });
+    this.current = {
+      ...this.current,
+      secretSlots: Object.fromEntries(Object.keys(input.secretValues ?? {}).map((name) => [name, `secret://${name}/sec_${name}#current`])),
+      metadata: { ...this.current.metadata, ...(input.metadata ?? {}) },
+      version: this.current.version + 1,
       updatedAt: new Date().toISOString(),
-    } as Awaited<ReturnType<CredentialProfileWriter['create']>>;
+    };
+    return { ...this.current, metadata: { ...this.current.metadata } };
   }
 }
 

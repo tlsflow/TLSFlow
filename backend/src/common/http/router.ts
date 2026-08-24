@@ -52,6 +52,11 @@ function matchesRoutePath(pattern: string, actual: string): boolean {
   if (!pattern.includes('/:')) return false;
   const patternParts = pattern.split('/').filter(Boolean);
   const actualParts = actual.split('/').filter(Boolean);
+  const wildcardIndex = patternParts.findIndex((part) => part.endsWith('*') && part.startsWith(':'));
+  if (wildcardIndex >= 0) {
+    if (actualParts.length < wildcardIndex) return false;
+    return patternParts.slice(0, wildcardIndex).every((part, index) => part.startsWith(':') || part === actualParts[index]);
+  }
   if (patternParts.length !== actualParts.length) return false;
   return patternParts.every((part, index) => part.startsWith(':') || part === actualParts[index]);
 }

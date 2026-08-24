@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../common/errors/app-error.js';
 import type { RequestContext, SecuritySubject, SecretType } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
@@ -13,15 +13,21 @@ import type { BrowserCredentialSessionRecord } from './browser-credential-sessio
 import type { BrowserRuntimeActionResult, BrowserRuntimeBrowserAction, BrowserRuntimeCreateRequest, BrowserRuntimeSession } from './browser-runtime.types.js';
 
 export interface CreateBrowserCredentialSessionInput {
-  assetId: string;
+  credentialId: string;
+  assetId?: string;
   pluginVersionId: string;
+  loginUrl?: string;
   ttlSeconds?: number;
+  sharePassword: string;
+  screenWidth?: number;
+  screenHeight?: number;
   idempotencyKey?: string;
 }
 
 export interface BrowserCredentialSessionView {
   id: string;
   assetId: string;
+  loginUrl: string;
   pluginVersionId: string;
   workflowVersionId: string;
   status: 'CREATING' | 'READY_FOR_ACQUISITION' | 'ACQUIRING' | 'SAVED' | 'FAILED' | 'EXPIRED' | 'CLOSED';
@@ -41,6 +47,7 @@ export interface BrowserCredentialSessionView {
 export interface BrowserCredentialSessionStore {
   save(record: BrowserCredentialSessionRecord): Promise<BrowserCredentialSessionRecord>;
   get(tenantId: string, id: string): Promise<BrowserCredentialSessionRecord | undefined>;
+  getById(id: string): Promise<BrowserCredentialSessionRecord | undefined>;
   findByIdempotencyKeyHash(tenantId: string, createdBy: string, idempotencyKeyHash: string): Promise<BrowserCredentialSessionRecord | undefined>;
   claimForAcquire(tenantId: string, id: string): Promise<BrowserCredentialSessionRecord | undefined>;
   update(
@@ -56,10 +63,31 @@ export interface BrowserRuntimePort {
   getSession(sessionId: string): Promise<BrowserRuntimeSession>;
   execute(sessionId: string, action: BrowserRuntimeBrowserAction): Promise<BrowserRuntimeActionResult>;
   stopSession(sessionId: string): Promise<void>;
+  proxyVncHttp?(sessionId: string, innerPath: string, search: string): Promise<BrowserRuntimeHttpProxyResponse>;
+  getVncWebSocketUrl?(sessionId: string): string;
+}
+
+export interface BrowserRuntimeHttpProxyResponse {
+  statusCode: number;
+  headers: Record<string, string>;
+  body: Buffer;
+}
+
+export interface BrowserCredentialShareAccess {
+  authorized: boolean;
+  expiresAt: string;
+  setCookie?: string;
 }
 
 export interface CredentialProfileWriter {
-  create(tenantId: string, createdBy: string, input: Parameters<CredentialsApplicationService['create']>[2], context?: RequestContext): ReturnType<CredentialsApplicationService['create']>;
+  get(tenantId: string, credentialId: string): ReturnType<CredentialsApplicationService['get']>;
+  update(
+    tenantId: string,
+    credentialId: string,
+    actorId: string,
+    input: Parameters<CredentialsApplicationService['update']>[3],
+    context?: Parameters<CredentialsApplicationService['update']>[4],
+  ): ReturnType<CredentialsApplicationService['update']>;
 }
 
 export interface PluginVersionReader {
@@ -88,6 +116,20 @@ export class BrowserCredentialSessionService {
   ) {}
 
   async create(tenantId: string, actor: SecuritySubject, input: CreateBrowserCredentialSessionInput): Promise<BrowserCredentialSessionView> {
+    const sharePassword = normalizeSharePassword(input.sharePassword);
+    const credential = await this.credentials.get(tenantId, input.credentialId);
+    if (credential.kind !== 'BROWSER_SESSION') {
+      throw new AppError('VALIDATION_FAILED', '浏览器获取只能更新浏览器临时凭据', { credentialId: credential.id, kind: credential.kind });
+    }
+    const credentialAssetId = metadataString(credential.metadata, 'assetId');
+    if (input.assetId && credentialAssetId && input.assetId !== credentialAssetId) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '应用资产与现有凭据关联不一致', {
+        credentialId: credential.id,
+        assetId: input.assetId,
+        credentialAssetId,
+      });
+    }
+    const assetId = input.assetId ?? credentialAssetId ?? '';
     const idempotencyKeyHash = optionalIdempotencyHash(input.idempotencyKey);
     if (idempotencyKeyHash) {
       const existing = await this.sessions.findByIdempotencyKeyHash(tenantId, actor.id, idempotencyKeyHash);
@@ -98,10 +140,17 @@ export class BrowserCredentialSessionService {
         });
       }
     }
-    const asset = await this.assets.getServiceAssetDetail(tenantId, input.assetId);
-    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '应用资产不存在', { assetId: input.assetId });
     const plugin = await this.plugins.getVersionForTenant(tenantId, input.pluginVersionId);
     const contract = requireCredentialAcquire(plugin);
+    const configuredLoginUrl = input.loginUrl
+      ?? metadataString(credential.metadata, 'browserLoginUrl')
+      ?? contract.loginUrl;
+    const loginUrl = normalizeLoginUrl(configuredLoginUrl);
+    const allowedOrigins = withLoginOrigin(contract.allowedOrigins, loginUrl);
+    if (assetId) {
+      const asset = await this.assets.getServiceAssetDetail(tenantId, assetId);
+      if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '应用资产不存在', { assetId });
+    }
     if (plugin.status !== 'ENABLED') throw new AppError('CAPABILITY_MISSING', '插件版本未启用', { pluginVersionId: plugin.id });
     const binding = await this.bindings.find(plugin.id, 'credential.acquire');
     if (!binding) throw new AppError('WORKFLOW_VERSION_UNAVAILABLE', '插件缺少 credential.acquire 工作流绑定', { pluginVersionId: plugin.id });
@@ -112,24 +161,31 @@ export class BrowserCredentialSessionService {
     const ttlSeconds = normalizeTtl(input.ttlSeconds);
     const id = newId('bcs');
     const token = randomBytes(32).toString('base64url');
+    const sharePasswordSalt = randomBytes(16).toString('base64url');
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
     const runtimeSession = await this.runtime.createSession({
       sessionId: id,
-      loginUrl: contract.loginUrl,
-      allowedOrigins: contract.allowedOrigins,
+      loginUrl,
+      allowedOrigins,
       ttlSeconds,
+      screenWidth: normalizeScreenDimension(input.screenWidth, 1280, 3840),
+      screenHeight: normalizeScreenDimension(input.screenHeight, 800, 2160),
     });
     const record: BrowserCredentialSessionRecord = {
       id,
       tenantId,
-      assetId: input.assetId,
+      assetId,
+      loginUrl,
       pluginVersionId: plugin.id,
       workflowTemplateId: binding.workflowTemplateId,
       workflowVersionId: binding.workflowVersionId,
       capabilityKey: 'credential.acquire',
       runtimeSessionId: runtimeSession.sessionId,
+      credentialProfileId: credential.id,
       oneTimeUrlHash: hashToken(token),
+      sharePasswordSalt,
+      sharePasswordHash: hashPassword(sharePasswordSalt, sharePassword),
       ...(idempotencyKeyHash ? { idempotencyKeyHash } : {}),
       status: runtimeSession.status === 'ready' ? 'ready' : 'created',
       expiresAt,
@@ -148,6 +204,7 @@ export class BrowserCredentialSessionService {
     const runtime = await this.runtime.getSession(record.runtimeSessionId).catch(() => undefined);
     if (isExpired(record.expiresAt) && record.status !== 'succeeded' && record.status !== 'closed') {
       await this.sessions.update(tenantId, id, { status: 'expired' });
+      await this.runtime.stopSession(record.runtimeSessionId).catch(() => undefined);
       return this.view({ ...record, status: 'expired' }, plugin, contract);
     }
     if (runtime?.status === 'ready' && record.status === 'created') {
@@ -170,6 +227,10 @@ export class BrowserCredentialSessionService {
     try {
       const runtime = await this.runtime.getSession(claimed.runtimeSessionId);
       if (runtime.status !== 'ready') throw new AppError('BROWSER_CONTEXT_UNAVAILABLE', '浏览器上下文不可用', { status: runtime.status });
+      const credential = await this.credentials.get(tenantId, claimed.credentialProfileId ?? '');
+      if (credential.kind !== 'BROWSER_SESSION') {
+        throw new AppError('VALIDATION_FAILED', '目标凭据不是浏览器临时凭据', { credentialId: credential.id });
+      }
       const workflow = await this.workflows.getVersion(claimed.workflowVersionId);
       if (workflow.status !== 'published') throw new AppError('WORKFLOW_VERSION_UNAVAILABLE', '获取工作流版本已不可用');
       const parameters = await this.runBrowserWorkflow(claimed, workflow.content);
@@ -178,24 +239,24 @@ export class BrowserCredentialSessionService {
         name,
         { plainText: value, type: contract.output.parameters[name]!.secretType as SecretType },
       ]));
-      const credential = await this.credentials.create(tenantId, actor.id, {
-        name: `浏览器临时凭据-${claimed.assetId}`,
-        kind: 'BROWSER_SESSION',
-        scopeType: 'global',
+      const savedCredential = await this.credentials.update(tenantId, credential.id, actor.id, {
         secretValues,
+        expiresAt: claimed.expiresAt,
+        expectedVersion: credential.version,
         metadata: {
+          ...credential.metadata,
           lifecycle: 'temporary',
           expiresAt: claimed.expiresAt,
           browserSessionId: claimed.id,
-          assetId: claimed.assetId,
+          ...(claimed.assetId ? { assetId: claimed.assetId } : {}),
           pluginVersionId: claimed.pluginVersionId,
           workflowVersionId: claimed.workflowVersionId,
           outputContract: contract.output,
         },
       }, context);
-      const saved = await this.sessions.update(tenantId, id, { status: 'succeeded', credentialProfileId: credential.id });
+      const saved = await this.sessions.update(tenantId, id, { status: 'succeeded', credentialProfileId: savedCredential.id });
       await this.runtime.stopSession(claimed.runtimeSessionId).catch(() => undefined);
-      return this.view(saved ?? { ...claimed, status: 'succeeded', credentialProfileId: credential.id }, plugin, contract);
+      return this.view(saved ?? { ...claimed, status: 'succeeded', credentialProfileId: savedCredential.id }, plugin, contract);
     } catch (error) {
       const errorCode = error instanceof AppError ? error.errorCode : 'WORKFLOW_EXECUTION_FAILED';
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -221,17 +282,38 @@ export class BrowserCredentialSessionService {
     return this.view(updated ?? { ...record, status: 'closed' }, plugin, requireCredentialAcquire(plugin));
   }
 
-  async connect(tenantId: string, id: string, token: string): Promise<{ vncUrl: string; expiresAt: string }> {
-    const record = await this.requireRecord(tenantId, id);
+  async authorizeShare(id: string, token: string, password: string | undefined, cookieHeader: string | undefined): Promise<BrowserCredentialShareAccess> {
+    const record = await this.requirePublicRecord(id);
     const tokenHash = hashToken(token);
     if (tokenHash !== record.oneTimeUrlHash) throw new AppError('TEMPORARY_URL_INVALID', '临时 URL 无效');
-    if (isExpired(record.expiresAt)) throw new AppError('TEMPORARY_URL_EXPIRED', '临时 URL 已过期');
-    if (!['created', 'ready'].includes(record.status)) throw new AppError('SESSION_NOT_READY', '浏览器会话当前不允许连接');
-    const runtime = await this.runtime.getSession(record.runtimeSessionId);
-    if (runtime.status !== 'ready') throw new AppError('BROWSER_CONTEXT_UNAVAILABLE', '浏览器上下文不可用');
-    const consumed = await this.sessions.consumeTemporaryUrl(tenantId, id, tokenHash);
-    if (!consumed) throw new AppError('TEMPORARY_URL_INVALID', '临时 URL 已被使用或已失效');
-    return { vncUrl: runtime.vncUrl, expiresAt: record.expiresAt };
+    await this.assertShareAvailable(record);
+    if (this.hasValidShareCookie(record, cookieHeader)) return { authorized: true, expiresAt: record.expiresAt };
+    if (password === undefined) return { authorized: false, expiresAt: record.expiresAt };
+    const normalizedPassword = normalizeSharePassword(password);
+    if (!record.sharePasswordSalt || !record.sharePasswordHash
+      || !safeEqual(record.sharePasswordHash, hashPassword(record.sharePasswordSalt, normalizedPassword))) {
+      throw new AppError('AUTH_FORBIDDEN', '临时链接密码错误');
+    }
+    return {
+      authorized: true,
+      expiresAt: record.expiresAt,
+      setCookie: this.createShareCookie(record),
+    };
+  }
+
+  async proxyVncHttp(id: string, cookieHeader: string | undefined, innerPath: string, search: string): Promise<BrowserRuntimeHttpProxyResponse> {
+    const record = await this.requirePublicRecord(id);
+    await this.assertShareCookie(record, cookieHeader);
+    if (!this.runtime.proxyVncHttp) throw new AppError('BROWSER_RUNTIME_UNAVAILABLE', 'Browser Runtime 不支持 VNC HTTP 代理');
+    const path = normalizeVncPath(innerPath);
+    return this.runtime.proxyVncHttp(record.runtimeSessionId, path, search);
+  }
+
+  async getVncWebSocketUrl(id: string, cookieHeader: string | undefined): Promise<string> {
+    const record = await this.requirePublicRecord(id);
+    await this.assertShareCookie(record, cookieHeader);
+    if (!this.runtime.getVncWebSocketUrl) throw new AppError('BROWSER_RUNTIME_UNAVAILABLE', 'Browser Runtime 不支持 VNC WebSocket 代理');
+    return this.runtime.getVncWebSocketUrl(record.runtimeSessionId);
   }
 
   private async runBrowserWorkflow(record: BrowserCredentialSessionRecord, content: WorkflowDslV1): Promise<Record<string, string>> {
@@ -266,7 +348,7 @@ export class BrowserCredentialSessionService {
       resolvedInput: {
         apiVersion: 'gcac.resolved-deployment-input/v1',
         contractVersion: content.inputContract.apiVersion,
-        assetContext: { applicationAssetId: record.assetId } as never,
+        assetContext: record.assetId ? { applicationAssetId: record.assetId } as never : {} as never,
         variables: {},
         connections: {},
         credentials: {},
@@ -294,6 +376,41 @@ export class BrowserCredentialSessionService {
     return record;
   }
 
+  private async requirePublicRecord(id: string): Promise<BrowserCredentialSessionRecord> {
+    const record = await this.sessions.getById(id);
+    if (!record) throw new AppError('RESOURCE_NOT_FOUND', '浏览器凭据会话不存在', { id });
+    return record;
+  }
+
+  private async assertShareAvailable(record: BrowserCredentialSessionRecord): Promise<void> {
+    if (isExpired(record.expiresAt)) {
+      if (!['succeeded', 'closed'].includes(record.status)) {
+        await this.sessions.update(record.tenantId, record.id, { status: 'expired' });
+        await this.runtime.stopSession(record.runtimeSessionId).catch(() => undefined);
+      }
+      throw new AppError('TEMPORARY_URL_EXPIRED', '临时 URL 已过期');
+    }
+    if (!['created', 'ready'].includes(record.status)) throw new AppError('SESSION_NOT_READY', '浏览器会话当前不允许连接');
+    const runtime = await this.runtime.getSession(record.runtimeSessionId);
+    if (runtime.status !== 'ready') throw new AppError('BROWSER_CONTEXT_UNAVAILABLE', '浏览器上下文不可用');
+  }
+
+  private async assertShareCookie(record: BrowserCredentialSessionRecord, cookieHeader: string | undefined): Promise<void> {
+    await this.assertShareAvailable(record);
+    if (!this.hasValidShareCookie(record, cookieHeader)) throw new AppError('AUTH_UNAUTHENTICATED', '请先使用临时链接密码登录');
+  }
+
+  private hasValidShareCookie(record: BrowserCredentialSessionRecord, cookieHeader: string | undefined): boolean {
+    if (!record.sharePasswordHash || !record.sharePasswordSalt) return false;
+    const value = readCookie(cookieHeader, shareCookieName(record.id));
+    return value !== undefined && safeEqual(value, shareCookieValue(record));
+  }
+
+  private createShareCookie(record: BrowserCredentialSessionRecord): string {
+    const maxAge = Math.max(1, Math.floor((Date.parse(record.expiresAt) - Date.now()) / 1000));
+    return `${shareCookieName(record.id)}=${shareCookieValue(record)}; Path=${shareCookiePath(record.id)}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`;
+  }
+
   private view(record: BrowserCredentialSessionRecord, plugin: UnifiedPluginVersionRecord, contract: CredentialAcquireContract, token?: string): BrowserCredentialSessionView {
     const status = {
       created: 'CREATING',
@@ -307,6 +424,7 @@ export class BrowserCredentialSessionService {
     return {
       id: record.id,
       assetId: record.assetId,
+      loginUrl: record.loginUrl ?? contract.loginUrl,
       pluginVersionId: record.pluginVersionId,
       workflowVersionId: record.workflowVersionId,
       status,
@@ -318,7 +436,7 @@ export class BrowserCredentialSessionService {
       capability: {
         pluginId: plugin.pluginId,
         pluginVersion: plugin.version,
-        loginUrl: contract.loginUrl,
+        loginUrl: record.loginUrl ?? contract.loginUrl,
         outputParameters: Object.keys(contract.output.parameters),
       },
     };
@@ -397,6 +515,41 @@ function normalizeTtl(value: number | undefined): number {
   return ttl;
 }
 
+function normalizeScreenDimension(value: number | undefined, fallback: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 600 || value > maximum) {
+    throw new AppError('VALIDATION_FAILED', '浏览器视口尺寸不合法', { value, fallback, maximum });
+  }
+  return value;
+}
+
+function normalizeLoginUrl(value: string): string {
+  const loginUrl = requiredString(value, 'loginUrl');
+  let parsed: URL;
+  try {
+    parsed = new URL(loginUrl);
+  } catch {
+    throw new AppError('VALIDATION_FAILED', '认证地址必须是合法的 HTTP(S) URL');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new AppError('VALIDATION_FAILED', '认证地址必须使用 HTTP(S) 协议');
+  }
+  return parsed.toString();
+}
+
+function withLoginOrigin(allowedOrigins: readonly string[], loginUrl: string): string[] {
+  const loginOrigin = new URL(loginUrl).origin;
+  return [...new Set([...allowedOrigins, loginOrigin])];
+}
+
+function normalizeSharePassword(value: string): string {
+  const password = typeof value === 'string' ? value : '';
+  if (password.length < 8 || password.length > 128) {
+    throw new AppError('VALIDATION_FAILED', '临时链接密码必须是 8-128 位');
+  }
+  return password;
+}
+
 function optionalIdempotencyHash(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
@@ -406,8 +559,51 @@ function optionalIdempotencyHash(value: string | undefined): string | undefined 
   return hashToken(`browser-session:${trimmed}`);
 }
 
+function metadataString(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function hashToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function hashPassword(salt: string, password: string): string {
+  return scryptSync(password, salt, 32).toString('base64url');
+}
+
+function safeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function shareCookieName(id: string): string {
+  return `gcac_browser_vnc_${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+}
+
+function shareCookiePath(id: string): string {
+  return `/api/v1/credentials/browser-sessions/${encodeURIComponent(id)}`;
+}
+
+function shareCookieValue(record: BrowserCredentialSessionRecord): string {
+  return hashToken(`${record.id}:${record.oneTimeUrlHash}:${record.sharePasswordHash ?? ''}`);
+}
+
+function readCookie(cookieHeader: string | undefined, name: string): string | undefined {
+  for (const item of cookieHeader?.split(';') ?? []) {
+    const [key, ...value] = item.trim().split('=');
+    if (key === name) return value.join('=');
+  }
+  return undefined;
+}
+
+function normalizeVncPath(value: string): string {
+  const path = `/${value.replace(/^\/+/, '')}`;
+  if (path.includes('..') || path.includes('\\') || path === '/') {
+    throw new AppError('VALIDATION_FAILED', 'VNC 资源路径无效');
+  }
+  return path;
 }
 
 function isExpired(value: string): boolean {

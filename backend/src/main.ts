@@ -21,6 +21,7 @@ import type { TasksApplicationService } from './modules/tasks/task.application-s
 import type { TaskWorkerSupervisor } from './modules/tasks/task-worker-supervisor.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
+import type { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
 
 const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -344,6 +345,10 @@ async function start(): Promise<void> {
   }
 
   const server = app.createNodeServer();
+  const browserCredentialSessionController = app.getResource<BrowserCredentialSessionController>('browserCredentialSessionController');
+  if (browserCredentialSessionController) {
+    app.registerUpgradeHandler((request, socket, head) => browserCredentialSessionController.handleUpgrade(request, socket, head));
+  }
   const taskRealtimeStream = app.getResource<TaskRealtimeStreamService>('taskRealtimeStream');
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   const securityServices = securityBundle?.services ?? app.getResource<SecurityServices>('securityServices');
