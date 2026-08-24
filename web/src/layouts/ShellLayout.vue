@@ -765,7 +765,14 @@ async function refreshTaskEntryCount(): Promise<void> {
         </div>
       </header>
 
-    <main class="gc-shell__content gc-workbench__content" :class="{ 'gc-shell__content--locked': lockContentScroll, 'gc-workbench__content--locked': lockContentScroll }">
+    <main
+      class="gc-shell__content gc-workbench__content"
+      :class="{
+        'gc-shell__content--locked': lockContentScroll,
+        'gc-workbench__content--locked': lockContentScroll,
+        'gc-workbench__content--dashboard': route.path === '/dashboard',
+      }"
+    >
       <RouterView />
     </main>
     </div>
@@ -822,6 +829,10 @@ async function refreshTaskEntryCount(): Promise<void> {
 .gc-workbench__content--locked {
   height: calc(100vh - var(--gc-control-height-md) - var(--gc-space-4));
   overflow: hidden;
+}
+
+.gc-workbench__content--dashboard {
+  padding: 0;
 }
 
 @media (max-width: 60rem) {

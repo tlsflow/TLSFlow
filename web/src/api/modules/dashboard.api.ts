@@ -73,8 +73,14 @@ export interface DashboardQuickAction {
   readonly permission: string
 }
 
+export interface DashboardSystemResources {
+  readonly cpuUsage: number | null
+  readonly memoryUsage: number
+}
+
 export interface DashboardOverview {
   readonly generatedAt: string
+  readonly systemResources: DashboardSystemResources
   readonly metrics: DashboardMetric[]
   readonly quickActions: DashboardQuickAction[]
   readonly statusGroups: DashboardStatusGroup[]

@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import {
   getDashboardOverview,
-  type DashboardCertificateState,
   type DashboardMetric,
   type DashboardOverview,
   type DashboardQuickAction,
@@ -14,43 +13,25 @@ import {
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
-import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel } from '@/utils/audit-format'
+import { auditReadableTitle, auditResultLabel, auditSummary } from '@/utils/audit-format'
 import type { StatusTone } from '@/design-system/status/status-map'
-import { GcButton, GcDonutChart, GcPageHeader, GcStatusTag, GcTrendChart } from '@/design-system/components'
+import { GcButton, GcStatusTag, GcTrendChart } from '@/design-system/components'
+
+interface ResourceMetric {
+  readonly key: 'cpu' | 'memory'
+  readonly value: number | null
+  readonly tone: StatusTone
+}
+
+interface QuickStartAction {
+  readonly key: 'certificateImport' | 'deployment'
+  readonly path: string
+  readonly label: string
+  readonly emphasis: 'primary' | 'secondary'
+}
 
 const permissionStore = usePermissionStore()
 const { t, te } = useI18n()
-const legacyCertificateDetailPattern = /^(.+)\uff0c\u5269\u4f59 (.+) \u5929$/
-const legacyUnknownText = '\u672a\u77e5'
-const legacyDashboardStatusMap = new Map<string, string>([
-  ['\u6b63\u5e38', 'valid'],
-  ['\u5373\u5c06\u5230\u671f', 'expiring'],
-  ['\u4e34\u8fd1\u5230\u671f', 'critical'],
-  ['\u5df2\u8fc7\u671f', 'expired'],
-  [legacyUnknownText, 'unknown'],
-  ['ACTIVE', 'active'],
-  ['DELETED', 'deleted'],
-  ['DISABLED', 'disabled'],
-  ['INACTIVE', 'inactive'],
-  ['OFFLINE', 'offline'],
-  ['ONLINE', 'online'],
-  ['RETIRED', 'retired'],
-  ['STALE', 'stale'],
-  ['UNREACHABLE', 'unreachable'],
-  ['UPGRADING', 'upgrading'],
-  ['active', 'active'],
-  ['deleted', 'deleted'],
-  ['disabled', 'disabled'],
-  ['inactive', 'inactive'],
-  ['offline', 'offline'],
-  ['online', 'online'],
-  ['retired', 'retired'],
-  ['revoked', 'revoked'],
-  ['stale', 'stale'],
-  ['unreachable', 'unreachable'],
-  ['upgrading', 'upgrading'],
-])
-const activityBucketCount = 8
 const overview = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -60,6 +41,40 @@ let activeLoad: Promise<void> | null = null
 const visibleQuickActions = computed(() =>
   (overview.value?.quickActions ?? []).filter((action) => permissionStore.hasPermission(action.permission)),
 )
+
+const deploymentQuickAction = computed(() =>
+  visibleQuickActions.value.find((action) => action.key === 'deploymentPlans'),
+)
+
+const quickStartActions = computed<readonly QuickStartAction[]>(() => {
+  const actions: QuickStartAction[] = []
+
+  if (permissionStore.hasPermission('certificate.import')) {
+    actions.push({
+      key: 'certificateImport',
+      path: '/certificates/import',
+      label: t('dashboard.quickStart.addCertificate'),
+      emphasis: 'secondary',
+    })
+  }
+
+  if (deploymentQuickAction.value) {
+    actions.push({
+      key: 'deployment',
+      path: deploymentQuickAction.value.path,
+      label: t('dashboard.quickStart.deployExistingApplication'),
+      emphasis: 'primary',
+    })
+  }
+
+  return actions
+})
+
+const topMetricKeys = ['validCertificates', 'expiringCertificates', 'applications', 'activeAgents', 'activeGateways']
+
+const topMetrics = computed(() => topMetricKeys
+  .map((key) => overview.value?.metrics.find((metric) => metric.key === key))
+  .filter((metric): metric is DashboardMetric => Boolean(metric)))
 
 const dashboardStatusDistribution = computed(() => {
   const values: Record<StatusTone, number> = {
@@ -78,17 +93,74 @@ const dashboardStatusDistribution = computed(() => {
     .map((tone) => ({ tone, value: values[tone] }))
 })
 
-const dashboardStatusTotal = computed(() =>
-  dashboardStatusDistribution.value.reduce((total, item) => total + item.value, 0),
-)
+const dashboardHealth = computed(() => {
+  const blocks = (overview.value?.statusGroups ?? []).flatMap((group) => group.blocks)
+  const abnormalCount = blocks.filter((block) => ['warning', 'error', 'unknown'].includes(block.tone)).length
+  const healthyCount = blocks.filter((block) => block.tone === 'ok').length
+  const total = blocks.length
+  const evaluableCount = healthyCount + abnormalCount
+  const tone: StatusTone = total === 0 || evaluableCount === 0
+    ? 'muted'
+    : blocks.some((block) => block.tone === 'error')
+      ? 'danger'
+      : abnormalCount > 0
+        ? 'warning'
+        : 'success'
 
-const dashboardActivityTrend = computed(() => buildActivityTrend(overview.value?.recentAudits ?? []))
+  return {
+    healthyCount,
+    abnormalCount,
+    total,
+    percentage: evaluableCount ? Math.round((healthyCount / evaluableCount) * 100) : 0,
+    tone,
+  }
+})
 
-const dashboardActivityTone = computed<StatusTone>(() => {
+const resourceMetrics = computed<readonly ResourceMetric[]>(() => {
+  const resources = overview.value?.systemResources
+  return [
+    { key: 'cpu', value: resources?.cpuUsage ?? null, tone: resourceTone(resources?.cpuUsage ?? null) },
+    { key: 'memory', value: resources?.memoryUsage ?? null, tone: resourceTone(resources?.memoryUsage ?? null) },
+  ]
+})
+
+const trendCards = computed(() => {
   const audits = overview.value?.recentAudits ?? []
-  if (audits.some((item) => item.result === 'failure')) return 'danger'
-  if (audits.some((item) => item.result === 'denied')) return 'warning'
-  return audits.length ? 'info' : 'muted'
+  const successCount = audits.filter((item) => item.result === 'success').length
+  const successRate = audits.length ? Math.round((successCount / audits.length) * 1000) / 10 : null
+  const statusObjects = (overview.value?.statusGroups ?? []).flatMap((group) => group.blocks)
+  const certificateStatuses = overview.value?.certificateStatuses ?? []
+  const attentionCertificates = certificateStatuses.filter((item) => ['critical', 'expired', 'expiring'].includes(item.state)).length
+
+  return [
+    {
+      key: 'auditSuccess',
+      title: t('dashboard.trends.auditSuccess.title'),
+      value: successRate === null ? '--' : `${successRate}%`,
+      suffix: t('dashboard.trends.auditSuccess.suffix'),
+      delta: successRate === null ? t('dashboard.trends.noDelta') : `${successCount}/${audits.length}`,
+      tone: successRate !== null && successRate < 90 ? 'warning' as StatusTone : 'success' as StatusTone,
+      data: buildTimestampTrend(audits.map((item) => item.createdAt)),
+    },
+    {
+      key: 'managedObjects',
+      title: t('dashboard.trends.managedObjects.title'),
+      value: statusObjects.length ? `${dashboardHealth.value.healthyCount}/${statusObjects.length}` : '--',
+      suffix: t('dashboard.trends.managedObjects.suffix'),
+      delta: dashboardHealth.value.total ? `${dashboardHealth.value.percentage}%` : t('dashboard.trends.noDelta'),
+      tone: dashboardHealth.value.tone,
+      data: buildTimestampTrend(statusObjects.map((item) => item.updatedAt)),
+    },
+    {
+      key: 'certificateAttention',
+      title: t('dashboard.trends.certificateAttention.title'),
+      value: attentionCertificates,
+      suffix: t('dashboard.trends.certificateAttention.suffix'),
+      delta: certificateStatuses.length ? `${certificateStatuses.length - attentionCertificates}/${certificateStatuses.length}` : t('dashboard.trends.noDelta'),
+      tone: attentionCertificates > 0 ? 'warning' as StatusTone : 'success' as StatusTone,
+      data: buildTimestampTrend(certificateStatuses.map((item) => item.updatedAt)),
+    },
+  ]
 })
 
 async function loadOverview() {
@@ -116,6 +188,13 @@ async function loadOverviewOnce() {
   }
 }
 
+function resourceTone(value: number | null): StatusTone {
+  if (value === null) return 'muted'
+  if (value >= 85) return 'danger'
+  if (value >= 70) return 'warning'
+  return 'info'
+}
+
 usePolling(loadOverview, { intervalMs: 30_000, immediate: true })
 
 onMounted(() => {
@@ -126,42 +205,22 @@ onBeforeUnmount(() => {
   window.removeEventListener('dashboard:refresh', loadOverview)
 })
 
-function stateLabel(state: DashboardCertificateState): string {
-  const labels: Record<DashboardCertificateState, string> = {
-    valid: t('dashboard.certificateState.valid'),
-    expiring: t('dashboard.certificateState.expiring'),
-    critical: t('dashboard.certificateState.critical'),
-    expired: t('dashboard.certificateState.expired'),
-    unknown: t('dashboard.certificateState.unknown'),
-  }
-  return labels[state]
-}
-
-function dashboardStatusTone(tone: DashboardStatusBlock['tone']): StatusTone {
-  if (tone === 'ok') return 'success'
-  if (tone === 'warning') return 'warning'
-  if (tone === 'error') return 'danger'
-  if (tone === 'unknown') return 'info'
-  return 'muted'
-}
-
-function dashboardStatusToneLabel(tone: StatusTone): string {
-  if (tone === 'success') return t('dashboard.legend.ok')
-  if (tone === 'warning') return t('dashboard.legend.warning')
-  if (tone === 'danger') return t('dashboard.legend.error')
-  if (tone === 'info') return t('dashboard.legend.unknown')
-  return t('dashboard.legend.disabled')
-}
-
-function daysText(value: number | undefined): string {
-  if (value === undefined) return t('dashboard.days.notRecorded')
-  if (value < 0) return t('dashboard.days.expired', { days: Math.abs(value) })
-  if (value === 0) return t('dashboard.days.expiresToday')
-  return t('dashboard.days.remaining', { days: value })
-}
-
 function dashboardText(key: string, fallback: string, params?: Record<string, unknown>): string {
   return te(key) ? t(key, params ?? {}) : fallback
+}
+
+function resourceLabel(metric: ResourceMetric): string {
+  return t(`dashboard.resources.${metric.key}`)
+}
+
+function resourceValue(metric: ResourceMetric): string {
+  return metric.value === null ? '--' : `${metric.value}%`
+}
+
+function resourceAriaLabel(metric: ResourceMetric): string {
+  return metric.value === null
+    ? t('dashboard.resources.unavailableAria', { metric: resourceLabel(metric) })
+    : t('dashboard.resources.usageAria', { metric: resourceLabel(metric), value: metric.value })
 }
 
 function metricTitle(metric: DashboardMetric): string {
@@ -177,6 +236,17 @@ function metricTone(trend: DashboardMetric['trend']): StatusTone {
   if (trend === 'warning') return 'warning'
   if (trend === 'danger') return 'danger'
   return 'muted'
+}
+
+function metricIconPath(metric: DashboardMetric): string {
+  const icons: Record<string, string> = {
+    activeAgents: 'M7 5.5h10A2.5 2.5 0 0 1 19.5 8v8A2.5 2.5 0 0 1 17 18.5H7A2.5 2.5 0 0 1 4.5 16V8A2.5 2.5 0 0 1 7 5.5Zm2.5 4v.01M14 9.5h2.5M9.5 13h7',
+    activeGateways: 'M12 3.5 19 7v5c0 4-2.4 7.5-7 9-4.6-1.5-7-5-7-9V7l7-3.5Zm-2.5 8 1.7 1.7 3.8-3.8',
+    applications: 'M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 17.5v-11Zm4 1.5h6M9 12h6M9 16h3',
+    expiringCertificates: 'M12 4.5a7.5 7.5 0 1 1-7.5 7.5M12 7v5l3 2M12 2.5v2M21.5 12h-2',
+    validCertificates: 'M12 3.5 19 7v5c0 4-2.4 7.5-7 9-4.6-1.5-7-5-7-9V7l7-3.5Zm-2.5 8 1.7 1.7 3.8-3.8',
+  }
+  return icons[metric.key] ?? 'M12 5v14M5 12h14'
 }
 
 function quickActionTitle(action: DashboardQuickAction): string {
@@ -202,38 +272,60 @@ function statusGroupTone(group: DashboardStatusGroup): StatusTone {
 
 function statusGroupSummary(group: DashboardStatusGroup): string {
   if (group.total === 0) return t('dashboard.empty.noObjects')
-  const abnormalCount = group.blocks.filter((block) => block.tone === 'warning' || block.tone === 'error' || block.tone === 'unknown').length
-  if (abnormalCount === 0 && group.blocks.length > 0 && group.blocks.every((block) => block.tone === 'disabled')) {
-    return t('dashboard.legend.disabled')
-  }
+  const abnormalCount = group.blocks.filter((block) => ['warning', 'error', 'unknown'].includes(block.tone)).length
   return abnormalCount > 0
     ? t('dashboard.statusGroups.summary.needsAttention', { count: abnormalCount })
     : t('dashboard.statusGroups.summary.allNormal')
 }
 
+function dashboardStatusTone(tone: DashboardStatusBlock['tone']): StatusTone {
+  if (tone === 'ok') return 'success'
+  if (tone === 'warning') return 'warning'
+  if (tone === 'error') return 'danger'
+  if (tone === 'unknown') return 'info'
+  return 'muted'
+}
+
+function dashboardStatusToneLabel(tone: StatusTone): string {
+  if (tone === 'success') return t('dashboard.legend.ok')
+  if (tone === 'warning') return t('dashboard.legend.warning')
+  if (tone === 'danger') return t('dashboard.legend.error')
+  if (tone === 'info') return t('dashboard.legend.unknown')
+  return t('dashboard.legend.disabled')
+}
+
 function statusBlockStatus(block: DashboardStatusBlock): string {
   const normalized = normalizeDashboardStatus(block.status)
-  return normalized
-    ? dashboardText(`dashboard.statusBlock.status.${normalized}`, block.status)
-    : block.status
-}
-
-function statusBlockDetail(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
-  if (!block.detail) return ''
-  if (group.key !== 'certificates') return block.detail
-  const match = block.detail.match(legacyCertificateDetailPattern)
-  if (!match) return block.detail
-  const days = match[2] === legacyUnknownText ? t('dashboard.days.notRecorded') : t('dashboard.days.remaining', { days: match[2] })
-  return t('dashboard.statusBlock.detail.certificateRemaining', { name: match[1], days })
-}
-
-function normalizeDashboardStatus(value: string): string {
-  return legacyDashboardStatusMap.get(value) ?? ''
+  return normalized ? dashboardText(`dashboard.statusBlock.status.${normalized}`, block.status) : block.status
 }
 
 function blockTitle(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
-  const parts = [block.label, statusBlockStatus(block), statusBlockDetail(group, block), block.updatedAt ? formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) : '']
-  return parts.filter(Boolean).join(' / ')
+  return [
+    block.label,
+    statusBlockStatus(block),
+    block.detail,
+    block.updatedAt ? formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) : '',
+  ].filter(Boolean).join(' / ')
+}
+
+function normalizeDashboardStatus(value: string): string {
+  const map: Record<string, string> = {
+    正常: 'valid',
+    即将到期: 'expiring',
+    临近到期: 'critical',
+    已过期: 'expired',
+    ACTIVE: 'active',
+    DISABLED: 'disabled',
+    OFFLINE: 'offline',
+    ONLINE: 'online',
+    active: 'active',
+    disabled: 'disabled',
+    offline: 'offline',
+    online: 'online',
+    stale: 'stale',
+    unreachable: 'unreachable',
+  }
+  return map[value] ?? ''
 }
 
 function auditTone(result: string): StatusTone {
@@ -243,128 +335,133 @@ function auditTone(result: string): StatusTone {
   return 'info'
 }
 
-function showTooltip(block: DashboardStatusBlock) {
-  activeTooltip.value = block
+function auditIconPath(result: string): string {
+  if (result === 'success') return 'M12 3.5 19 7v5c0 4-2.4 7.5-7 9-4.6-1.5-7-5-7-9V7l7-3.5Zm-2.5 8 1.7 1.7 3.8-3.8'
+  if (result === 'failure') return 'M12 3.5 20 18.5H4L12 3.5Zm0 5v4M12 15.5h.01'
+  if (result === 'denied') return 'M7 7l10 10M17 7 7 17M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z'
+  return 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Zm0 5v.01M12 11v5'
 }
 
-function hideTooltip() {
-  activeTooltip.value = null
-}
-
-function buildActivityTrend(audits: DashboardOverview['recentAudits']) {
-  const timestamps = audits
-    .map((item) => Date.parse(item.createdAt))
+function buildTimestampTrend(values: readonly (string | undefined)[]) {
+  const timestamps = values
+    .map((value) => (value ? Date.parse(value) : Number.NaN))
     .filter((value): value is number => Number.isFinite(value))
     .sort((left, right) => left - right)
-
   if (timestamps.length < 2) return []
   const start = timestamps[0]
   const end = timestamps[timestamps.length - 1]
   if (end <= start) return []
-
-  const bucketCount = Math.min(activityBucketCount, timestamps.length)
+  const bucketCount = Math.min(8, timestamps.length)
   const bucketSize = (end - start) / bucketCount
-  const values = Array.from({ length: bucketCount }, () => 0)
+  const buckets = Array.from({ length: bucketCount }, () => 0)
   for (const timestamp of timestamps) {
     const index = Math.min(bucketCount - 1, Math.floor((timestamp - start) / bucketSize))
-    values[index] += 1
+    buckets[index] += 1
   }
-  return values.map((value) => ({ value }))
+  return buckets.map((value) => ({ value }))
 }
 </script>
 
 <template>
   <section class="gc-page dashboard-page">
-    <GcPageHeader
-      class="dashboard-page__header"
-      :title="t('app.dashboard')"
-      :description="t('nav.dashboardDesc')"
-    >
-      <template #actions>
-        <span v-if="overview?.generatedAt" class="dashboard-page__updated">
-          {{ t('dashboard.assets.updatedAt', { time: formatBrowserLocalTime(overview.generatedAt) }) }}
-        </span>
-        <GcButton variant="primary" :loading="loading" @click="loadOverview">
-          {{ t('common.refresh') }}
-        </GcButton>
-      </template>
-    </GcPageHeader>
-
     <div v-if="error" class="dashboard-page__error" role="alert">
       <span>{{ error }}</span>
       <GcButton variant="secondary" @click="loadOverview">{{ t('businessPage.retry') }}</GcButton>
     </div>
 
-    <section
-      class="dashboard-page__metrics"
-      :aria-label="t('dashboard.aria.metrics')"
-      :aria-busy="loading && !overview"
-    >
-      <article
-        v-for="metric in overview?.metrics ?? []"
-        :key="metric.key"
-        class="dashboard-metric"
-        :class="`dashboard-metric--${metricTone(metric.trend)}`"
-        :data-trend="metric.trend"
-      >
-        <span class="dashboard-metric__title">{{ metricTitle(metric) }}</span>
-        <strong>{{ metric.value }}</strong>
-        <p>{{ metricDescription(metric) }}</p>
-      </article>
-      <template v-if="!overview && loading">
-        <article v-for="index in 6" :key="index" class="dashboard-metric dashboard-metric--loading">
-          <span class="dashboard-metric__title">{{ t('dashboard.loading.title') }}</span>
-          <strong>--</strong>
-          <p>{{ t('dashboard.loading.description') }}</p>
+    <section class="dashboard-primary-grid" :aria-label="t('dashboard.aria.metrics')">
+      <div class="dashboard-metric-grid" :aria-busy="loading && !overview">
+        <article class="dashboard-resource-card">
+          <header class="dashboard-card-header">
+            <h2>{{ t('dashboard.resources.title') }}</h2>
+          </header>
+          <div class="dashboard-resource-list">
+            <div v-for="metric in resourceMetrics" :key="metric.key" class="dashboard-resource-row">
+              <div class="dashboard-resource-row__label">
+                <span>{{ resourceLabel(metric) }}</span>
+                <strong>{{ resourceValue(metric) }}</strong>
+              </div>
+              <div class="dashboard-resource-track" role="progressbar" :aria-label="resourceAriaLabel(metric)" :aria-valuemin="0" :aria-valuemax="100" :aria-valuenow="metric.value ?? undefined">
+                <span :class="`dashboard-resource-track__fill dashboard-resource-track__fill--${metric.tone}`" :style="{ width: `${metric.value ?? 0}%` }" />
+              </div>
+            </div>
+          </div>
         </article>
-      </template>
+
+        <template v-if="topMetrics.length">
+          <article v-for="metric in topMetrics" :key="metric.key" class="dashboard-metric-card" :class="`dashboard-metric-card--${metricTone(metric.trend)}`">
+            <div class="dashboard-metric-card__topline">
+              <span class="dashboard-metric-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path :d="metricIconPath(metric)" /></svg>
+              </span>
+              <strong class="dashboard-metric-card__value">{{ metric.value }}</strong>
+            </div>
+            <span class="dashboard-metric-card__title">{{ metricTitle(metric) }}</span>
+            <span class="dashboard-metric-card__description">{{ metricDescription(metric) }}</span>
+          </article>
+        </template>
+
+        <template v-else-if="loading">
+          <article v-for="index in 5" :key="index" class="dashboard-metric-card dashboard-metric-card--loading">
+            <div class="dashboard-metric-card__topline">
+              <span class="dashboard-metric-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+              </span>
+              <strong class="dashboard-metric-card__value">--</strong>
+            </div>
+            <span class="dashboard-metric-card__title">{{ t('dashboard.loading.title') }}</span>
+            <span class="dashboard-metric-card__description">{{ t('dashboard.loading.description') }}</span>
+          </article>
+        </template>
+      </div>
+
+      <section class="dashboard-quick-start" :aria-label="t('dashboard.quickStart.title')">
+        <div class="dashboard-quick-start__content">
+          <span class="dashboard-quick-start__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z" /></svg>
+          </span>
+          <h2>{{ t('dashboard.quickStart.title') }}</h2>
+          <p>{{ t('dashboard.quickStart.description') }}</p>
+        </div>
+        <div class="dashboard-quick-start__footer">
+          <RouterLink
+            v-for="action in quickStartActions"
+            :key="action.key"
+            class="dashboard-quick-start__button"
+            :class="`dashboard-quick-start__button--${action.emphasis}`"
+            :to="action.path"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></svg>
+            {{ action.label }}
+          </RouterLink>
+          <span v-if="quickStartActions.length === 0" class="dashboard-quick-start__button dashboard-quick-start__button--disabled">{{ t('dashboard.quickStart.unavailable') }}</span>
+        </div>
+      </section>
     </section>
 
-    <nav v-if="visibleQuickActions.length" class="dashboard-actions" :aria-label="t('dashboard.aria.quickActions')">
-      <RouterLink
-        v-for="action in visibleQuickActions"
-        :key="action.key"
-        class="dashboard-action"
-        :to="action.path"
-      >
-        <span class="dashboard-action__icon" aria-hidden="true">›</span>
-        <span class="dashboard-action__content">
-          <strong>{{ quickActionTitle(action) }}</strong>
-          <small>{{ quickActionDescription(action) }}</small>
-        </span>
-        <span class="dashboard-action__arrow" aria-hidden="true">→</span>
-      </RouterLink>
-    </nav>
+    <section class="dashboard-trend-grid" :aria-label="t('dashboard.trends.title')">
+      <article v-for="card in trendCards" :key="card.key" class="dashboard-trend-card">
+        <div class="dashboard-trend-card__heading">
+          <span>{{ card.title }}</span>
+          <strong :class="`dashboard-trend-card__delta dashboard-trend-card__delta--${card.tone}`">{{ card.delta }}</strong>
+        </div>
+        <div class="dashboard-trend-card__value">
+          <strong>{{ card.value }}</strong>
+          <span>{{ card.suffix }}</span>
+        </div>
+        <GcTrendChart :data="card.data" :tone="card.tone" :ariaLabel="card.title" :emptyLabel="t('dashboard.empty.noTrend')" />
+      </article>
+    </section>
 
-    <section class="dashboard-grid">
-      <section class="gc-card dashboard-panel dashboard-panel--status" :aria-label="t('dashboard.aria.statusHeatmap')">
+    <section class="dashboard-status-row">
+      <section class="dashboard-panel dashboard-panel--asset-heatmap" :aria-label="t('dashboard.aria.statusHeatmap')">
         <header class="dashboard-panel__header">
           <div>
             <h2>{{ t('dashboard.aria.statusHeatmap') }}</h2>
             <p v-if="overview?.generatedAt">{{ t('dashboard.assets.updatedAt', { time: formatBrowserLocalTime(overview.generatedAt) }) }}</p>
           </div>
         </header>
-
-        <div class="dashboard-status-summary">
-          <GcDonutChart
-            :segments="dashboardStatusDistribution"
-            :ariaLabel="t('dashboard.aria.statusHeatmap')"
-            :empty-label="t('dashboard.empty.noObjects')"
-          >
-            <template #center>
-              <strong class="dashboard-status-summary__total">{{ dashboardStatusTotal }}</strong>
-            </template>
-          </GcDonutChart>
-          <div class="dashboard-status-summary__legend" :aria-label="t('dashboard.aria.statusLegend')">
-            <span v-for="item in dashboardStatusDistribution" :key="item.tone">
-              <i :class="`dashboard-status-summary__dot dashboard-status-summary__dot--${item.tone}`" aria-hidden="true" />
-              <strong>{{ item.value }}</strong>
-              <small>{{ dashboardStatusToneLabel(item.tone) }}</small>
-            </span>
-          </div>
-        </div>
-
-        <div v-if="overview && overview.statusGroups.length" class="dashboard-status-groups" :aria-label="t('dashboard.aria.statusHeatmap')">
+        <div v-if="overview?.statusGroups.length" class="dashboard-status-groups">
           <section v-for="group in overview.statusGroups" :key="group.key" class="dashboard-status-group">
             <header class="dashboard-status-group__header">
               <div class="dashboard-status-group__title">
@@ -373,32 +470,13 @@ function buildActivityTrend(audits: DashboardOverview['recentAudits']) {
               </div>
               <strong class="dashboard-status-group__total">{{ group.total }}</strong>
             </header>
-            <div class="dashboard-status-group__summary">
-              <GcStatusTag :status="group.key" :label="statusGroupSummary(group)" :tone="statusGroupTone(group)" />
-            </div>
+            <p class="dashboard-status-group__summary">{{ statusGroupSummary(group) }}</p>
             <div v-if="group.blocks.length" class="dashboard-heatmap__blocks">
-              <span
-                v-for="block in group.blocks"
-                :key="block.id"
-                class="dashboard-heatmap__block-wrap"
-                @mouseenter="showTooltip(block)"
-                @mouseleave="hideTooltip"
-                @focusin="showTooltip(block)"
-                @focusout="hideTooltip"
-                @keydown.esc="hideTooltip"
-              >
-                <component
-                  :is="block.targetPath ? RouterLink : 'span'"
-                  class="dashboard-heatmap__block"
-                  :class="`dashboard-heatmap__block--${block.tone}`"
-                  :to="block.targetPath || undefined"
-                  :tabindex="block.targetPath ? undefined : 0"
-                  :aria-label="blockTitle(group, block)"
-                />
+              <span v-for="block in group.blocks" :key="block.id" class="dashboard-heatmap__block-wrap" @mouseenter="activeTooltip = block" @mouseleave="activeTooltip = null" @focusin="activeTooltip = block" @focusout="activeTooltip = null">
+                <component :is="block.targetPath ? RouterLink : 'span'" class="dashboard-heatmap__block" :class="`dashboard-heatmap__block--${block.tone}`" :to="block.targetPath || undefined" :tabindex="block.targetPath ? undefined : 0" :aria-label="blockTitle(group, block)" />
                 <span v-if="activeTooltip?.id === block.id" class="dashboard-heatmap__tooltip" role="tooltip">
                   <strong>{{ block.label }}</strong>
                   <span>{{ statusBlockStatus(block) }}</span>
-                  <small v-if="statusBlockDetail(group, block)">{{ statusBlockDetail(group, block) }}</small>
                   <time v-if="block.updatedAt">{{ formatBrowserLocalTime(block.updatedAt, { includeSeconds: false }) }}</time>
                 </span>
               </span>
@@ -406,116 +484,87 @@ function buildActivityTrend(audits: DashboardOverview['recentAudits']) {
             <div v-else class="dashboard-heatmap__empty">{{ t('dashboard.empty.noObjects') }}</div>
           </section>
         </div>
-        <div v-else-if="overview" class="dashboard-empty">{{ t('dashboard.empty.noObjects') }}</div>
+        <div v-else class="dashboard-empty">{{ t('dashboard.empty.noObjects') }}</div>
+        <footer class="dashboard-heatmap__legend" :aria-label="t('dashboard.aria.statusLegend')">
+          <span v-for="item in dashboardStatusDistribution" :key="item.tone">
+            <i :class="`dashboard-heatmap__legend-dot dashboard-heatmap__legend-dot--${item.tone}`" aria-hidden="true" />
+            {{ dashboardStatusToneLabel(item.tone) }}
+          </span>
+        </footer>
       </section>
 
-      <section class="gc-card dashboard-panel dashboard-panel--audits" :aria-label="t('dashboard.audit.title')">
+      <section class="dashboard-panel dashboard-panel--wizard" :aria-label="t('dashboard.quickWizard.title')">
         <header class="dashboard-panel__header">
           <div>
-            <h2>{{ t('dashboard.audit.title') }}</h2>
-            <p>{{ t('dashboard.audit.description') }}</p>
+            <h2>{{ t('dashboard.quickWizard.title') }}</h2>
           </div>
-          <RouterLink class="gc-button gc-button--secondary" to="/audits">{{ t('nav.audits') }}</RouterLink>
         </header>
-
-        <div class="dashboard-activity" :aria-label="t('dashboard.audit.title')">
-          <GcTrendChart
-            v-if="overview"
-            data-testid="dashboard-activity-chart"
-            :data="dashboardActivityTrend"
-            :tone="dashboardActivityTone"
-            :ariaLabel="t('dashboard.audit.title')"
-            :empty-label="t('dashboard.empty.noAuditLogs')"
-          />
-          <div v-else class="dashboard-activity__loading">{{ t('dashboard.loading.description') }}</div>
-        </div>
-
-        <ol class="dashboard-audits">
-          <li v-for="item in overview?.recentAudits ?? []" :key="item.id">
-            <GcStatusTag
-              class="dashboard-audits__result"
-              :status="item.result"
-              :label="auditResultLabel(item.result, t)"
-              :tone="auditTone(item.result)"
-            />
-            <div class="dashboard-audits__body">
-              <div class="dashboard-audits__title-row">
-                <strong>{{ auditReadableTitle(item, t) }}</strong>
-                <span class="dashboard-audits__type">{{ auditTypeLabel(item, t) }}</span>
-              </div>
-              <p>{{ auditSummary(item, t) }}</p>
-            </div>
-            <time>{{ formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) }}</time>
-          </li>
-        </ol>
-
-        <div v-if="overview && overview.recentAudits.length === 0" class="dashboard-empty">
-          {{ t('dashboard.empty.noAuditLogs') }}
-        </div>
+        <nav v-if="visibleQuickActions.length" class="dashboard-wizard" :aria-label="t('dashboard.aria.quickActions')">
+          <RouterLink v-for="(action, index) in visibleQuickActions" :key="action.key" class="dashboard-wizard__step" :to="action.path">
+            <span class="dashboard-wizard__index">{{ index + 1 }}</span>
+            <span class="dashboard-wizard__content">
+              <strong>{{ quickActionTitle(action) }}</strong>
+              <small>{{ quickActionDescription(action) }}</small>
+            </span>
+            <span class="dashboard-wizard__arrow" aria-hidden="true">→</span>
+          </RouterLink>
+        </nav>
+        <div v-else class="dashboard-empty">{{ t('dashboard.empty.noQuickActions') }}</div>
       </section>
     </section>
 
-    <section class="gc-card dashboard-panel dashboard-panel--certificates" :aria-label="t('dashboard.aria.certificateStatusList')">
-      <header class="dashboard-panel__header">
-        <div>
-          <h2>{{ t('dashboard.assets.title') }}</h2>
-          <p v-if="overview?.generatedAt">{{ t('dashboard.assets.updatedAt', { time: formatBrowserLocalTime(overview.generatedAt) }) }}</p>
-        </div>
-        <RouterLink class="gc-button gc-button--secondary" to="/assets">{{ t('nav.assets') }}</RouterLink>
-      </header>
-
-      <div class="dashboard-table" role="table" :aria-label="t('dashboard.aria.certificateStatusList')">
-        <div class="dashboard-table__row dashboard-table__row--head" role="row">
-          <span role="columnheader">{{ t('dashboard.table.certificate') }}</span>
-          <span role="columnheader">{{ t('dashboard.table.domain') }}</span>
-          <span role="columnheader">{{ t('dashboard.table.status') }}</span>
-          <span role="columnheader">{{ t('dashboard.table.remainingTime') }}</span>
-          <span role="columnheader">{{ t('dashboard.table.bindings') }}</span>
-        </div>
-        <div
-          v-for="item in overview?.certificateStatuses ?? []"
-          :key="item.certificateAssetId"
-          class="dashboard-table__row"
-          role="row"
-        >
-          <span role="cell">
-            <strong>{{ item.name }}</strong>
-            <small>{{ item.notAfter ? formatBrowserLocalTime(item.notAfter, { includeSeconds: false }) : t('dashboard.table.notAfterMissing') }}</small>
-          </span>
-          <span role="cell">{{ item.primaryDomain }}</span>
-          <span role="cell">
-            <GcStatusTag
-              :status="item.state"
-              :label="stateLabel(item.state)"
-              :tone="item.state === 'valid' ? 'success' : item.state === 'expiring' ? 'warning' : item.state === 'critical' || item.state === 'expired' ? 'danger' : 'muted'"
-            />
-          </span>
-          <span role="cell">{{ daysText(item.daysRemaining) }}</span>
-          <span role="cell">{{ item.bindingCount }}</span>
-        </div>
-      </div>
-
-      <div v-if="overview && overview.certificateStatuses.length === 0" class="dashboard-empty">
-        {{ t('dashboard.empty.noCertificateStatus') }}
-      </div>
+    <section class="dashboard-audit-row">
+      <section class="dashboard-panel dashboard-panel--recent-log" :aria-label="t('dashboard.recentLog.title')">
+        <header class="dashboard-panel__header dashboard-panel__header--compact">
+          <div>
+            <h2>{{ t('dashboard.recentLog.title') }}</h2>
+          </div>
+          <span class="dashboard-live-indicator"><i aria-hidden="true" />{{ t('dashboard.recentLog.live') }}</span>
+        </header>
+        <ol class="dashboard-audits">
+          <li v-for="item in overview?.recentAudits ?? []" :key="item.id">
+            <span class="dashboard-audits__icon" :class="`dashboard-audits__icon--${auditTone(item.result)}`" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path :d="auditIconPath(item.result)" /></svg>
+            </span>
+            <div class="dashboard-audits__body">
+              <div class="dashboard-audits__title-row">
+                <strong>{{ auditReadableTitle(item, t) }}</strong>
+                <GcStatusTag :status="item.result" :label="auditResultLabel(item.result, t)" :tone="auditTone(item.result)" />
+              </div>
+              <p>{{ auditSummary(item, t) }}</p>
+              <time>{{ formatBrowserLocalTime(item.createdAt, { includeSeconds: false }) }}</time>
+            </div>
+          </li>
+        </ol>
+        <div v-if="overview && overview.recentAudits.length === 0" class="dashboard-empty">{{ t('dashboard.empty.noAuditLogs') }}</div>
+      </section>
     </section>
   </section>
 </template>
 
 <style scoped>
 .dashboard-page {
-  gap: var(--gc-space-section);
+  gap: var(--gc-space-6);
+  min-width: 0;
+  padding: var(--gc-space-6);
+  background: transparent;
 }
 
-.dashboard-page__header {
-  margin-bottom: 0;
+.dashboard-card-header,
+.dashboard-panel__header,
+.dashboard-trend-card__heading,
+.dashboard-metric-card__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  min-width: 0;
 }
 
-.dashboard-page__updated {
-  align-self: center;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
+.dashboard-panel__header h2,
+.dashboard-panel__header p,
+.dashboard-card-header h2 {
+  margin: 0;
 }
 
 .dashboard-page__error {
@@ -523,355 +572,440 @@ function buildActivityTrend(audits: DashboardOverview['recentAudits']) {
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-3);
-  margin: 0;
   border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
-  border-radius: var(--gc-radius-control);
+  border-radius: var(--gc-radius-card);
   padding: var(--gc-space-3) var(--gc-space-4);
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-bg);
   font-weight: var(--gc-font-weight-semibold);
 }
 
-.dashboard-page__metrics {
+.dashboard-primary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--gc-space-3);
+  grid-template-columns: minmax(0, 2fr) minmax(calc(var(--gc-size-card-min) + var(--gc-space-10)), 1fr);
+  gap: var(--gc-space-6);
+  align-items: stretch;
 }
 
-.dashboard-metric {
+.dashboard-metric-grid {
   display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: var(--gc-space-2);
-  min-height: calc(var(--gc-space-12) * 3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
-  border-radius: var(--gc-radius-card);
-  border-top-width: var(--gc-border-width-thick);
-  border-top-color: var(--gc-color-border-soft);
-  padding: var(--gc-space-4);
-  background: var(--gc-color-surface-panel);
-  box-shadow: var(--gc-shadow-sm);
-}
-
-.dashboard-metric--success { border-top-color: var(--gc-color-success); }
-.dashboard-metric--warning { border-top-color: var(--gc-color-warning); }
-.dashboard-metric--danger { border-top-color: var(--gc-color-danger); }
-
-.dashboard-metric__title {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.dashboard-metric strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-2xl);
-  line-height: var(--gc-line-height-tight);
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.dashboard-metric p {
-  align-self: end;
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.dashboard-metric--loading {
-  opacity: var(--gc-opacity-disabled);
-}
-
-.dashboard-actions {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-}
-
-.dashboard-action {
-  display: grid;
-  grid-template-columns: var(--gc-space-7) minmax(0, 1fr) max-content;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: calc(var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-compact));
   gap: var(--gc-space-3);
   min-width: 0;
-  min-height: var(--gc-space-9);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-control);
-  padding: var(--gc-space-3);
-  color: var(--gc-color-text);
-  background: var(--gc-color-surface-field);
-  box-shadow: var(--gc-shadow-sm);
 }
 
-.dashboard-action:hover {
-  border-color: var(--gc-color-primary-border);
-  background: var(--gc-color-surface-hover);
-  box-shadow: var(--gc-shadow-md);
-}
-
-.dashboard-action:focus-visible,
-.dashboard-heatmap__block:focus-visible {
-  outline: none;
-  box-shadow: var(--gc-shadow-focus);
-}
-
-.dashboard-action__icon {
-  display: grid;
-  place-items: center;
-  width: var(--gc-space-7);
-  height: var(--gc-space-7);
-  border-radius: var(--gc-radius-control);
-  color: var(--gc-color-primary);
-  background: var(--gc-color-primary-soft);
-  font-size: var(--gc-font-size-lg);
-  font-weight: 800;
-}
-
-.dashboard-action__content {
-  display: grid;
-  gap: var(--gc-space-1);
-  min-width: 0;
-}
-
-.dashboard-action__content strong,
-.dashboard-action__content small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.dashboard-action__content strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-action__content small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.dashboard-action__arrow {
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-lg);
-  font-weight: 800;
-}
-
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: var(--gc-space-4);
-  align-items: start;
-}
-
+.dashboard-resource-card,
+.dashboard-metric-card,
+.dashboard-trend-card,
 .dashboard-panel {
   min-width: 0;
-  padding: 0;
-  overflow: hidden;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  border-radius: var(--gc-radius-xl);
+  background: var(--gc-color-surface-workspace-glass);
+  box-shadow: var(--gc-shadow-card);
+  backdrop-filter: blur(var(--gc-space-4));
+  -webkit-backdrop-filter: blur(var(--gc-space-4));
 }
 
-.dashboard-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--gc-space-4);
+.dashboard-resource-card,
+.dashboard-metric-card,
+.dashboard-trend-card {
   padding: var(--gc-space-4);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+}
+
+.dashboard-resource-card {
+  display: grid;
+  align-content: start;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+}
+
+.dashboard-card-header h2 {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-body);
+  font-weight: 800;
+}
+
+.dashboard-resource-list {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.dashboard-resource-row {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.dashboard-resource-row__label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.dashboard-resource-row__label strong {
+  color: var(--gc-color-text-strong);
+}
+
+.dashboard-resource-track {
+  height: var(--gc-space-compact);
+  overflow: hidden;
+  border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-muted);
 }
 
-.dashboard-panel__header > div {
+.dashboard-resource-track__fill {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  transition: width 180ms ease;
+}
+
+.dashboard-resource-track__fill--info { background: var(--gc-color-info); }
+.dashboard-resource-track__fill--success { background: var(--gc-color-success); }
+.dashboard-resource-track__fill--warning { background: var(--gc-color-warning); }
+.dashboard-resource-track__fill--danger { background: var(--gc-color-danger); }
+.dashboard-resource-track__fill--muted { background: var(--gc-color-muted); }
+
+.dashboard-metric-card {
+  display: grid;
+  align-content: space-between;
+  gap: var(--gc-space-1);
+}
+
+.dashboard-metric-card__topline {
+  align-items: flex-start;
+}
+
+.dashboard-metric-card__icon,
+.dashboard-quick-start__icon {
+  display: grid;
+  place-items: center;
+  width: var(--gc-space-8);
+  height: var(--gc-space-8);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.dashboard-metric-card__icon svg,
+.dashboard-quick-start__icon svg {
+  width: var(--gc-size-icon-md);
+  height: var(--gc-size-icon-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.dashboard-metric-card--warning .dashboard-metric-card__icon { color: var(--gc-color-warning); background: var(--gc-color-warning-soft); }
+.dashboard-metric-card--danger .dashboard-metric-card__icon { color: var(--gc-color-danger); background: var(--gc-color-danger-soft); }
+.dashboard-metric-card--success .dashboard-metric-card__icon { color: var(--gc-color-success); background: var(--gc-color-success-soft); }
+
+.dashboard-metric-card__value {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-heading-sm);
+  font-weight: 800;
+  line-height: var(--gc-line-height-tight);
+}
+
+.dashboard-metric-card__title {
+  color: var(--gc-color-text-secondary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+}
+
+.dashboard-metric-card__description {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-caption);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.dashboard-metric-card--loading { opacity: var(--gc-opacity-disabled); }
+
+.dashboard-quick-start {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+  min-width: 0;
+  min-height: 100%;
+  position: relative;
+  overflow: hidden;
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-xl);
+  padding: var(--gc-space-5);
+  background: linear-gradient(135deg, var(--gc-color-primary-weak), var(--gc-color-surface-glass));
+  box-shadow: var(--gc-shadow-card);
+}
+
+.dashboard-quick-start__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: start;
+  gap: var(--gc-space-3);
+}
+
+.dashboard-quick-start__content h2 {
+  max-width: 16ch;
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-heading-xs);
+  line-height: var(--gc-line-height-tight);
+  font-weight: 800;
+}
+
+.dashboard-quick-start__content p {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.dashboard-quick-start__footer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.dashboard-quick-start__button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gc-space-2);
+  min-height: calc(var(--gc-control-height-comfortable) + var(--gc-space-hairline));
+  border-radius: var(--gc-radius-lg);
+  padding: 0 var(--gc-space-4);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-button-primary);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 800;
+  text-align: center;
+}
+
+.dashboard-quick-start__button svg {
+  width: var(--gc-size-icon-sm);
+  height: var(--gc-size-icon-sm);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.dashboard-quick-start__button:hover { background: var(--gc-color-primary-hover); }
+.dashboard-quick-start__button--secondary {
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  color: var(--gc-color-primary-strong);
+  background: var(--gc-color-primary-soft);
+  box-shadow: none;
+}
+.dashboard-quick-start__button--secondary:hover { background: var(--gc-color-primary-bg); }
+.dashboard-quick-start__button--disabled { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); box-shadow: none; }
+
+.dashboard-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: calc(var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-compact));
+  gap: var(--gc-space-6);
+}
+
+.dashboard-trend-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--gc-space-1);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--gc-space-2);
+}
+
+.dashboard-trend-card__heading {
+  color: var(--gc-color-text-secondary);
+  font-size: var(--gc-font-size-sm);
+}
+
+.dashboard-trend-card__delta {
+  font-size: var(--gc-font-size-xs);
+}
+
+.dashboard-trend-card__delta--success { color: var(--gc-color-success); }
+.dashboard-trend-card__delta--warning { color: var(--gc-color-warning); }
+.dashboard-trend-card__delta--danger { color: var(--gc-color-danger); }
+.dashboard-trend-card__delta--info { color: var(--gc-color-info); }
+.dashboard-trend-card__delta--muted { color: var(--gc-color-text-soft); }
+
+.dashboard-trend-card__value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gc-space-2);
+}
+
+.dashboard-trend-card__value strong {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-heading-sm);
+  font-weight: 800;
+}
+
+.dashboard-trend-card__value span {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-xs);
+}
+
+.dashboard-trend-card :deep(.gc-trend-chart) {
+  align-self: end;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: calc(var(--gc-space-12) + var(--gc-space-compact));
+  margin-top: 0;
+  aspect-ratio: auto;
+}
+
+.dashboard-trend-card :deep(.gc-trend-chart__canvas) { overflow: hidden; }
+
+.dashboard-status-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(calc(var(--gc-size-card-min) + var(--gc-space-8)), 1fr);
+  gap: var(--gc-space-6);
+  align-items: stretch;
+}
+
+.dashboard-audit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gc-space-6);
+}
+
+.dashboard-panel {
+  overflow: hidden;
+}
+
+.dashboard-panel--wizard {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
-.dashboard-panel__header h2,
-.dashboard-panel__header p {
-  margin: 0;
+.dashboard-panel__header {
+  align-items: flex-start;
+  padding: var(--gc-space-6) var(--gc-space-6) var(--gc-space-4);
+  background: transparent;
 }
+
+.dashboard-panel__header--compact { align-items: center; }
 
 .dashboard-panel__header h2 {
   color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-lg);
+  font-size: var(--gc-font-size-heading-xs);
   line-height: var(--gc-line-height-tight);
-  letter-spacing: 0;
+  font-weight: 800;
 }
 
 .dashboard-panel__header p {
   margin-top: var(--gc-space-1);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
   line-height: var(--gc-line-height-relaxed);
 }
 
-.dashboard-status-summary {
-  display: grid;
-  grid-template-columns: minmax(calc(var(--gc-space-12) * 3), var(--gc-size-card-min)) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--gc-space-5);
-  padding: var(--gc-space-4);
-}
-
-.dashboard-status-summary .gc-donut-chart {
-  justify-self: center;
-}
-
-.dashboard-status-summary__total {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-heading-sm);
-  font-weight: 800;
-}
-
-.dashboard-status-summary__legend {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-}
-
-.dashboard-status-summary__legend span {
-  display: grid;
-  grid-template-columns: var(--gc-space-2) max-content minmax(0, 1fr);
-  align-items: center;
-  gap: var(--gc-space-2);
-  min-width: 0;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-status-summary__legend strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-md);
-}
-
-.dashboard-status-summary__legend small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.dashboard-status-summary__dot,
 .dashboard-status-group__dot {
   display: block;
   border-radius: var(--gc-radius-full);
   background: var(--gc-color-muted);
 }
 
-.dashboard-status-summary__dot {
-  width: var(--gc-space-2);
-  height: var(--gc-space-2);
-}
-
-.dashboard-status-group__dot {
-  width: var(--gc-space-2);
-  height: var(--gc-space-2);
-  flex: 0 0 auto;
-}
-
-.dashboard-status-summary__dot--success,
+.dashboard-status-group__dot { width: var(--gc-space-2); height: var(--gc-space-2); flex: 0 0 auto; }
 .dashboard-status-group__dot--success { background: var(--gc-color-success); }
-.dashboard-status-summary__dot--warning,
 .dashboard-status-group__dot--warning { background: var(--gc-color-warning); }
-.dashboard-status-summary__dot--danger,
 .dashboard-status-group__dot--danger { background: var(--gc-color-danger); }
-.dashboard-status-summary__dot--info,
 .dashboard-status-group__dot--info { background: var(--gc-color-info); }
-.dashboard-status-summary__dot--muted,
 .dashboard-status-group__dot--muted { background: var(--gc-color-muted); }
 
 .dashboard-status-groups {
   display: grid;
-  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0 var(--gc-space-6) var(--gc-space-4);
+  border-top: 0;
 }
 
 .dashboard-status-group {
   display: grid;
-  gap: var(--gc-space-2);
+  grid-template-columns: minmax(calc(var(--gc-size-card-min) - var(--gc-space-5)), 0.8fr) minmax(0, 2fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--gc-space-5);
+  row-gap: var(--gc-space-1);
   min-width: 0;
-  padding: var(--gc-space-3) var(--gc-space-4);
+  padding: var(--gc-space-3) 0;
   border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  background: transparent;
 }
 
+.dashboard-status-group:last-child { border-bottom: 0; }
+
 .dashboard-status-group__header,
-.dashboard-status-group__title,
-.dashboard-status-group__summary {
+.dashboard-status-group__title {
   display: flex;
   align-items: center;
   min-width: 0;
 }
 
-.dashboard-status-group__header {
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-}
-
-.dashboard-status-group__title {
-  gap: var(--gc-space-2);
-}
-
-.dashboard-status-group__title strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-status-group__total {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-md);
-  font-weight: 800;
-}
-
+.dashboard-status-group__header { justify-content: space-between; gap: var(--gc-space-3); }
+.dashboard-status-group__title { gap: var(--gc-space-2); }
+.dashboard-status-group__title strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-sm); }
+.dashboard-status-group__total { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); font-weight: 800; }
+.dashboard-status-group__header,
+.dashboard-status-group__summary { grid-column: 1; }
 .dashboard-status-group__summary {
-  gap: var(--gc-space-2);
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-caption);
+  line-height: var(--gc-line-height-tight);
 }
 
 .dashboard-heatmap__blocks {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--gc-space-7), var(--gc-space-7)));
-  grid-auto-rows: var(--gc-space-7);
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
   gap: var(--gc-space-2);
-  align-content: start;
-  max-height: calc(var(--gc-size-log-viewer-max-height) / 2);
+  min-height: var(--gc-space-8);
+  max-height: calc(var(--gc-space-12) * 3);
   overflow: auto;
-  padding: var(--gc-space-1) var(--gc-space-1) var(--gc-space-1) 0;
+  padding: var(--gc-space-1) 0;
 }
 
-.dashboard-heatmap__block-wrap {
-  position: relative;
-  display: block;
-  width: var(--gc-space-7);
-  height: var(--gc-space-7);
-}
-
-.dashboard-heatmap__block {
-  display: block;
-  width: var(--gc-space-7);
-  height: var(--gc-space-7);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-control);
-  box-shadow: inset 0 var(--gc-space-hairline) 0 var(--gc-color-surface-muted);
-}
-
-.dashboard-heatmap__block:hover {
-  transform: translateY(calc(-1 * var(--gc-space-hairline)));
-  box-shadow: var(--gc-shadow-md);
-}
+.dashboard-heatmap__block-wrap { position: relative; display: block; min-width: 0; }
+.dashboard-heatmap__block { display: block; width: var(--gc-space-8); height: var(--gc-space-8); border: var(--gc-border-width-default) solid var(--dashboard-block-tone, var(--gc-color-muted)); border-radius: var(--gc-radius-sm); background: var(--dashboard-block-tone, var(--gc-color-muted)); box-shadow: inset 0 var(--gc-border-width-thick) 0 var(--gc-color-border-strong), var(--gc-shadow-sm); transition: transform 160ms ease, box-shadow 160ms ease; }
+.dashboard-heatmap__block:hover { transform: translateY(calc(var(--gc-space-tight) * -1)); box-shadow: inset 0 var(--gc-border-width-thick) 0 var(--gc-color-border-strong), var(--gc-shadow-md); }
+.dashboard-heatmap__block--ok { --dashboard-block-tone: var(--gc-color-success); }
+.dashboard-heatmap__block--warning { --dashboard-block-tone: var(--gc-color-warning); }
+.dashboard-heatmap__block--error { --dashboard-block-tone: var(--gc-color-danger); }
+.dashboard-heatmap__block--unknown { --dashboard-block-tone: var(--gc-color-info); }
+.dashboard-heatmap__block--disabled { --dashboard-block-tone: var(--gc-color-muted); }
 
 .dashboard-heatmap__tooltip {
   position: absolute;
   left: 50%;
   bottom: calc(100% + var(--gc-space-2));
-  z-index: 1;
+  z-index: 2;
   display: grid;
   gap: var(--gc-space-1);
   width: max-content;
-  min-width: calc(var(--gc-size-card-min) + var(--gc-space-1));
+  min-width: var(--gc-size-card-min);
   max-width: calc(var(--gc-size-card-min) + var(--gc-space-12));
-  padding: var(--gc-space-2) var(--gc-space-3);
+  padding: var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
-  border-radius: var(--gc-radius-control);
+  border-radius: var(--gc-radius-md);
   color: var(--gc-color-text);
   background: var(--gc-color-surface-overlay);
   box-shadow: var(--gc-shadow-lg);
@@ -879,262 +1013,98 @@ function buildActivityTrend(audits: DashboardOverview['recentAudits']) {
   pointer-events: none;
 }
 
-.dashboard-heatmap__tooltip strong,
+.dashboard-heatmap__tooltip strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-sm); }
 .dashboard-heatmap__tooltip span,
-.dashboard-heatmap__tooltip small,
-.dashboard-heatmap__tooltip time {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
+.dashboard-heatmap__tooltip time { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
 
-.dashboard-heatmap__tooltip strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 800;
-}
-
-.dashboard-heatmap__tooltip span,
-.dashboard-heatmap__tooltip small,
-.dashboard-heatmap__tooltip time {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.dashboard-heatmap__block--ok { background: var(--gc-color-success); }
-.dashboard-heatmap__block--warning { background: var(--gc-color-warning); }
-.dashboard-heatmap__block--error { background: var(--gc-color-danger); }
-.dashboard-heatmap__block--unknown { background: var(--gc-color-info); }
-.dashboard-heatmap__block--disabled { background: var(--gc-color-muted); }
-
-.dashboard-heatmap__empty {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-activity {
-  min-height: calc(var(--gc-space-12) * 2);
-  padding: var(--gc-space-3) var(--gc-space-4);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
-  background: var(--gc-color-surface-muted);
-}
-
-.dashboard-activity .gc-trend-chart {
-  min-height: calc(var(--gc-space-12) + var(--gc-space-6));
-}
-
-.dashboard-activity__loading {
-  display: grid;
-  place-items: center;
-  min-height: calc(var(--gc-space-12) + var(--gc-space-6));
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-audits {
-  display: grid;
-  max-height: var(--gc-size-log-viewer-max-height);
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  list-style: none;
-}
-
-.dashboard-audits li {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
-  gap: var(--gc-space-2) var(--gc-space-3);
-  align-items: start;
-  min-width: 0;
-  padding: var(--gc-space-3) var(--gc-space-4);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
-}
-
-.dashboard-audits__result {
-  margin-top: var(--gc-space-hairline);
-  white-space: nowrap;
-}
-
-.dashboard-audits__body {
-  display: grid;
-  gap: var(--gc-space-1);
-  min-width: 0;
-}
-
-.dashboard-audits__title-row {
+.dashboard-heatmap__legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--gc-space-1);
-  min-width: 0;
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-3) var(--gc-space-6) var(--gc-space-4);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
 }
 
+.dashboard-heatmap__legend span { display: inline-flex; align-items: center; gap: var(--gc-space-2); }
+.dashboard-heatmap__legend-dot { width: var(--gc-space-2); height: var(--gc-space-2); border-radius: var(--gc-radius-sm); background: var(--gc-color-muted); }
+.dashboard-heatmap__legend-dot--success { background: var(--gc-color-success); }
+.dashboard-heatmap__legend-dot--warning { background: var(--gc-color-warning); }
+.dashboard-heatmap__legend-dot--danger { background: var(--gc-color-danger); }
+.dashboard-heatmap__legend-dot--info { background: var(--gc-color-info); }
+.dashboard-heatmap__legend-dot--muted { background: var(--gc-color-muted); }
+
+.dashboard-wizard {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--gc-size-card-min)), 1fr));
+  grid-auto-rows: minmax(var(--gc-size-step-min-height), 1fr);
+  gap: var(--gc-space-2);
+  min-width: 0;
+  padding: 0 var(--gc-space-5) var(--gc-space-5);
+}
+.dashboard-wizard__step { display: grid; grid-template-columns: var(--gc-size-step-index) minmax(0, 1fr) max-content; align-items: center; gap: var(--gc-space-3); min-width: 0; min-height: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid transparent; border-radius: var(--gc-radius-lg); color: var(--gc-color-text); }
+.dashboard-wizard__step:last-child { border-bottom: 0; }
+.dashboard-wizard__step:hover { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-soft); }
+.dashboard-wizard__index { display: grid; place-items: center; width: var(--gc-size-step-index); height: var(--gc-size-step-index); border-radius: var(--gc-radius-full); color: var(--gc-color-primary-strong); background: var(--gc-color-primary-soft); font-size: var(--gc-font-size-sm); font-weight: 800; }
+.dashboard-wizard__content { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.dashboard-wizard__content strong,
+.dashboard-wizard__content small { min-width: 0; overflow-wrap: anywhere; }
+.dashboard-wizard__content strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-sm); }
+.dashboard-wizard__content small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-relaxed); }
+.dashboard-wizard__arrow { color: var(--gc-color-primary); font-size: var(--gc-font-size-lg); font-weight: 800; }
+
+.dashboard-live-indicator { display: inline-flex; align-items: center; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); }
+.dashboard-live-indicator i { width: var(--gc-space-2); height: var(--gc-space-2); border-radius: var(--gc-radius-full); background: var(--gc-color-success); }
+
+.dashboard-audits { display: grid; grid-template-columns: minmax(0, 1fr); max-height: var(--gc-size-log-viewer-max-height); margin: 0; padding: var(--gc-space-2) var(--gc-space-3) var(--gc-space-3); overflow: auto; list-style: none; }
+.dashboard-audits li { display: grid; grid-template-columns: var(--gc-space-8) minmax(0, 1fr); gap: var(--gc-space-3); align-items: start; min-width: 0; padding: var(--gc-space-3); border-radius: var(--gc-radius-lg); }
+.dashboard-audits li:hover { background: var(--gc-color-surface-muted); }
+.dashboard-audits li:last-child { border-bottom: 0; }
+.dashboard-audits__icon { display: grid; place-items: center; width: var(--gc-space-8); height: var(--gc-space-8); border-radius: var(--gc-radius-lg); color: var(--gc-color-info); background: var(--gc-color-info-bg); }
+.dashboard-audits__icon--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
+.dashboard-audits__icon--warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
+.dashboard-audits__icon--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
+.dashboard-audits__icon svg { width: var(--gc-size-icon-sm); height: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
+.dashboard-audits__body { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.dashboard-audits__title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-2); min-width: 0; }
 .dashboard-audits__title-row strong,
-.dashboard-audits__body p {
-  min-width: 0;
-  overflow-wrap: anywhere;
+.dashboard-audits__body p { min-width: 0; overflow-wrap: anywhere; }
+.dashboard-audits__title-row strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-tight); }
+.dashboard-audits__body p { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-relaxed); }
+.dashboard-audits time { color: var(--gc-color-text-soft); font-size: var(--gc-font-size-xs); }
+
+.dashboard-empty { display: grid; place-items: center; min-height: calc(var(--gc-space-12) * 2); padding: var(--gc-space-5); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); text-align: center; }
+
+.dashboard-wizard__step:focus-visible,
+.dashboard-quick-start__button:focus-visible,
+.dashboard-heatmap__block:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
+
+@media (max-width: 90rem) {
+  .dashboard-primary-grid { grid-template-columns: minmax(0, 1.7fr) minmax(calc(var(--gc-size-card-min) + var(--gc-space-6)), 1fr); }
+  .dashboard-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.dashboard-audits__title-row strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-md);
-  line-height: var(--gc-line-height-tight);
-  font-weight: 800;
+@media (max-width: 70rem) {
+  .dashboard-primary-grid,
+  .dashboard-status-row,
+  .dashboard-audit-row { grid-template-columns: 1fr; }
+  .dashboard-quick-start { min-height: auto; }
 }
 
-.dashboard-audits__type {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--gc-space-6);
-  border-radius: var(--gc-radius-pill);
-  padding: 0 var(--gc-space-2);
-  color: var(--gc-color-primary);
-  background: var(--gc-color-primary-soft);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-  line-height: var(--gc-line-height-tight);
-  white-space: nowrap;
-}
-
-.dashboard-audits__body p {
-  margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-  line-height: var(--gc-line-height-relaxed);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-audits time {
-  padding-top: var(--gc-space-hairline);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-  white-space: nowrap;
-}
-
-.dashboard-panel--certificates {
-  overflow: hidden;
-}
-
-.dashboard-table {
-  display: grid;
-  overflow-x: auto;
-}
-
-.dashboard-table__row {
-  display: grid;
-  grid-template-columns:
-    minmax(calc(var(--gc-size-card-min) + var(--gc-space-3)), 1.3fr)
-    minmax(calc(var(--gc-space-10) * 4), 1fr)
-    calc(var(--gc-space-12) * 2)
-    calc(var(--gc-space-12) * 2)
-    calc(var(--gc-space-12) + var(--gc-space-6));
-  gap: var(--gc-space-3);
-  align-items: center;
-  min-height: calc(var(--gc-space-12) + var(--gc-space-2));
-  min-width: calc(var(--gc-size-card-min) * 3);
-  padding: var(--gc-space-2) var(--gc-space-4);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
-}
-
-.dashboard-table__row--head {
-  min-height: var(--gc-space-10);
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.dashboard-table__row > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.dashboard-table__row > span:first-child {
-  display: grid;
-  gap: var(--gc-space-hairline);
-}
-
-.dashboard-table__row strong {
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-sm);
-}
-
-.dashboard-table__row small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-}
-
-.dashboard-empty {
-  display: grid;
-  place-items: center;
-  min-height: calc(var(--gc-space-12) * 3);
-  padding: var(--gc-space-4);
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-  text-align: center;
-}
-
-@media (max-width: 80rem) {
-  .dashboard-page__metrics,
-  .dashboard-actions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 47.5rem) {
-  .dashboard-page__metrics,
-  .dashboard-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-page__updated {
-    width: 100%;
-  }
-
-  .dashboard-status-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-status-summary__legend {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-panel__header {
-    flex-direction: column;
-  }
-
-  .dashboard-panel__header .gc-button {
-    align-self: flex-start;
-  }
-
-  .dashboard-audits li {
-    grid-template-columns: max-content minmax(0, 1fr);
-  }
-
-  .dashboard-audits time {
-    grid-column: 2;
-    padding-top: 0;
-    white-space: normal;
-  }
-
-  .dashboard-table__row {
-    grid-template-columns: 1fr;
-    gap: var(--gc-space-2);
-    align-items: start;
-    min-width: 0;
-  }
-
-  .dashboard-table__row--head {
-    display: none;
-  }
+@media (max-width: 48rem) {
+  .dashboard-page { padding: var(--gc-space-3); }
+  .dashboard-metric-grid,
+  .dashboard-trend-grid,
+  .dashboard-status-groups { grid-template-columns: 1fr; }
+  .dashboard-wizard { grid-template-columns: 1fr; }
+  .dashboard-status-group { grid-template-columns: 1fr; grid-template-rows: auto; row-gap: var(--gc-space-2); }
+  .dashboard-status-group__header,
+  .dashboard-status-group__summary,
+  .dashboard-heatmap__blocks { grid-column: 1; grid-row: auto; }
+  .dashboard-panel__header { flex-direction: column; }
+  .dashboard-panel__header .gc-button { align-self: flex-start; }
+  .dashboard-audits__title-row { align-items: flex-start; flex-direction: column; }
 }
 </style>

@@ -66,8 +66,14 @@ export interface DashboardQuickAction {
   permission: string;
 }
 
+export interface DashboardSystemResources {
+  cpuUsage: number | null;
+  memoryUsage: number;
+}
+
 export interface DashboardOverview {
   generatedAt: string;
+  systemResources: DashboardSystemResources;
   metrics: DashboardMetric[];
   quickActions: DashboardQuickAction[];
   statusGroups: DashboardStatusGroup[];

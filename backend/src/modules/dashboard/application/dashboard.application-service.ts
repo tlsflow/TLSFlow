@@ -12,6 +12,7 @@ import type { CertificateAssetEntity, CertificateVersionEntity } from '../../cer
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { ObjectPermissionService } from '../../security/object-permission.service.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
+import { readDashboardSystemResources } from '../system-resources.js';
 
 export interface DashboardApplicationDependencies {
   assets: AssetsRepository;
@@ -86,6 +87,7 @@ export class DashboardApplicationService {
 
     return {
       generatedAt,
+      systemResources: readDashboardSystemResources(),
       metrics: buildMetrics({
         applicationCount: applicationAssets.total,
         validCertificateCount,
