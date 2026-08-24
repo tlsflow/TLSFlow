@@ -1,0 +1,14 @@
+{
+  "apiVersion": "gcac.device-fixture/v1",
+  "protocol": "DSM",
+  "device": { "managementAddress": "192.0.2.50" },
+  "responses": {
+    "POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid": { "statusCode": 200, "body": { "success": true, "data": { "sid": "fixture-session" } } },
+    "GET /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=list": [
+      { "statusCode": 200, "body": { "success": true, "data": { "certificates": [{ "id": "cert-old", "serviceNames": ["DSM Management"], "sha256Fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }] } } },
+      { "statusCode": 200, "body": { "success": true, "data": { "certificates": [{ "id": "cert-new", "serviceNames": ["DSM Management"], "sha256Fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }] } } }
+    ],
+    "POST /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import": { "statusCode": 200, "body": { "success": true, "data": { "id": "cert-new" } } },
+    "POST /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=rollback": { "statusCode": 200, "body": { "success": true, "data": { "id": "cert-old" } } }
+  }
+}

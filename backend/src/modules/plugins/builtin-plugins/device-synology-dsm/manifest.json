@@ -1,11 +1,11 @@
 {
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
-  "pluginId": "device.citrix.netscaler-adc",
-  "version": "2.0.0",
-  "displayNameKey": "plugin.citrixAdc.name",
-  "descriptionKey": "plugin.citrixAdc.description",
-  "logoUrl": "/plugin-logos/citrix-adc.svg",
+  "pluginId": "device.synology-dsm",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.synologyDsm.name",
+  "descriptionKey": "plugin.synologyDsm.description",
+  "logoUrl": "/plugin-logos/synology.svg",
   "defaultLocale": "zh-CN",
   "publisher": "GCAC",
   "runtime": "WORKFLOW_DSL",
@@ -15,7 +15,6 @@
   "support": "OFFICIAL",
   "capabilities": [
     { "key": "device.connection.test", "contractVersion": "v1", "actionContractId": "device.connection.test.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
-    { "key": "device.identity.detect", "contractVersion": "v1", "actionContractId": "device.identity.detect.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
     { "key": "device.discover", "contractVersion": "v1", "actionContractId": "device.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
     { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
     { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
@@ -33,8 +32,8 @@
     "audit.append"
   ],
   "compatibility": {
-    "productFamilies": ["device.citrix.netscaler-adc"],
-    "frameworkTypes": ["citrix.lb-server", "citrix.vpn-server", "citrix.cs-server", "citrix.gslb-server"],
+    "productFamilies": ["device.synology-dsm"],
+    "frameworkTypes": ["synology.dsm-web"],
     "targetTypes": ["tls.binding"],
     "managementMethods": ["PLUGIN"],
     "executionLocations": ["CONTROL_PLANE", "GATEWAY"],
@@ -45,12 +44,12 @@
     "workflows": {
       "device.connection.test": "workflows/connection-test.json",
       "device.discover": "workflows/discover.json",
-      "certificate.deploy": "workflows/certificate-deploy.json",
-      "certificate.rollback": "workflows/certificate-deploy.json"
+      "certificate.deploy": "workflows/deploy.json",
+      "certificate.rollback": "workflows/rollback.json"
     },
     "forms": { "device": "forms/device.json" },
     "presentations": { "device": "presentations/device.json" },
-    "discoveryMappings": { "nitro-13.1": "discovery/nitro-13.1.json" },
+    "discoveryMappings": { "dsm-v1": "discovery/dsm.json" },
     "locales": {
       "zh-CN": "locales/zh-CN.json",
       "zh-TW": "locales/zh-TW.json",

@@ -1,0 +1,9 @@
+{
+  "apiVersion": "gcac.device-fixture/v1",
+  "protocol": "DSM",
+  "cases": [
+    { "name": "业务错误", "response": { "statusCode": 200, "body": { "success": false, "error": { "code": 105, "errors": "permission denied" } } } },
+    { "name": "超时", "response": { "statusCode": 200, "transportError": true, "body": { "success": true, "data": {} } } },
+    { "name": "写入后未知", "response": { "statusCode": 504, "body": { "success": false, "error": { "code": 105 } } }, "expectedStatus": "UNKNOWN" }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "BOTH",
+  "sections": [
+    {
+      "id": "device",
+      "titleKey": "plugin.synologyDsm.form.device",
+      "fields": [
+        { "key": "displayName", "type": "text", "labelKey": "plugin.synologyDsm.field.displayName", "standardField": "device.displayName", "required": true },
+        { "key": "address", "type": "text", "labelKey": "plugin.synologyDsm.field.address", "standardField": "connection.address", "required": true },
+        { "key": "port", "type": "integer", "labelKey": "plugin.synologyDsm.field.port", "standardField": "connection.port", "required": true, "defaultValue": 5001 },
+        { "key": "gatewayId", "type": "select", "labelKey": "plugin.synologyDsm.field.gateway", "standardField": "connection.gatewayId" }
+      ]
+    },
+    {
+      "id": "authentication",
+      "titleKey": "plugin.synologyDsm.form.authentication",
+      "fields": [
+        { "key": "credential", "type": "credential_ref", "labelKey": "plugin.synologyDsm.field.credential", "standardField": "authentication.credentialId", "required": true, "acceptedCredentialKinds": ["USERNAME_PASSWORD"], "acceptedScopes": ["global", "team", "zone", "host", "plugin"], "purpose": "device-management" }
+      ]
+    },
+    {
+      "id": "tls",
+      "titleKey": "plugin.synologyDsm.form.tls",
+      "fields": [
+        { "key": "tlsVerify", "type": "switch", "labelKey": "plugin.synologyDsm.field.tlsVerify", "standardField": "tls.verifyPeer", "defaultValue": true }
+      ]
+    }
+  ]
+}
