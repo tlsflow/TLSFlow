@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type {
   ApplicationAssetTargetSummaryDto,
   DeploymentStrategyDto,
+  ManagedDeploymentIntentDto,
   ServiceAssetDto,
 } from '../dto/assets.dto.js';
 
@@ -15,12 +16,27 @@ export interface DeploymentStrategyContext {
 export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, context: DeploymentStrategyContext): DeploymentStrategyDto {
   if (!input || typeof input !== 'object') throw new AppError('VALIDATION_FAILED', 'deploymentStrategy 必须是对象');
   const now = context.now ?? new Date().toISOString();
+  if (input.type === 'MANAGED_TARGET') {
+    const managedTarget = input.managedTarget;
+    if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
+    return {
+      type: 'MANAGED_TARGET',
+      managedTarget: {
+        managedTargetId: requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId'),
+        certificateFormatId: optionalNonEmpty(managedTarget.certificateFormatId),
+        deploymentMode: optionalNonEmpty(managedTarget.deploymentMode),
+      },
+      updatedAt: now,
+      updatedBy: context.actorId,
+    };
+  }
   if (input.type === 'AGENT') {
     const agent = input.agent;
     if (!agent) throw strategyError('AGENT 策略必须提供 agent 配置');
     const mode = agent.mode ?? 'NATIVE_HANDLER';
     if (mode !== 'NATIVE_HANDLER' && mode !== 'PLUGIN') throw strategyError('agent.mode 只支持 NATIVE_HANDLER/PLUGIN');
     const plugin = mode === 'PLUGIN' ? normalizeAgentPluginBinding(agent.plugin) : undefined;
+    assertLegacyTargetRelation(agent, context.targetBinding);
     const normalized = {
       mode,
       agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
@@ -64,7 +80,32 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     };
   }
 
-  throw strategyError('deploymentStrategy.type 只支持 AGENT/WORKFLOW');
+  throw strategyError('deploymentStrategy.type 只支持 MANAGED_TARGET/AGENT/WORKFLOW');
+}
+
+export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto, context: DeploymentStrategyContext): ManagedDeploymentIntentDto | undefined {
+  const normalized = normalizeDeploymentStrategy(strategy, context);
+  if (normalized.type === 'MANAGED_TARGET') {
+    return {
+      type: 'MANAGED_TARGET',
+      managedTargetId: normalized.managedTarget!.managedTargetId,
+      certificateFormatId: normalized.managedTarget!.certificateFormatId,
+      deploymentMode: normalized.managedTarget!.deploymentMode,
+    };
+  }
+  if (normalized.type !== 'AGENT') return undefined;
+  const managedTargetId = normalized.agent?.managedTargetId ?? context.targetBinding?.managedTargetId;
+  if (!managedTargetId) throw legacyRelationError('旧 AGENT 策略无法解析 managedTargetId');
+  return {
+    type: 'MANAGED_TARGET',
+    managedTargetId,
+    certificateFormatId: normalized.agent?.certificateFormatId,
+    deploymentMode: normalized.agent?.deploymentMode,
+    legacyAgent: {
+      agentId: normalized.agent!.agentId,
+      siteAssetId: normalized.agent?.siteAssetId,
+    },
+  };
 }
 
 function normalizeAgentPluginBinding(value: unknown): NonNullable<NonNullable<DeploymentStrategyDto['agent']>['plugin']> {
@@ -161,6 +202,19 @@ function inferAgentDeploymentStrategy(context: DeploymentStrategyContext): Deplo
   };
 }
 
+function assertLegacyTargetRelation(
+  agent: NonNullable<DeploymentStrategyDto['agent']>,
+  target: DeploymentStrategyContext['targetBinding'],
+): void {
+  if (!target) return;
+  const conflicts = [
+    ['agentId', optionalNonEmpty(agent.agentId), optionalNonEmpty(target.agentId)],
+    ['siteAssetId', optionalNonEmpty(agent.siteAssetId), optionalNonEmpty(target.siteAssetId)],
+    ['managedTargetId', optionalNonEmpty(agent.managedTargetId), optionalNonEmpty(target.managedTargetId)],
+  ].filter(([, supplied, actual]) => supplied && actual && supplied !== actual);
+  if (conflicts.length > 0) throw legacyRelationError('旧 AGENT 策略与受管目标关系冲突', { conflicts });
+}
+
 function normalizeSecretRefRecord(value: unknown, path: string): Record<string, string> | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw strategyError(`${path} 必须是对象`);
@@ -234,4 +288,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function strategyError(message: string): never {
   throw new AppError('VALIDATION_FAILED', message, { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+}
+
+function legacyRelationError(message: string, detail: Record<string, unknown> = {}): never {
+  throw new AppError('VALIDATION_FAILED', message, { code: 'LEGACY_TARGET_RELATION_CONFLICT', ...detail });
 }

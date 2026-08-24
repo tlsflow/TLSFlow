@@ -21,7 +21,7 @@ export type ManagedTargetType = 'SITE_BINDING' | 'FILE_DEPLOY' | 'KEYSTORE_ENTRY
 export type ManagedTargetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'DELETED';
 export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR' | 'DELETED';
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
-export type DeploymentStrategyType = 'AGENT' | 'WORKFLOW';
+export type DeploymentStrategyType = 'AGENT' | 'MANAGED_TARGET' | 'WORKFLOW';
 export type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
@@ -51,6 +51,12 @@ export interface AgentDeploymentStrategyDto {
       outputBindings: Record<string, string>;
     }>;
   };
+}
+
+export interface ManagedTargetDeploymentStrategyDto {
+  managedTargetId: string;
+  certificateFormatId?: string;
+  deploymentMode?: string;
 }
 
 export interface WorkflowDeploymentStrategyDto {
@@ -108,9 +114,21 @@ export interface WorkflowBindingProjectionRequestDto {
 export interface DeploymentStrategyDto {
   type: DeploymentStrategyType;
   agent?: AgentDeploymentStrategyDto;
+  managedTarget?: ManagedTargetDeploymentStrategyDto;
   workflow?: WorkflowDeploymentStrategyDto;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+export interface ManagedDeploymentIntentDto {
+  type: 'MANAGED_TARGET';
+  managedTargetId: string;
+  certificateFormatId?: string;
+  deploymentMode?: string;
+  legacyAgent?: {
+    agentId: string;
+    siteAssetId?: string;
+  };
 }
 export type AssetConflictResourceType = 'host' | 'service' | 'service_asset' | 'binding';
 export type AssetConflictStatus = 'open' | 'resolved' | 'ignored';
