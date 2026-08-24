@@ -67,6 +67,15 @@ interface ExecutionTaskFlight {
   readonly style: Record<string, string>
 }
 
+interface DeploymentInputIssueDetail {
+  readonly category?: string
+  readonly code?: string
+  readonly severity?: string
+  readonly slot?: string
+  readonly path?: string
+  readonly bindingLayer?: string
+}
+
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, te } = useI18n()
 const router = useRouter()
@@ -103,6 +112,7 @@ const loading = ref(false)
 const editingPlanId = ref('')
 const wizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const errorMessage = ref('')
+const errorIssues = ref<DeploymentInputIssueDetail[]>([])
 const infoMessage = ref('')
 const approvalHint = ref('')
 const approvalFeedback = ref('')
@@ -519,6 +529,7 @@ async function loadDeploymentInputSnapshots(row: ViewRow): Promise<void> {
 
 function resetMessages() {
   errorMessage.value = ''
+  errorIssues.value = []
   infoMessage.value = ''
   approvalHint.value = ''
   approvalFeedback.value = ''
@@ -582,6 +593,7 @@ async function closeExecutionDetailModal(options: { reload?: boolean } = {}) {
 async function loadWizardOptions() {
   loading.value = true
   errorMessage.value = ''
+  errorIssues.value = []
   try {
     const [assetsResult, targetsResult, certificatesResult, versionsResult, formatsResult] = await Promise.all([
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -605,6 +617,7 @@ async function loadWizardOptions() {
       .map((item) => normalizeApplicationAssetTarget(item, managedTargetsById, workflowExecutionBindingsById, workflowTemplatesById))
       .filter((item): item is ApiRecord => item !== null)
   } catch (cause) {
+    captureErrorIssues(cause)
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.loadCreateDataFailed'))
   } finally {
     loading.value = false
@@ -634,6 +647,7 @@ async function handleSave(plan: DeploymentWizardPlan) {
     await loadUserPlans()
     closeCreateDialog(true)
   } catch (cause) {
+    captureErrorIssues(cause)
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.saveFailed'))
   } finally {
     loading.value = false
@@ -745,6 +759,7 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     infoMessage.value = t('assets.deployment.preflightAvailable', { count: dryRunChecks.value.length })
     await loadUserPlans()
   } catch (cause) {
+    captureErrorIssues(cause)
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
   } finally {
     loading.value = false
@@ -900,6 +915,7 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
 }
 
 function handleActionError(actionLabel: string, _row: ViewRow | null, cause: unknown) {
+  captureErrorIssues(cause)
   if (isDryRunActionLabel(actionLabel)) {
     dryRunChecks.value = []
     dryRunRunRow.value = null
@@ -1305,6 +1321,27 @@ function toErrorMessage(cause: unknown, fallback: string): string {
   return fallback
 }
 
+function deploymentInputIssues(cause: unknown): DeploymentInputIssueDetail[] {
+  if (!(cause instanceof ApiClientError) || !cause.details || typeof cause.details !== 'object') return []
+  const issues = (cause.details as Record<string, unknown>).issues
+  if (!Array.isArray(issues)) return []
+  return issues.filter((item): item is DeploymentInputIssueDetail => Boolean(item && typeof item === 'object'))
+}
+
+function captureErrorIssues(cause: unknown): void {
+  errorIssues.value = deploymentInputIssues(cause)
+}
+
+function deploymentInputIssueLabel(issue: DeploymentInputIssueDetail): string {
+  const code = issue.code?.trim() || 'UNKNOWN'
+  const key = `deploymentInputs.issues.${code}`
+  return te(key) ? t(key) : t('deploymentInputs.issues.unknown', { code })
+}
+
+function deploymentInputIssuePath(issue: DeploymentInputIssueDetail): string {
+  return issue.path?.trim() || issue.slot?.trim() || t('deploymentPlans.common.notProvided')
+}
+
 function readPath(record: ApiRecord | null | undefined, path: string): unknown {
   if (!record) return undefined
   return path.split('.').reduce<unknown>((current, segment) => {
@@ -1429,6 +1466,20 @@ async function fetchAllPages(
 
 <template>
   <section class="deployment-plans-page">
+    <section v-if="errorMessage && !createDialogOpen" class="deployment-plans-page__global-error" role="alert">
+      <p class="deployment-plans-page__error">{{ errorMessage }}</p>
+      <section v-if="errorIssues.length" class="deployment-plans-page__issue-details">
+        <h3>{{ t('deploymentInputs.issues.title') }}</h3>
+        <ul>
+          <li v-for="(issue, index) in errorIssues" :key="`${issue.code ?? 'unknown'}:${issue.path ?? issue.slot ?? 'unknown'}:${index}`">
+            <strong>{{ deploymentInputIssueLabel(issue) }}</strong>
+            <code>{{ deploymentInputIssuePath(issue) }}</code>
+            <span v-if="issue.bindingLayer">{{ issue.bindingLayer }}</span>
+          </li>
+        </ul>
+        <p>{{ t('deploymentPlans.errors.inputIssuesHint') }}</p>
+      </section>
+    </section>
     <p v-if="approvalFeedback" class="deployment-plans-page__info deployment-plans-page__approval-feedback">{{ approvalFeedback }}</p>
     <template v-if="isUserViewMode">
       <GcUserFlowWizard
@@ -1519,6 +1570,17 @@ async function fetchAllPages(
       frameless
     >
       <p v-if="errorMessage" class="deployment-plans-page__error deployment-plans-page__wizard-message">{{ errorMessage }}</p>
+      <section v-if="errorIssues.length" class="deployment-plans-page__issue-details deployment-plans-page__wizard-issues" role="alert">
+        <h3>{{ t('deploymentInputs.issues.title') }}</h3>
+        <ul>
+          <li v-for="(issue, index) in errorIssues" :key="`${issue.code ?? 'unknown'}:${issue.path ?? issue.slot ?? 'unknown'}:${index}`">
+            <strong>{{ deploymentInputIssueLabel(issue) }}</strong>
+            <code>{{ deploymentInputIssuePath(issue) }}</code>
+            <span v-if="issue.bindingLayer">{{ issue.bindingLayer }}</span>
+          </li>
+        </ul>
+        <p>{{ t('deploymentPlans.errors.inputIssuesHint') }}</p>
+      </section>
       <p v-else-if="infoMessage" class="deployment-plans-page__info deployment-plans-page__wizard-message">{{ infoMessage }}</p>
 
       <GcDeploymentWizard
@@ -1773,6 +1835,48 @@ async function fetchAllPages(
 .deployment-plans-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.deployment-plans-page__global-error,
+.deployment-plans-page__issue-details {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.deployment-plans-page__global-error {
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-danger-bg);
+}
+
+.deployment-plans-page__issue-details h3,
+.deployment-plans-page__issue-details p,
+.deployment-plans-page__issue-details ul {
+  margin: 0;
+}
+
+.deployment-plans-page__issue-details ul {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding-inline-start: var(--gc-space-5);
+}
+
+.deployment-plans-page__issue-details li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2);
+  align-items: baseline;
+}
+
+.deployment-plans-page__issue-details code {
+  color: var(--gc-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.deployment-plans-page__issue-details span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
 }
 
 .deployment-user-view__content,

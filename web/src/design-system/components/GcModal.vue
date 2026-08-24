@@ -68,6 +68,8 @@ const props = withDefaults(defineProps<{
   busy?: boolean
   /** 由调用方传入的已翻译错误信息。 */
   error?: string
+  /** 是否渲染错误详情插槽。 */
+  showErrorDetails?: boolean
 }>(), {
   size: 'md',
   closeOnBackdrop: false,
@@ -77,6 +79,7 @@ const props = withDefaults(defineProps<{
   collapseTargetSelector: '',
   busy: false,
   error: '',
+  showErrorDetails: false,
 })
 
 const emit = defineEmits<{
@@ -300,7 +303,10 @@ onBeforeUnmount(() => {
 
           <fieldset class="gc-modal__content" :disabled="busy" :aria-busy="busy || undefined">
             <div class="gc-modal__body">
-              <p v-if="error" :id="errorId" class="gc-modal__error" role="alert">{{ error }}</p>
+              <div v-if="error || showErrorDetails" :id="error ? errorId : undefined" class="gc-modal__error" role="alert">
+                <p v-if="error">{{ error }}</p>
+                <slot v-if="showErrorDetails" name="error-details" />
+              </div>
               <slot />
             </div>
           </fieldset>
@@ -427,6 +433,8 @@ onBeforeUnmount(() => {
 }
 
 .gc-modal__error {
+  display: grid;
+  gap: var(--gc-space-2);
   margin: 0 0 var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
   border-radius: var(--gc-radius-md);
@@ -434,6 +442,10 @@ onBeforeUnmount(() => {
   background: var(--gc-color-danger-soft);
   padding: var(--gc-space-3);
   font-size: var(--gc-font-size-sm);
+}
+
+.gc-modal__error > p {
+  margin: 0;
 }
 
 .gc-modal__actions {

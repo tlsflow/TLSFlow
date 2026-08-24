@@ -1360,7 +1360,8 @@ export default {
       missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
       missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
       saveFailed: 'Failed to save deployment plan',
-      startDryRunFailed: 'Failed to start dry-run'
+      startDryRunFailed: 'Failed to start dry-run',
+      inputIssuesHint: 'Repair the deployment inputs at the listed slot and binding layer, then retry.'
     }
   },
   agents: {

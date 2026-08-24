@@ -54,6 +54,15 @@ type AssetWizardStep = 1 | 2 | 3
 type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid' | 'updateAvailable'
 type CertificateDeploymentSelection = { certificateAssetId: string; selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }
 
+interface DeploymentInputIssueDetail {
+  readonly category?: string
+  readonly code?: string
+  readonly severity?: string
+  readonly slot?: string
+  readonly path?: string
+  readonly bindingLayer?: string
+}
+
 const ASSET_WORKSPACE_PAGE_SIZE = 20
 
 interface AssetCardCertificate {
@@ -118,7 +127,7 @@ interface WorkflowTargetInfo {
   sniName?: string
 }
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const router = useRouter()
 const appStore = useAppStore()
@@ -211,6 +220,7 @@ const rollbackRequestId = ref('')
 const deploymentDialogOpen = ref(false)
 const deploymentLoading = ref(false)
 const deploymentError = ref('')
+const deploymentErrorIssues = ref<DeploymentInputIssueDetail[]>([])
 const deploymentPlanId = ref('')
 const deploymentDryRunChecks = ref<ApiRecord[]>([])
 const deploymentCertificateItems = ref<ApiRecord[]>([])
@@ -785,6 +795,7 @@ async function openDeploymentDialog(row?: ViewRow) {
   if (!applicationAssetId) return
   deploymentDialogOpen.value = true
   deploymentError.value = ''
+  deploymentErrorIssues.value = []
   deploymentPlanId.value = ''
   deploymentDryRunChecks.value = []
   await loadDeploymentDialogOptions()
@@ -805,6 +816,7 @@ function resetBulkCertificateUpdateState(): void {
 async function loadDeploymentDialogOptions() {
   deploymentLoading.value = true
   deploymentError.value = ''
+  deploymentErrorIssues.value = []
   try {
     const [certificates, certificateVersions] = await Promise.all([
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -813,6 +825,7 @@ async function loadDeploymentDialogOptions() {
     deploymentCertificateItems.value = [...(certificates.data?.items ?? [])]
     deploymentCertificateVersionItems.value = certificateVersions
   } catch (cause) {
+    deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.loadOptionsFailed')
   } finally {
     deploymentLoading.value = false
@@ -857,6 +870,7 @@ async function runCertificateDeployment(
 async function deployCertificateVersion(selection: CertificateDeploymentSelection) {
   deploymentLoading.value = true
   deploymentError.value = ''
+  deploymentErrorIssues.value = []
   try {
     const settingsResult = await getDeploymentTaskSettings()
     const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: false, approvalEnabled: true }
@@ -874,6 +888,9 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
         if (status === 'PENDING_APPROVAL') pendingApprovalCount += 1
         else startedCount += 1
       } catch (cause) {
+        if (deploymentErrorIssues.value.length === 0) {
+          deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
+        }
         failures.push({
           id: applicationAssetId,
           message: cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed'),
@@ -906,10 +923,28 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
       : t('assets.selection.bulkUpdateSuccess', { count: succeededCount })
     notifySelectionMessage(successMessage, failures.length > 0 ? 'warning' : (pendingApprovalCount > 0 ? 'warning' : 'success'))
   } catch (cause) {
+    deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed')
   } finally {
     deploymentLoading.value = false
   }
+}
+
+function extractDeploymentInputIssues(cause: unknown): DeploymentInputIssueDetail[] {
+  if (!(cause instanceof ApiClientError) || !cause.details || typeof cause.details !== 'object') return []
+  const issues = (cause.details as Record<string, unknown>).issues
+  if (!Array.isArray(issues)) return []
+  return issues.filter((item): item is DeploymentInputIssueDetail => Boolean(item && typeof item === 'object'))
+}
+
+function deploymentInputIssueLabel(issue: DeploymentInputIssueDetail): string {
+  const code = issue.code?.trim() || 'UNKNOWN'
+  const key = `deploymentInputs.issues.${code}`
+  return te(key) ? t(key) : t('deploymentInputs.issues.unknown', { code })
+}
+
+function deploymentInputIssuePath(issue: DeploymentInputIssueDetail): string {
+  return issue.path?.trim() || issue.slot?.trim() || t('deploymentPlans.common.notProvided')
 }
 
 function notifyDeploymentStarted(tone: 'success' | 'warning'): void {
@@ -3459,7 +3494,21 @@ function managedTargetLabel(target: ApiRecord): string {
       width="min(100%, var(--gc-size-modal-lg))"
       :busy="deploymentLoading"
       :error="deploymentError"
+      :show-error-details="deploymentErrorIssues.length > 0"
     >
+      <template #error-details>
+        <section v-if="deploymentErrorIssues.length" class="asset-deployment__error-details">
+          <h3>{{ t('deploymentInputs.issues.title') }}</h3>
+          <ul>
+            <li v-for="(issue, index) in deploymentErrorIssues" :key="`${issue.code ?? 'unknown'}:${issue.path ?? issue.slot ?? 'unknown'}:${index}`">
+              <strong>{{ deploymentInputIssueLabel(issue) }}</strong>
+              <code>{{ deploymentInputIssuePath(issue) }}</code>
+              <span v-if="issue.bindingLayer">{{ issue.bindingLayer }}</span>
+            </li>
+          </ul>
+          <p>{{ t('deploymentPlans.errors.inputIssuesHint') }}</p>
+        </section>
+      </template>
       <GcCertificateDeploymentForm
         :application-asset="deploymentApplicationAsset"
         :site-name="deploymentSiteName"
@@ -4810,6 +4859,40 @@ function managedTargetLabel(target: ApiRecord): string {
   word-break: break-word;
 }
 .asset-summary__error { color: var(--gc-color-danger); }
+
+.asset-deployment__error-details {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.asset-deployment__error-details h3,
+.asset-deployment__error-details p,
+.asset-deployment__error-details ul {
+  margin: 0;
+}
+
+.asset-deployment__error-details ul {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding-inline-start: var(--gc-space-5);
+}
+
+.asset-deployment__error-details li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2);
+  align-items: baseline;
+}
+
+.asset-deployment__error-details code {
+  color: var(--gc-color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.asset-deployment__error-details span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
 
 .asset-form { display: grid; gap: var(--gc-space-4); }
 .asset-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }

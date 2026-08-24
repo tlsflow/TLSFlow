@@ -1282,7 +1282,8 @@ export default {
       missingPlanIdForAction: '{action} не выполнено: номер плана отсутствует, выберите заново.',
       missingRunIdRequest: 'Номер выполнения отсутствует, выберите заново.',
       saveFailed: 'Не удалось сохранить план развертывания',
-      startDryRunFailed: 'Не удалось запустить dry-run'
+      startDryRunFailed: 'Не удалось запустить dry-run',
+      inputIssuesHint: 'Исправьте входные данные в указанном слоте и слое привязки, затем повторите попытку.'
     }
   },
   agents: {
