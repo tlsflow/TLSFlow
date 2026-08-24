@@ -9,12 +9,14 @@ namespace Gcac.WindowsServiceHost
     {
         private static int Main(string[] args)
         {
-            var options = ServiceHostOptions.Parse(args);
+            ServiceHostOptions options = ServiceHostOptions.Parse(args);
             if (options.RunConsole)
             {
-                using var service = new AgentWindowsService(options);
-                service.RunConsole();
-                return 0;
+                using (AgentWindowsService service = new AgentWindowsService(options))
+                {
+                    service.RunConsole();
+                    return 0;
+                }
             }
 
             ServiceBase.Run(new ServiceBase[] { new AgentWindowsService(options) });
@@ -25,7 +27,7 @@ namespace Gcac.WindowsServiceHost
     internal sealed class AgentWindowsService : ServiceBase
     {
         private readonly ServiceHostOptions _options;
-        private Process? _childProcess;
+        private Process _childProcess;
         private readonly object _syncRoot = new object();
         private bool _stopping;
 
@@ -91,7 +93,10 @@ namespace Gcac.WindowsServiceHost
                     WriteHostLog($"Child process exited with code {process.ExitCode}.");
                     lock (_syncRoot)
                     {
-                        _childProcess?.Dispose();
+                        if (_childProcess != null)
+                        {
+                            _childProcess.Dispose();
+                        }
                         _childProcess = null;
                     }
 

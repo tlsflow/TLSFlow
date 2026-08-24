@@ -539,6 +539,7 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
     '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; LogDir = [string]$manifest.logDir }',
     '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
+    "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
     "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -SelfCheck -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $selfCheckPath",
     "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap self-check failed after service installation.' }",
     "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -RunOnce -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $runOncePath",
