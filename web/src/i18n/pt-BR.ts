@@ -1611,6 +1611,7 @@ export default {
     tabs: { channels: 'Canais', deliveries: 'Entregas', rules: 'Regras e modelos' },
     sections: { channels: 'Registros de canais', deliveries: 'Registros de entrega' },
     channels: { createTitle: 'Criar canal de notificação' },
+    settings: { privateOriginsTitle: 'Endereços de implantação privada', privateOriginsDescription: 'Configure as Origins HTTPS privadas permitidas para WeCom, Feishu e DingTalk.' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook genérico' },
     deploymentModes: { public: 'Nuvem pública', private: 'Implantação privada' },
     fields: {
@@ -1624,11 +1625,12 @@ export default {
       testTargetPlaceholder: 'Separe destinatários de Email por vírgulas', lastSuccess: 'Último sucesso', latency: 'Latência (ms)',
       createdAt: 'Criado em', updatedAt: 'Atualizado em', failureCategory: 'Categoria da falha', channel: 'Canal de notificação', selectChannel: 'Selecione um canal',
       source: 'Origem do evento', priority: 'Prioridade da rota', dedupeWindow: 'Janela de deduplicação (segundos)', templateKey: 'Chave do modelo', locale: 'Idioma',
-      titleTemplate: 'Modelo do título', bodyTemplate: 'Modelo do corpo', reason: 'Motivo do silêncio', startsAt: 'Início', endsAt: 'Fim'
+      titleTemplate: 'Modelo do título', bodyTemplate: 'Modelo do corpo', reason: 'Motivo do silêncio', startsAt: 'Início', endsAt: 'Fim',
+      wecomPrivateOrigins: 'Origins privadas do WeCom', feishuPrivateOrigins: 'Origins privadas do Feishu', dingtalkPrivateOrigins: 'Origins privadas do DingTalk', privateOriginsPlaceholder: 'Uma por linha, por exemplo https://notify.example.internal'
     },
     actions: {
       createChannel: 'Novo canal', createRoute: 'Nova rota', createTemplate: 'Novo modelo', createSilence: 'Novo silêncio',
-      confirmCreate: 'Criar', cancel: 'Cancelar', test: 'Enviar teste', testChannel: 'Testar canal: {name}', retry: 'Tentar novamente', enable: 'Ativar', disable: 'Desativar'
+      confirmCreate: 'Criar', cancel: 'Cancelar', saveSettings: 'Salvar configurações', test: 'Enviar teste', testChannel: 'Testar canal: {name}', retry: 'Tentar novamente', enable: 'Ativar', disable: 'Desativar'
     },
     rules: { createRoute: 'Criar rota de notificação', createTemplate: 'Criar modelo de notificação', createSilence: 'Criar regra de silêncio' },
     summary: { routes: 'Rotas de notificação', templates: 'Modelos de notificação', silences: 'Regras de silêncio', recordCount: '{count} registros' },
@@ -1641,7 +1643,7 @@ export default {
       smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória', botTokenRequired: 'O Telegram Bot Token é obrigatório',
       chatIdRequired: 'O Telegram Chat ID é obrigatório', feishuWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado Feishu', dingtalkWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado DingTalk',
       wecomWebhookUrlInvalid: 'Informe uma URL Webhook HTTPS válida do robô WeCom', telegramBotTokenInvalid: 'O formato do Telegram Bot Token é inválido', telegramMessageThreadIdInvalid: 'O Telegram Topic ID deve ser um inteiro positivo',
-      privateDeploymentAllowlistHint: 'Um operador do GCAC deve adicionar o endpoint privado à lista de Origins HTTPS confiáveis da plataforma.', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
+      privateDeploymentAllowlistHint: 'Endereços privados devem primeiro ser adicionados à lista de Origins HTTPS confiáveis acima.', privateOriginInvalid: 'O endereço privado deve ser uma Origin HTTPS exata, sem caminho, consulta, informações de usuário ou fragmento.', privateOriginsSecurityHint: 'Informe apenas esquema, host e porta opcional. URLs Webhook completas, tokens e segredos de assinatura continuam criptografados no serviço Secret.', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
     }
   },
   settings: {

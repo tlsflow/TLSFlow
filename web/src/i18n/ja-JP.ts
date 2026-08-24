@@ -1637,6 +1637,7 @@ export default {
     tabs: { channels: '通知チャネル', deliveries: '配信履歴', rules: 'ルールとテンプレート' },
     sections: { channels: '通知チャネル一覧', deliveries: '配信履歴' },
     channels: { createTitle: '通知チャネルを新規作成' },
+    settings: { privateOriginsTitle: 'プライベート環境の接続先', privateOriginsDescription: 'WeCom、Feishu、DingTalk のプライベート HTTPS Origin を設定します。' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: '汎用 Webhook' },
     deploymentModes: { public: 'パブリッククラウド', private: 'プライベート展開' },
     fields: {
@@ -1650,11 +1651,12 @@ export default {
       testTargetPlaceholder: 'Email はカンマ区切りで入力できます', lastSuccess: '最終成功', latency: '遅延（ミリ秒）',
       createdAt: '作成日時', updatedAt: '更新日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
       source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー', locale: '言語',
-      titleTemplate: 'タイトルテンプレート', bodyTemplate: '本文テンプレート', reason: 'サイレンス理由', startsAt: '開始日時', endsAt: '終了日時'
+      titleTemplate: 'タイトルテンプレート', bodyTemplate: '本文テンプレート', reason: 'サイレンス理由', startsAt: '開始日時', endsAt: '終了日時',
+      wecomPrivateOrigins: 'WeCom プライベート Origin', feishuPrivateOrigins: 'Feishu プライベート Origin', dingtalkPrivateOrigins: 'DingTalk プライベート Origin', privateOriginsPlaceholder: '1 行に 1 件、例 https://notify.example.internal'
     },
     actions: {
       createChannel: 'チャネルを新規作成', createRoute: 'ルートを新規作成', createTemplate: 'テンプレートを新規作成', createSilence: 'サイレンスを新規作成',
-      confirmCreate: '作成', cancel: 'キャンセル', test: 'テスト送信', testChannel: 'チャネルをテスト：{name}', retry: '再配信', enable: '有効化', disable: '無効化'
+      confirmCreate: '作成', cancel: 'キャンセル', saveSettings: '設定を保存', test: 'テスト送信', testChannel: 'チャネルをテスト：{name}', retry: '再配信', enable: '有効化', disable: '無効化'
     },
     rules: { createRoute: '通知ルートを新規作成', createTemplate: '通知テンプレートを新規作成', createSilence: 'サイレンスルールを新規作成' },
     summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール', recordCount: '{count} 件' },
@@ -1667,7 +1669,7 @@ export default {
       smtpCredentialsPairRequired: 'SMTP ユーザー名とパスワードは両方入力してください', webhookUrlRequired: 'Webhook URL は必須です', botTokenRequired: 'Telegram Bot Token は必須です',
       chatIdRequired: 'Telegram Chat ID は必須です', feishuWebhookUrlInvalid: 'Feishu 公式カスタムボット Webhook URL を入力してください', dingtalkWebhookUrlInvalid: 'DingTalk 公式カスタムボット Webhook URL を入力してください',
       wecomWebhookUrlInvalid: '有効な WeCom ボット HTTPS Webhook URL を入力してください', telegramBotTokenInvalid: 'Telegram Bot Token の形式が無効です', telegramMessageThreadIdInvalid: 'Telegram Topic ID は正の整数である必要があります',
-      privateDeploymentAllowlistHint: 'プライベートエンドポイントは GCAC 運用担当者が対象プラットフォームの信頼済み HTTPS Origin 許可リストへ追加する必要があります。', telegramUsesBotApi: 'Telegram 通知はイベント受信用 Webhook ではなく、公式 Bot API の sendMessage を使用します。'
+      privateDeploymentAllowlistHint: 'プライベートエンドポイントは先に上記の信頼済み HTTPS Origin リストへ追加する必要があります。', privateOriginInvalid: 'プライベートアドレスはパス、クエリ、ユーザー情報、フラグメントを含まない正確な HTTPS Origin である必要があります。', privateOriginsSecurityHint: 'ここにはスキーム、ホスト、任意のポートのみ入力します。完全な Webhook URL、Token、署名鍵は Secret サービスで暗号化保存されます。', telegramUsesBotApi: 'Telegram 通知はイベント受信用 Webhook ではなく、公式 Bot API の sendMessage を使用します。'
     }
   },
   settings: {

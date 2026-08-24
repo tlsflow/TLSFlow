@@ -1637,6 +1637,7 @@ export default {
     tabs: { channels: '通知渠道', deliveries: '投递记录', rules: '规则与模板' },
     sections: { channels: '通知渠道记录', deliveries: '投递记录' },
     channels: { createTitle: '新建通知渠道' },
+    settings: { privateOriginsTitle: '私有化平台地址', privateOriginsDescription: '配置允许通知中心访问的企业微信、飞书和钉钉私有化 HTTPS Origin。' },
     channelTypes: { email: 'Email', wecom: '企业微信', slack: 'Slack', feishu: '飞书', dingtalk: '钉钉', telegram: 'Telegram', webhook: '通用 Webhook' },
     deploymentModes: { public: '公有云', private: '私有化部署' },
     fields: {
@@ -1650,11 +1651,12 @@ export default {
       testTargetPlaceholder: 'Email 可输入逗号分隔的收件地址', lastSuccess: '最近成功', latency: '延迟（毫秒）',
       createdAt: '创建时间', updatedAt: '更新时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
       source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键', locale: '语言',
-      titleTemplate: '标题模板', bodyTemplate: '正文模板', reason: '静默原因', startsAt: '开始时间', endsAt: '结束时间'
+      titleTemplate: '标题模板', bodyTemplate: '正文模板', reason: '静默原因', startsAt: '开始时间', endsAt: '结束时间',
+      wecomPrivateOrigins: '企业微信私有化 Origin', feishuPrivateOrigins: '飞书私有化 Origin', dingtalkPrivateOrigins: '钉钉私有化 Origin', privateOriginsPlaceholder: '每行一个，例如 https://notify.example.internal'
     },
     actions: {
       createChannel: '新建通知渠道', createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则',
-      confirmCreate: '确认创建', cancel: '取消', test: '测试发送', testChannel: '测试渠道：{name}', retry: '重新投递', enable: '启用', disable: '停用'
+      confirmCreate: '确认创建', cancel: '取消', saveSettings: '保存设置', test: '测试发送', testChannel: '测试渠道：{name}', retry: '重新投递', enable: '启用', disable: '停用'
     },
     rules: { createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则' },
     summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则', recordCount: '共 {count} 条记录' },
@@ -1667,7 +1669,7 @@ export default {
       smtpCredentialsPairRequired: 'SMTP 用户名和密码必须同时填写', webhookUrlRequired: 'Webhook URL 不能为空', botTokenRequired: 'Telegram Bot Token 不能为空',
       chatIdRequired: 'Telegram Chat ID 不能为空', feishuWebhookUrlInvalid: '请输入飞书官方自定义机器人 Webhook URL', dingtalkWebhookUrlInvalid: '请输入钉钉官方自定义机器人 Webhook URL',
       wecomWebhookUrlInvalid: '请输入有效的企业微信机器人 HTTPS Webhook URL', telegramBotTokenInvalid: 'Telegram Bot Token 格式无效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必须是正整数',
-      privateDeploymentAllowlistHint: '私有化地址必须由 GCAC 运维加入对应平台的受信任 HTTPS Origin 白名单，否则测试和投递会被后端拒绝。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 发送通知，不使用接收事件的 Webhook。'
+      privateDeploymentAllowlistHint: '私有化地址必须先加入上方对应平台的受信任 HTTPS Origin 白名单，否则测试和投递会被后端拒绝。', privateOriginInvalid: '私有化地址必须是精确 HTTPS Origin，不能包含路径、查询参数、用户信息或 Fragment。', privateOriginsSecurityHint: '这里只填写协议、主机和可选端口；完整 Webhook URL、Token 和签名密钥仍通过密文服务保存。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 发送通知，不使用接收事件的 Webhook。'
     }
   },
   settings: {

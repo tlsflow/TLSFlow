@@ -30,8 +30,20 @@ export interface NotificationDelivery {
   createdAt: string
 }
 
+export interface NotificationSettings {
+  tenantId: string
+  privateOrigins: { wecom: string[]; feishu: string[]; dingtalk: string[] }
+  updatedBy?: string
+  updatedAt?: string
+  version: number
+}
+
 export interface NotificationPage<T> { items: T[]; page: number; pageSize: number; total: number }
 
+export function getNotificationSettings() { return apiClient.get<NotificationSettings>('/v1/notification-settings') }
+export function updateNotificationSettings(input: { version: number; wecomPrivateOrigins: string[]; feishuPrivateOrigins: string[]; dingtalkPrivateOrigins: string[] }) {
+  return apiClient.request<NotificationSettings>('/v1/notification-settings', { method: 'PATCH', body: input })
+}
 export function listNotificationChannels() { return apiClient.get<NotificationChannel[]>('/v1/notification-channels') }
 export function createNotificationChannel(input: Omit<NotificationChannel, 'id' | 'healthStatus' | 'lastSucceededAt' | 'lastFailedAt' | 'lastLatencyMs' | 'version'>) {
   return apiClient.post<NotificationChannel>('/v1/notification-channels', input)

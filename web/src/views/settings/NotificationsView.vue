@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { GcModal, GcSecretInput, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { createSecret } from '@/api/modules/security.api'
+import { usePermissionStore } from '@/stores/permission.store'
 import {
   createNotificationChannel,
   createNotificationRoute,
   createNotificationSilence,
+  getNotificationSettings,
   listNotificationChannels,
   listNotificationDeliveries,
   listNotificationRoutes,
@@ -17,6 +19,7 @@ import {
   saveNotificationTemplate,
   testNotificationChannel,
   updateNotificationChannel,
+  updateNotificationSettings,
   type NotificationChannel,
   type NotificationChannelType,
   type NotificationDelivery
@@ -54,6 +57,8 @@ interface NotificationSilenceRecord {
 type DialogType = 'channel' | 'route' | 'template' | 'silence' | 'test' | null
 
 const { t } = useI18n()
+const permissionStore = usePermissionStore()
+const canUpdateSettings = computed(() => permissionStore.hasPermission('settings.write'))
 const activeTab = ref('channels')
 const loading = ref(false)
 const submitting = ref(false)
@@ -65,6 +70,7 @@ const deliveries = ref<NotificationDelivery[]>([])
 const routes = ref<NotificationRouteRecord[]>([])
 const templates = ref<NotificationTemplateRecord[]>([])
 const silences = ref<NotificationSilenceRecord[]>([])
+const notificationSettings = reactive({ version: 0, wecomPrivateOrigins: '', feishuPrivateOrigins: '', dingtalkPrivateOrigins: '' })
 const channelForm = reactive({
   name: '',
   type: 'email' as NotificationChannelType,
@@ -121,9 +127,13 @@ async function refresh() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [channelResult, deliveryResult, routeResult, templateResult, silenceResult] = await Promise.all([
-      listNotificationChannels(), listNotificationDeliveries(), listNotificationRoutes(), listNotificationTemplates(), listNotificationSilences()
+    const [settingsResult, channelResult, deliveryResult, routeResult, templateResult, silenceResult] = await Promise.all([
+      getNotificationSettings(), listNotificationChannels(), listNotificationDeliveries(), listNotificationRoutes(), listNotificationTemplates(), listNotificationSilences()
     ])
+    notificationSettings.version = settingsResult.data?.version ?? 0
+    notificationSettings.wecomPrivateOrigins = settingsResult.data?.privateOrigins.wecom.join('\n') ?? ''
+    notificationSettings.feishuPrivateOrigins = settingsResult.data?.privateOrigins.feishu.join('\n') ?? ''
+    notificationSettings.dingtalkPrivateOrigins = settingsResult.data?.privateOrigins.dingtalk.join('\n') ?? ''
     channels.value = channelResult.data ?? []
     deliveries.value = deliveryResult.data?.items ?? []
     routes.value = (routeResult.data ?? []) as unknown as NotificationRouteRecord[]
@@ -134,6 +144,34 @@ async function refresh() {
   } finally {
     loading.value = false
   }
+}
+
+function parsePrivateOrigins(value: string): string[] {
+  return [...new Set(value.split(/[,\n]/).map((item) => item.trim()).filter(Boolean).map((item) => {
+    let url: URL
+    try { url = new URL(item) } catch { throw new Error(t('notifications.messages.privateOriginInvalid')) }
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+      throw new Error(t('notifications.messages.privateOriginInvalid'))
+    }
+    return url.origin
+  }))]
+}
+
+async function saveNotificationSettings() {
+  await submit(async () => {
+    const result = await updateNotificationSettings({
+      version: notificationSettings.version,
+      wecomPrivateOrigins: parsePrivateOrigins(notificationSettings.wecomPrivateOrigins),
+      feishuPrivateOrigins: parsePrivateOrigins(notificationSettings.feishuPrivateOrigins),
+      dingtalkPrivateOrigins: parsePrivateOrigins(notificationSettings.dingtalkPrivateOrigins)
+    })
+    if (result.data) {
+      notificationSettings.version = result.data.version
+      notificationSettings.wecomPrivateOrigins = result.data.privateOrigins.wecom.join('\n')
+      notificationSettings.feishuPrivateOrigins = result.data.privateOrigins.feishu.join('\n')
+      notificationSettings.dingtalkPrivateOrigins = result.data.privateOrigins.dingtalk.join('\n')
+    }
+  })
 }
 
 function openDialog(dialog: Exclude<DialogType, 'test' | null>) {
@@ -378,6 +416,21 @@ onMounted(refresh)
     <GcTabs v-model="activeTab" :tabs="tabs" />
 
     <section v-if="activeTab === 'channels'" class="notifications-page__section">
+      <form class="gc-card notifications-page__settings" @submit.prevent="saveNotificationSettings">
+        <header class="notifications-page__toolbar">
+          <div>
+            <h2>{{ t('notifications.settings.privateOriginsTitle') }}</h2>
+            <p>{{ t('notifications.settings.privateOriginsDescription') }}</p>
+          </div>
+          <button v-if="canUpdateSettings" class="notifications-page__button" type="submit" :disabled="submitting">{{ t('notifications.actions.saveSettings') }}</button>
+        </header>
+        <div class="notifications-page__settings-grid">
+          <label><span>{{ t('notifications.fields.wecomPrivateOrigins') }}</span><textarea v-model="notificationSettings.wecomPrivateOrigins" :readonly="!canUpdateSettings" :placeholder="t('notifications.fields.privateOriginsPlaceholder')" /></label>
+          <label><span>{{ t('notifications.fields.feishuPrivateOrigins') }}</span><textarea v-model="notificationSettings.feishuPrivateOrigins" :readonly="!canUpdateSettings" :placeholder="t('notifications.fields.privateOriginsPlaceholder')" /></label>
+          <label><span>{{ t('notifications.fields.dingtalkPrivateOrigins') }}</span><textarea v-model="notificationSettings.dingtalkPrivateOrigins" :readonly="!canUpdateSettings" :placeholder="t('notifications.fields.privateOriginsPlaceholder')" /></label>
+        </div>
+        <p class="notifications-page__form-hint">{{ t('notifications.messages.privateOriginsSecurityHint') }}</p>
+      </form>
       <header class="notifications-page__toolbar">
         <div>
           <h2>{{ t('notifications.sections.channels') }}</h2>
@@ -561,12 +614,18 @@ onMounted(refresh)
 .notifications-page__section,
 .notifications-page__rules,
 .notifications-page__list,
-.notifications-page__form {
+.notifications-page__form,
+.notifications-page__settings,
+.notifications-page__settings-grid {
   display: grid;
 }
 
 .notifications-page { gap: var(--gc-space-5); }
 .notifications-page__section, .notifications-page__rules, .notifications-page__list { gap: var(--gc-space-3); }
+.notifications-page__settings { gap: var(--gc-space-4); padding: var(--gc-space-5); }
+.notifications-page__settings-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.notifications-page__settings-grid label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.notifications-page__settings-grid textarea { min-height: calc(var(--gc-space-10) * 2); padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text); resize: vertical; }
 .notifications-page__rules { gap: var(--gc-space-6); }
 .notifications-page__toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
 .notifications-page__toolbar h2, .notifications-page__toolbar p, .notifications-page__item h3, .notifications-page__item p { margin: 0; }
@@ -590,5 +649,6 @@ onMounted(refresh)
 @media (max-width: 56.25rem) {
   .notifications-page__toolbar { align-items: stretch; flex-direction: column; }
   .notifications-page__item dl { grid-template-columns: 1fr; }
+  .notifications-page__settings-grid { grid-template-columns: 1fr; }
 }
 </style>

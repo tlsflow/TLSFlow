@@ -9,22 +9,29 @@ const apiMocks = vi.hoisted(() => ({
   listNotificationRoutes: vi.fn(),
   listNotificationTemplates: vi.fn(),
   listNotificationSilences: vi.fn(),
+  getNotificationSettings: vi.fn(),
   createNotificationChannel: vi.fn(),
   createNotificationRoute: vi.fn(),
   createNotificationSilence: vi.fn(),
   saveNotificationTemplate: vi.fn(),
   updateNotificationChannel: vi.fn(),
   testNotificationChannel: vi.fn(),
-  retryNotificationDelivery: vi.fn()
+  retryNotificationDelivery: vi.fn(),
+  updateNotificationSettings: vi.fn()
 }))
 const securityApiMocks = vi.hoisted(() => ({ createSecret: vi.fn() }))
 
 vi.mock('@/api/modules/notifications.api', () => apiMocks)
 vi.mock('@/api/modules/security.api', () => securityApiMocks)
+vi.mock('@/stores/permission.store', () => ({
+  usePermissionStore: () => ({ hasPermission: (permission: string) => permission === 'settings.write' })
+}))
 
 describe('NotificationsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMocks.getNotificationSettings.mockResolvedValue({ data: { tenantId: 'tenant-1', privateOrigins: { wecom: [], feishu: [], dingtalk: [] }, version: 0 } })
+    apiMocks.updateNotificationSettings.mockResolvedValue({ data: { tenantId: 'tenant-1', privateOrigins: { wecom: [], feishu: [], dingtalk: [] }, version: 1 } })
   })
 
   it('加载渠道与投递，并且不显示 Secret 明文', async () => {
@@ -71,6 +78,42 @@ describe('NotificationsView', () => {
     expect(wrapper.find('#notification-channel-form').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('SecretRef')
     expect(wrapper.find('input[type="password"][autocomplete="new-password"]').exists()).toBe(true)
+  })
+
+  it('系统管理员可以保存三种私有化平台 Origin', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
+    apiMocks.getNotificationSettings.mockResolvedValue({
+      data: { tenantId: 'tenant-1', privateOrigins: { wecom: ['https://wecom.old.internal'], feishu: [], dingtalk: [] }, version: 3 }
+    })
+    apiMocks.updateNotificationSettings.mockResolvedValue({
+      data: { tenantId: 'tenant-1', privateOrigins: { wecom: ['https://wecom.internal'], feishu: ['https://feishu.internal:8443'], dingtalk: ['https://dingtalk.internal'] }, version: 4 }
+    })
+
+    const wrapper = mount(NotificationsView, { global: { plugins: [i18n], stubs: { GcTabs: { props: ['modelValue'], template: '<nav />' } } } })
+    await flushPromises()
+    const settingsForm = wrapper.get('form.notifications-page__settings')
+    const fields = settingsForm.findAll('textarea')
+    await fields[0]!.setValue('https://wecom.internal/path?token=secret')
+    await settingsForm.trigger('submit')
+    await flushPromises()
+    expect(apiMocks.updateNotificationSettings).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('精确 HTTPS Origin')
+
+    await fields[0]!.setValue('https://wecom.internal')
+    await fields[1]!.setValue('https://feishu.internal:8443')
+    await fields[2]!.setValue('https://dingtalk.internal')
+    await settingsForm.trigger('submit')
+    await flushPromises()
+    expect(apiMocks.updateNotificationSettings).toHaveBeenCalledWith({
+      version: 3,
+      wecomPrivateOrigins: ['https://wecom.internal'],
+      feishuPrivateOrigins: ['https://feishu.internal:8443'],
+      dingtalkPrivateOrigins: ['https://dingtalk.internal']
+    })
   })
 
   it('Slack Webhook 明文只写入 Secret 服务，渠道请求只保存 SecretRef', async () => {

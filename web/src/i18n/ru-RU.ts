@@ -1611,6 +1611,7 @@ export default {
     tabs: { channels: 'Каналы', deliveries: 'Доставки', rules: 'Правила и шаблоны' },
     sections: { channels: 'Записи каналов', deliveries: 'Записи доставки' },
     channels: { createTitle: 'Создать канал уведомлений' },
+    settings: { privateOriginsTitle: 'Адреса частного развертывания', privateOriginsDescription: 'Настройте разрешенные частные HTTPS Origin для WeCom, Feishu и DingTalk.' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Универсальный Webhook' },
     deploymentModes: { public: 'Публичное облако', private: 'Частное развертывание' },
     fields: {
@@ -1624,11 +1625,12 @@ export default {
       testTargetPlaceholder: 'Email-адреса можно разделить запятыми', lastSuccess: 'Последний успех', latency: 'Задержка (мс)',
       createdAt: 'Создано', updatedAt: 'Обновлено', failureCategory: 'Категория ошибки', channel: 'Канал уведомлений', selectChannel: 'Выберите канал',
       source: 'Источник события', priority: 'Приоритет маршрута', dedupeWindow: 'Окно дедупликации (секунды)', templateKey: 'Ключ шаблона', locale: 'Язык',
-      titleTemplate: 'Шаблон заголовка', bodyTemplate: 'Шаблон текста', reason: 'Причина тишины', startsAt: 'Начало', endsAt: 'Окончание'
+      titleTemplate: 'Шаблон заголовка', bodyTemplate: 'Шаблон текста', reason: 'Причина тишины', startsAt: 'Начало', endsAt: 'Окончание',
+      wecomPrivateOrigins: 'Частные Origin WeCom', feishuPrivateOrigins: 'Частные Origin Feishu', dingtalkPrivateOrigins: 'Частные Origin DingTalk', privateOriginsPlaceholder: 'По одному в строке, например https://notify.example.internal'
     },
     actions: {
       createChannel: 'Новый канал', createRoute: 'Новый маршрут', createTemplate: 'Новый шаблон', createSilence: 'Новое правило тишины',
-      confirmCreate: 'Создать', cancel: 'Отмена', test: 'Тестовая отправка', testChannel: 'Проверить канал: {name}', retry: 'Повторить доставку', enable: 'Включить', disable: 'Отключить'
+      confirmCreate: 'Создать', cancel: 'Отмена', saveSettings: 'Сохранить настройки', test: 'Тестовая отправка', testChannel: 'Проверить канал: {name}', retry: 'Повторить доставку', enable: 'Включить', disable: 'Отключить'
     },
     rules: { createRoute: 'Создать маршрут уведомлений', createTemplate: 'Создать шаблон уведомлений', createSilence: 'Создать правило тишины' },
     summary: { routes: 'Маршруты уведомлений', templates: 'Шаблоны уведомлений', silences: 'Правила тишины', recordCount: 'Записей: {count}' },
@@ -1641,7 +1643,7 @@ export default {
       smtpCredentialsPairRequired: 'Имя пользователя и пароль SMTP необходимо указывать вместе', webhookUrlRequired: 'Webhook URL обязателен', botTokenRequired: 'Telegram Bot Token обязателен',
       chatIdRequired: 'Telegram Chat ID обязателен', feishuWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота Feishu', dingtalkWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота DingTalk',
       wecomWebhookUrlInvalid: 'Введите корректный HTTPS Webhook URL робота WeCom', telegramBotTokenInvalid: 'Неверный формат Telegram Bot Token', telegramMessageThreadIdInvalid: 'Telegram Topic ID должен быть положительным целым числом',
-      privateDeploymentAllowlistHint: 'Оператор GCAC должен добавить частный endpoint в список доверенных HTTPS Origin соответствующей платформы.', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
+      privateDeploymentAllowlistHint: 'Частные адреса сначала должны быть добавлены в список доверенных HTTPS Origin выше.', privateOriginInvalid: 'Частный адрес должен быть точным HTTPS Origin без пути, запроса, данных пользователя и фрагмента.', privateOriginsSecurityHint: 'Указывайте только схему, хост и необязательный порт. Полные Webhook URL, токены и ключи подписи остаются зашифрованными в сервисе Secret.', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
     }
   },
   settings: {
