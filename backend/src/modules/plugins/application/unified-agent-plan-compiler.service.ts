@@ -120,8 +120,14 @@ function readContextPath(context: Record<string, unknown>, path: string): unknow
 }
 
 function normalizeArtifacts(binding: PluginBindingV1, artifacts: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(binding.certificateArtifactBindings).map(([name, definition]) => {
+  const artifactNames = new Set([
+    ...Object.keys(artifacts),
+    ...Object.keys(binding.certificateArtifactBindings),
+  ]);
+  return Object.fromEntries([...artifactNames].map((name) => {
     const material = isRecord(artifacts[name]) ? artifacts[name] : {};
+    const definition = binding.certificateArtifactBindings[name];
+    if (!definition) return [name, material];
     const outputs = isRecord(material.outputs) ? material.outputs : {};
     const selectedBySlot = Object.fromEntries(Object.entries(definition.outputBindings)
       .map(([slot, outputKey]) => [slot, outputs[slot] ?? outputs[outputKey]] as const)
