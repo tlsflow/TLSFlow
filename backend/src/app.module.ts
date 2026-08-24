@@ -292,6 +292,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     livenessService,
     agentCapabilityDiscoveryProjector,
     tasksService,
+    pluginFactPipeline,
   );
   agentsService.setGatewayTaskResultSink(gatewayTasksService);
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));

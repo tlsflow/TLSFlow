@@ -30,6 +30,8 @@ import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capab
 import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
+import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pipeline.service.js';
+import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
 
 export type AgentInstallMaterialPlatform = 'windows_go' | 'windows_compatibility' | 'linux_go';
 
@@ -135,6 +137,7 @@ export class AgentsApplicationService {
     private readonly liveness?: LivenessApplicationService,
     private readonly capabilityDiscoveryProjector?: AgentCapabilityDiscoveryProjector,
     private readonly tasks?: TaskEnqueuer,
+    private readonly pluginFactPipeline?: PluginFactPipelineService,
   ) {}
 
   getModuleMetadata() {
@@ -584,9 +587,10 @@ export class AgentsApplicationService {
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.leaseId !== input.leaseId) throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', { taskId: task.id });
     const rawDetail = input.detail ?? {};
+    const actionType = resolveAgentTaskActionType(task.payload)
+      ?? resolveAgentTaskActionType(readOptionalRecord(task.payload.gatewayTask)?.payload as Record<string, unknown> | undefined);
     // Receipt 摘要覆盖 tokenId 等绑定标识，必须先按原始合同验证，再执行日志脱敏。
-    const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, tenantId, input.status, input.success);
-    const sanitizedDetail = this.domain.sanitizeResultDetail(rawDetail);
+    const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, task.tenantId, input.status, input.success);
     if (['succeeded', 'failed'].includes(task.status)) {
       // 终态任务只接受同一份回执的幂等重传；迟到或替换回执必须显式拒绝，不能静默覆盖。
       if (validatedReceipt) {
@@ -612,10 +616,21 @@ export class AgentsApplicationService {
     if (!['acked', 'leased'].includes(task.status)) {
       throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', { taskId: task.id, status: task.status });
     }
-    const outcome = resolveAgentTaskOutcome(input, sanitizedDetail);
-    assertAgentTaskResultConsistency(input.success, outcome);
-    const actionType = resolveAgentTaskActionType(task.payload)
-      ?? resolveAgentTaskActionType(readOptionalRecord(task.payload.gatewayTask)?.payload as Record<string, unknown> | undefined);
+    const sanitizedAgentDetail = this.domain.sanitizeResultDetail(rawDetail);
+    const submittedOutcome = resolveAgentTaskOutcome(input, sanitizedAgentDetail);
+    assertAgentTaskResultConsistency(input.success, submittedOutcome);
+    const pluginFactBinding = resolvePluginFactBinding(task, actionType);
+    const pluginFactResult = pluginFactBinding && input.success
+      ? await this.executePluginFactPipeline(task, rawDetail, pluginFactBinding)
+      : undefined;
+    const success = input.success && (!pluginFactResult || pluginFactResult.status === 'SUCCESS');
+    const outcome = pluginFactResult ? resolvePluginFactTaskOutcome(pluginFactResult) : submittedOutcome;
+    const errorCode = input.errorCode ?? pluginFactResult?.error?.code;
+    const errorMessage = input.errorMessage ?? pluginFactResult?.error?.message;
+    const resultDetail = pluginFactResult
+      ? { ...rawDetail, pluginFactPipeline: serializePluginFactPipelineResult(pluginFactResult) }
+      : rawDetail;
+    const sanitizedDetail = this.domain.sanitizeResultDetail(resultDetail);
     const gatewayTask = readOptionalRecord(task.payload.gatewayTask);
     const gatewayTaskPayload = readOptionalRecord(gatewayTask?.payload);
     const gatewayTaskAgentId = readStringValue(readOptionalRecord(gatewayTaskPayload?.token)?.agentId)
@@ -625,26 +640,26 @@ export class AgentsApplicationService {
       await this.gatewayTaskResultSink.recordAgentTaskResult({
         gatewayTaskId: String(gatewayTask.id),
         agentTaskId: task.id,
-        tenantId,
+        tenantId: task.tenantId,
         agentId: validatedReceipt?.agentId ?? gatewayTaskAgentId,
         leaseId: input.leaseId,
         actionType,
-        success: input.success,
+        success,
         executionStatus: outcome,
-        errorCode: input.errorCode,
-        errorMessage: input.errorMessage,
+        errorCode,
+        errorMessage,
         detail: sanitizedDetail,
         receipt: validatedReceipt,
       });
     }
     console.info('[agents.submitResult]', JSON.stringify({
       tenantId,
-      agentId: input.agentId,
-      taskId: input.taskId,
+      agentId: task.agentId,
+      taskId: task.id,
       leaseId: input.leaseId,
-      success: input.success,
-      errorCode: input.errorCode,
-      errorMessage: input.errorMessage,
+      success,
+      errorCode,
+      errorMessage,
       detailKeys: Object.keys(sanitizedDetail),
       dryRunDebug: {
         mode: sanitizedDetail.mode,
@@ -663,25 +678,25 @@ export class AgentsApplicationService {
       },
     }));
     const updated = await this.repository.updateTask(task.id, {
-      status: input.success ? 'succeeded' : 'failed',
+      status: success ? 'succeeded' : 'failed',
       resultAt: new Date().toISOString(),
       result: {
-        success: input.success,
+        success,
         status: outcome,
-        errorCode: input.errorCode,
-        errorMessage: input.errorMessage,
+        errorCode,
+        errorMessage,
         detail: sanitizedDetail,
       },
     });
     if (this.executionResultSync) {
       console.info('[agents.submitResult.sync]', JSON.stringify({
-        tenantId,
+        tenantId: task.tenantId,
         executionRunId: task.executionRunId,
         executionStepId: task.executionStepId,
-        success: input.success,
+        success,
         status: outcome,
-        errorCode: input.errorCode,
-        errorMessage: input.errorMessage,
+        errorCode,
+        errorMessage,
         detailKeys: Object.keys(sanitizedDetail),
         dryRunDebug: {
           mode: sanitizedDetail.mode,
@@ -700,21 +715,63 @@ export class AgentsApplicationService {
         },
       }));
       await this.executionResultSync.applyAgentTaskResult({
-        tenantId,
+        tenantId: task.tenantId,
         executionRunId: task.executionRunId,
         executionStepId: task.executionStepId,
-        success: input.success,
+        success,
         status: outcome,
-        errorCode: input.errorCode,
-        errorMessage: input.errorMessage,
+        errorCode,
+        errorMessage,
         detail: sanitizedDetail,
-        actorId: input.agentId,
+        actorId: task.agentId,
       });
     }
-    if (input.success && task.payload?.type === 'agent.capability.rescan') {
-      await this.projectLatestCapabilitySnapshot(tenantId, task.agentId);
+    if (success && task.payload?.type === 'agent.capability.rescan') {
+      await this.projectLatestCapabilitySnapshot(task.tenantId, task.agentId);
     }
     return updated;
+  }
+
+  private async executePluginFactPipeline(
+    task: AgentTaskEnvelope,
+    rawDetail: Record<string, unknown>,
+    binding: PluginFactBindingV1,
+  ): Promise<PluginFactPipelineResult> {
+    if (!this.pluginFactPipeline) {
+      throw new AppError('PLUGIN_RUNNER_START_FAILED', '插件事实任务缺少已装配的 Plugin Runner 流水线', {
+        reason: 'PLUGIN_FACT_PIPELINE_UNAVAILABLE',
+        taskId: task.id,
+      });
+    }
+    const factEnvelope = readOptionalRecord(rawDetail.factEnvelope);
+    if (!factEnvelope) {
+      throw new AppError('VALIDATION_FAILED', '插件事实任务结果缺少 detail.factEnvelope', {
+        reason: 'PLUGIN_FACT_ENVELOPE_REQUIRED',
+        taskId: task.id,
+      });
+    }
+    return this.pluginFactPipeline.execute({
+      tenantId: task.tenantId,
+      agentId: task.agentId,
+      hostId: binding.hostId,
+      executionId: task.executionRunId,
+      executionStepId: task.executionStepId,
+      pluginId: binding.pluginId,
+      pluginVersion: binding.pluginVersion,
+      pluginVersionId: binding.pluginVersionId,
+      workflowVersionId: binding.workflowVersionId,
+      capability: binding.capability,
+      packageHash: binding.packageHash,
+      manifestHash: binding.manifestHash,
+      resourceHash: binding.resourceHash,
+      planDigest: binding.planDigest,
+      grantRefs: [...binding.grantRefs],
+      hostPermissions: [...binding.hostPermissions],
+      idempotencyKey: task.idempotencyKey,
+      deadlineAt: binding.deadlineAt,
+      factEnvelope,
+      input: structuredClone(binding.input),
+    });
   }
 
   private async projectLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<void> {
@@ -1547,6 +1604,28 @@ function readOptionalRecord(value: unknown): Record<string, unknown> | undefined
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function resolvePluginFactBinding(task: AgentTaskEnvelope, actionType: AgentV2ContractType | undefined): PluginFactBindingV1 | undefined {
+  if (actionType !== 'agent.fact.collect' || !Object.prototype.hasOwnProperty.call(task.payload, 'pluginFactBinding')) return undefined;
+  return parsePluginFactBinding(task.payload.pluginFactBinding);
+}
+
+function resolvePluginFactTaskOutcome(result: PluginFactPipelineResult): AgentSecurityStatus {
+  return result.status === 'SUCCESS' ? 'SUCCESS' : result.status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED';
+}
+
+function serializePluginFactPipelineResult(result: PluginFactPipelineResult): Record<string, unknown> {
+  return {
+    status: result.status,
+    factEnvelope: structuredClone(result.fact),
+    normalizedObjects: structuredClone(result.normalizedObjects),
+    ...(result.atomicPlan ? { atomicPlan: structuredClone(result.atomicPlan) } : {}),
+    projectionSummaries: structuredClone(result.projectionSummaries),
+    runnerSummary: structuredClone(result.runnerSummary),
+    warnings: structuredClone(result.warnings),
+    ...(result.error ? { error: structuredClone(result.error) } : {}),
+  };
 }
 
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {

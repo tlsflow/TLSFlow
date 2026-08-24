@@ -316,7 +316,7 @@ func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, strin
 		return false, "AGENT_FACT_COLLECTION_FAILED", "通用事实摘要生成失败", nil
 	}
 	envelope["digest"] = digest
-	return true, "", "", envelope
+	return true, "", "", map[string]any{"factEnvelope": envelope}
 }
 
 func collectLinuxProcesses() []map[string]any {

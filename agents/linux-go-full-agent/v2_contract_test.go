@@ -433,7 +433,11 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 			}
 			return
 		}
-		facts := detail["facts"].([]map[string]any)
+		factEnvelope, ok := detail["factEnvelope"].(map[string]any)
+		if !ok {
+			t.Fatalf("事实采集必须返回 factEnvelope: %#v", detail)
+		}
+		facts := factEnvelope["facts"].([]map[string]any)
 		seen := map[string]bool{}
 		for _, fact := range facts {
 			seen[fact["kind"].(string)] = true

@@ -11,6 +11,33 @@ import { canonicalPluginIds, type CanonicalPluginId } from '../canonical-plugin-
 const discoveryCapabilities = new Set(['application.discover', 'device.discover', 'cloud.service.discover']);
 const identifierPattern = /^[A-Za-z0-9._:-]{1,256}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
+export const pluginFactBindingApiVersion = 'gcac.plugin-runner-binding/v1' as const;
+
+/**
+ * Agent 事实任务中的唯一插件执行绑定。
+ *
+ * 租户、Agent、执行运行/步骤和幂等键由 AgentTaskEnvelope 提供，不能从这个
+ * 对象或 Agent 回传结果推导。插件输入仍必须包含自己的安全合同和 Workflow
+ * 输入快照，宿主只负责固定并转发，不读取插件代码。
+ */
+export interface PluginFactBindingV1 {
+  apiVersion: typeof pluginFactBindingApiVersion;
+  hostId: string;
+  pluginId: string;
+  pluginVersion: string;
+  pluginVersionId: string;
+  workflowVersionId: string;
+  capability: string;
+  packageHash: string;
+  manifestHash: string;
+  resourceHash: string;
+  planDigest: string;
+  grantRefs: string[];
+  hostPermissions: string[];
+  deadlineAt: string;
+  writeEffect: false;
+  input: Record<string, unknown>;
+}
 
 export interface PluginFactPipelineExecutionInput {
   tenantId: string;
@@ -58,6 +85,49 @@ export interface PluginFactRunnerInput {
 
 export interface PluginFactRunner {
   execute(input: PluginFactRunnerInput): Promise<PluginRunnerExecuteResult>;
+}
+
+/**
+ * 只接受任务自身的固定绑定字段，拒绝把旧快照、别名或 Agent 回传字段当作
+ * 第二绑定来源。解析成功后返回深拷贝，防止调用方修改任务载荷中的对象。
+ */
+export function parsePluginFactBinding(value: unknown): PluginFactBindingV1 {
+  if (!isRecord(value)) throw new AppError('VALIDATION_FAILED', 'pluginFactBinding 必须是对象');
+  const allowedKeys = new Set([
+    'apiVersion', 'hostId', 'pluginId', 'pluginVersion', 'pluginVersionId', 'workflowVersionId',
+    'capability', 'packageHash', 'manifestHash', 'resourceHash', 'planDigest', 'grantRefs',
+    'hostPermissions', 'deadlineAt', 'writeEffect', 'input',
+  ]);
+  const unknownKeys = Object.keys(value).filter((key) => !allowedKeys.has(key));
+  if (unknownKeys.length > 0) throw new AppError('VALIDATION_FAILED', 'pluginFactBinding 包含未知字段', { unknownKeys });
+  if (value.apiVersion !== pluginFactBindingApiVersion) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'pluginFactBinding 版本无效');
+  if (value.writeEffect !== false) throw new AppError('PLUGIN_CONTRACT_INVALID', 'pluginFactBinding 只允许只读事实采集');
+  if (!isRecord(value.input)) throw new AppError('VALIDATION_FAILED', 'pluginFactBinding.input 必须是对象');
+  const binding = {
+    apiVersion: value.apiVersion,
+    hostId: requireIdentifierValue(value.hostId, 'hostId'),
+    pluginId: requireIdentifierValue(value.pluginId, 'pluginId'),
+    pluginVersion: requireIdentifierValue(value.pluginVersion, 'pluginVersion'),
+    pluginVersionId: requireIdentifierValue(value.pluginVersionId, 'pluginVersionId'),
+    workflowVersionId: requireIdentifierValue(value.workflowVersionId, 'workflowVersionId'),
+    capability: requireIdentifierValue(value.capability, 'capability'),
+    packageHash: requireHashValue(value.packageHash, 'packageHash'),
+    manifestHash: requireHashValue(value.manifestHash, 'manifestHash'),
+    resourceHash: requireHashValue(value.resourceHash, 'resourceHash'),
+    planDigest: requirePlanDigestValue(value.planDigest),
+    grantRefs: requireIdentifierArray(value.grantRefs, 'grantRefs', true),
+    hostPermissions: requireIdentifierArray(value.hostPermissions, 'hostPermissions', false),
+    deadlineAt: requireDeadline(value.deadlineAt),
+    writeEffect: false as const,
+    input: value.input,
+  };
+  if (!canonicalPluginIds.includes(binding.pluginId as CanonicalPluginId)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'pluginFactBinding Plugin ID 不是当前 Canonical Plugin ID', { pluginId: binding.pluginId });
+  }
+  if (!discoveryCapabilities.has(binding.capability)) {
+    throw new AppError('CAPABILITY_MISSING', 'pluginFactBinding Capability 不属于只读事实发现', { capability: binding.capability });
+  }
+  return structuredClone(binding) as PluginFactBindingV1;
 }
 
 export interface AtomicPlanOperationV1 {
@@ -150,6 +220,8 @@ export class PluginFactPipelineService {
       pluginVersionId: input.pluginVersionId,
       fact,
     });
+    // 先固定并校验 Atomic Plan，再写入标准发现投影，避免非法计划留下成功对象。
+    const atomicPlan = buildAtomicPlan(input, result.summary, fact);
     const projectionSummaries: StandardDiscoveryProjectionSummary[] = [];
     for (const object of normalizedObjects) {
       if (object.apiVersion !== 'gcac.device-discovery/v2' || !this.projector) continue;
@@ -165,7 +237,7 @@ export class PluginFactPipelineService {
       status: 'SUCCESS',
       fact,
       normalizedObjects,
-      atomicPlan: buildAtomicPlan(input, result.summary, fact),
+      atomicPlan,
       projectionSummaries,
       runnerSummary: structuredClone(result.summary),
       warnings: structuredClone(result.warnings),
@@ -272,6 +344,48 @@ function assertRunnerResultBinding(
 
 function requireIdentifier(value: string, name: string): string {
   if (!identifierPattern.test(value)) throw new AppError('VALIDATION_FAILED', `${name} 不是固定标识符`);
+  return value;
+}
+
+function requireIdentifierValue(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !identifierPattern.test(value)) {
+    throw new AppError('VALIDATION_FAILED', `${name} 不是固定标识符`);
+  }
+  return value;
+}
+
+function requireHashValue(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `${name} 不是固定 sha256 摘要`);
+  }
+  return value;
+}
+
+function requirePlanDigestValue(value: unknown): string {
+  if (typeof value !== 'string' || !digestPattern.test(value)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'planDigest 不是固定摘要');
+  }
+  return value;
+}
+
+function requireIdentifierArray(value: unknown, name: string, nonEmpty: boolean): string[] {
+  if (!Array.isArray(value) || (nonEmpty && value.length === 0)) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', `${name} 缺失或为空`);
+  }
+  const result = value.map((item) => {
+    if (typeof item !== 'string' || !identifierPattern.test(item)) {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', `${name} 包含无效标识`);
+    }
+    return item;
+  });
+  if (new Set(result).size !== result.length) throw new AppError('PLUGIN_HOST_CALL_DENIED', `${name} 不得重复`);
+  return result;
+}
+
+function requireDeadline(value: unknown): string {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)) || Date.parse(value) <= Date.now()) {
+    throw new AppError('PLUGIN_RUNNER_TIMEOUT', 'deadlineAt 无效或已过期');
+  }
   return value;
 }
 
