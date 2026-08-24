@@ -1,4 +1,5 @@
 import type { ApiRecord } from '@/api/modules/common'
+import { selectLatestDeployableCertificateVersion } from './certificate-version-selection'
 
 export interface CurrentAssetCertificateState {
   readonly version: ApiRecord | null
@@ -240,29 +241,7 @@ function resolveLatestDeployableVersionForPlan(
   if (!currentCertificateVersionId) return null
   const currentVersion = versions.find((item) => readString(item, ['id', 'certificateVersionId']) === currentCertificateVersionId)
   const certificateAssetId = readString(currentVersion, ['certificateAssetId', 'certificateId'])
-  if (!certificateAssetId) return null
-  return [...versions]
-    .filter((item) => readString(item, ['certificateAssetId', 'certificateId']) === certificateAssetId)
-    .filter((item) => isDeployableCertificateVersion(item))
-    .sort((left, right) => {
-      const rightNotAfter = Date.parse(readString(right, ['notAfter', 'validTo', 'expiresAt']))
-      const leftNotAfter = Date.parse(readString(left, ['notAfter', 'validTo', 'expiresAt']))
-      if (Number.isFinite(rightNotAfter) && Number.isFinite(leftNotAfter) && rightNotAfter !== leftNotAfter) return rightNotAfter - leftNotAfter
-
-      const rightCreatedAt = Date.parse(readString(right, ['createdAt', 'issuedAt']))
-      const leftCreatedAt = Date.parse(readString(left, ['createdAt', 'issuedAt']))
-      if (Number.isFinite(rightCreatedAt) && Number.isFinite(leftCreatedAt) && rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt
-
-      return readString(right, ['id', 'certificateVersionId']).localeCompare(readString(left, ['id', 'certificateVersionId']))
-    })[0] ?? null
-}
-
-function isDeployableCertificateVersion(item: ApiRecord): boolean {
-  const notAfter = Date.parse(readString(item, ['notAfter', 'validTo', 'expiresAt']))
-  return readString(item, ['status']).toLowerCase() === 'active'
-    && readBoolean(item, ['deployable'])
-    && Number.isFinite(notAfter)
-    && notAfter > Date.now()
+  return selectLatestDeployableCertificateVersion(versions, certificateAssetId)
 }
 
 function readPath(record: ApiRecord | null | undefined, path: string): unknown {
@@ -280,16 +259,4 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
     return String(value)
   }
   return fallback
-}
-
-function readBoolean(record: ApiRecord | null | undefined, candidates: readonly string[]): boolean {
-  for (const candidate of candidates) {
-    const value = readPath(record, candidate)
-    if (typeof value === 'boolean') return value
-    if (typeof value === 'string') {
-      if (value === 'true') return true
-      if (value === 'false') return false
-    }
-  }
-  return false
 }

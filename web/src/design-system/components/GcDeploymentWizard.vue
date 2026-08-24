@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
+import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { CapabilityMatrixItem } from './GcCapabilityMatrix.vue'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from './GcDeploymentWizard.types'
@@ -108,22 +109,12 @@ watch(() => props.certificates, () => {
 const filteredVersions = computed(() => {
   if (!selectedCertificateId.value) return []
   const assetIds = new Set(selectedCertificateAssetIds.value)
-  return props.certificateVersions.filter((item) => assetIds.has(readString(item, ['certificateAssetId', 'certificateId'])))
+  return sortDeployableCertificateVersions(
+    props.certificateVersions.filter((item) => assetIds.has(readString(item, ['certificateAssetId', 'certificateId']))),
+  )
 })
 
-const sortedVersions = computed(() =>
-  [...filteredVersions.value].sort((left, right) => {
-    const rightNotAfter = Date.parse(readString(right, ['notAfter', 'validTo', 'expiresAt']))
-    const leftNotAfter = Date.parse(readString(left, ['notAfter', 'validTo', 'expiresAt']))
-    if (Number.isFinite(rightNotAfter) && Number.isFinite(leftNotAfter) && rightNotAfter !== leftNotAfter) return rightNotAfter - leftNotAfter
-
-    const rightCreatedAt = Date.parse(readString(right, ['createdAt', 'issuedAt']))
-    const leftCreatedAt = Date.parse(readString(left, ['createdAt', 'issuedAt']))
-    if (Number.isFinite(rightCreatedAt) && Number.isFinite(leftCreatedAt) && rightCreatedAt !== leftCreatedAt) return rightCreatedAt - leftCreatedAt
-
-    return readString(right, ['id']).localeCompare(readString(left, ['id']))
-  }),
-)
+const sortedVersions = computed(() => filteredVersions.value)
 
 const latestVersion = computed(() => sortedVersions.value[0] ?? null)
 

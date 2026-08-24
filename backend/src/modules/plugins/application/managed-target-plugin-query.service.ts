@@ -18,6 +18,7 @@ import { compareSemanticVersions, UnifiedPluginsApplicationService } from './uni
 import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
+import { buildPluginCertificateArtifactBindings } from '../artifacts/plugin-certificate-artifact-binding.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -156,6 +157,36 @@ export class ManagedTargetPluginQueryService {
           ownerId: input.applicationAssetId,
           capabilityKey,
         });
+        const inherited = await services.capabilities.resolve({
+          tenantId: input.tenantId,
+          capabilityKey,
+          hostId: context.host.id,
+          managedTargetId: context.managedTarget.id,
+          executionLocations: context.availableExecutionLocations,
+          compatibility,
+        });
+        if (certificateFormatId?.trim()) {
+          const plugin = await services.plugins.getVersion(inherited.pluginVersionId);
+          const certificateArtifactBindings = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim());
+          const binding = await services.bindings.createBinding(input.tenantId, {
+            pluginVersionId: inherited.pluginVersionId,
+            mode: 'MANAGED',
+            variableBindings: inherited.binding.variableBindings,
+            credentialBindings: inherited.binding.credentialBindings,
+            secretBindings: inherited.binding.secretBindings,
+            certificateArtifactBindings,
+            connectionBindings: inherited.binding.connectionBindings,
+            managedContext: { hostId: context.host.id, managedTargetId: context.managedTarget.id },
+          });
+          await services.bindings.assignCapability(input.tenantId, {
+            ownerType: 'APPLICATION_ASSET',
+            ownerId: input.applicationAssetId,
+            capabilityKey,
+            pluginVersionId: inherited.pluginVersionId,
+            pluginBindingId: binding.id,
+            precedence: 'ASSET_OVERRIDE',
+          });
+        }
         const resolved = await services.capabilities.resolve({
           tenantId: input.tenantId,
           capabilityKey,
@@ -179,7 +210,16 @@ export class ManagedTargetPluginQueryService {
           reasons: evaluated.reasons,
         });
       }
-      const binding = await this.saveBinding(services.bindings, input.tenantId, context, input.value.pluginOverride);
+      const requestedArtifactBindings = input.value.pluginOverride.certificateArtifactBindings ?? {};
+      const certificateArtifactBindings = Object.keys(requestedArtifactBindings).length > 0
+        ? requestedArtifactBindings
+        : certificateFormatId?.trim()
+          ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId.trim())
+          : {};
+      const binding = await this.saveBinding(services.bindings, input.tenantId, context, {
+        ...input.value.pluginOverride,
+        certificateArtifactBindings,
+      });
       await services.bindings.assignCapability(input.tenantId, {
         ownerType: 'APPLICATION_ASSET',
         ownerId: input.applicationAssetId,

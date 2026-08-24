@@ -43,12 +43,18 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
       defaultLocale: 'zh-CN',
       runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED', permissions: [],
       capabilities: [{ key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['CONTROL_PLANE'] }],
-      compatibility: { frameworkTypes: ['adc.load-balancer'], targetTypes: ['tls.binding'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'], artifactContracts: ['certificate.deploy.v1'] },
+      compatibility: { productFamilies: ['citrix.netscaler-adc'], frameworkTypes: ['adc.load-balancer'], targetTypes: ['tls.binding'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'], artifactContracts: ['certificate.deploy.v1'] },
       resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' }, locales: { 'zh-CN': 'locales/zh-CN.json' } },
     },
     resources: {
       'workflows/deploy.json': JSON.stringify({
-        apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'fixture-managed-deploy', version: '1.0.0' }, variables: {},
+        apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'fixture-managed-deploy', version: '1.0.0' },
+        variables: {
+          certificate: {
+            type: 'certificate', required: true,
+            artifactContract: { outputs: { leafPem: { role: 'public_certificate', required: true }, privateKeyPem: { role: 'private_key', required: true } } },
+          },
+        },
         steps: [{ name: 'deploy', type: 'transform', stage: 'install', transform: { engine: 'jsonata', input: {}, outputs: { result: { expression: '{}' } } } }],
       }),
       'locales/zh-CN.json': JSON.stringify({ 'fixture.managed': 'Fixture 受管证书部署' }),
@@ -145,13 +151,22 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     applicationAssetId: applicationAsset.id,
     value: { managedTargetId: target.id },
   });
-  assert.equal(restored.effectiveCapability?.source.ownerType, 'MANAGED_TARGET');
-  const disabledAssignment = await db.query<{ status: string }>(
+  assert.equal(restored.effectiveCapability?.source.ownerType, 'APPLICATION_ASSET');
+  const applicationAssignment = await db.query<{ status: string }>(
     `select status from plugin_capability_assignments
      where tenant_id=$1 and owner_type='APPLICATION_ASSET' and owner_id=$2 and capability_key='certificate.deploy'`,
     [tenantId, applicationAsset.id],
   );
-  assert.equal(disabledAssignment.rows[0]?.status, 'DISABLED');
+  assert.equal(applicationAssignment.rows[0]?.status, 'ACTIVE');
+  const restoredBindingId = restored.effectiveCapability?.binding.pluginBindingId;
+  assert.ok(restoredBindingId);
+  const restoredBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db)).getTenantBinding(tenantId, restoredBindingId);
+  assert.deepEqual(restoredBinding.certificateArtifactBindings, {
+    certificate: {
+      certificateFormatId: 'format-existing',
+      outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
+    },
+  });
   assert.equal((await db.query<{ status: string }>('select status from workflow_execution_bindings where id=$1', [overridden.workflowExecutionBinding.id])).rows[0]?.status, 'DISABLED');
 
   await service.saveApplicationAssetTarget({

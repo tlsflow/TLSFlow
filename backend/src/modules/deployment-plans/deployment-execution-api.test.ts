@@ -1339,7 +1339,7 @@ describe('部署计划与执行编排 API', () => {
         certificateVersionId: 'certver_auto_latest_2',
         format: 'pfx',
         artifactRef: 'artifact://certificate-format/certver_auto_latest_2/pfx',
-        parameterHash: 'hash_auto_latest_2',
+        parameterHash: 'hash_auto_latest_1',
         parameters: {
           configName: 'Windows-IIS-PKCS12-标准模板',
           systemPlatform: 'windows',
@@ -1427,6 +1427,8 @@ describe('部署计划与执行编排 API', () => {
     const plan = await service.create({
       name: 'auto latest iis deploy',
       selectionMode: 'LATEST_AUTO',
+      certificateVersionId: 'certver_auto_latest_1',
+      certificateFormatId: 'fmt_auto_latest_1',
       idempotencyKey: 'idem_auto_latest_plan',
       actorId: 'user_1',
       tenantId: 'tenant_auto_latest',
@@ -1435,6 +1437,9 @@ describe('部署计划与执行编排 API', () => {
         executorType: 'AGENT',
         strategyPayload: {
           agentId: 'agent-auto-latest-01',
+          certificateVerification: {
+            capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.20.30.40', serverName: 'iis-site.example.com', port: 443,
+          },
           pluginRuntimeCapability: {
             runtime: 'AGENT_ATOMIC',
             pluginVersionId: 'plugin-version-auto-latest',
@@ -1718,7 +1723,7 @@ describe('部署计划与执行编排 API', () => {
   });
 
 
-  it('支持按应用资产创建部署计划，并自动解析唯一 IIS 目标绑定', async () => {
+  it('按应用资产创建计划时使用资产 DNS 而不是目标绑定 IP 校验证书域名', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({
       subjectType: 'user',
@@ -1728,8 +1733,8 @@ describe('部署计划与执行编排 API', () => {
       resourceTypes: ['host', 'service_instance', 'site_asset', 'managed_target', 'certificate_binding', 'secret', 'certificate_version', 'certificate_version_format', 'service_asset'],
       scope: { tenantId: 'tenant_1' },
     });
-    const { app } = await createMigratedTestApp({ security });
-    const chain = createPemChainFixture('app-target.example.com');
+    const { app, db } = await createMigratedTestApp({ security });
+    const chain = createPemChainFixture('*.example.com');
 
     const registered = await app.inject({
       method: 'POST',
@@ -1746,6 +1751,11 @@ describe('部署计划与执行编排 API', () => {
     const agentId = (registered.body as { id: string }).id;
 
     const hostId = `host_${agentId}`;
+    await db.query(`update pg_hosts set primary_ip = $2, ip_addresses = $3::jsonb where id = $1`, [
+      hostId,
+      '10.255.0.213',
+      JSON.stringify(['10.255.0.213']),
+    ]);
 
     const service = await app.inject({
       method: 'POST',
@@ -1798,6 +1808,7 @@ describe('部署计划与执行编排 API', () => {
       },
     });
     assert.equal(exported.statusCode, 201);
+    const certificateFormatId = (exported.body as { id: string }).id;
 
     const applicationAssetId = await createApplicationAssetTargetFixture(app, {
       managedTargetId,
@@ -1822,7 +1833,7 @@ describe('部署计划与执行编排 API', () => {
           serviceAssetId: applicationAssetId,
           siteAssetId,
           managedTargetId,
-          domainName: 'app-target.example.com',
+          domainName: '10.255.0.213',
           port: 443,
           protocol: 'HTTPS',
           bindingKey: managedTargetBindingKey,
@@ -1847,6 +1858,8 @@ describe('部署计划与执行编排 API', () => {
       body: {
         applicationAssetId,
         selectionMode: 'LATEST_AUTO',
+        targetCertificateVersionId: certificateVersionId,
+        certificateFormatId,
         idempotencyKey: 'idem_application_asset_plan',
       },
     });

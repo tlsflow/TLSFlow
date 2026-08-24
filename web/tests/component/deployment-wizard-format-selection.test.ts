@@ -14,6 +14,8 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           {
             id: 'certver-1',
             certificateAssetId: 'cert-1',
+            status: 'active',
+            deployable: true,
             notBefore: '2026-06-01T00:00:00.000Z',
             notAfter: '2026-12-01T00:00:00.000Z',
           },
@@ -92,14 +94,18 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           {
             id: 'certver-old',
             certificateAssetId: 'cert-1',
-            notBefore: '2026-01-01T00:00:00.000Z',
-            notAfter: '2026-04-01T00:00:00.000Z',
+            status: 'active',
+            deployable: true,
+            notBefore: '2026-07-01T00:00:00.000Z',
+            notAfter: '2026-09-01T00:00:00.000Z',
           },
           {
             id: 'certver-new',
             certificateAssetId: 'cert-2',
+            status: 'active',
+            deployable: true,
             notBefore: '2026-06-09T00:00:00.000Z',
-            notAfter: '2026-09-07T00:00:00.000Z',
+            notAfter: '2026-12-07T00:00:00.000Z',
           },
         ],
         certificateFormats: [
@@ -142,14 +148,18 @@ describe('GcDeploymentWizard 部署计划选择', () => {
           {
             id: 'certver-old',
             certificateAssetId: 'cert-1',
-            notBefore: '2026-01-01T00:00:00.000Z',
-            notAfter: '2026-04-01T00:00:00.000Z',
+            status: 'active',
+            deployable: true,
+            notBefore: '2026-07-01T00:00:00.000Z',
+            notAfter: '2026-09-01T00:00:00.000Z',
           },
           {
             id: 'certver-new',
             certificateAssetId: 'cert-1',
+            status: 'active',
+            deployable: true,
             notBefore: '2026-06-09T00:00:00.000Z',
-            notAfter: '2026-09-07T00:00:00.000Z',
+            notAfter: '2026-12-07T00:00:00.000Z',
           },
         ],
         certificateFormats: [

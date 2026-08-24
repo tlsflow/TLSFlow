@@ -25,7 +25,6 @@ import { PgCertificatesRepository } from '../../certificates/repository/certific
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
 import { PgAgentsRepository } from '../../agents/repository/agents.repository.js';
-import { DeployableArtifactResolver } from './deployable-artifact-resolver.js';
 import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import { ExecutionSourceResolver } from './execution-source.resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
@@ -37,6 +36,7 @@ import type { PluginBindingsApplicationService } from '../../plugins/application
 import { DeploymentCapabilityResolver, type UnifiedPluginVersionReader } from '../../plugins/application/deployment-capability.resolver.js';
 import { createDefaultPluginRuntimeAdapterRegistry, type PluginRuntimeAdapterRegistry } from './plugin-runtime-adapter.registry.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
+import { isDeployableCertificateVersion, selectLatestDeployableCertificateVersion } from './certificate-version-selection.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
 import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
@@ -67,6 +67,14 @@ interface ResolvedCreatePlanInput {
 interface WorkflowCertificateArtifactBinding {
   certificateFormatId: string;
   outputBindings: Record<string, string>;
+}
+
+interface DeploymentPreflightIssue {
+  stage: 'TARGET' | 'VERSION' | 'ARTIFACT';
+  targetIndex: number;
+  errorCode: string;
+  message: string;
+  details?: unknown;
 }
 
 export interface DeploymentPlansApplicationDependencies {
@@ -106,7 +114,6 @@ export class DeploymentPlansApplicationService {
   private readonly agents: AgentsRepository;
   private readonly certificates: CertificatesRepository;
   private readonly certificatesApp: CertificatesApplicationService;
-  private readonly artifacts: DeployableArtifactResolver;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
   private readonly executionSourceResolver: ExecutionSourceResolver;
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
@@ -133,7 +140,6 @@ export class DeploymentPlansApplicationService {
       secrets: { resolveForService: async () => { throw new AppError('VALIDATION_FAILED', '未配置 Secrets 服务'); } } as never,
       repository: this.certificates,
     });
-    this.artifacts = new DeployableArtifactResolver(this.certificates);
     this.deploymentStrategyResolver = dependencies.deploymentStrategyResolver ?? new DeploymentStrategyResolver();
     this.executionSourceResolver = new ExecutionSourceResolver();
     this.managedTargetContextResolver = dependencies.managedTargetContextResolver
@@ -516,7 +522,7 @@ export class DeploymentPlansApplicationService {
         serviceAssetId: applicationAsset.id,
         managedTargetId: targetContext.managedTarget.id,
         siteAssetId: targetContext.siteAsset?.id,
-        domain: readyBinding?.domainName ?? readyBinding?.domain ?? applicationAsset.address,
+        domain: applicationAsset.sniName ?? applicationAsset.address,
         executionTargetId: resolvedStrategy.executionTargetId,
         executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
         requiredCapabilities: resolvedStrategy.requiredCapabilities,
@@ -1097,8 +1103,13 @@ export class DeploymentPlansApplicationService {
 
   private async resolveCreateInput(input: CreateDeploymentPlanInput): Promise<ResolvedCreatePlanInput> {
     const selectionMode = input.selectionMode ?? (input.certificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
-    const resolvedTargets = await Promise.all(input.targets.map((target) => this.resolveTarget(input.tenantId, target)));
-    const versionIds = await Promise.all(resolvedTargets.map((target) => target.binding
+    const issues: DeploymentPreflightIssue[] = [];
+    const targetResults = await Promise.allSettled(input.targets.map((target) => this.resolveTarget(input.tenantId, target)));
+    issues.push(...collectPreflightIssues('TARGET', targetResults));
+    const resolvedTargetEntries = targetResults.flatMap((result, targetIndex) => result.status === 'fulfilled'
+      ? [{ targetIndex, target: result.value }]
+      : []);
+    const versionResults = await Promise.allSettled(resolvedTargetEntries.map(({ target }) => target.binding
       ? this.resolveCertificateVersionId({
           tenantId: input.tenantId,
           selectionMode,
@@ -1111,16 +1122,64 @@ export class DeploymentPlansApplicationService {
           selectionMode,
           requestedCertificateVersionId: input.certificateVersionId,
         })));
+    issues.push(...collectPreflightIssues('VERSION', versionResults, resolvedTargetEntries.map((entry) => entry.targetIndex)));
+    const resolvedVersionEntries = versionResults.flatMap((result, index) => result.status === 'fulfilled'
+      ? [{ ...resolvedTargetEntries[index]!, certificateVersionId: result.value }]
+      : []);
+    const versionIds = resolvedVersionEntries.map((entry) => entry.certificateVersionId);
     const uniqueVersionIds = [...new Set(versionIds)];
-    if (uniqueVersionIds.length !== 1) {
-      throw new AppError('VALIDATION_FAILED', '当前部署计划模型只支持单一 certificateVersionId，请按域名或版本拆分计划', { certificateVersionIds: uniqueVersionIds });
+    if (uniqueVersionIds.length > 1) {
+      issues.push({
+        stage: 'VERSION',
+        targetIndex: -1,
+        errorCode: 'MULTIPLE_CERTIFICATE_VERSIONS',
+        message: '当前部署计划模型只支持单一 certificateVersionId，请按域名或版本拆分计划',
+        details: { certificateVersionIds: uniqueVersionIds },
+      });
+    }
+    const artifactResults = await Promise.allSettled(resolvedVersionEntries.map((entry) =>
+      this.preflightDeploymentArtifact(input, entry.target, entry.targetIndex, entry.certificateVersionId)));
+    issues.push(...collectPreflightIssues('ARTIFACT', artifactResults, resolvedVersionEntries.map((entry) => entry.targetIndex)));
+    if (issues.length > 0) throwDeploymentPreflightError(issues);
+    const resolvedTargets = resolvedTargetEntries.map((entry) => entry.target);
+    const certificateVersionId = uniqueVersionIds[0];
+    if (!certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', '部署计划没有可用的证书版本', { code: 'CERTIFICATE_VERSION_REQUIRED' });
     }
     return {
       selectionMode,
-      certificateVersionId: uniqueVersionIds[0]!,
+      certificateVersionId,
       certificateFormatId: input.certificateFormatId,
       targets: resolvedTargets,
     };
+  }
+
+  private async preflightDeploymentArtifact(
+    input: CreateDeploymentPlanInput,
+    target: ResolvedCreateTarget,
+    targetIndex: number,
+    certificateVersionId: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    await this.resolveDeploymentArtifactForTarget({
+      id: `preflight_target_${targetIndex}`,
+      tenantId: input.tenantId,
+      deploymentPlanId: 'preflight',
+      certificateBindingId: target.certificateBindingId,
+      applicationAssetId: target.applicationAssetId,
+      serviceAssetId: target.serviceAssetId ?? target.applicationAssetId,
+      executionTargetId: target.managedTarget?.id ?? target.managedTargetId ?? target.executionTargetId,
+      executorType: target.executorType ?? 'WORKFLOW',
+      requiredCapabilities: target.requiredCapabilities ?? [],
+      matchResult: target.matchResult,
+      gatewayRoute: target.gatewayRoute,
+      strategyPayload: target.strategyPayload,
+      status: 'READY',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: input.actorId,
+      version: 1,
+    }, certificateVersionId, input.certificateFormatId, input.tenantId);
   }
 
   private async resolveTarget(tenantId: string | undefined, target: CreateDeploymentPlanInput['targets'][number]): Promise<ResolvedCreateTarget> {
@@ -1238,7 +1297,17 @@ export class DeploymentPlansApplicationService {
       );
       return input.requestedCertificateVersionId;
     }
-    return this.findLatestDeployableCertificateVersionId(input.binding, input.requestedDomain);
+    if (!input.requestedCertificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'LATEST_AUTO 必须提供用户所选证书资产的种子版本', {
+        code: 'LATEST_AUTO_SEED_VERSION_REQUIRED',
+        bindingId: input.binding.id,
+      });
+    }
+    return this.findLatestDeployableCertificateVersionIdFromSeed(
+      input.requestedCertificateVersionId,
+      input.binding,
+      input.requestedDomain,
+    );
   }
 
   private async resolveWorkflowCertificateVersionId(input: {
@@ -1250,7 +1319,7 @@ export class DeploymentPlansApplicationService {
     }
     const version = await this.certificates.getVersion(input.requestedCertificateVersionId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.requestedCertificateVersionId });
-    if (!this.isDeployableVersion(version)) {
+    if (!isDeployableCertificateVersion(version)) {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', {
         certificateVersionId: input.requestedCertificateVersionId,
         status: version.status,
@@ -1271,106 +1340,45 @@ export class DeploymentPlansApplicationService {
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     const asset = await this.certificates.getAsset(version.certificateAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: version.certificateAssetId });
-    if (!this.isDeployableVersion(version)) {
+    if (!isDeployableCertificateVersion(version)) {
       throw new AppError('VALIDATION_FAILED', '证书版本不可部署', { certificateVersionId, status: version.status, deployable: version.deployable, notAfter: version.notAfter });
     }
     if (!this.coversBindingDomain(binding, version, asset, requestedDomain)) {
       throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', { certificateVersionId, domain: requestedDomain ?? binding.domainName ?? binding.domain });
     }
-    const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContextFromBinding(binding.tenantId, binding));
     if (requestedCertificateFormatId) {
-      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId, frameworkType);
+      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId);
       return;
-    }
-    if (frameworkType === 'web.nginx') {
-      return;
-    }
-    const hasCompatibleFormat = await this.hasCompatibleWindowsIisFormat(certificateVersionId);
-    if (!hasCompatibleFormat) {
-      throw new AppError('VALIDATION_FAILED', '当前不存在可用于 Windows IIS 的证书格式配置', { certificateVersionId, requiredFormat: 'pfx' });
     }
   }
 
   private async assertExplicitCertificateFormatDeployable(
     certificateVersionId: string,
     certificateFormatId: string,
-    frameworkType: 'web.iis' | 'web.nginx',
   ): Promise<void> {
-    const format = await this.certificates.getFormat(certificateFormatId);
-    if (!format) {
-      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
-    }
-    if (format.certificateVersionId && format.certificateVersionId !== certificateVersionId) {
-      throw new AppError('VALIDATION_FAILED', '证书格式配置不属于当前证书版本', {
-        certificateVersionId,
-        certificateFormatId,
-        formatCertificateVersionId: format.certificateVersionId,
-      });
-    }
-    if (frameworkType === 'web.iis' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
-      throw new AppError('VALIDATION_FAILED', 'Windows IIS 目前只支持带私钥的 PFX 格式配置', {
-        certificateVersionId,
-        certificateFormatId,
-        format: format.format,
-        containsPrivateKey: format.containsPrivateKey,
-      });
-    }
-    if (frameworkType === 'web.nginx' && !this.isDeployableLinuxNginxFormat(format)) {
-      throw new AppError('VALIDATION_FAILED', 'Linux NGINX 证书部署必须使用可生成 PEM 证书文件与私钥文件的格式配置', {
-        certificateVersionId,
-        certificateFormatId,
-        format: format.format,
-        containsPrivateKey: format.containsPrivateKey,
-        parameters: format.parameters,
-      });
-    }
+    await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId);
   }
 
-  private async findLatestDeployableCertificateVersionId(binding: CertificateBindingDto, requestedDomain?: string): Promise<string> {
-    const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} });
-    const matched: Array<{ version: CertificateVersionEntity; asset: CertificateAssetEntity }> = [];
-    for (const version of versionsPage.items) {
-      const asset = await this.certificates.getAsset(version.certificateAssetId);
-      if (!asset) continue;
-      if (!this.isDeployableVersion(version)) continue;
-      if (!this.coversBindingDomain(binding, version, asset, requestedDomain)) continue;
-      matched.push({ version, asset });
-    }
-    matched.sort((left, right) => {
-      const notAfter = compareTimeDesc(left.version.notAfter, right.version.notAfter);
-      if (notAfter !== 0) return notAfter;
-      const versionNo = right.version.versionNo - left.version.versionNo;
-      if (versionNo !== 0) return versionNo;
-      return compareTimeDesc(left.version.createdAt, right.version.createdAt);
-    });
-    const selected = matched[0];
-    if (!selected) {
-      throw new AppError('RESOURCE_NOT_FOUND', '未找到匹配绑定域名的最新可部署 PFX 证书版本', {
-        domain: requestedDomain ?? binding.domainName ?? binding.domain,
-        bindingId: binding.id,
-      });
-    }
-    return selected.version.id;
-  }
-
-  private async findLatestDeployableCertificateVersionIdFromSeed(certificateVersionId: string): Promise<string> {
+  private async findLatestDeployableCertificateVersionIdFromSeed(
+    certificateVersionId: string,
+    binding?: CertificateBindingDto,
+    requestedDomain?: string,
+  ): Promise<string> {
     const seed = await this.certificates.getVersion(certificateVersionId);
     if (!seed) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    const asset = await this.certificates.getAsset(seed.certificateAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '证书资产不存在', { certificateAssetId: seed.certificateAssetId });
     const versionsPage = await this.certificates.listVersions({ page: 1, pageSize: 5000, filter: {} });
-    const matched = versionsPage.items
-      .filter((version) => version.certificateAssetId === seed.certificateAssetId && this.isDeployableVersion(version))
-      .sort((left, right) => {
-        const notAfter = compareTimeDesc(left.notAfter, right.notAfter);
-        if (notAfter !== 0) return notAfter;
-        const versionNo = right.versionNo - left.versionNo;
-        if (versionNo !== 0) return versionNo;
-        return compareTimeDesc(left.createdAt, right.createdAt);
-      });
-    const selected = matched[0];
+    const candidates = binding
+      ? versionsPage.items.filter((version) => this.coversBindingDomain(binding, version, asset, requestedDomain))
+      : versionsPage.items;
+    const selected = selectLatestDeployableCertificateVersion(candidates, seed.certificateAssetId);
     if (!selected) {
-      throw new AppError('RESOURCE_NOT_FOUND', '未找到同一证书资产的最新可部署版本', {
+      throw new AppError('RESOURCE_NOT_FOUND', '用户所选证书资产中没有匹配目标域名的可部署版本', {
         certificateAssetId: seed.certificateAssetId,
         seedCertificateVersionId: certificateVersionId,
+        domain: requestedDomain ?? binding?.domainName ?? binding?.domain,
+        bindingId: binding?.id,
       });
     }
     return selected.id;
@@ -1522,12 +1530,7 @@ export class DeploymentPlansApplicationService {
           certificateBindingId: target.certificateBindingId,
         });
       }
-      return this.resolveCertificateVersionId({
-        tenantId,
-        selectionMode: 'LATEST_AUTO',
-        requestedCertificateFormatId: plan.certificateFormatId,
-        binding,
-      });
+      return this.findLatestDeployableCertificateVersionIdFromSeed(plan.certificateVersionId, binding);
     }));
     const uniqueVersionIds = [...new Set(versionIds)];
     if (uniqueVersionIds.length !== 1) {
@@ -1566,10 +1569,7 @@ export class DeploymentPlansApplicationService {
       return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings);
     }
     if (!target.certificateBindingId) {
-      const managedTargetId = readOptionalString(strategyPayload.managedTargetId)
-        ?? readOptionalString(readRecord(strategyPayload.workflowRequest)?.managedTargetId);
-      const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContext(resolvedTenantId, managedTargetId));
-      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, frameworkType);
+      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId);
     }
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) {
@@ -1579,48 +1579,24 @@ export class DeploymentPlansApplicationService {
         tenantId: resolvedTenantId,
       });
     }
-    const frameworkType = this.resolveSupportedFrameworkType(await this.resolveManagedTargetContextFromBinding(resolvedTenantId, binding, target));
-    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, frameworkType);
+    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId);
   }
 
   private async resolveDeploymentArtifact(
     certificateVersionId: string,
     certificateFormatId?: string,
-    frameworkType: 'web.iis' | 'web.nginx' = 'web.iis',
   ): Promise<DeploymentArtifactSnapshotDto> {
     const version = await this.certificates.getVersion(certificateVersionId);
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     }
-    const format = certificateFormatId
-      ? await this.certificates.getFormat(certificateFormatId)
-      : frameworkType === 'web.iis'
-        ? await this.artifacts.resolveWindowsIisPfx(certificateVersionId)
-        : undefined;
-    if (!format) {
-      if (frameworkType === 'web.nginx') {
-        throw new AppError('VALIDATION_FAILED', 'Linux NGINX 当前必须显式指定 certificateFormatId，且格式需可生成 PEM 证书文件与私钥文件', {
-          certificateVersionId,
-          frameworkType,
-        });
-      }
-      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
-    }
-    if (frameworkType === 'web.iis' && (format.format !== 'pfx' || format.containsPrivateKey !== true)) {
-      throw new AppError('VALIDATION_FAILED', 'Windows IIS 目前只支持带私钥的 PFX 格式配置', {
-        certificateFormatId,
-        format: format.format,
-        containsPrivateKey: format.containsPrivateKey,
+    if (!certificateFormatId) {
+      throw new AppError('VALIDATION_FAILED', '部署目标缺少证书产物绑定或 certificateFormatId', {
+        code: 'CERTIFICATE_ARTIFACT_BINDING_REQUIRED',
+        certificateVersionId,
       });
     }
-    if (frameworkType === 'web.nginx' && !this.isDeployableLinuxNginxFormat(format)) {
-      throw new AppError('VALIDATION_FAILED', 'Linux NGINX 当前要求导出格式必须可生成 PEM 证书文件与私钥文件', {
-        certificateFormatId,
-        format: format.format,
-        containsPrivateKey: format.containsPrivateKey,
-        parameters: format.parameters,
-      });
-    }
+    const format = await this.resolveCertificateFormatForVersion(certificateVersionId, certificateFormatId);
     const generated = await this.certificatesApp.generateDeploymentArtifactFromFormat({
       certificateVersionId,
       certificateFormatId: format.id,
@@ -1641,6 +1617,25 @@ export class DeploymentPlansApplicationService {
     };
   }
 
+  private async resolveCertificateFormatForVersion(certificateVersionId: string, certificateFormatId: string) {
+    const selected = await this.certificates.getFormat(certificateFormatId);
+    if (!selected) throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
+    if (!selected.certificateVersionId || selected.certificateVersionId === certificateVersionId) return selected;
+    const candidates = await this.certificates.listFormatsByVersion(certificateVersionId);
+    const equivalent = candidates.find((candidate) => candidate.format === selected.format
+      && candidate.parameterHash === selected.parameterHash
+      && candidate.containsPrivateKey === selected.containsPrivateKey);
+    if (equivalent) return equivalent;
+    throw new AppError('VALIDATION_FAILED', '最新证书版本缺少与所选配置等价的证书格式', {
+      code: 'EQUIVALENT_CERTIFICATE_FORMAT_MISSING',
+      certificateVersionId,
+      selectedCertificateFormatId: certificateFormatId,
+      selectedFormatVersionId: selected.certificateVersionId,
+      format: selected.format,
+      parameterHash: selected.parameterHash,
+    });
+  }
+
   private async resolveWorkflowDeploymentArtifact(
     certificateVersionId: string,
     bindings: Record<string, WorkflowCertificateArtifactBinding>,
@@ -1653,9 +1648,10 @@ export class DeploymentPlansApplicationService {
     let first: DeploymentArtifactSnapshotDto | undefined;
     const warnings: string[] = [];
     for (const [variableName, binding] of Object.entries(bindings)) {
+      const format = await this.resolveCertificateFormatForVersion(certificateVersionId, binding.certificateFormatId);
       const generated = await this.certificatesApp.generateDeploymentArtifactFromFormat({
         certificateVersionId,
-        certificateFormatId: binding.certificateFormatId,
+        certificateFormatId: format.id,
         createdBy: 'system',
       });
       const files = generated.files.map((file) => ({ ...file, name: file.key }));
@@ -1882,24 +1878,6 @@ export class DeploymentPlansApplicationService {
   }
 
 
-  private isDeployableVersion(version: CertificateVersionEntity): boolean {
-    return version.status === 'active'
-      && version.deployable === true
-      && new Date(version.notAfter).getTime() > Date.now();
-  }
-
-  private async hasCompatibleWindowsIisFormat(certificateVersionId: string): Promise<boolean> {
-    try {
-      await this.artifacts.resolveWindowsIisPfx(certificateVersionId);
-      return true;
-    } catch (error) {
-      if (error instanceof AppError && (error.errorCode === 'VALIDATION_FAILED' || error.errorCode === 'RESOURCE_NOT_FOUND')) {
-        return false;
-      }
-      throw error;
-    }
-  }
-
 
   private async resolveManagedTargetContextFromBinding(
     tenantId: string,
@@ -1908,25 +1886,6 @@ export class DeploymentPlansApplicationService {
   ) {
     const managedTargetId = binding.managedTargetId ?? target?.executionTargetId;
     return this.resolveManagedTargetContext(tenantId, managedTargetId);
-  }
-
-  private resolveSupportedFrameworkType(
-    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
-  ): 'web.iis' | 'web.nginx' {
-    if (context.frameworkType === 'web.iis') return 'web.iis';
-    if (context.frameworkType === 'web.nginx') return 'web.nginx';
-    throw new AppError('VALIDATION_FAILED', '当前 Framework 不支持证书部署适配器', {
-      frameworkInstanceId: context.serviceInstance?.id,
-      frameworkType: context.frameworkType,
-      managedTargetId: context.managedTarget.id,
-      siteId: context.siteAsset?.id,
-    });
-  }
-
-  private isDeployableLinuxNginxFormat(format: { format: string; containsPrivateKey: boolean; parameters?: Record<string, unknown> | null }): boolean {
-    if (format.format !== 'pem') return false;
-    if (format.containsPrivateKey === true) return true;
-    return readOptionalBoolean((format.parameters ?? {})['generatePrivateKeyFile']) === true;
   }
 
   private coversBindingDomain(
@@ -2189,6 +2148,31 @@ export class DeploymentPlansApplicationService {
 function normalizeDomain(value?: string): string | undefined {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : undefined;
+}
+
+function collectPreflightIssues<T>(
+  stage: DeploymentPreflightIssue['stage'],
+  results: readonly PromiseSettledResult<T>[],
+  targetIndexes: readonly number[] = results.map((_, index) => index),
+): DeploymentPreflightIssue[] {
+  return results.flatMap((result, index) => {
+    if (result.status === 'fulfilled') return [];
+    const error = result.reason;
+    return [{
+      stage,
+      targetIndex: targetIndexes[index] ?? index,
+      errorCode: error instanceof AppError ? error.errorCode : 'SYSTEM_INTERNAL_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof AppError && error.details !== undefined ? { details: error.details } : {}),
+    }];
+  });
+}
+
+function throwDeploymentPreflightError(issues: DeploymentPreflightIssue[]): never {
+  throw new AppError('VALIDATION_FAILED', `部署计划预检失败：${issues.map((issue) => issue.message).join('；')}`, {
+    code: 'DEPLOYMENT_PREFLIGHT_FAILED',
+    issues,
+  });
 }
 
 function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
