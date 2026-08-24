@@ -11,6 +11,12 @@ export function listExecutions(query?: BusinessListQuery) {
   return listRecords(EXECUTION_RUNS_PATH, query)
 }
 
+export function listExecutionsByPlanId(deploymentPlanId: string, query: Omit<BusinessListQuery, 'filters'> = {}) {
+  const path = buildListPath(EXECUTION_RUNS_PATH, query)
+  const separator = path.includes('?') ? '&' : '?'
+  return apiClient.get<ApiPage>(`${path}${separator}deploymentPlanId=${encodeURIComponent(deploymentPlanId)}`)
+}
+
 export function listExecutionSteps(query?: BusinessListQuery) {
   return listRecords(EXECUTION_STEPS_PATH, query)
 }

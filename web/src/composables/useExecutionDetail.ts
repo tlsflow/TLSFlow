@@ -16,6 +16,7 @@ export interface ExecutionDryRunSummary {
 }
 
 type DryRunStatus = 'passed' | 'failed' | 'warning' | 'unknown'
+const terminalRunStatuses = new Set(['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'])
 
 export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null }) {
   const loading = ref(false)
@@ -25,11 +26,17 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const error = ref('')
   const dryRunSummary = ref<ExecutionDryRunSummary | null>(null)
   const dryRunChecks = ref<ApiRecord[]>([])
+  let lastLoadedRunId = ''
 
   const runId = computed(() => {
     const row = selectedRow.value
     if (!row) return ''
     return readString(row.raw, ['id', 'runId'], row.id)
+  })
+  const runStatus = computed(() => {
+    const row = selectedRow.value
+    if (!row) return ''
+    return readString(row.raw, ['status', 'state', 'result'], '').toUpperCase()
   })
 
   async function load() {
@@ -38,6 +45,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       lines.value = []
       dryRunSummary.value = null
       dryRunChecks.value = []
+      lastLoadedRunId = ''
       return
     }
 
@@ -64,6 +72,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.get(readDispatchTaskId(record)) ?? []))
       dryRunSummary.value = summarizeDryRun(items)
       dryRunChecks.value = collectDryRunChecks(items)
+      lastLoadedRunId = runId.value
     } catch (cause) {
       steps.value = []
       lines.value = []
@@ -78,13 +87,23 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const polling = usePolling(() => load(), {
     intervalMs: 5_000,
     immediate: false,
-    stopWhen: () => !runId.value,
+    stopWhen: () => !runId.value || terminalRunStatuses.has(runStatus.value),
   })
 
-  watch(runId, (value) => {
-    void load()
-    if (value) void polling.start()
-    else polling.stop()
+  watch([runId, runStatus], ([value, status]) => {
+    if (!value) {
+      polling.stop()
+      void load()
+      return
+    }
+    if (value !== lastLoadedRunId) {
+      void load()
+    }
+    if (terminalRunStatuses.has(status)) {
+      polling.stop()
+      return
+    }
+    void polling.start()
   }, { immediate: true })
 
   return {
