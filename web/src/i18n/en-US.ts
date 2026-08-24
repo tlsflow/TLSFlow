@@ -3037,6 +3037,7 @@ export default {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
     resourceName: 'Application asset',
+    linkage: { title: 'Plugin and Agent linkage', description: 'Check plugin version, Agent version, and local execution policy.', status: 'Status', agent: 'Agent version', plugin: 'Plugin version', policy: 'Policy match', repair: 'Repair' },
     executionModes: {
       label: 'Execution mode',
       plugin: { title: 'Plugin execution', description: 'Use the certificate deployment capability enabled for the managed target.' },

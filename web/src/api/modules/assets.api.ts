@@ -26,6 +26,16 @@ export function getApplicationDetail(applicationId: string): Promise<ApiRecordRe
   return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
 }
 
+export function getApplicationAssetLinkageStatus(applicationAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${APPLICATIONS_PATH}/${encodeURIComponent(applicationAssetId)}/linkage-status`))
+}
+
+export function repairApplicationAssetLinkage(applicationAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${APPLICATIONS_PATH}/${encodeURIComponent(applicationAssetId)}/linkage-repair`), {}, {
+    idempotencyKey: createIdempotencyKey('application_asset_linkage_repair'),
+  })
+}
+
 export function createServiceAsset(payload: ApiBody) {
   return postAction(APPLICATIONS_PATH, payload, 'application_create')
 }

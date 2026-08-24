@@ -110,6 +110,7 @@ import { UserPluginDirectoryImporter } from './modules/plugins/application/user-
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginRefreshChange, PluginRefreshResult, PluginRefreshVersionSnapshot } from './modules/plugins/dto/plugin-refresh-result.dto.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
+import { PluginAgentLinkageService } from './modules/plugins/application/plugin-agent-linkage.service.js';
 import { ManagedTargetPluginQueryService } from './modules/plugins/application/managed-target-plugin-query.service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
 import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/standard-device-discovery.projector.js';
@@ -575,6 +576,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agentsService.getRepository(),
     deviceAssetsRepository,
   ));
+  assetsService.setPluginAgentLinkageService(new PluginAgentLinkageService(appDb, localAgentAuthorization));
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     secrets: security.secrets,

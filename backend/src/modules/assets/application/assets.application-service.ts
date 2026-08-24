@@ -54,6 +54,7 @@ import {
   validateDeploymentStrategyPluginBinding,
 } from './deployment-strategy.service.js';
 import type { ManagedTargetContextResolver } from './managed-target-context.resolver.js';
+import type { PluginAgentLinkageService } from '../../plugins/application/plugin-agent-linkage.service.js';
 export interface ApplicationAssetQuotaPort {
   requireApplicationAssetQuota(nextCount: number): Promise<void>;
 }
@@ -70,7 +71,22 @@ export class AssetsApplicationService {
     private licensingService?: ApplicationAssetQuotaPort,
     private certificatesRepository?: CertificatesRepository,
     private monitorsRepository?: MonitorsRepository,
+    private linkageService?: PluginAgentLinkageService,
   ) {}
+
+  setPluginAgentLinkageService(service: PluginAgentLinkageService): void {
+    this.linkageService = service;
+  }
+
+  async getApplicationAssetLinkageStatus(tenantId: string, applicationAssetId: string) {
+    if (!this.linkageService) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件与 Agent 联动服务未接入');
+    return this.linkageService.getStatus(tenantId, applicationAssetId);
+  }
+
+  async repairApplicationAssetLinkage(tenantId: string, applicationAssetId: string) {
+    if (!this.linkageService) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件与 Agent 联动服务未接入');
+    return this.linkageService.repair(tenantId, applicationAssetId);
+  }
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
     this.bindingsRepository = bindingsRepository;
@@ -198,7 +214,14 @@ export class AssetsApplicationService {
     if (!detail) return detail;
     const hydrated = await this.hydrateServiceAssetStrategy(tenantId, detail);
     const [withCertificate] = await this.hydrateCurrentCertificateProjection(tenantId, [hydrated]);
-    return this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? hydrated);
+    const contextual = await this.hydrateServiceAssetTargetContext(tenantId, withCertificate ?? hydrated);
+    if (!this.linkageService) return contextual;
+    try {
+      return { ...contextual, linkageStatus: await this.linkageService.getStatus(tenantId, serviceAssetId) };
+    } catch (error) {
+      // 联动诊断是详情增强信息，不能阻断既有资产详情读取。
+      return { ...contextual, linkageStatus: { status: 'UNKNOWN', severity: 'WARNING', repairable: false, issues: [{ code: 'LINKAGE_CHECK_FAILED', message: error instanceof Error ? error.message : String(error) }] } };
+    }
   }
 
   async updateServiceAssetDeploymentStrategy(tenantId: string, serviceAssetId: string, strategy: DeploymentStrategyDto, actorId?: string): Promise<ServiceAssetDto> {

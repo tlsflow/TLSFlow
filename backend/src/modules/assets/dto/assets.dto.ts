@@ -241,6 +241,7 @@ export interface ConfiguredCertificateEvidenceDto {
 export interface ServiceAssetDetailDto extends ServiceAssetDto {
   targetBindingDetail?: ApplicationAssetTargetDetailDto;
   targetSnapshots?: ManagedTargetSnapshotDto[];
+  linkageStatus?: Record<string, unknown>;
 }
 
 export interface CreateServiceAssetDto {

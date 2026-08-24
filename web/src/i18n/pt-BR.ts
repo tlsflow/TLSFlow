@@ -2883,6 +2883,7 @@ export default {
     title: 'Ativos de aplicação',
     description: 'Gerencie entradas de aplicação por domínio ou IP, com foco em endereço, porta, protocolo, site e localização de execução.',
     resourceName: 'Ativo de aplicação',
+    linkage: { title: 'Vinculo de plugin e Agent', description: 'Verifique versoes e a politica local de execucao.', status: 'Status', agent: 'Versao do Agent', plugin: 'Versao do plugin', policy: 'Politica', repair: 'Corrigir' },
     executionModes: {
       label: 'Modo de execução',
       plugin: { title: 'Execução por plugin', description: 'Use a capacidade de implantação de certificado habilitada para o destino gerenciado.' },

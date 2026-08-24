@@ -2908,6 +2908,7 @@ export default {
     title: "應用資產",
     description: "以域名或 IP 為主物件管理應用入口，聚焦位址、埠、協議、站點與執行定位。",
     resourceName: "應用資產",
+    linkage: { title: "外掛與 Agent 聯動", description: "檢查外掛版本、Agent 版本與本機執行策略。", status: "狀態", agent: "Agent 版本", plugin: "外掛版本", policy: "策略匹配", repair: "一鍵修復" },
     executionModes: {
       label: "執行方式",
       plugin: { title: "外掛執行", description: "使用受管目標已啟用的憑證部署能力。" },

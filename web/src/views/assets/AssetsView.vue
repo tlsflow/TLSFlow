@@ -3,7 +3,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, getAssetDetail, getApplicationAssetLinkageStatus, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -200,6 +200,8 @@ const selectedAssetDetail = ref<ApiRecord | null>(null)
 const snapshotItems = ref<ApiRecord[]>([])
 const detailLoading = ref(false)
 const detailError = ref('')
+const linkageStatus = ref<ApiRecord | null>(null)
+const linkageRepairing = ref(false)
 const snapshotLoading = ref(false)
 const snapshotError = ref('')
 const rollbackSubmitting = ref(false)
@@ -1408,6 +1410,7 @@ async function loadCertificateFormatsForWorkflow() {
 async function refreshAssetDetail(serviceAssetId: string) {
   if (!serviceAssetId) {
     selectedAssetDetail.value = null
+    linkageStatus.value = null
     snapshotItems.value = []
     detailError.value = ''
     snapshotError.value = ''
@@ -1419,6 +1422,12 @@ async function refreshAssetDetail(serviceAssetId: string) {
   try {
     const result = await getAssetDetail(serviceAssetId)
     selectedAssetDetail.value = result.data ?? null
+    try {
+      const linkage = await getApplicationAssetLinkageStatus(serviceAssetId)
+      linkageStatus.value = linkage.data ?? null
+    } catch {
+      linkageStatus.value = null
+    }
   } catch (cause) {
     selectedAssetDetail.value = null
     if (cause instanceof ApiClientError) {
@@ -1429,6 +1438,18 @@ async function refreshAssetDetail(serviceAssetId: string) {
     detailError.value = message
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function repairSelectedAssetLinkage() {
+  const id = String(selectedServiceAsset.value?.raw.id ?? '')
+  if (!id || linkageRepairing.value) return
+  linkageRepairing.value = true
+  try {
+    const result = await repairApplicationAssetLinkage(id)
+    linkageStatus.value = (result.data?.after ?? result.data ?? null) as ApiRecord | null
+  } finally {
+    linkageRepairing.value = false
   }
 }
 
@@ -3210,6 +3231,22 @@ function managedTargetLabel(target: ApiRecord): string {
         <GcTabs v-model="activeDetailTab" :tabs="detailTabs" :aria-label="t('assets.detail.tabsAriaLabel')" />
 
         <section v-if="activeDetailTab === 'overview'" class="asset-detail-modal__sections">
+          <article class="asset-detail-modal__section">
+            <div class="asset-detail-modal__section-head">
+              <h3>{{ t('assets.linkage.title') }}</h3>
+              <p>{{ t('assets.linkage.description') }}</p>
+            </div>
+            <div v-if="linkageStatus" class="asset-binding__detail">
+              <div><dt>{{ t('assets.linkage.status') }}</dt><dd><GcStatusTag :status="String(linkageStatus.status ?? 'UNKNOWN')" /></dd></div>
+              <div><dt>{{ t('assets.linkage.agent') }}</dt><dd>{{ renderValue(readNested(linkageStatus, ['agent', 'version'])) }}</dd></div>
+              <div><dt>{{ t('assets.linkage.plugin') }}</dt><dd>{{ renderValue(readNested(linkageStatus, ['plugin', 'version'])) }}</dd></div>
+              <div><dt>{{ t('assets.linkage.policy') }}</dt><dd>{{ renderValue(readNested(linkageStatus, ['policy', 'matchedIdentity'])) }}</dd></div>
+            </div>
+            <div class="asset-detail-modal__links">
+              <GcButton v-if="Boolean(linkageStatus?.repairable)" :loading="linkageRepairing" @click="repairSelectedAssetLinkage">{{ t('assets.linkage.repair') }}</GcButton>
+            </div>
+          </article>
+
           <article class="asset-detail-modal__section">
             <div class="asset-detail-modal__section-head">
               <h3>{{ t('assets.detail.sections.overview.title') }}</h3>

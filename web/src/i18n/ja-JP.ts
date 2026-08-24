@@ -2909,6 +2909,7 @@ export default {
     title: 'アプリケーションアセット',
     description: 'ドメイン名または IP を主な対象としてアプリケーションエントリを管理し、アドレス、ポート、プロトコル、サイト、実行先の特定に集中します。',
     resourceName: 'アプリケーションアセット',
+    linkage: { title: 'プラグインと Agent の連携', description: 'バージョンとローカル実行ポリシーを確認します。', status: '状態', agent: 'Agent バージョン', plugin: 'プラグイン バージョン', policy: 'ポリシー一致', repair: '修復' },
     executionModes: {
       label: '実行モード',
       plugin: { title: 'プラグイン実行', description: '管理対象で有効な証明書デプロイ機能を使用します。' },

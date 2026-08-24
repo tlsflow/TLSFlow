@@ -3059,6 +3059,15 @@ export default {
     title: '应用',
     description: '以域名或 IP 为主对象管理应用入口，聚焦地址、端口、协议、站点与执行定位。',
     resourceName: '应用',
+    linkage: {
+      title: '插件与 Agent 联动',
+      description: '检查插件版本、Agent 版本和本机执行策略是否匹配。',
+      status: '状态',
+      agent: 'Agent 版本',
+      plugin: '插件版本',
+      policy: '策略匹配',
+      repair: '一键修复'
+    },
     executionModes: {
       label: '执行方式',
       plugin: { title: '插件执行', description: '使用受管目标已启用的证书部署能力。' },

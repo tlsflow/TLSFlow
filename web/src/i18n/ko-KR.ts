@@ -2883,6 +2883,7 @@ export default {
     title: '응용자산',
     description: '도메인 네임 또는 IP를 주요 객체로 응용 프로그램의 포털을 관리하여 주소, 포트, 프로토콜, 웹 사이트에 초점을 맞추고 위치추적 작업을 수행합니다.',
     resourceName: '응용자산',
+    linkage: { title: '플러그인 및 Agent 연동', description: '버전과 로컬 실행 정책을 확인합니다.', status: '상태', agent: 'Agent 버전', plugin: '플러그인 버전', policy: '정책 일치', repair: '복구' },
     executionModes: {
       label: '실행 모드',
       plugin: { title: '플러그인 실행', description: '관리 대상에 활성화된 인증서 배포 기능을 사용합니다.' },

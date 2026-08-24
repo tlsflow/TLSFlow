@@ -45,6 +45,8 @@ export class AssetsController {
     router.get('/api/v1/assets', '查询统一资产入口', tags, (request) => this.listServiceAssets(request));
     router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request));
     router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
+    router.get('/api/v1/applications/:applicationAssetId/linkage-status', '查询插件 Agent 联动状态', tags, (request) => this.getLinkageStatus(request));
+    router.post('/api/v1/applications/:applicationAssetId/linkage-repair', '修复插件 Agent 联动状态', tags, (request) => this.repairLinkage(request));
     router.post('/api/v1/applications', '创建 Application', tags, (request) => this.createServiceAsset(request));
     router.patch('/api/v1/applications', '更新 Application', tags, (request) => this.updateServiceAsset(request));
     router.post('/api/v1/applications/delete', '删除 Application', tags, (request) => this.deleteServiceAsset(request));
@@ -374,6 +376,20 @@ export class AssetsController {
       if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
       return detail;
     });
+  }
+
+  private async getLinkageStatus(request: HttpRequest) {
+    const applicationAssetId = readPathId(request, 'applicationAssetId');
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, applicationAssetId);
+    return this.service.getApplicationAssetLinkageStatus(tenantId(request), applicationAssetId);
+  }
+
+  private async repairLinkage(request: HttpRequest) {
+    const applicationAssetId = readPathId(request, 'applicationAssetId');
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, applicationAssetId);
+    return this.service.repairApplicationAssetLinkage(tenantId(request), applicationAssetId);
   }
 
   private saveStandaloneWorkflowExecution(request: HttpRequest) {
@@ -859,11 +875,20 @@ function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {
   return id.trim();
 }
 
+function readPathId(request: HttpRequest, name: string): string {
+  const match = request.path.match(new RegExp(`/api/v1/applications/([^/]+)/${name === 'applicationAssetId' ? '(?:linkage-status|linkage-repair)' : name}$`));
+  const value = match?.[1]?.trim();
+  if (!value) throw new AppError('VALIDATION_FAILED', '应用资产 ID 无效', { field: name });
+  return decodeURIComponent(value);
+}
+
 export function getAssetsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/assets', operationId: 'listAssets', summary: '查询统一资产入口', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/applications/:applicationAssetId/linkage-status', operationId: 'getApplicationAssetLinkageStatus', summary: '查询插件 Agent 联动状态', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/applications/:applicationAssetId/linkage-repair', operationId: 'repairApplicationAssetLinkage', summary: '修复插件 Agent 联动状态', tags, requestSchema: objectSchema(), responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications', operationId: 'createApplication', summary: '创建 Application', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/applications', operationId: 'updateApplication', summary: '更新 Application', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/applications/delete', operationId: 'deleteApplication', summary: '删除 Application', tags, responseSchema: objectSchema() },

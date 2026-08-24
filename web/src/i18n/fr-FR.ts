@@ -2946,6 +2946,7 @@ export default {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
     resourceName: 'Application asset',
+    linkage: { title: 'Liaison plugin et Agent', description: 'Verifier les versions et la strategie locale.', status: 'Statut', agent: 'Version Agent', plugin: 'Version plugin', policy: 'Correspondance', repair: 'Reparer' },
     executionModes: {
       label: 'Mode d’exécution',
       plugin: { title: 'Exécution par plugin', description: 'Utiliser la capacité de déploiement de certificat activée pour la cible gérée.' },
