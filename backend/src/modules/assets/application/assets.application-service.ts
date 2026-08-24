@@ -1161,16 +1161,19 @@ function projectWindowsIISDiscovery(
     status: 'ACTIVE',
     rawFacts: iisDetail,
   });
-  const sites = readObjectArray(iisDetail, 'Sites');
+  const sites = readObjectArray(iisDetail, 'Sites').length > 0 ? readObjectArray(iisDetail, 'Sites') : readObjectArray(iisDetail, 'sites');
   for (const site of sites) {
-    const siteName = normalizeOptionalString(readString(site, 'Name'));
+    const siteName = normalizeOptionalString(readString(site, 'Name') ?? readString(site, 'name'));
     if (!siteName) continue;
-    const bindings = readObjectArray(site, 'Bindings');
+    const bindings = readObjectArray(site, 'Bindings').length > 0 ? readObjectArray(site, 'Bindings') : readObjectArray(site, 'bindings');
     for (const binding of bindings) {
-      const protocol = normalizeProtocol(readString(binding, 'Protocol'));
-      const port = readNumber(binding, 'Port');
-      const hostHeader = normalizeOptionalString(readString(binding, 'HostHeader'));
+      const protocol = normalizeProtocol(readString(binding, 'Protocol') ?? readString(binding, 'protocol'));
+      const port = readNumber(binding, 'Port') ?? readNumber(binding, 'port');
+      const hostHeader = normalizeOptionalString(readString(binding, 'HostHeader') ?? readString(binding, 'hostHeader'));
       if (!protocol || !port || !hostHeader) continue;
+      const certificate = readRecord(binding, 'Certificate') ?? readRecord(binding, 'certificate');
+      const observedFingerprintSha256 = readString(certificate, 'FingerprintSHA256') ?? readString(certificate, 'fingerprintSha256');
+      const storeThumbprint = readString(binding, 'CertificateThumbprint') ?? readString(binding, 'certificateThumbprint') ?? readString(certificate, 'Thumbprint') ?? readString(certificate, 'thumbprint');
       payload.serviceAssets.push({
         hostname: hostRef,
         providerType: 'IIS',
@@ -1184,7 +1187,8 @@ function projectWindowsIISDiscovery(
         status: 'ACTIVE',
         metadata: { source: 'direct_control' },
       });
-      const siteKey = `${agentId}:iis:${siteName.toLowerCase()}:${readString(binding, 'BindingInformation') ?? hostHeader}`;
+      const bindingInformation = readString(binding, 'BindingInformation') ?? readString(binding, 'bindingInformation');
+      const siteKey = `${agentId}:iis:${siteName.toLowerCase()}:${bindingInformation ?? hostHeader}`;
       payload.siteAssets.push({
         hostname: hostRef,
         providerType: 'IIS',
@@ -1193,9 +1197,9 @@ function projectWindowsIISDiscovery(
         siteType: 'WEB_SITE',
         siteName,
         siteKey,
-        bindingInformation: readString(binding, 'BindingInformation'),
+        bindingInformation,
         hostHeader,
-        listenIp: readString(binding, 'IPAddress'),
+        listenIp: readString(binding, 'IPAddress') ?? readString(binding, 'ipAddress'),
         port,
         protocol,
         configPath: 'IIS:\\Sites',
@@ -1211,14 +1215,19 @@ function projectWindowsIISDiscovery(
         protocol,
         bindingType: 'WINDOWS_CERT_STORE',
         storeLocation: 'LocalMachine',
-        storeName: readString(binding, 'CertificateStoreName') ?? 'My',
-        storeThumbprint: readString(binding, 'CertificateThumbprint'),
+        storeName: readString(binding, 'CertificateStoreName') ?? readString(binding, 'certificateStoreName') ?? readString(certificate, 'StoreName') ?? readString(certificate, 'storeName') ?? 'My',
+        storeThumbprint,
+        observedFingerprintSha256,
         verifyMethod: 'TLS_CONNECT',
         serviceAssetRef: `${hostHeader}:${port}:${protocol}`.toLowerCase(),
         siteAssetRef: `site-asset:${siteKey}`.toLowerCase(),
+        metadata: {
+          certificateSubject: readString(certificate, 'Subject') ?? readString(certificate, 'subject'),
+          certificateIssuer: readString(certificate, 'Issuer') ?? readString(certificate, 'issuer'),
+        },
       });
-	    }
-	  }
+    }
+  }
 }
 
 function projectLinuxWebDiscovery(

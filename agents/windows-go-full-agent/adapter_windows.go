@@ -18,7 +18,7 @@ type windowsAdapterSnapshot struct {
 		Available bool   `json:"available"`
 		Path      string `json:"path,omitempty"`
 	} `json:"powerShell"`
-	OS *windowsOSDetail `json:"os,omitempty"`
+	OS        *windowsOSDetail `json:"os,omitempty"`
 	CertStore struct {
 		LocalMachineMy []windowsCertificateStoreItem `json:"localMachineMy,omitempty"`
 	} `json:"certStore"`
@@ -74,12 +74,27 @@ type windowsIISBinding struct {
 }
 
 type windowsCertificateDetail struct {
-	Thumbprint string `json:"thumbprint"`
-	StoreName  string `json:"storeName"`
-	Subject    string `json:"subject,omitempty"`
-	Issuer     string `json:"issuer,omitempty"`
-	NotBefore  string `json:"notBefore,omitempty"`
-	NotAfter   string `json:"notAfter,omitempty"`
+	Thumbprint        string `json:"thumbprint"`
+	FingerprintSHA256 string `json:"fingerprintSha256,omitempty"`
+	StoreName         string `json:"storeName"`
+	Subject           string `json:"subject,omitempty"`
+	Issuer            string `json:"issuer,omitempty"`
+	NotBefore         string `json:"notBefore,omitempty"`
+	NotAfter          string `json:"notAfter,omitempty"`
+}
+
+func (b windowsIISBinding) CertificateSubject() string {
+	if b.Certificate == nil {
+		return ""
+	}
+	return strings.TrimSpace(b.Certificate.Subject)
+}
+
+func (b windowsIISBinding) CertificateIssuer() string {
+	if b.Certificate == nil {
+		return ""
+	}
+	return strings.TrimSpace(b.Certificate.Issuer)
 }
 
 type windowsIISDetailWire struct {
@@ -252,13 +267,25 @@ function Convert-CertSummary {
   }
   if ([string]::IsNullOrWhiteSpace($thumbprint)) { return $null }
   $resolvedStoreName = if ([string]::IsNullOrWhiteSpace($StoreName)) { 'My' } else { $StoreName }
-  $certificatePath = "Cert:\LocalMachine\$resolvedStoreName\$thumbprint"
   $certificate = $null
-  if (Test-Path -LiteralPath $certificatePath) {
-    try { $certificate = Get-Item -LiteralPath $certificatePath -ErrorAction Stop } catch {}
+  try {
+    $certificatePath = Join-Path -Path (Join-Path -Path 'Cert:\LocalMachine' -ChildPath $resolvedStoreName) -ChildPath $thumbprint
+    $certificate = Get-Item -LiteralPath $certificatePath -ErrorAction Stop
+  } catch {}
+  $fingerprintSha256 = $null
+  if ($null -ne $certificate) {
+    try {
+      $sha256 = [System.Security.Cryptography.SHA256]::Create()
+      try {
+        $fingerprintSha256 = ([System.BitConverter]::ToString($sha256.ComputeHash($certificate.RawData))).Replace('-', '').ToLowerInvariant()
+      } finally {
+        $sha256.Dispose()
+      }
+    } catch {}
   }
   [pscustomobject]@{
     thumbprint = $thumbprint
+    fingerprintSha256 = $fingerprintSha256
     storeName = $resolvedStoreName
     subject = if ($null -ne $certificate) { [string]$certificate.Subject } else { $null }
     issuer = if ($null -ne $certificate) { [string]$certificate.Issuer } else { $null }

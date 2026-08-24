@@ -1639,20 +1639,29 @@ func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request direct
 					"configPath":         `IIS:\Sites`,
 				})
 				if request.IncludeBindings {
+					observedFingerprint := ""
+					if binding.Certificate != nil {
+						observedFingerprint = strings.TrimSpace(binding.Certificate.FingerprintSHA256)
+					}
 					bindings = append(bindings, map[string]any{
-						"siteAssetRef":    "site-asset:" + siteKey,
-						"serviceAssetRef": serviceAssetRef,
-						"hostname":        hostName,
-						"providerType":    "IIS",
-						"serviceName":     "iis",
-						"domainName":      hostHeader,
-						"port":            binding.Port,
-						"protocol":        protocol,
-						"bindingType":     "WINDOWS_CERT_STORE",
-						"storeLocation":   "LocalMachine",
-						"storeName":       binding.CertificateStoreName,
-						"storeThumbprint": binding.CertificateThumbprint,
-						"verifyMethod":    "TLS_CONNECT",
+						"siteAssetRef":              "site-asset:" + siteKey,
+						"serviceAssetRef":           serviceAssetRef,
+						"hostname":                  hostName,
+						"providerType":              "IIS",
+						"serviceName":               "iis",
+						"domainName":                hostHeader,
+						"port":                      binding.Port,
+						"protocol":                  protocol,
+						"bindingType":               "WINDOWS_CERT_STORE",
+						"storeLocation":             "LocalMachine",
+						"storeName":                 binding.CertificateStoreName,
+						"storeThumbprint":           binding.CertificateThumbprint,
+						"observedFingerprintSha256": observedFingerprint,
+						"verifyMethod":              "TLS_CONNECT",
+						"metadata": map[string]any{
+							"certificateSubject": binding.CertificateSubject(),
+							"certificateIssuer":  binding.CertificateIssuer(),
+						},
 					})
 				}
 			}
