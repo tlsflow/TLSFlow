@@ -76,6 +76,9 @@ export default {
     modal: {
       closeAria: '모달을 닫다'
     },
+    toast: {
+      close: '닫기'
+    },
     drawer: {
       closeAria: '드로어 닫기'
     },

@@ -76,6 +76,9 @@ export default {
     modal: {
       closeAria: 'Fermer la fenêtre modale'
     },
+    toast: {
+      close: 'Fermer'
+    },
     drawer: {
       closeAria: 'Fermer le panneau'
     },

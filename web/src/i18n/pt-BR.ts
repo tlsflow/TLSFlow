@@ -76,6 +76,9 @@ export default {
     modal: {
       closeAria: 'Fechar modal'
     },
+    toast: {
+      close: 'Fechar'
+    },
     drawer: {
       closeAria: 'Fechar painel'
     },

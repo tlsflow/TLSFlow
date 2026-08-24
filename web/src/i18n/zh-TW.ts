@@ -75,6 +75,9 @@ export default {
     modal: {
       closeAria: "關閉彈出視窗"
     },
+    toast: {
+      close: "關閉"
+    },
     drawer: {
       closeAria: "關閉抽屜"
     },

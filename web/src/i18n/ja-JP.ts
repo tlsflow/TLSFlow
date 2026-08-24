@@ -76,6 +76,9 @@ export default {
     modal: {
       closeAria: 'ダイアログを閉じる'
     },
+    toast: {
+      close: '閉じる'
+    },
     drawer: {
       closeAria: 'ドロワーを閉じる'
     },

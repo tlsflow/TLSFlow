@@ -75,6 +75,9 @@ export default {
     modal: {
       closeAria: '关闭弹窗'
     },
+    toast: {
+      close: '关闭'
+    },
     drawer: {
       closeAria: '关闭抽屉'
     },

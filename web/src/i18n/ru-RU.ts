@@ -76,6 +76,9 @@ export default {
     modal: {
       closeAria: 'Закрыть диалоговое окно'
     },
+    toast: {
+      close: 'Закрыть'
+    },
     drawer: {
       closeAria: 'Закрыть панель'
     },
