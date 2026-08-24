@@ -19,7 +19,7 @@ import type { PluginWorkflowPublisherService } from '../../plugins/application/p
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
-import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
+import { PgDevicesRepository, type DeviceDetailInclude, type DevicesRepository } from '../repository/devices.repository.js';
 import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugins/runtime/plugin-runtime-guard.service.js';
 import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
@@ -50,16 +50,17 @@ export class DevicesApplicationService {
     return this.repository.list(tenantId, query);
   }
 
-  async get(tenantId: string, deviceId: string, locale = 'zh-CN'): Promise<ManagedDeviceDetailDto> {
-    const device = await this.repository.get(tenantId, deviceId);
+  async get(tenantId: string, deviceId: string, locale = 'zh-CN', includes?: ReadonlySet<DeviceDetailInclude>, siteFrameworkId?: string): Promise<ManagedDeviceDetailDto> {
+    const device = await this.repository.get(tenantId, deviceId, { includes, siteFrameworkId });
     if (!device) throw new AppError('RESOURCE_NOT_FOUND', '设备不存在', { deviceId });
     if (device.extension.type === 'AGENT' && device.extension.agentId && this.agents) {
-      return enrichAgentDetail(device, await this.agents.getAgentDetail(tenantId, device.extension.agentId));
+      return enrichAgentDetail(device, await this.agents.getAgentDetail(tenantId, device.extension.agentId, {
+        includeLogs: includes === undefined || includes.has('logs'),
+      }));
     }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginVersionId || !device.extension.pluginBindingId || !this.unifiedPlugins) return device;
-    const [plugin, ui, assignmentRows] = await Promise.all([
-      this.unifiedPlugins.getVersionForTenant(tenantId, device.extension.pluginVersionId),
-      this.unifiedPlugins.getUiResources(device.extension.pluginVersionId, locale),
+    const [pluginResources, assignmentRows] = await Promise.all([
+      this.unifiedPlugins.getVersionWithUiResourcesForTenant(tenantId, device.extension.pluginVersionId, locale),
       this.db.query<{ capability_key: string }>(
         `select capability_key from plugin_capability_assignments
          where tenant_id=$1 and owner_type='DEVICE' and owner_id=$2 and plugin_binding_id=$3 and status='ACTIVE'

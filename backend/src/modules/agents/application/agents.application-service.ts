@@ -11,7 +11,7 @@ import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 import {
@@ -1309,22 +1309,20 @@ export class AgentsApplicationService {
     };
   }
 
-  async getAgentDetail(tenantId: string, agentId: string): Promise<AgentDetailProjection> {
-    const agent = await this.requireAgent(tenantId, agentId);
-    const capabilitySnapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agent.id);
-    const latestHeartbeat = await this.repository.getLatestHeartbeat(tenantId, agent.id);
-    const capabilities = await this.getCapabilityProjection(tenantId, agent.id);
-    const taskQueue = await this.listTaskQueue(tenantId, agent.id);
-    const upgradeSuggestion = await this.getUpgradeSuggestion(tenantId, agent.id);
-    const recentErrors = await this.repository.listAgentTaskLogs(tenantId, agent.id, ['error']);
-    const runtimeLogs = await this.repository.listAgentRuntimeLogs(tenantId, agent.id);
-    const recentTaskLogs = await this.listRecentTaskRuntimeLogs(tenantId, agent.id);
-    const liveness = this.liveness
-      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT'])
-      : undefined;
-    const managementLiveness = this.liveness
-      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['MANAGEMENT_TCP'])
-      : undefined;
+  async getAgentDetail(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailProjection> {
+    const [detailData, liveness, managementLiveness] = await Promise.all([
+      this.repository.getDetailData(tenantId, agentId, options),
+      this.liveness?.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']),
+      this.liveness?.project(tenantId, 'AGENT', agentId, ['MANAGEMENT_TCP']),
+    ]);
+    if (!detailData) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
+    const { agent, capabilitySnapshot, latestHeartbeat, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans } = detailData;
+    const capabilities = {
+      agentId: agent.id,
+      declarations: capabilitySnapshot ? this.domain.toCapabilityDeclarations(agent, capabilitySnapshot) : [],
+    };
+    const taskQueue = { agentId: agent.id, counts: countTasks(tasks), tasks };
+    const upgradeSuggestion = buildUpgradeSuggestion(agent, releases, upgradePlans);
     const health = this.toHealthProjection(agent, latestHeartbeat, liveness);
     if (liveness?.livenessStatus === 'OFFLINE') {
       health.status = 'failed';
@@ -1342,9 +1340,9 @@ export class AgentsApplicationService {
       capabilities,
       taskQueue,
       upgradeSuggestion,
-      recentErrors: recentErrors.slice(0, 10),
-      runtimeLogs: runtimeLogs.slice(0, 50),
-      recentTaskLogs,
+      recentErrors,
+      runtimeLogs,
+      recentTaskLogs: buildRecentTaskRuntimeLogs(tasks, recentTaskLogs),
     };
   }
 
@@ -1574,30 +1572,70 @@ export class AgentsApplicationService {
     const tasks = await this.repository.listTasks(tenantId, agentId);
     const taskById = new Map(tasks.map((task) => [task.id, task] as const));
     const allLogs = await this.repository.listAgentTaskLogs(tenantId, agentId);
-
-    return allLogs
-      .map((log) => {
-        const task = taskById.get(log.taskId);
-        if (!task) return null;
-        const payload = task.payload ?? {};
-        const bindingSelector = readRecord(payload.bindingSelector);
-        return {
-          id: log.id,
-          taskId: log.taskId,
-          executionStepId: task.executionStepId,
-          emittedAt: log.emittedAt,
-          level: log.level,
-          message: log.message,
-          taskType: readStringValue(payload.type) ?? 'unknown.task',
-          siteName: readStringValue(payload.siteName),
-          bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
-          dryRun: payload.dryRun === true,
-          executionMode: 'queued' as const,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null)
-      .slice(0, 50);
+    return buildRecentTaskRuntimeLogs(tasks, allLogs);
   }
+}
+
+function buildRecentTaskRuntimeLogs(tasks: AgentTaskEnvelope[], logs: AgentTaskLogEntry[]): AgentDetailProjection['recentTaskLogs'] {
+  const taskById = new Map(tasks.map((task) => [task.id, task] as const));
+  return logs
+    .map((log) => {
+      const task = taskById.get(log.taskId);
+      if (!task) return null;
+      const payload = task.payload ?? {};
+      const bindingSelector = readRecord(payload.bindingSelector);
+      return {
+        id: log.id,
+        taskId: log.taskId,
+        executionStepId: task.executionStepId,
+        emittedAt: log.emittedAt,
+        level: log.level,
+        message: log.message,
+        taskType: readStringValue(payload.type) ?? 'unknown.task',
+        siteName: readStringValue(payload.siteName),
+        bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
+        dryRun: payload.dryRun === true,
+        executionMode: 'queued' as const,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .slice(0, 50);
+}
+
+function buildUpgradeSuggestion(
+  agent: AgentRegistration,
+  releases: AgentVersionRelease[],
+  upgradePlans: AgentUpgradePlan[],
+): AgentUpgradeSuggestionProjection {
+  const release = [...releases]
+    .sort((left, right) => compareAgentVersions(right.version, left.version))
+    .find((item) => item.platform === agent.descriptor.osType && (!item.arch || item.arch === agent.descriptor.arch));
+  if (!release) {
+    return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: '没有匹配平台的升级版本' } };
+  }
+  if (release.version === agent.descriptor.version) {
+    return { agentId: agent.id, currentVersion: agent.descriptor.version, suggestion: { status: 'not_required', reason: 'Agent 已是目标版本' } };
+  }
+  return {
+    agentId: agent.id,
+    currentVersion: agent.descriptor.version,
+    suggestion: {
+      status: 'available', reason: '发现可用升级版本', targetVersion: release.version, releaseId: release.id,
+      downloadUrl: release.downloadUrl, checksumSha256: release.checksumSha256, signature: release.signature,
+      rollbackVersion: release.rollbackVersion,
+      existingPlan: upgradePlans.find((plan) => plan.releaseId === release.id),
+    },
+  };
+}
+
+function compareAgentVersions(left: string, right: string): number {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
 }
 
 function countTasks(tasks: AgentTaskEnvelope[]): Record<AgentTaskEnvelope['status'], number> {

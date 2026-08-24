@@ -19,8 +19,10 @@ export { mapAgentHealth, mapNetworkDeviceHealth } from '../domain/managed-device
 
 export interface DevicesRepository {
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto>;
-  get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined>;
+  get(tenantId: string, deviceId: string, options?: { includes?: ReadonlySet<DeviceDetailInclude>; siteFrameworkId?: string }): Promise<ManagedDeviceDetailDto | undefined>;
 }
+
+export type DeviceDetailInclude = 'frameworks' | 'sites' | 'certificates' | 'logs';
 
 export class PgDevicesRepository implements DevicesRepository {
   constructor(
@@ -44,13 +46,14 @@ export class PgDevicesRepository implements DevicesRepository {
     };
   }
 
-  async get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined> {
-    const row = (await this.db.query<ManagedDeviceRow>(`${DEVICE_LIST_SQL} and (host.id = $2 or host.agent_id = $2)`, [tenantId, deviceId])).rows[0];
+  async get(tenantId: string, deviceId: string, options: { includes?: ReadonlySet<DeviceDetailInclude>; siteFrameworkId?: string } = {}): Promise<ManagedDeviceDetailDto | undefined> {
+    const includes = options.includes ?? new Set<DeviceDetailInclude>(['frameworks', 'sites', 'certificates', 'logs']);
+    const row = (await this.db.query<ManagedDeviceRow>(DEVICE_DETAIL_SQL, [tenantId, deviceId])).rows[0];
     if (!row) return undefined;
     const summary = this.projectionRegistry.project(toProjectionSource(row));
     const [managedSites, resources] = await Promise.all([
-      this.getManagedSites(tenantId, row.id),
-      this.getStandardDeviceResources(tenantId, row.id, row.device_asset_id ?? undefined),
+      includes.has('sites') ? this.getManagedSites(tenantId, row.id, options.siteFrameworkId) : Promise.resolve([]),
+      this.getStandardDeviceResources(tenantId, row.id, row.device_asset_id ?? undefined, includes),
     ]);
     const sites = managedSites;
     const certificates = mergeCertificates(resources.certificates, collectSiteCertificates(sites));
@@ -81,6 +84,12 @@ export class PgDevicesRepository implements DevicesRepository {
       sites,
       certificates,
       logs: resources.logs,
+      resourceCounts: {
+        frameworks: Number(row.framework_count ?? 0),
+        sites: Number(row.site_count ?? 0),
+        certificates: Number(row.certificate_count ?? 0),
+        logs: Number(row.log_count ?? 0),
+      },
       extension: summary.extensionType === 'AGENT'
         ? { type: 'AGENT', agentId: row.agent_id ?? '' }
         : row.plugin_version_id && row.plugin_binding_id
@@ -103,25 +112,26 @@ export class PgDevicesRepository implements DevicesRepository {
     };
   }
 
-  private async getStandardDeviceResources(tenantId: string, deviceId: string, deviceAssetId?: string) {
+  private async getStandardDeviceResources(tenantId: string, deviceId: string, deviceAssetId: string | undefined, includes: ReadonlySet<DeviceDetailInclude>) {
     const [deviceLogs, frameworks, discoveredCertificates] = await Promise.all([
-      this.db.query<DeviceLogRow>(
+      includes.has('logs') ? this.db.query<DeviceLogRow>(
         `select document_id, payload
          from pg_documents
          where namespace='security.audit_logs'
-           and payload->>'resourceId' in ($1, $2)
+           and (payload->>'tenantId'=$1 or payload->>'tenantId' is null)
+           and payload->>'resourceId' in ($2, $3)
          order by payload->>'createdAt' desc, updated_at desc
          limit 100`,
-        [deviceId, deviceAssetId ?? deviceId],
-      ),
-      this.db.query<FrameworkRow>(
+        [tenantId, deviceId, deviceAssetId ?? deviceId],
+      ) : Promise.resolve({ rows: [] as DeviceLogRow[] }),
+      includes.has('frameworks') ? this.db.query<FrameworkRow>(
         `select id, framework_key, framework_type, display_name, version_text, status, raw_facts
          from pg_framework_instances
          where tenant_id=$1 and device_id=$2 and status='ACTIVE' and deleted_at is null
          order by display_name, framework_key`,
         [tenantId, deviceId],
-      ),
-      deviceAssetId ? this.db.query<DiscoveredCertificateRow>(
+      ) : Promise.resolve({ rows: [] as FrameworkRow[] }),
+      deviceAssetId && includes.has('certificates') ? this.db.query<DiscoveredCertificateRow>(
         `select certificate.id, certificate.stable_key, certificate.fingerprint_sha256,
                 certificate.subject, certificate.issuer, certificate.not_before, certificate.not_after,
                 certificate.metadata, certificate.status, certificate.certificate_version_id,
@@ -172,11 +182,11 @@ export class PgDevicesRepository implements DevicesRepository {
     };
   }
 
-  private async getManagedSites(tenantId: string, deviceId: string): Promise<ManagedDeviceSiteDto[]> {
+  private async getManagedSites(tenantId: string, deviceId: string, frameworkInstanceId?: string): Promise<ManagedDeviceSiteDto[]> {
     const rows = (await this.db.query<ManagedSiteRow>(
       `select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
-              framework.framework_type,
+              framework.id as framework_instance_id, framework.framework_type,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
               binding.status as binding_status, binding.certificate_version_id, binding.observed_fingerprint_sha256,
@@ -196,14 +206,16 @@ export class PgDevicesRepository implements DevicesRepository {
        left join pg_certificate_versions version on version.id=binding.certificate_version_id
        left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
        where site.tenant_id=$1 and site.device_id=$2 and site.status='ACTIVE' and site.deleted_at is null
+         and ($3::text is null or framework.id=$3)
        order by site.site_name, binding.binding_key`,
-      [tenantId, deviceId],
+      [tenantId, deviceId, frameworkInstanceId ?? null],
     )).rows;
     const sites = new Map<string, ManagedDeviceSiteDto>();
     for (const row of rows) {
       const existing: ManagedDeviceSiteDto = sites.get(row.id) ?? {
         id: row.id,
         siteAssetId: row.id,
+        frameworkInstanceId: row.framework_instance_id,
         managedTargetId: row.managed_target_id ?? undefined,
         kind: row.site_type,
         frameworkType: row.framework_type,
@@ -358,6 +370,93 @@ const DEVICE_LIST_SQL = `
     and (host.agent_id is not null or service.id is not null)
 `;
 
+// 详情查询只围绕目标 Host 建立 CTE。列表中的全租户聚合不能复用于单设备详情，
+// 否则打开一台设备也会扫描整个租户的历史快照、存活信号和资产计数。
+const DEVICE_DETAIL_SQL = `
+  with target_host as (
+    select * from pg_hosts
+     where tenant_id=$1 and deleted_at is null and (id=$2 or agent_id=$2)
+     limit 1
+  ), agent_extensions as (
+    select document_id as agent_id, payload
+      from pg_documents
+     where namespace='agents:registrations'
+       and payload->>'tenantId'=$1
+       and document_id=(select agent_id from target_host)
+  ), agent_snapshots as (
+    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload
+      from pg_documents
+     where namespace='agents:snapshots'
+       and payload->>'tenantId'=$1
+       and payload->>'agentId'=(select agent_id from target_host)
+     order by payload->>'agentId', payload->>'reportedAt' desc
+  ), agent_heartbeats as (
+    select distinct on (payload->>'agentId') payload->>'agentId' as agent_id, payload->>'receivedAt' as received_at
+      from pg_documents
+     where namespace='agents:heartbeats'
+       and payload->>'tenantId'=$1
+       and payload->>'agentId'=(select agent_id from target_host)
+     order by payload->>'agentId', payload->>'receivedAt' desc
+  ), liveness_signals as (
+    select tenant_id, resource_type, resource_id,
+           jsonb_agg(jsonb_build_object(
+             'id', id, 'tenant_id', tenant_id, 'resource_type', resource_type, 'resource_id', resource_id,
+             'signal_type', signal_type, 'required', required, 'status', status,
+             'consecutive_failures', consecutive_failures, 'last_observed_at', last_observed_at,
+             'last_success_at', last_success_at, 'last_failure_at', last_failure_at,
+             'endpoint_host', endpoint_host, 'endpoint_port', endpoint_port, 'source', source,
+             'reason_code', reason_code, 'reason_detail', reason_detail, 'observation_id', observation_id,
+             'created_at', created_at, 'updated_at', updated_at
+           ) order by signal_type) signals
+      from pg_device_liveness_signals
+     where tenant_id=$1
+       and resource_type=case when (select agent_id from target_host) is not null then 'AGENT' else 'DEVICE' end
+       and resource_id=coalesce((select agent_id from target_host), (select id from target_host))
+     group by tenant_id, resource_type, resource_id
+  ), application_counts as (
+    select count(distinct asset_id)::int as asset_count
+      from (
+        select sa.id as asset_id from pg_service_assets sa
+         where sa.tenant_id=$1 and sa.host_id=(select id from target_host)
+           and sa.deleted_at is null and coalesce(sa.asset_kind, 'APPLICATION') <> 'DEVICE'
+        union
+        select site.id from pg_site_assets site
+         join pg_framework_instances framework on framework.id=site.framework_instance_id and framework.tenant_id=site.tenant_id
+         where site.tenant_id=$1 and site.device_id=(select id from target_host)
+           and site.status='ACTIVE' and site.deleted_at is null and framework.deleted_at is null
+      ) related_assets
+  ), resource_counts as (
+    select
+      (select count(*) from pg_framework_instances where tenant_id=$1 and device_id=(select id from target_host) and status='ACTIVE' and deleted_at is null)::int as framework_count,
+      (select count(*) from pg_site_assets where tenant_id=$1 and device_id=(select id from target_host) and status='ACTIVE' and deleted_at is null)::int as site_count,
+      (select count(*) from plugin_discovered_certificates where tenant_id=$1 and device_asset_id=(select service_asset_id from pg_device_assets where tenant_id=$1 and host_id=(select id from target_host)) and status='ACTIVE')::int as certificate_count,
+      (select count(*) from pg_documents
+        where namespace='security.audit_logs'
+          and (payload->>'tenantId'=$1 or payload->>'tenantId' is null)
+          and payload->>'resourceId' in ((select id from target_host), (select service_asset_id from pg_device_assets where tenant_id=$1 and host_id=(select id from target_host))))::int as log_count
+  )
+  select host.id, host.display_name, host.hostname, host.primary_ip, host.os_type, host.os_name, host.os_version,
+    host.management_mode, host.status as host_status, host.last_discovered_at, host.updated_at, host.agent_id,
+    agent.payload as agent_payload, snapshot.payload as agent_capability_payload, heartbeat.received_at as agent_last_heartbeat_at,
+    coalesce(liveness.signals, '[]'::jsonb) as liveness_signals, device.service_asset_id as device_asset_id,
+    device.device_family, device.management_port, device.auth_mode, device.tls_verify, device.product_name,
+    device.product_family, device.software_version, device.software_build, device.support_tier, device.capability_profile,
+    device.metadata as device_metadata, device.plugin_version_id, plugin_version.plugin_version as control_version,
+    device.plugin_binding_id, device.last_discovered_at as device_last_discovered_at, device.last_error_code,
+    service.address as device_address, coalesce(counts.asset_count, 0)::int as application_asset_count,
+    resource_counts.framework_count, resource_counts.site_count, resource_counts.certificate_count, resource_counts.log_count
+  from target_host host
+  left join agent_extensions agent on agent.agent_id=host.agent_id
+  left join agent_snapshots snapshot on snapshot.agent_id=host.agent_id
+  left join agent_heartbeats heartbeat on heartbeat.agent_id=host.agent_id
+  left join liveness_signals liveness on true
+  left join pg_device_assets device on device.tenant_id=host.tenant_id and device.host_id=host.id
+  left join unified_plugin_versions plugin_version on plugin_version.id=device.plugin_version_id
+  left join pg_service_assets service on service.tenant_id=device.tenant_id and service.id=device.service_asset_id and service.deleted_at is null
+  cross join application_counts counts
+  cross join resource_counts
+`;
+
 interface ManagedDeviceRow extends Record<string, unknown> {
   id: string;
   display_name: string | null;
@@ -394,6 +493,10 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   last_error_code: string | null;
   device_address: string | null;
   application_asset_count: number;
+  framework_count?: number;
+  site_count?: number;
+  certificate_count?: number;
+  log_count?: number;
 }
 
 interface DeviceLogRow extends Record<string, unknown> {
@@ -448,6 +551,7 @@ interface ManagedSiteRow extends Record<string, unknown> {
   runtime_status: string | null;
   status: string;
   metadata: Record<string, unknown> | null;
+  framework_instance_id: string;
   framework_type: string;
   managed_target_id: string | null;
   target_binding_key: string | null;

@@ -608,6 +608,26 @@ test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定
     })],
   );
 
+  const overview = await new PgDevicesRepository(database).get(tenantId, device.hostId, { includes: new Set() });
+  assert.deepEqual(overview?.frameworks, []);
+  assert.deepEqual(overview?.sites, []);
+  assert.deepEqual(overview?.certificates, []);
+  assert.deepEqual(overview?.logs, []);
+  assert.deepEqual(overview?.resourceCounts, { frameworks: 2, sites: 2, certificates: 1, logs: 1 });
+
+  const certificates = await new PgDevicesRepository(database).get(tenantId, device.hostId, { includes: new Set(['certificates', 'sites']) });
+  assert.deepEqual(certificates?.frameworks, []);
+  assert.deepEqual(certificates?.logs, []);
+  assert.equal(certificates?.sites.length, 2);
+  assert.equal(certificates?.certificates.length, 3);
+
+  const scopedSites = await new PgDevicesRepository(database).get(tenantId, device.hostId, {
+    includes: new Set(['sites']),
+    siteFrameworkId: certificates?.sites.find((site) => site.name === 'lb-detail')?.frameworkInstanceId,
+  });
+  assert.deepEqual(scopedSites?.sites.map((site) => site.name), ['lb-detail']);
+  assert.deepEqual(scopedSites?.sites.map((site) => site.frameworkInstanceId), [certificates?.sites.find((site) => site.name === 'lb-detail')?.frameworkInstanceId]);
+
   const detail = await new PgDevicesRepository(database).get(tenantId, device.hostId);
   const extension = detail?.extensionSummary ?? {};
   assert.equal('virtualServers' in extension, false);

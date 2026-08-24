@@ -97,6 +97,8 @@ export interface ManagedDeviceSiteBindingDto {
 export interface ManagedDeviceSiteDto {
   id: string;
   siteAssetId: string;
+  /** 站点所属框架实例，用于详情页按框架实例按需读取和展示。 */
+  frameworkInstanceId?: string;
   managedTargetId?: string;
   kind: ManagedDeviceSiteKind;
   frameworkType: string;
@@ -165,6 +167,13 @@ export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   sites: ManagedDeviceSiteDto[];
   certificates: ManagedDeviceCertificateDto[];
   logs: ManagedDeviceLogDto[];
+  /** 详情概览阶段只返回数量，具体资源由前端切换 Tab 后按需加载。 */
+  resourceCounts?: {
+    frameworks: number;
+    sites: number;
+    certificates: number;
+    logs: number;
+  };
   extension: ManagedDeviceExtensionDto;
   extensionSummary: Record<string, unknown>;
   pluginUi?: ManagedDevicePluginUiDto;

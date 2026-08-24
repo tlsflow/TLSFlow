@@ -8,6 +8,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { DevicesApplicationService } from '../application/devices.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
+import type { DeviceDetailInclude } from '../repository/devices.repository.js';
 import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
 
 const tags = ['Devices'];
@@ -61,7 +62,13 @@ export class DevicesController {
       type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
     const locale = Array.isArray(request.query.locale) ? request.query.locale[0] : request.query.locale;
-    return this.service.get(tenantId(request), deviceId, locale ?? 'zh-CN');
+    return this.service.get(
+      tenantId(request),
+      deviceId,
+      locale ?? 'zh-CN',
+      parseDetailIncludes(request.query.include),
+      queryString(request.query.frameworkId),
+    );
   }
 
   private async executeCapability(request: HttpRequest) {
@@ -86,6 +93,22 @@ export class DevicesController {
     if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId, tenantScope: request.context.tenantScope } };
   }
+}
+
+function parseDetailIncludes(value: string | string[] | undefined): ReadonlySet<DeviceDetailInclude> | undefined {
+  if (value === undefined) return undefined;
+  const supported = new Set<DeviceDetailInclude>(['frameworks', 'sites', 'certificates', 'logs']);
+  const requested = (Array.isArray(value) ? value : [value])
+    .flatMap((item) => item.split(','))
+    .map((item) => item.trim())
+    .filter((item): item is DeviceDetailInclude => supported.has(item as DeviceDetailInclude));
+  return new Set(requested);
+}
+
+function queryString(value: string | string[] | undefined): string | undefined {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  const normalized = candidate?.trim();
+  return normalized || undefined;
 }
 
 export function getDeviceRouteContracts(): RouteContract[] {

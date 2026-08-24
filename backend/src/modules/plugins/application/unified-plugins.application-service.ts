@@ -164,6 +164,28 @@ export class UnifiedPluginsApplicationService {
     locale: { requested: string; resolved: string; defaultLocale: string; coverage: Record<string, number>; messages: Record<string, string> } | undefined;
   }> {
     const record = await this.getVersion(id);
+    return this.buildUiResources(record, locale);
+  }
+
+  async getVersionWithUiResourcesForTenant(tenantId: string, pluginVersionId: string, locale: string): Promise<{
+    version: UnifiedPluginVersionRecord;
+    ui: {
+      pluginVersionId: string;
+      forms: ReturnType<PluginPackageResourcesService['validate']>['forms'];
+      presentations: ReturnType<PluginPackageResourcesService['validate']>['presentations'];
+      locale: { requested: string; resolved: string; defaultLocale: string; coverage: Record<string, number>; messages: Record<string, string> } | undefined;
+    };
+  }> {
+    const version = await this.getAccessibleVersion(tenantId, pluginVersionId);
+    return { version, ui: this.buildUiResources(version, locale) };
+  }
+
+  private buildUiResources(record: UnifiedPluginVersionRecord, locale: string): {
+    pluginVersionId: string;
+    forms: ReturnType<PluginPackageResourcesService['validate']>['forms'];
+    presentations: ReturnType<PluginPackageResourcesService['validate']>['presentations'];
+    locale: { requested: string; resolved: string; defaultLocale: string; coverage: Record<string, number>; messages: Record<string, string> } | undefined;
+  } {
     const validated = this.packageResources.validate(record.manifest, record.resources);
     const bundle = validated.locales;
     const resolvedLocale = bundle?.messages[locale] ? locale : bundle?.defaultLocale;

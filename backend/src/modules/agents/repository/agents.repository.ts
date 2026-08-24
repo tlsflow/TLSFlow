@@ -66,6 +66,7 @@ export interface AgentsRepository {
   listTaskLogs(tenantId: string, taskId: string): Promise<AgentTaskLogEntry[]>;
   listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]>;
   listAgentRuntimeLogs(tenantId: string, agentId: string, categories?: AgentRuntimeLogEntry['category'][]): Promise<AgentRuntimeLogEntry[]>;
+  getDetailData(tenantId: string, agentId: string, options?: { includeLogs?: boolean }): Promise<AgentDetailData | undefined>;
   publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease>;
   listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]>;
   createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan>;
@@ -81,6 +82,18 @@ export interface AgentsRepository {
 
 type AgentHeartbeatRecord = AgentHeartbeat & IdentifiedEntity;
 type AgentTaskLogCursorRecord = AgentTaskLogCursor & IdentifiedEntity;
+
+export interface AgentDetailData {
+  agent: AgentRegistration;
+  capabilitySnapshot?: AgentCapabilitySnapshot;
+  latestHeartbeat?: AgentHeartbeat;
+  tasks: AgentTaskEnvelope[];
+  recentErrors: AgentTaskLogEntry[];
+  runtimeLogs: AgentRuntimeLogEntry[];
+  recentTaskLogs: AgentTaskLogEntry[];
+  releases: AgentVersionRelease[];
+  upgradePlans: AgentUpgradePlan[];
+}
 
 function logCursorKey(tenantId: string, agentId: string, taskId: string): string {
   return `${tenantId}:${agentId}:${taskId}`;
@@ -363,6 +376,77 @@ export class PgAgentsRepository implements AgentsRepository {
       .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt));
   }
 
+  async getDetailData(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailData | undefined> {
+    const includeLogs = options.includeLogs !== false;
+    const [registration, snapshots, heartbeats, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans] = await Promise.all([
+      this.db.query<DocumentRow<AgentRegistration>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:registrations' and document_id=$1 and payload->>'tenantId'=$2`,
+        [agentId, tenantId],
+      ),
+      this.db.query<DocumentRow<AgentCapabilitySnapshot>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:snapshots' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          order by payload->>'reportedAt' desc limit 1`,
+        [tenantId, agentId],
+      ),
+      this.db.query<DocumentRow<AgentHeartbeat>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:heartbeats' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          order by payload->>'receivedAt' desc limit 1`,
+        [tenantId, agentId],
+      ),
+      this.db.query<DocumentRow<AgentTaskEnvelope>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:tasks' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          order by payload->>'createdAt' asc`,
+        [tenantId, agentId],
+      ),
+      includeLogs ? this.db.query<DocumentRow<AgentTaskLogEntry>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:taskLogs' and payload->>'tenantId'=$1 and payload->>'agentId'=$2 and payload->>'level'='error'
+          order by payload->>'emittedAt' desc, (payload->>'sequence')::int desc limit 10`,
+        [tenantId, agentId],
+      ) : Promise.resolve({ rows: [] as DocumentRow<AgentTaskLogEntry>[] }),
+      includeLogs ? this.db.query<DocumentRow<AgentRuntimeLogEntry>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:runtimeLogs' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          order by payload->>'emittedAt' desc limit 50`,
+        [tenantId, agentId],
+      ) : Promise.resolve({ rows: [] as DocumentRow<AgentRuntimeLogEntry>[] }),
+      includeLogs ? this.db.query<DocumentRow<AgentTaskLogEntry>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:taskLogs' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          order by payload->>'emittedAt' desc, (payload->>'sequence')::int desc limit 50`,
+        [tenantId, agentId],
+      ) : Promise.resolve({ rows: [] as DocumentRow<AgentTaskLogEntry>[] }),
+      this.db.query<DocumentRow<AgentVersionRelease>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:versions' and payload->>'tenantId'=$1 and payload->>'status'='active'
+          order by payload->>'version' desc`,
+        [tenantId],
+      ),
+      this.db.query<DocumentRow<AgentUpgradePlan>>(
+        `select document_id, payload from pg_documents
+          where namespace='agents:upgradePlans' and payload->>'tenantId'=$1 and payload->>'agentId'=$2`,
+        [tenantId, agentId],
+      ),
+    ]);
+    const agent = documentEntity(registration.rows[0]);
+    if (!agent) return undefined;
+    return {
+      agent,
+      capabilitySnapshot: documentEntity(snapshots.rows[0]),
+      latestHeartbeat: documentEntity(heartbeats.rows[0]),
+      tasks: tasks.rows.map(documentEntity).filter(isDefined),
+      recentErrors: recentErrors.rows.map(documentEntity).filter(isDefined),
+      runtimeLogs: runtimeLogs.rows.map(documentEntity).filter(isDefined),
+      recentTaskLogs: recentTaskLogs.rows.map(documentEntity).filter(isDefined),
+      releases: releases.rows.map(documentEntity).filter(isDefined),
+      upgradePlans: upgradePlans.rows.map(documentEntity).filter(isDefined),
+    };
+  }
+
   async publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease> {
     return this.releases.upsert(release);
   }
@@ -430,6 +514,19 @@ export class PgAgentsRepository implements AgentsRepository {
     return structuredClone({ ...row.payload, id: row.document_id });
   }
 
+}
+
+interface DocumentRow<T> extends Record<string, unknown> {
+  document_id: string;
+  payload: T;
+}
+
+function documentEntity<T>(row: DocumentRow<T> | undefined): (T & IdentifiedEntity) | undefined {
+  return row ? structuredClone({ ...row.payload, id: row.document_id }) : undefined;
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }
 
 async function upsertDocument<T extends IdentifiedEntity>(db: DatabasePort, namespace: string, entity: T): Promise<void> {
