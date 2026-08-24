@@ -3,13 +3,18 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
 import {
+  createExternalGroup,
   createExternalUser,
+  createGroup,
   createUser,
   deleteUser,
+  listGroups,
   listIdentitySources,
   listRoles,
   listUsers,
+  lookupExternalGroup,
   lookupExternalUser,
+  type ExternalGroupLookupResponse,
   updateUser,
   type ExternalUserLookupResponse,
 } from '@/api/modules/security.api'
@@ -29,9 +34,19 @@ interface UserDraft {
   status: 'active' | 'disabled'
 }
 
+interface GroupDraft {
+  createMode: 'local' | 'external'
+  name: string
+  code: string
+  sourceId: string
+  externalGroupName: string
+}
+
 const userItems = ref<ApiRecord[]>([])
+const groupItems = ref<ApiRecord[]>([])
 const roleItems = ref<ApiRecord[]>([])
 const identitySourceItems = ref<ApiRecord[]>([])
+const activeDirectoryTab = ref<'users' | 'groups'>('users')
 const selectedUserIds = ref<string[]>([])
 const pageLoading = ref(false)
 const pageError = ref('')
@@ -42,8 +57,14 @@ const editorLoading = ref(false)
 const editorError = ref('')
 const lookupLoading = ref(false)
 const lookupProfile = ref<ExternalUserLookupResponse | null>(null)
+const groupEditorOpen = ref(false)
+const groupEditorLoading = ref(false)
+const groupEditorError = ref('')
+const groupLookupLoading = ref(false)
+const groupLookupProfile = ref<ExternalGroupLookupResponse | null>(null)
 
 const draft = reactive<UserDraft>(buildDefaultDraft())
+const groupDraft = reactive<GroupDraft>(buildDefaultGroupDraft())
 
 function buildDefaultDraft(): UserDraft {
   return {
@@ -60,10 +81,26 @@ function buildDefaultDraft(): UserDraft {
   }
 }
 
+function buildDefaultGroupDraft(): GroupDraft {
+  return {
+    createMode: 'local',
+    name: '',
+    code: '',
+    sourceId: '',
+    externalGroupName: '',
+  }
+}
+
 function resetDraft(): void {
   Object.assign(draft, buildDefaultDraft())
   editorError.value = ''
   lookupProfile.value = null
+}
+
+function resetGroupDraft(): void {
+  Object.assign(groupDraft, buildDefaultGroupDraft())
+  groupEditorError.value = ''
+  groupLookupProfile.value = null
 }
 
 const roleOptions = computed(() =>
@@ -87,6 +124,10 @@ const identitySourceOptions = computed(() =>
 )
 
 const selectedCount = computed(() => selectedUserIds.value.length)
+const activeListSummary = computed(() => {
+  if (activeDirectoryTab.value === 'groups') return `共 ${groupItems.value.length} 条`
+  return `共 ${userItems.value.length} 条，已选 ${selectedCount.value} 条`
+})
 const allSelectableIds = computed(() =>
   userItems.value
     .map((item) => String(item.id ?? ''))
@@ -105,6 +146,14 @@ const editorDisabled = computed(() => {
   return !draft.displayName.trim() || !draft.username.trim() || !draft.password.trim()
 })
 
+const groupEditorDisabled = computed(() => {
+  if (groupEditorLoading.value) return true
+  if (groupDraft.createMode === 'external') {
+    return !groupDraft.sourceId || !groupDraft.externalGroupName.trim() || !groupLookupProfile.value
+  }
+  return !groupDraft.name.trim()
+})
+
 async function reloadUsers() {
   pageLoading.value = true
   pageError.value = ''
@@ -118,6 +167,21 @@ async function reloadUsers() {
   } finally {
     pageLoading.value = false
   }
+}
+
+async function reloadGroups() {
+  try {
+    const result = await listGroups({ page: 1, pageSize: 100 })
+    groupItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
+    else pageError.value = cause instanceof Error ? cause.message : '加载用户组失败'
+  }
+}
+
+async function refreshDirectory() {
+  pageLoading.value = true
+  await Promise.all([reloadUsers(), reloadGroups()])
 }
 
 async function loadRoles() {
@@ -136,6 +200,11 @@ function openCreateDialog() {
   editorOpen.value = true
 }
 
+function openCreateGroupDialog() {
+  resetGroupDraft()
+  groupEditorOpen.value = true
+}
+
 function openEditDialog(item: ApiRecord) {
   resetDraft()
   editorMode.value = 'edit'
@@ -152,8 +221,16 @@ function closeEditor() {
   if (!editorLoading.value) editorOpen.value = false
 }
 
+function closeGroupEditor() {
+  if (!groupEditorLoading.value) groupEditorOpen.value = false
+}
+
 function clearExternalLookup() {
   lookupProfile.value = null
+}
+
+function clearExternalGroupLookup() {
+  groupLookupProfile.value = null
 }
 
 function toggleSelectAll(checked: boolean) {
@@ -231,6 +308,55 @@ async function lookupExternalProfile() {
   }
 }
 
+async function lookupExternalGroupProfile() {
+  if (!groupDraft.sourceId || !groupDraft.externalGroupName.trim() || groupLookupLoading.value) return
+  groupLookupLoading.value = true
+  groupEditorError.value = ''
+  groupLookupProfile.value = null
+  try {
+    const result = await lookupExternalGroup({
+      sourceId: groupDraft.sourceId,
+      groupName: groupDraft.externalGroupName.trim(),
+    })
+    if (!result.data) throw new Error('身份源没有返回用户组资料')
+    groupLookupProfile.value = result.data
+    groupDraft.name = result.data.name
+    groupDraft.code = result.data.code
+  } catch (cause) {
+    if (cause instanceof ApiClientError) groupEditorError.value = `${cause.message}（${cause.errorCode}）`
+    else groupEditorError.value = cause instanceof Error ? cause.message : '检索身份源用户组失败'
+  } finally {
+    groupLookupLoading.value = false
+  }
+}
+
+async function submitGroupEditor() {
+  if (groupEditorDisabled.value) return
+  groupEditorLoading.value = true
+  groupEditorError.value = ''
+  try {
+    if (groupDraft.createMode === 'external') {
+      await createExternalGroup({
+        sourceId: groupDraft.sourceId,
+        groupName: groupDraft.externalGroupName.trim(),
+      })
+    } else {
+      await createGroup({
+        name: groupDraft.name.trim(),
+        code: groupDraft.code.trim() || undefined,
+      })
+    }
+    groupEditorOpen.value = false
+    activeDirectoryTab.value = 'groups'
+    await reloadGroups()
+  } catch (cause) {
+    if (cause instanceof ApiClientError) groupEditorError.value = `${cause.message}（${cause.errorCode}）`
+    else groupEditorError.value = cause instanceof Error ? cause.message : '创建用户组失败'
+  } finally {
+    groupEditorLoading.value = false
+  }
+}
+
 async function removeUsers(userIds: string[]) {
   if (userIds.length === 0) return
   pageError.value = ''
@@ -253,7 +379,7 @@ function displayValue(value: unknown): string {
 }
 
 onMounted(async () => {
-  await Promise.all([reloadUsers(), loadRoles(), loadIdentitySources()])
+  await Promise.all([refreshDirectory(), loadRoles(), loadIdentitySources()])
 })
 </script>
 
@@ -262,6 +388,7 @@ onMounted(async () => {
     <header class="users-view__header">
       <div class="users-view__header-actions">
         <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">创建用户</button>
+        <button class="gc-button" type="button" @click="openCreateGroupDialog">添加组</button>
         <GcConfirmAction
           v-if="selectedCount > 0"
           action-name="批量删除"
@@ -270,7 +397,7 @@ onMounted(async () => {
           confirm-text="DELETE"
           @confirm="removeUsers(selectedUserIds)"
         />
-        <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadUsers">刷新</button>
+        <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">刷新</button>
       </div>
     </header>
 
@@ -278,11 +405,29 @@ onMounted(async () => {
 
     <section class="gc-card users-view__table-card">
       <div class="users-view__table-head">
-        <strong>用户列表</strong>
-        <span>共 {{ userItems.length }} 条，已选 {{ selectedCount }} 条</span>
+        <div class="users-view__table-title">
+          <strong>账号主体列表</strong>
+          <div class="users-view__tabs" aria-label="主体类型">
+            <button
+              type="button"
+              :class="{ 'users-view__tab--active': activeDirectoryTab === 'users' }"
+              @click="activeDirectoryTab = 'users'"
+            >
+              用户
+            </button>
+            <button
+              type="button"
+              :class="{ 'users-view__tab--active': activeDirectoryTab === 'groups' }"
+              @click="activeDirectoryTab = 'groups'"
+            >
+              组
+            </button>
+          </div>
+        </div>
+        <span>{{ activeListSummary }}</span>
       </div>
       <div class="users-view__table-scroll">
-        <table class="users-view__table">
+        <table v-if="activeDirectoryTab === 'users'" class="users-view__table">
           <thead>
             <tr>
               <th class="users-view__checkbox-col">
@@ -345,6 +490,36 @@ onMounted(async () => {
                   />
                 </div>
               </td>
+            </tr>
+          </tbody>
+        </table>
+        <table v-else class="users-view__table users-view__table--groups">
+          <thead>
+            <tr>
+              <th>组名称</th>
+              <th>编码</th>
+              <th>来源</th>
+              <th>身份源名称</th>
+              <th>外部标识</th>
+              <th>状态</th>
+              <th>更新时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="pageLoading">
+              <td colspan="7">加载中...</td>
+            </tr>
+            <tr v-else-if="groupItems.length === 0">
+              <td colspan="7">暂无用户组</td>
+            </tr>
+            <tr v-for="item in groupItems" v-else :key="String(item.id)">
+              <td>{{ displayValue(item.name) }}</td>
+              <td>{{ displayValue(item.code) }}</td>
+              <td>{{ displayValue(item.source) }}</td>
+              <td>{{ displayValue(item.externalSourceName ?? item.externalSourceId) }}</td>
+              <td>{{ displayValue(item.externalRef) }}</td>
+              <td>{{ displayValue(item.enabled === false ? 'disabled' : 'active') }}</td>
+              <td>{{ displayValue(item.updatedAt) }}</td>
             </tr>
           </tbody>
         </table>
@@ -449,6 +624,83 @@ onMounted(async () => {
         </button>
       </template>
     </GcModal>
+
+    <GcModal
+      v-model:open="groupEditorOpen"
+      title="添加组"
+      description="创建本地组，或从身份源按组名称检索后添加外部组。"
+      size="md"
+    >
+      <section class="users-view__form">
+        <div class="users-view__mode-switch" aria-label="创建组方式">
+          <label :class="{ 'users-view__mode-option--active': groupDraft.createMode === 'local' }">
+            <input v-model="groupDraft.createMode" type="radio" value="local" @change="clearExternalGroupLookup" />
+            <span>本地组</span>
+          </label>
+          <label :class="{ 'users-view__mode-option--active': groupDraft.createMode === 'external' }">
+            <input v-model="groupDraft.createMode" type="radio" value="external" @change="clearExternalGroupLookup" />
+            <span>身份源组</span>
+          </label>
+        </div>
+
+        <div class="users-view__form-grid">
+          <label v-if="groupDraft.createMode === 'external'" class="users-view__field">
+            <span>身份源 <strong>*</strong></span>
+            <select v-model="groupDraft.sourceId" @change="clearExternalGroupLookup">
+              <option value="" disabled>请选择身份源</option>
+              <option v-for="option in identitySourceOptions" :key="option.value" :value="option.value">
+                {{ option.label }}（{{ option.type === 'active_directory' ? 'AD' : 'LDAP' }}）
+              </option>
+            </select>
+          </label>
+          <label v-if="groupDraft.createMode === 'external'" class="users-view__field">
+            <span>目录组名称 <strong>*</strong></span>
+            <input v-model="groupDraft.externalGroupName" placeholder="例如 GCAC-Ops" autocomplete="off" @input="clearExternalGroupLookup" />
+          </label>
+          <label v-if="groupDraft.createMode === 'local'" class="users-view__field">
+            <span>组名称 <strong>*</strong></span>
+            <input v-model="groupDraft.name" placeholder="证书运维组" autocomplete="off" />
+          </label>
+          <label v-if="groupDraft.createMode === 'local'" class="users-view__field">
+            <span>组编码</span>
+            <input v-model="groupDraft.code" placeholder="cert_ops" autocomplete="off" />
+          </label>
+        </div>
+
+        <div v-if="groupDraft.createMode === 'external'" class="users-view__lookup">
+          <button class="gc-button" type="button" :disabled="groupLookupLoading || !groupDraft.sourceId || !groupDraft.externalGroupName.trim()" @click="lookupExternalGroupProfile">
+            {{ groupLookupLoading ? '检索中...' : '检索组' }}
+          </button>
+          <section v-if="groupLookupProfile" class="users-view__profile-preview" aria-label="身份源用户组资料">
+            <div>
+              <span>组名称</span>
+              <strong>{{ groupLookupProfile.name }}</strong>
+            </div>
+            <div>
+              <span>组编码</span>
+              <strong>{{ groupLookupProfile.code }}</strong>
+            </div>
+            <div>
+              <span>身份源</span>
+              <strong>{{ groupLookupProfile.sourceName }}</strong>
+            </div>
+            <div>
+              <span>目录 DN</span>
+              <strong>{{ groupLookupProfile.groupDn || '—' }}</strong>
+            </div>
+          </section>
+        </div>
+
+        <p v-if="groupEditorError" class="users-view__error">{{ groupEditorError }}</p>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="groupEditorLoading" @click="closeGroupEditor">取消</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="groupEditorDisabled" @click="submitGroupEditor">
+          {{ groupEditorLoading ? '添加中...' : '添加组' }}
+        </button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -460,10 +712,37 @@ onMounted(async () => {
 
 .users-view__table-card { overflow: hidden; padding: 0; }
 .users-view__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 12px 16px; border-bottom: 1px solid var(--gc-color-border); }
+.users-view__table-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); }
 .users-view__table-head strong { font-size: 14px; }
 .users-view__table-head span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 700; }
+.users-view__tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--gc-color-border);
+  border-radius: 10px;
+  background: var(--gc-color-surface-muted);
+}
+.users-view__tabs button {
+  min-width: 56px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: var(--gc-color-text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.users-view__tab--active {
+  color: var(--gc-color-text) !important;
+  background: #fff !important;
+  box-shadow: var(--gc-shadow-sm);
+}
 .users-view__table-scroll { overflow-x: auto; }
 .users-view__table { width: 100%; border-collapse: collapse; min-width: 1260px; }
+.users-view__table--groups { min-width: 980px; }
 .users-view__table th,
 .users-view__table td { padding: 9px 12px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: middle; line-height: 1.25; }
 .users-view__table th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
@@ -537,6 +816,7 @@ onMounted(async () => {
 @media (max-width: 860px) {
   .users-view__header { justify-content: stretch; }
   .users-view__header-actions { width: 100%; }
+  .users-view__table-head { align-items: flex-start; flex-direction: column; }
   .users-view__mode-switch,
   .users-view__profile-preview,
   .users-view__form-grid { grid-template-columns: 1fr; }
