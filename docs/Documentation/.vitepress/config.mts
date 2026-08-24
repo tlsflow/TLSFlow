@@ -3,8 +3,8 @@ import { defineConfig } from "vitepress";
 const zhSidebar = [
   {
     text: "一、安装部署",
+    link: "/installation/",
     items: [
-      { text: "安装部署总览", link: "/installation/" },
       { text: "快速开始", link: "/installation/quick-start" },
       { text: "标准部署", link: "/installation/standard-deployment" },
       { text: "单机部署", link: "/installation/single-node-deployment" },
@@ -14,14 +14,14 @@ const zhSidebar = [
   },
   {
     text: "二、用户手册",
+    link: "/manual/",
     items: [
-      { text: "用户手册总览", link: "/manual/" },
       { text: "仪表盘", link: "/manual/dashboard" },
       { text: "快速开始（仪表盘）", link: "/manual/dashboard-quick-start" },
       {
         text: "证书管理",
+        link: "/manual/certificate-management",
         items: [
-          { text: "证书管理总览", link: "/manual/certificate-management" },
           { text: "证书资产", link: "/manual/certificate-assets" },
           { text: "ACME 自动化", link: "/manual/acme-automation" },
           { text: "CA 操作", link: "/manual/ca-operations" },
@@ -30,8 +30,8 @@ const zhSidebar = [
       },
       {
         text: "资产中心",
+        link: "/manual/asset-center",
         items: [
-          { text: "资产中心总览", link: "/manual/asset-center" },
           { text: "应用资产", link: "/manual/application-assets" },
           { text: "云账号", link: "/manual/cloud-accounts" },
           { text: "设备", link: "/manual/devices" },
@@ -40,8 +40,8 @@ const zhSidebar = [
       },
       {
         text: "证书部署",
+        link: "/manual/certificate-deployment",
         items: [
-          { text: "证书部署总览", link: "/manual/certificate-deployment" },
           { text: "自动化", link: "/manual/automation" },
           { text: "工作流模板", link: "/manual/workflow-templates" },
           { text: "执行记录", link: "/manual/execution-records" }
@@ -52,8 +52,8 @@ const zhSidebar = [
       { text: "日志审计", link: "/manual/audit-logs" },
       {
         text: "系统设置",
+        link: "/manual/system-settings",
         items: [
-          { text: "系统设置总览", link: "/manual/system-settings" },
           { text: "系统设置", link: "/manual/system-settings-page" },
           { text: "用户", link: "/manual/users" },
           { text: "角色", link: "/manual/roles" },
@@ -78,8 +78,8 @@ const zhSidebar = [
   },
   {
     text: "三、开发文档",
+    link: "/developer/",
     items: [
-      { text: "开发文档总览", link: "/developer/" },
       { text: "插件开发", link: "/developer/plugin-development" },
       { text: "插件示例：Nginx Proxy Manager", link: "/developer/plugin-example-nginx-proxy-manager" },
       { text: "工作流开发规范", link: "/developer/workflow-development" },

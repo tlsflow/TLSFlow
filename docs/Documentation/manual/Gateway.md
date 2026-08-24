@@ -25,4 +25,10 @@ Gateway 是独立的网络转发节点，用于让控制面访问隔离网络中
 
 Gateway 离线时，依赖它的发现和部署会失败或等待；先恢复 Gateway 状态，再重试任务。当前页面不提供自动故障转移或 Gateway 集群承诺。
 
-Gateway 与 Full Agent 的网络职责分离：不要把 `gatewayEnabled`、中继参数或 Gateway 角色材料填入 Linux/Windows Full Agent。需要跨隔离区访问时，在目标连接和工作流执行绑定中选择已注册 Gateway，并确认控制面到 Gateway、Gateway 到目标的两个方向都可达。
+Gateway 与 Agent 的职责不同：需要跨网络访问时，在目标连接中选择已注册 Gateway，并确认平台到 Gateway、Gateway 到目标均可达。
+
+## 本页截图占位符
+
+> 【截图占位：新增 Gateway 表单，显示名称、地址和认证材料】
+>
+> 【截图占位：Gateway 详情，显示注册状态、心跳和连接测试】
