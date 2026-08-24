@@ -101,8 +101,8 @@ export class BuiltinUnifiedPluginLoader {
   private async loadPackage(directory: string): Promise<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
     const manifestPath = join(directory, 'manifest.json');
     const manifestContent = await readFile(manifestPath, 'utf8');
-    const manifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string>> };
-    const resourcePaths = [...new Set(Object.values(manifest.resources ?? {}).flatMap((mapping) => Object.values(mapping ?? {})))].sort();
+    const manifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string> | string> };
+    const resourcePaths = collectManifestResourcePaths(manifest).sort();
     const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => [
       resourcePath,
       await readFile(resolve(directory, resourcePath), 'utf8'),
@@ -113,6 +113,19 @@ export class BuiltinUnifiedPluginLoader {
       packageContent: JSON.stringify({ directory: basename(directory), manifest, resources }),
     };
   }
+}
+
+function collectManifestResourcePaths(manifest: { resources?: Record<string, Record<string, string> | string> }): string[] {
+  const paths: string[] = [];
+  for (const [key, value] of Object.entries(manifest.resources ?? {})) {
+    if (!value) continue;
+    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+      paths.push(value);
+      continue;
+    }
+    if (typeof value === 'object') paths.push(...Object.values(value));
+  }
+  return [...new Set(paths)];
 }
 
 function pluginIdentity(manifest: unknown): { pluginId?: string; version?: string } {

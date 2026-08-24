@@ -1,0 +1,4 @@
+{
+  "plugin.builtin.cloud.huawei.name": "华为云证书管理插件",
+  "plugin.builtin.cloud.huawei.description": "用于华为云 CDN、ELB 的证书发现、部署和回滚。"
+}

@@ -1,0 +1,71 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "builtin.cloud.huawei.provider",
+  "version": "1.0.1",
+  "providerKey": "cloud.huawei",
+  "displayNameKey": "plugin.builtin.cloud.huawei.name",
+  "descriptionKey": "plugin.builtin.cloud.huawei.description",
+  "logoUrl": "/plugin-logos/huawei.svg",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "TRUSTED_JS",
+  "source": "BUILTIN",
+  "scope": "MANAGED",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    {
+      "key": "certificate.discover",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.discover.v1",
+      "riskLevel": "LOW",
+      "executionLocations": ["CONTROL_PLANE"]
+    },
+    {
+      "key": "certificate.deploy",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.deploy.v1",
+      "riskLevel": "HIGH",
+      "executionLocations": ["CONTROL_PLANE"]
+    },
+    {
+      "key": "certificate.rollback",
+      "contractVersion": "v1",
+      "actionContractId": "certificate.rollback.v1",
+      "riskLevel": "HIGH",
+      "executionLocations": ["CONTROL_PLANE"]
+    }
+  ],
+  "supportedProducts": [
+    "cloud.huawei.cdn",
+    "cloud.huawei.elb"
+  ],
+  "supportedOperations": [
+    "certificate.discover",
+    "certificate.deploy",
+    "certificate.rollback"
+  ],
+  "permissions": [
+    "secret.read",
+    "artifact.read",
+    "network.connect",
+    "runtime.execute_unknown_code"
+  ],
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "runtimeModules": {
+      "shared": "runtime/shared.js"
+    },
+    "locales": {
+      "zh-CN": "locales/zh-CN.json",
+      "zh-TW": "locales/zh-CN.json",
+      "en-US": "locales/zh-CN.json",
+      "ja-JP": "locales/zh-CN.json",
+      "ko-KR": "locales/zh-CN.json",
+      "fr-FR": "locales/zh-CN.json",
+      "ru-RU": "locales/zh-CN.json",
+      "pt-BR": "locales/zh-CN.json"
+    }
+  }
+}

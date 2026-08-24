@@ -2,6 +2,26 @@
   "version": 1,
   "packages": [
     {
+      "pluginId": "builtin.cloud.aliyun.provider",
+      "version": "1.0.1",
+      "packageSha256": "sha256:15e594a884332023cd7d8710acafdcf6277a25407b6945cb8d7a3a9d301d5380"
+    },
+    {
+      "pluginId": "builtin.cloud.huawei.provider",
+      "version": "1.0.1",
+      "packageSha256": "sha256:ffb0ef2a6594e89b969555d3db937f7a3b6d953fb434cff8400ee526c97af5cf"
+    },
+    {
+      "pluginId": "builtin.cloud.tencent.provider",
+      "version": "1.0.1",
+      "packageSha256": "sha256:cfc4cfa856fe1b72b1817c67d1aaae39b5114768f99a99dbd8f812150d6e42d2"
+    },
+    {
+      "pluginId": "builtin.cloud.volcengine.provider",
+      "version": "1.0.1",
+      "packageSha256": "sha256:c80b41b1391a9ed2808249a306c39ce6862738a885445d8b5e209509b3b96921"
+    },
+    {
       "pluginId": "builtin.java.pkcs12",
       "version": "1.0.10",
       "packageSha256": "sha256:4960d3ec320a1e6b8f3fc7a3d487194bed084fe1d0469c7685aefb31a6ec5261"
