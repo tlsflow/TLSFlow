@@ -92,7 +92,7 @@ describe('MonitorsView', () => {
     const certificateDetail = wrapper.find('.monitor-page__certificate-detail')
     expect(certificateDetail.text()).toContain(i18n.global.t('monitoring.fallback.notCollected'))
     expect(certificateDetail.text()).not.toContain('invalid-date')
-    expect(certificateDetail.text()).toContain(i18n.global.t('certificates.fields.san'))
+    expect(certificateDetail.text()).toContain(i18n.global.t('certificates.detailPanel.fields.san'))
     expect(wrapper.find('.monitor-page__target-interval b').text()).toBe(
       i18n.global.t('monitoring.labels.secondsUnit'),
     )
