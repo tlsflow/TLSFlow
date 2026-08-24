@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
@@ -160,7 +161,7 @@ export class AutomationsController {
   }
 
   private tenantId(request: HttpRequest): string {
-    return request.context.tenantId ?? 'tenant_default';
+    return requireTenantId(request);
   }
 
   private assertCan(subject: SecuritySubject, action: string, request: HttpRequest, id?: string): Promise<void> {

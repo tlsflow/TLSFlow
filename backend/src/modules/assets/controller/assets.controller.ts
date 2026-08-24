@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import {
@@ -35,7 +36,6 @@ import type {
 } from '../dto/assets.dto.js';
 
 const tags = ['Assets'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class AssetsController {
   constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService) {}
@@ -781,7 +781,7 @@ export class AssetsController {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {

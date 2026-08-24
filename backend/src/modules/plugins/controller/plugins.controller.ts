@@ -1,5 +1,6 @@
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -27,7 +28,6 @@ export interface BuiltinPluginCatalogRefresher {
 }
 
 const tags = ['Plugins'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class PluginsController {
   private readonly standardFields = new StandardPluginFieldRegistry();
@@ -323,7 +323,7 @@ export class PluginsController {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 export function getPluginsRouteContracts(): RouteContract[] {

@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -10,7 +11,6 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 
 const tags = ['Notifications'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class NotificationsController {
   constructor(private readonly service: NotificationsApplicationService, private readonly security?: SecurityServices) {}
@@ -122,7 +122,7 @@ export class NotificationsController {
   private async requireDelivery(request: HttpRequest) { const value = await this.service.getDelivery(tenantId(request), pathId(request, 'notification-deliveries')); if (!value) throw new AppError('RESOURCE_NOT_FOUND', '通知投递不存在'); return value; }
 }
 
-function tenantId(request: HttpRequest): string { return request.context.tenantId ?? tenantFallback; }
+function tenantId(request: HttpRequest): string { return requireTenantId(request); }
 function pathId(request: HttpRequest, segment: string): string { const parts = request.path.split('/').filter(Boolean); const index = parts.indexOf(segment); const id = index >= 0 ? parts[index + 1] : undefined; if (!id) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID'); return id; }
 function requiredVersion(request: HttpRequest): number { const body = validateObject(request.body, { version: { type: 'number', required: true } }); return Number(body.version); }
 function pageQuery(request: HttpRequest) { return { tenantId: tenantId(request), page: queryNumber(request, 'page'), pageSize: queryNumber(request, 'pageSize'), status: queryString(request, 'status'), source: queryString(request, 'source'), channelId: queryString(request, 'channelId') }; }

@@ -1,5 +1,6 @@
 import { AppError } from '../../common/errors/app-error.js';
 import type { HttpRequest } from '../../common/http/http-types.js';
+import { requireTenantId } from '../../common/http/tenant-context.js';
 import type { Router } from '../../common/http/router.js';
 import type { RouteContract } from '../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../common/pagination/pagination.js';
@@ -368,7 +369,7 @@ export class SecurityController {
       assertCan: this.services.rbac.assertCan.bind(this.services.rbac),
     });
     const presentedItems = this.auditPresentation
-      ? await this.auditPresentation.present(request.context.tenantId ?? '', items)
+      ? await this.auditPresentation.present(requireTenantId(request), items)
       : items;
     const sortedItems = sortAuditItems(presentedItems, pageQuery.sort ?? { field: 'createdAt', direction: 'desc' });
     const start = (pageQuery.page - 1) * pageQuery.pageSize;
@@ -394,7 +395,7 @@ export class SecurityController {
         username: user.username,
         displayName: user.displayName,
         email: user.email,
-        tenantId: user.tenantId ?? request.context.tenantId ?? 'default',
+        tenantId: user.tenantId ?? requireTenantId(request),
         tenantName: user.tenantName ?? '\u9ed8\u8ba4\u79df\u6237',
         status: user.status,
         identityProvider: user.identityProvider ?? 'local',
@@ -430,7 +431,7 @@ export class SecurityController {
       email: body.email === undefined ? undefined : String(body.email),
       password: String(body.password),
       status: 'active',
-      tenantId: body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId),
+      tenantId: body.tenantId === undefined ? requireTenantId(request) : String(body.tenantId),
       tenantName: body.tenantName === undefined ? '\u9ed8\u8ba4\u79df\u6237' : String(body.tenantName),
     });
     if (body.roleId) {
@@ -460,7 +461,7 @@ export class SecurityController {
       tenantId: { type: 'string' },
       enabled: { type: 'boolean' },
     });
-    const tenantId = body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId);
+    const tenantId = body.tenantId === undefined ? requireTenantId(request) : String(body.tenantId);
     const code = normalizeGroupCode(body.code === undefined ? String(body.name) : String(body.code));
     const existing = (await this.services.objectPermissions.listGroups()).find((group) => group.tenantId === tenantId && group.code === code);
     if (existing) throw new AppError('VALIDATION_FAILED', '用户组编码已存在', { code });
@@ -501,7 +502,7 @@ export class SecurityController {
       sourceId: String(body.sourceId),
       groupName: String(body.groupName),
     }, subject, this.securityContext(request, subject));
-    const tenantId = body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId);
+    const tenantId = body.tenantId === undefined ? requireTenantId(request) : String(body.tenantId);
     const existing = (await this.services.objectPermissions.listGroups()).find((group) =>
       group.tenantId === tenantId
       && group.externalSourceId === profile.sourceId
@@ -553,7 +554,7 @@ export class SecurityController {
       sourceId: String(body.sourceId),
       username: String(body.username),
       roleId: body.roleId === undefined ? undefined : String(body.roleId),
-      tenantId: body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId),
+      tenantId: body.tenantId === undefined ? requireTenantId(request) : String(body.tenantId),
       tenantName: body.tenantName === undefined ? '默认租户' : String(body.tenantName),
     }, subject, this.securityContext(request, subject));
     return { statusCode: 201, body: user };
@@ -739,7 +740,7 @@ export class SecurityController {
       status: { type: 'string', enum: ['active', 'disabled', 'invalid'] },
     });
     const created = await this.services.objectPermissions.createObjectSet({
-      tenantId: request.context.tenantId ?? 'default',
+      tenantId: requireTenantId(request),
       name: String(body.name),
       kind: body.kind as ObjectSetKind,
       objectTypes: toStringArray(body.objectTypes, 'objectTypes'),
@@ -788,7 +789,7 @@ export class SecurityController {
       validTo: { type: 'string' },
     });
     const created = await this.services.objectPermissions.createRoleBinding({
-      tenantId: request.context.tenantId ?? 'default',
+      tenantId: requireTenantId(request),
       principalType: body.principalType as PrincipalType,
       principalId: String(body.principalId),
       roleId: String(body.roleId),
@@ -1004,12 +1005,13 @@ export class SecurityController {
     if (!request.context.actorId) {
       throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
     }
+    const tenantId = requireTenantId(request);
     const user = await this.services.rbac.getUser(request.context.actorId);
     return {
       id: request.context.actorId,
       type: 'user',
       roleIds: user ? (await this.services.rbac.rolesForUser(user.id)).map((role) => role.id) : undefined,
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId },
     };
   }
 
@@ -1028,7 +1030,7 @@ export class SecurityController {
   private async assertSecurityCan(subject: SecuritySubject, action: string, request: HttpRequest, resourceType: string): Promise<void> {
     await this.services.rbac.assertCan(subject, action, {
       type: resourceType,
-      scope: { tenantId: request.context.tenantId },
+      scope: { tenantId: requireTenantId(request) },
     }, this.securityContext(request, subject));
   }
 

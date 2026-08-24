@@ -443,7 +443,8 @@ export class ExternalIdentityService {
     if (existingExternalUser) throw new AppError('VALIDATION_FAILED', '该身份源用户已存在');
     const existingUsername = await this.rbac.findUserByUsername(profile.username);
     if (existingUsername) throw new AppError('VALIDATION_FAILED', '用户名已存在');
-    const user = await this.createLinkedUserFromProfile(source, profile, input.tenantId ?? 'default', input.tenantName ?? '默认租户');
+    if (!input.tenantId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少租户上下文');
+    const user = await this.createLinkedUserFromProfile(source, profile, input.tenantId, input.tenantName ?? '默认租户');
     if (input.roleId) {
       await this.rbac.assignRole(user.id, input.roleId);
     }

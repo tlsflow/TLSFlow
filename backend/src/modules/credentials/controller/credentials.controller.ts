@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { Router } from '../../../common/http/router.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { CredentialKind, CredentialStatus } from '../../../persistence/entities/credential-profile.entity.js';
@@ -10,7 +11,6 @@ import { CredentialsApplicationService } from '../application/credentials.applic
 import type { CreateCredentialProfileRequestDto, RotateCredentialProfileRequestDto, UpdateCredentialProfileRequestDto } from '../dto/credentials.dto.js';
 
 const tags = ['Credentials'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class CredentialsController {
   constructor(
@@ -161,7 +161,7 @@ export class CredentialsController {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function queryString(request: HttpRequest, name: string): string | undefined {

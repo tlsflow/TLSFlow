@@ -80,7 +80,9 @@ export class MonitorsApplicationService {
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
 
-    const bindings = await this.dependencies.bindings.listCertificateBindings(input.tenantId ?? tenantFallback, allRowsQuery());
+    const bindings = input.tenantId
+      ? await this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery())
+      : { items: [] as CertificateBindingDto[] };
     const unknownCertificateBindingIds = new Set<string>();
     for (const binding of bindings.items) {
       const risk = this.domain.buildBindingRiskEvent(binding);
@@ -90,11 +92,9 @@ export class MonitorsApplicationService {
       risk.scope.tenantId = binding.tenantId;
       createdOrUpdated.push(await this.repository.upsertRiskEvent(risk));
     }
-    await this.resolveClearedBindingMappingRisks(
-      input.tenantId ?? tenantFallback,
-      unknownCertificateBindingIds,
-      detectedAt,
-    );
+    if (input.tenantId) {
+      await this.resolveClearedBindingMappingRisks(input.tenantId, unknownCertificateBindingIds, detectedAt);
+    }
 
     const runs = await this.dependencies.executions.listRuns(input.tenantId);
     for (const run of runs) {
@@ -221,7 +221,8 @@ export class MonitorsApplicationService {
   }
 
   async probeServiceAsset(input: ProbeServiceAssetInput): Promise<ProbeServiceAssetResult> {
-    const tenantId = input.tenantId ?? tenantFallback;
+    const tenantId = input.tenantId;
+    if (!tenantId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少租户上下文');
     const asset = await this.dependencies.assets?.getServiceAsset(tenantId, input.serviceAssetId);
     if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '应用资产不存在', { serviceAssetId: input.serviceAssetId });
 
@@ -306,7 +307,7 @@ export class MonitorsApplicationService {
   }
 
   private async reconcileMonitorTlsRisk(
-    tenantId: string | undefined,
+    tenantId: string,
     domainName: string,
     result: ProbeServiceAssetResult,
   ): Promise<void> {
@@ -334,7 +335,7 @@ export class MonitorsApplicationService {
         || !['OPEN', 'ACKED'].includes(risk.status)
       ) continue;
       await this.repository.changeRiskStatus({
-        tenantId: tenantId ?? tenantFallback,
+        tenantId,
         riskEventId: risk.id,
         action: 'resolved',
         reason: '最新系统探测已通过证书链验证',
@@ -420,7 +421,8 @@ export class MonitorsApplicationService {
     for (const risk of risks) {
       const serviceAssetId = risk.scope.serviceAssetId;
       if (!serviceAssetId || (requestedServiceAssetIds && !requestedServiceAssetIds.has(serviceAssetId))) continue;
-      const tenantId = risk.scope.tenantId ?? input.tenantId ?? tenantFallback;
+      const tenantId = risk.scope.tenantId ?? input.tenantId;
+      if (!tenantId) continue;
       const serviceAssetIds = groupedTargets.get(tenantId) ?? new Set<string>();
       serviceAssetIds.add(serviceAssetId);
       groupedTargets.set(tenantId, serviceAssetIds);
@@ -526,8 +528,6 @@ export class MonitorsApplicationService {
 function allRowsQuery(): PageQuery {
   return { page: 1, pageSize: 200, filter: {} };
 }
-
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 type ProbeAsset = {
   id: string;

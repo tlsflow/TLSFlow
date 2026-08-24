@@ -1,5 +1,6 @@
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { DashboardApplicationService } from '../application/dashboard.application-service.js';
 
@@ -14,7 +15,7 @@ export class DashboardController {
 
   private getOverview(request: HttpRequest) {
     return this.service.getOverview({
-      tenantId: request.context.tenantId ?? 'default',
+      tenantId: requireTenantId(request),
     });
   }
 }

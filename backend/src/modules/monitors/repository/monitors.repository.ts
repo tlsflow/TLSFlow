@@ -21,8 +21,6 @@ import type {
   UpsertRiskEventInput,
 } from '../dto/monitors.dto.js';
 
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
-
 export interface MonitorsRepository {
   readonly moduleName: 'monitors';
   createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
@@ -293,7 +291,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
         ]);
         if (reopened) {
           await insertRiskHistory(tx, {
-            tenantId: updated.scope.tenantId ?? tenantFallback,
+            tenantId: requiredPersistedTenantId(updated.scope.tenantId),
             riskEventId: updated.id,
             action: 'reopened',
             fromStatus: 'RESOLVED',
@@ -349,7 +347,7 @@ export class PgMonitorsRepository implements MonitorsRepository {
       now,
       ]);
       await insertRiskHistory(tx, {
-        tenantId: created.scope.tenantId ?? tenantFallback,
+        tenantId: requiredPersistedTenantId(created.scope.tenantId),
         riskEventId: created.id,
         action: 'created',
         toStatus: 'OPEN',
@@ -728,6 +726,11 @@ function monitorTargetFilter(target: MonitorTargetDto, field: string, expected: 
   if (field === 'serviceAssetId' || field === 'assetId') return target.serviceAssetId === expected;
   if (field === 'status') return target.status === expected;
   return String(readField(target, field) ?? '').toLowerCase().includes(expected.toLowerCase());
+}
+
+function requiredPersistedTenantId(tenantId: string | undefined): string {
+  if (!tenantId) throw new AppError('AUTH_UNAUTHENTICATED', '监控风险缺少租户归属');
+  return tenantId;
 }
 
 function toRiskEvent(row: RiskEventRow): RiskEvent {

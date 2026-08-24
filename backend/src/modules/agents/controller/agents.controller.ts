@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
@@ -39,7 +40,6 @@ import type {
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class AgentsController {
   constructor(private readonly service = new AgentsApplicationService(), private readonly security?: SecurityServices) {}
@@ -643,7 +643,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function requestId(request: HttpRequest): string {

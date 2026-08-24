@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery, withAuthorization, type PageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -18,7 +19,6 @@ import {
 } from '../schema/gateways.schema.js';
 
 const tags = ['Gateways'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 const gatewayStatuses = ['online', 'offline', 'disabled', 'revoked', 'upgrading'];
 const reachabilityStatuses = ['reachable', 'unreachable', 'unknown', 'expired'];
 const statusActions = ['register', 'heartbeat', 'disable', 'revoke', 'status'];
@@ -126,7 +126,7 @@ export function getGatewayRouteContracts(): RouteContract[] {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function readQuery(request: HttpRequest, key: string, fallback?: string): string {

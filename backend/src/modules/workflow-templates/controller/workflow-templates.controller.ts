@@ -1,5 +1,6 @@
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { applyAuthorizationFilter } from '../../../common/pagination/pagination.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
@@ -110,7 +111,7 @@ export class WorkflowTemplatesController {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? '00000000-0000-0000-0000-000000000000';
+  return requireTenantId(request);
 }
 
 export function getWorkflowTemplateRouteContracts(): RouteContract[] {

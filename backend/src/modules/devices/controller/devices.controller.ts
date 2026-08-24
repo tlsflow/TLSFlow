@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
@@ -10,7 +11,6 @@ import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import { managedDeviceDetailSchema } from '../schema/devices.schema.js';
 
 const tags = ['Devices'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class DevicesController {
   constructor(private readonly service: DevicesApplicationService, private readonly security?: SecurityServices) {}
@@ -127,5 +127,5 @@ export function getDeviceRouteContracts(): RouteContract[] {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }

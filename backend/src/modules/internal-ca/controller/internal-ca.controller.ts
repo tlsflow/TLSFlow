@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
@@ -28,7 +29,6 @@ import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { CertificatePromotionService } from '../application/certificate-promotion.service.js';
 
 const tags = ['Internal CA'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export interface InternalCaAcmeServices {
   accounts: AcmeAccountService;
@@ -893,7 +893,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function actorId(request: HttpRequest): string {

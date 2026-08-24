@@ -28,9 +28,12 @@ export class AlertDispatcher {
     }
     const notificationKind = risk.status === 'RESOLVED' ? 'recovered' : 'active';
     const idempotencyKey = `monitor:${risk.id}:${ruleId}:${notificationKind}:${risk.severity}`;
+    if (!risk.scope.tenantId) {
+      return { ruleId, riskId: risk.id, status: 'failed', reason: 'tenant_context_missing' };
+    }
     try {
       const result = await this.notifications.enqueue({
-        tenantId: risk.scope.tenantId ?? '00000000-0000-0000-0000-000000000000',
+        tenantId: risk.scope.tenantId,
         templateKey: 'monitor.risk',
         eventKey: idempotencyKey,
         idempotencyKey,

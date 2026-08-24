@@ -1,6 +1,7 @@
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import type { Router } from '../../../common/http/router.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -19,7 +20,6 @@ import type {
 } from '../../../shared/contracts/capability-contracts.js';
 
 const tags = ['Capabilities'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class CapabilitiesController {
   constructor(private readonly service = new CapabilitiesApplicationService()) {}
@@ -195,7 +195,7 @@ function toConstraintList(value: unknown, field: string): CapabilityConstraint[]
 }
 
 function tenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function readValue(body: unknown): unknown {

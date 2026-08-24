@@ -433,7 +433,8 @@ function principalKey(principal: { principalType?: PrincipalType; principalId?: 
 }
 
 function tenantMatches(bindingTenantId: string, tenantId?: string): boolean {
-  return bindingTenantId === '*' || bindingTenantId === (tenantId ?? 'default');
+  if (!tenantId) return false;
+  return bindingTenantId === '*' || bindingTenantId === tenantId;
 }
 
 function isBindingCurrentlyActive(binding: RoleBindingEntity): boolean {

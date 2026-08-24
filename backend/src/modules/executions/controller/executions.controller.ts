@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { ExecutionsApplicationService } from '../application/executions.application-service.js';
@@ -39,7 +40,7 @@ export class ExecutionsController {
     if (!this.workflowRecovery) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流恢复账本服务未配置');
     const ledgerId = this.readOptionalQueryString(request, 'ledgerId');
     if (!ledgerId) throw new AppError('VALIDATION_FAILED', '缺少 ledgerId');
-    return await this.workflowRecovery.get(request.context.tenantId ?? 'default', String(ledgerId));
+    return await this.workflowRecovery.get(requireTenantId(request), String(ledgerId));
   }
 
   private retry(request: HttpRequest) {

@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
+import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
@@ -9,7 +10,6 @@ import { MonitorsApplicationService } from '../application/monitors.application-
 import { alertRuleStatuses, monitorMetrics, monitorTargetStatuses, riskEventTypes, severity, type MonitorTargetStatus, type RiskStatusAction } from '../schema/monitors.schema.js';
 
 const tags = ['Monitors'];
-const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class MonitorsController {
   constructor(private readonly service: MonitorsApplicationService) {}
@@ -239,12 +239,12 @@ function readOptionalQueryString(request: HttpRequest, key: string): string | un
   return Array.isArray(value) ? value[0] : value;
 }
 
-function tenantId(request: HttpRequest): string | undefined {
-  return request.context.tenantId;
+function tenantId(request: HttpRequest): string {
+  return requireTenantId(request);
 }
 
 function requiredTenantId(request: HttpRequest): string {
-  return request.context.tenantId ?? tenantFallback;
+  return requireTenantId(request);
 }
 
 function readMetrics(value: unknown): typeof monitorMetrics[number][] | undefined {
