@@ -121,6 +121,10 @@
   --gc-size-card-min: 180px;
   --gc-size-certificate-card-min: 285px;
   --gc-size-card-compact: 90px;
+  --gc-size-plugin-logo-market-inline: 72px;
+  --gc-size-plugin-logo-market-block: 48px;
+  --gc-size-plugin-logo-detail: 72px;
+  --gc-size-plugin-logo-onboarding: 48px;
   --gc-size-shell-sidebar: 260px;
   --gc-size-shell-sidebar-collapsed: 76px;
   --gc-size-shell-header: 58px;

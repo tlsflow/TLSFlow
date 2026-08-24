@@ -5,6 +5,7 @@ import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
   DeploymentInputForm,
+  GcPluginLogo,
   GcSelectionCard,
   type DeploymentArtifactOption,
   type DeploymentCredentialOption,
@@ -98,7 +99,6 @@ const deploymentInputError = ref('')
 const deploymentCredentialItems = ref<CredentialProfileSummary[]>([])
 const deploymentCertificateFormats = ref<Record<string, unknown>[]>([])
 let deploymentInputRequestSequence = 0
-const failedPlatformLogos = ref(new Set<string>())
 const currentStepOverride = ref<OnboardingStep | null>(null)
 const supportsNewDevice = computed(() => selectedPlatform.value?.deviceSelection === 'EXISTING_OR_NEW' && Boolean(selectedPlatform.value.newDeviceOnboarding))
 const supportsExistingDevice = computed(() => selectedPlatform.value?.deviceSelection !== 'NONE')
@@ -688,17 +688,6 @@ function writePath(target: Record<string, unknown>, path: string, value: unknown
 function platformLabel(platform: Platform): string {
   return platform.displayName || t(platform.displayNameKey)
 }
-function platformLogoUrl(platform: Platform): string | undefined {
-  const value = platform.logoUrl
-  if (!value || failedPlatformLogos.value.has(platform.platformKey) || typeof window === 'undefined') return undefined
-  try {
-    const url = new URL(value, window.location.origin)
-    if (url.origin !== window.location.origin) return undefined
-    return `${url.pathname}${url.search}${url.hash}`
-  } catch {
-    return undefined
-  }
-}
 function platformInitial(platform: Platform): string {
   return platform.source === 'CUSTOM_MANUAL' ? '+' : platformLabel(platform).trim().slice(0, 1).toLocaleUpperCase()
 }
@@ -743,9 +732,6 @@ function isDnsName(value: string): boolean {
   if (!value || value.length > 253 || value.startsWith('.') || value.endsWith('.')) return false
   const labels = value.split('.')
   return labels.length >= 2 && labels.every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))
-}
-function markPlatformLogoFailed(platformKey: string): void {
-  failedPlatformLogos.value = new Set([...failedPlatformLogos.value, platformKey])
 }
 function resetDeviceSelection(): void {
   deviceMode.value = 'EXISTING_DEVICE'
@@ -963,10 +949,13 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
         :disabled="loading || platform.supportStatus === 'IN_REVIEW'"
         @click="choosePlatform(platform)"
       >
-        <span class="platform-card__logo" :class="{ 'platform-card__logo--fallback': !platformLogoUrl(platform) }">
-          <img v-if="platformLogoUrl(platform)" :src="platformLogoUrl(platform)" alt="" @error="markPlatformLogoFailed(platform.platformKey)">
-          <span v-else aria-hidden="true">{{ platformInitial(platform) }}</span>
-        </span>
+        <GcPluginLogo
+          class="platform-card__logo"
+          :logo-url="platform.logoUrl"
+          :fallback-text="platformInitial(platform)"
+          alt=""
+          size="onboarding"
+        />
         <span class="platform-card__copy">
           <strong>{{ platformLabel(platform) }}</strong>
           <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
@@ -1150,9 +1139,6 @@ h1, h2, p { margin: 0; }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .platform-card--review { background: var(--gc-color-surface); }
-.platform-card__logo { display: flex; align-items: center; justify-content: center; inline-size: calc(var(--gc-space-4) * 3); block-size: calc(var(--gc-space-4) * 3); overflow: hidden; background: var(--gc-color-surface); border: var(--gc-space-hairline) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-control); }
-.platform-card__logo img { max-inline-size: 100%; max-block-size: 100%; }
-.platform-card__logo--fallback { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); font-size: var(--gc-font-size-heading-sm); font-weight: var(--gc-font-weight-semibold); }
 .platform-card__copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
 .platform-card__copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .platform-card__copy small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcModal, GcPluginForm, type PluginFormSchema } from '@/design-system/components'
+import { GcModal, GcPluginForm, GcPluginLogo, type PluginFormSchema } from '@/design-system/components'
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -24,7 +24,6 @@ const values = ref<Record<string, unknown>>({})
 const pluginForm = ref<PluginFormSchema | null>(null)
 const pluginMessages = ref<Record<string, string>>({})
 const pluginDisplayNames = ref<Record<string, string>>({})
-const failedPlatformLogos = ref(new Set<string>())
 const pending = ref(false)
 const error = ref('')
 const result = ref<DeviceOnboardingResultView | null>(null)
@@ -73,7 +72,6 @@ async function initializeWizard(): Promise<void> {
   values.value = { tlsVerify: true }
   result.value = null
   commandCopied.value = false
-  failedPlatformLogos.value = new Set()
   error.value = ''
   await loadPlatforms()
   if (!props.open || !props.initialSelection) return
@@ -133,30 +131,18 @@ function platformLabel(platform: DeviceOnboardingPlatform): string {
   return t(platform.displayNameKey)
 }
 
-function platformLogoUrl(platform: DeviceOnboardingPlatform): string | undefined {
+function staticPlatformLogoUrl(platform: DeviceOnboardingPlatform): string | undefined {
   const staticLogos: Record<string, string> = {
     'windows-server-2008-r2': '/platform-logos/windows-server-2008-r2.svg',
     'windows-server-2012-r2': '/platform-logos/windows-server-2012-r2.svg',
     'windows-server-2016-plus': '/platform-logos/windows-server-2016-plus.svg',
     linux: '/platform-logos/linux.svg',
   }
-  const value = platform.logoUrl ?? staticLogos[platform.key]
-  if (!value || failedPlatformLogos.value.has(platform.key) || typeof window === 'undefined') return undefined
-  try {
-    const url = new URL(value, window.location.origin)
-    if (url.origin !== window.location.origin) return undefined
-    return `${url.pathname}${url.search}${url.hash}`
-  } catch {
-    return undefined
-  }
+  return staticLogos[platform.key]
 }
 
 function platformInitial(platform: DeviceOnboardingPlatform): string {
   return platformLabel(platform).trim().slice(0, 1).toLocaleUpperCase()
-}
-
-function markPlatformLogoFailed(platformKey: string) {
-  failedPlatformLogos.value = new Set([...failedPlatformLogos.value, platformKey])
 }
 
 function fieldLabel(key: string): string {
@@ -357,10 +343,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
               :disabled="pending"
               @click="selectPlatform(platform.key)"
             >
-              <span class="device-wizard__platform-logo" :class="{ 'device-wizard__platform-logo--fallback': !platformLogoUrl(platform) }">
-                <img v-if="platformLogoUrl(platform)" :src="platformLogoUrl(platform)" alt="" @error="markPlatformLogoFailed(platform.key)">
-                <span v-else aria-hidden="true">{{ platformInitial(platform) }}</span>
-              </span>
+              <GcPluginLogo
+                class="device-wizard__platform-logo"
+                :logo-url="platform.logoUrl ?? staticPlatformLogoUrl(platform)"
+                :fallback-text="platformInitial(platform)"
+                alt=""
+                size="onboarding"
+              />
               <span class="device-wizard__platform-copy">
                 <strong>{{ platformLabel(platform) }}</strong>
                 <span>{{ platform.productFamily }}</span>
@@ -459,9 +448,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
 .device-wizard__platform:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .device-wizard__platform:disabled { cursor: wait; opacity: var(--gc-opacity-disabled); }
 .device-wizard__platform--active { border-color: var(--gc-color-primary); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-primary); }
-.device-wizard__platform-logo { display: flex; align-items: center; justify-content: flex-start; inline-size: calc(var(--gc-space-4) * 3); block-size: calc(var(--gc-space-4) * 3); overflow: hidden; background: var(--gc-color-surface); border: var(--gc-space-hairline) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-control); }
-.device-wizard__platform-logo img { max-inline-size: none; inline-size: auto; block-size: 100%; }
-.device-wizard__platform-logo--fallback { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); font-size: var(--gc-font-size-heading-sm); font-weight: var(--gc-font-weight-semibold); }
 .device-wizard__platform-copy { display: grid; min-inline-size: 0; gap: var(--gc-space-compact); }
 .device-wizard__platform-copy strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-label); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }
 .device-wizard__platform-copy > span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-tight); overflow-wrap: anywhere; }

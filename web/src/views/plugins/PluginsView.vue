@@ -14,7 +14,7 @@ import {
 } from '@/api/modules/plugins.api'
 import { getTask } from '@/api/modules/tasks.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
+import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, GcPluginLogo, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
 import { toCatalogPluginRecord, type PluginRecord } from './plugin-record'
@@ -44,7 +44,6 @@ const selectedPlugin = ref<PluginRecord | null>(null)
 const detailOpen = ref(false)
 const changingPluginId = ref('')
 const createError = ref('')
-const failedLogos = ref(new Set<string>())
 const agentActionError = ref('')
 const pluginUiLoading = ref(false)
 const pluginUiError = ref('')
@@ -268,23 +267,6 @@ function pluginVersion(plugin: PluginRecord): string {
 
 function pluginInitial(plugin: PluginRecord): string {
   return pluginTitle(plugin).trim().slice(0, 1).toLocaleUpperCase() || 'D'
-}
-
-function resolvedLogoUrl(plugin: PluginRecord): string | undefined {
-  const value = plugin.metadata.logoUrl?.trim()
-  if (!value || failedLogos.value.has(plugin.id)) return undefined
-  if (typeof window === 'undefined') return undefined
-  try {
-    const url = new URL(value, window.location.origin)
-    if (url.origin !== window.location.origin) return undefined
-    return `${url.pathname}${url.search}${url.hash}`
-  } catch {
-    return undefined
-  }
-}
-
-function markLogoFailed(pluginId: string): void {
-  failedLogos.value = new Set([...failedLogos.value, pluginId])
 }
 
 async function openDetail(plugin: PluginRecord): Promise<void> {
@@ -527,15 +509,12 @@ function pluginStatusClass(plugin: PluginRecord): string {
     <section v-if="filteredPlugins.length" class="plugin-grid" :aria-label="t('plugins.aria.list')">
       <article v-for="plugin in pagedPlugins" :key="plugin.id" class="plugin-card">
         <header class="plugin-card__header">
-          <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': resolvedLogoUrl(plugin) }">
-            <img
-              v-if="resolvedLogoUrl(plugin)"
-              :src="resolvedLogoUrl(plugin)"
-              :alt="t('plugins.aria.logo', { name: pluginTitle(plugin) })"
-              @error="markLogoFailed(plugin.id)"
-            >
-            <span v-else aria-hidden="true">{{ pluginInitial(plugin) }}</span>
-          </div>
+          <GcPluginLogo
+            :logo-url="plugin.metadata.logoUrl"
+            :fallback-text="pluginInitial(plugin)"
+            :alt="t('plugins.aria.logo', { name: pluginTitle(plugin) })"
+            size="market"
+          />
           <div class="plugin-card__badges">
             <span class="plugin-source" :class="`plugin-source--${plugin.source}`">{{ t(`plugins.sources.${plugin.source}`) }}</span>
             <span class="plugin-state" :class="pluginStatusClass(plugin)">
@@ -629,15 +608,12 @@ function pluginStatusClass(plugin: PluginRecord): string {
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">
           <div class="plugin-detail__identity-main">
-            <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin) }">
-              <img
-                v-if="resolvedLogoUrl(selectedPlugin)"
-                :src="resolvedLogoUrl(selectedPlugin)"
-                :alt="t('plugins.aria.logo', { name: pluginTitle(selectedPlugin) })"
-                @error="markLogoFailed(selectedPlugin.id)"
-              >
-              <span v-else aria-hidden="true">{{ pluginInitial(selectedPlugin) }}</span>
-            </div>
+            <GcPluginLogo
+              :logo-url="selectedPlugin.metadata.logoUrl"
+              :fallback-text="pluginInitial(selectedPlugin)"
+              :alt="t('plugins.aria.logo', { name: pluginTitle(selectedPlugin) })"
+              size="detail"
+            />
             <div class="plugin-detail__identity-copy">
               <span class="market-hero__eyebrow">{{ t(`plugins.sources.${selectedPlugin.source}`) }}</span>
               <h3>{{ pluginTitle(selectedPlugin) }}</h3>
@@ -1089,49 +1065,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
   gap: var(--gc-space-1);
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-
-.plugin-logo {
-  display: grid;
-  place-items: center;
-  width: calc(var(--gc-space-10) + var(--gc-space-8));
-  height: calc(var(--gc-space-8) + var(--gc-space-3));
-  overflow: hidden;
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-solid);
-  box-shadow: var(--gc-shadow-sm);
-}
-
-.plugin-logo--large {
-  flex: 0 0 auto;
-  width: calc(var(--gc-space-10) + var(--gc-space-6));
-  height: calc(var(--gc-space-10) + var(--gc-space-6));
-}
-
-.plugin-logo--wide {
-  width: calc(var(--gc-space-10) + var(--gc-space-10) + var(--gc-space-6));
-  height: calc(var(--gc-space-8) + var(--gc-space-5));
-}
-
-.plugin-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  padding: var(--gc-space-1);
-}
-
-.plugin-logo--wide img {
-  height: auto;
-  max-height: 100%;
-  padding: var(--gc-space-2);
-}
-
-.plugin-logo--fallback {
-  color: var(--gc-color-text-inverse);
-  background: var(--gc-gradient-primary);
-  font-size: var(--gc-font-size-xl);
-  font-weight: 800;
 }
 
 .plugin-source,
