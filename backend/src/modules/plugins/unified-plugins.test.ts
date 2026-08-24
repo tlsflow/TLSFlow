@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
+import { hostLocales } from './locales/plugin-locale.service.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 
 test('统一插件版本不可覆盖且生命周期需要权限审批', async () => {
@@ -120,6 +121,111 @@ test('统一插件目录对租户展示系统注册表中的最新内置版本',
   assert.equal(catalog[0]?.version, '1.1.25');
 });
 
+test('统一插件目录跳过缺失资源的坏版本并回退到上一个可用版本', async () => {
+  const base = workflowPluginInput();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map([
+    ['broken-version', {
+      id: 'broken-version',
+      tenantId: 'SYSTEM',
+      ownerType: 'SYSTEM',
+      pluginId: 'test.device.workflow',
+      version: '1.1.0',
+      source: 'BUILTIN',
+      runtime: 'WORKFLOW_DSL',
+      scope: 'BOTH',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      manifest: {
+        ...(base.manifest as Record<string, unknown>),
+        source: 'BUILTIN',
+        permissions: [],
+        version: '1.1.0',
+        defaultLocale: 'zh-CN',
+        resources: {
+          ...(base.manifest as Record<string, any>).resources,
+          locales: builtinLocaleManifestResources(),
+        },
+      } as unknown as UnifiedPluginVersionRecord['manifest'],
+      packageSha256: 'sha256:broken',
+      manifestSha256: 'sha256:broken-manifest',
+      resourceSha256: {
+        'workflows/deploy.json': 'sha256:missing',
+        'locales/zh-CN.json': 'sha256:missing-locale',
+      },
+      resources: {},
+      status: 'ENABLED',
+      permissionApprovalStatus: 'NOT_REQUIRED',
+      approvedPermissions: [],
+      validationReport: {
+        valid: true,
+        errors: [],
+        warnings: [],
+        manifestSha256: 'sha256:broken-manifest',
+        resourceSha256: {
+          'workflows/deploy.json': 'sha256:missing',
+          'locales/zh-CN.json': 'sha256:missing-locale',
+        },
+      },
+      createdAt: '2026-08-06T10:00:00.000Z',
+      updatedAt: '2026-08-06T10:00:00.000Z',
+    }],
+    ['healthy-version', {
+      id: 'healthy-version',
+      tenantId: 'SYSTEM',
+      ownerType: 'SYSTEM',
+      pluginId: 'test.device.workflow',
+      version: '1.0.0',
+      source: 'BUILTIN',
+      runtime: 'WORKFLOW_DSL',
+      scope: 'BOTH',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      manifest: {
+        ...(base.manifest as Record<string, unknown>),
+        source: 'BUILTIN',
+        permissions: [],
+        version: '1.0.0',
+        defaultLocale: 'zh-CN',
+        resources: {
+          ...(base.manifest as Record<string, any>).resources,
+          locales: builtinLocaleManifestResources(),
+        },
+      } as unknown as UnifiedPluginVersionRecord['manifest'],
+      packageSha256: 'sha256:healthy',
+      manifestSha256: 'sha256:healthy-manifest',
+      resourceSha256: {
+        'workflows/deploy.json': 'sha256:healthy-resource',
+        'locales/zh-CN.json': 'sha256:healthy-locale',
+      },
+      resources: {
+        'workflows/deploy.json': '{}',
+        ...builtinLocaleResources(),
+      },
+      status: 'ENABLED',
+      permissionApprovalStatus: 'NOT_REQUIRED',
+      approvedPermissions: [],
+      validationReport: {
+        valid: true,
+        errors: [],
+        warnings: [],
+        manifestSha256: 'sha256:healthy-manifest',
+        resourceSha256: {
+          'workflows/deploy.json': 'sha256:healthy-resource',
+          'locales/zh-CN.json': 'sha256:healthy-locale',
+        },
+      },
+      createdAt: '2026-08-05T10:00:00.000Z',
+      updatedAt: '2026-08-05T10:00:00.000Z',
+    }],
+  ])));
+
+  const catalog = await service.listCatalog('tenant-1');
+
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0]?.pluginVersionId, 'healthy-version');
+  assert.equal(catalog[0]?.version, '1.0.0');
+});
+
 test('统一插件升级差异和退休状态可追踪', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const first = await service.importVersion('tenant-1', {
@@ -177,6 +283,17 @@ function workflowPluginInput() {
     resources: { 'workflows/deploy.json': '{}' },
     packageContent: 'package',
   };
+}
+
+function builtinLocaleResources() {
+  return Object.fromEntries(hostLocales.map((locale) => [
+    `locales/${locale}.json`,
+    JSON.stringify({ 'plugin.test.device.name': '测试插件' }),
+  ]));
+}
+
+function builtinLocaleManifestResources() {
+  return Object.fromEntries(hostLocales.map((locale) => [locale, `locales/${locale}.json`]));
 }
 
 function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): UnifiedPluginsRepository {

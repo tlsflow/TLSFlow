@@ -20,6 +20,7 @@ import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 
 export class UnifiedPluginsApplicationService {
   constructor(
@@ -235,51 +236,28 @@ export class UnifiedPluginsApplicationService {
   async listCatalog(tenantId: string, locale = 'zh-CN'): Promise<UnifiedPluginCatalogItem[]> {
     const versions = (await this.listAccessibleVersions(tenantId))
       .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED');
-    const latestVersions = new Map<string, UnifiedPluginVersionRecord>();
+    const versionsByPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
     for (const record of versions) {
-      const current = latestVersions.get(record.pluginId);
-      if (!current || compareSemanticVersions(record.version, current.version) > 0) latestVersions.set(record.pluginId, record);
+      versionsByPlugin.set(record.pluginId, [...(versionsByPlugin.get(record.pluginId) ?? []), record]);
     }
-    return [...latestVersions.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId)).map((record) => {
-      const validatedResources = this.packageResources.validate(record.manifest, record.resources);
-      const messages = validatedResources.locales;
-      const displayName = messages ? new PluginLocaleService().resolve(messages, locale, record.manifest.displayNameKey) : undefined;
-      const description = messages && record.manifest.descriptionKey
-        ? new PluginLocaleService().resolve(messages, locale, record.manifest.descriptionKey)
-        : undefined;
-      const executionSummary = summarizeExecutionResources(record);
-      return {
-      id: record.id,
-      catalogType: 'UNIFIED_PLUGIN' as const,
-      pluginId: record.pluginId,
-      pluginVersionId: record.id,
-      version: record.version,
-      name: record.pluginId,
-      displayNameKey: record.manifest.displayNameKey,
-      descriptionKey: record.manifest.descriptionKey,
-      displayName,
-      description,
-      logoUrl: record.manifest.logoUrl,
-      tags: [
-        ...(record.manifest.compatibility?.productFamilies ?? []),
-        ...(record.manifest.compatibility?.frameworkTypes ?? []),
-        ...(record.manifest.compatibility?.targetTypes ?? []),
-      ],
-      platforms: record.manifest.compatibility?.managementMethods ?? [],
-      stepCount: executionSummary.stepCount,
-      rollbackCount: executionSummary.rollbackCount,
-      configuration: executionSummary.configuration,
-      source: record.source,
-      runtime: record.runtime,
-      scope: record.scope,
-      trust: record.trust,
-      support: record.support,
-      status: record.status,
-      capabilities: record.manifest.capabilities,
-      compatibility: record.manifest.compatibility,
-      detailRef: { pluginVersionId: record.id },
-      };
-    });
+    const items: UnifiedPluginCatalogItem[] = [];
+    for (const [pluginId, pluginVersions] of [...versionsByPlugin.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      const ordered = pluginVersions.sort((left, right) => compareSemanticVersions(right.version, left.version) || right.updatedAt.localeCompare(left.updatedAt));
+      const item = ordered.map((record) => this.toCatalogItem(record, locale)).find((candidate) => candidate !== undefined);
+      if (item) items.push(item);
+      else if (ordered.length > 0) {
+        structuredLogger.warn('插件目录跳过了全部不可用版本', {
+          module: 'plugin-catalog',
+          resourceType: 'pluginId',
+          resourceId: pluginId,
+          details: {
+            pluginId,
+            candidateVersionIds: ordered.map((record) => record.id),
+          },
+        });
+      }
+    }
+    return items;
   }
 
   async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
@@ -327,6 +305,61 @@ export class UnifiedPluginsApplicationService {
       references,
       switchable: version.status === 'ENABLED',
     };
+  }
+
+  private toCatalogItem(record: UnifiedPluginVersionRecord, locale: string): UnifiedPluginCatalogItem | undefined {
+    try {
+      const validatedResources = this.packageResources.validate(record.manifest, record.resources);
+      const messages = validatedResources.locales;
+      const displayName = messages ? new PluginLocaleService().resolve(messages, locale, record.manifest.displayNameKey) : undefined;
+      const description = messages && record.manifest.descriptionKey
+        ? new PluginLocaleService().resolve(messages, locale, record.manifest.descriptionKey)
+        : undefined;
+      const executionSummary = summarizeExecutionResources(record);
+      return {
+        id: record.id,
+        catalogType: 'UNIFIED_PLUGIN' as const,
+        pluginId: record.pluginId,
+        pluginVersionId: record.id,
+        version: record.version,
+        name: record.pluginId,
+        displayNameKey: record.manifest.displayNameKey,
+        descriptionKey: record.manifest.descriptionKey,
+        displayName,
+        description,
+        logoUrl: record.manifest.logoUrl,
+        tags: [
+          ...(record.manifest.compatibility?.productFamilies ?? []),
+          ...(record.manifest.compatibility?.frameworkTypes ?? []),
+          ...(record.manifest.compatibility?.targetTypes ?? []),
+        ],
+        platforms: record.manifest.compatibility?.managementMethods ?? [],
+        stepCount: executionSummary.stepCount,
+        rollbackCount: executionSummary.rollbackCount,
+        configuration: executionSummary.configuration,
+        source: record.source,
+        runtime: record.runtime,
+        scope: record.scope,
+        trust: record.trust,
+        support: record.support,
+        status: record.status,
+        capabilities: record.manifest.capabilities,
+        compatibility: record.manifest.compatibility,
+        detailRef: { pluginVersionId: record.id },
+      };
+    } catch (error) {
+      structuredLogger.warn('插件目录跳过不可用版本', {
+        module: 'plugin-catalog',
+        resourceType: 'pluginVersion',
+        resourceId: record.id,
+        details: {
+          pluginId: record.pluginId,
+          version: record.version,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+      return undefined;
+    }
   }
 }
 
