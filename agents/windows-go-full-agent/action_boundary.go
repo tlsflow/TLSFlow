@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -23,6 +24,19 @@ func decodeQueuedAgentV2Payload(payload map[string]any) (map[string]any, string,
 	delete(wirePayload, "actionSchemaVersion")
 	wirePayload["action"] = action
 	return wirePayload, action, nil
+}
+
+// canonicalAgentV2Action 只允许长期合同中的四个 canonical 动作。
+func canonicalAgentV2Action(value string) (string, error) {
+	actionType := strings.TrimSpace(value)
+	switch actionType {
+	case agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt:
+		return actionType, nil
+	case "":
+		return "", errors.New("Agent v2 队列载荷缺少 canonical actionType")
+	default:
+		return "", fmt.Errorf("Agent v2 动作未登记: %s", actionType)
+	}
 }
 
 // agentV2ContractPayload 保留 Agent v2 的严格合同，同时隔离控制面调度元数据。

@@ -15,15 +15,6 @@ Agent 只注册以下四个动作：
 
 计划只允许固定通用原语：文件原子替换、带签名检查点的恢复、固定 Windows Service 控制，以及固定程序和参数模板的 `command.execute_allowlisted`。Agent 不接受 Shell、PowerShell、CMD、裸脚本、自由字符串命令或下载后执行。
 
-## 网关 TCP 中继（Gateway Relay）
-
-以 gateway 角色运行的 Agent 可启用 TCP 中继：只做私有密钥认证 + 网络层转发，不解析任何应用协议。
-
-- 握手协议 `gcac.gateway-relay/v1`：网关下发随机 `challenge`（hex）→ 客户端对 `challenge + ":" + host + ":" + port` 做 ed25519 签名（hex）→ 网关用 `relayClientPublicKeys` 验证 → 通过后返回 `{"ok":true}` 并双向透传原始字节。
-- 认证通过后允许转发到任意网关可达的 host:port（不做目标白名单）。
-- 配置项：`relayEnabled`、`relayListenAddress`、`relayPort`（默认 18934）、`relayClientPublicKeys`（hex ed25519 公钥，兼容字符串或数组）、`relayIdleTimeoutSeconds`（默认 300）。
-- 安全边界：未启用 gateway 角色或缺少客户端公钥时启动失败关闭；握手限时 10 秒；并发会话上限 128；空闲超时强制断开。
-
 ## 构建与运维
 
 Windows Go Full Agent 的唯一安装发布物是 `dist/gcac-agent.windows-amd64.exe`。一键安装接口只会打包该文件，不会读取根目录中可能遗留的 `gcac-agent.exe`。构建时会同步根目录二进制，仅用于兼容尚未重启的旧后端安装器。

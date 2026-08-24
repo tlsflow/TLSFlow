@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"crypto/tls"
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
@@ -48,27 +47,20 @@ const (
 )
 
 type AgentConfig struct {
-	SchemaVersion              string                   `json:"schemaVersion"`
-	TenantID                   string                   `json:"tenantId"`
-	AgentKey                   string                   `json:"agentKey"`
-	EnrollmentToken            string                   `json:"enrollmentToken"`
-	Role                       string                   `json:"role"`
-	GatewayEnabled             bool                     `json:"gatewayEnabled"`
-	Zone                       string                   `json:"zone"`
-	ControlPlane               string                   `json:"controlPlaneUrl"`
-	Heartbeat                  int                      `json:"heartbeatIntervalSeconds"`
-	TaskPollIntervalSeconds    int                      `json:"taskPollIntervalSeconds"`
-	HealthCheckIntervalSeconds int                      `json:"healthCheckIntervalSeconds"`
-	OfflineTimeoutSeconds      int                      `json:"offlineTimeoutSeconds"`
-	ManagementListenAddress    string                   `json:"managementListenAddress"`
-	ManagementPort             int                      `json:"managementPort"`
-	RelayEnabled               bool                     `json:"relayEnabled"`
-	RelayListenAddress         string                   `json:"relayListenAddress"`
-	RelayPort                  int                      `json:"relayPort"`
-	RelayClientPublicKeys      relayClientPublicKeyList `json:"relayClientPublicKeys"`
-	RelayIdleTimeoutSeconds    int                      `json:"relayIdleTimeoutSeconds"`
-	AuthorizationMaterialPath  string                   `json:"authorizationMaterialPath"`
-	AuthorizationTrustKeySet   map[string]string        `json:"authorizationTrustKeySet"`
+	SchemaVersion              string            `json:"schemaVersion"`
+	TenantID                   string            `json:"tenantId"`
+	AgentKey                   string            `json:"agentKey"`
+	EnrollmentToken            string            `json:"enrollmentToken"`
+	Zone                       string            `json:"zone"`
+	ControlPlane               string            `json:"controlPlaneUrl"`
+	Heartbeat                  int               `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int               `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int               `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int               `json:"offlineTimeoutSeconds"`
+	ManagementListenAddress    string            `json:"managementListenAddress"`
+	ManagementPort             int               `json:"managementPort"`
+	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
+	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -135,11 +127,7 @@ type registerRequest struct {
 	OSVersion          string   `json:"osVersion,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
 	EnrollmentToken    string   `json:"enrollmentToken,omitempty"`
-	Role               string   `json:"role,omitempty"`
 	Zone               string   `json:"zone,omitempty"`
-	ZoneIDs            []string `json:"zoneIds,omitempty"`
-	Adapters           []string `json:"adapters,omitempty"`
-	Capabilities       []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
@@ -183,8 +171,6 @@ type heartbeatRequest struct {
 	AgentID            string                  `json:"agentId"`
 	Version            string                  `json:"version"`
 	ManagementEndpoint string                  `json:"managementEndpoint,omitempty"`
-	Adapters           []string                `json:"adapters,omitempty"`
-	Capabilities       []string                `json:"capabilities,omitempty"`
 	RuntimeHealth      *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
 	TaskSummary        struct {
 		Running   int `json:"running"`
@@ -218,7 +204,6 @@ type capabilityReportRequest struct {
 	AgentID            string               `json:"agentId"`
 	CompatibilityLevel string               `json:"compatibilityLevel,omitempty"`
 	Capabilities       []reportedCapability `json:"capabilities"`
-	Adapters           []string             `json:"adapters,omitempty"`
 }
 
 type reportedCapability struct {
@@ -349,14 +334,6 @@ type submitResultRequest struct {
 	ErrorCode    string         `json:"errorCode,omitempty"`
 	ErrorMessage string         `json:"errorMessage,omitempty"`
 	Detail       map[string]any `json:"detail,omitempty"`
-}
-
-type enqueueAgentTaskRequest struct {
-	AgentID         string         `json:"agentId"`
-	ExecutionRunID  string         `json:"executionRunId"`
-	ExecutionStepID string         `json:"executionStepId"`
-	IdempotencyKey  string         `json:"idempotencyKey"`
-	Payload         map[string]any `json:"payload,omitempty"`
 }
 
 type runtimeCounters struct {
@@ -548,8 +525,6 @@ func handleSelfCheck(args []string) error {
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
-		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
-		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
 	}
 
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
@@ -739,13 +714,6 @@ func runForeground(ctx context.Context, configPath string) error {
 		return err
 	}
 	defer managementServer.Shutdown(context.Background())
-	relayServer, err := startRelayServer(config)
-	if err != nil {
-		return err
-	}
-	if relayServer != nil {
-		defer relayServer.Close()
-	}
 
 	deps, err := loadRuntimeDependencies(config)
 	if err != nil {
@@ -1260,8 +1228,6 @@ func buildWindowsHealthChecks(config *AgentConfig, configPath string) []map[stri
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
 		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
-		checkItem("relay.listen", relayListenAddressAvailable(config), map[string]any{"enabled": effectiveRelayEnabled(config), "address": effectiveRelayListenAddress(config), "port": effectiveRelayPort(config)}),
-		checkItem("relay.client.key", !effectiveRelayEnabled(config) || len(relayClientPublicKeys(config)) > 0, map[string]any{"count": len(relayClientPublicKeys(config))}),
 	}
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
 		if strings.TrimSpace(dir) == "" {
@@ -1985,18 +1951,7 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		OSVersion:          identity.WindowsVersion,
 		Labels:             []string{"windows-go", "windows-service"},
 		EnrollmentToken:    strings.TrimSpace(config.EnrollmentToken),
-		Role:               effectiveAgentRole(config),
 		Zone:               strings.TrimSpace(config.Zone),
-		Capabilities: []string{
-			"agent.full.online",
-			"agent.task.receive",
-			"agent.log.report",
-		},
-	}
-	if isGatewayEnabled(config) {
-		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
-		request.Adapters = gatewayRouteChannels()
-		request.Capabilities = append(request.Capabilities, gatewayCapabilityKeys()...)
 	}
 
 	var response registerResponse
@@ -2025,10 +1980,6 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 		Version:            registration.Version,
 		ManagementEndpoint: managementEndpointForIdentity(collectRuntimeIdentity(config.ControlPlane), config),
 	}
-	if isGatewayEnabled(config) {
-		request.Adapters = gatewayRouteChannels()
-		request.Capabilities = gatewayCapabilityKeys()
-	}
 	request.TaskSummary.Running = counters.Running
 	request.TaskSummary.Queued = counters.Queued
 	request.TaskSummary.Succeeded = counters.Succeeded
@@ -2040,26 +1991,17 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity) error {
-	var runtimeFacts map[string]any
-	if !isPureGatewayRole(config) {
-		runtimeFacts = collectWindowsRuntimeInventory(ctx, nil)
-	}
+	runtimeFacts := collectWindowsRuntimeInventory(ctx, nil)
 	return reportRuntimeCapabilities(ctx, client, config, registration, identity, runtimeFacts)
 }
 
 func reportCapabilitiesWithScanLog(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, logger *runtimeLogger) error {
-	var runtimeFacts map[string]any
-	if !isPureGatewayRole(config) {
-		runtimeFacts = collectWindowsRuntimeInventoryWithLogger(ctx, logger)
-	}
+	runtimeFacts := collectWindowsRuntimeInventoryWithLogger(ctx, logger)
 	return reportRuntimeCapabilities(ctx, client, config, registration, identity, runtimeFacts)
 }
 
 func reportRuntimeCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, runtimeFacts map[string]any) error {
-	capabilities := []reportedCapability{}
-	if !isPureGatewayRole(config) {
-		capabilities = collectRuntimeCapabilityReports(identity, runtimeFacts)
-	}
+	capabilities := collectRuntimeCapabilityReports(identity, runtimeFacts)
 	return submitCapabilityReports(ctx, client, config, registration, capabilities)
 }
 
@@ -2069,10 +2011,7 @@ func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, c
 	if inventory == nil || stringFromMap(inventory, "scope") != fullWebDiscoveryScope {
 		return errors.New("完整 Web 快照缺少 FULL_WEB_DISCOVERY scope")
 	}
-	capabilities := []reportedCapability{}
-	if !isPureGatewayRole(config) {
-		capabilities = collectCapabilityReportsWithInventory(identity, inventory)
-	}
+	capabilities := collectCapabilityReportsWithInventory(identity, inventory)
 	return submitCapabilityReports(ctx, client, config, registration, capabilities)
 }
 
@@ -2081,17 +2020,6 @@ func submitCapabilityReports(ctx context.Context, client *http.Client, config *A
 		AgentID:            registration.AgentID,
 		CompatibilityLevel: "modern",
 		Capabilities:       capabilities,
-		Adapters:           gatewayAdaptersIfNeeded(config),
-	}
-	if isGatewayEnabled(config) {
-		for _, capability := range gatewayCapabilityKeys() {
-			request.Capabilities = append(request.Capabilities, reportedCapability{
-				CapabilityKey: capability,
-				Value:         true,
-				Confidence:    0.95,
-				Evidence:      map[string]any{"source": "gateway-role"},
-			})
-		}
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
 }
@@ -2488,9 +2416,6 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	if success, code, message, detail, handled := executeGatewayTask(execution.ctx, execution.client, execution.config, execution.task, payload); handled {
-		return success, code, message, detail
-	}
 	wirePayload, action, err := decodeQueuedAgentV2Payload(payload)
 	if err != nil {
 		return false, "ACTION_HANDLER_NOT_REGISTERED", err.Error(), map[string]any{
@@ -2553,458 +2478,6 @@ func submitTaskResult(ctx context.Context, client *http.Client, config *AgentCon
 
 func newLeaseID(taskID string) string {
 	return fmt.Sprintf("lease_%s_%d", strings.ReplaceAll(taskID, "-", "_"), time.Now().UnixNano())
-}
-
-func effectiveAgentRole(config *AgentConfig) string {
-	role := strings.ToLower(strings.TrimSpace(config.Role))
-	if role == "gateway" {
-		return "gateway"
-	}
-	return "full_agent"
-}
-
-func isPureGatewayRole(config *AgentConfig) bool {
-	return effectiveAgentRole(config) == "gateway"
-}
-
-func isGatewayEnabled(config *AgentConfig) bool {
-	return isPureGatewayRole(config) || config.GatewayEnabled
-}
-
-func gatewayRouteChannels() []string {
-	return []string{"probe.tcp", "probe.http", "probe.agent", "forward.agent_task"}
-}
-
-func gatewayCapabilityKeys() []string {
-	return []string{"gateway.probe.tcp", "gateway.probe.http", "gateway.probe.agent", "gateway.forward.agent_task"}
-}
-
-func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
-	if !isGatewayEnabled(config) {
-		return nil
-	}
-	return gatewayRouteChannels()
-}
-
-func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
-	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
-	gatewayTask := mapFromMap(payload, "gatewayTask")
-	if taskType == "" {
-		taskType = strings.TrimSpace(stringFromMap(gatewayTask, "action"))
-	}
-	if taskType == "gateway.forward.direct_control" {
-		return false, "GATEWAY_FORWARD_DIRECT_CONTROL_DISABLED", "旧 Direct Control Action 路径已移除，必须提交 Agent v2 计划", map[string]any{"taskId": task.ID, "type": taskType}, true
-	}
-	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" {
-		return false, "", "", nil, false
-	}
-	if !isGatewayEnabled(config) {
-		return false, "GATEWAY_ROLE_REQUIRED", "当前 Agent 未以 gateway 角色运行，拒绝处理 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
-	}
-	gatewayPayload := mapFromMap(gatewayTask, "payload")
-	if gatewayPayload == nil {
-		gatewayPayload = payload
-	}
-	if err := validateForwardingGrant(gatewayTask, taskType); err != nil {
-		return false, "GATEWAY_FORWARDING_GRANT_DENIED", err.Error(), map[string]any{"taskId": task.ID, "type": taskType, "mode": "gateway.forwarding_grant.denied"}, true
-	}
-	switch taskType {
-	case "gateway.probe":
-		return executeGatewayProbe(ctx, client, config, task, gatewayTask, gatewayPayload)
-	case "gateway.forward.agent_task":
-		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload)
-	default:
-		return false, "GATEWAY_TASK_UNSUPPORTED", "不支持的 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
-	}
-}
-
-func validateForwardingGrant(gatewayTask map[string]any, taskType string) error {
-	grant := mapFromMap(gatewayTask, "forwardingGrant")
-	if grant == nil {
-		return errors.New("Gateway 转发缺少 ForwardingGrant")
-	}
-	if stringFromMap(grant, "status") != "active" {
-		return fmt.Errorf("ForwardingGrant 不可用: %s", stringFromMap(grant, "status"))
-	}
-	expiresAt := stringFromMap(grant, "expiresAt")
-	if expiresAt == "" {
-		return errors.New("ForwardingGrant 缺少 expiresAt")
-	}
-	parsed, err := time.Parse(time.RFC3339, expiresAt)
-	if err != nil {
-		return fmt.Errorf("ForwardingGrant expiresAt 不合法: %w", err)
-	}
-	if !time.Now().Before(parsed) {
-		return errors.New("ForwardingGrant 已过期")
-	}
-	if intFromMap(grant, "remainingUses") <= 0 {
-		return errors.New("ForwardingGrant 使用次数已耗尽")
-	}
-	if stringFromMap(grant, "gatewayId") != stringFromMap(gatewayTask, "gatewayId") {
-		return errors.New("ForwardingGrant gatewayId 不匹配")
-	}
-	if stringFromMap(grant, "delegatedTargetId") != stringFromMap(gatewayTask, "delegatedTargetId") {
-		return errors.New("ForwardingGrant delegatedTargetId 不匹配")
-	}
-	if stringFromMap(grant, "taskType") != taskType {
-		return errors.New("ForwardingGrant taskType 不匹配")
-	}
-	if stringFromMap(grant, "routeChannel") != stringFromMap(gatewayTask, "adapter") {
-		return errors.New("ForwardingGrant routeChannel 不匹配")
-	}
-	return nil
-}
-
-func executeGatewayProbe(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
-	channel := gatewayRouteChannel(gatewayTask, gatewayPayload)
-	start := time.Now()
-	var success bool
-	var detail map[string]any
-	var err error
-	if channel == "probe.tls" {
-		success, detail, err = probeTLSReachability(ctx, gatewayPayload)
-	} else if channel == "probe.http" {
-		success, detail, err = probeHTTPReachability(ctx, gatewayPayload)
-	} else {
-		success, detail, err = probeTCPReachability(ctx, gatewayTask, gatewayPayload)
-	}
-	detail["mode"] = "gateway.probe"
-	detail["routeChannel"] = channel
-	detail["taskId"] = task.ID
-	detail["durationMs"] = time.Since(start).Milliseconds()
-	if err != nil {
-		recordGatewayReachability(ctx, client, config, gatewayTask, detail, "unreachable")
-		return false, "GATEWAY_PROBE_FAILED", err.Error(), detail, true
-	}
-	recordGatewayReachability(ctx, client, config, gatewayTask, detail, "reachable")
-	return success, "", "", detail, true
-}
-
-func probeTLSReachability(ctx context.Context, gatewayPayload map[string]any) (bool, map[string]any, error) {
-	input := gatewayProbeInput(gatewayPayload)
-	verification := mapFromMap(input, "certificateVerification")
-	if stringFromMap(verification, "capabilityKey") != "certificate.verify" || stringFromMap(verification, "schemaVersion") != "1.0" {
-		return false, map[string]any{}, errors.New("gateway.probe TLS 缺少 certificate.verify/v1 宿主能力输入")
-	}
-	host := stringFromMap(verification, "connectHost")
-	port := intFromMap(verification, "port")
-	serverName := stringFromMap(verification, "serverName")
-	if host == "" || port <= 0 || serverName == "" {
-		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, errors.New("gateway.probe TLS 缺少连接地址、端口或 SNI")
-	}
-	dialer := &net.Dialer{Timeout: 8 * time.Second}
-	connection, err := (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: serverName, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-	if err != nil {
-		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, err
-	}
-	defer connection.Close()
-	certificates := connection.(*tls.Conn).ConnectionState().PeerCertificates
-	if len(certificates) == 0 {
-		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, errors.New("TLS 握手未返回远端证书")
-	}
-	certificate := certificates[0]
-	if err := certificate.VerifyHostname(serverName); err != nil {
-		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, fmt.Errorf("TLS 证书域名不匹配: %w", err)
-	}
-	fingerprint := fmt.Sprintf("%x", sha256.Sum256(certificate.Raw))
-	return true, map[string]any{
-		"verify": map[string]any{
-			"remoteCertificateSha256": fingerprint,
-			"subject":                 certificate.Subject.String(),
-			"notAfter":                certificate.NotAfter.UTC().Format(time.RFC3339),
-		},
-		"certificateVerification": map[string]any{
-			"capabilityKey": "certificate.verify",
-			"schemaVersion": "1.0",
-			"source":        "GATEWAY",
-		},
-	}, nil
-}
-
-func probeTCPReachability(ctx context.Context, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, map[string]any, error) {
-	host, port := gatewayProbeHostPort(gatewayTask, gatewayPayload)
-	if host == "" || port <= 0 {
-		return false, map[string]any{"host": host, "port": port}, errors.New("gateway.probe 缺少 host/port")
-	}
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-	if err != nil {
-		return false, map[string]any{"host": host, "port": port}, err
-	}
-	_ = conn.Close()
-	return true, map[string]any{"host": host, "port": port}, nil
-}
-
-func probeHTTPReachability(ctx context.Context, gatewayPayload map[string]any) (bool, map[string]any, error) {
-	targetURL := gatewayProbeURL(gatewayPayload)
-	if targetURL == "" {
-		return false, map[string]any{}, errors.New("gateway.probe HTTP 缺少 url/verifyUrl")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
-	if err != nil {
-		return false, map[string]any{"url": targetURL}, err
-	}
-	response, err := (&http.Client{Timeout: 8 * time.Second}).Do(request)
-	if err != nil {
-		request.Method = http.MethodGet
-		response, err = (&http.Client{Timeout: 8 * time.Second}).Do(request)
-	}
-	if err != nil {
-		return false, map[string]any{"url": targetURL}, err
-	}
-	defer response.Body.Close()
-	return response.StatusCode < 500, map[string]any{"url": targetURL, "statusCode": response.StatusCode}, nil
-}
-
-func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
-	if gatewayPayload == nil {
-		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发缺少 Agent v2 授权载荷", map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
-	}
-	token := mapFromMap(gatewayPayload, "token")
-	forwardingGrant := mapFromMap(gatewayTask, "forwardingGrant")
-	targetAgentID := firstNonEmpty(
-		stringFromMap(token, "agentId"),
-		stringFromMap(forwardingGrant, "delegatedAgentId"),
-		stringFromMap(gatewayPayload, "targetAgentId"),
-		stringFromMap(gatewayPayload, "delegatedAgentId"),
-	)
-	if targetAgentID == "" {
-		return false, "GATEWAY_FORWARD_TARGET_AGENT_REQUIRED", "Gateway 转发缺少目标 agentId", map[string]any{"taskId": task.ID, "mode": "gateway.forward"}, true
-	}
-	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != "" && tokenAgentID != targetAgentID {
-		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 Token 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "tokenAgentId": tokenAgentID}, true
-	}
-	if grantAgentID := stringFromMap(forwardingGrant, "delegatedAgentId"); grantAgentID != "" && grantAgentID != targetAgentID {
-		return false, "AGENT_V2_AUTHORIZATION_DENIED", "Gateway 转发目标 Agent 与 ForwardingGrant 不一致", map[string]any{"taskId": task.ID, "targetAgentId": targetAgentID, "grantAgentId": grantAgentID}, true
-	}
-	forwardPayload, actionType, err := buildGatewayAgentV2Payload(gatewayPayload, task, targetAgentID)
-	if err != nil {
-		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), map[string]any{"taskId": task.ID, "mode": "gateway.forward.agent_task"}, true
-	}
-	var response agentTaskEnvelope
-	err = doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks", enqueueAgentTaskRequest{
-		AgentID:         targetAgentID,
-		ExecutionRunID:  firstNonEmpty(stringFromMap(gatewayTask, "executionRunId"), task.ExecutionRunID),
-		ExecutionStepID: firstNonEmpty(stringFromMap(gatewayTask, "stepId"), task.ExecutionStepID),
-		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
-		Payload:         forwardPayload,
-	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": actionType}
-	if err != nil {
-		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
-	}
-	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, actionType, detail, gatewayForwardWaitDuration(gatewayPayload))
-}
-
-func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, string, error) {
-	token := mapFromMap(source, "token")
-	decision := mapFromMap(source, "policyDecision")
-	if token == nil || decision == nil {
-		return nil, "", errors.New("Gateway 转发缺少 Token 或 Policy Decision")
-	}
-	if _, exists := source["action"]; exists {
-		return nil, "", errors.New("Gateway 转发不得使用 action，必须提供 canonical actionType")
-	}
-	actionType, err := canonicalAgentV2Action(stringFromMap(source, "actionType"))
-	if err != nil {
-		return nil, "", err
-	}
-	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
-		return nil, "", errors.New("Gateway Token agentId 与目标 Agent 不一致")
-	}
-	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
-	planDigest := stringFromMap(token, "planDigest")
-	payload := map[string]any{
-		"actionType":          actionType,
-		"actionSchemaVersion": firstNonEmpty(stringFromMap(source, "actionSchemaVersion"), "1.0"),
-		"requestId":           firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
-		"agentId":             targetAgentID,
-		"tenantId":            firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
-		"pluginId":            stringFromMap(token, "pluginId"),
-		"pluginVersion":       pluginVersion,
-		"capability":          stringFromMap(token, "capability"),
-		"actions":             token["actions"],
-		"paths":               token["allowedPaths"],
-		"services":            token["allowedServices"],
-		"artifactDigests":     token["artifactDigests"],
-		"planDigest":          planDigest,
-		"token":               token,
-		"policyDecision":      decision,
-	}
-	if plan := mapFromMap(source, "plan"); plan != nil {
-		payload["plan"] = plan
-	}
-	if receipt := mapFromMap(source, "receipt"); receipt != nil {
-		payload["receipt"] = receipt
-	}
-	return payload, actionType, nil
-}
-
-// Gateway 队列出口只允许四个已登记的 Agent v2 canonical 动作。
-func canonicalAgentV2Action(value string) (string, error) {
-	actionType := strings.TrimSpace(value)
-	switch actionType {
-	case agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt:
-		return actionType, nil
-	case "":
-		return "", errors.New("Gateway 转发缺少 canonical actionType")
-	default:
-		return "", fmt.Errorf("Gateway 转发动作未登记: %s", actionType)
-	}
-}
-
-func waitForGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, taskID, targetAgentID, actionType string, detail map[string]any, timeout time.Duration) (bool, string, string, map[string]any, bool) {
-	waitContext, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	lastError := ""
-	for {
-		var queue struct {
-			Tasks []agentTaskEnvelope `json:"tasks"`
-		}
-		err := doJSONRequest(waitContext, client, config, http.MethodGet, "/api/v1/agents/tasks?agentId="+url.QueryEscape(targetAgentID), nil, &queue)
-		if err != nil {
-			lastError = err.Error()
-		} else if target := findAgentTask(queue.Tasks, taskID); target != nil {
-			return gatewayAgentTaskResult(*target, actionType, detail)
-		}
-		select {
-		case <-waitContext.Done():
-			unknown := cloneMap(detail)
-			unknown["executionStatus"] = "UNKNOWN"
-			unknown["targetAgentId"] = targetAgentID
-			unknown["unknownReason"] = "Gateway 等待目标 Agent Receipt 超时，禁止重放"
-			if lastError != "" {
-				unknown["lastPollError"] = lastError
-			}
-			return false, "AGENT_EXECUTION_UNKNOWN", "Gateway 等待目标 Agent Receipt 超时，写入状态不明", unknown, true
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
-}
-
-func findAgentTask(tasks []agentTaskEnvelope, taskID string) *agentTaskEnvelope {
-	for index := range tasks {
-		if tasks[index].ID == taskID {
-			return &tasks[index]
-		}
-	}
-	return nil
-}
-
-func gatewayAgentTaskResult(task agentTaskEnvelope, actionType string, detail map[string]any) (bool, string, string, map[string]any, bool) {
-	result := cloneMap(detail)
-	result["targetTaskStatus"] = task.Status
-	result["targetTaskId"] = task.ID
-	targetResult := task.Result
-	targetDetail := mapFromMap(targetResult, "detail")
-	if receipt := mapFromMap(targetDetail, "receipt"); receipt != nil {
-		result["receipt"] = receipt
-		result["executionStatus"] = firstNonEmpty(stringFromMap(receipt, "status"), stringFromMap(targetDetail, "executionStatus"))
-	}
-	if actionType == "agent.plan.execute" || actionType == "agent.execution.receipt" {
-		if stringFromMap(result, "executionStatus") == "SUCCESS" {
-			return true, "", "", result, true
-		}
-		result["executionStatus"] = "UNKNOWN"
-		result["unknownReason"] = firstNonEmpty(stringFromMap(receiptOrEmpty(targetDetail), "unknownReason"), "目标 Agent 未返回可确认的成功 Receipt")
-		return false, "AGENT_EXECUTION_UNKNOWN", "目标 Agent 写入结果不明，禁止 Gateway 重放", result, true
-	}
-	if task.Status == "succeeded" {
-		result["executionStatus"] = "SUCCESS"
-		return true, "", "", result, true
-	}
-	result["executionStatus"] = "FAILED"
-	return false, firstNonEmpty(stringFromMap(targetResult, "errorCode"), "AGENT_V2_TARGET_FAILED"), firstNonEmpty(stringFromMap(targetResult, "errorMessage"), "目标 Agent 任务失败"), result, true
-}
-
-func receiptOrEmpty(detail map[string]any) map[string]any {
-	if receipt := mapFromMap(detail, "receipt"); receipt != nil {
-		return receipt
-	}
-	return map[string]any{}
-}
-
-func gatewayForwardWaitDuration(gatewayPayload map[string]any) time.Duration {
-	seconds := 30
-	plan := mapFromMap(gatewayPayload, "plan")
-	if operations, ok := plan["operations"].([]any); ok {
-		for _, raw := range operations {
-			operation, _ := raw.(map[string]any)
-			if timeoutSeconds := intFromMap(operation, "timeoutSeconds"); timeoutSeconds > seconds {
-				seconds = timeoutSeconds
-			}
-		}
-	}
-	if seconds > 3600 {
-		seconds = 3600
-	}
-	return time.Duration(seconds+30) * time.Second
-}
-
-func recordGatewayReachability(ctx context.Context, client *http.Client, config *AgentConfig, gatewayTask map[string]any, detail map[string]any, status string) {
-	gatewayID := firstNonEmpty(stringFromMap(gatewayTask, "gatewayId"), stringFromMap(gatewayTask, "id"))
-	targetID := firstNonEmpty(stringFromMap(gatewayTask, "delegatedTargetId"), stringFromMap(mapFromMap(gatewayTask, "target"), "id"))
-	if gatewayID == "" || targetID == "" {
-		return
-	}
-	_ = doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/gateways/probe", map[string]any{
-		"gatewayId":  gatewayID,
-		"targetId":   targetID,
-		"protocol":   detail["routeChannel"],
-		"port":       detail["port"],
-		"status":     status,
-		"latencyMs":  detail["durationMs"],
-		"ttlSeconds": 300,
-	}, nil)
-}
-
-func gatewayRouteChannel(gatewayTask map[string]any, gatewayPayload map[string]any) string {
-	channel := strings.ToLower(firstNonEmpty(stringFromMap(gatewayTask, "adapter"), stringFromMap(gatewayPayload, "routeChannel")))
-	switch channel {
-	case "http", "https", "curl", "probe.http":
-		return "probe.http"
-	case "probe.tls":
-		return "probe.tls"
-	case "agent", "probe.agent":
-		return "probe.agent"
-	case "forward.agent_task", "gateway.forward.agent_task", "agent_task":
-		return "forward.agent_task"
-	default:
-		return "probe.tcp"
-	}
-}
-
-func gatewayProbeHostPort(gatewayTask map[string]any, gatewayPayload map[string]any) (string, int) {
-	gatewayPayload = gatewayProbeInput(gatewayPayload)
-	target := mapFromMap(gatewayTask, "target")
-	host := firstNonEmpty(stringFromMap(gatewayPayload, "host"), stringFromMap(target, "host"))
-	port := intFromMap(gatewayPayload, "port")
-	if port == 0 {
-		port = intFromMap(target, "port")
-	}
-	if host == "" {
-		if parsed, err := url.Parse(gatewayProbeURL(gatewayPayload)); err == nil {
-			host = parsed.Hostname()
-			if parsed.Port() != "" {
-				fmt.Sscanf(parsed.Port(), "%d", &port)
-			}
-		}
-	}
-	if port == 0 {
-		port = 443
-	}
-	return host, port
-}
-
-func gatewayProbeInput(gatewayPayload map[string]any) map[string]any {
-	if targetPayload := mapFromMap(gatewayPayload, "targetPayload"); targetPayload != nil {
-		return targetPayload
-	}
-	return gatewayPayload
-}
-
-func gatewayProbeURL(gatewayPayload map[string]any) string {
-	return firstNonEmpty(stringFromMap(gatewayPayload, "url"), stringFromMap(gatewayPayload, "verifyUrl"))
 }
 
 func mustGetTaskRecord(ledger *localTaskLedger, taskID string) localTaskRecord {

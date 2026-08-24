@@ -81,47 +81,6 @@ func TestRuntimeRejectsWireActionBypass(t *testing.T) {
 	}
 }
 
-func TestGatewayForwardUsesCanonicalActionTypeOnly(t *testing.T) {
-	source := map[string]any{
-		"actionType":          agentPlanExecute,
-		"actionSchemaVersion": "1.0",
-		"token":               map[string]any{"agentId": "agent-target", "pluginVersionId": "plugin-version-1", "planDigest": "digest-1"},
-		"policyDecision":      map[string]any{},
-	}
-	payload, actionType, err := buildGatewayAgentV2Payload(source, agentTaskEnvelope{ID: "gateway-task-1"}, "agent-target")
-	if err != nil {
-		t.Fatalf("canonical Gateway 转发载荷构造失败: %v", err)
-	}
-	if actionType != agentPlanExecute || stringFromMap(payload, "actionType") != agentPlanExecute {
-		t.Fatalf("Gateway 转发必须返回同一 canonical actionType: actionType=%s payload=%+v", actionType, payload)
-	}
-	if _, exists := payload["action"]; exists {
-		t.Fatal("Gateway 目标队列载荷不得保留 action Alias")
-	}
-}
-
-func TestGatewayForwardRejectsActionAliasAndNonCanonicalActionType(t *testing.T) {
-	base := map[string]any{
-		"token":          map[string]any{"agentId": "agent-target", "pluginVersionId": "plugin-version-1", "planDigest": "digest-1"},
-		"policyDecision": map[string]any{},
-	}
-	for _, payload := range []map[string]any{
-		{"action": agentPlanExecute},
-		{"actionType": "agent.atomic_plan.execute"},
-		{"actionType": agentPlanExecute, "action": agentPlanExecute},
-	} {
-		for key, value := range payload {
-			base[key] = value
-		}
-		if _, _, err := buildGatewayAgentV2Payload(base, agentTaskEnvelope{ID: "gateway-task-1"}, "agent-target"); err == nil {
-			t.Fatalf("非 canonical Gateway 动作必须失败关闭: %+v", payload)
-		}
-		for key := range payload {
-			delete(base, key)
-		}
-	}
-}
-
 func TestRegisterDoesNotRetryWithoutEnrollmentToken(t *testing.T) {
 	var requests int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
