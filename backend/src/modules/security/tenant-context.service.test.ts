@@ -147,7 +147,7 @@ describe('TenantContextService', () => {
     const fixture = await createFixture('hierarchical');
     await fixture.addMembership(fixture.defaultTenant.id, 'member');
     await fixture.addMembership(fixture.otherTenant.id, 'member');
-    await fixture.hierarchy.setStatus(fixture.otherTenant.id, 'SUSPENDED');
+    await fixture.hierarchy.setStatus(fixture.otherTenant.id, 'SUSPENDED', 'user_admin');
     const context = await fixture.context.initialize(fixture.userId, fixture.defaultTenant.id);
 
     await assert.rejects(

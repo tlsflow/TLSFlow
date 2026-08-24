@@ -785,7 +785,7 @@ describe('安全 API 最小闭环', () => {
       resourceType: 'audit_sort_probe',
       result: 'success',
       riskLevel: 'low',
-      context: { requestId: 'req_old' },
+      context: { tenantId: 'tenant_1', requestId: 'req_old' },
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     await security.audit.write({
@@ -796,7 +796,7 @@ describe('安全 API 最小闭环', () => {
       resourceType: 'audit_sort_probe',
       result: 'success',
       riskLevel: 'high',
-      context: { requestId: 'req_new' },
+      context: { tenantId: 'tenant_1', requestId: 'req_new' },
     });
 
     const app = createApp({ security, allowLegacyHeaderContext: true });

@@ -55,4 +55,36 @@ describe('AuditService 审计权限过滤', () => {
       (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
     );
   });
+
+  it('租户查询只返回写入时携带相同租户上下文的审计记录', async () => {
+    const audit = new AuditService();
+
+    await audit.write({
+      eventType: 'secret.created',
+      actorType: 'user',
+      actorId: 'user_a',
+      action: 'secret.create',
+      resourceType: 'secret',
+      resourceId: 'sec_a',
+      result: 'success',
+      riskLevel: 'medium',
+      context: { tenantId: 'tenant_a', requestId: 'req_a' },
+    });
+    await audit.write({
+      eventType: 'secret.created',
+      actorType: 'user',
+      actorId: 'user_b',
+      action: 'secret.create',
+      resourceType: 'secret',
+      resourceId: 'sec_b',
+      result: 'success',
+      riskLevel: 'medium',
+      context: { tenantId: 'tenant_b', requestId: 'req_b' },
+    });
+
+    const tenantAItems = await audit.query({ tenantId: 'tenant_a', resourceType: 'secret' });
+    assert.equal(tenantAItems.length, 1);
+    assert.equal(tenantAItems[0]?.actorId, 'user_a');
+    assert.equal(tenantAItems[0]?.tenantId, 'tenant_a');
+  });
 });

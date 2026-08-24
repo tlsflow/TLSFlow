@@ -17,6 +17,7 @@ export interface CreateTenantInput {
   type: TenantType;
   parentId?: string;
   actorId: string;
+  contextTenantId?: string;
 }
 
 export interface AddTenantMembershipInput {
@@ -25,6 +26,7 @@ export interface AddTenantMembershipInput {
   tenantId: string;
   membershipType: TenantMembershipType;
   actorId: string;
+  contextTenantId?: string;
   effectiveFrom?: string;
   effectiveUntil?: string;
 }
@@ -58,7 +60,28 @@ export class TenantHierarchyService {
       type: input.type,
       parentId: input.parentId,
     };
-    return this.repository.createTenant(record);
+    const tenant = await this.repository.createTenant(record);
+    await this.writeAudit({
+      eventType: AUDIT_EVENT_TYPES.TENANT_CREATED,
+      actorType: 'user',
+      actorId: input.actorId,
+      action: 'tenant.create',
+      resourceType: 'tenant',
+      resourceId: tenant.id,
+      result: 'success',
+      riskLevel: 'medium',
+      detail: {
+        code: tenant.code,
+        name: tenant.name,
+        type: tenant.type,
+        parentId: tenant.parentId,
+        status: tenant.status,
+      },
+      context: {
+        tenantId: input.contextTenantId ?? input.parentId ?? tenant.id,
+      },
+    });
+    return tenant;
   }
 
   async setParent(tenantId: string, parentId: string | null): Promise<TenantEntity> {
@@ -75,7 +98,7 @@ export class TenantHierarchyService {
     return this.repository.updateTenant(tenantId, { parentId });
   }
 
-  async setStatus(tenantId: string, status: TenantStatus): Promise<TenantEntity> {
+  async setStatus(tenantId: string, status: TenantStatus, actorId: string, contextTenantId?: string): Promise<TenantEntity> {
     const tenant = await this.requireTenant(tenantId);
     if (status === 'SUSPENDED' && tenant.type === 'GROUP') {
       const activeChildren = (await this.repository.listTenants())
@@ -84,7 +107,26 @@ export class TenantHierarchyService {
         throw new AppError('TENANT_PARENT_INVALID', '存在有效子公司时不能停用父租户', { tenantId });
       }
     }
-    return this.repository.updateTenant(tenantId, { status });
+    const updated = await this.repository.updateTenant(tenantId, { status });
+    await this.writeAudit({
+      eventType: AUDIT_EVENT_TYPES.TENANT_STATUS_CHANGED,
+      actorType: 'user',
+      actorId,
+      action: status === 'ACTIVE' ? 'tenant.resume' : 'tenant.suspend',
+      resourceType: 'tenant',
+      resourceId: updated.id,
+      result: 'success',
+      riskLevel: 'medium',
+      detail: {
+        beforeStatus: tenant.status,
+        afterStatus: updated.status,
+        tenantId: updated.id,
+      },
+      context: {
+        tenantId: contextTenantId ?? tenant.parentId ?? tenant.id,
+      },
+    });
+    return updated;
   }
 
   async addMembership(input: AddTenantMembershipInput): Promise<TenantMembershipEntity> {
@@ -131,11 +173,19 @@ export class TenantHierarchyService {
         subjectId: membership.subjectId,
         membershipType: membership.membershipType,
       },
+      context: {
+        tenantId: input.contextTenantId ?? membership.tenantId,
+      },
     });
     return membership;
   }
 
-  async revokeMembership(membershipId: string, actorId: string, revokedAt = new Date().toISOString()): Promise<TenantMembershipEntity> {
+  async revokeMembership(
+    membershipId: string,
+    actorId: string,
+    revokedAt = new Date().toISOString(),
+    contextTenantId?: string,
+  ): Promise<TenantMembershipEntity> {
     await this.expireMemberships(revokedAt);
     const current = (await this.repository.listMemberships()).find((item) => item.id === membershipId);
     if (!current) {
@@ -159,6 +209,9 @@ export class TenantHierarchyService {
         tenantId: membership.tenantId,
         subjectType: membership.subjectType,
         subjectId: membership.subjectId,
+      },
+      context: {
+        tenantId: contextTenantId ?? membership.tenantId,
       },
     });
     return membership;
@@ -189,6 +242,9 @@ export class TenantHierarchyService {
           subjectType: membership.subjectType,
           subjectId: membership.subjectId,
           expiredAt: membership.expiredAt,
+        },
+        context: {
+          tenantId: membership.tenantId,
         },
       });
     }

@@ -7,6 +7,7 @@ import { PgDocumentRepository } from '../../persistence/repositories/pg-document
 import type { UserEntity } from '../../persistence/entities/rbac.entity.js';
 import { PgTenantRepository } from './repository/tenant.repository.js';
 import { TenantHierarchyService } from './domain/tenant.domain-service.js';
+import type { WriteAuditInput } from '../audits/audit.service.js';
 
 async function createService() {
   const db = new PgliteDatabase();
@@ -14,9 +15,9 @@ async function createService() {
     appliedBy: 'tenant-domain-test',
     checksum: (content) => createHash('sha256').update(content).digest('hex'),
   });
-  const auditEvents: unknown[] = [];
+  const auditEvents: WriteAuditInput[] = [];
   const audit = {
-    write: async (event: unknown) => {
+    write: async (event: WriteAuditInput) => {
       auditEvents.push(event);
       return {};
     },
@@ -58,7 +59,7 @@ describe('TenantHierarchyService', () => {
     });
 
     await assert.rejects(
-      service.setStatus(group.id, 'SUSPENDED'),
+      service.setStatus(group.id, 'SUSPENDED', 'user_admin'),
       { errorCode: 'TENANT_PARENT_INVALID' },
     );
 
@@ -79,7 +80,7 @@ describe('TenantHierarchyService', () => {
       type: 'GROUP',
       actorId: 'user_admin',
     });
-    await service.setStatus(suspendedGroup.id, 'SUSPENDED');
+    await service.setStatus(suspendedGroup.id, 'SUSPENDED', 'user_admin');
     await assert.rejects(
       service.createTenant({
         name: '停用父节点下的公司',
@@ -170,7 +171,8 @@ describe('TenantHierarchyService', () => {
       status: 'REVOKED',
     });
     assert.deepEqual(revoked.map((item) => item.id), [first.id]);
-    assert.equal(auditEvents.length, 3);
+    assert.equal(auditEvents.filter((event) => event.eventType === 'tenant.membership.created').length, 2);
+    assert.equal(auditEvents.filter((event) => event.eventType === 'tenant.membership.revoked').length, 1);
   });
 
   it('成员过期后可以重新加入同一租户，并分别记录过期和新增审计', async () => {

@@ -8,8 +8,15 @@ import { validateObject } from '../../common/validation/schema-validation.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
+import type {
+  TenantEntity,
+  TenantMembershipEntity,
+  TenantMembershipStatus,
+  TenantMembershipSubjectType,
+  TenantMembershipType,
+} from '../../persistence/entities/tenant.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, SupportedLocale, ThemeMode, UserEntity, UserPreferences, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
-import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject } from '../../shared/security-types.js';
+import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject, type TenantScope } from '../../shared/security-types.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
@@ -25,9 +32,13 @@ import { ObjectPermissionService, type ObjectRef } from './object-permission.ser
 import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMemberEntity, ObjectSetEntity, ObjectSetKind, ObjectSetMemberEntity, ObjectTypeEntity, PrincipalType, RoleBindingEntity } from '../../persistence/entities/object-permission.entity.js';
 import type { TenantHierarchyService } from './domain/tenant.domain-service.js';
 import type { TenantContextService } from './tenant-context.service.js';
+import { TenantScopeService } from './tenant-scope.service.js';
 
 const THEME_MODES = ['light', 'dark'] as const;
 const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
+const TENANT_MEMBERSHIP_TYPES = ['owner', 'admin', 'operator', 'auditor', 'member'] as const;
+const TENANT_MEMBERSHIP_SUBJECT_TYPES = ['user', 'group', 'external_group'] as const;
+const TENANT_MEMBERSHIP_STATUSES = ['ACTIVE', 'REVOKED', 'EXPIRED'] as const;
 const DEFAULT_USER_PREFERENCES: UserPreferences = { theme: 'light', locale: 'zh-CN', version: 1 };
 
 export interface SecurityServices {
@@ -93,7 +104,17 @@ export class SecurityController {
     router.put('/api/v1/auth/preferences', '保存当前用户偏好', ['Auth'], (request) => this.updateMyPreferences(request));
     if (this.services.tenantContext) {
       router.get('/api/v1/tenants/accessible', '查询可访问租户', ['Security'], (request) => this.listAccessibleTenants(request));
+      router.get('/api/v1/tenant-context/current', '查询当前租户上下文', ['Security'], (request) => this.getCurrentTenantContext(request));
       router.post('/api/v1/tenant-context/switch', '切换当前租户', ['Security'], (request) => this.switchTenant(request));
+    }
+    if (this.services.tenantContext && this.services.tenantHierarchy) {
+      router.get('/api/v1/tenants/current', '查询当前租户详情', ['Security'], (request) => this.getCurrentTenant(request));
+      router.get('/api/v1/tenants/tree', '查询租户树', ['Security'], (request) => this.getTenantTree(request));
+      router.post('/api/v1/tenants', '创建子租户', ['Security'], (request) => this.createTenant(request));
+      router.patch('/api/v1/tenants/status', '停用或恢复租户', ['Security'], (request) => this.updateTenantStatus(request));
+      router.get('/api/v1/tenant-memberships', '查询租户成员列表', ['Security'], (request) => this.listTenantMemberships(request));
+      router.post('/api/v1/tenant-memberships', '新增租户成员', ['Security'], (request) => this.createTenantMembership(request));
+      router.delete('/api/v1/tenant-memberships', '撤销租户成员', ['Security'], (request) => this.revokeTenantMembership(request));
     }
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '创建 Secret', ['Security'], (request) => this.createSecret(request));
@@ -272,6 +293,27 @@ export class SecurityController {
     };
   }
 
+  private async getCurrentTenantContext(request: HttpRequest) {
+    const tenantContext = this.requireTenantContext();
+    const tenantHierarchy = this.requireTenantHierarchy();
+    const subject = await this.subjectFromRequest(request);
+    const context = await tenantContext.resolve(
+      subject.id,
+      request.context.tenantId,
+      request.context.tenantContextVersion,
+    );
+    const currentTenant = (await tenantHierarchy.listTenants()).find((tenant) => tenant.id === context.currentTenantId);
+    if (!currentTenant) {
+      throw new AppError('TENANT_CONTEXT_INVALID', '当前租户记录不存在', {
+        tenantId: context.currentTenantId,
+      });
+    }
+    return {
+      ...context,
+      currentTenant: serializeTenant(currentTenant),
+    };
+  }
+
   private async switchTenant(request: HttpRequest) {
     const tenantContext = this.requireTenantContext();
     const subject = await this.subjectFromRequest(request);
@@ -293,6 +335,20 @@ export class SecurityController {
       tenantId: String(body.tenantId),
       expectedVersion,
     });
+    await this.writeAudit(
+      request,
+      subject,
+      AUDIT_EVENT_TYPES.TENANT_CONTEXT_SWITCHED,
+      'tenant.context.switch',
+      'tenant',
+      context.currentTenantId,
+      {
+        previousTenantId: request.context.tenantId,
+        currentTenantId: context.currentTenantId,
+        previousVersion: expectedVersion,
+        currentVersion: context.version,
+      },
+    );
     return {
       currentTenantId: context.currentTenantId,
       homeTenantId: context.homeTenantId,
@@ -304,11 +360,215 @@ export class SecurityController {
     };
   }
 
+  private async getCurrentTenant(request: HttpRequest) {
+    const { subject, context, currentTenant } = await this.resolveTenantGovernanceContext(request);
+    await this.assertTenantManage(subject, request, currentTenant.id);
+    return {
+      tenant: serializeTenant(currentTenant),
+      mode: context.mode,
+      version: context.version,
+      managementScope: subject.scope?.tenantScope,
+    };
+  }
+
+  private async getTenantTree(request: HttpRequest) {
+    const { subject, context, currentTenant, allTenants } = await this.resolveTenantGovernanceContext(request);
+    await this.assertTenantManage(subject, request, currentTenant.id);
+    const governableTenants = this.filterGovernableTenants(subject.scope?.tenantScope, allTenants);
+    return {
+      currentTenantId: context.currentTenantId,
+      managementScope: subject.scope?.tenantScope,
+      items: buildTenantTree(governableTenants, context.currentTenantId),
+    };
+  }
+
+  private async createTenant(request: HttpRequest) {
+    const { subject, currentTenant, allTenants } = await this.resolveTenantGovernanceContext(request);
+    const body = validateObject(request.body, {
+      name: { type: 'string', required: true },
+      code: { type: 'string', required: true },
+      type: { type: 'string', enum: ['COMPANY'] },
+      parentId: { type: 'string' },
+    });
+    const parentTenant = body.parentId === undefined
+      ? currentTenant
+      : requireTenantRecord(String(body.parentId), allTenants);
+    await this.assertTenantManage(subject, request, parentTenant.id);
+    const tenant = await this.requireTenantHierarchy().createTenant({
+      name: String(body.name),
+      code: String(body.code),
+      type: 'COMPANY',
+      parentId: parentTenant.id,
+      actorId: subject.id,
+      contextTenantId: currentTenant.id,
+    });
+    return {
+      statusCode: 201,
+      body: { tenant: serializeTenant(tenant) },
+    };
+  }
+
+  private async updateTenantStatus(request: HttpRequest) {
+    const { subject, allTenants } = await this.resolveTenantGovernanceContext(request);
+    const body = validateObject(request.body, {
+      tenantId: { type: 'string', required: true },
+      status: { type: 'string', required: true, enum: ['ACTIVE', 'SUSPENDED'] },
+    });
+    const tenant = requireTenantRecord(String(body.tenantId), allTenants);
+    await this.assertTenantManage(subject, request, tenant.id);
+    const updated = await this.requireTenantHierarchy().setStatus(tenant.id, body.status as TenantEntity['status'], subject.id, subject.scope?.tenantId);
+    return { tenant: serializeTenant(updated) };
+  }
+
+  private async listTenantMemberships(request: HttpRequest) {
+    const { subject, currentTenant, allTenants } = await this.resolveTenantGovernanceContext(request);
+    const targetTenant = resolveRequestedTenant(request, allTenants) ?? currentTenant;
+    await this.assertTenantManage(subject, request, targetTenant.id);
+    const status = readOptionalQueryString(request, 'status');
+    if (status && !TENANT_MEMBERSHIP_STATUSES.includes(status as TenantMembershipStatus)) {
+      throw new AppError('VALIDATION_FAILED', 'status 只能为 ACTIVE、REVOKED、EXPIRED', { field: 'status' });
+    }
+    const memberships = await this.requireTenantHierarchy().listMemberships({
+      tenantId: targetTenant.id,
+      status: status as TenantMembershipStatus | undefined,
+    });
+    return {
+      tenant: serializeTenant(targetTenant),
+      items: memberships.map((membership) => serializeTenantMembership(membership, targetTenant)),
+      page: 1,
+      pageSize: memberships.length,
+      total: memberships.length,
+    };
+  }
+
+  private async createTenantMembership(request: HttpRequest) {
+    const { subject, currentTenant, allTenants } = await this.resolveTenantGovernanceContext(request);
+    const body = validateObject(request.body, {
+      tenantId: { type: 'string' },
+      subjectType: { type: 'string', required: true, enum: TENANT_MEMBERSHIP_SUBJECT_TYPES },
+      subjectId: { type: 'string', required: true },
+      membershipType: { type: 'string', required: true, enum: TENANT_MEMBERSHIP_TYPES },
+      effectiveFrom: { type: 'string' },
+      effectiveUntil: { type: 'string' },
+    });
+    const tenant = body.tenantId === undefined
+      ? currentTenant
+      : requireTenantRecord(String(body.tenantId), allTenants);
+    await this.assertTenantManage(subject, request, tenant.id);
+    const membership = await this.requireTenantHierarchy().addMembership({
+      tenantId: tenant.id,
+      subjectType: body.subjectType as TenantMembershipSubjectType,
+      subjectId: String(body.subjectId),
+      membershipType: body.membershipType as TenantMembershipType,
+      actorId: subject.id,
+      contextTenantId: subject.scope?.tenantId,
+      effectiveFrom: body.effectiveFrom === undefined ? undefined : String(body.effectiveFrom),
+      effectiveUntil: body.effectiveUntil === undefined ? undefined : String(body.effectiveUntil),
+    });
+    return {
+      statusCode: 201,
+      body: {
+        membership: serializeTenantMembership(membership, tenant),
+      },
+    };
+  }
+
+  private async revokeTenantMembership(request: HttpRequest) {
+    const { subject, allTenants } = await this.resolveTenantGovernanceContext(request);
+    const body = validateObject(request.body, {
+      membershipId: { type: 'string', required: true },
+    });
+    const memberships = await this.requireTenantHierarchy().listMemberships();
+    const current = memberships.find((item) => item.id === String(body.membershipId));
+    if (!current) {
+      throw new AppError('RESOURCE_NOT_FOUND', '租户成员关系不存在', { membershipId: String(body.membershipId) });
+    }
+    const tenant = requireTenantRecord(current.tenantId, allTenants);
+    await this.assertTenantManage(subject, request, tenant.id);
+    const membership = await this.requireTenantHierarchy().revokeMembership(current.id, subject.id, new Date().toISOString(), subject.scope?.tenantId);
+    return {
+      membership: serializeTenantMembership(membership, tenant),
+    };
+  }
+
   private requireTenantContext(): TenantContextService {
     if (!this.services.tenantContext) {
       throw new AppError('TENANT_CONTEXT_INVALID', '租户上下文服务未配置');
     }
     return this.services.tenantContext;
+  }
+
+  private requireTenantHierarchy(): TenantHierarchyService {
+    if (!this.services.tenantHierarchy) {
+      throw new AppError('TENANT_CONTEXT_INVALID', '租户层级服务未配置');
+    }
+    return this.services.tenantHierarchy;
+  }
+
+  private async resolveTenantGovernanceContext(request: HttpRequest): Promise<{
+    subject: SecuritySubject;
+    context: Awaited<ReturnType<TenantContextService['resolve']>>;
+    currentTenant: TenantEntity;
+    allTenants: TenantEntity[];
+  }> {
+    const tenantContext = this.requireTenantContext();
+    const tenantHierarchy = this.requireTenantHierarchy();
+    const baseSubject = await this.subjectFromRequest(request);
+    const context = await tenantContext.resolve(
+      baseSubject.id,
+      request.context.tenantId,
+      request.context.tenantContextVersion,
+    );
+    const allTenants = await tenantHierarchy.listTenants();
+    const currentTenant = requireTenantRecord(context.currentTenantId, allTenants);
+    const memberships = await tenantHierarchy.listMemberships({
+      subjectType: 'user',
+      subjectId: baseSubject.id,
+      status: 'ACTIVE',
+      at: new Date().toISOString(),
+    });
+    const scopeService = new TenantScopeService();
+    const resolvedScope = scopeService.resolveManagementScope(currentTenant.id, memberships, allTenants);
+    const governanceScope = resolvedScope.type !== 'SUBTREE'
+      ? resolvedScope
+      : {
+        ...resolvedScope,
+        tenantIds: [...new Set([
+          ...(resolvedScope.tenantIds ?? []),
+          ...allTenants
+            .filter((tenant) => tenant.id === resolvedScope.rootTenantId || tenant.parentId === resolvedScope.rootTenantId)
+            .map((tenant) => tenant.id),
+        ])],
+      };
+    return {
+      subject: {
+        ...baseSubject,
+        scope: {
+          ...(baseSubject.scope ?? {}),
+          tenantId: currentTenant.id,
+          tenantScope: governanceScope,
+        },
+      },
+      context,
+      currentTenant,
+      allTenants,
+    };
+  }
+
+  private async assertTenantManage(subject: SecuritySubject, request: HttpRequest, targetTenantId: string): Promise<void> {
+    await this.services.rbac.assertCan(subject, 'tenant.manage', {
+      type: 'tenant',
+      id: targetTenantId,
+      scope: { tenantId: targetTenantId },
+    }, this.securityContext(request, subject));
+  }
+
+  private filterGovernableTenants(scope: TenantScope | undefined, tenants: TenantEntity[]): TenantEntity[] {
+    if (!scope || scope.type === 'SYSTEM') return [];
+    const allowedIds = new Set(scope.tenantIds ?? (scope.rootTenantId ? [scope.rootTenantId] : []));
+    return tenants
+      .filter((tenant) => allowedIds.has(tenant.id))
+      .sort((left, right) => left.code.localeCompare(right.code));
   }
 
   private async createSecret(request: HttpRequest) {
@@ -1238,6 +1498,60 @@ function normalizeUserPreferences(value: unknown): UserPreferences {
   return { theme, locale, version: 1 };
 }
 
+function serializeTenant(tenant: TenantEntity) {
+  return {
+    id: tenant.id,
+    name: tenant.name,
+    code: tenant.code,
+    type: tenant.type,
+    parentId: tenant.parentId,
+    status: tenant.status,
+    settings: tenant.settings,
+    createdAt: tenant.createdAt,
+    updatedAt: tenant.updatedAt,
+    version: tenant.version,
+  };
+}
+
+function serializeTenantMembership(membership: TenantMembershipEntity, tenant: TenantEntity) {
+  return {
+    ...membership,
+    tenant: serializeTenant(tenant),
+  };
+}
+
+function buildTenantTree(tenants: TenantEntity[], currentTenantId: string) {
+  const byId = new Map<string, ReturnType<typeof serializeTenant> & { current: boolean; children: Array<ReturnType<typeof serializeTenant> & { current: boolean; children: unknown[] }> }>();
+  for (const tenant of tenants) {
+    byId.set(tenant.id, { ...serializeTenant(tenant), current: tenant.id === currentTenantId, children: [] });
+  }
+  const roots: Array<ReturnType<typeof serializeTenant> & { current: boolean; children: unknown[] }> = [];
+  for (const tenant of tenants) {
+    const node = byId.get(tenant.id)!;
+    const parent = tenant.parentId ? byId.get(tenant.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  for (const node of byId.values()) {
+    node.children.sort((left, right) => String((left as { code: string }).code).localeCompare(String((right as { code: string }).code)));
+  }
+  return roots.sort((left, right) => left.code.localeCompare(right.code));
+}
+
+function requireTenantRecord(identifier: string, tenants: TenantEntity[]): TenantEntity {
+  const normalized = identifier.trim();
+  const tenant = tenants.find((item) => item.id === normalized || item.code === normalized);
+  if (!tenant) {
+    throw new AppError('TENANT_NOT_FOUND', '租户不存在或不可用', { tenantIdentifier: identifier });
+  }
+  return tenant;
+}
+
+function resolveRequestedTenant(request: HttpRequest, tenants: TenantEntity[]): TenantEntity | undefined {
+  const tenantIdentifier = readOptionalQueryString(request, 'tenantId');
+  return tenantIdentifier ? requireTenantRecord(tenantIdentifier, tenants) : undefined;
+}
+
 function readHeader(request: HttpRequest, key: string): string | undefined {
   const value = request.headers[key] ?? request.headers[key.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -1256,7 +1570,15 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/auth/preferences', operationId: 'getCurrentUserPreferences', summary: '获取当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PUT', path: '/api/v1/auth/preferences', operationId: 'updateCurrentUserPreferences', summary: '保存当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/tenants/accessible', operationId: 'listAccessibleTenants', summary: '查询可访问租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenant-context/current', operationId: 'getCurrentTenantContext', summary: '查询当前租户上下文', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/tenant-context/switch', operationId: 'switchTenant', summary: '切换当前租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenants/current', operationId: 'getCurrentTenant', summary: '查询当前租户详情', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenants/tree', operationId: 'getTenantTree', summary: '查询租户树', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/tenants', operationId: 'createTenant', summary: '创建子租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PATCH', path: '/api/v1/tenants/status', operationId: 'updateTenantStatus', summary: '停用或恢复租户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/tenant-memberships', operationId: 'listTenantMemberships', summary: '查询租户成员列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/tenant-memberships', operationId: 'createTenantMembership', summary: '新增租户成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'DELETE', path: '/api/v1/tenant-memberships', operationId: 'revokeTenantMembership', summary: '撤销租户成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '创建 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '查询 Secret 元数据', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
