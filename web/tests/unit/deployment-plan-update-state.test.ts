@@ -93,4 +93,62 @@ describe('deployment-plan-update-state', () => {
     expect(enriched.needsUpdate).toBe(true)
     expect(enriched.currentAssetCertificateVersionId).toBe('certver_old')
   })
+
+  it('工作流资产优先使用监控实测证书到期时间判断是否需要更新', () => {
+    const workflowPlan: ApiRecord = {
+      id: 'plan_workflow_1',
+      certificateVersionId: 'certver_old',
+      selectionMode: 'LATEST_AUTO',
+      targets: [
+        {
+          applicationAssetId: 'app_asset_1',
+        },
+      ],
+    }
+    const observations = new Map<string, ApiRecord>([
+      ['app_asset_1', {
+        serviceAssetId: 'app_asset_1',
+        fingerprintSha256: 'b'.repeat(64),
+        notAfter: '2100-01-01T00:00:00.000Z',
+        observedAt: '2026-07-07T10:00:00.000Z',
+      }],
+    ])
+
+    const enriched = enrichDeploymentPlanRecord(workflowPlan, versions, assets, new Map(), observations)
+
+    expect(enriched.updateNeeded).toBe('UP_TO_DATE')
+    expect(enriched.needsUpdate).toBe(false)
+    expect(enriched.currentAssetCertificateNotAfter).toBe('2100-01-01T00:00:00.000Z')
+  })
+
+  it('工作流旧计划可以从 strategyPayload 解析应用资产并读取实测状态', () => {
+    const workflowPlan: ApiRecord = {
+      id: 'plan_workflow_legacy',
+      certificateVersionId: 'certver_old',
+      selectionMode: 'LATEST_AUTO',
+      targets: [
+        {
+          executionTargetId: 'workflow_runner_target',
+          strategyPayload: {
+            workflowRequest: {
+              applicationAssetId: 'app_asset_1',
+            },
+          },
+        },
+      ],
+    }
+    const observations = new Map<string, ApiRecord>([
+      ['app_asset_1', {
+        serviceAssetId: 'app_asset_1',
+        fingerprintSha256: 'b'.repeat(64),
+        notAfter: '2100-01-01T00:00:00.000Z',
+        observedAt: '2026-07-07T10:00:00.000Z',
+      }],
+    ])
+
+    const enriched = enrichDeploymentPlanRecord(workflowPlan, versions, assets, new Map(), observations)
+
+    expect(enriched.updateNeeded).toBe('UP_TO_DATE')
+    expect(enriched.currentAssetCertificateNotAfter).toBe('2100-01-01T00:00:00.000Z')
+  })
 })

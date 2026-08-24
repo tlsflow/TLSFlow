@@ -15,6 +15,7 @@ import {
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
+import { listMonitorCertificateObservations } from '@/api/modules/monitors.api'
 import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
@@ -201,21 +202,38 @@ watch(terminalPlanExecutionRunId, async (runId) => {
 })
 
 async function loadDeploymentPlansPage() {
-  const [plansResult, versions, assetsResult] = await Promise.all([
+  const [plansResult, versions, assetsResult, observationsResult] = await Promise.all([
     listDeploymentPlans({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
     fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
     fetchAllPages((page, pageSize) => listAssets({ page, pageSize, sort: 'updatedAt:desc' })),
+    listMonitorCertificateObservations({ page: 1, pageSize: 200 }),
   ])
   const page = plansResult.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
   const assets = assetsResult
   const assetDetails = await loadApplicationAssetDetailMap(page.items ?? [], assets)
+  const latestObservationsByAssetId = latestCertificateObservationsByAssetId(observationsResult.data?.items ?? [])
   return {
     ...plansResult,
     data: {
       ...page,
-      items: (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails)),
+      items: (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails, latestObservationsByAssetId)),
     },
   }
+}
+
+function latestCertificateObservationsByAssetId(items: readonly ApiRecord[]): Map<string, ApiRecord> {
+  const output = new Map<string, ApiRecord>()
+  for (const item of items) {
+    const serviceAssetId = readString(item, ['serviceAssetId'])
+    if (!serviceAssetId) continue
+    const current = output.get(serviceAssetId)
+    const itemTime = Date.parse(readString(item, ['observedAt', 'createdAt']))
+    const currentTime = Date.parse(readString(current, ['observedAt', 'createdAt']))
+    if (!current || (Number.isFinite(itemTime) && (!Number.isFinite(currentTime) || itemTime > currentTime))) {
+      output.set(serviceAssetId, item)
+    }
+  }
+  return output
 }
 
 async function loadApplicationAssetDetailMap(

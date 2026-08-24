@@ -12,10 +12,11 @@ export function enrichDeploymentPlanRecord(
   versions: readonly ApiRecord[],
   assets: readonly ApiRecord[],
   assetDetails: ReadonlyMap<string, ApiRecord>,
+  latestCertificateObservationsByAssetId: ReadonlyMap<string, ApiRecord> = new Map(),
 ): ApiRecord {
   const effectivePlanVersion = resolveLatestDeployableVersionForPlan(readString(plan, ['certificateVersionId']), versions)
     ?? resolveEffectivePlannedCertificateVersion(plan, versions)
-  const currentAssetState = resolveCurrentAssetCertificateState(plan, versions, assets, assetDetails)
+  const currentAssetState = resolveCurrentAssetCertificateState(plan, versions, assets, assetDetails, latestCertificateObservationsByAssetId)
   const planNotAfter = parseCertificateNotAfter(effectivePlanVersion)
   const currentNotAfter = currentAssetState.notAfterTime
   const needsUpdate = Number.isFinite(planNotAfter) && Number.isFinite(currentNotAfter)
@@ -45,6 +46,7 @@ export function resolveCurrentAssetCertificateState(
   versions: readonly ApiRecord[],
   assets: readonly ApiRecord[],
   assetDetails: ReadonlyMap<string, ApiRecord>,
+  latestCertificateObservationsByAssetId: ReadonlyMap<string, ApiRecord> = new Map(),
 ): CurrentAssetCertificateState {
   const emptyState: CurrentAssetCertificateState = {
     version: null,
@@ -54,6 +56,28 @@ export function resolveCurrentAssetCertificateState(
   }
   const applicationAssetId = resolveApplicationAssetIdForPlan(plan, assets)
   if (!applicationAssetId) return emptyState
+  const observed = latestCertificateObservationsByAssetId.get(applicationAssetId)
+  const observedNotAfter = readString(observed, ['notAfter'])
+  const observedNotAfterTime = Date.parse(observedNotAfter)
+  if (Number.isFinite(observedNotAfterTime)) {
+    return {
+      version: null,
+      versionId: '',
+      notAfter: observedNotAfter,
+      notAfterTime: observedNotAfterTime,
+    }
+  }
+  const asset = assets.find((item) => readString(item, ['id']) === applicationAssetId) ?? null
+  const metadataNotAfter = readString(asset, ['metadata.currentCertificate.notAfter', 'metadata.currentCertificateNotAfter'])
+  const metadataNotAfterTime = Date.parse(metadataNotAfter)
+  if (Number.isFinite(metadataNotAfterTime)) {
+    return {
+      version: null,
+      versionId: '',
+      notAfter: metadataNotAfter,
+      notAfterTime: metadataNotAfterTime,
+    }
+  }
   const assetDetail = assetDetails.get(applicationAssetId)
   if (!assetDetail) return emptyState
   const target = Array.isArray(plan.targets) ? (plan.targets[0] as ApiRecord | undefined) : undefined
@@ -176,7 +200,12 @@ function normalizeHexString(value: string): string {
 }
 
 export function resolveApplicationAssetIdForPlan(plan: ApiRecord, assets: readonly ApiRecord[]): string {
-  const directApplicationAssetId = readString(Array.isArray(plan.targets) ? plan.targets[0] as ApiRecord | undefined : undefined, ['applicationAssetId', 'serviceAssetId'])
+  const directApplicationAssetId = readString(Array.isArray(plan.targets) ? plan.targets[0] as ApiRecord | undefined : undefined, [
+    'applicationAssetId',
+    'serviceAssetId',
+    'strategyPayload.workflowRequest.applicationAssetId',
+    'strategyPayload.applicationAssetId',
+  ])
   if (directApplicationAssetId) return directApplicationAssetId
   return readString(resolveApplicationAssetRecordForPlan(plan, assets), ['id'])
 }
@@ -186,7 +215,12 @@ function resolveApplicationAssetRecordForPlan(plan: ApiRecord, assets: readonly 
   const target = targets[0]
   if (!target) return null
   const executionTargetId = readString(target, ['executionTargetId', 'managedTargetId'])
-  const applicationAssetId = readString(target, ['applicationAssetId', 'serviceAssetId'])
+  const applicationAssetId = readString(target, [
+    'applicationAssetId',
+    'serviceAssetId',
+    'strategyPayload.workflowRequest.applicationAssetId',
+    'strategyPayload.applicationAssetId',
+  ])
   return assets.find((item) => {
     if (applicationAssetId && readString(item, ['id']) === applicationAssetId) return true
     if (executionTargetId && readString(item, ['targetBinding.managedTargetId']) === executionTargetId) return true
