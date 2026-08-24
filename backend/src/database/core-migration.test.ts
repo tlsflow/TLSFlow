@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { createHash } from 'node:crypto';
 import { coreTableNames, requiredCoreIndexes } from './schema/core-schema.js';
 import { PgliteDatabase } from './pglite-database.js';
 import { runMigrations } from './migration-runner.js';
@@ -7,7 +8,10 @@ import { scalar, type DatabasePort } from './database-port.js';
 
 async function migratedDb(): Promise<DatabasePort> {
   const db = new PgliteDatabase();
-  await runMigrations(db);
+  await runMigrations(db, undefined, {
+    appliedBy: 'test',
+    checksum: (content) => createHash('sha256').update(content).digest('hex'),
+  });
   return db;
 }
 

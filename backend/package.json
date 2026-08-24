@@ -17,6 +17,8 @@
     "@types/node": "latest",
     "typescript": "latest",
     "@electric-sql/pglite": "latest",
+    "pg": "latest",
+    "@types/pg": "latest",
     "tsx": "latest"
   }
 }

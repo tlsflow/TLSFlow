@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { createHash } from 'node:crypto';
 import { PgliteDatabase } from './pglite-database.js';
 import { runMigrations } from './migration-runner.js';
 import { scalar } from './database-port.js';
@@ -8,7 +9,10 @@ import { coreTableNames } from './schema/core-schema.js';
 describe('数据库端口和迁移执行器', () => {
   it('可以通过 DatabasePort 执行核心迁移', async () => {
     const db = new PgliteDatabase();
-    const applied = await runMigrations(db);
+    const applied = await runMigrations(db, undefined, {
+      appliedBy: 'test',
+      checksum: (content) => createHash('sha256').update(content).digest('hex'),
+    });
     assert.equal(applied.some((migration) => migration.version === '20260608000100'), true);
 
     const tableCount = await scalar<number>(db, `
@@ -18,6 +22,20 @@ describe('数据库端口和迁移执行器', () => {
         and tablename = any(array[${coreTableNames.map((name) => `'${name}'`).join(',')}])
     `);
     assert.equal(tableCount, coreTableNames.length);
+  });
+
+  it('迁移会写入 schema_migrations 和 schema_version_state', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db, undefined, {
+      appliedBy: 'tester',
+      checksum: (content) => createHash('sha256').update(content).digest('hex'),
+    });
+
+    const migrationCount = await scalar<number>(db, 'select count(*)::int as count from schema_migrations');
+    const currentVersion = await scalar<string>(db, "select current_version from schema_version_state where id = 'current'");
+
+    assert.equal(migrationCount > 0, true);
+    assert.equal(currentVersion, '20260608000100');
   });
 
   it('事务失败时会回滚已经写入的数据', async () => {
