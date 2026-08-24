@@ -4,8 +4,12 @@
   "agentKey": "agent_key",
   "enrollmentToken": "enrollment_token",
   "controlPlaneUrl": "https://gcac.example.com",
-  "heartbeatIntervalSeconds": 30,
+  "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 5,
+  "directControlEnabled": true,
+  "directControlListenHost": "0.0.0.0",
+  "directControlListenPort": 18933,
+  "directControlAdvertiseHost": "",
   "requiredHotfixes": [],
   "dataDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data",
   "logDirectory": "C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs"

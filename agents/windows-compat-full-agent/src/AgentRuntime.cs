@@ -9,6 +9,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private readonly AgentConfig config;
         private readonly AuditLogger logger;
         private readonly RecoveryLedger ledger;
+        private readonly AgentIdentityStore identityStore;
         private readonly ControlPlaneClient client;
         private readonly CapabilityCollector capabilityCollector;
         private readonly ActionRegistry registry;
@@ -28,6 +29,7 @@ namespace GCAC.WindowsCompatibilityAgent
             this.config = config;
             logger = new AuditLogger(config.logDirectory);
             ledger = new RecoveryLedger(config.dataDirectory);
+            identityStore = new AgentIdentityStore(config.dataDirectory);
             client = new ControlPlaneClient(config);
             capabilityCollector = new CapabilityCollector(config);
             registry = BuildRegistry(config.dataDirectory);
@@ -35,9 +37,36 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public void Run(WaitHandle stopSignal)
         {
+            DirectControlServer directControl = null;
+            try
+            {
+                if (config.directControlEnabled)
+                {
+                    directControl = new DirectControlServer(config, logger);
+                    directControl.Start();
+                    client.SetDirectControlState(true, null);
+                }
+            }
+            catch (Exception error)
+            {
+                client.SetDirectControlState(false, error.Message);
+                logger.Write("error", "direct_control.start_failed", error.Message);
+            }
+            try
+            {
             CapabilitySnapshot snapshot = capabilityCollector.Collect();
             UpdateSelfCheck(snapshot);
-            string agentId = client.Register(snapshot);
+            string agentId = identityStore.Load();
+            if (TextUtility.IsBlank(agentId))
+            {
+                agentId = client.Register(snapshot);
+                identityStore.Save(agentId);
+                logger.Write("info", "registration.completed", "agentId=" + agentId);
+            }
+            else
+            {
+                logger.Write("info", "registration.reused", "agentId=" + agentId);
+            }
             activeAgentId = agentId;
             TryReportInitialCapabilities(agentId, snapshot);
             ReplayPending(agentId);
@@ -80,6 +109,11 @@ namespace GCAC.WindowsCompatibilityAgent
                 stopSignal.WaitOne(TimeSpan.FromSeconds(config.taskPollIntervalSeconds));
             }
             logger.Write("info", "runtime.stopped", "Agent 已停止");
+            }
+            finally
+            {
+                if (directControl != null) directControl.Dispose();
+            }
         }
 
         public PreflightResult SelfCheck()

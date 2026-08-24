@@ -11,6 +11,8 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         private readonly AgentConfig config;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
+        private bool directControlReachable;
+        private string directControlError;
 
         public ControlPlaneClient(AgentConfig config)
         {
@@ -38,7 +40,15 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
         {
-            Send<object>("/api/v1/agents/heartbeat", BuildHeartbeatRequest(agentId, snapshot, runtimeHealth));
+            Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth);
+            body["directControl"] = BuildDirectControl(snapshot);
+            Send<object>("/api/v1/agents/heartbeat", body);
+        }
+
+        public void SetDirectControlState(bool reachable, string error)
+        {
+            directControlReachable = reachable;
+            directControlError = error;
         }
 
         internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
@@ -76,7 +86,23 @@ namespace GCAC.WindowsCompatibilityAgent
             body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
             body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
+            body["directControl"] = BuildDirectControl(snapshot);
             return body;
+        }
+
+        private Dictionary<string, object> BuildDirectControl(CapabilitySnapshot snapshot)
+        {
+            string advertiseHost = config.directControlAdvertiseHost;
+            if (TextUtility.IsBlank(advertiseHost)) advertiseHost = ReadFact(snapshot, "network.primary_ip");
+            Dictionary<string, object> state = new Dictionary<string, object>();
+            state["enabled"] = config.directControlEnabled;
+            state["reachable"] = config.directControlEnabled && directControlReachable;
+            state["listenAddress"] = TextUtility.IsBlank(advertiseHost) ? null : advertiseHost + ":" + config.directControlListenPort;
+            state["protocolVersion"] = "v1";
+            state["supportedActions"] = new string[] { "health" };
+            if (directControlReachable) state["lastReadyAt"] = DateTime.UtcNow.ToString("o");
+            if (!TextUtility.IsBlank(directControlError)) state["lastDirectError"] = directControlError;
+            return state;
         }
 
         internal static Dictionary<string, object> BuildCapabilityRequest(string agentId, CapabilitySnapshot snapshot)

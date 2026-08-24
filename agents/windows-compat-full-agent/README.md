@@ -36,6 +36,9 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 - 升级：`upgrade-service.ps1`
 - 卸载：`uninstall-service.ps1`
 - 结果恢复：`recovery-ledger.json` 保存尚未上报的 Action Result，进程重启后先补传再继续拉取任务。
+- 身份恢复：`agent-id.txt` 保存首次注册返回的 Agent ID，服务或操作系统重启后直接恢复心跳，不重复消耗一次性注册令牌。
+- 主动管理：默认监听 `18933` Direct Control 端口并上报控制面，与 Windows Full Agent 的默认 `18930` 端口可同机共存。
+- 心跳周期：默认每 10 秒上报一次；平台仍使用独立的心跳超时和管理端口连续失败规则判定离线。
 - 审计：`agent-audit.log` 记录注册、任务开始、任务完成和结果补传事件。
 
 升级脚本先停止独立服务并保存 `.rollback` 产物；新产物启动失败时恢复旧文件。Modern Agent 与 Compatibility Agent 使用不同服务名和安装目录，可以在同一主机并存；控制面必须基于 Capability、Compatibility Profile 和 Resolver 只向其中一条产品线分配同一部署动作，禁止两个 Agent 同时修改同一目标。

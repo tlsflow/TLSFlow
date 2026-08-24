@@ -19,13 +19,15 @@ internal static class Tests
         Run("HTTPS 控制面仍识别为 TLS 传输", HttpsControlPlaneRequiresTls);
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
+        Run("注册请求包含独立 Direct Control 端口", RegistrationRequestIncludesDirectControl);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
         Run("能力报告包含 IIS 详情和站点", CapabilityRequestIncludesIisInspection);
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
+        Run("Agent ID 可跨进程重启持久化", AgentIdentityPersistsAcrossRestart);
         Run("IIS Binding 信息解析兼容主机头", IisBindingInformationParsesHostHeader);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
-        Console.WriteLine("tests=" + 16 + " failures=" + failures);
+        Console.WriteLine("tests=" + 18 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -102,6 +104,17 @@ internal static class Tests
         Assert(Convert.ToString(request["osVersion"]) == "Windows Server 2008 R2 Standard", "注册请求未上传操作系统版本");
     }
 
+    private static void RegistrationRequestIncludesDirectControl()
+    {
+        AgentConfig config = TestConfig();
+        config.directControlEnabled = true;
+        config.directControlListenPort = 18933;
+        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot());
+        Dictionary<string, object> directControl = request["directControl"] as Dictionary<string, object>;
+        Assert(directControl != null, "注册请求未上传 Direct Control");
+        Assert(Convert.ToString(directControl["listenAddress"]) == "10.20.30.40:18933", "Compatibility Agent 管理端口错误");
+    }
+
     private static void CapabilityRequestUsesStructuredL2Declarations()
     {
         Dictionary<string, object> request = ControlPlaneClient.BuildCapabilityRequest("agent-1", Snapshot());
@@ -148,6 +161,24 @@ internal static class Tests
         Assert(object.ReferenceEquals(request["runtimeHealth"], runtimeHealth), "心跳请求未上传运行健康模型");
     }
 
+    private static void AgentIdentityPersistsAcrossRestart()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-identity-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            AgentIdentityStore firstProcess = new AgentIdentityStore(root);
+            Assert(firstProcess.Load() == null, "首次启动不应存在历史 Agent ID");
+            firstProcess.Save("agt_compat_restart_01");
+
+            AgentIdentityStore restartedProcess = new AgentIdentityStore(root);
+            Assert(restartedProcess.Load() == "agt_compat_restart_01", "进程重启后未复用 Agent ID");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static void IisBindingInformationParsesHostHeader()
     {
         Dictionary<string, object> parsed = IisInspector.ParseBindingInformation("*:443:portal.example.com");
@@ -181,6 +212,7 @@ internal static class Tests
             agentKey = "agent-key-1",
             enrollmentToken = "enrollment-token-1",
             controlPlaneUrl = "http://127.0.0.1:5172",
+            directControlListenPort = 18933,
             requiredHotfixes = new string[0]
         };
     }

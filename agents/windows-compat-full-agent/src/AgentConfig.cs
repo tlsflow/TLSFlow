@@ -13,6 +13,10 @@ namespace GCAC.WindowsCompatibilityAgent
         public string controlPlaneUrl { get; set; }
         public int heartbeatIntervalSeconds { get; set; }
         public int taskPollIntervalSeconds { get; set; }
+        public bool directControlEnabled { get; set; }
+        public string directControlListenHost { get; set; }
+        public int directControlListenPort { get; set; }
+        public string directControlAdvertiseHost { get; set; }
         public string dataDirectory { get; set; }
         public string logDirectory { get; set; }
         public string[] requiredHotfixes { get; set; }
@@ -25,8 +29,10 @@ namespace GCAC.WindowsCompatibilityAgent
             if (TextUtility.IsBlank(config.controlPlaneUrl)) throw new InvalidOperationException("controlPlaneUrl 不能为空");
             if (TextUtility.IsBlank(config.tenantId)) throw new InvalidOperationException("tenantId 不能为空");
             if (TextUtility.IsBlank(config.agentKey)) throw new InvalidOperationException("agentKey 不能为空");
-            if (config.heartbeatIntervalSeconds <= 0) config.heartbeatIntervalSeconds = 30;
+            if (config.heartbeatIntervalSeconds <= 0) config.heartbeatIntervalSeconds = 10;
             if (config.taskPollIntervalSeconds <= 0) config.taskPollIntervalSeconds = 5;
+            if (config.directControlListenPort <= 0) config.directControlListenPort = 18933;
+            if (TextUtility.IsBlank(config.directControlListenHost)) config.directControlListenHost = "0.0.0.0";
             if (config.requiredHotfixes == null) config.requiredHotfixes = new string[0];
             string root = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GCAC"), "WindowsCompatibilityAgent");
             if (TextUtility.IsBlank(config.dataDirectory)) config.dataDirectory = Path.Combine(root, "data");

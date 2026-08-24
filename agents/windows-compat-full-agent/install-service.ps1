@@ -50,3 +50,7 @@ Set-ItemProperty -LiteralPath $serviceRegistryPath -Name Description -Value "GCA
 & sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/none/0 1>> $serviceLog 2>&1
 if ($LASTEXITCODE -ne 0) { Write-ServiceLog -Message ("Service recovery configuration skipped. exitCode=" + $LASTEXITCODE) }
 Start-Service -Name $serviceName -ErrorAction Stop
+$firewallRuleName = "GCAC Windows Compatibility Agent Direct Control"
+& netsh.exe advfirewall firewall delete rule name=$firewallRuleName 1>> $serviceLog 2>&1
+& netsh.exe advfirewall firewall add rule name=$firewallRuleName dir=in action=allow protocol=TCP localport=18933 program=$binaryPath enable=yes 1>> $serviceLog 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Direct Control firewall rule configuration failed" }

@@ -1060,7 +1060,7 @@ func effectiveHeartbeatSeconds(config *AgentConfig) int {
 	if config.Heartbeat > 0 {
 		return config.Heartbeat
 	}
-	return 30
+	return 10
 }
 
 func effectiveTaskPollSeconds(config *AgentConfig) int {

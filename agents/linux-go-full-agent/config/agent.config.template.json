@@ -6,7 +6,7 @@
   "gatewayEnabled": false,
   "zone": "default",
   "controlPlaneUrl": "https://gcac.example.invalid",
-  "heartbeatIntervalSeconds": 30,
+  "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 60,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
