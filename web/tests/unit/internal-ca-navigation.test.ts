@@ -10,11 +10,11 @@ import zhTW from '@/i18n/zh-TW'
 import { mainMenuItems } from '@/router/menu'
 import { businessRoutes } from '@/router/modules/business'
 
-describe('内部 CA 导航与国际化', () => {
-  it('注册受权限保护的路由和菜单', () => {
+describe('CA 管理导航与国际化', () => {
+  it('保留受权限保护的兼容路由，并将内部 CA 入口收归 CA 管理页', () => {
     const route = businessRoutes.find((item) => item.path === '/internal-ca')
     expect(route?.meta?.permission).toBe('ca.operations.read')
-    expect(mainMenuItems.some((item) => item.children?.some((child) => child.path === '/internal-ca'))).toBe(true)
+    expect(mainMenuItems.some((item) => item.children?.some((child) => child.path === '/internal-ca'))).toBe(false)
     const operationsRoute = businessRoutes.find((item) => item.path === '/ca-operations')
     expect(operationsRoute?.meta?.permission).toBe('ca.operations.read')
     expect(mainMenuItems.some((item) => item.children?.some((child) => child.path === '/ca-operations'))).toBe(true)
@@ -41,6 +41,7 @@ describe('内部 CA 导航与国际化', () => {
       expect(locale.caOperations.title).toBeTruthy()
       expect(locale.caOperations.views.request).toBeTruthy()
       expect(locale.caOperations.actions.sync).toBeTruthy()
+      expect(locale.caOperations.actions.manageInternalCa).toBeTruthy()
       expect(locale.caOperations.messages.noAuthority).toBeTruthy()
     }
   })
