@@ -62,6 +62,7 @@ export type PluginCatalogItem = {
   readonly "actionContractId": string
   readonly "riskLevel": "LOW" | "MEDIUM" | "HIGH"
   readonly "executionLocations": ReadonlyArray<"AGENT" | "CONTROL_PLANE" | "GATEWAY">
+  readonly "compatibility"?: Record<string, unknown>
 }>
   readonly "compatibility"?: Record<string, unknown>
   readonly "detailRef": {
@@ -108,6 +109,7 @@ export type PluginVersionRecord = {
   readonly "actionContractId": string
   readonly "riskLevel": "LOW" | "MEDIUM" | "HIGH"
   readonly "executionLocations": ReadonlyArray<"AGENT" | "CONTROL_PLANE" | "GATEWAY">
+  readonly "compatibility"?: Record<string, unknown>
 }>
   readonly "permissions": ReadonlyArray<string>
   readonly "compatibility"?: {

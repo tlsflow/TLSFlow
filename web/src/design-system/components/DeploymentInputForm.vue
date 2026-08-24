@@ -130,6 +130,7 @@ function selectedCredential(slot: string, projected?: string): string {
 }
 
 function updateArtifactFormat(item: DeploymentArtifactProjectionV1, certificateFormatId: string): void {
+  if (isArtifactFormatFixed(item)) return
   const artifacts = { ...model.value.artifacts }
   if (!certificateFormatId) delete artifacts[item.slot]
   else artifacts[item.slot] = { certificateFormatId, outputBindings: automaticArtifactOutputBindings(item) }
@@ -139,6 +140,8 @@ function updateArtifactFormat(item: DeploymentArtifactProjectionV1, certificateF
 function updateArtifactOutput(slot: string, outputSlot: string, outputKey: string): void {
   const current = model.value.artifacts[slot]
   if (!current) return
+  const item = props.projection.artifacts.find((artifact) => artifact.slot === slot)
+  if (item && isArtifactFormatFixed(item)) return
   const outputBindings = { ...current.outputBindings }
   if (outputKey) outputBindings[outputSlot] = outputKey
   else delete outputBindings[outputSlot]
@@ -155,6 +158,24 @@ function artifactBinding(item: DeploymentArtifactProjectionV1) {
 function availableArtifactOutputs(item: DeploymentArtifactProjectionV1): Array<{ key: string; label: string }> {
   const selectedId = artifactBinding(item)?.certificateFormatId
   return props.artifactOptions[item.slot]?.find((option) => option.id === selectedId)?.outputs ?? []
+}
+
+/** 必需 PKCS#12 输出意味着证书格式由插件合同固定为 PFX，不能被编辑器改成其它格式。 */
+function isArtifactFormatFixed(item: DeploymentArtifactProjectionV1): boolean {
+  return Object.values(item.outputs).some((output) => output.required && output.role.trim().toLowerCase() === 'pkcs12_bundle')
+}
+
+function artifactFormatLabel(item: DeploymentArtifactProjectionV1): string {
+  const selectedId = artifactBinding(item)?.certificateFormatId
+  return props.artifactOptions[item.slot]?.find((option) => option.id === selectedId)?.label
+    ?? t('deploymentInputs.placeholders.artifact')
+}
+
+function artifactOutputLabel(item: DeploymentArtifactProjectionV1, outputSlot: string): string {
+  const outputKey = artifactBinding(item)?.outputBindings[outputSlot]
+    ?? standardArtifactOutputKey(outputSlot, item.outputs[outputSlot]?.role ?? '')
+  return props.artifactOptions[item.slot]?.find((option) => option.outputs.some((candidate) => candidate.key === outputKey))?.outputs.find((candidate) => candidate.key === outputKey)?.label
+    ?? outputKey
 }
 
 function automaticArtifactOutputBindings(item: DeploymentArtifactProjectionV1): Record<string, string> {
@@ -275,7 +296,8 @@ function hasValues(value: Record<string, unknown>): boolean {
         <header><h4>{{ label(item.slot, item) }}</h4></header>
         <div class="deployment-input-form__grid">
           <label class="deployment-input-form__field"><span>{{ t('deploymentInputs.artifacts.format') }} *</span>
-            <select :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)">
+            <span v-if="isArtifactFormatFixed(item)">{{ artifactFormatLabel(item) }}</span>
+            <select v-else :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)">
               <option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option>
               <option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option>
             </select>
@@ -283,7 +305,8 @@ function hasValues(value: Record<string, unknown>): boolean {
           <template v-if="showArtifactOutputs">
             <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field">
               <span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}{{ output.required ? ' *' : '' }}</span>
-              <select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)">
+              <span v-if="isArtifactFormatFixed(item)">{{ artifactOutputLabel(item, String(outputSlot)) }}</span>
+              <select v-else :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)">
                 <option value="">{{ t('deploymentInputs.placeholders.output') }}</option>
                 <option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option>
               </select>
@@ -307,9 +330,9 @@ function hasValues(value: Record<string, unknown>): boolean {
           <template v-for="connection in advancedConnections" :key="`advanced-connection:${connection.slot}`"><label v-for="(field, path) in connection.fields" :key="`${connection.slot}:${path}`" class="deployment-input-form__field"><span>{{ label(connection.slot, connection) }} · {{ label(String(path), field) }}</span><input :value="String(connectionValue(connection.slot, String(path), field) ?? '')" :disabled="disabled || !isEditable(field)" autocomplete="off" @input="updateConnection(connection.slot, String(path), field, ($event.target as HTMLInputElement).value)"><small>{{ sourceLabel(field) }}</small></label></template>
           <label v-for="item in advancedCredentials" :key="`advanced-credential:${item.slot}`" class="deployment-input-form__field"><span>{{ label(item.slot, item) }}</span><select :value="selectedCredential(item.slot, item.selectedCredentialId)" :disabled="disabled" @change="updateCredential(item.slot, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.credential') }}</option><option v-for="option in credentialOptions.filter((candidate) => !candidate.kind || item.allowedKinds.includes(candidate.kind))" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
           <template v-for="item in advancedArtifacts" :key="`advanced-artifact:${item.slot}`">
-            <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><select :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
+            <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><span v-if="isArtifactFormatFixed(item)">{{ artifactFormatLabel(item) }}</span><select v-else :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
             <template v-if="showArtifactOutputs">
-              <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
+              <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><span v-if="isArtifactFormatFixed(item)">{{ artifactOutputLabel(item, String(outputSlot)) }}</span><select v-else :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
             </template>
           </template>
         </div>

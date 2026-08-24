@@ -128,4 +128,36 @@ describe('DeploymentInputForm', () => {
       artifacts: { certificate: { certificateFormatId: 'fmt_1', outputBindings: { certificate: 'certificate' } } },
     })
   })
+
+  it('固定 PKCS#12 合同时不允许修改格式和标准输出映射', async () => {
+    const fixedProjection: DeploymentInputProjectionV1 = {
+      ...projection(),
+      requiredVariables: [],
+      connections: [],
+      credentials: [],
+      artifacts: [{
+        slot: 'certificate',
+        kind: 'certificate',
+        required: true,
+        configurationMode: 'required',
+        outputs: { bundle: { role: 'pkcs12_bundle', required: true } },
+        binding: { certificateFormatId: 'fmt_pfx', outputBindings: { bundle: 'pfxBase64' } },
+      }],
+    }
+    const wrapper = mount(DeploymentInputForm, {
+      props: {
+        modelValue: {
+          ...bindings(),
+          artifacts: { certificate: { certificateFormatId: 'fmt_pfx', outputBindings: { bundle: 'pfxBase64' } } },
+        },
+        projection: fixedProjection,
+        artifactOptions: { certificate: [{ id: 'fmt_pfx', label: 'PFX', outputs: [{ key: 'pfxBase64', label: 'PFX' }] }] },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.findAll('select').some((item) => item.html().includes('fmt_pfx'))).toBe(false)
+    expect(wrapper.text()).toContain('PFX')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
 })

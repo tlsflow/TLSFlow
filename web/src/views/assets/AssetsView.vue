@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -630,6 +630,14 @@ const pluginProjectionVersionId = computed(() =>
 
 const deploymentInputBindingsFingerprint = computed(() => JSON.stringify(deploymentInputBindings.value))
 
+const fixedPkcs12Artifact = computed(() => workflowBindingProjection.value?.artifacts.find((artifact) => isFixedPkcs12Artifact(artifact)) ?? null)
+const fixedPkcs12CertificateFormatId = computed(() => fixedPkcs12Artifact.value?.binding?.certificateFormatId?.trim() ?? '')
+const isFixedPkcs12Contract = computed(() => Boolean(fixedPkcs12Artifact.value))
+const showAgentCertificateFormatSelector = computed(() => !pluginProjectionVersionId.value
+  || Boolean(workflowBindingProjection.value && !isFixedPkcs12Contract.value)
+  || Boolean(workflowProjectionError.value))
+const agentCertificateFormatReady = computed(() => isFixedPkcs12Contract.value || Boolean(assetDraft.agentCertificateFormatId.trim()))
+
 const pendingPluginCapability = computed<ApiRecord | null>(() => {
   const pluginVersionId = assetDraft.pluginOverrideVersionId.trim()
   if (!pluginVersionId) return null
@@ -740,7 +748,7 @@ const agentStepReady = computed(() => {
     || workflowProjectionReady.value
   return Boolean(
     assetDraft.siteAssetId.trim()
-    && assetDraft.agentCertificateFormatId.trim()
+    && agentCertificateFormatReady.value
     && assetDraft.managedTargetId.trim()
     && pluginExecutionReady
     && pluginInputReady,
@@ -1378,6 +1386,11 @@ async function refreshWorkflowBindingProjection(options: { preserveRenderedForm?
     if (sequence !== workflowProjectionRequestSequence) return
     workflowBindingProjection.value = result.data ?? null
     if (workflowBindingProjection.value) {
+      const fixedFormatId = fixedPkcs12CertificateFormatId.value
+      if (fixedFormatId && assetDraft.agentCertificateFormatId !== fixedFormatId) {
+        // 固定 PKCS#12 合同的格式由插件投影回填，页面不接受用户选择。
+        assetDraft.agentCertificateFormatId = fixedFormatId
+      }
       const filteredBindings = filterEditableInputBindings(workflowBindingProjection.value, deploymentInputBindings.value)
       if (JSON.stringify(filteredBindings) !== deploymentInputBindingsFingerprint.value) {
         deploymentInputBindings.value = filteredBindings
@@ -1424,6 +1437,19 @@ function filterEditableInputBindings(projection: DeploymentInputProjectionV1, bi
   )
   const credentialSlots = new Set(projection.credentials.map((item) => item.slot))
   const artifactSlots = new Set(projection.artifacts.map((item) => item.slot))
+  const artifacts: DeploymentInputBindingsV1['artifacts'] = {}
+  for (const artifact of projection.artifacts) {
+    if (isFixedPkcs12Artifact(artifact) && artifact.binding) artifacts[artifact.slot] = artifact.binding
+  }
+  for (const [slot, binding] of Object.entries(bindings.artifacts)) {
+    if (!artifactSlots.has(slot)) continue
+    const artifact = projection.artifacts.find((item) => item.slot === slot)
+    if (artifact && isFixedPkcs12Artifact(artifact)) {
+      // 丢弃历史 pfx/private-key 映射，始终采用宿主按角色生成的标准输出键。
+      continue
+    }
+    artifacts[slot] = binding
+  }
   return createInputBindingsV1({
     variables: Object.fromEntries(Object.entries(bindings.variables).filter(([slot]) => variableSlots.has(slot))),
     connections: Object.fromEntries(Object.entries(bindings.connections).flatMap(([slot, binding]) => {
@@ -1437,8 +1463,12 @@ function filterEditableInputBindings(projection: DeploymentInputProjectionV1, bi
       return Object.keys(editableBinding).length ? [[slot, editableBinding]] : []
     })),
     credentials: Object.fromEntries(Object.entries(bindings.credentials).filter(([slot]) => credentialSlots.has(slot))),
-    artifacts: Object.fromEntries(Object.entries(bindings.artifacts).filter(([slot]) => artifactSlots.has(slot))),
+    artifacts,
   })
+}
+
+function isFixedPkcs12Artifact(artifact: DeploymentInputProjectionV1['artifacts'][number]): boolean {
+  return Object.values(artifact.outputs).some((output) => output.required && output.role.trim().toLowerCase() === 'pkcs12_bundle')
 }
 
 function writeNested(target: Record<string, unknown>, path: string[], value: unknown): void {
@@ -3878,7 +3908,7 @@ function managedTargetLabel(target: ApiRecord): string {
             :labels="{ device: t('assets.userView.form.device'), framework: t('assets.userView.form.service'), site: t('assets.userView.form.site'), managedTarget: t('assets.userView.form.target') }"
             :placeholders="{ select: t('assets.select.generic'), loading: t('common.loading'), rediscovery: t('assets.errors.managedTargetRediscoveryRequired') }"
           />
-          <label class="asset-form__field">
+          <label v-if="showAgentCertificateFormatSelector" class="asset-form__field">
             <span>{{ t('assets.userView.form.certificateFormat') }} <strong>*</strong></span>
             <select v-model="assetDraft.agentCertificateFormatId" :disabled="certificateFormatLoading">
               <option value="">{{ certificateFormatLoading ? t('assets.loading.certificateFormats') : t('assets.select.certificateFormat') }}</option>
@@ -4067,7 +4097,7 @@ function managedTargetLabel(target: ApiRecord): string {
               :placeholders="{ select: t('assets.select.generic'), loading: t('common.loading'), rediscovery: t('assets.errors.managedTargetRediscoveryRequired') }"
             />
             <div class="asset-form__grid">
-              <label class="asset-form__field">
+              <label v-if="showAgentCertificateFormatSelector" class="asset-form__field">
                 <span>{{ t('assets.fields.certificateFormat') }} <strong>*</strong></span>
                 <select v-model="assetDraft.agentCertificateFormatId" :disabled="certificateFormatLoading">
                   <option value="">{{ certificateFormatLoading ? t('assets.loading.certificateFormats') : t('assets.select.certificateFormat') }}</option>
