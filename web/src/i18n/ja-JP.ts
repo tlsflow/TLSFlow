@@ -1514,7 +1514,8 @@ export default {
       expired: '期限切れ',
       expiring: '期限切れ間近',
       unknown: '不明',
-      valid: '正常'
+      valid: '正常',
+      updateAvailable: '更新可能'
     },
     days: {
       expired: '期限切れ {days} 日',
@@ -2715,6 +2716,15 @@ export default {
       cards: 'カード表示',
       list: '表形式表示',
     },
+    selection: {
+      selectedCount: '{count} / {total} 件を選択中'
+    },
+    aria: {
+      selectCard: 'アセット {name} を選択',
+      detailCard: 'アセット {name} の詳細を表示',
+      editCard: 'アセット {name} を編集',
+      deleteCard: 'アセット {name} を削除'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2761,6 +2771,7 @@ export default {
       rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
       rollingBack: 'ロールバック中...',
       deployCertificate: '証明書をデプロイ',
+      updateCertificate: '証明書を更新',
       saving: '保存中...',
       creating: '作成中...',
       saveChanges: '保存変更',
@@ -2802,6 +2813,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'SNI 名',
       currentCertificate: '現在証明書',
+      remainingValidity: '残り有効期間',
       targetCertificate: 'ターゲット証明書',
       expectedFingerprint: '期望フィンガープリント',
       certificateStore: '証明書ストレージ',

@@ -1488,7 +1488,8 @@ export default {
       expired: '만료됨',
       expiring: '만기가 다가오다',
       unknown: '알 수 없음',
-      valid: '정상'
+      valid: '정상',
+      updateAvailable: '업데이트 가능'
     },
     days: {
       expired: '{days}일 만료됨',
@@ -2689,6 +2690,15 @@ export default {
       cards: '카드 보기',
       list: '표 보기',
     },
+    selection: {
+      selectedCount: '{count} / {total}개 자산 선택됨'
+    },
+    aria: {
+      selectCard: '자산 {name} 선택',
+      detailCard: '자산 {name} 상세 보기',
+      editCard: '자산 {name} 편집',
+      deleteCard: '자산 {name} 삭제'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2735,6 +2745,7 @@ export default {
       rollbackFromLatestSnapshot: '최신 스냅샷을 취소합니다',
       rollingBack: '뒤로...',
       deployCertificate: '인증서 배포',
+      updateCertificate: '인증서 업데이트',
       saving: '저장 중...',
       creating: '생성 중...',
       saveChanges: '저장변경',
@@ -2776,6 +2787,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'SNI 이름',
       currentCertificate: '현재 인증서',
+      remainingValidity: '남은 유효기간',
       targetCertificate: '대상 인증서',
       expectedFingerprint: '지문 채취 기대',
       certificateStore: '인증서 저장소',

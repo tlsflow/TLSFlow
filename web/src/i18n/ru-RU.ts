@@ -1488,7 +1488,8 @@ export default {
       expired: 'Истек',
       expiring: 'Скоро истекает',
       unknown: 'Неизвестно',
-      valid: 'Норма'
+      valid: 'Норма',
+      updateAvailable: 'Доступно обновление'
     },
     days: {
       expired: 'Истек {days} дн. назад',
@@ -2689,6 +2690,15 @@ export default {
       cards: 'Карточки',
       list: 'Таблица',
     },
+    selection: {
+      selectedCount: 'Выбрано активов: {count} / {total}'
+    },
+    aria: {
+      selectCard: 'Выбрать актив {name}',
+      detailCard: 'Открыть сведения об активе {name}',
+      editCard: 'Изменить актив {name}',
+      deleteCard: 'Удалить актив {name}'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2735,6 +2745,7 @@ export default {
       rollbackFromLatestSnapshot: 'Запустить откат из последнего снимка',
       rollingBack: 'Откат...',
       deployCertificate: 'Развернуть сертификат',
+      updateCertificate: 'Обновить сертификат',
       saving: 'Сохранение...',
       creating: 'Создание...',
       saveChanges: 'Сохранить изменения',
@@ -2776,6 +2787,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'Имя SNI',
       currentCertificate: 'Текущий сертификат',
+      remainingValidity: 'Оставшийся срок действия',
       targetCertificate: 'Целевой сертификат',
       expectedFingerprint: 'Ожидаемый отпечаток',
       certificateStore: 'Хранилище сертификатов',

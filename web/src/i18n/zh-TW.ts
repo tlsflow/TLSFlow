@@ -1513,7 +1513,8 @@ export default {
       expired: "已過期",
       expiring: "即將到期",
       unknown: "未知",
-      valid: "正常"
+      valid: "正常",
+      updateAvailable: '可更新'
     },
     days: {
       expired: "已過期 {days} 天",
@@ -2714,6 +2715,15 @@ export default {
       cards: '卡片檢視',
       list: '表格檢視',
     },
+    selection: {
+      selectedCount: '已選取 {count} / {total} 個資產'
+    },
+    aria: {
+      selectCard: '選取資產 {name}',
+      detailCard: '查看資產詳情 {name}',
+      editCard: '編輯資產 {name}',
+      deleteCard: '刪除資產 {name}'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2760,6 +2770,7 @@ export default {
       rollbackFromLatestSnapshot: "從最新快照啟動回復",
       rollingBack: "回復中...",
       deployCertificate: "憑證部署",
+      updateCertificate: '憑證更新',
       saving: "儲存中...",
       creating: "建立中...",
       saveChanges: "儲存修改",
@@ -2801,6 +2812,7 @@ export default {
       hostHeader: "Host Header",
       sniName: "SNI 名稱",
       currentCertificate: "目前憑證",
+      remainingValidity: '剩餘有效期',
       targetCertificate: "目標憑證",
       expectedFingerprint: "期望指紋",
       certificateStore: "憑證儲存",

@@ -1588,7 +1588,8 @@ export default {
       expired: '已过期',
       expiring: '即将到期',
       unknown: '未知',
-      valid: '正常'
+      valid: '正常',
+      updateAvailable: '可更新'
     },
     days: {
       expired: '已过期 {days} 天',
@@ -2899,6 +2900,47 @@ export default {
     }
   },
   assets: {
+    presentation: {
+      cards: '卡片视图',
+      list: '表格视图'
+    },
+    selection: {
+      selectedCount: '已选中 {count} / {total} 个资产'
+    },
+    aria: {
+      selectCard: '选择资产 {name}',
+      detailCard: '查看资产详情 {name}',
+      editCard: '编辑资产 {name}',
+      deleteCard: '删除资产 {name}'
+    },
+    userView: {
+      stepLabel: '第 2 步 / 3 · 应用',
+      title: '接入一个应用',
+      description: '添加要接收证书的应用。除非所选目标确实需要额外参数，否则不会显示技术部署细节。',
+      addAction: '添加应用',
+      listTitle: '已接入应用',
+      listDescription: '这些应用可以在部署步骤中被选择。',
+      continueToDeployment: '继续部署',
+      loadFailed: '应用加载失败',
+      emptyTitle: '还没有接入应用',
+      emptyDescription: '先添加一个应用，证书才能部署到它。',
+      deploymentLocation: '部署位置',
+      targetPending: '等待配置部署位置',
+      form: {
+        eyebrow: '简化设置',
+        title: '添加需要更新的应用',
+        description: '填写应用地址并选择证书应该部署到哪里。',
+        addressPlaceholder: 'app.example.com',
+        portPlaceholder: '443',
+        locationTitle: '证书要更新到哪里？',
+        locationDescription: '选择已有的设备、服务和部署目标，底层绑定逻辑保持不变。',
+        device: '设备',
+        service: '服务',
+        site: '站点',
+        target: '部署目标',
+        certificateFormat: '证书格式'
+      }
+    },
     title: '应用',
     description: '以域名或 IP 为主对象管理应用入口，聚焦地址、端口、协议、站点与执行定位。',
     resourceName: '应用',
@@ -2916,6 +2958,8 @@ export default {
       deleteRisk: '删除后，该应用及其人工目标关联将从应用列表中移除；资产发现出的框架、站点、Virtual Server 和受管目标不会被删除。',
       rollbackFromLatestSnapshot: '从最新快照发起回退',
       rollingBack: '回退中...',
+      deployCertificate: '证书部署',
+      updateCertificate: '证书更新',
       saving: '保存中...',
       creating: '创建中...',
       saveChanges: '保存修改',
@@ -2958,6 +3002,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'SNI 名称',
       currentCertificate: '当前证书',
+      remainingValidity: '剩余时长',
       targetCertificate: '目标证书',
       expectedFingerprint: '期望指纹',
       certificateStore: '证书存储',

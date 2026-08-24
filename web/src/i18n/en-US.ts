@@ -1566,7 +1566,8 @@ export default {
       expired: 'Expired',
       expiring: 'Expiring soon',
       unknown: 'Unknown',
-      valid: 'Normal'
+      valid: 'Normal',
+      updateAvailable: 'Update available'
     },
     days: {
       expired: 'Expired {days} days ago',
@@ -2816,6 +2817,15 @@ export default {
       cards: 'Card view',
       list: 'Table view',
     },
+    selection: {
+      selectedCount: 'Selected {count} / {total} assets'
+    },
+    aria: {
+      selectCard: 'Select asset {name}',
+      detailCard: 'View asset details {name}',
+      editCard: 'Edit asset {name}',
+      deleteCard: 'Delete asset {name}'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2862,6 +2872,7 @@ export default {
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
       deployCertificate: 'Deploy certificate',
+      updateCertificate: 'Update certificate',
       saving: 'Saving...',
       creating: 'Creating...',
       saveChanges: 'Save changes',
@@ -2904,6 +2915,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'SNI name',
       currentCertificate: 'Current certificate',
+      remainingValidity: 'Remaining validity',
       targetCertificate: 'Target certificate',
       expectedFingerprint: 'Expected fingerprint',
       certificateStore: 'Certificate store',

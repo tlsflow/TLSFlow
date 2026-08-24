@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+defineOptions({ inheritAttrs: false })
+
 const props = withDefaults(defineProps<{
   actionName: string
   impactCount?: number
@@ -10,8 +12,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   disabledReason?: string
   danger?: boolean
+  triggerVariant?: 'button' | 'icon'
+  triggerAriaLabel?: string
+  triggerTitle?: string
 }>(), {
   danger: true,
+  triggerVariant: 'button',
 })
 
 const emit = defineEmits<{ confirm: [] }>()
@@ -28,8 +34,17 @@ function confirm() {
 </script>
 
 <template>
-  <button class="gc-button" :class="{ 'gc-button--danger': danger }" type="button" :disabled="disabled" :title="disabledReason" @click="opened = true">
-    {{ actionName }}
+  <button
+    v-bind="$attrs"
+    :class="triggerVariant === 'icon' ? ['gc-icon-button', { 'gc-button--danger': danger }] : ['gc-button', { 'gc-button--danger': danger }]"
+    type="button"
+    :disabled="disabled"
+    :title="triggerTitle ?? disabledReason"
+    :aria-label="triggerVariant === 'icon' ? (triggerAriaLabel ?? actionName) : undefined"
+    @click="opened = true"
+  >
+    <slot name="trigger-icon" v-if="triggerVariant === 'icon'" />
+    <template v-else>{{ actionName }}</template>
   </button>
   <Teleport to="body">
     <div v-if="opened" class="gc-confirm__mask" role="dialog" aria-modal="true">

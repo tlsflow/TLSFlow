@@ -1488,7 +1488,8 @@ export default {
       expired: 'Expirado',
       expiring: 'Expirando em breve',
       unknown: 'Desconhecido',
-      valid: 'Normal'
+      valid: 'Normal',
+      updateAvailable: 'Atualização disponível'
     },
     days: {
       expired: 'Expirado há {days} dias',
@@ -2689,6 +2690,15 @@ export default {
       cards: 'Visualização de cartões',
       list: 'Visualização de tabela',
     },
+    selection: {
+      selectedCount: '{count} / {total} ativos selecionados'
+    },
+    aria: {
+      selectCard: 'Selecionar ativo {name}',
+      detailCard: 'Ver detalhes do ativo {name}',
+      editCard: 'Editar ativo {name}',
+      deleteCard: 'Excluir ativo {name}'
+    },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
       title: 'Connect an application',
@@ -2735,6 +2745,7 @@ export default {
       rollbackFromLatestSnapshot: 'Iniciar reversão a partir do snapshot mais recente',
       rollingBack: 'Revertendo...',
       deployCertificate: 'Implantar certificado',
+      updateCertificate: 'Atualizar certificado',
       saving: 'Salvando...',
       creating: 'Criando...',
       saveChanges: 'Salvar alterações',
@@ -2776,6 +2787,7 @@ export default {
       hostHeader: 'Host Header',
       sniName: 'Nome SNI',
       currentCertificate: 'Certificado atual',
+      remainingValidity: 'Validade restante',
       targetCertificate: 'Certificado de destino',
       expectedFingerprint: 'Fingerprint esperado',
       certificateStore: 'Repositório de certificados',
