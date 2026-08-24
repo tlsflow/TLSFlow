@@ -418,6 +418,11 @@ async function refreshTaskEntryCount(): Promise<void> {
       </nav>
 
       <div class="gc-shell__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
+        <span
+          class="gc-shell__view-mode-thumb"
+          :class="{ 'gc-shell__view-mode-thumb--right': !isUserViewMode }"
+          aria-hidden="true"
+        ></span>
         <button
           class="gc-shell__view-mode-button"
           :class="{ 'gc-shell__view-mode-button--active': isUserViewMode }"
