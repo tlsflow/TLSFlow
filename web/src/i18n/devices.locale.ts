@@ -1,4 +1,5 @@
 const english = {
+  pluginVersionSwitch: { title: 'Effective plugin version', current: 'Current: {version}', unknown: 'Unknown', active: 'active', unavailable: 'unavailable', open: 'Switch effective version', selectAria: 'Select effective plugin version', switch: 'Switch version', confirm: 'Confirm switch', cancel: 'Cancel', switching: 'Switching...', switched: 'Plugin version switched. Run connection test and discovery again.', switchFailed: 'Plugin version switch failed.', validationHint: 'The switch updates control-plane bindings only. Run connection test and discovery to verify the device.' },
   page: { title: 'Assets', description: 'Manage servers and network appliances from one asset inventory.' },
   actions: { add: 'Add device', detail: 'View details', delete: 'Delete', upgrade: 'Upgrade', upgradeNew: 'new', cancel: 'Cancel', previous: 'Previous', finish: 'Finish', generateCommand: 'Generate command', copyCommand: 'Copy command', copied: 'Copied' },
   expiryCountdown: { expired: 'Expired for {days} days', remaining: 'Expires in: {days} days' },
@@ -20,6 +21,7 @@ const english = {
 
 export const devicesZhCN = {
   ...english,
+  pluginVersionSwitch: { title: '生效插件版本', current: '当前：{version}', unknown: '未知', active: '生效中', unavailable: '不可切换', open: '切换生效版本', selectAria: '选择生效插件版本', switch: '切换版本', confirm: '确认切换', cancel: '取消', switching: '切换中…', switched: '插件版本已切换。请重新执行连接测试和设备发现。', switchFailed: '插件版本切换失败。', validationHint: '本次切换只更新控制面绑定，请重新执行连接测试和设备发现以验证设备。' },
   page: { title: '设备', description: '在同一资产清单中管理服务器和网络设备。' },
   actions: { add: '添加设备', detail: '详情', delete: '删除', upgrade: '升级', upgradeNew: 'new', cancel: '取消', previous: '上一步', finish: '完成', generateCommand: '生成命令', copyCommand: '复制命令', copied: '已复制' },
   expiryCountdown: { expired: '已过期{days}天', remaining: '到期时间：{days}天' },

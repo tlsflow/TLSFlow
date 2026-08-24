@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
-import { executeManagedDeviceCapability, getManagedDevice } from '@/api/modules/devices.api'
+import { executeManagedDeviceCapability, getManagedDevice, listManagedDevicePluginVersions, switchManagedDevicePluginVersion } from '@/api/modules/devices.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcModal, GcStatusTag, type DevicePresentationSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -30,6 +30,11 @@ const selectedCertificate = ref<DeviceCertificateSelection | null>(null)
 const selectedCertificateAssetRoute = ref<{ assetId: string; versionId: string } | null>(null)
 const certificateAssetError = ref('')
 const certificateContextUsages = ref<ApiRecord[]>([])
+const pluginVersionCandidates = ref<ApiRecord[]>([])
+const selectedPluginVersionId = ref('')
+const pluginVersionLoading = ref(false)
+const pluginVersionSwitching = ref(false)
+const pluginVersionDialogOpen = ref(false)
 let certificateLookupRequest = 0
 const adapterRegistry = new DeviceDetailAdapterRegistry()
 const context = computed(() => detail.value ? adapterRegistry.buildContext(detail.value) : null)
@@ -53,6 +58,8 @@ const canRediscover = computed(() => {
   const pluginCapabilities = Array.isArray(pluginUi.value.capabilities) ? pluginUi.value.capabilities : []
   return allowedActions.includes('device.discover') || pluginCapabilities.includes('device.discover')
 })
+const isNetworkPluginDevice = computed(() => detail.value?.category === 'NETWORK_APPLIANCE' && asRecord(detail.value?.extension).type === 'PLUGIN')
+const currentPluginVersionId = computed(() => String(asRecord(detail.value?.extension).pluginVersionId ?? ''))
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
 const status = computed(() => String(detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
@@ -88,17 +95,68 @@ async function open(deviceId: string) {
   detail.value = null
   loadedIncludes.value = new Set()
   sitesByFrameworkId.value = new Map()
+  pluginVersionCandidates.value = []
+  selectedPluginVersionId.value = ''
+  pluginVersionDialogOpen.value = false
   try {
     // 框架是设备识别的轻量概览，首包返回；日志、证书和站点仍由相应标签按需读取。
     const response = await getManagedDevice(deviceId, locale.value, ['frameworks'])
     detail.value = response.data ?? null
     if (detail.value) loadedIncludes.value = new Set(['frameworks'])
     if (!detail.value) error.value = t('devices.errors.detailLoadFailed')
+    if (detail.value && detail.value.category === 'NETWORK_APPLIANCE' && asRecord(detail.value.extension).type === 'PLUGIN') {
+      await loadPluginVersionCandidates()
+    }
   } catch {
     error.value = t('devices.errors.detailLoadFailed')
   } finally {
     loading.value = false
   }
+}
+
+async function loadPluginVersionCandidates() {
+  if (!openedDeviceId.value) return
+  pluginVersionLoading.value = true
+  try {
+    const response = await listManagedDevicePluginVersions(openedDeviceId.value)
+    pluginVersionCandidates.value = Array.isArray(response.data?.items) ? response.data.items : []
+    selectedPluginVersionId.value = currentPluginVersionId.value
+  } catch {
+    pluginVersionCandidates.value = []
+  } finally {
+    pluginVersionLoading.value = false
+  }
+}
+
+async function switchPluginVersion() {
+  if (!openedDeviceId.value || !selectedPluginVersionId.value || selectedPluginVersionId.value === currentPluginVersionId.value || pluginVersionSwitching.value) return
+  pluginVersionSwitching.value = true
+  discoveryFeedback.value = null
+  try {
+    await switchManagedDevicePluginVersion(openedDeviceId.value, {
+      targetPluginVersionId: selectedPluginVersionId.value,
+      expectedCurrentPluginVersionId: currentPluginVersionId.value,
+    })
+    pluginVersionDialogOpen.value = false
+    const refreshed = await getManagedDevice(openedDeviceId.value, locale.value, ['frameworks'])
+    if (refreshed.data) {
+      detail.value = refreshed.data
+      loadedIncludes.value = new Set(['frameworks'])
+      sitesByFrameworkId.value = new Map()
+    }
+    await loadPluginVersionCandidates()
+    discoveryFeedback.value = { tone: 'info', message: t('devices.pluginVersionSwitch.switched') }
+  } catch (cause) {
+    discoveryFeedback.value = { tone: 'danger', message: cause instanceof Error ? cause.message : t('devices.pluginVersionSwitch.switchFailed') }
+  } finally {
+    pluginVersionSwitching.value = false
+  }
+}
+
+function openPluginVersionDialog() {
+  if (!isNetworkPluginDevice.value) return
+  selectedPluginVersionId.value = currentPluginVersionId.value
+  pluginVersionDialogOpen.value = true
 }
 
 async function selectTab(tab: string) {
@@ -330,11 +388,38 @@ defineExpose({ open })
         <component
           v-if="activeDescriptor"
           :is="activeDescriptor.component"
-          v-bind="{ ...activeDescriptor.buildProps?.(context), loading: loadingTab && activeTabLoadsDeferredResources }"
+          v-bind="{ ...activeDescriptor.buildProps?.(context), loading: loadingTab && activeTabLoadsDeferredResources, pluginVersionSwitchEnabled: isNetworkPluginDevice }"
           @certificate-click="openCertificateDetail"
+          @plugin-version-switch="openPluginVersionDialog"
         />
       </template>
     </section>
+  </GcModal>
+
+  <GcModal
+    v-model:open="pluginVersionDialogOpen"
+    :title="t('devices.pluginVersionSwitch.title')"
+    :description="t('devices.pluginVersionSwitch.validationHint')"
+    size="md"
+  >
+    <div class="agent-detail-modal__plugin-version-dialog">
+      <label class="agent-detail-modal__plugin-version-dialog-label" for="managed-device-plugin-version">
+        {{ t('devices.pluginVersionSwitch.selectAria') }}
+      </label>
+      <select id="managed-device-plugin-version" v-model="selectedPluginVersionId" class="gc-input" :disabled="pluginVersionLoading || pluginVersionSwitching || !pluginVersionCandidates.length">
+        <option v-for="candidate in pluginVersionCandidates" :key="String(candidate.pluginVersionId)" :value="String(candidate.pluginVersionId)" :disabled="candidate.switchable !== true && candidate.current !== true">
+          {{ String(candidate.version) }}{{ candidate.current ? ` (${t('devices.pluginVersionSwitch.active')})` : '' }}{{ candidate.switchable !== true && !candidate.current ? ` (${t('devices.pluginVersionSwitch.unavailable')})` : '' }}
+        </option>
+      </select>
+    </div>
+    <template #actions>
+      <button class="gc-button" type="button" :disabled="pluginVersionSwitching" @click="pluginVersionDialogOpen = false">
+        {{ t('devices.pluginVersionSwitch.cancel') }}
+      </button>
+      <button class="gc-button gc-button--primary" type="button" :disabled="pluginVersionLoading || pluginVersionSwitching || !selectedPluginVersionId || selectedPluginVersionId === currentPluginVersionId" @click="switchPluginVersion">
+        {{ pluginVersionSwitching ? t('devices.pluginVersionSwitch.switching') : t('devices.pluginVersionSwitch.confirm') }}
+      </button>
+    </template>
   </GcModal>
 
   <GcModal
@@ -420,6 +505,8 @@ defineExpose({ open })
 .agent-detail-modal__feedback[data-tone='warning'] { border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-soft); color: var(--gc-color-warning); }
 .agent-detail-modal__feedback[data-tone='danger'] { border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-soft); color: var(--gc-color-danger); }
 .agent-detail-modal__actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.agent-detail-modal__plugin-version-dialog { display: grid; gap: var(--gc-space-2); }
+.agent-detail-modal__plugin-version-dialog-label { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }
 .agent-detail-modal__spotlight { display: grid; min-width: calc(var(--gc-space-10) * 3); gap: var(--gc-space-1); padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-sm); background: var(--gc-color-text); color: var(--gc-color-surface-solid); }
 .agent-detail-modal__spotlight small { color: var(--gc-color-text-inverse-muted); font-size: var(--gc-font-size-xs); font-weight: 800; text-transform: uppercase; }
 .agent-detail-modal__spotlight strong { font-size: var(--gc-font-size-sm); line-height: 1.15; overflow-wrap: anywhere; }

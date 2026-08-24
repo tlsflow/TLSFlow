@@ -4,7 +4,8 @@ import { GcStatusTag } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { DeviceDetailField, DeviceDetailSection } from '../device-detail.model'
 
-defineProps<{ sections: readonly DeviceDetailSection[] }>()
+defineProps<{ sections: readonly DeviceDetailSection[]; pluginVersionSwitchEnabled?: boolean }>()
+const emit = defineEmits<{ (event: 'plugin-version-switch'): void }>()
 const { t } = useI18n()
 
 function displayValue(field: DeviceDetailField): string {
@@ -26,7 +27,17 @@ function displayValue(field: DeviceDetailField): string {
           <dt>{{ t(`devices.unifiedDetail.fields.${field.key}`) }}</dt>
           <dd>
             <GcStatusTag v-if="field.valueType === 'STATUS'" :status="String(field.value ?? 'UNKNOWN')" />
-            <span v-else>{{ displayValue(field) }}</span>
+            <template v-else>
+              <span>{{ displayValue(field) }}</span>
+              <button
+                v-if="field.key === 'pluginVersion' && pluginVersionSwitchEnabled"
+                class="agent-detail-modal__plugin-version-button"
+                type="button"
+                @click="emit('plugin-version-switch')"
+              >
+                {{ t('devices.pluginVersionSwitch.open') }}
+              </button>
+            </template>
           </dd>
         </div>
       </dl>
@@ -41,7 +52,11 @@ function displayValue(field: DeviceDetailField): string {
 .agent-detail-modal__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-1) var(--gc-space-2); margin: 0; }
 .agent-detail-modal__item { display: grid; min-width: 0; gap: var(--gc-space-1); padding: var(--gc-space-1) var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-hover); }
 .agent-detail-modal__item dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; text-transform: uppercase; }
-.agent-detail-modal__item dd { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; white-space: pre-line; }
+.agent-detail-modal__item dd { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: var(--gc-space-2); margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; white-space: pre-line; }
+.agent-detail-modal__item dd > span { min-width: 0; overflow-wrap: anywhere; }
+.agent-detail-modal__plugin-version-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: var(--gc-border-width-default) solid var(--gc-color-primary-border); border-radius: var(--gc-radius-control); padding: 0 var(--gc-space-1); background: var(--gc-color-surface-solid); color: var(--gc-color-primary); font: inherit; font-size: var(--gc-font-size-xs); font-weight: 800; line-height: inherit; white-space: nowrap; cursor: pointer; }
+.agent-detail-modal__plugin-version-button:hover { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); }
+.agent-detail-modal__plugin-version-button:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 @media (max-width: 75rem) { .agent-detail-modal__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 56.25rem) { .agent-detail-modal__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 47.5rem) { .agent-detail-modal__grid { grid-template-columns: 1fr; } }
