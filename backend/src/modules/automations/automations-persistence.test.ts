@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
+import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
-
-const migrationPath = join(process.cwd(), 'src/database/migrations/20260721000100_automation_tables.sql');
 
 async function setup() {
   const db = new PgliteDatabase();
-  await db.exec(await readFile(migrationPath, 'utf8'));
+  await applyAutomationMigrations(db);
   return { db, repository: new AutomationsRepository(db) };
 }
 
 test('自动化迁移可重复执行且 Repository 保留不可变历史', async () => {
   const { db, repository } = await setup();
-  await db.exec(await readFile(migrationPath, 'utf8'));
+  await applyAutomationMigrations(db);
   const now = new Date().toISOString();
   await repository.createAutomation({ id: 'aut_1', tenantId: 'tenant_1', name: '证书更新', status: 'draft', currentVersion: 1, createdBy: 'user_1', createdAt: now, updatedAt: now, version: 1 });
   await repository.createVersion({

@@ -1,16 +1,31 @@
 export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted';
-export type AutomationTriggerType = 'api' | 'once' | 'schedule' | 'on_demand';
+export type AutomationTriggerType = 'api' | 'once' | 'schedule' | 'on_demand' | 'certificate_version_created';
 export type AutomationRunTriggerType = AutomationTriggerType | 'retry';
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled';
 export type AutomationRunTargetStatus = 'pending' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
 export type AutomationFailureStage = 'selection' | 'plan_creation' | 'dry_run' | 'approval' | 'execution' | 'verification' | 'rollback' | 'notification';
 export type AutomationActionType = 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification';
+export type AutomationTriggerDeliveryStatus = 'pending' | 'matched' | 'waiting_approval' | 'run_created' | 'skipped' | 'failed';
+export type AutomationFilterOperator = 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all';
+export type AutomationApprovalStageType = 'run';
+
+export interface AutomationRunExecutionOptionsDto {
+  stopOnError?: boolean;
+  dryRun?: boolean;
+}
 
 export type AutomationTriggerDto =
   | { type: 'api' }
   | { type: 'once'; runAt: string }
   | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
-  | { type: 'on_demand' };
+  | { type: 'on_demand' }
+  | { type: 'certificate_version_created'; sources?: Array<'acme' | 'manual_import'> };
+
+export interface AutomationFilterClauseDto {
+  field: string;
+  operator: AutomationFilterOperator;
+  value?: unknown;
+}
 
 export interface AutomationTargetSelectorDto {
   certificateIds?: string[];
@@ -72,9 +87,28 @@ export interface AutomationGuardrailsDto {
   maintenanceWindow?: AutomationMaintenanceWindowDto;
 }
 
+export type AutomationTargetResolverDto =
+  | { type: 'legacy_target_selector'; selector?: AutomationTargetSelectorDto }
+  | { type: 'certificate_version_targets' };
+
+export interface AutomationApprovalStageDto {
+  type: AutomationApprovalStageType;
+  mode?: 'before_actions';
+  operationType?: string;
+  riskLevel?: 'low' | 'medium' | 'high' | 'critical';
+  expiresInHours?: number;
+}
+
 export interface AutomationConfigurationDto {
   trigger: AutomationTriggerDto;
-  targetSelector: AutomationTargetSelectorDto;
+  filters?: AutomationFilterClauseDto[];
+  targetResolver?: AutomationTargetResolverDto;
+  /**
+   * 兼容字段，旧版本自动化仍通过 targetSelector 读写。
+   * 新实现应优先使用 targetResolver。
+   */
+  targetSelector?: AutomationTargetSelectorDto;
+  approvalStage?: AutomationApprovalStageDto;
   actions: AutomationActionDto[];
   guardrails: AutomationGuardrailsDto;
 }
@@ -138,6 +172,10 @@ export interface AutomationRunDto {
   scheduledAt?: string;
   idempotencyKey: string;
   parentRunId?: string;
+  triggerContext?: AutomationTriggerContextDto;
+  executionOptions?: AutomationRunExecutionOptionsDto;
+  approvalId?: string;
+  deliveryId?: string;
   status: AutomationRunStatus;
   targetSummary: AutomationTargetSummaryDto;
   actionTypes: AutomationActionType[];
@@ -155,6 +193,9 @@ export interface AutomationTargetSnapshotDto {
   certificateId: string;
   certificateName: string;
   certificateVersionId?: string;
+  eventId?: string;
+  eventType?: string;
+  sourceType?: string;
   bindingId?: string;
   assetId?: string;
   assetName?: string;
@@ -203,10 +244,45 @@ export interface AutomationRunActionResultDto {
   createdAt: string;
 }
 
+export interface AutomationTriggerContextDto {
+  deliveryId?: string;
+  deliveryKey?: string;
+  eventId?: string;
+  eventType?: string;
+  occurredAt?: string;
+  sourceType?: string;
+  certificateAssetId?: string;
+  certificateVersionId?: string;
+  domains?: string[];
+  tags?: string[];
+  totalMatched?: number;
+  executableCount?: number;
+  excludedCount?: number;
+  excludedReasons?: Record<string, number>;
+}
+
+export interface AutomationTriggerDeliveryDto {
+  id: string;
+  tenantId: string;
+  automationId: string;
+  automationVersion: number;
+  deliveryKey: string;
+  triggerType: AutomationTriggerType;
+  eventType?: string;
+  payload: AutomationTriggerContextDto;
+  status: AutomationTriggerDeliveryStatus;
+  runId?: string;
+  approvalId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AutomationPreviewTargetDto {
   target: AutomationTargetSnapshotDto;
   executable: boolean;
-  excludedReason?: 'permission_denied' | 'missing_version' | 'version_not_deployable' | 'binding_not_managed' | 'environment_not_allowed';
+  excludedReason?: 'permission_denied' | 'missing_version' | 'version_not_deployable' | 'binding_not_managed' | 'environment_not_allowed' | 'binding_missing' | 'asset_missing_deployment_capability' | 'filter_not_matched' | 'runtime_context_required';
 }
 
 export interface AutomationPreviewDto {

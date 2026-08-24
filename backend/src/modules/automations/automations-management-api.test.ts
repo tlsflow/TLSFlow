@@ -1,18 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 import { Router } from '../../common/http/router.js';
 import type { HttpRequest } from '../../common/http/http-types.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { AutomationsApplicationService } from './application/automations.application-service.js';
+import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsController } from './controller/automations.controller.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
 
 async function setup() {
   const db = new PgliteDatabase();
-  await db.exec(await readFile(join(process.cwd(), 'src/database/migrations/20260721000100_automation_tables.sql'), 'utf8'));
+  await applyAutomationMigrations(db);
   const security = createSecurityServices();
   await security.rbac.createPolicy({ subjectType: 'user', subjectId: 'user_admin', actions: ['automation.*'], resourceTypes: ['automation'], scope: { tenantId: 'tenant_1' }, effect: 'allow' });
   const service = new AutomationsApplicationService(new AutomationsRepository(db), undefined, () => new Date('2026-07-21T00:00:00.000Z'));

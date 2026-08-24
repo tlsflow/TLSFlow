@@ -3,12 +3,16 @@ import type {
   AutomationActionType,
   AutomationConfigurationDto,
   AutomationFailureStage,
+  AutomationRunExecutionOptionsDto,
+  AutomationTriggerContextDto,
+  AutomationTriggerDeliveryStatus,
   AutomationRunStatus,
   AutomationRunTargetStatus,
   AutomationRunTriggerType,
   AutomationStatus,
   AutomationTargetSnapshotDto,
   AutomationTargetSummaryDto,
+  AutomationTriggerType,
 } from '../dto/automations.dto.js';
 
 export interface AutomationEntity extends IdentifiedEntity {
@@ -44,6 +48,10 @@ export interface AutomationRunEntity extends IdentifiedEntity {
   scheduledAt?: string;
   idempotencyKey: string;
   parentRunId?: string;
+  triggerContext?: AutomationTriggerContextDto;
+  executionOptions?: AutomationRunExecutionOptionsDto;
+  approvalId?: string;
+  deliveryId?: string;
   status: AutomationRunStatus;
   targetSummary: AutomationTargetSummaryDto;
   actionTypes: AutomationActionType[];
@@ -55,6 +63,23 @@ export interface AutomationRunEntity extends IdentifiedEntity {
   finishedAt?: string;
   createdBy: string;
   createdAt: string;
+}
+
+export interface AutomationTriggerDeliveryEntity extends IdentifiedEntity {
+  tenantId: string;
+  automationId: string;
+  automationVersion: number;
+  deliveryKey: string;
+  triggerType: AutomationTriggerType;
+  eventType?: string;
+  payload: AutomationTriggerContextDto;
+  status: AutomationTriggerDeliveryStatus;
+  runId?: string;
+  approvalId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AutomationRunTargetEntity extends IdentifiedEntity {

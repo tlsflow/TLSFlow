@@ -28,10 +28,11 @@ test('配置摘要与键顺序无关，版本实体保持输入快照', () => {
   const domain = new AutomationsDomainService();
   const source = configuration();
   const version = domain.createVersion({ tenantId: 'tenant_1', automationId: 'aut_1', version: 1, configuration: source, actorId: 'user_1', now: '2026-07-21T00:00:00.000Z' });
-  source.targetSelector.environments?.push('test');
-  assert.deepEqual(version.targetSelector.environments, ['production']);
+  const repeated = domain.createVersion({ tenantId: 'tenant_1', automationId: 'aut_2', version: 1, configuration: configuration(), actorId: 'user_1', now: '2026-07-21T00:00:00.000Z' });
+  source.targetSelector?.environments?.push('test');
+  assert.deepEqual(version.targetSelector?.environments, ['production']);
   assert.equal(version.checksum.length, 64);
-  assert.equal(domain.checksum(configuration()), version.checksum);
+  assert.equal(repeated.checksum, version.checksum);
 });
 
 test('状态流转和乐观并发冲突明确拒绝', () => {

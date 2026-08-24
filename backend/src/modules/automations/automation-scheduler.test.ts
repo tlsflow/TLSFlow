@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AutomationScheduler, cronMatches, nextCronOccurrence } from './application/automation-scheduler.js';
+import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
 
 test('Cron 按目标时区匹配并计算下一次触发', () => {
@@ -25,7 +24,7 @@ test('Cron 下一次时间遵守生效起止范围', () => {
 
 test('到期扫描使用 schedule 幂等键并更新下一次运行时间', async () => {
   const db = new PgliteDatabase();
-  await db.exec(await readFile(join(process.cwd(), 'src/database/migrations/20260721000100_automation_tables.sql'), 'utf8'));
+  await applyAutomationMigrations(db);
   const repository = new AutomationsRepository(db);
   const now = new Date(Date.now() + 60_000);
   const scheduledAt = new Date(now.getTime() - 60_000).toISOString();
@@ -43,7 +42,7 @@ test('到期扫描使用 schedule 幂等键并更新下一次运行时间', asyn
 
 test('一次性计划到期后只创建一次运行并清空下次运行时间', async () => {
   const db = new PgliteDatabase();
-  await db.exec(await readFile(join(process.cwd(), 'src/database/migrations/20260721000100_automation_tables.sql'), 'utf8'));
+  await applyAutomationMigrations(db);
   const repository = new AutomationsRepository(db);
   const now = new Date('2026-07-23T02:00:00.000Z');
   const scheduledAt = '2026-07-23T01:00:00.000Z';

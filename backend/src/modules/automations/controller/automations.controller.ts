@@ -38,19 +38,19 @@ export class AutomationsController {
     const id = pathId(request);
     const subject = this.subject(request);
     await this.assertCan(subject, 'automation.execute', request, id);
-    const body = request.body as { page?: number; pageSize?: number } | undefined;
-    return this.service.preview(this.tenantId(request), subject.id, id, body?.page, body?.pageSize);
+    const body = request.body as { page?: number; pageSize?: number; triggerContext?: { certificateAssetId?: string; certificateVersionId?: string; deliveryId?: string; deliveryKey?: string; eventId?: string; eventType?: string; occurredAt?: string; sourceType?: string; domains?: string[]; tags?: string[]; totalMatched?: number; executableCount?: number; excludedCount?: number; excludedReasons?: Record<string, number> } } | undefined;
+    return this.service.preview(this.tenantId(request), subject.id, id, body?.page, body?.pageSize, body?.triggerContext);
   }
 
   private async createRun(request: HttpRequest) {
     const id = pathId(request);
     const subject = this.subject(request);
     await this.assertCan(subject, 'automation.execute', request, id);
-    const body = request.body as { idempotencyKey?: string; expectedVersion?: number };
+    const body = request.body as { idempotencyKey?: string; expectedVersion?: number; triggerContext?: { certificateVersionId?: string; certificateAssetId?: string; eventId?: string; eventType?: string; sourceType?: string; occurredAt?: string; domains?: string[]; tags?: string[]; totalMatched?: number; executableCount?: number; excludedCount?: number; excludedReasons?: Record<string, number> }; executionOptions?: { stopOnError?: boolean; dryRun?: boolean } };
     if (!body?.idempotencyKey || !Number.isInteger(body.expectedVersion)) throw new AppError('VALIDATION_FAILED', '按需运行必须提供幂等键和期望版本');
     const idempotencyKey = body.idempotencyKey;
     const expectedVersion = Number(body.expectedVersion);
-    const run = await this.service.createOnDemandRun(this.tenantId(request), subject.id, id, idempotencyKey, expectedVersion);
+    const run = await this.service.createOnDemandRun(this.tenantId(request), subject.id, id, idempotencyKey, expectedVersion, { triggerContext: body.triggerContext, executionOptions: body.executionOptions });
     await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_EXECUTED, 'automation.execute', run.id, undefined, run);
     return { statusCode: 201, body: run };
   }

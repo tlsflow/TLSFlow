@@ -1,9 +1,16 @@
 import { newId } from '../../../shared/id.js';
 import type { AutomationActionDto, AutomationFailureStage, AutomationRunDto, AutomationRunTargetDto, AutomationTargetSummaryDto } from '../dto/automations.dto.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
+import type { AutomationApprovalOrchestrator } from './automation-approval-orchestrator.js';
 
 export interface AutomationActionExecutionPort {
   execute(input: { run: AutomationRunDto; target: AutomationRunTargetDto; action: AutomationActionDto; requireApproval: boolean }): Promise<{ status: 'succeeded' | 'running' | 'waiting_approval'; referenceType?: 'deployment_plan' | 'execution_run' | 'notification_request'; referenceId?: string }>;
+}
+
+async function cancelPendingTargets(repository: AutomationsRepository, runId: string, tenantId: string, finishedAt: string): Promise<void> {
+  for (const pending of (await repository.listRunTargets(runId, tenantId)).filter((item) => item.status === 'pending')) {
+    await repository.updateRunTarget(pending.id, tenantId, { status: 'cancelled', finishedAt, updatedAt: finishedAt });
+  }
 }
 
 export function isWithinMaintenanceWindow(window: { daysOfWeek: number[]; startTime: string; endTime: string; timeZone: string } | undefined, now: Date): boolean {
@@ -41,10 +48,21 @@ export function failureStageFromError(error: unknown, fallback: AutomationFailur
 }
 
 export class AutomationRunCoordinator {
-  constructor(private readonly repository: AutomationsRepository, private readonly actions: AutomationActionExecutionPort, private readonly clock: () => Date = () => new Date()) {}
+  constructor(
+    private readonly repository: AutomationsRepository,
+    private readonly actions: AutomationActionExecutionPort,
+    private readonly clock: () => Date = () => new Date(),
+    private readonly approvals?: AutomationApprovalOrchestrator,
+  ) {}
 
   async execute(runId: string, tenantId: string): Promise<AutomationRunDto> {
     let run = await this.requireRun(runId, tenantId);
+    if (run.status === 'waiting_approval' && this.approvals) {
+      const approval = await this.approvals.synchronizeRun(run.id, tenantId);
+      if (approval.status === 'pending') return this.requireRun(run.id, tenantId);
+      if (approval.status === 'rejected') return this.requireRun(run.id, tenantId);
+      run = await this.requireRun(run.id, tenantId);
+    }
     const version = await this.repository.getVersion(run.automationId, run.automationVersion, tenantId);
     if (!version) throw new Error(`automation version missing: ${run.automationId}@${run.automationVersion}`);
     if (!isWithinMaintenanceWindow(version.guardrails.maintenanceWindow, this.clock())) {
@@ -89,7 +107,18 @@ export class AutomationRunCoordinator {
       } catch (error) {
         consecutiveFailures += 1;
         const failureStage = (error as { failureStage?: AutomationFailureStage }).failureStage ?? 'execution';
-        await this.repository.updateRunTarget(target.id, tenantId, { status: 'failed', failureStage, errorCode: String((error as { errorCode?: string }).errorCode ?? 'AUTOMATION_ACTION_FAILED'), errorMessage: error instanceof Error ? error.message : String(error), finishedAt: this.clock().toISOString(), updatedAt: this.clock().toISOString() });
+        const finishedAt = this.clock().toISOString();
+        await this.repository.updateRunTarget(target.id, tenantId, { status: 'failed', failureStage, errorCode: String((error as { errorCode?: string }).errorCode ?? 'AUTOMATION_ACTION_FAILED'), errorMessage: error instanceof Error ? error.message : String(error), finishedAt, updatedAt: finishedAt });
+        if (latestRun.executionOptions?.stopOnError === true) {
+          await cancelPendingTargets(this.repository, run.id, tenantId, finishedAt);
+          run = await this.repository.updateRun(run.id, tenantId, {
+            status: 'needs_attention',
+            failureStage,
+            targetSummary: summarizeTargets(await this.repository.listRunTargets(run.id, tenantId)),
+            finishedAt,
+          });
+          return run;
+        }
       }
       const latestTargets = await this.repository.listRunTargets(run.id, tenantId);
       const summary = summarizeTargets(latestTargets);
@@ -97,10 +126,9 @@ export class AutomationRunCoordinator {
       const failureRate = processed === 0 ? 0 : summary.failed / processed;
       if ((version.guardrails.failureCountThreshold && consecutiveFailures >= version.guardrails.failureCountThreshold)
         || (version.guardrails.failureRateThreshold && failureRate >= version.guardrails.failureRateThreshold)) {
-        for (const pending of latestTargets.filter((item) => item.status === 'pending')) {
-          await this.repository.updateRunTarget(pending.id, tenantId, { status: 'cancelled', finishedAt: this.clock().toISOString(), updatedAt: this.clock().toISOString() });
-        }
-        run = await this.repository.updateRun(run.id, tenantId, { status: 'needs_attention', failureStage: latestTargets.find((item) => item.status === 'failed')?.failureStage, targetSummary: summarizeTargets(await this.repository.listRunTargets(run.id, tenantId)), finishedAt: this.clock().toISOString() });
+        const finishedAt = this.clock().toISOString();
+        await cancelPendingTargets(this.repository, run.id, tenantId, finishedAt);
+        run = await this.repository.updateRun(run.id, tenantId, { status: 'needs_attention', failureStage: latestTargets.find((item) => item.status === 'failed')?.failureStage, targetSummary: summarizeTargets(await this.repository.listRunTargets(run.id, tenantId)), finishedAt });
         return run;
       }
     }

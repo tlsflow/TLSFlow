@@ -6,6 +6,7 @@ import type {
   AutomationRunActionResultEntity,
   AutomationRunEntity,
   AutomationRunTargetEntity,
+  AutomationTriggerDeliveryEntity,
   AutomationVersionEntity,
 } from '../schema/automations.schema.js';
 
@@ -16,64 +17,140 @@ function iso(value: unknown): string | undefined {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-function json<T>(value: unknown): T {
+function json<T>(value: unknown, fallback?: T): T {
+  if (value === undefined || value === null) return structuredClone(fallback) as T;
   if (typeof value === 'string') return JSON.parse(value) as T;
   return structuredClone(value) as T;
 }
 
 function mapAutomation(row: AutomationRow): AutomationEntity {
   return {
-    id: String(row.id), tenantId: String(row.tenant_id), name: String(row.name),
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    name: String(row.name),
     description: row.description ? String(row.description) : undefined,
-    status: row.status as AutomationEntity['status'], currentVersion: Number(row.current_version),
-    nextRunAt: iso(row.next_run_at), lastRunAt: iso(row.last_run_at), createdBy: String(row.created_by),
-    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!, deletedAt: iso(row.deleted_at), version: Number(row.version),
+    status: row.status as AutomationEntity['status'],
+    currentVersion: Number(row.current_version),
+    nextRunAt: iso(row.next_run_at),
+    lastRunAt: iso(row.last_run_at),
+    createdBy: String(row.created_by),
+    createdAt: iso(row.created_at)!,
+    updatedAt: iso(row.updated_at)!,
+    deletedAt: iso(row.deleted_at),
+    version: Number(row.version),
   };
 }
 
 function mapVersion(row: AutomationRow): AutomationVersionEntity {
+  const legacySelector = json(row.target_selector, {}) as AutomationVersionEntity['targetSelector'];
+  const targetResolver = json(row.target_resolver, undefined) as AutomationVersionEntity['targetResolver'];
   return {
-    id: String(row.id), tenantId: String(row.tenant_id), automationId: String(row.automation_id), version: Number(row.version),
-    trigger: json(row.trigger_config), targetSelector: json(row.target_selector), actions: json(row.actions),
-    guardrails: json(row.guardrails), checksum: String(row.checksum), createdBy: String(row.created_by), createdAt: iso(row.created_at)!,
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    automationId: String(row.automation_id),
+    version: Number(row.version),
+    trigger: json(row.trigger_config),
+    filters: json(row.filters, []),
+    targetResolver: targetResolver ?? { type: 'legacy_target_selector', selector: legacySelector },
+    targetSelector: legacySelector,
+    approvalStage: json(row.approval_stage, undefined),
+    actions: json(row.actions),
+    guardrails: json(row.guardrails),
+    checksum: String(row.checksum),
+    createdBy: String(row.created_by),
+    createdAt: iso(row.created_at)!,
   };
 }
 
 function mapRun(row: AutomationRow): AutomationRunEntity {
   return {
-    id: String(row.id), tenantId: String(row.tenant_id), automationId: String(row.automation_id), automationVersion: Number(row.automation_version),
-    automationNameSnapshot: String(row.automation_name_snapshot), triggerType: row.trigger_type as AutomationRunEntity['triggerType'],
-    scheduledAt: iso(row.scheduled_at), idempotencyKey: String(row.idempotency_key), parentRunId: row.parent_run_id ? String(row.parent_run_id) : undefined,
-    status: row.status as AutomationRunEntity['status'], targetSummary: json(row.target_summary), actionTypes: json(row.action_types),
-    environmentSnapshots: json(row.environment_snapshots), failureStage: row.failure_stage as AutomationRunEntity['failureStage'],
-    failureCode: row.failure_code ? String(row.failure_code) : undefined, failureMessage: row.failure_message ? String(row.failure_message) : undefined,
-    startedAt: iso(row.started_at), finishedAt: iso(row.finished_at), createdBy: String(row.created_by), createdAt: iso(row.created_at)!,
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    automationId: String(row.automation_id),
+    automationVersion: Number(row.automation_version),
+    automationNameSnapshot: String(row.automation_name_snapshot),
+    triggerType: row.trigger_type as AutomationRunEntity['triggerType'],
+    scheduledAt: iso(row.scheduled_at),
+    idempotencyKey: String(row.idempotency_key),
+    parentRunId: row.parent_run_id ? String(row.parent_run_id) : undefined,
+    triggerContext: json(row.trigger_context, undefined),
+    executionOptions: json(row.execution_options, undefined),
+    approvalId: row.approval_id ? String(row.approval_id) : undefined,
+    deliveryId: row.delivery_id ? String(row.delivery_id) : undefined,
+    status: row.status as AutomationRunEntity['status'],
+    targetSummary: json(row.target_summary),
+    actionTypes: json(row.action_types),
+    environmentSnapshots: json(row.environment_snapshots, []),
+    failureStage: row.failure_stage as AutomationRunEntity['failureStage'],
+    failureCode: row.failure_code ? String(row.failure_code) : undefined,
+    failureMessage: row.failure_message ? String(row.failure_message) : undefined,
+    startedAt: iso(row.started_at),
+    finishedAt: iso(row.finished_at),
+    createdBy: String(row.created_by),
+    createdAt: iso(row.created_at)!,
+  };
+}
+
+function mapDelivery(row: AutomationRow): AutomationTriggerDeliveryEntity {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    automationId: String(row.automation_id),
+    automationVersion: Number(row.automation_version),
+    deliveryKey: String(row.delivery_key),
+    triggerType: row.trigger_type as AutomationTriggerDeliveryEntity['triggerType'],
+    eventType: row.event_type ? String(row.event_type) : undefined,
+    payload: json(row.payload, {}),
+    status: row.status as AutomationTriggerDeliveryEntity['status'],
+    runId: row.run_id ? String(row.run_id) : undefined,
+    approvalId: row.approval_id ? String(row.approval_id) : undefined,
+    errorCode: row.error_code ? String(row.error_code) : undefined,
+    errorMessage: row.error_message ? String(row.error_message) : undefined,
+    createdAt: iso(row.created_at)!,
+    updatedAt: iso(row.updated_at)!,
   };
 }
 
 function mapTarget(row: AutomationRow): AutomationRunTargetEntity {
   return {
-    id: String(row.id), tenantId: String(row.tenant_id), runId: String(row.run_id), sequenceNo: Number(row.sequence_no),
-    targetSnapshot: json(row.target_snapshot), environmentSnapshot: row.environment_snapshot ? String(row.environment_snapshot) : undefined,
-    actionTypes: json(row.action_types), status: row.status as AutomationRunTargetEntity['status'],
-    currentAction: row.current_action as AutomationRunTargetEntity['currentAction'], failureStage: row.failure_stage as AutomationRunTargetEntity['failureStage'],
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    runId: String(row.run_id),
+    sequenceNo: Number(row.sequence_no),
+    targetSnapshot: json(row.target_snapshot),
+    environmentSnapshot: row.environment_snapshot ? String(row.environment_snapshot) : undefined,
+    actionTypes: json(row.action_types),
+    status: row.status as AutomationRunTargetEntity['status'],
+    currentAction: row.current_action as AutomationRunTargetEntity['currentAction'],
+    failureStage: row.failure_stage as AutomationRunTargetEntity['failureStage'],
     deploymentPlanId: row.deployment_plan_id ? String(row.deployment_plan_id) : undefined,
     executionRunId: row.execution_run_id ? String(row.execution_run_id) : undefined,
-    notificationRequestIds: json(row.notification_request_ids), errorCode: row.error_code ? String(row.error_code) : undefined,
-    errorMessage: row.error_message ? String(row.error_message) : undefined, startedAt: iso(row.started_at), finishedAt: iso(row.finished_at),
-    createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!,
+    notificationRequestIds: json(row.notification_request_ids, []),
+    errorCode: row.error_code ? String(row.error_code) : undefined,
+    errorMessage: row.error_message ? String(row.error_message) : undefined,
+    startedAt: iso(row.started_at),
+    finishedAt: iso(row.finished_at),
+    createdAt: iso(row.created_at)!,
+    updatedAt: iso(row.updated_at)!,
   };
 }
 
 function mapActionResult(row: AutomationRow): AutomationRunActionResultEntity {
   return {
-    id: String(row.id), tenantId: String(row.tenant_id), runId: String(row.run_id), runTargetId: row.run_target_id ? String(row.run_target_id) : undefined,
-    actionType: row.action_type as AutomationRunActionResultEntity['actionType'], actionPosition: Number(row.action_position),
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    runId: String(row.run_id),
+    runTargetId: row.run_target_id ? String(row.run_target_id) : undefined,
+    actionType: row.action_type as AutomationRunActionResultEntity['actionType'],
+    actionPosition: Number(row.action_position),
     status: row.status as AutomationRunActionResultEntity['status'],
     externalReferenceType: row.external_reference_type as AutomationRunActionResultEntity['externalReferenceType'],
     externalReferenceId: row.external_reference_id ? String(row.external_reference_id) : undefined,
-    failureStage: row.failure_stage as AutomationRunActionResultEntity['failureStage'], errorCode: row.error_code ? String(row.error_code) : undefined,
-    errorMessage: row.error_message ? String(row.error_message) : undefined, startedAt: iso(row.started_at), finishedAt: iso(row.finished_at),
+    failureStage: row.failure_stage as AutomationRunActionResultEntity['failureStage'],
+    errorCode: row.error_code ? String(row.error_code) : undefined,
+    errorMessage: row.error_message ? String(row.error_message) : undefined,
+    startedAt: iso(row.started_at),
+    finishedAt: iso(row.finished_at),
     createdAt: iso(row.created_at)!,
   };
 }
@@ -137,9 +214,11 @@ export class AutomationsRepository {
 
   async createVersion(entity: AutomationVersionEntity): Promise<AutomationVersionEntity> {
     await this.db.query(`insert into automation_versions
-      (id, tenant_id, automation_id, version, trigger_config, target_selector, actions, guardrails, checksum, created_by, created_at)
-      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,$11)`,
-    [entity.id, entity.tenantId, entity.automationId, entity.version, JSON.stringify(entity.trigger), JSON.stringify(entity.targetSelector),
+      (id, tenant_id, automation_id, version, trigger_config, filters, target_resolver, target_selector, approval_stage, actions, guardrails, checksum, created_by, created_at)
+      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14)`,
+    [entity.id, entity.tenantId, entity.automationId, entity.version, JSON.stringify(entity.trigger), JSON.stringify(entity.filters ?? []),
+      JSON.stringify(entity.targetResolver ?? { type: 'legacy_target_selector', selector: entity.targetSelector ?? {} }),
+      JSON.stringify(entity.targetSelector ?? {}), JSON.stringify(entity.approvalStage ?? null),
       JSON.stringify(entity.actions), JSON.stringify(entity.guardrails), entity.checksum, entity.createdBy, entity.createdAt]);
     return structuredClone(entity);
   }
@@ -157,13 +236,15 @@ export class AutomationsRepository {
   async createRun(entity: AutomationRunEntity): Promise<AutomationRunEntity> {
     await this.db.query(`insert into automation_runs
       (id, tenant_id, automation_id, automation_version, automation_name_snapshot, trigger_type, scheduled_at, idempotency_key,
-       parent_run_id, status, target_summary, action_types, environment_snapshots, failure_stage, failure_code, failure_message,
-       started_at, finished_at, created_by, created_at)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14,$15,$16,$17,$18,$19,$20)`,
+       parent_run_id, trigger_context, execution_options, approval_id, delivery_id, status, target_summary, action_types, environment_snapshots,
+       failure_stage, failure_code, failure_message, started_at, finished_at, created_by, created_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,$13,$14,$15::jsonb,$16::jsonb,$17::jsonb,$18,$19,$20,$21,$22,$23,$24)`,
     [entity.id, entity.tenantId, entity.automationId, entity.automationVersion, entity.automationNameSnapshot, entity.triggerType,
-      entity.scheduledAt ?? null, entity.idempotencyKey, entity.parentRunId ?? null, entity.status, JSON.stringify(entity.targetSummary),
-      JSON.stringify(entity.actionTypes), JSON.stringify(entity.environmentSnapshots), entity.failureStage ?? null, entity.failureCode ?? null,
-      entity.failureMessage ?? null, entity.startedAt ?? null, entity.finishedAt ?? null, entity.createdBy, entity.createdAt]);
+      entity.scheduledAt ?? null, entity.idempotencyKey, entity.parentRunId ?? null, JSON.stringify(entity.triggerContext ?? null),
+      JSON.stringify(entity.executionOptions ?? null), entity.approvalId ?? null, entity.deliveryId ?? null, entity.status, JSON.stringify(entity.targetSummary),
+      JSON.stringify(entity.actionTypes), JSON.stringify(entity.environmentSnapshots), entity.failureStage ?? null,
+      entity.failureCode ?? null, entity.failureMessage ?? null, entity.startedAt ?? null, entity.finishedAt ?? null,
+      entity.createdBy, entity.createdAt]);
     return structuredClone(entity);
   }
 
@@ -181,9 +262,11 @@ export class AutomationsRepository {
     const current = await this.getRun(id, tenantId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', '自动化运行不存在', { id });
     const next = { ...current, ...structuredClone(patch), id, tenantId };
-    await this.db.query(`update automation_runs set status=$1, target_summary=$2::jsonb, failure_stage=$3, failure_code=$4,
-      failure_message=$5, started_at=$6, finished_at=$7 where id=$8 and tenant_id=$9`,
-    [next.status, JSON.stringify(next.targetSummary), next.failureStage ?? null, next.failureCode ?? null, next.failureMessage ?? null,
+    await this.db.query(`update automation_runs set status=$1, trigger_context=$2::jsonb, execution_options=$3::jsonb, approval_id=$4, delivery_id=$5,
+      target_summary=$6::jsonb, failure_stage=$7, failure_code=$8, failure_message=$9, started_at=$10, finished_at=$11
+      where id=$12 and tenant_id=$13`,
+    [next.status, JSON.stringify(next.triggerContext ?? null), JSON.stringify(next.executionOptions ?? null), next.approvalId ?? null, next.deliveryId ?? null,
+      JSON.stringify(next.targetSummary), next.failureStage ?? null, next.failureCode ?? null, next.failureMessage ?? null,
       next.startedAt ?? null, next.finishedAt ?? null, id, tenantId]);
     return next;
   }
@@ -199,6 +282,45 @@ export class AutomationsRepository {
     const result = await this.db.query<AutomationRow>(`select * from automation_runs
       where status in ('queued', 'running', 'waiting_approval') order by created_at asc limit $1`, [normalizedLimit]);
     return result.rows.map(mapRun);
+  }
+
+  async createDelivery(entity: AutomationTriggerDeliveryEntity): Promise<AutomationTriggerDeliveryEntity> {
+    await this.db.query(`insert into automation_trigger_deliveries
+      (id, tenant_id, automation_id, automation_version, delivery_key, trigger_type, event_type, payload, status, run_id, approval_id, error_code, error_message, created_at, updated_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15)`,
+    [entity.id, entity.tenantId, entity.automationId, entity.automationVersion, entity.deliveryKey, entity.triggerType, entity.eventType ?? null,
+      JSON.stringify(entity.payload), entity.status, entity.runId ?? null, entity.approvalId ?? null, entity.errorCode ?? null,
+      entity.errorMessage ?? null, entity.createdAt, entity.updatedAt]);
+    return structuredClone(entity);
+  }
+
+  async getDelivery(id: string, tenantId: string): Promise<AutomationTriggerDeliveryEntity | undefined> {
+    const result = await this.db.query<AutomationRow>('select * from automation_trigger_deliveries where id=$1 and tenant_id=$2', [id, tenantId]);
+    return result.rows[0] ? mapDelivery(result.rows[0]) : undefined;
+  }
+
+  async findDelivery(tenantId: string, automationId: string, automationVersion: number, deliveryKey: string): Promise<AutomationTriggerDeliveryEntity | undefined> {
+    const result = await this.db.query<AutomationRow>(`select * from automation_trigger_deliveries
+      where tenant_id=$1 and automation_id=$2 and automation_version=$3 and delivery_key=$4`,
+    [tenantId, automationId, automationVersion, deliveryKey]);
+    return result.rows[0] ? mapDelivery(result.rows[0]) : undefined;
+  }
+
+  async updateDelivery(id: string, tenantId: string, patch: Partial<AutomationTriggerDeliveryEntity>): Promise<AutomationTriggerDeliveryEntity> {
+    const current = await this.getDelivery(id, tenantId);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '自动化触发投递不存在', { id });
+    const next = { ...current, ...structuredClone(patch), id, tenantId };
+    await this.db.query(`update automation_trigger_deliveries set payload=$1::jsonb, status=$2, run_id=$3, approval_id=$4,
+      error_code=$5, error_message=$6, updated_at=$7 where id=$8 and tenant_id=$9`,
+    [JSON.stringify(next.payload), next.status, next.runId ?? null, next.approvalId ?? null, next.errorCode ?? null,
+      next.errorMessage ?? null, next.updatedAt, id, tenantId]);
+    return next;
+  }
+
+  async listDeliveries(tenantId: string, automationId?: string): Promise<AutomationTriggerDeliveryEntity[]> {
+    const result = await this.db.query<AutomationRow>(`select * from automation_trigger_deliveries where tenant_id=$1
+      ${automationId ? 'and automation_id=$2' : ''} order by created_at desc`, automationId ? [tenantId, automationId] : [tenantId]);
+    return result.rows.map(mapDelivery);
   }
 
   async createRunTarget(entity: AutomationRunTargetEntity): Promise<AutomationRunTargetEntity> {

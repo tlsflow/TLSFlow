@@ -5,10 +5,35 @@ export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted'
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled'
 
 export interface AutomationConfiguration {
-  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
-  targetSelector: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
+  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'acme' | 'manual_import'> }
+  filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
+  targetResolver?: { type: 'legacy_target_selector'; selector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] } } | { type: 'certificate_version_targets' }
+  targetSelector?: { certificateIds?: string[]; certificateDomains?: string[]; certificateVersionSelection?: 'latest' | 'specific'; certificateVersionIds?: string[]; statuses?: string[]; expiresWithinDays?: number; environments?: string[]; tags?: string[]; tagMatch?: 'all' | 'any'; assetIds?: string[]; bindingIds?: string[]; ownerIds?: string[] }
+  approvalStage?: { type: 'run'; mode?: 'before_actions'; operationType?: string; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; expiresInHours?: number }
   actions: Array<{ type: 'create_deployment_plan' | 'execute_deployment_plan' | 'send_notification'; position: number; config: Record<string, unknown> }>
   guardrails: { maxTargetsPerRun: number; concurrencyLimit: number; requirePreview: boolean; requireDryRun: boolean; requireApproval: boolean; allowManualWhenDisabled?: boolean; allowedEnvironments?: string[]; failureCountThreshold?: number; failureRateThreshold?: number }
+}
+
+export interface AutomationTriggerContext {
+  deliveryId?: string
+  deliveryKey?: string
+  eventId?: string
+  eventType?: string
+  occurredAt?: string
+  sourceType?: string
+  certificateAssetId?: string
+  certificateVersionId?: string
+  domains?: string[]
+  tags?: string[]
+  totalMatched?: number
+  executableCount?: number
+  excludedCount?: number
+  excludedReasons?: Record<string, number>
+}
+
+export interface AutomationRunExecutionOptions {
+  stopOnError?: boolean
+  dryRun?: boolean
 }
 
 export interface AutomationRecord {
@@ -29,9 +54,12 @@ export interface AutomationRunRecord {
   automationNameSnapshot: string
   automationVersion: number
   triggerType: string
+  triggerContext?: { deliveryId?: string; deliveryKey?: string; eventId?: string; eventType?: string; occurredAt?: string; sourceType?: string; certificateAssetId?: string; certificateVersionId?: string; domains?: string[]; tags?: string[]; totalMatched?: number; executableCount?: number; excludedCount?: number; excludedReasons?: Record<string, number> }
   status: AutomationRunStatus
   targetSummary: Record<string, number>
   failureStage?: string
+  approvalId?: string
+  deliveryId?: string
   createdAt: string
   startedAt?: string
   finishedAt?: string
@@ -88,12 +116,17 @@ export async function deleteAutomation(id: string, expectedVersion: number): Pro
   return requireData((await apiClient.request<AutomationRecord>(toClientPath(`${basePath}/${id}`), { method: 'DELETE', body: { expectedVersion }, idempotencyKey: createIdempotencyKey('automation_delete') })).data)
 }
 
-export async function previewAutomation(id: string): Promise<AutomationPreviewRecord> {
-  return requireData((await apiClient.post<AutomationPreviewRecord>(toClientPath(`${basePath}/${id}/preview`), { page: 1, pageSize: 200 })).data)
+export async function previewAutomation(id: string, payload: { page?: number; pageSize?: number; triggerContext?: AutomationTriggerContext } = {}): Promise<AutomationPreviewRecord> {
+  return requireData((await apiClient.post<AutomationPreviewRecord>(toClientPath(`${basePath}/${id}/preview`), { page: payload.page ?? 1, pageSize: payload.pageSize ?? 200, ...(payload.triggerContext ? { triggerContext: payload.triggerContext } : {}) })).data)
 }
 
-export async function runAutomation(id: string, expectedVersion: number): Promise<AutomationRunRecord> {
-  return requireData((await apiClient.post<AutomationRunRecord>(toClientPath(`${basePath}/${id}/runs`), { expectedVersion, idempotencyKey: createIdempotencyKey('automation_run') })).data)
+export async function runAutomation(id: string, expectedVersion: number, options: { triggerContext?: AutomationTriggerContext; executionOptions?: AutomationRunExecutionOptions } = {}): Promise<AutomationRunRecord> {
+  return requireData((await apiClient.post<AutomationRunRecord>(toClientPath(`${basePath}/${id}/runs`), {
+    expectedVersion,
+    idempotencyKey: createIdempotencyKey('automation_run'),
+    ...(options.triggerContext ? { triggerContext: options.triggerContext } : {}),
+    ...(options.executionOptions ? { executionOptions: options.executionOptions } : {}),
+  })).data)
 }
 
 export async function listAutomationRuns(automationId?: string): Promise<AutomationRunRecord[]> {

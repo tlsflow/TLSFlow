@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import { AutomationActionRegistry } from '../application/automation-action-registry.js';
+import { AutomationFilterEvaluator } from '../application/automation-filter-evaluator.js';
+import { AutomationTargetResolverRegistry } from '../application/automation-target-resolver.registry.js';
+import { AutomationTriggerRegistry } from '../application/automation-trigger-registry.js';
+import { AutomationVersionCompiler } from '../application/automation-version-compiler.js';
 import type { AutomationConfigurationDto, AutomationStatus } from '../dto/automations.dto.js';
 import type { AutomationEntity, AutomationVersionEntity } from '../schema/automations.schema.js';
 
@@ -40,7 +44,16 @@ function validateRunAt(runAt: string): void {
 }
 
 export class AutomationsDomainService {
-  constructor(private readonly actionRegistry = new AutomationActionRegistry()) {}
+  private readonly compiler: AutomationVersionCompiler;
+
+  constructor(
+    actionRegistry = new AutomationActionRegistry(),
+    triggerRegistry = new AutomationTriggerRegistry(),
+    filterEvaluator = new AutomationFilterEvaluator(),
+    resolverRegistry = new AutomationTargetResolverRegistry(),
+  ) {
+    this.compiler = new AutomationVersionCompiler(triggerRegistry, filterEvaluator, resolverRegistry, actionRegistry);
+  }
 
   validateConfiguration(configuration: AutomationConfigurationDto): void {
     if (configuration.trigger.type === 'once') {
@@ -66,20 +79,22 @@ export class AutomationsDomainService {
     if (guardrails.failureRateThreshold !== undefined && (guardrails.failureRateThreshold <= 0 || guardrails.failureRateThreshold > 1)) {
       throw new AppError('VALIDATION_FAILED', '失败比例阈值必须大于 0 且不超过 1');
     }
-    if (configuration.targetSelector.expiresWithinDays !== undefined && (configuration.targetSelector.expiresWithinDays < 0 || configuration.targetSelector.expiresWithinDays > 3650)) {
+    const targetSelector = configuration.targetSelector;
+    if (targetSelector?.expiresWithinDays !== undefined && (targetSelector.expiresWithinDays < 0 || targetSelector.expiresWithinDays > 3650)) {
       throw new AppError('VALIDATION_FAILED', '证书到期窗口越界');
     }
-    if (configuration.targetSelector.certificateVersionSelection === 'specific' && !configuration.targetSelector.certificateVersionIds?.length) {
+    if (targetSelector?.certificateVersionSelection === 'specific' && !targetSelector.certificateVersionIds?.length) {
       throw new AppError('VALIDATION_FAILED', '指定证书版本模式必须提供证书版本');
     }
-    this.actionRegistry.validate(configuration.actions);
+    this.compiler.compile(configuration);
   }
 
   createVersion(input: { tenantId: string; automationId: string; version: number; configuration: AutomationConfigurationDto; actorId: string; now: string }): AutomationVersionEntity {
-    this.validateConfiguration(input.configuration);
+    const configuration = this.compiler.compile(input.configuration);
+    this.validateConfiguration(configuration);
     return {
       id: newId('autv'), tenantId: input.tenantId, automationId: input.automationId, version: input.version,
-      ...structuredClone(input.configuration), checksum: this.checksum(input.configuration), createdBy: input.actorId, createdAt: input.now,
+      ...structuredClone(configuration), checksum: this.checksum(configuration), createdBy: input.actorId, createdAt: input.now,
     };
   }
 
