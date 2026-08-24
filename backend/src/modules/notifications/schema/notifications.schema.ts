@@ -1,4 +1,4 @@
-export const notificationChannelTypes = ['email', 'wecom', 'slack', 'webhook'] as const;
+export const notificationChannelTypes = ['email', 'wecom', 'slack', 'feishu', 'dingtalk', 'telegram', 'webhook'] as const;
 export type NotificationChannelType = typeof notificationChannelTypes[number];
 
 export const notificationChannelStatuses = ['active', 'disabled', 'deleted'] as const;

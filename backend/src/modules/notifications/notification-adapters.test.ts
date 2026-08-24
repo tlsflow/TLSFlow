@@ -3,7 +3,10 @@ import net from 'node:net';
 import { createHmac } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { EmailNotificationAdapter } from './adapters/email-notification.adapter.js';
+import { DingTalkNotificationAdapter } from './adapters/dingtalk-notification.adapter.js';
+import { FeishuNotificationAdapter } from './adapters/feishu-notification.adapter.js';
 import { SlackNotificationAdapter } from './adapters/slack-notification.adapter.js';
+import { TelegramNotificationAdapter } from './adapters/telegram-notification.adapter.js';
 import { WeComNotificationAdapter } from './adapters/wecom-notification.adapter.js';
 import { WebhookNotificationAdapter } from './adapters/webhook-notification.adapter.js';
 import { WebhookTargetPolicy } from './security/webhook-target-policy.js';
@@ -63,6 +66,66 @@ describe('通知渠道 Adapter', () => {
     assert.equal((await rejected.send(sendInput('slack'))).success, false);
   });
 
+  it('飞书自定义机器人按官方规则生成签名并解析平台响应', async () => {
+    const client = new FakeHttpClient({ statusCode: 200, body: '{"code":0,"msg":"success"}', headers: {} });
+    const result = await new FeishuNotificationAdapter(client).send(sendInput('feishu', {
+      secrets: { webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/test', signingSecret: 'feishu-secret' },
+    }));
+    assert.equal(result.success, true);
+    const payload = JSON.parse(client.lastRequest!.body) as Record<string, unknown>;
+    const timestamp = String(payload.timestamp);
+    assert.equal(payload.sign, createHmac('sha256', `${timestamp}\nfeishu-secret`).digest('base64'));
+    assert.deepEqual(payload.content, { text: 'Test title\nTest body' });
+  });
+
+  it('飞书和钉钉拒绝伪造的平台 Webhook 域名', async () => {
+    await assert.rejects(
+      new FeishuNotificationAdapter(new FakeHttpClient({ statusCode: 200, body: '{"code":0}', headers: {} })).send(sendInput('feishu', {
+        secrets: { webhookUrl: 'https://attacker.example/open-apis/bot/v2/hook/test' },
+      })),
+      /非官方地址/,
+    );
+    await assert.rejects(
+      new DingTalkNotificationAdapter(new FakeHttpClient({ statusCode: 200, body: '{"errcode":0}', headers: {} })).send(sendInput('dingtalk', {
+        secrets: { webhookUrl: 'https://attacker.example/robot/send?access_token=test' },
+      })),
+      /非官方地址/,
+    );
+  });
+
+  it('钉钉自定义机器人把时间戳和 HMAC 签名放入请求 URL', async () => {
+    const client = new FakeHttpClient({ statusCode: 200, body: '{"errcode":0,"errmsg":"ok"}', headers: {} });
+    const result = await new DingTalkNotificationAdapter(client).send(sendInput('dingtalk', {
+      secrets: { webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=test', signingSecret: 'ding-secret' },
+    }));
+    assert.equal(result.success, true);
+    const url = new URL(client.lastRequest!.url);
+    const timestamp = url.searchParams.get('timestamp');
+    assert.ok(timestamp);
+    assert.equal(
+      url.searchParams.get('sign'),
+      createHmac('sha256', 'ding-secret').update(`${timestamp}\nding-secret`).digest('base64'),
+    );
+  });
+
+  it('Telegram 使用固定 Bot API sendMessage 而不是任意 Webhook', async () => {
+    const client = new FakeHttpClient({ statusCode: 200, body: '{"ok":true,"result":{"message_id":42}}', headers: {} });
+    const result = await new TelegramNotificationAdapter(client).send(sendInput('telegram', {
+      config: { chatId: '-100123', messageThreadId: 7 },
+      secrets: { botToken: '123456:telegram-token' },
+    }));
+    assert.equal(result.success, true);
+    assert.equal(result.externalId, '42');
+    assert.equal(client.lastRequest!.url, 'https://api.telegram.org/bot123456:telegram-token/sendMessage');
+    assert.equal(client.lastRequest!.maxRedirects, 0);
+    assert.deepEqual(JSON.parse(client.lastRequest!.body), {
+      chat_id: '-100123',
+      text: 'Test title\nTest body',
+      disable_web_page_preview: true,
+      message_thread_id: 7,
+    });
+  });
+
   it('Webhook Adapter 生成可验证的 HMAC-SHA256 签名且不保存响应正文', async () => {
     const client = new FakeHttpClient({ statusCode: 204, body: 'sensitive response', headers: { 'content-type': 'text/plain' } });
     const adapter = new WebhookNotificationAdapter(client);
@@ -89,7 +152,7 @@ class FakeHttpClient {
   async request(input: SafeHttpRequest): Promise<SafeHttpResponse> { this.lastRequest = input; return this.response; }
 }
 
-function sendInput(type: 'email' | 'wecom' | 'slack' | 'webhook', overrides: {
+function sendInput(type: 'email' | 'wecom' | 'slack' | 'feishu' | 'dingtalk' | 'telegram' | 'webhook', overrides: {
   config?: Record<string, unknown>;
   target?: Record<string, unknown>;
   secrets?: Record<string, string>;

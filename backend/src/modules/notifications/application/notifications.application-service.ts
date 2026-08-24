@@ -17,6 +17,7 @@ import { NotificationTemplateRenderer } from './notification-template-renderer.j
 import type { NotificationsRepository } from '../repository/notifications.repository.js';
 import type { NotificationChannel, NotificationChannelTarget } from '../schema/notifications.schema.js';
 import type { NotificationWorker } from './notification-worker.js';
+import type { ChannelAdapterRegistry } from './channel-adapter-registry.js';
 import { NotificationsDomainService } from '../domain/notifications.domain-service.js';
 
 export class NotificationsApplicationService implements NotificationPort {
@@ -27,6 +28,7 @@ export class NotificationsApplicationService implements NotificationPort {
     private readonly dedupe = new NotificationDedupeService(),
     private readonly worker?: NotificationWorker,
     private readonly domain = new NotificationsDomainService(),
+    private readonly adapters?: ChannelAdapterRegistry,
   ) {}
 
   async enqueue(input: EnqueueNotificationInput): Promise<{ requestId: string }> {
@@ -107,12 +109,18 @@ export class NotificationsApplicationService implements NotificationPort {
     return { requestId: request.id };
   }
 
-  createChannel(input: CreateNotificationChannelInput) {
+  async createChannel(input: CreateNotificationChannelInput) {
     this.domain.assertChannelSecrets(input.config ?? {}, input.secretRefs ?? {});
+    await this.adapters?.get(input.type).validateConfig(channelForValidation(input));
     return this.repository.createChannel(input);
   }
-  updateChannel(input: UpdateNotificationChannelInput) {
-    this.domain.assertChannelSecrets(input.config ?? {}, input.secretRefs ?? {});
+  async updateChannel(input: UpdateNotificationChannelInput) {
+    const current = await this.repository.getChannel(input.tenantId, input.id);
+    if (!current) throw new AppError('RESOURCE_NOT_FOUND', '通知渠道不存在', { id: input.id });
+    const config = input.config ?? current.config;
+    const secretRefs = input.secretRefs ?? current.secretRefs;
+    this.domain.assertChannelSecrets(config, secretRefs);
+    await this.adapters?.get(current.type).validateConfig({ ...current, ...input, config, secretRefs });
     return this.repository.updateChannel(input);
   }
   deleteChannel(tenantId: string, id: string, version: number) { return this.repository.deleteChannel(tenantId, id, version); }
@@ -196,6 +204,24 @@ export class NotificationsApplicationService implements NotificationPort {
     if (!builtin) return undefined;
     return this.repository.upsertTemplate({ tenantId, templateKey, locale: 'zh-CN', ...builtin });
   }
+}
+
+function channelForValidation(input: CreateNotificationChannelInput): NotificationChannel {
+  const now = new Date().toISOString();
+  return {
+    id: 'pending',
+    tenantId: input.tenantId,
+    name: input.name,
+    type: input.type,
+    status: input.status ?? 'disabled',
+    config: input.config ?? {},
+    secretRefs: input.secretRefs ?? {},
+    healthStatus: 'unknown',
+    consecutiveFailures: 0,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
 }
 
 function normalizeRequest(input: EnqueueNotificationInput) {
