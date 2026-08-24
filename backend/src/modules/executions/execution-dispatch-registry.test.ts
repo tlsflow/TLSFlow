@@ -160,12 +160,6 @@ test('runDispatchedExecution 默认复用构造时注入的 executorRegistry，�
         },
       }) : undefined,
     } as any,
-    queue: {
-      enqueue: async () => { throw new Error('not used'); },
-      runNext: async () => null,
-      size: async () => 0,
-      getResult: async () => undefined,
-    } as any,
     executorRegistry: {
       get: (type: string) => {
         assert.equal(type, 'AGENT');

@@ -11,8 +11,9 @@ import type { ExecutionsRepository } from '../repository/executions.repository.j
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import type { PluginCertificateResultService } from '../../plugins/results/plugin-certificate-result.service.js';
-import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
+import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
+import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
@@ -58,6 +59,7 @@ export class ExecutionResultSyncService {
     executionRunId: string;
     executionStepId: string;
     success: boolean;
+    status?: AgentSecurityStatus;
     errorCode?: string;
     errorMessage?: string;
     detail?: Record<string, unknown>;
@@ -68,9 +70,18 @@ export class ExecutionResultSyncService {
     const run = await this.executions.getRun(input.executionRunId, input.tenantId);
     if (!run) return;
 
+    if (hasPersistedUnknownResult(step)) return;
+    const executionStatus = resolveAgentExecutionStatus(input);
+    if (executionStatus === 'UNKNOWN') {
+      await this.persistUnknownAgentExecution(input, run, step);
+      return;
+    }
+
+    if (run.status === 'CANCELLED') return;
+
     const isDryRun = run.type === 'dry_run' || step.inputSnapshot.dryRun === true;
     const inputDetail = isDryRun
-      ? normalizeAgentAtomicDryRunDetail(input.detail ?? {})
+      ? normalizeAgentV2DryRunDetail(input.detail ?? {})
       : input.detail ?? {};
     const mergedDetail = {
       ...((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
@@ -81,16 +92,12 @@ export class ExecutionResultSyncService {
     if (installDetail) {
       mergedDetail.installResult = installDetail;
     }
-    let dryRunAccepted = false;
     if (isDryRun) {
       const mergedDryRunChecks = mergeDryRunChecks(
         readDryRunChecks((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
         readDryRunChecks(inputDetail),
       );
-      dryRunAccepted = input.errorCode === 'AGENT_ATOMIC_PREFLIGHT_FAILED'
-        && Array.isArray(inputDetail.operationResults)
-        && dryRunChecksAreAccepted(mergedDryRunChecks);
-      if (!input.success && !dryRunAccepted && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
+      if (!input.success && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
         mergedDryRunChecks.push(buildDryRunExecutionFailureCheck(input, step, mergedDetail));
       }
       if (mergedDryRunChecks.length > 0) {
@@ -98,28 +105,22 @@ export class ExecutionResultSyncService {
         mergedDetail.dryRunSummary = summarizeDryRunChecks(mergedDryRunChecks);
       }
     }
-    const acceptedInputSuccess = input.success || dryRunAccepted;
+    const acceptedInputSuccess = input.success && executionStatus === 'SUCCESS';
     const certificateVerification = validateFormalCertificateVerification(
       step,
       mergedDetail,
       isDryRun,
       acceptedInputSuccess,
     );
-    const effectiveSuccess = (input.success || dryRunAccepted) && certificateVerification.success;
-    const fallbackFailure = dryRunAccepted
-      ? undefined
-      : buildFallbackAgentFailure(input, step, mergedDetail);
-    const effectiveErrorCode = dryRunAccepted
-      ? undefined
-      : input.errorCode ?? certificateVerification.errorCode ?? fallbackFailure?.errorCode;
-    const effectiveErrorMessage = dryRunAccepted
-      ? undefined
-      : input.errorMessage ?? certificateVerification.errorMessage ?? fallbackFailure?.errorMessage;
+    const effectiveSuccess = acceptedInputSuccess && certificateVerification.success;
+    const agentFailureWithoutDetails = buildAgentFailureWithoutDetails(input, step, mergedDetail);
+    const effectiveErrorCode = input.errorCode ?? certificateVerification.errorCode ?? agentFailureWithoutDetails?.errorCode;
+    const effectiveErrorMessage = input.errorMessage ?? certificateVerification.errorMessage ?? agentFailureWithoutDetails?.errorMessage;
     if (!certificateVerification.success) {
       mergedDetail.certificateVerification = certificateVerification.detail;
     }
-    if (fallbackFailure) {
-      mergedDetail.failure = fallbackFailure.detail;
+    if (agentFailureWithoutDetails) {
+      mergedDetail.failure = agentFailureWithoutDetails.detail;
     }
     console.info('[execution-result-sync.applyAgentTaskResult]', JSON.stringify({
       tenantId: input.tenantId,
@@ -212,6 +213,39 @@ export class ExecutionResultSyncService {
         await this.requestAutomaticRollbackIfNeeded(finishedRun, input.actorId, input.tenantId);
       }
     }
+  }
+
+  private async persistUnknownAgentExecution(
+    input: { tenantId: string; executionRunId: string; executionStepId: string; success: boolean; status?: AgentSecurityStatus; errorCode?: string; errorMessage?: string; detail?: Record<string, unknown>; actorId: string },
+    run: ExecutionRunEntity,
+    step: ExecutionStepEntity,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const unknownDetail = {
+      ...readRecord(step.inputSnapshot.resultDetail),
+      ...(input.detail ?? {}),
+      executionStatus: 'UNKNOWN',
+      unknownReason: input.errorMessage ?? input.errorCode ?? 'Agent 写操作结果不明',
+    };
+    await this.executions.updateStep(step.id, {
+      inputSnapshot: { ...step.inputSnapshot, resultDetail: unknownDetail },
+      lastErrorCode: input.errorCode ?? 'AGENT_EXECUTION_UNKNOWN',
+      lastErrorMessage: input.errorMessage ?? 'Agent 写操作结果不明，禁止自动重试或回退',
+      lastErrorDetails: sanitizeExecutionErrorDetails(unknownDetail),
+      updatedAt: now,
+      updatedBy: input.actorId,
+    });
+    await this.executions.updateRun(run.id, {
+      summary: {
+        ...run.summary,
+        executionStatus: 'UNKNOWN',
+        unknownReason: input.errorMessage ?? input.errorCode ?? 'Agent 写操作结果不明',
+      },
+      updatedAt: now,
+      updatedBy: input.actorId,
+    });
+    this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, input.tenantId));
+    this.detailStream?.publishRun(await this.executions.getRunOrThrow(run.id, input.tenantId));
   }
 
   private async resolveTargetInstallDetail(tenantId: string, step: ExecutionStepEntity): Promise<Record<string, unknown> | undefined> {
@@ -772,16 +806,22 @@ function shouldSyncDeploymentState(
   detail?: Record<string, unknown>,
 ): boolean {
   if (step.stepType === 'VERIFY') return true;
-  if (step.stepType === 'CUSTOM' && (isWorkflowExecutionDetail(detail) || isAgentAtomicStep(step))) return true;
+  if (step.stepType === 'CUSTOM' && (isWorkflowExecutionDetail(detail) || isAgentV2Step(step))) return true;
   if (runType === 'rollback' && step.stepType === 'ROLLBACK' && !success) return true;
   if ((step.stepType === 'INSTALL' || step.stepType === 'RELOAD') && !success) return true;
   return false;
 }
 
-function isAgentAtomicStep(step: ExecutionStepEntity): boolean {
-  return readString(step.inputSnapshot, 'actionType') === 'agent.atomic_plan.execute'
-    || readString(step.inputSnapshot, 'pluginRuntimeCapability.runtime') === 'AGENT_ATOMIC';
+function isAgentV2Step(step: ExecutionStepEntity): boolean {
+  return agentV2ActionTypes.has(readString(step.inputSnapshot, 'actionType') ?? '');
 }
+
+const agentV2ActionTypes = new Set([
+  'agent.fact.collect',
+  'agent.plan.validate',
+  'agent.plan.execute',
+  'agent.execution.receipt',
+]);
 
 function normalizeWorkflowRollbackDetail(detail: Record<string, unknown>): void {
   if (!isWorkflowExecutionDetail(detail)) return;
@@ -840,7 +880,7 @@ function validateFormalCertificateVerification(
   return { success: true };
 }
 
-function buildFallbackAgentFailure(
+function buildAgentFailureWithoutDetails(
   input: { success: boolean; errorCode?: string; errorMessage?: string },
   step: ExecutionStepEntity,
   detail: Record<string, unknown>,
@@ -934,6 +974,28 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
+function hasPersistedUnknownResult(step: ExecutionStepEntity): boolean {
+  return String(readRecord(step.inputSnapshot.resultDetail)?.executionStatus ?? '').trim().toUpperCase() === 'UNKNOWN';
+}
+
+function resolveAgentExecutionStatus(input: {
+  success: boolean;
+  status?: AgentSecurityStatus;
+  errorCode?: string;
+  detail?: Record<string, unknown>;
+}): AgentSecurityStatus {
+  const detail = input.detail ?? {};
+  const receipt = readRecord(detail.receipt);
+  const candidates = [input.status, detail.executionStatus, detail.status, receipt?.status];
+  const explicit = candidates.find((value): value is AgentSecurityStatus =>
+    value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
+  if (explicit === 'UNKNOWN' || explicit === 'CANCELLED') return 'UNKNOWN';
+  if (explicit) return explicit;
+  const error = readRecord(detail.error);
+  if (detail.mayBeUnknown === true || error?.mayBeUnknown === true || input.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE') return 'UNKNOWN';
+  return input.success ? 'SUCCESS' : 'FAILED';
+}
+
 function readDryRunChecks(detail: Record<string, unknown> | undefined): Record<string, unknown>[] {
   const candidate = detail?.dryRunChecks;
   return Array.isArray(candidate)
@@ -960,13 +1022,6 @@ function dryRunChecksContainNoFailure(checks: readonly Record<string, unknown>[]
   return !checks.some((check) => normalizeDryRunStatus(check.status) === 'failed');
 }
 
-function dryRunChecksAreAccepted(checks: readonly Record<string, unknown>[]): boolean {
-  return checks.length > 0 && checks.every((check) => {
-    const status = normalizeDryRunStatus(check.status);
-    return status === 'passed' || status === 'warning';
-  });
-}
-
 function buildDryRunExecutionFailureCheck(
   input: { errorCode?: string; errorMessage?: string },
   step: ExecutionStepEntity,
@@ -974,11 +1029,12 @@ function buildDryRunExecutionFailureCheck(
 ): Record<string, unknown> {
   const taskId = readString(detail, 'taskId') ?? readString(step.inputSnapshot, 'dispatchDetail.taskId');
   return {
-    key: 'agent_execution',
-    label: 'Agent 执行结果',
+    key: readString(step.inputSnapshot, 'actionType') ?? 'agent.plan.validate',
+    label: 'Agent v2 预检结果',
     status: 'failed',
-    detail: input.errorMessage?.trim() || 'Agent 返回失败状态，但没有提供对应的 failed 预检项',
+    detail: input.errorMessage?.trim() || 'Agent v2 返回失败状态，但没有提供对应的 failed 预检项',
     evidence: {
+      actionType: readString(step.inputSnapshot, 'actionType'),
       stepType: step.stepType,
       taskId,
       errorCode: input.errorCode,

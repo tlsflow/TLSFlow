@@ -5,7 +5,7 @@ import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.j
 import { ExecutionGrantService } from './execution-grant.service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
-import { createDefaultExecutorRegistryWithDependencies, WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import { createDefaultExecutorRegistry, createDefaultExecutorRegistryWithDependencies, WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
 import type { ExecutionStepEntity } from './schema/executions.schema.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { DeploymentInputContractV1 } from '../deployment-inputs/dto/deployment-input-contract.dto.js';
@@ -67,9 +67,10 @@ function workflowFixture(): WorkflowDslV1 {
         name: 'reloadService',
         type: 'ssh',
         ssh: {
-          mode: 'command',
           connectionRef: 'targetSsh',
-          command: 'reload cert {{steps.uploadCert.extracted.remoteFingerprint}}',
+          program: 'systemctl',
+          args: ['nginx'],
+          argumentTemplate: 'systemctl.reload',
         },
         assert: [{ type: 'contains', value: 'ok' }],
       },
@@ -606,6 +607,12 @@ describe('WorkflowExecutorAdapter', () => {
     assert.ok(workflowRun.logs?.includes('curl:preflight:validated'));
   });
 
+  it('生产默认执行器注册表注册原生 WORKFLOW DSL 适配器', () => {
+    const registry = createDefaultExecutorRegistry();
+
+    assert.equal(registry.get('WORKFLOW') instanceof WorkflowExecutorAdapter, true);
+  });
+
   it('生产默认执行器注册表会把宿主 ExecutionGrantService 传递给 Synology dry-run', async () => {
     const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
     const grants = new ExecutionGrantService();
@@ -628,7 +635,9 @@ describe('WorkflowExecutorAdapter', () => {
       allowInsecureTls: true,
     };
 
-    const result = await registry.get('WORKFLOW').executeStep({ step, runType: 'dry_run', dryRun: true });
+    const workflowExecutor = registry.get('WORKFLOW');
+    assert.equal(workflowExecutor instanceof WorkflowExecutorAdapter, true);
+    const result = await workflowExecutor.executeStep({ step, runType: 'dry_run', dryRun: true });
     assert.equal(result.success, true);
     assert.equal((result.detail?.workflowRun as { status?: string }).status, 'success');
   });
@@ -722,21 +731,32 @@ describe('WorkflowExecutorAdapter', () => {
     });
     const sshExecutor = new StubExecutor('SSH', (input) => {
       const sshRequest = readRecord(input.step.inputSnapshot.sshRequest);
-      timeline.push(`ssh:${sshRequest.command}`);
-      return { success: true, detail: { commandResult: { exitCode: 0, stdout: 'reload ok' } } };
+      timeline.push(`ssh:${sshRequest.argumentTemplate}:${(sshRequest.args as string[]).join(' ')}`);
+      return {
+        success: true,
+        detail: {
+          exitCode: 0,
+          stdout: 'reload ok',
+          logs: ['ssh:reload'],
+          commandResult: { exitCode: 99, stdout: 'legacy command result' },
+          command: 'legacy command',
+        },
+      };
     });
     const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor: curlExecutor as never, sshExecutor: sshExecutor as never });
 
     const result = await adapter.executeStep({ step: workflowStep(versionId), runType: 'apply', dryRun: false });
 
-    assert.equal(result.success, true);
-    assert.deepEqual(timeline, [`curl:PUT`, `ssh:reload cert ${'ff'.repeat(32)}`]);
+    assert.equal(result.success, true, JSON.stringify(result));
+    assert.deepEqual(timeline, [`curl:PUT`, `ssh:systemctl.reload:nginx`]);
     assert.equal(result.detail?.mode, 'workflow_runner');
     const workflowRun = result.detail?.workflowRun as { status?: string; plannedOnly?: boolean; renderedSteps?: Array<{ request?: Record<string, unknown> }> };
     assert.equal(workflowRun.status, 'success');
     assert.equal(workflowRun.plannedOnly, false);
     assert.equal(workflowRun.renderedSteps?.[1]?.request?.dryRun, false);
     assert.equal(workflowRun.renderedSteps?.[1]?.request?.realSsh, true);
+    assert.equal(JSON.stringify(result.detail).includes('commandResult'), false);
+    assert.equal(JSON.stringify(result.detail).includes('legacy command'), false);
   });
 
   it('apply workflow returns child executor failure detail', async () => {

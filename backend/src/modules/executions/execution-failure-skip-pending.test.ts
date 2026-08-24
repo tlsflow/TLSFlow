@@ -4,7 +4,7 @@ import { DeploymentPlansRepository } from '../deployment-plans/repository/deploy
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
 import { ExecutorRegistry } from './application/executors.js';
-import { testDeploymentInputSnapshotsRepository, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 class FailFirstDryRunExecutor implements Executor {
   readonly type = 'PLATFORM_STAGE';
@@ -26,6 +26,7 @@ test('dry-run 第一步失败后会跳过剩余 PENDING 步骤，避免进度卡
     deploymentPlansRepository: new DeploymentPlansRepository(),
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     stageIntervalMs: 0,
+    tasks: testTaskEnqueuer(),
   });
   const created = await service.createDryRun({
     deploymentPlanId: 'plan_skip_pending',
@@ -64,6 +65,7 @@ test('WORKFLOW 同步执行结果会进入结果同步服务用于资产回写',
     deploymentPlansRepository: new DeploymentPlansRepository(),
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     stageIntervalMs: 0,
+    tasks: testTaskEnqueuer(),
     resultSync: {
       applyAgentTaskResult: async (input: Record<string, unknown>) => {
         resultSyncCalls.push(input);
@@ -118,6 +120,7 @@ test('WORKFLOW dry-run 不进入结果同步服务，避免重复收尾运行', 
     deploymentPlansRepository: new DeploymentPlansRepository(),
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     stageIntervalMs: 0,
+    tasks: testTaskEnqueuer(),
     resultSync: {
       applyAgentTaskResult: async (input: Record<string, unknown>) => {
         resultSyncCalls.push(input);

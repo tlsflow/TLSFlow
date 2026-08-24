@@ -12,6 +12,103 @@ const actorId = 'tester';
 const expectedFingerprint = 'a'.repeat(64);
 const mismatchedFingerprint = 'b'.repeat(64);
 
+test('Agent 写操作结果 UNKNOWN 保持步骤和运行不明，不进入 FAILED 或自动回滚', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('unknown_agent_write');
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    status: 'UNKNOWN',
+    errorCode: 'AGENT_CONNECTION_LOST',
+    errorMessage: 'Agent 连接在写操作后断开',
+    actorId,
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const resultDetail = updatedStep.inputSnapshot.resultDetail as Record<string, unknown> | undefined;
+  assert.equal(updatedStep.status, 'RUNNING');
+  assert.equal(resultDetail?.executionStatus, 'UNKNOWN');
+  assert.equal(updatedStep.lastErrorCode, 'AGENT_CONNECTION_LOST');
+  assert.equal(updatedRun.status, 'RUNNING');
+  assert.equal(updatedRun.summary.executionStatus, 'UNKNOWN');
+});
+
+test('UNKNOWN 后的迟到成功不会覆盖 receipt、checkpoint 或恢复状态', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('late_success_after_unknown');
+  const receipt = { receiptId: 'receipt-1', status: 'UNKNOWN', operationId: 'operation-1' };
+  const checkpoint = { checkpointRef: 'checkpoint-1', digest: 'a'.repeat(64) };
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    status: 'UNKNOWN',
+    errorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+    errorMessage: '写操作响应超时',
+    actorId,
+    detail: { receipt, checkpoint },
+  });
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    status: 'SUCCESS',
+    actorId,
+    detail: { receipt: { ...receipt, status: 'SUCCESS' }, checkpoint },
+  });
+
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const resultDetail = updatedStep.inputSnapshot.resultDetail as Record<string, unknown>;
+  assert.equal(updatedStep.status, 'RUNNING');
+  assert.equal(resultDetail.executionStatus, 'UNKNOWN');
+  assert.deepEqual(resultDetail.receipt, receipt);
+  assert.deepEqual(resultDetail.checkpoint, checkpoint);
+});
+
+test('取消结果无法确认外部写入时统一落为 UNKNOWN', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('cancelled_write');
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    status: 'CANCELLED',
+    errorCode: 'PLUGIN_RUNNER_CANCELLED',
+    errorMessage: '取消与远端写入竞态',
+    actorId,
+  });
+
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  assert.equal(updatedStep.status, 'RUNNING');
+  assert.equal((updatedStep.inputSnapshot.resultDetail as Record<string, unknown>).executionStatus, 'UNKNOWN');
+  assert.equal(updatedRun.summary.executionStatus, 'UNKNOWN');
+});
+
+test('显式 FAILED 状态不能被不一致的 success=true 伪装成成功', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('inconsistent_failed_status');
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: true,
+    status: 'FAILED',
+    errorCode: 'AGENT_RESULT_FAILED',
+    errorMessage: 'Agent 明确返回失败',
+    actorId,
+  });
+
+  assert.equal((await repository.getStepOrThrow(step.id, tenantId)).status, 'FAILED');
+  assert.equal((await repository.getRunOrThrow(run.id, tenantId)).status, 'FAILED');
+});
+
 test('正式 VERIFY 必须拒绝远端 TLS 证书 SHA256 不匹配的假成功', async () => {
   const { repository, service, run, step } = await createVerifyScenario('mismatch');
 
@@ -755,5 +852,5 @@ test('dry-run failure adds fallback failed check when agent returns no failed pr
   assert.equal(updatedStep.status, 'FAILED');
   assert.equal(updatedRun.status, 'FAILED');
   assert.equal(summary.failed, 1);
-  assert.ok(checks.some((check) => check.key === 'agent_execution' && check.status === 'failed'));
+  assert.ok(checks.some((check) => check.key === 'agent.plan.validate' && check.status === 'failed'));
 });
