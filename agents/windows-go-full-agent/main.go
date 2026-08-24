@@ -1865,6 +1865,13 @@ func isInteractiveSession() bool {
 }
 
 func collectRuntimeState(controlPlaneURL string) RuntimeState {
+	state := collectRuntimeStateBase(controlPlaneURL)
+	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
+	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
+	return state
+}
+
+func collectRuntimeStateBase(controlPlaneURL string) RuntimeState {
 	hostname, _ := os.Hostname()
 	executable, _ := os.Executable()
 	currentDir, _ := os.Getwd()
@@ -1882,7 +1889,6 @@ func collectRuntimeState(controlPlaneURL string) RuntimeState {
 		state.User = currentUser.Username
 	}
 	state.MachineID = buildMachineID(hostname)
-	state.WindowsVersion = strings.TrimSpace(os.Getenv("OS"))
 	state.Interfaces, state.PrimaryIPAddress = collectNetworkInterfaces()
 	if preferredIP := detectPreferredSourceIP(controlPlaneURL); preferredIP != "" {
 		state.PrimaryIPAddress = preferredIP
@@ -1891,8 +1897,9 @@ func collectRuntimeState(controlPlaneURL string) RuntimeState {
 }
 
 func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
-	state := collectRuntimeState(controlPlaneURL)
+	state := collectRuntimeStateBase(controlPlaneURL)
 	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
+	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
 	return runtimeIdentity{
 		MachineID:         state.MachineID,
 		PrimaryIPAddress:  state.PrimaryIPAddress,
@@ -1900,6 +1907,31 @@ func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 		NetworkInterfaces: state.Interfaces,
 		AdapterSnapshot:   adapterSnapshot,
 	}
+}
+
+func formatWindowsSystemVersion(detail *windowsOSDetail) string {
+	if detail == nil {
+		return ""
+	}
+	productName := strings.TrimSpace(detail.ProductName)
+	displayVersion := strings.TrimSpace(detail.DisplayVersion)
+	build := strings.TrimSpace(detail.BuildRevision)
+	if build == "" {
+		build = strings.TrimSpace(detail.CurrentBuild)
+	}
+	if productName != "" && displayVersion != "" {
+		return productName + " " + displayVersion
+	}
+	if productName != "" && build != "" {
+		return productName + " (Build " + build + ")"
+	}
+	if productName != "" {
+		return productName
+	}
+	if displayVersion != "" {
+		return displayVersion
+	}
+	return build
 }
 
 func detectPreferredSourceIP(controlPlaneURL string) string {
