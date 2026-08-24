@@ -254,7 +254,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deploymentPlans: deploymentPlans.getRepository(),
   })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
-  new NotificationsController(notificationsService).register(app.router);
+  new NotificationsController(notificationsService, security).register(app.router);
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
     statusCode: 200,

@@ -24,6 +24,7 @@ export const skeletonPermissions = [
   'monitor.read',
   'audit.read',
   'settings.read',
+  'settings.write',
   'notification.channel.read',
   'security.user.read',
   'security.user.write',
