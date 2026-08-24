@@ -1631,47 +1631,6 @@ export default {
       total: "共 {count} 筆"
     }
   },
-  notifications: {
-    title: '通知管理',
-    description: '統一管理通知渠道、路由、範本、靜默和可靠投遞記錄。',
-    tabs: { channels: '通知渠道', deliveries: '投遞記錄', rules: '規則與範本' },
-    sections: { channels: '通知渠道記錄', deliveries: '投遞記錄' },
-    channels: { createTitle: '新增通知渠道' },
-    settings: { privateOriginsTitle: '私有化平台位址', privateOriginsDescription: '設定允許通知中心存取的企業微信、飛書和釘釘私有化 HTTPS Origin。' },
-    channelTypes: { email: 'Email', wecom: '企業微信', slack: 'Slack', feishu: '飛書', dingtalk: '釘釘', telegram: 'Telegram', webhook: '通用 Webhook' },
-    deploymentModes: { public: '公有雲', private: '私有化部署' },
-    fields: {
-      name: '渠道名稱', type: '渠道類型', deploymentMode: '部署模式', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
-      smtpSecurity: '連線加密', smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', secretValuePlaceholder: '請輸入密文內容',
-      optionalSecretValuePlaceholder: '選填；請輸入密文內容', wecomWebhookUrl: '企業微信群機器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      feishuWebhookUrl: '飛書自訂機器人 Webhook URL', dingtalkWebhookUrl: '釘釘自訂機器人 Webhook URL', feishuSigningSecret: '飛書簽章密鑰',
-      dingtalkSigningSecret: '釘釘加簽密鑰', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID（選填）',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '請輸入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
-      webhookHeadersPlaceholder: '範例：x-source = gcac', signingSecret: 'HMAC-SHA256 簽章密鑰', testTarget: '測試接收目標',
-      testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
-      createdAt: '建立時間', updatedAt: '更新時間', failureCategory: '失敗分類', channel: '通知渠道', selectChannel: '請選擇通知渠道',
-      source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵', locale: '語言',
-      titleTemplate: '標題範本', bodyTemplate: '正文範本', reason: '靜默原因', startsAt: '開始時間', endsAt: '結束時間',
-      wecomPrivateOrigins: '企業微信私有化 Origin', feishuPrivateOrigins: '飛書私有化 Origin', dingtalkPrivateOrigins: '釘釘私有化 Origin', privateOriginsPlaceholder: '每行一個，例如 https://notify.example.internal'
-    },
-    actions: {
-      createChannel: '新增通知渠道', createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則',
-      confirmCreate: '確認建立', cancel: '取消', saveSettings: '儲存設定', test: '測試發送', testChannel: '測試渠道：{name}', retry: '重新投遞', enable: '啟用', disable: '停用'
-    },
-    rules: { createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則' },
-    summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
-    empty: { channels: '暫無通知渠道', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', webhookUrl: 'Webhook URL', signingSecret: '簽章密鑰', botToken: 'Bot Token' } },
-    messages: {
-      loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。',
-      secretStoredHint: '此內容將加密儲存，建立後不會以明文顯示。', createSecretFailed: '密文儲存失敗', invalidHeaders: '固定 Header 必須是有效的 JSON 物件',
-      smtpCredentialsPairRequired: 'SMTP 使用者名稱與密碼必須同時填寫', webhookUrlRequired: 'Webhook URL 不可為空', botTokenRequired: 'Telegram Bot Token 不可為空',
-      chatIdRequired: 'Telegram Chat ID 不可為空', feishuWebhookUrlInvalid: '請輸入飛書官方自訂機器人 Webhook URL', dingtalkWebhookUrlInvalid: '請輸入釘釘官方自訂機器人 Webhook URL',
-      wecomWebhookUrlInvalid: '請輸入有效的企業微信機器人 HTTPS Webhook URL', telegramBotTokenInvalid: 'Telegram Bot Token 格式無效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必須是正整數',
-      privateDeploymentAllowlistHint: '私有化地址必須先加入上方對應平台的受信任 HTTPS Origin 白名單，否則測試與投遞會被後端拒絕。', privateOriginInvalid: '私有化地址必須是精確 HTTPS Origin，不能包含路徑、查詢參數、使用者資訊或 Fragment。', privateOriginsSecurityHint: '此處只填寫協定、主機和可選連接埠；完整 Webhook URL、Token 和簽名金鑰仍透過密文服務儲存。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 傳送通知，不使用接收事件的 Webhook。'
-    }
-  },
   settings: {
     securityLabel: "安全設定入口",
     permissionPolicies: {

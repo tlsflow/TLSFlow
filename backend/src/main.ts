@@ -7,7 +7,6 @@ import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
 import type { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
-import type { NotificationWorker } from './modules/notifications/application/notification-worker.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
@@ -101,28 +100,6 @@ async function start(): Promise<void> {
     setInterval(tick, monitorIntervalMs);
   }
 
-  const notificationWorker = app.getResource<NotificationWorker>('notificationWorker');
-  if (notificationWorker) {
-    const workerIntervalMs = Number(process.env.NOTIFICATION_WORKER_INTERVAL_MS ?? '2000');
-    const maxDeliveriesPerTick = Number(process.env.NOTIFICATION_WORKER_MAX_DELIVERIES_PER_TICK ?? '20');
-    let drainingNotifications = false;
-    const tickNotifications = () => {
-      if (drainingNotifications) return;
-      drainingNotifications = true;
-      void drainNotificationDeliveries(notificationWorker, maxDeliveriesPerTick)
-        .catch((error: unknown) => {
-          structuredLogger.warn('Notification worker failed', {
-            error: error instanceof Error ? error.message : String(error),
-          }, { module: 'notification-worker' });
-        })
-        .finally(() => {
-          drainingNotifications = false;
-        });
-    };
-    tickNotifications();
-    setInterval(tickNotifications, workerIntervalMs);
-  }
-
   const server = app.createNodeServer();
   server.listen(app.config.port, app.config.host, () => {
     structuredLogger.info('后端服务已启动', {
@@ -130,13 +107,6 @@ async function start(): Promise<void> {
       port: app.config.port,
     }, { module: 'bootstrap' });
   });
-}
-
-async function drainNotificationDeliveries(worker: NotificationWorker, maxDeliveriesPerTick: number): Promise<void> {
-  const limit = Number.isFinite(maxDeliveriesPerTick) && maxDeliveriesPerTick > 0 ? Math.floor(maxDeliveriesPerTick) : 1;
-  for (let index = 0; index < limit; index += 1) {
-    if (!await worker.runNext()) break;
-  }
 }
 
 async function drainExecutionJobs(executionsService: ExecutionsApplicationService, maxJobsPerTick: number): Promise<void> {

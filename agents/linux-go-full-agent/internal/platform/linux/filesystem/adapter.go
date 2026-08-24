@@ -14,8 +14,7 @@ type Backup struct {
 	BackupPath string
 	Existed    bool
 	Mode       os.FileMode
-	OwnerUID   int
-	OwnerGID   int
+	Owner      owner
 }
 
 type Adapter struct {
@@ -57,15 +56,7 @@ func (adapter *Adapter) Backup(targetPath, backupPath string) (Backup, error) {
 	if err := copyFile(targetPath, backupPath, info.Mode().Perm()); err != nil {
 		return Backup{}, err
 	}
-	owner := readOwner(info)
-	return Backup{
-		TargetPath: targetPath,
-		BackupPath: backupPath,
-		Existed:    true,
-		Mode:       info.Mode().Perm(),
-		OwnerUID:   owner.UID,
-		OwnerGID:   owner.GID,
-	}, nil
+	return Backup{TargetPath: targetPath, BackupPath: backupPath, Existed: true, Mode: info.Mode().Perm(), Owner: readOwner(info)}, nil
 }
 
 func (adapter *Adapter) AtomicReplace(targetPath string, content []byte, mode os.FileMode) error {
@@ -126,7 +117,7 @@ func (adapter *Adapter) Restore(backup Backup) error {
 	if err := adapter.AtomicReplace(backup.TargetPath, content, backup.Mode); err != nil {
 		return err
 	}
-	return applyOwner(backup.TargetPath, owner{UID: backup.OwnerUID, GID: backup.OwnerGID})
+	return applyOwner(backup.TargetPath, backup.Owner)
 }
 
 func (adapter *Adapter) validatePath(path string) error {

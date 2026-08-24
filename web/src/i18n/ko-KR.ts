@@ -1605,47 +1605,6 @@ export default {
       total: '총 {count} 개'
     }
   },
-  notifications: {
-    title: '알림 관리',
-    description: '알림 채널, 라우트, 템플릿, 음소거 및 안정적인 전송 기록을 관리합니다.',
-    tabs: { channels: '알림 채널', deliveries: '전송 기록', rules: '규칙 및 템플릿' },
-    sections: { channels: '알림 채널 기록', deliveries: '전송 기록' },
-    channels: { createTitle: '알림 채널 만들기' },
-    settings: { privateOriginsTitle: '프라이빗 배포 주소', privateOriginsDescription: 'WeCom, Feishu, DingTalk의 프라이빗 HTTPS Origin을 설정합니다.' },
-    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: '일반 Webhook' },
-    deploymentModes: { public: '퍼블릭 클라우드', private: '프라이빗 배포' },
-    fields: {
-      name: '채널 이름', type: '채널 유형', deploymentMode: '배포 모드', smtpHost: 'SMTP 호스트', smtpPort: 'SMTP 포트', from: '발신 주소',
-      smtpSecurity: '연결 암호화', smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', secretValuePlaceholder: '비밀 값을 입력하세요',
-      optionalSecretValuePlaceholder: '선택 사항; 비밀 값을 입력하세요', wecomWebhookUrl: 'WeCom 그룹 봇 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      feishuWebhookUrl: 'Feishu 사용자 지정 봇 Webhook URL', dingtalkWebhookUrl: 'DingTalk 사용자 지정 봇 Webhook URL', feishuSigningSecret: 'Feishu 서명 키',
-      dingtalkSigningSecret: 'DingTalk 서명 키', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID(선택 사항)',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '전체 Webhook URL을 입력하세요', webhookMethod: 'HTTP 메서드', webhookHeaders: '고정 Header(JSON)',
-      webhookHeadersPlaceholder: '예: x-source = gcac', signingSecret: 'HMAC-SHA256 서명 키', testTarget: '테스트 수신 대상',
-      testTargetPlaceholder: 'Email 수신자는 쉼표로 구분할 수 있습니다', lastSuccess: '최근 성공', latency: '지연 시간(ms)',
-      createdAt: '생성 시간', updatedAt: '업데이트 시간', failureCategory: '실패 분류', channel: '알림 채널', selectChannel: '알림 채널 선택',
-      source: '이벤트 소스', priority: '라우트 우선순위', dedupeWindow: '중복 제거 시간(초)', templateKey: '템플릿 키', locale: '언어',
-      titleTemplate: '제목 템플릿', bodyTemplate: '본문 템플릿', reason: '음소거 사유', startsAt: '시작 시간', endsAt: '종료 시간',
-      wecomPrivateOrigins: 'WeCom 프라이빗 Origin', feishuPrivateOrigins: 'Feishu 프라이빗 Origin', dingtalkPrivateOrigins: 'DingTalk 프라이빗 Origin', privateOriginsPlaceholder: '한 줄에 하나씩 입력하세요. 예: https://notify.example.internal'
-    },
-    actions: {
-      createChannel: '새 채널', createRoute: '새 라우트', createTemplate: '새 템플릿', createSilence: '새 음소거 규칙',
-      confirmCreate: '만들기', cancel: '취소', saveSettings: '설정 저장', test: '테스트 전송', testChannel: '채널 테스트: {name}', retry: '다시 전송', enable: '활성화', disable: '비활성화'
-    },
-    rules: { createRoute: '알림 라우트 만들기', createTemplate: '알림 템플릿 만들기', createSilence: '음소거 규칙 만들기' },
-    summary: { routes: '알림 라우트', templates: '알림 템플릿', silences: '음소거 규칙', recordCount: '총 {count}개 기록' },
-    empty: { channels: '알림 채널이 없습니다', deliveries: '전송 기록이 없습니다', routes: '알림 라우트가 없습니다', templates: '알림 템플릿이 없습니다', silences: '음소거 규칙이 없습니다' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 사용자 이름', smtpPassword: 'SMTP 비밀번호', webhookUrl: 'Webhook URL', signingSecret: '서명 키', botToken: 'Bot Token' } },
-    messages: {
-      loadFailed: '알림 관리 데이터를 불러오지 못했습니다', operationFailed: '알림 관리 작업에 실패했습니다', testUsesChannelTarget: '이 채널은 설정된 대상으로 테스트 알림을 전송합니다.',
-      secretStoredHint: '이 값은 암호화되어 저장되며 생성 후 다시 표시되지 않습니다.', createSecretFailed: '비밀 값 저장에 실패했습니다', invalidHeaders: '고정 Header는 올바른 JSON 객체여야 합니다',
-      smtpCredentialsPairRequired: 'SMTP 사용자 이름과 비밀번호를 함께 입력해야 합니다', webhookUrlRequired: 'Webhook URL은 필수입니다', botTokenRequired: 'Telegram Bot Token은 필수입니다',
-      chatIdRequired: 'Telegram Chat ID는 필수입니다', feishuWebhookUrlInvalid: 'Feishu 공식 사용자 지정 봇 Webhook URL을 입력하세요', dingtalkWebhookUrlInvalid: 'DingTalk 공식 사용자 지정 봇 Webhook URL을 입력하세요',
-      wecomWebhookUrlInvalid: '유효한 WeCom 봇 HTTPS Webhook URL을 입력하세요', telegramBotTokenInvalid: 'Telegram Bot Token 형식이 올바르지 않습니다', telegramMessageThreadIdInvalid: 'Telegram Topic ID는 양의 정수여야 합니다',
-      privateDeploymentAllowlistHint: '프라이빗 주소는 먼저 위의 신뢰된 HTTPS Origin 목록에 추가해야 합니다.', privateOriginInvalid: '프라이빗 주소는 경로, 쿼리, 사용자 정보 또는 Fragment가 없는 정확한 HTTPS Origin이어야 합니다.', privateOriginsSecurityHint: '여기에는 스킴, 호스트 및 선택적 포트만 입력합니다. 전체 Webhook URL, Token 및 서명 키는 Secret 서비스에 암호화 저장됩니다.', telegramUsesBotApi: 'Telegram 알림은 이벤트 수신 Webhook이 아니라 공식 Bot API sendMessage를 사용합니다.'
-    }
-  },
   settings: {
     securityLabel: '출입구 안전 설치',
     permissionPolicies: {

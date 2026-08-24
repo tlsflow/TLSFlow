@@ -6,11 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
-	"gcac/linux-go-full-agent/internal/core/recovery"
 	linuxfs "gcac/linux-go-full-agent/internal/platform/linux/filesystem"
 )
 
@@ -32,15 +29,6 @@ type Security interface {
 
 type Verifier interface {
 	Verify(context.Context) error
-}
-
-type RecoveryRecorder interface {
-	CompleteStep(string) error
-	Complete() error
-	Fail(string, string, string) error
-	RecordFiles([]recovery.FileState) error
-	RecordRecovery([]string, string, string) error
-	Snapshot() recovery.Entry
 }
 
 type Input struct {
@@ -70,16 +58,10 @@ type Handler struct {
 	service    Service
 	security   Security
 	verifier   Verifier
-	recovery   RecoveryRecorder
 }
 
 func New(filesystem Filesystem, service Service, security Security, verifier Verifier) *Handler {
 	return &Handler{filesystem: filesystem, service: service, security: security, verifier: verifier}
-}
-
-func (handler *Handler) WithRecovery(recorder RecoveryRecorder) *Handler {
-	handler.recovery = recorder
-	return handler
 }
 
 func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
@@ -96,9 +78,7 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 		backups = append(backups, backup)
 	}
-	handler.recordFiles(backups)
 	completed = append(completed, "backup")
-	handler.recordStep("backup")
 	for _, target := range targets {
 		if err := handler.filesystem.AtomicReplace(target.path, target.content, target.mode); err != nil {
 			return handler.recover(ctx, "APACHE_INSTALL_FAILED", err, completed, backups)
@@ -108,12 +88,10 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 	}
 	completed = append(completed, "install")
-	handler.recordStep("install")
 	if err := handler.service.Validate(ctx); err != nil {
 		return handler.recover(ctx, "APACHE_CONFIG_INVALID", err, completed, backups)
 	}
 	completed = append(completed, "validate")
-	handler.recordStep("validate")
 	if err := handler.service.Reload(ctx); err != nil {
 		if !input.AllowRestart {
 			return handler.recover(ctx, "APACHE_RELOAD_FAILED", err, completed, backups)
@@ -123,28 +101,14 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 	}
 	completed = append(completed, "reload")
-	handler.recordStep("reload")
 	if err := handler.verifier.Verify(ctx); err != nil {
 		return handler.recover(ctx, "APACHE_VERIFY_FAILED", err, completed, backups)
 	}
 	completed = append(completed, "verify")
-	handler.recordStep("verify")
-	handler.recordComplete()
 	return Result{Success: true, CompletedSteps: completed}
 }
 
 func (handler *Handler) recover(ctx context.Context, code string, cause error, completed []string, backups []linuxfs.Backup) Result {
-	coordinator := recovery.NewCoordinator(30 * time.Second)
-	outcome := coordinator.Recover(ctx, handler.recovery, "deploy", code, cause, func(recoveryContext context.Context, _ recovery.Entry) ([]string, error) {
-		return handler.restore(recoveryContext, backups)
-	})
-	if outcome.RecoveryFailed {
-		return failed("APACHE_RECOVERY_FAILED", fmt.Errorf("%v; recovery: %w", cause, outcome.Error), completed, outcome.RecoverySteps)
-	}
-	return failed(outcome.FailureCode, cause, completed, outcome.RecoverySteps)
-}
-
-func (handler *Handler) restore(ctx context.Context, backups []linuxfs.Backup) ([]string, error) {
 	recoverySteps := []string{}
 	var recoveryErrors []string
 	for index := len(backups) - 1; index >= 0; index-- {
@@ -160,47 +124,9 @@ func (handler *Handler) restore(ctx context.Context, backups []linuxfs.Backup) (
 		recoverySteps = append(recoverySteps, "restart-service")
 	}
 	if len(recoveryErrors) > 0 {
-		return recoverySteps, errors.New(strings.Join(recoveryErrors, "; "))
+		return failed("APACHE_RECOVERY_FAILED", fmt.Errorf("%v; recovery: %s", cause, strings.Join(recoveryErrors, "; ")), completed, recoverySteps)
 	}
-	return recoverySteps, nil
-}
-
-func (handler *Handler) recordStep(step string) {
-	if handler.recovery != nil {
-		_ = handler.recovery.CompleteStep(step)
-	}
-}
-
-func (handler *Handler) recordComplete() {
-	if handler.recovery != nil {
-		_ = handler.recovery.Complete()
-	}
-}
-
-func (handler *Handler) recordFailure(code string, cause error) {
-	if handler.recovery != nil {
-		_ = handler.recovery.Fail("deploy", code, cause.Error())
-	}
-}
-
-func (handler *Handler) recordFiles(backups []linuxfs.Backup) {
-	if handler.recovery == nil {
-		return
-	}
-	files := make([]recovery.FileState, 0, len(backups))
-	for _, backup := range backups {
-		files = append(files, recovery.FileState{
-			Path: backup.TargetPath, BackupPath: backup.BackupPath, Existed: backup.Existed,
-			Mode: fmt.Sprintf("%04o", backup.Mode.Perm()), Owner: strconv.Itoa(backup.OwnerUID), Group: strconv.Itoa(backup.OwnerGID),
-		})
-	}
-	_ = handler.recovery.RecordFiles(files)
-}
-
-func (handler *Handler) recordRecovery(steps []string, result, message string) {
-	if handler.recovery != nil {
-		_ = handler.recovery.RecordRecovery(steps, result, message)
-	}
+	return failed(code, cause, completed, recoverySteps)
 }
 
 type target struct {

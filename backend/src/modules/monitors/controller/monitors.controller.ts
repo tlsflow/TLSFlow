@@ -6,7 +6,7 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { RiskStatuses } from '../../../shared/enums/core.enums.js';
 import { MonitorsApplicationService } from '../application/monitors.application-service.js';
-import { alertRuleStatuses, monitorMetrics, monitorTargetStatuses, riskEventTypes, severity, type MonitorTargetStatus } from '../schema/monitors.schema.js';
+import { alertRuleStatuses, monitorMetrics, monitorTargetStatuses, riskEventTypes, severity, type MonitorTargetStatus, type RiskStatusAction } from '../schema/monitors.schema.js';
 
 const tags = ['Monitors'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -22,6 +22,12 @@ export class MonitorsController {
     router.post('/api/v1/monitors/scan', '触发监控风险扫描', tags, (request) => this.scan(request));
     router.post('/api/v1/monitors/probe', '执行应用资产监控探测', tags, (request) => this.probe(request));
     router.get('/api/v1/monitors/risks', '查询监控风险事件', tags, (request) => this.listRisks(request));
+    router.post('/api/v1/monitors/risks/:id/acknowledge', '确认监控风险事件', tags, (request) => this.changeRiskStatus(request, 'acknowledged'));
+    router.post('/api/v1/monitors/risks/:id/suppress', '抑制监控风险事件', tags, (request) => this.changeRiskStatus(request, 'suppressed'));
+    router.post('/api/v1/monitors/risks/:id/ignore', '忽略监控风险事件', tags, (request) => this.changeRiskStatus(request, 'ignored'));
+    router.post('/api/v1/monitors/risks/:id/resolve', '解决监控风险事件', tags, (request) => this.changeRiskStatus(request, 'resolved'));
+    router.post('/api/v1/monitors/risks/:id/reopen', '重新打开监控风险事件', tags, (request) => this.changeRiskStatus(request, 'reopened'));
+    router.get('/api/v1/monitors/risks/:id/history', '查询监控风险状态历史', tags, (request) => this.listRiskStatusHistory(request));
     router.get('/api/v1/monitors/probe-results', '查询监控探测结果', tags, (request) => this.listProbeResults(request));
     router.get('/api/v1/monitors/certificate-observations', '查询实测证书变更历史', tags, (request) => this.listCertificateObservations(request));
     router.get('/api/v1/monitors/dashboard', '查询监控仪表盘聚合', tags, (request) => this.getDashboard(request));
@@ -135,6 +141,32 @@ export class MonitorsController {
     };
   }
 
+  private async changeRiskStatus(request: HttpRequest, action: Exclude<RiskStatusAction, 'created'>) {
+    const body = validateObject(request.body ?? {}, {
+      reason: { type: 'string' },
+      metadata: { type: 'object' },
+      occurredAt: { type: 'string' },
+    });
+    const actorId = request.context.actorId;
+    if (!actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
+    return this.service.changeRiskStatus({
+      tenantId: requiredTenantId(request),
+      riskEventId: readRiskEventId(request),
+      action,
+      reason: typeof body.reason === 'string' ? body.reason.trim() || undefined : undefined,
+      metadata: body.metadata as Record<string, unknown> | undefined,
+      actorType: 'user',
+      actorId,
+      occurredAt: typeof body.occurredAt === 'string' ? body.occurredAt : undefined,
+    });
+  }
+
+  private async listRiskStatusHistory(request: HttpRequest) {
+    return {
+      items: await this.service.listRiskStatusHistory(requiredTenantId(request), readRiskEventId(request)),
+    };
+  }
+
   private async listProbeResults(request: HttpRequest) {
     const items = await this.service.listMonitorProbeResults({
       tenantId: tenantId(request),
@@ -237,6 +269,12 @@ export function getMonitorRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/monitors/scan', operationId: 'scanMonitorRisks', summary: '触发监控风险扫描', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/monitors/probe', operationId: 'probeMonitorServiceAsset', summary: '执行应用资产监控探测', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/monitors/risks', operationId: 'listMonitorRisks', summary: '查询监控风险事件', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/monitors/risks/:id/acknowledge', operationId: 'acknowledgeMonitorRisk', summary: '确认监控风险事件', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/monitors/risks/:id/suppress', operationId: 'suppressMonitorRisk', summary: '抑制监控风险事件', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/monitors/risks/:id/ignore', operationId: 'ignoreMonitorRisk', summary: '忽略监控风险事件', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/monitors/risks/:id/resolve', operationId: 'resolveMonitorRisk', summary: '解决监控风险事件', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/monitors/risks/:id/reopen', operationId: 'reopenMonitorRisk', summary: '重新打开监控风险事件', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/monitors/risks/:id/history', operationId: 'listMonitorRiskStatusHistory', summary: '查询监控风险状态历史', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/monitors/probe-results', operationId: 'listMonitorProbeResults', summary: '查询监控探测结果', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/monitors/certificate-observations', operationId: 'listMonitorCertificateObservations', summary: '查询实测证书变更历史', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/monitors/dashboard', operationId: 'getMonitorDashboard', summary: '查询监控仪表盘聚合', tags, responseSchema: objectSchema() },
@@ -260,4 +298,10 @@ function pageSchema() {
       total: { type: 'number' },
     },
   };
+}
+
+function readRiskEventId(request: HttpRequest): string {
+  const riskEventId = request.path.match(/^\/api\/v1\/monitors\/risks\/([^/]+)\/(?:acknowledge|suppress|ignore|resolve|reopen|history)$/)?.[1];
+  if (!riskEventId) throw new AppError('VALIDATION_FAILED', 'riskEventId 不能为空', { field: 'riskEventId' });
+  return riskEventId;
 }

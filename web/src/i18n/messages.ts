@@ -1575,38 +1575,6 @@ const zhCN = {
       total: '共 {count} 条'
     }
   },
-  notifications: {
-    title: '通知管理',
-    description: '统一管理通知渠道、路由、模板、静默和可靠投递记录。',
-    tabs: { channels: '通知渠道', deliveries: '投递记录', rules: '规则与模板' },
-    sections: { channels: '通知渠道记录', deliveries: '投递记录' },
-    channels: { createTitle: '新建通知渠道' },
-    fields: {
-      name: '渠道名称', type: '渠道类型', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
-      smtpSecurity: '连接加密', smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', secretValuePlaceholder: '请输入密文内容',
-      optionalSecretValuePlaceholder: '可选；请输入密文内容', wecomWebhookUrl: '企业微信群机器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: '请输入完整 Webhook URL', webhookMethod: 'HTTP 方法', webhookHeaders: '固定 Header（JSON）',
-      webhookHeadersPlaceholder: '示例：x-source = gcac', signingSecret: 'HMAC-SHA256 签名密钥', testTarget: '测试接收目标',
-      testTargetPlaceholder: 'Email 可输入逗号分隔的收件地址', lastSuccess: '最近成功', latency: '延迟（毫秒）',
-      createdAt: '创建时间', updatedAt: '更新时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
-      source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键', locale: '语言',
-      titleTemplate: '标题模板', bodyTemplate: '正文模板', reason: '静默原因', startsAt: '开始时间', endsAt: '结束时间'
-    },
-    actions: {
-      createChannel: '新建通知渠道', createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则',
-      confirmCreate: '确认创建', cancel: '取消', test: '测试发送', testChannel: '测试渠道：{name}', retry: '重新投递', enable: '启用', disable: '停用'
-    },
-    rules: { createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则' },
-    summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则', recordCount: '共 {count} 条记录' },
-    empty: { channels: '暂无通知渠道', deliveries: '暂无投递记录', routes: '暂无通知路由', templates: '暂无通知模板', silences: '暂无静默规则' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', webhookUrl: 'Webhook URL', signingSecret: '签名密钥' } },
-    messages: {
-      loadFailed: '通知管理数据加载失败', operationFailed: '通知管理操作失败', testUsesChannelTarget: '该渠道将使用已配置的接收目标发送测试通知。',
-      secretStoredHint: '该内容将加密保存，创建后不会明文回显。', createSecretFailed: '密文保存失败', invalidHeaders: '固定 Header 必须是合法的 JSON 对象',
-      smtpCredentialsPairRequired: 'SMTP 用户名和密码必须同时填写', webhookUrlRequired: 'Webhook URL 不能为空'
-    }
-  },
   settings: {
     securityLabel: '安全设置入口',
     permissionPolicies: {
@@ -3045,30 +3013,6 @@ const zhTW = {
   ...zhCN,
   app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板' },
   common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
-  notifications: {
-    ...zhCN.notifications,
-    title: '通知管理',
-    description: '統一管理通知渠道、路由、範本、靜默和可靠投遞記錄。',
-    tabs: { channels: '通知渠道', deliveries: '投遞記錄', rules: '規則與範本' },
-    sections: { channels: '通知渠道記錄', deliveries: '投遞記錄' },
-    channels: { createTitle: '新增通知渠道' },
-    fields: {
-      ...zhCN.notifications.fields,
-      name: '渠道名稱', type: '渠道類型', smtpPort: 'SMTP 連接埠', from: '寄件地址', testTarget: '測試接收目標',
-      testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
-      createdAt: '建立時間', updatedAt: '更新時間', failureCategory: '失敗分類', selectChannel: '請選擇通知渠道',
-      source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵', locale: '語言',
-      titleTemplate: '標題範本', bodyTemplate: '正文範本', reason: '靜默原因', startsAt: '開始時間', endsAt: '結束時間'
-    },
-    actions: {
-      createChannel: '新增通知渠道', createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則',
-      confirmCreate: '確認建立', cancel: '取消', test: '測試發送', testChannel: '測試渠道：{name}', retry: '重新投遞', enable: '啟用', disable: '停用'
-    },
-    rules: { createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則' },
-    summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
-    empty: { channels: '暫無通知渠道', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
-    messages: { ...zhCN.notifications.messages, loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。' }
-  },
   designSystem: {
     ...zhCN.designSystem,
     confirm: { title: '確認{action}', impactCount: '影響資源數量：{count}', defaultRisk: '此操作可能觸發部署、重試、回滾或不可逆變更。', typeToConfirm: '輸入 {text} 二次確認', cancel: '取消', confirm: '確認' },
@@ -3140,38 +3084,6 @@ const enUS = {
   ...zhCN,
   app: { brand: 'GCAC Console', platform: 'Enterprise SSL Certificate Lifecycle Platform', defaultBreadcrumb: 'Console', dashboard: 'Dashboard' },
   common: { refresh: 'Refresh', logout: 'Sign out', enter: 'Open', loading: 'Loading', userFallback: 'Guest user', tenantFallback: 'Default tenant' },
-  notifications: {
-    title: 'Notification Management',
-    description: 'Manage notification channels, routing, templates, silences, and reliable delivery records.',
-    tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules & Templates' },
-    sections: { channels: 'Channel Records', deliveries: 'Delivery Records' },
-    channels: { createTitle: 'Create Notification Channel' },
-    fields: {
-      name: 'Channel name', type: 'Channel type', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
-      smtpSecurity: 'Connection security', smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', secretValuePlaceholder: 'Enter the secret value',
-      optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete Webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
-      webhookHeadersPlaceholder: 'Example: x-source = gcac', signingSecret: 'HMAC-SHA256 signing secret', testTarget: 'Test recipient',
-      testTargetPlaceholder: 'For Email, enter comma-separated recipients', lastSuccess: 'Last success', latency: 'Latency (ms)',
-      createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Channel', selectChannel: 'Select a channel',
-      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale',
-      titleTemplate: 'Title template', bodyTemplate: 'Body template', reason: 'Silence reason', startsAt: 'Starts at', endsAt: 'Ends at'
-    },
-    actions: {
-      createChannel: 'New Channel', createRoute: 'New Route', createTemplate: 'New Template', createSilence: 'New Silence',
-      confirmCreate: 'Create', cancel: 'Cancel', test: 'Send Test', testChannel: 'Test Channel: {name}', retry: 'Retry Delivery', enable: 'Enable', disable: 'Disable'
-    },
-    rules: { createRoute: 'Create Notification Route', createTemplate: 'Create Notification Template', createSilence: 'Create Silence Rule' },
-    summary: { routes: 'Notification Routes', templates: 'Notification Templates', silences: 'Silence Rules', recordCount: '{count} records' },
-    empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
-    values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret' } },
-    messages: {
-      loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.',
-      secretStoredHint: 'This value is encrypted and will not be shown again after creation.', createSecretFailed: 'Failed to save the encrypted value', invalidHeaders: 'Fixed headers must be a valid JSON object',
-      smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required'
-    }
-  },
   api: {
     errors: {
       requestFailed: 'Request failed'
@@ -6015,7 +5927,6 @@ const jaJP = {
   certificates: enUS.certificates,
   workflows: enUS.workflows,
   monitoring: enUS.monitoring,
-  notifications: { ...enUS.notifications, title: '通知管理' },
   errors: { ...enUS.errors, forbiddenTitle: '403 権限がありません', notFoundTitle: '404 ページがありません', backDashboard: 'ダッシュボードへ戻る' }
 }
 
@@ -6064,7 +5975,6 @@ const frFR = {
   certificates: enUS.certificates,
   workflows: enUS.workflows,
   monitoring: enUS.monitoring,
-  notifications: { ...enUS.notifications, title: 'Gestion des notifications' },
   errors: { ...enUS.errors, forbiddenTitle: '403 Accès refusé', notFoundTitle: '404 Page introuvable', backDashboard: 'Retour au tableau de bord' }
 }
 
@@ -6113,7 +6023,6 @@ const ruRU = {
   certificates: enUS.certificates,
   workflows: enUS.workflows,
   monitoring: enUS.monitoring,
-  notifications: { ...enUS.notifications, title: 'Управление уведомлениями' },
   errors: { ...enUS.errors, forbiddenTitle: '403 Нет доступа', notFoundTitle: '404 Страница не найдена', backDashboard: 'Вернуться на панель' }
 }
 
@@ -6162,7 +6071,6 @@ const ptBR = {
   certificates: enUS.certificates,
   workflows: enUS.workflows,
   monitoring: enUS.monitoring,
-  notifications: { ...enUS.notifications, title: 'Gerenciamento de notificações' },
   errors: { ...enUS.errors, forbiddenTitle: '403 Sem permissão', notFoundTitle: '404 Página não encontrada', backDashboard: 'Voltar ao painel' }
 }
 
@@ -6211,7 +6119,6 @@ const koKR = {
   certificates: enUS.certificates,
   workflows: enUS.workflows,
   monitoring: enUS.monitoring,
-  notifications: { ...enUS.notifications, title: '알림 관리' },
   errors: { ...enUS.errors, forbiddenTitle: '403 권한 없음', notFoundTitle: '404 페이지 없음', backDashboard: '대시보드로 돌아가기' }
 }
 

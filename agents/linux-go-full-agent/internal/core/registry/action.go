@@ -84,15 +84,8 @@ func (registry *Registry) Register(handler Handler) error {
 }
 
 func (registry *Registry) RegisterAlias(aliasActionType, targetActionType, schemaVersion string) error {
-	return registry.RegisterAliasDescriptor(
-		Descriptor{ActionType: aliasActionType, SchemaVersion: schemaVersion},
-		Descriptor{ActionType: targetActionType, SchemaVersion: schemaVersion},
-	)
-}
-
-func (registry *Registry) RegisterAliasDescriptor(alias, target Descriptor) error {
-	aliasKey := descriptorKey(alias.ActionType, alias.SchemaVersion)
-	targetKey := descriptorKey(target.ActionType, target.SchemaVersion)
+	aliasKey := descriptorKey(aliasActionType, schemaVersion)
+	targetKey := descriptorKey(targetActionType, schemaVersion)
 	if aliasKey == targetKey {
 		return errors.New("action alias cannot target itself")
 	}

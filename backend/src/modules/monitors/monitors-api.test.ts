@@ -17,9 +17,6 @@ import { PgMonitorsRepository } from './repository/monitors.repository.js';
 import { ExecutionsRepository } from '../executions/repository/executions.repository.js';
 import { newId } from '../../shared/id.js';
 import type { RiskEventType } from './schema/monitors.schema.js';
-import { NotificationsApplicationService } from '../notifications/application/notifications.application-service.js';
-import { NotificationsController } from '../notifications/controller/notifications.controller.js';
-import { PgNotificationsRepository } from '../notifications/repository/notifications.repository.js';
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
 MIIDVDCCAjygAwIBAgIUG5ildtPXNPyfiDQ1eus6hH5dRFowDQYJKoZIhvcNAQEL
@@ -252,32 +249,16 @@ describe('监控风险 API', () => {
       body: { scanStartedAt: '2026-06-08T12:00:00.000Z', certificateExpiringThresholdDays: 30 },
     });
     assert.equal(scanned.statusCode, 201);
-    const result = scanned.body as { matchedRuleIds: string[]; alertDispatches: Array<{ ruleId: string; riskId: string; status: string; requestId: string; reason: string }> };
+    const result = scanned.body as { matchedRuleIds: string[]; alertDispatches: Array<{ ruleId: string; status: string; reason: string }> };
     assert.equal(result.matchedRuleIds.length, 1);
     assert.equal(result.matchedRuleIds[0], (activeRule.body as { id: string }).id);
-    assert.equal(result.alertDispatches.length, 1);
-    assert.equal(result.alertDispatches[0]?.ruleId, (activeRule.body as { id: string }).id);
-    assert.equal(result.alertDispatches[0]?.status, 'persisted', JSON.stringify(result.alertDispatches));
-    assert.equal(result.alertDispatches[0]?.reason, 'notification_request_persisted');
-    assert.ok(result.alertDispatches[0]?.requestId);
-
-    const notificationRequest = await app.inject({
-      method: 'GET',
-      path: `/api/v1/notification-requests/${result.alertDispatches[0]!.requestId}`,
-      headers,
-    });
-    assert.equal(notificationRequest.statusCode, 200);
-    assert.equal((notificationRequest.body as { source: string }).source, 'monitor');
-
-    const rescanned = await app.inject({
-      method: 'POST',
-      path: '/api/v1/monitors/scan',
-      headers,
-      body: { scanStartedAt: '2026-06-08T12:00:00.000Z', certificateExpiringThresholdDays: 30 },
-    });
-    assert.equal(rescanned.statusCode, 201);
-    const repeated = rescanned.body as { alertDispatches: Array<{ requestId: string }> };
-    assert.equal(repeated.alertDispatches[0]?.requestId, result.alertDispatches[0]?.requestId);
+    assert.deepEqual(result.alertDispatches, [
+      {
+        ruleId: (activeRule.body as { id: string }).id,
+        status: 'queued',
+        reason: '通知通道未接入，已生成待发送告警记录',
+      },
+    ]);
 
     const rules = await app.inject({ method: 'GET', path: '/api/v1/monitors/alert-rules', headers });
     assert.equal(rules.statusCode, 200);
@@ -671,17 +652,14 @@ async function createMonitorHarness() {
 
   const certificatesRepository = new PgCertificatesRepository(db);
   const executionsRepository = new ExecutionsRepository();
-  const notifications = new NotificationsApplicationService(new PgNotificationsRepository(db));
   const monitors = new MonitorsApplicationService({
     repository: new PgMonitorsRepository(db),
     certificates: certificatesRepository,
     bindings: bindingsRepository,
     executions: executionsRepository,
     assets: assetsRepository,
-    notifications,
   });
   new MonitorsController(monitors).register(app.router);
-  new NotificationsController(notifications).register(app.router);
   return {
     app,
     assetsService,
