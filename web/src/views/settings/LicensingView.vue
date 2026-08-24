@@ -25,7 +25,8 @@ const message = ref('')
 const errorMessage = ref('')
 
 type ProductPlanCode = 'none' | 'community' | 'commercial' | 'enterprise' | 'trial'
-type ComparisonPlanCode = Exclude<ProductPlanCode, 'none'>
+type ComparisonPlanCode = 'community' | 'commercial' | 'enterprise'
+type PlanTone = 'none' | 'community' | 'commercial' | 'enterprise'
 
 interface ComparisonCard {
   code: ComparisonPlanCode
@@ -41,7 +42,6 @@ const comparisonFeatureKeys: Record<ComparisonPlanCode, string[]> = {
   community: ['full', 'usage', 'quota', 'support'],
   commercial: ['full', 'usage', 'automation', 'quota', 'support'],
   enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'customization', 'support'],
-  trial: ['full', 'usage', 'automation', 'quota', 'trial', 'support'],
 }
 
 const stateLabel = computed(() => {
@@ -60,6 +60,20 @@ const planLabel = computed(() => {
 
 const activePlanCode = computed<ProductPlanCode | null>(() => normalizePlanCode(status.value?.planCode))
 
+const planTone = computed<PlanTone>(() => {
+  switch (activePlanCode.value) {
+    case 'community':
+      return 'community'
+    case 'commercial':
+      return 'commercial'
+    case 'enterprise':
+    case 'trial':
+      return 'enterprise'
+    default:
+      return 'none'
+  }
+})
+
 const versionCompatibilityLabel = computed(() => {
   if (!status.value) return t('common.notAvailable')
   return status.value.versionCompatible
@@ -76,8 +90,14 @@ const versionRangeLabel = computed(() => {
   ].filter(Boolean).join(', ')
 })
 
+const validityLabel = computed(() => {
+  if (status.value?.expiresAt) return formatBrowserLocalTime(status.value.expiresAt, { includeSeconds: false })
+  if (status.value?.planCode && status.value.planCode !== 'none') return t('settings.licensing.validity.perpetual')
+  return t('common.notAvailable')
+})
+
 const comparisonCards = computed<ComparisonCard[]>(() => {
-  const nextUpgradeCode = activePlanCode.value === 'none'
+  const nextUpgradeCode = activePlanCode.value === 'none' || activePlanCode.value === null
     ? 'community'
     : activePlanCode.value === 'community'
       ? 'commercial'
@@ -89,7 +109,7 @@ const comparisonCards = computed<ComparisonCard[]>(() => {
     ? t('settings.licensing.comparison.cards.commercial.priceCny')
     : t('settings.licensing.comparison.cards.commercial.priceUsd')
 
-  return (['community', 'commercial', 'enterprise', 'trial'] as const).map((code) => ({
+  return (['community', 'commercial', 'enterprise'] as const).map((code) => ({
     code,
     title: t(`settings.licensing.plans.${code}`),
     summary: t(`settings.licensing.comparison.cards.${code}.summary`),
@@ -98,9 +118,7 @@ const comparisonCards = computed<ComparisonCard[]>(() => {
       ? t('settings.licensing.comparison.cards.community.price')
       : code === 'commercial'
         ? commercialPrice
-        : code === 'enterprise'
-          ? t('settings.licensing.comparison.cards.enterprise.price')
-          : t('settings.licensing.comparison.cards.trial.price'),
+        : t('settings.licensing.comparison.cards.enterprise.price'),
     current: activePlanCode.value === code,
     recommended: nextUpgradeCode === code,
   }))
@@ -110,6 +128,12 @@ const comparisonSummary = computed(() => {
   if (!status.value?.planCode) return t('settings.licensing.comparison.noActivePlan')
   return t('settings.licensing.comparison.currentPlan', { plan: planLabel.value })
 })
+
+function featureLabel(feature: string): string {
+  const key = `settings.licensing.features.items.${feature}`
+  const localized = t(key)
+  return localized === key ? feature : localized
+}
 
 async function loadStatus(): Promise<void> {
   loading.value = true
@@ -239,22 +263,42 @@ onMounted(loadStatus)
       {{ t('settings.licensing.messages.licenseTampered') }}
     </p>
 
-    <section class="gc-card licensing-page__summary" :aria-label="t('settings.licensing.summary.title')">
-      <div class="licensing-page__summary-head">
-        <div>
-          <span class="licensing-page__eyebrow">{{ t('settings.licensing.summary.title') }}</span>
-          <h2>{{ planLabel }}</h2>
+    <section
+      class="licensing-page__hero"
+      :class="`licensing-page__hero--${planTone}`"
+      :aria-label="t('settings.licensing.summary.title')"
+    >
+      <div class="licensing-page__hero-glow" aria-hidden="true" />
+      <div class="licensing-page__hero-top">
+        <div class="licensing-page__hero-main">
+          <div class="licensing-page__hero-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="presentation">
+              <path d="M12 2.5 4.5 5.8v5.2c0 4.6 3 8.5 7.5 10 4.5-1.5 7.5-5.4 7.5-10V5.8L12 2.5Z" />
+              <path d="m8.6 11.6 2.3 2.3 4.6-4.8" />
+            </svg>
+          </div>
+          <div class="licensing-page__hero-heading">
+            <span class="licensing-page__eyebrow">{{ t('settings.licensing.summary.title') }}</span>
+            <h2>{{ planLabel }}</h2>
+            <p>{{ comparisonSummary }}</p>
+          </div>
         </div>
-        <span :class="stateClass">{{ stateLabel }}</span>
+        <div class="licensing-page__hero-aside">
+          <span :class="stateClass">{{ stateLabel }}</span>
+          <div class="licensing-page__hero-actions">
+            <button class="gc-button gc-button--primary" type="button" @click="upgradeModalOpen = true">
+              {{ t('settings.licensing.actions.upgrade') }}
+            </button>
+            <button class="gc-button gc-button--secondary" type="button" :disabled="loading" @click="loadStatus">
+              {{ loading ? t('common.loading') : t('common.refresh') }}
+            </button>
+          </div>
+        </div>
       </div>
-      <dl class="licensing-page__facts">
+      <dl class="licensing-page__hero-stats">
         <div>
-          <dt>{{ t('settings.licensing.fields.installationId') }}</dt>
-          <dd class="licensing-page__mono">{{ status?.installationId || t('common.notAvailable') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.licensing.fields.deviceId') }}</dt>
-          <dd class="licensing-page__mono">{{ status?.deviceId || t('common.notAvailable') }}</dd>
+          <dt>{{ t('settings.licensing.fields.validity') }}</dt>
+          <dd>{{ validityLabel }}</dd>
         </div>
         <div>
           <dt>{{ t('settings.licensing.fields.currentVersion') }}</dt>
@@ -265,74 +309,80 @@ onMounted(loadStatus)
           <dd>{{ versionCompatibilityLabel }}</dd>
         </div>
         <div>
-          <dt>{{ t('settings.licensing.fields.versionRange') }}</dt>
-          <dd>{{ versionRangeLabel }}</dd>
+          <dt>{{ t('settings.licensing.fields.installationId') }}</dt>
+          <dd class="licensing-page__mono">{{ status?.installationId || t('common.notAvailable') }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="gc-card licensing-page__panel" :aria-label="t('settings.licensing.info.title')">
+      <div class="licensing-page__panel-head">
+        <div>
+          <h2>{{ t('settings.licensing.info.title') }}</h2>
+          <p>{{ t('settings.licensing.info.description') }}</p>
+        </div>
+        <span class="licensing-page__panel-badge">{{ planLabel }}</span>
+      </div>
+      <dl class="licensing-page__facts">
+        <div>
+          <dt>{{ t('settings.licensing.fields.currentVersion') }}</dt>
+          <dd>{{ status?.currentVersion || t('common.notAvailable') }}</dd>
         </div>
         <div>
           <dt>{{ t('settings.licensing.fields.expiresAt') }}</dt>
           <dd>{{ status?.expiresAt ? formatBrowserLocalTime(status.expiresAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
         </div>
         <div>
-          <dt>{{ t('settings.licensing.fields.graceEndsAt') }}</dt>
-          <dd>{{ status?.graceEndsAt ? formatBrowserLocalTime(status.graceEndsAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.licensing.fields.upgradeGraceEndsAt') }}</dt>
-          <dd>{{ status?.upgradeGraceEndsAt ? formatBrowserLocalTime(status.upgradeGraceEndsAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.licensing.fields.lastClockAt') }}</dt>
-          <dd>{{ status?.lastClockAt ? formatBrowserLocalTime(status.lastClockAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
+          <dt>{{ t('settings.licensing.fields.versionRange') }}</dt>
+          <dd>{{ versionRangeLabel }}</dd>
         </div>
       </dl>
-    </section>
-
-    <section class="licensing-page__grid">
-      <section class="gc-card licensing-page__panel">
-        <h2>{{ t('settings.licensing.features.title') }}</h2>
-        <ul v-if="status?.features.length" class="licensing-page__list">
-          <li v-for="feature in status.features" :key="feature">{{ feature }}</li>
-        </ul>
-        <p v-else class="licensing-page__muted">{{ t('settings.licensing.features.empty') }}</p>
-      </section>
-
-      <section class="gc-card licensing-page__panel">
-        <h2>{{ t('settings.licensing.quotas.title') }}</h2>
+      <div class="licensing-page__quota-block">
+        <h3>{{ t('settings.licensing.quotas.title') }}</h3>
         <dl class="licensing-page__quota-list">
           <div><dt>{{ t('settings.licensing.quotas.applicationAssets') }}</dt><dd>{{ status?.quotas.applicationAssets ?? status?.quotas.managedTargets ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.concurrentExecutions') }}</dt><dd>{{ status?.quotas.concurrentExecutions ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.plugins') }}</dt><dd>{{ status?.quotas.plugins ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
         </dl>
-      </section>
+      </div>
     </section>
 
-    <section class="gc-card licensing-page__panel">
-      <div class="licensing-page__panel-head">
-        <div>
-          <h2>{{ t('settings.licensing.actions.title') }}</h2>
-          <p>{{ t('settings.licensing.actions.description') }}</p>
+    <section class="licensing-page__grid">
+      <section class="gc-card licensing-page__panel" :aria-label="t('settings.licensing.features.title')">
+        <h2>{{ t('settings.licensing.features.title') }}</h2>
+        <ul v-if="status?.features.length" class="licensing-page__list">
+          <li v-for="feature in status.features" :key="feature">
+            <span class="licensing-page__check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" role="presentation">
+                <path d="m5 12.5 4.5 4.5L19 7.5" />
+              </svg>
+            </span>
+            <span>{{ featureLabel(feature) }}</span>
+          </li>
+        </ul>
+        <p v-else class="licensing-page__muted">{{ t('settings.licensing.features.empty') }}</p>
+      </section>
+
+      <section class="gc-card licensing-page__panel" :aria-label="t('settings.licensing.actions.title')">
+        <div class="licensing-page__panel-head">
+          <div>
+            <h2>{{ t('settings.licensing.actions.title') }}</h2>
+            <p>{{ t('settings.licensing.actions.description') }}</p>
+          </div>
         </div>
-        <div class="licensing-page__panel-actions">
-          <button class="gc-button gc-button--primary" type="button" @click="upgradeModalOpen = true">
-            {{ t('settings.licensing.actions.upgrade') }}
-          </button>
-          <button class="gc-button gc-button--secondary" type="button" :disabled="loading" @click="loadStatus">
-            {{ loading ? t('common.loading') : t('common.refresh') }}
-          </button>
+        <div class="licensing-page__actions">
+          <button class="gc-button gc-button--secondary" type="button" @click="createRequest('online')">{{ t('settings.licensing.actions.onlineRequest') }}</button>
+          <button class="gc-button gc-button--secondary" type="button" @click="createRequest('offline')">{{ t('settings.licensing.actions.offlineRequest') }}</button>
+          <button class="gc-button gc-button--secondary" type="button" @click="exportCurrentLicense">{{ t('settings.licensing.actions.export') }}</button>
         </div>
-      </div>
-      <div class="licensing-page__actions">
-        <button class="gc-button gc-button--secondary" type="button" @click="createRequest('online')">{{ t('settings.licensing.actions.onlineRequest') }}</button>
-        <button class="gc-button gc-button--secondary" type="button" @click="createRequest('offline')">{{ t('settings.licensing.actions.offlineRequest') }}</button>
-        <button class="gc-button gc-button--secondary" type="button" @click="exportCurrentLicense">{{ t('settings.licensing.actions.export') }}</button>
-      </div>
-      <label class="licensing-page__input">
-        <span>{{ t('settings.licensing.actions.importLabel') }}</span>
-        <textarea v-model="licenseText" rows="8" :placeholder="t('settings.licensing.actions.importPlaceholder')" />
-      </label>
-      <button class="gc-button gc-button--primary" type="button" :disabled="importing || !licenseText.trim()" @click="importCurrentLicense">
-        {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
-      </button>
+        <label class="licensing-page__input">
+          <span>{{ t('settings.licensing.actions.importLabel') }}</span>
+          <textarea v-model="licenseText" rows="4" :placeholder="t('settings.licensing.actions.importPlaceholder')" />
+        </label>
+        <button class="gc-button gc-button--primary" type="button" :disabled="importing || !licenseText.trim()" @click="importCurrentLicense">
+          {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
+        </button>
+      </section>
     </section>
 
     <GcModal
@@ -397,60 +447,214 @@ onMounted(loadStatus)
 <style scoped>
 .licensing-page {
   display: grid;
-  gap: var(--gc-space-5);
+  gap: var(--gc-space-4);
 }
 
-.licensing-page__summary,
-.licensing-page__panel {
+/* ---- 授权状态总览 ---- */
+
+.licensing-page__hero {
+  position: relative;
   display: grid;
   gap: var(--gc-space-4);
-  padding: var(--gc-space-6);
+  padding: var(--gc-space-5);
+  overflow: hidden;
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-gradient-workspace);
 }
 
-.licensing-page__summary {
-  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
-  background: var(--gc-color-info-soft);
+.licensing-page__hero-glow {
+  position: absolute;
+  top: calc(var(--gc-space-2) * -4);
+  right: calc(var(--gc-space-2) * -4);
+  width: calc(var(--gc-space-12) * 4);
+  height: calc(var(--gc-space-12) * 4);
+  border-radius: var(--gc-radius-full);
+  background: radial-gradient(circle, var(--gc-color-primary-weak), transparent 70%);
+  pointer-events: none;
 }
 
-.licensing-page__summary-head,
+.licensing-page__hero-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--gc-space-3);
+}
+
+.licensing-page__hero-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gc-space-3);
+  min-width: 0;
+}
+
+.licensing-page__hero-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--gc-space-10);
+  height: var(--gc-space-10);
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-bg);
+}
+
+.licensing-page__hero-icon svg {
+  width: var(--gc-space-6);
+  height: var(--gc-space-6);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--gc-border-width-thick);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.licensing-page__hero--community .licensing-page__hero-icon { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
+.licensing-page__hero--commercial .licensing-page__hero-icon { color: var(--gc-color-primary); background: var(--gc-color-primary-bg); }
+.licensing-page__hero--enterprise .licensing-page__hero-icon { color: var(--gc-color-accent-purple); background: var(--gc-color-primary-bg); }
+.licensing-page__hero--none .licensing-page__hero-icon { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
+
+.licensing-page__hero-heading {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.licensing-page__hero-heading h2 {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-heading-md);
+  line-height: var(--gc-line-height-tight);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.licensing-page__hero-heading p {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.licensing-page__hero-aside {
+  display: grid;
+  justify-items: end;
+  gap: var(--gc-space-2);
+}
+
+.licensing-page__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--gc-space-2);
+}
+
+.licensing-page__hero-stats {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+}
+
+.licensing-page__hero-stats div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.licensing-page__hero-stats dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.licensing-page__hero-stats dd {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* ---- 通用面板 ---- */
+
+.licensing-page__panel {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-5);
+  border-color: var(--gc-color-border-soft);
+}
+
 .licensing-page__panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--gc-space-4);
-}
-
-.licensing-page__panel-actions {
-  display: flex;
   flex-wrap: wrap;
-  gap: var(--gc-space-2);
-  justify-content: flex-end;
+  gap: var(--gc-space-3);
 }
 
-.licensing-page__eyebrow,
-.licensing-page__muted,
-.licensing-page__panel-head p,
-.licensing-page__facts dt,
-.licensing-page__quota-list dt {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
+.licensing-page__panel-head > div {
+  display: grid;
+  gap: var(--gc-space-1);
 }
 
 .licensing-page h2 {
   margin: 0;
   color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-lg);
+  font-size: var(--gc-font-size-heading-xs);
+  letter-spacing: 0;
 }
 
-.licensing-page__summary h2 {
-  margin-top: var(--gc-space-1);
+.licensing-page__panel-head p,
+.licensing-page__muted {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
 }
 
-.licensing-page__state {
-  padding: var(--gc-space-1) var(--gc-space-3);
-  border-radius: var(--gc-radius-sm);
+.licensing-page__panel-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--gc-control-height-xs);
+  padding: 0 var(--gc-space-3);
+  border-radius: var(--gc-radius-pill);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
   font-size: var(--gc-font-size-sm);
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.licensing-page__eyebrow {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.licensing-page__hero--community .licensing-page__eyebrow { color: var(--gc-color-success); }
+.licensing-page__hero--commercial .licensing-page__eyebrow { color: var(--gc-color-primary); }
+.licensing-page__hero--enterprise .licensing-page__eyebrow { color: var(--gc-color-accent-purple); }
+.licensing-page__hero--none .licensing-page__eyebrow { color: var(--gc-color-text-muted); }
+
+/* ---- 授权状态徽标 ---- */
+
+.licensing-page__state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-4);
+  border-radius: var(--gc-radius-pill);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .licensing-page__state--active { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
@@ -461,25 +665,41 @@ onMounted(loadStatus)
 .licensing-page__state--clock_rollback_detected { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .licensing-page__state--none { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
 
-.licensing-page__facts,
-.licensing-page__quota-list {
+/* ---- 授权信息 ---- */
+
+.licensing-page__facts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--gc-space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
-.licensing-page__facts div,
-.licensing-page__quota-list div {
-  display: grid;
-  gap: var(--gc-space-1);
+.licensing-page__facts div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-subtle);
 }
 
-.licensing-page__facts dd,
-.licensing-page__quota-list dd {
+.licensing-page__facts dt {
+  flex: 0 0 auto;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  white-space: nowrap;
+}
+
+.licensing-page__facts dd {
   margin: 0;
+  min-width: 0;
   color: var(--gc-color-text);
   font-weight: 700;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .licensing-page__mono {
@@ -488,24 +708,110 @@ onMounted(loadStatus)
   font-size: var(--gc-font-size-sm);
 }
 
+/* ---- 功能与额度 ---- */
+
 .licensing-page__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-5);
+  align-items: start;
+  gap: var(--gc-space-4);
 }
 
 .licensing-page__list {
   display: grid;
   gap: var(--gc-space-2);
   margin: 0;
-  padding-left: var(--gc-space-5);
-  color: var(--gc-color-text);
+  padding: 0;
+  list-style: none;
 }
+
+.licensing-page__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+  border-radius: var(--gc-radius-sm);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-subtle);
+}
+
+.licensing-page__check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--gc-size-icon-md);
+  height: var(--gc-size-icon-md);
+  border-radius: var(--gc-radius-full);
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
+}
+
+.licensing-page__check svg {
+  width: var(--gc-size-icon-sm);
+  height: var(--gc-size-icon-sm);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--gc-border-width-thick);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.licensing-page__quota-block {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+}
+
+.licensing-page__quota-block h3 {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 700;
+}
+
+.licensing-page__quota-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.licensing-page__quota-list div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-subtle);
+}
+
+.licensing-page__quota-list dt {
+  flex: 0 0 auto;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  white-space: nowrap;
+}
+
+.licensing-page__quota-list dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* ---- 授权文件操作 ---- */
 
 .licensing-page__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gc-space-3);
+  gap: var(--gc-space-2);
 }
 
 .licensing-page__input {
@@ -527,9 +833,11 @@ onMounted(loadStatus)
   font-size: var(--gc-font-size-sm);
 }
 
+/* ---- 提示消息 ---- */
+
 .licensing-page__message {
   margin: 0;
-  padding: var(--gc-space-3) var(--gc-space-4);
+  padding: var(--gc-space-2) var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border);
   border-radius: var(--gc-radius-md);
 }
@@ -537,6 +845,8 @@ onMounted(loadStatus)
 .licensing-page__message--success { color: var(--gc-color-success); border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
 .licensing-page__message--error { color: var(--gc-color-danger); border-color: var(--gc-color-danger-border); background: var(--gc-color-danger-bg); }
 .licensing-page__message--loading { color: var(--gc-color-info); border-color: var(--gc-color-info-border); background: var(--gc-color-info-soft); }
+
+/* ---- 版本对比弹窗 ---- */
 
 .licensing-upgrade-modal {
   position: relative;
@@ -616,7 +926,7 @@ onMounted(loadStatus)
 
 .licensing-upgrade-modal__cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--gc-space-4);
 }
 
@@ -708,8 +1018,8 @@ onMounted(loadStatus)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gc-space-4);
   flex-wrap: wrap;
+  gap: var(--gc-space-4);
   padding-top: var(--gc-space-2);
 }
 
@@ -720,11 +1030,16 @@ onMounted(loadStatus)
 }
 
 @media (max-width: 50rem) {
-  .licensing-page__summary-head,
+  .licensing-page__hero-top,
   .licensing-page__panel-head {
     display: grid;
   }
 
+  .licensing-page__hero-aside {
+    justify-items: start;
+  }
+
+  .licensing-page__hero-stats,
   .licensing-page__facts,
   .licensing-page__quota-list,
   .licensing-page__grid,
