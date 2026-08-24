@@ -128,7 +128,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   await plugins.enableVersion(legacy.id);
   await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
     ('workflow.templates','workflow_user_override',$1::jsonb,now()),('workflow.template_versions','workflow_user_override_v1',$2::jsonb,now())`, [
-    JSON.stringify({ id: 'workflow_user_override', name: 'Fixture Override', currentVersionId: 'workflow_user_override_v1', status: 'active' }),
+    JSON.stringify({ id: 'workflow_user_override', name: 'Fixture Override', origin: 'user', ownerType: 'TENANT', ownerId: tenantId, tenantId, currentVersionId: 'workflow_user_override_v1', status: 'active' }),
     JSON.stringify({ id: 'workflow_user_override_v1', templateId: 'workflow_user_override', version: 1, dslVersion: 'v1', status: 'published', contentHash: 'hash', content: { inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } }),
   ]);
 

@@ -37,7 +37,7 @@ test('计划预检按固定资产 Binding 身份重放时保留设备默认层',
     managedTargetContextResolver: {
       resolve: async () => ({
         host: { id: 'host_layered', tenantId: 'tenant_1', hostname: 'lb-host', primaryIp: '10.255.0.49' },
-        managedTarget: { id: 'target_layered', tenantId: 'tenant_1', targetType: 'tls.binding', targetKey: 'lb-test01' },
+        managedTarget: { id: 'target_layered', tenantId: 'tenant_1', targetType: 'tls.binding', targetKey: 'lb-test01', metadata: {} },
         availableExecutionLocations: ['CONTROL_PLANE'],
         frameworkType: 'lb.test',
       }),

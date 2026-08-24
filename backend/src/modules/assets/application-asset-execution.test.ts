@@ -10,7 +10,7 @@ test('非受管资产只保存 WorkflowExecutionBinding 且拒绝插件 Assignme
   const asset=await assets.createServiceAsset(tenantId,{address:'standalone.example.com',port:443,protocol:'HTTPS',discoverySource:'MANUAL'});
   await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
     ('workflow.templates','workflow_user',$1::jsonb,now()),('workflow.template_versions','workflow_user_v1',$2::jsonb,now())`, [
-    JSON.stringify({ id: 'workflow_user', name: 'Fixture Workflow', currentVersionId: 'workflow_user_v1', status: 'active' }),
+    JSON.stringify({ id: 'workflow_user', name: 'Fixture Workflow', origin: 'user', ownerType: 'TENANT', ownerId: tenantId, tenantId, currentVersionId: 'workflow_user_v1', status: 'active' }),
     JSON.stringify({ id: 'workflow_user_v1', templateId: 'workflow_user', version: 1, dslVersion: 'v1', status: 'published', contentHash: 'hash', content: { inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } }),
   ]);
   const service=new ApplicationAssetExecutionService(db);
@@ -26,7 +26,7 @@ test('编辑资产基础信息时不重新校验历史无契约工作流绑定',
   const contract={apiVersion:'gcac.deployment-input/v1',variables:{},connections:{},credentials:{},artifacts:{}};
   await db.query(`insert into pg_documents (namespace,document_id,payload,updated_at) values
     ('workflow.templates','workflow_legacy',$1::jsonb,now()),('workflow.template_versions','workflow_legacy_v1',$2::jsonb,now())`, [
-    JSON.stringify({ id:'workflow_legacy',name:'Legacy Workflow',currentVersionId:'workflow_legacy_v1',status:'active' }),
+    JSON.stringify({ id:'workflow_legacy',name:'Legacy Workflow',origin:'user',ownerType:'TENANT',ownerId:tenantId,tenantId,currentVersionId:'workflow_legacy_v1',status:'active' }),
     JSON.stringify({ id:'workflow_legacy_v1',templateId:'workflow_legacy',version:1,dslVersion:'v1',status:'published',contentHash:'legacy-hash',content:{inputContract:contract} }),
   ]);
   const service=new ApplicationAssetExecutionService(db);

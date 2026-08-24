@@ -1,18 +1,38 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { App } from '../../common/http/app.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import { securityErrors } from '../../shared/security-error.js';
+import { PluginWorkflowBindingsRepository } from '../plugins/repository/plugin-workflow-bindings.repository.js';
+import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
-import type { WorkflowDslV1 } from './dto/workflow-templates.dto.js';
+import type { WorkflowDslV1, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 
 test('系统内置工作流在租户上下文下保持 SYSTEM 所有权并可按对象授权访问', async () => {
-  const service = new WorkflowTemplatesApplicationService();
+  const db = new PgliteDatabase();
+  await runMigrations(db, fileURLToPath(new URL('../../database/migrations/', import.meta.url)), {
+    appliedBy: 'test',
+    checksum: (value) => createHash('sha256').update(value).digest('hex'),
+  });
+  const service = new WorkflowTemplatesApplicationService(
+    new WorkflowTemplatesDomainService(
+      new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates'),
+      new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions'),
+    ),
+    {},
+    new PluginWorkflowBindingsRepository(db),
+  );
   const content = workflowContent('builtin-workflow');
   const builtin = await service.createPluginTemplate({ content });
   const capturedObjects: Array<{ objectType: string; objectId: string; tenantId?: string; ownerType?: string }> = [];
-  const app = new App({ allowLegacyHeaderContext: true });
+  const app = configureTestAuth(new App());
   new WorkflowTemplatesController(service, routeSecurity({
     allowedObjectIds: { workflow: [builtin.template.id] },
     captureObjects: capturedObjects,
@@ -28,7 +48,7 @@ test('系统内置工作流在租户上下文下保持 SYSTEM 所有权并可按
 
   const versionsResponse = await app.inject({
     method: 'GET',
-    path: `/api/v1/workflow-template-versions?templateId=${builtin.template.id}`,
+    path: `/api/v1/workflows/${builtin.template.id}/versions`,
     headers: actorHeaders(),
   });
   assert.equal(versionsResponse.statusCode, 200);
@@ -42,7 +62,7 @@ test('系统内置工作流在租户上下文下保持 SYSTEM 所有权并可按
 });
 
 function actorHeaders(): Record<string, string> {
-  return { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' };
+  return testAuthHeaders('user_admin', 'tenant-1');
 }
 
 function routeSecurity(options: {
