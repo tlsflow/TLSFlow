@@ -1086,18 +1086,7 @@ export class InternalCaApplicationService {
     };
     await this.assertNoActiveNodeConflict(node);
     const savedNode = await this.repository.saveNode(node);
-    if (provider.type === 'microsoft_adcs' && input.discovery) {
-      const discovered = normalizeAdcsDiscovery(input.discovery, now);
-      await this.repository.saveProvider({
-        ...provider,
-        configuration: {
-          ...provider.configuration,
-          adapterMode: 'managed_agent',
-          discovered,
-        },
-        updatedAt: now,
-      });
-    }
+    if (provider.type === 'microsoft_adcs' && input.discovery) await this.saveAdcsDiscovery(provider, input.discovery, now);
     return savedNode;
   }
 
@@ -1144,6 +1133,7 @@ export class InternalCaApplicationService {
     role?: CaNodeEntity['role'];
     capabilities?: CaNodeEntity['capabilities'];
     version?: string;
+    discovery?: AdcsDiscoveryInput;
   }): Promise<CaNodeEntity> {
     const node = await this.repository.getNode(tenantId, nodeId);
     if (!node) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 不存在', { nodeId });
@@ -1158,7 +1148,24 @@ export class InternalCaApplicationService {
       updatedAt: new Date().toISOString(),
     };
     await this.assertNoActiveNodeConflict(next);
-    return this.repository.saveNode(next);
+    const savedNode = await this.repository.saveNode(next);
+    if (patch.discovery) {
+      const provider = await this.requireProvider(tenantId, node.providerId);
+      if (provider.type === 'microsoft_adcs') await this.saveAdcsDiscovery(provider, patch.discovery, next.updatedAt);
+    }
+    return savedNode;
+  }
+
+  private async saveAdcsDiscovery(provider: CaProviderEntity, discovery: AdcsDiscoveryInput, observedAt: string): Promise<void> {
+    await this.repository.saveProvider({
+      ...provider,
+      configuration: {
+        ...provider.configuration,
+        adapterMode: 'managed_agent',
+        discovered: normalizeAdcsDiscovery(discovery, observedAt),
+      },
+      updatedAt: observedAt,
+    });
   }
 
   async enqueueNodeTask(tenantId: string, providerId: string, taskType: CaNodeTaskEntity['taskType'], payload: Record<string, unknown>, idempotencyKey: string): Promise<CaNodeTaskEntity> {

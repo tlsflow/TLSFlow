@@ -423,6 +423,12 @@ test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能�
   const signature = sign(null, Buffer.from(canonical), identity.privateKey).toString('base64');
   const verified = await service.verifyNodeRequest({ tenantId, nodeId: node.id, method: 'POST', path, timestamp, nonce, signature, body });
   assert.equal(verified.id, node.id);
+  await service.heartbeatNode(tenantId, node.id, {
+    healthStatus: 'online',
+    discovery: { caConfig: 'CA01\\Contoso Updated CA', caName: 'Contoso Updated CA', templates: ['WebServer'] },
+  });
+  const refreshedProvider = (await service.listProviders(tenantId)).find((item) => item.id === provider?.id);
+  assert.equal((refreshedProvider?.configuration.discovered as Record<string, unknown>)?.caConfig, 'CA01\\Contoso Updated CA');
   await assert.rejects(
     service.verifyNodeRequest({ tenantId, nodeId: node.id, method: 'POST', path, timestamp, nonce, signature, body }),
     /已重放/,

@@ -173,6 +173,8 @@ func (a *agent) run(ctx context.Context) error {
 		if err := a.register(discovery); err != nil {
 			return err
 		}
+	} else if err := a.reportDiscovery(discovery); err != nil {
+		return err
 	}
 	reconnectDelay := time.Second
 	for {
@@ -250,6 +252,14 @@ func (a *agent) register(discovery map[string]any) error {
 	a.config.NodeID = response.ID
 	a.config.EnrollmentToken = ""
 	return a.saveConfig()
+}
+
+func (a *agent) reportDiscovery(discovery map[string]any) error {
+	payload := map[string]any{
+		"nodeId": a.config.NodeID, "healthStatus": "online", "capabilities": capabilities(),
+		"version": version, "discovery": discovery,
+	}
+	return a.post(ctxBackground(), "/api/v1/ca-nodes/heartbeat", payload, nil)
 }
 
 func (a *agent) streamTasks(ctx context.Context) error {
