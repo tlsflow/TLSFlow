@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.nginx-proxy-manager",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "displayNameKey": "plugin.nginxProxyManager.name",
   "descriptionKey": "plugin.nginxProxyManager.description",
   "defaultLocale": "zh-CN",

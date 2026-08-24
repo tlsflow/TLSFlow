@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.aliyun",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "displayNameKey": "plugin.cloud.aliyun.name",
   "descriptionKey": "plugin.cloud.aliyun.description",
   "defaultLocale": "zh-CN",

@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.volcengine",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "displayNameKey": "plugin.cloud.volcengine.name",
   "descriptionKey": "plugin.cloud.volcengine.description",
   "defaultLocale": "zh-CN",

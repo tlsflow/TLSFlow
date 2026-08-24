@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-microsoft-adcs-renew", "version": "1.0.5" },
+  "metadata": { "name": "ca-microsoft-adcs-renew", "version": "1.0.6" },
   "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "operation": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "sourceCertificateId": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" } }, "connections": {}, "credentials": {}, "artifacts": {} },
   "steps": [{ "name": "adcs-plan-renew", "type": "wait", "stage": "install", "seconds": 1 }]
 }

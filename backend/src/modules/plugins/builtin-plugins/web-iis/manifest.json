@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.iis",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "displayNameKey": "plugin.webIis.name",
   "descriptionKey": "plugin.webIis.description",
   "defaultLocale": "zh-CN",

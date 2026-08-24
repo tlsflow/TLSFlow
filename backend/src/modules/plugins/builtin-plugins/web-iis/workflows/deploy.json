@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.15", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-deploy", "displayName": "IIS certificate deployment", "category": "certificate", "version": "1.0.16", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {

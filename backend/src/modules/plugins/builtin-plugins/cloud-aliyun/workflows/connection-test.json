@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "cloud-aliyun-connection-test", "category": "cloud", "version": "2.0.7", "platforms": ["cloud"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "cloud-aliyun-connection-test", "category": "cloud", "version": "2.0.8", "platforms": ["cloud"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {

@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.citrix.netscaler-adc",
-  "version": "2.0.20",
+  "version": "2.0.21",
   "displayNameKey": "plugin.citrixAdc.name",
   "descriptionKey": "plugin.citrixAdc.description",
   "defaultLocale": "zh-CN",
