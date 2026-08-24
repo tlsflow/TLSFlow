@@ -6,6 +6,7 @@ export interface BusinessPageColumn {
   readonly title: string
   readonly candidates: readonly string[]
   readonly kind?: 'text' | 'status' | 'risk' | 'date' | 'count'
+  readonly format?: (record: ApiRecord) => string
 }
 
 export interface BusinessMetricCard {

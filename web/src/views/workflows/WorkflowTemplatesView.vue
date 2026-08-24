@@ -82,6 +82,12 @@ const config: BusinessPageConfig = {
   showActionPanel: false,
   columns: [
     { key: 'name', title: t('workflows.templates.fields.name'), candidates: ['name'] },
+    {
+      key: 'origin',
+      title: t('workflows.templates.fields.origin'),
+      candidates: ['origin'],
+      format: (record) => t(`workflows.templates.origins.${normalizeWorkflowOrigin(readString(record, ['origin'], 'user'))}`),
+    },
     { key: 'status', title: t('workflows.templates.fields.status'), candidates: ['status'] },
     { key: 'currentVersionLabel', title: t('workflows.templates.fields.currentVersion'), candidates: ['currentVersionLabel', 'currentVersion'] },
     { key: 'updatedAt', title: t('workflows.templates.fields.updatedAt'), candidates: ['updatedAt', 'createdAt'], kind: 'date' },
@@ -167,13 +173,16 @@ function isPluginInternal(row: ViewRow): boolean {
 }
 
 function isUserOwnedWorkflow(row: ViewRow): boolean {
-  const origin = workflowOrigin(row)
-  return origin === 'user' || origin === 'plugin_derived' || origin === 'legacy'
+  return workflowOrigin(row) === 'user'
 }
 
 function workflowOrigin(row: ViewRow): string {
-  const rawOrigin = readString(row.raw, ['origin'], 'legacy').trim().toLowerCase()
-  return rawOrigin.replace(/-/g, '_')
+  return normalizeWorkflowOrigin(readString(row.raw, ['origin'], 'user'))
+}
+
+function normalizeWorkflowOrigin(origin: string): 'plugin_internal' | 'user' {
+  const normalized = origin.trim().toLowerCase().replace(/-/g, '_')
+  return normalized === 'plugin_internal' ? 'plugin_internal' : 'user'
 }
 
 function pluginSourceId(item: ApiRecord): string {
@@ -661,8 +670,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             <div><dt>{{ t('workflows.templates.fields.currentVersionId') }}</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.createdAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['createdAt'])) || readString(detailRow.raw, ['createdAt']) }}</dd></div>
             <div><dt>{{ t('workflows.templates.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(readString(detailRow.raw, ['updatedAt'])) || readString(detailRow.raw, ['updatedAt']) }}</dd></div>
-            <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ t(`workflows.templates.origins.${readString(detailRow.raw, ['origin'], 'legacy')}`) }}</dd></div>
-            <div v-if="readString(detailRow.raw, ['provenance.pluginVersionId'])"><dt>{{ t('workflows.templates.pluginSources.provenance') }}</dt><dd>{{ readString(detailRow.raw, ['provenance.pluginId']) }} / {{ readString(detailRow.raw, ['provenance.pluginVersionId']) }} / {{ readString(detailRow.raw, ['provenance.capabilityKey']) }}</dd></div>
+            <div><dt>{{ t('workflows.templates.fields.origin') }}</dt><dd>{{ t(`workflows.templates.origins.${workflowOrigin(detailRow)}`) }}</dd></div>
           </dl>
         </section>
 
@@ -677,6 +685,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
                 <GcStatusTag :status="readString(item, ['status'])" />
               </div>
               <p>{{ readString(item, ['changeSummary'], t('workflows.templates.empty.noChangeSummary')) }}</p>
+              <small v-if="readString(item, ['pluginSource.pluginVersionId'])">{{ t('workflows.templates.pluginSources.versionSource', { plugin: readString(item, ['pluginSource.pluginId']), version: readString(item, ['pluginSource.pluginVersionId']), capability: readString(item, ['pluginSource.capabilityKey']) }) }}</small>
               <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
               <button
                 v-if="canRunVersionAction(item)"

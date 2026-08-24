@@ -95,7 +95,9 @@ export function buildBusinessPageRows(page: ApiPage | undefined, config: Busines
       if (column.key === 'name') row[column.key] = name
       else if (column.key === 'status') row[column.key] = status
       else if (column.key === 'risk') row[column.key] = risk
-      else row[column.key] = formatMaybeLocalTimeByCandidates(readString(record, column.candidates), column.candidates)
+      else row[column.key] = column.format
+        ? column.format(record)
+        : formatMaybeLocalTimeByCandidates(readString(record, column.candidates), column.candidates)
     })
     return row as ViewRow
   })
