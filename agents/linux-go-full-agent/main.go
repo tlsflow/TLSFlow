@@ -31,14 +31,17 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+
+	"gcac/linux-go-full-agent/internal/buildinfo"
 )
 
 const (
-	agentVersion      = "0.1.0"
 	defaultTaskPoll   = 60
 	defaultHealthPoll = 30
 	defaultOfflineTTL = 180
 )
+
+var agentVersion = buildinfo.Version
 
 type AgentConfig struct {
 	SchemaVersion              string `json:"schemaVersion"`
@@ -527,11 +530,7 @@ func runCLI(args []string) error {
 	case "service-info":
 		return handleServiceInfo(args[1:])
 	case "version":
-		return writeJSON(map[string]string{
-			"name":    "gcac-linux-agent",
-			"version": agentVersion,
-			"runtime": "go",
-		})
+		return writeJSON(buildinfo.Current())
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
