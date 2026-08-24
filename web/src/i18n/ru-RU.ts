@@ -904,6 +904,8 @@ export default {
       workflowMode: 'Пользовательский рабочий процесс',
       workflowModePluginInternal: 'Встроенный рабочий процесс плагина',
       workflowDslVersion: 'Фактическая версия DSL: {version}',
+      workflowPluginVersion: 'Фактическая версия плагина: {version}',
+      workflowPluginVersionId: 'ID версии плагина: {versionId}',
       workflowVersionId: 'ID снимка версии: {versionId}',
       workflowVersionSelectionPinned: 'Стратегия версии: зафиксирована планом',
       workflowVersionSelectionLatest: 'Стратегия версии: последняя опубликованная из ресурса приложения',

@@ -904,6 +904,8 @@ export default {
       workflowMode: 'Workflow do usuário',
       workflowModePluginInternal: 'Workflow integrado do plugin',
       workflowDslVersion: 'Versão efetiva do DSL: {version}',
+      workflowPluginVersion: 'Versão efetiva do plug-in: {version}',
+      workflowPluginVersionId: 'ID da versão do plug-in: {versionId}',
       workflowVersionId: 'ID do snapshot da versão: {versionId}',
       workflowVersionSelectionPinned: 'Política de versão: fixada pelo plano',
       workflowVersionSelectionLatest: 'Política de versão: última publicada pelo ativo da aplicação',

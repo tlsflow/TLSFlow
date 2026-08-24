@@ -930,6 +930,8 @@ export default {
       workflowMode: 'ユーザーワークフロー',
       workflowModePluginInternal: 'プラグイン内蔵ワークフロー',
       workflowDslVersion: '実際の DSL バージョン：{version}',
+      workflowPluginVersion: '実際のプラグインバージョン：{version}',
+      workflowPluginVersionId: 'プラグインバージョン ID：{versionId}',
       workflowVersionId: 'バージョンスナップショット ID：{versionId}',
       workflowVersionSelectionPinned: 'バージョンポリシー：計画で固定',
       workflowVersionSelectionLatest: 'バージョンポリシー：アプリケーション資産の最新公開版',

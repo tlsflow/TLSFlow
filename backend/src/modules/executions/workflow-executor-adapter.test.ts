@@ -172,7 +172,7 @@ function synologyInsecureTlsWorkflowFixture(): WorkflowDslV1 {
         method: 'GET',
         connectionRef: 'management',
         url: 'https://{{variables.deviceHost}}/webapi/entry.cgi',
-        tls: { verify: false, allowInsecure: true },
+        tls: { verify: false },
       },
     }],
   };
@@ -474,6 +474,37 @@ describe('WorkflowExecutorAdapter', () => {
     const result = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
     assert.equal(result.success, true);
     assert.equal(networkCalls, 1);
+  });
+
+  it('Synology 已绑定 allowInsecureTls 但 dry-run 不会伪造正式 ExecutionGrant', async () => {
+    const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
+    const grants = new ExecutionGrantService();
+    const curlExecutor = new CurlExecutor({
+      executionGrantService: grants,
+      httpClient: { async send() { throw new Error('dry-run 不应访问真实网络'); } },
+    });
+    const step = workflowStep(versionId);
+    step.inputSnapshot.resolvedDeploymentInput = {
+      ...resolvedDeploymentInput(),
+      variables: { deviceHost: 'nas.example.com', allowInsecureTls: true },
+    };
+    step.inputSnapshot.executionAuthorization = {
+      tenantId: 'tenant_1',
+      planId: 'plan_synology_tls',
+      targetId: 'target_1',
+      approvalId: 'approval_synology_tls',
+      workflowVersionId: versionId,
+      snapshotHash: 'snapshot_synology_tls',
+      approved: true,
+      allowInsecureTls: true,
+    };
+
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants: grants });
+    const result = await adapter.executeStep({ step, runType: 'dry_run', dryRun: true });
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'AUTH_FORBIDDEN');
+    assert.match(result.errorMessage ?? '', /ExecutionGrant/);
   });
 
   it('apply 在 HTTP 节点之间传递真实敏感变量，但结果中只保留脱敏值', async () => {

@@ -316,7 +316,6 @@ function validateRequest(request: CurlExecutionRequest, allowUnresolvedVariables
   if (request.template.maxResponseBytes !== undefined && (request.template.maxResponseBytes < 1 || request.template.maxResponseBytes > 10 * 1024 * 1024)) {
     throw new AppError('VALIDATION_FAILED', 'maxResponseBytes 必须在 1-10485760 之间');
   }
-  if (request.template.tls?.verify === false && request.template.tls.allowInsecure !== true) throw new AppError('VALIDATION_FAILED', '跳过 TLS 校验必须走审批后的专用策略，执行器默认拒绝');
   if (request.template.tls?.caSecretRef && !isSecretRef(request.template.tls.caSecretRef)) throw new AppError('VALIDATION_FAILED', 'CA 必须使用 SecretRef');
   if (request.template.tls?.clientCertSecretRef && !isSecretRef(request.template.tls.clientCertSecretRef)) throw new AppError('VALIDATION_FAILED', '客户端证书必须使用 SecretRef');
   if (request.template.tls?.clientKeySecretRef && !isSecretRef(request.template.tls.clientKeySecretRef)) throw new AppError('VALIDATION_FAILED', '客户端私钥必须使用 SecretRef');

@@ -929,6 +929,8 @@ export default {
       workflowMode: "使用者工作流",
       workflowModePluginInternal: "外掛內建工作流",
       workflowDslVersion: "實際 DSL 版本：{version}",
+      workflowPluginVersion: "實際外掛版本：{version}",
+      workflowPluginVersionId: "外掛版本 ID：{versionId}",
       workflowVersionId: "版本快照 ID：{versionId}",
       workflowVersionSelectionPinned: "版本策略：計畫已固定",
       workflowVersionSelectionLatest: "版本策略：應用資產使用最新已發布版本",

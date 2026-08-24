@@ -562,17 +562,17 @@ export class WorkflowExecutorAdapter implements Executor {
       ?? stringFromSnapshot(input.step.inputSnapshot.workflowVersionId)
       ?? authorization?.workflowVersionId;
     const curlRequest = executor === '017.CURL_HTTP' ? readRecord(plan?.curlRequest) : undefined;
+    const curlTemplate = readRecord(curlRequest?.template) ?? {};
+    const curlTls = readRecord(curlTemplate.tls) ?? {};
     const allowInsecureTls = authorization?.allowInsecureTls === true;
     const allowInsecureAction = executor === '017.CURL_HTTP'
-      && readRecord(curlRequest?.template)?.verify === undefined
-      && readRecord(curlRequest?.template)?.tls !== undefined
-      && readRecord(readRecord(curlRequest?.template)?.tls)?.verify === false
+      && curlTls.verify === false
       && authorization?.approved === true
       && allowInsecureTls
       ? 'workflow.tls.insecure'
       : undefined;
     const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
-    const grant = this.executionGrants && executor
+    const grant = this.executionGrants && executor && !input.dryRun
       ? await this.executionGrants.create({
           tenantId: input.step.tenantId,
           planId: authorization?.planId ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),

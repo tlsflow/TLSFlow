@@ -1459,15 +1459,23 @@ function workflowVersionLabel(item: ApiRecord): string {
 }
 
 function workflowVersionDisplayValue(item: ApiRecord): string {
-  if (String(selectedWorkflowTemplate.value?.origin ?? '') === 'plugin_internal') {
-    return workflowDslVersion(item) || String(item.id ?? '')
-  }
-  return String(item.version ?? item.versionNo ?? item.name ?? item.id ?? '')
+  return workflowVersionValue(item) || String(item.name ?? item.id ?? '')
 }
 
 function workflowDslVersion(item: ApiRecord): string {
-  const value = readNested(item, ['content', 'metadata', 'version'])
-  return typeof value === 'string' ? value.trim() : ''
+  return workflowVersionValue(item)
+}
+
+function workflowVersionValue(item: ApiRecord): string {
+  const candidates = [
+    readNested(item, ['content', 'metadata', 'version']),
+    item.version,
+    item.versionNo,
+    item.id,
+  ]
+  return candidates.find((value): value is string | number => (typeof value === 'string' && value.trim().length > 0) || typeof value === 'number')
+    ?.toString()
+    .trim() ?? ''
 }
 
 function preferWorkflowVersion(candidate: ApiRecord, existing: ApiRecord, selectedId: string, currentId: string): boolean {

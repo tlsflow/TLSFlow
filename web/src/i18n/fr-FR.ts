@@ -938,6 +938,8 @@ export default {
       workflowMode: 'User workflow',
       workflowModePluginInternal: 'Built-in plugin workflow',
       workflowDslVersion: 'Effective DSL version: {version}',
+      workflowPluginVersion: 'Effective plugin version: {version}',
+      workflowPluginVersionId: 'Plugin version ID: {versionId}',
       workflowVersionId: 'Version snapshot ID: {versionId}',
       workflowVersionSelectionPinned: 'Version policy: pinned by the plan',
       workflowVersionSelectionLatest: 'Version policy: latest published from the application asset',

@@ -904,6 +904,8 @@ export default {
       workflowMode: '사용자 워크플로',
       workflowModePluginInternal: '플러그인 내장 워크플로',
       workflowDslVersion: '실제 DSL 버전: {version}',
+      workflowPluginVersion: '실제 플러그인 버전: {version}',
+      workflowPluginVersionId: '플러그인 버전 ID: {versionId}',
       workflowVersionId: '버전 스냅샷 ID: {versionId}',
       workflowVersionSelectionPinned: '버전 정책: 계획에서 고정',
       workflowVersionSelectionLatest: '버전 정책: 애플리케이션 자산의 최신 게시 버전',

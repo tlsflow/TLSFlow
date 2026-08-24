@@ -915,10 +915,20 @@ function workflowIdentityModeLabel(identity: ApiRecord): string {
 }
 
 function workflowIdentityVersionLabel(identity: ApiRecord): string {
-  const version = readString(identity, ['workflowDslVersion'])
+  const version = readString(identity, ['workflowDslVersion', 'workflowVersion', 'version'])
   return version
     ? t('deploymentPlans.detail.workflowDslVersion', { version })
     : t('deploymentPlans.detail.workflowIdentityUnavailable')
+}
+
+function workflowIdentityPluginVersionLabel(identity: ApiRecord): string {
+  const version = readString(identity, ['pluginVersion'])
+  return version ? t('deploymentPlans.detail.workflowPluginVersion', { version }) : ''
+}
+
+function workflowIdentityPluginVersionIdLabel(identity: ApiRecord): string {
+  const versionId = readString(identity, ['pluginVersionId'])
+  return versionId ? t('deploymentPlans.detail.workflowPluginVersionId', { versionId }) : ''
 }
 
 function workflowIdentitySelectionLabel(identity: ApiRecord): string {
@@ -1216,10 +1226,14 @@ async function fetchAllPages(
                   <span>{{ workflowIdentityModeLabel(identity) }}</span>
                 </div>
                 <p>{{ workflowIdentityVersionLabel(identity) }}</p>
+                <p v-if="workflowIdentityPluginVersionLabel(identity)">{{ workflowIdentityPluginVersionLabel(identity) }}</p>
                 <small>
                   {{ workflowIdentitySelectionLabel(identity) }}
                   ·
                   {{ t('deploymentPlans.detail.workflowVersionId', { versionId: readString(identity, ['workflowVersionId']) }) }}
+                  <template v-if="workflowIdentityPluginVersionIdLabel(identity)">
+                    · {{ workflowIdentityPluginVersionIdLabel(identity) }}
+                  </template>
                 </small>
               </li>
             </ul>

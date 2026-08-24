@@ -990,6 +990,8 @@ export default {
       workflowMode: '用户工作流',
       workflowModePluginInternal: '插件内置工作流',
       workflowDslVersion: '实际 DSL 版本：{version}',
+      workflowPluginVersion: '实际插件版本：{version}',
+      workflowPluginVersionId: '插件版本 ID：{versionId}',
       workflowVersionId: '版本快照 ID：{versionId}',
       workflowVersionSelectionPinned: '版本策略：计划已固定',
       workflowVersionSelectionLatest: '版本策略：应用资产使用最新已发布版本',
