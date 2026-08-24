@@ -79,7 +79,7 @@ export class ManagedTargetPluginQueryService {
     const context = await services.contexts.resolve(input.tenantId, input.managedTargetId);
     this.assertTargetCapability(context, input.capabilityKey);
     const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, input.capabilityKey);
-    const versions = selectLatestEnabledManagedVersions(await services.plugins.listVersions(input.tenantId));
+    const versions = selectLatestEnabledManagedVersions(await services.plugins.listAccessibleVersions(input.tenantId));
     const items = versions.map((plugin) => evaluateCompatiblePlugin(
       plugin,
       input.capabilityKey,

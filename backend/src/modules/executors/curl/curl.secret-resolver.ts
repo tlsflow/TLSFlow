@@ -5,6 +5,26 @@ export interface CurlSecretResolverContext {
   stepId?: string;
   actorId?: string;
   tenantId?: string;
+  planId?: string;
+  targetId?: string;
+  workflowVersionId?: string;
+  approvalId?: string;
+  executionGrantId?: string;
+  allowInsecureTls?: boolean;
+  executionGrantService?: {
+    validate(input: {
+      grantId: string;
+      tenantId?: string;
+      planId?: string;
+      runId: string;
+      stepId: string;
+      targetId?: string;
+      workflowVersionId?: string;
+      approvalId?: string;
+      executorType: string;
+      action?: string;
+    }): Promise<unknown>;
+  };
 }
 
 export interface CurlSecretResolver {

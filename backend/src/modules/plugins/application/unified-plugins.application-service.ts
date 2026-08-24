@@ -282,7 +282,7 @@ export class UnifiedPluginsApplicationService {
     });
   }
 
-  private async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
+  async listAccessibleVersions(tenantId: string): Promise<UnifiedPluginVersionRecord[]> {
     const versions = this.repository.listAccessibleVersions
       ? await this.repository.listAccessibleVersions(tenantId)
       : [...await this.repository.listVersions(tenantId), ...await this.listBuiltinVersions()];

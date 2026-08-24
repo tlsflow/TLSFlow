@@ -419,12 +419,16 @@ export class WorkflowTemplatesDomainService {
         variables.recoverySnapshotHash = plan.captureHash;
         context.values.variables = variables;
       }
-      const dispatchOutput = dispatcher && input.mode !== 'render_only' && step.type !== 'transform'
+      const dispatchOutput = dispatcher
+        && (input.mode !== 'render_only' || input.dispatchInRenderOnly === true)
+        && step.type !== 'transform'
         ? await dispatcher({ runId, step: executionName === step.name ? step : { ...step, name: executionName }, renderedPlan: plan, attempt, rollback })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
       const dispatchSucceeded = dispatchOutput ? dispatchOutput.success : true;
-      const extracted = input.mode === 'render_only' || !dispatchSucceeded
+      const renderOnly = input.mode === 'render_only' && input.dispatchInRenderOnly !== true;
+      const dispatchOnly = input.mode === 'render_only' && input.dispatchInRenderOnly === true;
+      const extracted = renderOnly || dispatchOnly || !dispatchSucceeded
         ? {}
         : step.type === 'transform'
           ? readTransformOutputs(step, structuredOutput, context)
@@ -433,8 +437,10 @@ export class WorkflowTemplatesDomainService {
       const finalPlan = extracted && Object.keys(extracted).length > 0
         ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
         : plan;
-      const assertions = input.mode === 'render_only' || !dispatchSucceeded ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
-      const success = input.mode === 'render_only' || dispatchSucceeded && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
+      const assertions = renderOnly || dispatchOnly || !dispatchSucceeded ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
+      const success = renderOnly || dispatchOnly
+        ? dispatchSucceeded
+        : dispatchSucceeded && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
       const rawLogs = [
         `step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`,
         ...(dispatchOutput?.logs ?? []),

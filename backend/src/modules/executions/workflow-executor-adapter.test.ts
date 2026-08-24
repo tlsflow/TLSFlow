@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CurlExecutor } from '../executors/curl/curl.executor.js';
 import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.js';
+import { ExecutionGrantService } from './execution-grant.service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
@@ -149,6 +150,34 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
   };
 }
 
+function synologyInsecureTlsWorkflowFixture(): WorkflowDslV1 {
+  const inputContract = workflowInputContract();
+  inputContract.variables.allowInsecureTls = {
+    type: 'boolean',
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  };
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'synology-dsm-cert-import-security-test', version: '1.2.4' },
+    inputContract,
+    steps: [{
+      name: 'synology_login',
+      type: 'http',
+      request: {
+        method: 'GET',
+        connectionRef: 'management',
+        url: 'https://{{variables.deviceHost}}/webapi/entry.cgi',
+        tls: { verify: false, allowInsecure: true },
+      },
+    }],
+  };
+}
+
 function certificateAliasWorkflowFixture(): WorkflowDslV1 {
   return {
     apiVersion: 'gcac.workflow/v1',
@@ -245,6 +274,13 @@ async function createPublishedCertificateOutputsWorkflow(): Promise<{ workflows:
   return { workflows, versionId: published.id };
 }
 
+async function createPublishedSynologyInsecureTlsWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
+  const workflows = new WorkflowTemplatesApplicationService();
+  const created = await workflows.createTemplate({ content: synologyInsecureTlsWorkflowFixture(), changeSummary: 'synology-tls-authorization-test' });
+  const published = await workflows.publishVersion(created.version.id);
+  return { workflows, versionId: published.id };
+}
+
 function resolvedDeploymentInput(): ResolvedDeploymentInputV1 {
   return {
     apiVersion: 'gcac.resolved-deployment-input/v1',
@@ -319,7 +355,7 @@ function readRecord(value: unknown): Record<string, unknown> {
 }
 
 describe('WorkflowExecutorAdapter', () => {
-  it('dry-run 只渲染工作流计划，不分发子执行器', async () => {
+  it('dry-run 执行工作流结构与安全校验，但不执行 SSH 或真实网络', async () => {
     const { workflows, versionId } = await createPublishedWorkflow();
     const curlExecutor = new StubExecutor('CURL', () => ({ success: true }));
     const sshExecutor = new StubExecutor('SSH', () => ({ success: true }));
@@ -344,8 +380,10 @@ describe('WorkflowExecutorAdapter', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.detail?.mode, 'workflow_plan');
-    assert.equal(curlExecutor.calls.length, 0);
-    assert.equal(sshExecutor.calls.length, 0);
+    assert.equal(curlExecutor.calls.length > 0, true);
+    assert.equal(curlExecutor.calls.every((call) => call.dryRun), true);
+    assert.equal(sshExecutor.calls.length > 0, true);
+    assert.equal(sshExecutor.calls.every((call) => call.dryRun), true);
     assert.equal(progressDetails.length > 2, true);
     assert.equal(progressDetails.every((detail) => detail.mode === 'workflow_plan'), true);
     const progressSnapshots = progressDetails.map((detail) => detail.workflowProgress as {
@@ -366,6 +404,76 @@ describe('WorkflowExecutorAdapter', () => {
     assert.equal(workflowIdentity.workflowName, 'workflow-executor-adapter-test');
     assert.equal(workflowIdentity.workflowDslVersion, '1.0.0');
     assert.equal(typeof workflowIdentity.workflowTemplateId, 'string');
+  });
+
+  it('Synology 工作流 dry-run 和正式执行都拒绝 DSL-only 的自签名 TLS 请求', async () => {
+    const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
+    const grants = new ExecutionGrantService();
+    const curlExecutor = new CurlExecutor({
+      executionGrantService: grants,
+      httpClient: { async send() { throw new Error('正式执行不应在授权失败前访问网络'); } },
+    });
+    const step = workflowStep(versionId);
+    step.inputSnapshot.resolvedDeploymentInput = {
+      ...resolvedDeploymentInput(),
+      variables: { deviceHost: 'nas.example.com', allowInsecureTls: true },
+    };
+    step.inputSnapshot.executionAuthorization = {
+      planId: 'plan_synology_tls',
+      targetId: 'target_1',
+      workflowVersionId: versionId,
+      snapshotHash: 'snapshot_synology_tls',
+      approved: false,
+      allowInsecureTls: true,
+    };
+
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants: grants });
+    const dryRun = await adapter.executeStep({ step, runType: 'dry_run', dryRun: true });
+    assert.equal(dryRun.success, false);
+    assert.equal(dryRun.errorCode, 'AUTH_FORBIDDEN');
+    assert.match(dryRun.errorMessage ?? '', /ExecutionGrant/);
+
+    const apply = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
+    assert.equal(apply.success, false);
+    assert.equal(apply.errorCode, 'AUTH_FORBIDDEN');
+    assert.match(apply.errorMessage ?? '', /ExecutionGrant/);
+  });
+
+  it('Synology 工作流获得宿主批准和 ExecutionGrant 后正式执行允许自签名 TLS', async () => {
+    const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
+    const grants = new ExecutionGrantService();
+    let networkCalls = 0;
+    const curlExecutor = new CurlExecutor({
+      executionGrantService: grants,
+      httpClient: {
+        async send(request) {
+          networkCalls += 1;
+          assert.ok(request.tls);
+          assert.equal(request.tls.verify, false);
+          return { statusCode: 200, body: { success: true } };
+        },
+      },
+    });
+    const step = workflowStep(versionId);
+    step.inputSnapshot.resolvedDeploymentInput = {
+      ...resolvedDeploymentInput(),
+      variables: { deviceHost: 'nas.example.com', allowInsecureTls: true },
+    };
+    step.inputSnapshot.executionAuthorization = {
+      tenantId: 'tenant_1',
+      planId: 'plan_synology_tls',
+      targetId: 'target_1',
+      approvalId: 'approval_synology_tls',
+      workflowVersionId: versionId,
+      snapshotHash: 'snapshot_synology_tls',
+      approved: true,
+      allowInsecureTls: true,
+    };
+
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants: grants });
+    const result = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
+    assert.equal(result.success, true);
+    assert.equal(networkCalls, 1);
   });
 
   it('apply 在 HTTP 节点之间传递真实敏感变量，但结果中只保留脱敏值', async () => {

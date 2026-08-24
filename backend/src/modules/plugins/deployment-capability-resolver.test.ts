@@ -31,12 +31,12 @@ function plugin(executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>
   };
 }
 
-function resolver(options: { hostId?: string; executionLocations?: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'> } = {}) {
+function resolver(options: { hostId?: string; executionLocations?: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>; plugin?: UnifiedPluginVersionRecord } = {}) {
   const bindings = {
     listAssignmentCandidates: async () => [assignment],
     getTenantBinding: async () => ({ ...binding, managedContext: { ...binding.managedContext, hostId: options.hostId ?? 'host-1' } }),
   } as unknown as PluginBindingsApplicationService;
-  return new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin(options.executionLocations) });
+  return new DeploymentCapabilityResolver(bindings, { getVersion: async () => options.plugin ?? plugin(options.executionLocations) });
 }
 
 test('DeploymentCapabilityResolver 固定 Assignment、Binding、Runtime 和执行位置', async () => {
@@ -45,6 +45,25 @@ test('DeploymentCapabilityResolver 固定 Assignment、Binding、Runtime 和执�
   assert.equal(resolved.binding.id, 'binding-1');
   assert.equal(resolved.pluginRuntime, 'WORKFLOW_DSL');
   assert.equal(resolved.executionLocation, 'CONTROL_PLANE');
+});
+
+test('DeploymentCapabilityResolver 允许当前租户解析 SYSTEM 内置插件版本', async () => {
+  const builtin = plugin();
+  builtin.tenantId = 'SYSTEM';
+  builtin.ownerType = 'SYSTEM';
+  builtin.source = 'BUILTIN';
+  builtin.manifest.source = 'BUILTIN';
+  const resolved = await resolver({ plugin: builtin }).resolve({
+    tenantId: 'tenant-1',
+    capabilityKey: 'certificate.deploy',
+    hostId: 'host-1',
+    managedTargetId: 'target-1',
+    applicationAssetId: 'asset-1',
+    executionLocations: ['CONTROL_PLANE'],
+    compatibility: {},
+  });
+  assert.equal(resolved.plugin.source, 'BUILTIN');
+  assert.equal(resolved.plugin.tenantId, 'SYSTEM');
 });
 
 test('DeploymentCapabilityResolver 拒绝所有候选 Binding Host 身份冲突', async () => {

@@ -81,6 +81,37 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
     resources: imported.resources,
   });
   await plugins.enableVersion(older.id);
+  const builtinLatestVersionId = 'builtin-fixture-managed-1-1-25';
+  const builtinLocales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'fr-FR', 'ru-RU', 'pt-BR'];
+  const builtinManifest = {
+    ...imported.manifest,
+    source: 'BUILTIN' as const,
+    version: '1.1.25',
+    scope: 'MANAGED' as const,
+    trust: 'OFFICIAL_SIGNED' as const,
+    support: 'OFFICIAL' as const,
+    resources: {
+      ...imported.manifest.resources,
+      locales: Object.fromEntries(builtinLocales.map((locale) => [locale, `locales/${locale}.json`])),
+    },
+  };
+  await db.query(`insert into unified_plugin_versions
+    (id,tenant_id,owner_type,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
+    values ($1,'SYSTEM','SYSTEM',$2,'1.1.25','BUILTIN','WORKFLOW_DSL','MANAGED','OFFICIAL_SIGNED','OFFICIAL',$3::jsonb,'package-builtin','manifest-builtin','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`, [
+    builtinLatestVersionId,
+    imported.pluginId,
+    JSON.stringify(builtinManifest),
+  ]);
+  for (const locale of builtinLocales) {
+    await db.query(`insert into unified_plugin_resources
+      (plugin_version_id,resource_path,resource_content,resource_sha256,created_at)
+      values ($1,$2,$3,$4,now())`, [
+      builtinLatestVersionId,
+      `locales/${locale}.json`,
+      imported.resources['locales/zh-CN.json'],
+      `sha256:locale-builtin-${locale}`,
+    ]);
+  }
   const legacy = await plugins.importVersion(tenantId, {
     manifest: {
       ...imported.manifest,
@@ -102,7 +133,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
 
   const service = new ManagedTargetPluginQueryService(db);
   const compatible = await service.listCompatiblePlugins({ tenantId, managedTargetId: target.id, capabilityKey: 'certificate.deploy', locale: 'zh-CN' });
-  assert.deepEqual(compatible.items.filter((item) => item.compatible).map((item) => item.pluginVersionId), [imported.id]);
+  assert.deepEqual(compatible.items.filter((item) => item.compatible).map((item) => item.pluginVersionId), [builtinLatestVersionId]);
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.managed')?.displayName, 'Fixture 受管证书部署');
   assert.equal(compatible.items.some((item) => item.pluginVersionId === older.id), false);
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.legacy')?.compatible, false);

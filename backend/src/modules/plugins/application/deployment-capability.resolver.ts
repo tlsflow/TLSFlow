@@ -51,7 +51,8 @@ export class DeploymentCapabilityResolver {
       }
       const plugin = await this.plugins.getVersion(assignment.pluginVersionId);
       const capability = plugin.manifest.capabilities.find((item) => item.key === input.capabilityKey);
-      if (plugin.tenantId !== input.tenantId || plugin.status !== 'ENABLED' || !capability) {
+      const accessible = plugin.source === 'BUILTIN' || plugin.tenantId === input.tenantId;
+      if (!accessible || plugin.status !== 'ENABLED' || !capability) {
         throw new AppError('CAPABILITY_MISSING', '插件版本未启用或未声明目标能力', { pluginVersionId: plugin.id, capabilityKey: input.capabilityKey });
       }
       const candidateLocations = input.executionLocations.filter((location) => capability.executionLocations.includes(location));

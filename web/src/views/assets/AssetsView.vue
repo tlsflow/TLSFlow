@@ -1038,6 +1038,21 @@ async function loadManagedTargetPluginResolution(managedTargetId: string): Promi
     const response = readRecord(compatibleResult.value.data) ?? {}
     const items = Array.isArray(response.items) ? response.items as ApiRecord[] : []
     compatibleManagedPlugins.value = items.filter((item) => item.compatible === true)
+    const selectedPluginVersionId = assetDraft.pluginOverrideVersionId.trim()
+    if (selectedPluginVersionId && !compatibleManagedPlugins.value.some(
+      (item) => String(item.pluginVersionId ?? '') === selectedPluginVersionId,
+    )) {
+      const currentPluginId = String(readNested(effectiveCapability.value, ['plugin', 'pluginId']) ?? '')
+      const replacementItem = currentPluginId
+        ? compatibleManagedPlugins.value.find((item) => String(item.pluginId ?? '') === currentPluginId)
+        : compatibleManagedPlugins.value.length === 1
+          ? compatibleManagedPlugins.value[0]
+          : undefined
+      const replacement = String(replacementItem?.pluginVersionId ?? '')
+      assetDraft.pluginOverrideVersionId = replacement
+      pluginBindingId.value = ''
+      pluginBindingVersion.value = 0
+    }
   }
   effectiveCapabilityLoading.value = false
   compatibleManagedPluginsLoading.value = false

@@ -6,8 +6,13 @@ import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
 
 export interface CreateExecutionGrantInput {
+  tenantId?: string;
+  planId?: string;
   runId: string;
   stepId: string;
+  targetId?: string;
+  workflowVersionId?: string;
+  approvalId?: string;
   executorType: string;
   allowedSecretRefs: string[];
   allowedArtifactRefs?: string[];
@@ -17,8 +22,13 @@ export interface CreateExecutionGrantInput {
 
 export interface ValidateGrantInput {
   grantId: string;
+  tenantId?: string;
+  planId?: string;
   runId: string;
   stepId: string;
+  targetId?: string;
+  workflowVersionId?: string;
+  approvalId?: string;
   executorType: string;
   secretRef?: string;
   artifactRef?: string;
@@ -39,8 +49,13 @@ export class ExecutionGrantService {
     const now = new Date().toISOString();
     return this.grants.create({
       id: newId('grt'),
+      tenantId: input.tenantId,
+      planId: input.planId,
       runId: input.runId,
       stepId: input.stepId,
+      targetId: input.targetId,
+      workflowVersionId: input.workflowVersionId,
+      approvalId: input.approvalId,
       executorType: input.executorType,
       allowedSecretRefs: [...new Set(input.allowedSecretRefs)],
       allowedArtifactRefs: [...new Set(input.allowedArtifactRefs ?? [])],
@@ -66,6 +81,21 @@ export class ExecutionGrantService {
     }
     if (grant.runId !== input.runId || grant.stepId !== input.stepId || grant.executorType !== input.executorType) {
       throw securityErrors.executorGrantDenied({ reason: 'grant context mismatch' });
+    }
+    if (input.tenantId !== undefined && grant.tenantId !== input.tenantId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant tenant mismatch' });
+    }
+    if (input.planId !== undefined && grant.planId !== input.planId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant plan mismatch' });
+    }
+    if (input.targetId !== undefined && grant.targetId !== input.targetId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant target mismatch' });
+    }
+    if (input.workflowVersionId !== undefined && grant.workflowVersionId !== input.workflowVersionId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant workflow version mismatch' });
+    }
+    if (input.approvalId !== undefined && grant.approvalId !== input.approvalId) {
+      throw securityErrors.executorGrantDenied({ reason: 'grant approval mismatch' });
     }
     if (input.secretRef && !grant.allowedSecretRefs.includes(input.secretRef)) {
       throw securityErrors.executorGrantDenied({ reason: 'secretRef not allowed' });

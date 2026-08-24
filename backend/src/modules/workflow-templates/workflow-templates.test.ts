@@ -1449,6 +1449,10 @@ describe('WorkflowTemplates', () => {
     assert.equal(content.inputContract.variables.previousCertificateId?.required, false);
     assert.equal(content.inputContract.variables.newCertificateId?.required, false);
     assert.equal(content.inputContract.variables.serviceBindingsJson?.required, false);
+    assert.equal(content.inputContract.variables.allowInsecureTls?.type, 'boolean');
+    assert.equal(content.inputContract.variables.allowInsecureTls?.required, true);
+    assert.equal(content.inputContract.variables.allowInsecureTls?.configurationMode, 'required');
+    assert.equal(content.inputContract.variables.allowInsecureTls?.bindingPolicy, 'required_binding');
 
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content });
@@ -1458,6 +1462,7 @@ describe('WorkflowTemplates', () => {
       resolvedInput: resolvedWorkflowInput({
         variables: {
           deviceBaseUrl: 'https://nas.example.com:5001',
+          allowInsecureTls: true,
           certificateDescription: 'GCAC active certificate',
           verifyUrl: 'https://nas.example.com:5001/',
           hostHeader: 'nas.example.com',

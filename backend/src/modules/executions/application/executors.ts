@@ -158,7 +158,10 @@ export function createDefaultExecutorRegistryWithDependencies(dependencies: Defa
 
 function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}): Executor[] {
   const sshExecutor = new SSHExecutor(dependencies.secrets ? { secretResolver: new SecretServiceSshResolver(dependencies.secrets) } : {});
-  const curlExecutor = new CurlExecutor(dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {});
+  const curlExecutor = new CurlExecutor({
+    ...(dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {}),
+    ...(dependencies.executionGrants ? { executionGrantService: dependencies.executionGrants } : {}),
+  });
   return [
 	    sshExecutor,
 	    curlExecutor,
@@ -387,6 +390,7 @@ export class WorkflowExecutorAdapter implements Executor {
     const runtimeInput = {
       templateVersionId: workflowVersionId,
       mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
+      ...(input.dryRun ? { dispatchInRenderOnly: true } : {}),
       resolvedInput,
       ...(readRecord(input.step.inputSnapshot.stepOutputs)
         ? { stepOutputs: structuredClone(readRecord(input.step.inputSnapshot.stepOutputs)) }
@@ -419,13 +423,11 @@ export class WorkflowExecutorAdapter implements Executor {
           workflowExecutionSteps: projectWorkflowBusinessSteps(input.step.id, workflowProgress),
         });
       };
-      const workflowRun = input.dryRun
-        ? await this.workflows.preview(runtimeInput, reportWorkflowProgress)
-        : await this.workflows.runWithDispatcher(
-            runtimeInput,
-            async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt, recoveryLedger),
-            reportWorkflowProgress,
-          );
+      const workflowRun = await this.workflows.runWithDispatcher(
+        runtimeInput,
+        async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt, recoveryLedger),
+        reportWorkflowProgress,
+      );
       if (recoveryLedger) {
         await this.recovery.finish(
           recoveryLedger.tenantId,
@@ -555,14 +557,34 @@ export class WorkflowExecutorAdapter implements Executor {
       await this.recovery.markStepCompleted(recoveryLedger.tenantId, recoveryLedger.id, workflowStepName);
       return { success: true, body: { checkpointName, captureHash }, logs: [`workflow:checkpoint:${checkpointName}:saved`] };
     }
+    const authorization = readExecutionAuthorization(input.step.inputSnapshot.executionAuthorization);
+    const workflowVersionId = stringFromSnapshot(readRecord(input.step.inputSnapshot.workflowRequest)?.workflowVersionId)
+      ?? stringFromSnapshot(input.step.inputSnapshot.workflowVersionId)
+      ?? authorization?.workflowVersionId;
+    const curlRequest = executor === '017.CURL_HTTP' ? readRecord(plan?.curlRequest) : undefined;
+    const allowInsecureTls = authorization?.allowInsecureTls === true;
+    const allowInsecureAction = executor === '017.CURL_HTTP'
+      && readRecord(curlRequest?.template)?.verify === undefined
+      && readRecord(curlRequest?.template)?.tls !== undefined
+      && readRecord(readRecord(curlRequest?.template)?.tls)?.verify === false
+      && authorization?.approved === true
+      && allowInsecureTls
+      ? 'workflow.tls.insecure'
+      : undefined;
+    const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
     const grant = this.executionGrants && executor
       ? await this.executionGrants.create({
+          tenantId: input.step.tenantId,
+          planId: authorization?.planId ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),
           runId: input.step.executionRunId,
-          stepId: `${input.step.id}:${workflowStepName}:${attempt}`,
+          stepId: childStepId,
+          targetId: authorization?.targetId ?? input.step.deploymentPlanTargetId,
+          workflowVersionId,
+          approvalId: authorization?.approvalId,
           executorType: executor,
           allowedSecretRefs: collectReferencesByScheme(plan, 'secret://'),
           allowedArtifactRefs: collectReferencesByScheme(plan, 'artifact://'),
-          allowedActions: ['workflow.step.execute', executor],
+          allowedActions: ['workflow.step.execute', executor, ...(allowInsecureAction ? [allowInsecureAction] : [])],
           expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         })
       : undefined;
@@ -577,21 +599,38 @@ export class WorkflowExecutorAdapter implements Executor {
   }
 
   private async executeCurlWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    const executionGrantId = stringFromSnapshot(context.plan?.executionGrantId);
     const childStep = workflowChildStep(context.input.step, `workflow-curl-${context.workflowStepName}-${context.attempt}`, {
       curlRequest: toWorkflowCurlRequest(context.plan, context.input.step, context.workflowStepName, context.attempt),
+      ...(executionGrantId ? { executionGrantId } : {}),
     });
     if (typeof this.curlExecutor.executeForWorkflow === 'function') {
       const request = childStep.inputSnapshot.curlRequest as CurlExecutionRequest | undefined;
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
-      const execution = await this.curlExecutor.executeForWorkflow(request, false, {
+      const authorization = readExecutionAuthorization(context.input.step.inputSnapshot.executionAuthorization);
+      const curlContext = {
         runId: childStep.executionRunId,
         stepId: childStep.id,
         tenantId: childStep.tenantId,
         actorId: 'curl-executor',
-      });
+        planId: authorization?.planId ?? stringFromSnapshot(context.input.step.inputSnapshot.deploymentPlanId),
+        targetId: authorization?.targetId ?? context.input.step.deploymentPlanTargetId,
+        workflowVersionId: stringFromSnapshot(readRecord(context.input.step.inputSnapshot.workflowRequest)?.workflowVersionId)
+          ?? stringFromSnapshot(context.input.step.inputSnapshot.workflowVersionId)
+          ?? authorization?.workflowVersionId,
+        approvalId: authorization?.approvalId,
+        executionGrantId,
+        allowInsecureTls: authorization?.allowInsecureTls === true,
+        executionGrantService: this.executionGrants,
+      };
+      if (context.input.dryRun) {
+        await this.curlExecutor.validateForWorkflow(request, curlContext);
+        return { success: true, body: { plannedOnly: true, curlValidation: 'passed' }, logs: ['curl:preflight:validated'] };
+      }
+      const execution = await this.curlExecutor.executeForWorkflow(request, false, curlContext);
       return curlWorkflowOutput(execution.result, execution.runtimeResponse);
     }
-    const result = await this.curlExecutor.executeStep({ ...context.input, step: childStep, dryRun: false });
+    const result = await this.curlExecutor.executeStep({ ...context.input, step: childStep, dryRun: context.input.dryRun });
     return curlWorkflowOutput(result);
   }
 
@@ -601,7 +640,7 @@ export class WorkflowExecutorAdapter implements Executor {
       step: workflowChildStep(context.input.step, `workflow-ssh-${context.workflowStepName}-${context.attempt}`, {
         sshRequest: toWorkflowSshRequest(context.plan, context.input.step, context.workflowStepName, context.attempt),
       }),
-      dryRun: false,
+      dryRun: context.input.dryRun,
     });
     return sshWorkflowOutput(result);
   }
@@ -1008,6 +1047,35 @@ function workflowChildStep(parent: ExecutionStepEntity, suffix: string, inputSna
     ...parent,
     id: `${parent.id}:${suffix}`,
     inputSnapshot,
+  };
+}
+
+function workflowChildStepId(parent: ExecutionStepEntity, executor: string, workflowStepName: string, attempt: number): string {
+  const prefix = executor === '017.CURL_HTTP' ? 'workflow-curl' : executor === '015.SSH' ? 'workflow-ssh' : `workflow-${executor.toLowerCase()}`;
+  return `${parent.id}:${prefix}-${workflowStepName}-${attempt}`;
+}
+
+function readExecutionAuthorization(value: unknown): {
+  tenantId?: string;
+  planId?: string;
+  targetId?: string;
+  approvalId?: string;
+  workflowVersionId?: string;
+  snapshotHash?: string;
+  approved?: boolean;
+  allowInsecureTls?: boolean;
+} | undefined {
+  const authorization = readRecord(value);
+  if (!authorization) return undefined;
+  return {
+    tenantId: stringFromSnapshot(authorization.tenantId),
+    planId: stringFromSnapshot(authorization.planId),
+    targetId: stringFromSnapshot(authorization.targetId),
+    approvalId: stringFromSnapshot(authorization.approvalId),
+    workflowVersionId: stringFromSnapshot(authorization.workflowVersionId),
+    snapshotHash: stringFromSnapshot(authorization.snapshotHash),
+    approved: authorization.approved === true,
+    allowInsecureTls: authorization.allowInsecureTls === true,
   };
 }
 

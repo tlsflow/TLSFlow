@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { createHash } from 'node:crypto';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { AuditService, type WriteAuditInput } from '../../audits/audit.service.js';
@@ -69,6 +70,7 @@ import type {
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
+import { canonicalize } from '../../../shared/canonical-json.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -280,6 +282,10 @@ export class DeploymentPlansApplicationService {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
     }
+    if (targetDrafts.some(targetRequestsInsecureTls)) {
+      policy.approvalRequired = true;
+      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
+    }
     const snapshotHash = this.domain.buildSnapshotHash({
       id: newId('pln_preview'),
       tenantId: input.tenantId,
@@ -476,6 +482,10 @@ export class DeploymentPlansApplicationService {
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
     targetDrafts.forEach((target, index) => assertLegacyExecutionRetired(target.executorType, { index, planId: plan.id }));
     if (hasCapabilityRisk) {
+      policy.approvalRequired = true;
+      if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
+    }
+    if (targetDrafts.some(targetRequestsInsecureTls)) {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
     }
@@ -1192,7 +1202,7 @@ export class DeploymentPlansApplicationService {
 
     if (plan.status === 'PENDING_APPROVAL') {
       if (!input.approvalId) return this.toDto(plan);
-      await this.approval.consume(input.approvalId, this.approvalParameters(plan));
+      await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
       const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
       return this.toDto(ready);
     }
@@ -1203,7 +1213,7 @@ export class DeploymentPlansApplicationService {
 
     if (this.requiresApproval(plan)) {
       if (input.approvalId) {
-        await this.approval.consume(input.approvalId, this.approvalParameters(plan));
+        await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
         return this.toDto(ready);
       }
@@ -1211,7 +1221,7 @@ export class DeploymentPlansApplicationService {
         operationType: 'deployment.execute',
         resourceRefs: [{ type: 'deploymentPlan', id: plan.id }],
         riskLevel: this.approvalRiskLevel(plan.policy.riskLevel),
-        parameters: this.approvalParameters(plan),
+        parameters: await this.approvalParameters(plan),
         requestedBy: input.actorId,
       }, context);
       const pending = await this.transitionPlan(plan, 'PENDING_APPROVAL', input.actorId, 'approval.requested', { approvalStatus: 'PENDING', approvalId: approval.id });
@@ -1255,7 +1265,7 @@ export class DeploymentPlansApplicationService {
         throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '高风险部署执行必须提供已批准审批单', { planId: plan.id });
       }
       try {
-        await this.approval.consume(approvalId, this.approvalParameters(plan));
+        await this.approval.consume(approvalId, await this.approvalParameters(plan));
       } catch (error) {
         await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'approval invalid');
         throw error;
@@ -1274,6 +1284,26 @@ export class DeploymentPlansApplicationService {
     await this.assertLatestDryRunPassed(plan, input.tenantId);
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
+    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
+    for (const [targetId, payload] of agentPayloadByTargetId) {
+      const workflowRequest = readRecord(payload.workflowRequest);
+      const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
+      const runtimeSnapshot = runtimeSnapshots.get(targetId);
+      const allowInsecureTls = runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true;
+      agentPayloadByTargetId.set(targetId, {
+        ...payload,
+        executionAuthorization: {
+          tenantId: plan.tenantId,
+          planId: plan.id,
+          targetId,
+          approvalId: plan.approvalId,
+          workflowVersionId,
+          snapshotHash: plan.snapshotHash,
+          approved: plan.approvalStatus === 'APPROVED',
+          allowInsecureTls,
+        },
+      });
+    }
     const created = await this.executions.createApplyRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -1283,7 +1313,7 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
-      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots),
+      agentPayloadByTargetId,
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
@@ -1305,6 +1335,23 @@ export class DeploymentPlansApplicationService {
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
+    for (const [targetId, payload] of agentPayloadByTargetId) {
+      const runtimeSnapshot = runtimeSnapshots.get(targetId);
+      const workflowRequest = readRecord(payload.workflowRequest);
+      agentPayloadByTargetId.set(targetId, {
+        ...payload,
+        executionAuthorization: {
+          tenantId: plan.tenantId,
+          planId: plan.id,
+          targetId,
+          approvalId: plan.approvalId,
+          workflowVersionId: readOptionalString(workflowRequest?.workflowVersionId),
+          snapshotHash: plan.snapshotHash,
+          approved: plan.approvalStatus === 'APPROVED',
+          allowInsecureTls: runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true,
+        },
+      });
+    }
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -2364,8 +2411,54 @@ export class DeploymentPlansApplicationService {
     void this.audit.write(input).catch(() => undefined);
   }
 
-  private approvalParameters(plan: DeploymentPlanEntity): Record<string, string> {
-    return { planId: plan.id, snapshotHash: plan.snapshotHash, action: 'deployment.execute' };
+  private async approvalParameters(plan: DeploymentPlanEntity): Promise<Record<string, unknown>> {
+    const targets = await this.repository.listTargetsByPlan(plan.id, plan.tenantId);
+    const scopes = await Promise.all(targets.map(async (target) => {
+      const strategyPayload = target.strategyPayload ?? {};
+      const workflowRequest = readRecord(strategyPayload.workflowRequest);
+      const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
+      const inputBindings = readRecord(workflowRequest?.inputBindings);
+      const bindingVariables = readRecord(inputBindings?.variables);
+      const snapshotRef = readRecord(strategyPayload.deploymentInputSnapshotRef);
+      const snapshot = plan.tenantId && this.deploymentInputSnapshots && typeof snapshotRef?.snapshotId === 'string'
+        ? await this.deploymentInputSnapshots.get(plan.tenantId, snapshotRef.snapshotId)
+        : undefined;
+      const snapshotInput = readRecord(snapshot?.snapshot.input);
+      const snapshotVariables = readRecord(snapshotInput?.variables);
+      const snapshotConnections = readRecord(snapshotInput?.connections);
+      const managementConnection = readRecord(snapshotConnections?.management)
+        ?? readRecord(readRecord(inputBindings?.connections)?.management);
+      const tls = readRecord(managementConnection?.tls) ?? {};
+      const allowInsecureTls = snapshotVariables?.allowInsecureTls === true || bindingVariables?.allowInsecureTls === true;
+      let stepIds: string[] = [];
+      if (workflowVersionId && this.workflows) {
+        try {
+          const version = await this.workflows.getVersion(workflowVersionId);
+          stepIds = [
+            ...version.content.steps.map((step) => step.name),
+            ...(version.content.rollback?.map((step) => step.name) ?? []),
+          ];
+        } catch {
+          stepIds = [];
+        }
+      }
+      return {
+        targetId: target.id,
+        workflowVersionId,
+        stepIds,
+        allowInsecureTls,
+        connectionTlsFingerprint: createHash('sha256').update(canonicalize(tls)).digest('hex'),
+      };
+    }));
+    return {
+      planId: plan.id,
+      snapshotHash: plan.snapshotHash,
+      action: 'deployment.execute',
+      targetIds: targets.map((target) => target.id).sort(),
+      workflowVersionIds: [...new Set(scopes.map((scope) => scope.workflowVersionId).filter((value): value is string => Boolean(value)))].sort(),
+      stepIds: [...new Set(scopes.flatMap((scope) => scope.stepIds))].sort(),
+      tlsScopes: scopes.sort((left, right) => left.targetId.localeCompare(right.targetId)),
+    };
   }
 
   private async auditDenied(plan: DeploymentPlanEntity, actorId: string, action: string, context: RequestContext, reason: string): Promise<void> {
@@ -2884,6 +2977,17 @@ function readOptionalBoolean(value: unknown): boolean | undefined {
     if (value === 'false') return false;
   }
   return undefined;
+}
+
+function targetRequestsInsecureTls(target: {
+  strategyPayload?: Record<string, unknown>;
+  deploymentInputSnapshotDraft?: DeploymentInputSnapshotV1;
+}): boolean {
+  const snapshotVariables = readRecord(target.deploymentInputSnapshotDraft?.input.variables);
+  if (snapshotVariables?.allowInsecureTls === true) return true;
+  const workflowRequest = readRecord(target.strategyPayload?.workflowRequest);
+  const inputBindings = readRecord(workflowRequest?.inputBindings);
+  return readRecord(inputBindings?.variables)?.allowInsecureTls === true;
 }
 
 function readOptionalNumber(value: unknown): number | undefined {

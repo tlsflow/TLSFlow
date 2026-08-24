@@ -156,6 +156,7 @@ const defaultMaxResponseBytes = 1024 * 1024;
 export interface CurlExecutorOptions {
   secretResolver?: CurlSecretResolver;
   httpClient?: CurlHttpClient;
+  executionGrantService?: CurlSecretResolverContext['executionGrantService'];
 }
 
 export class CurlExecutor implements Executor {
@@ -175,6 +176,25 @@ export class CurlExecutor implements Executor {
       stepId: input.step.id,
       tenantId: input.step.tenantId,
       actorId: 'curl-executor',
+      planId: typeof input.step.inputSnapshot.deploymentPlanId === 'string' ? input.step.inputSnapshot.deploymentPlanId : undefined,
+      targetId: typeof input.step.inputSnapshot.deploymentPlanTargetId === 'string' ? input.step.inputSnapshot.deploymentPlanTargetId : undefined,
+      workflowVersionId: typeof input.step.inputSnapshot.workflowVersionId === 'string' ? input.step.inputSnapshot.workflowVersionId : undefined,
+      approvalId: typeof input.step.inputSnapshot.executionAuthorization === 'object'
+        && input.step.inputSnapshot.executionAuthorization !== null
+        && !Array.isArray(input.step.inputSnapshot.executionAuthorization)
+        && typeof (input.step.inputSnapshot.executionAuthorization as Record<string, unknown>).approvalId === 'string'
+        ? (input.step.inputSnapshot.executionAuthorization as Record<string, unknown>).approvalId as string
+        : undefined,
+      executionGrantId: typeof input.step.inputSnapshot.executionGrantId === 'string' ? input.step.inputSnapshot.executionGrantId : undefined,
+      allowInsecureTls: typeof input.step.inputSnapshot.resolvedDeploymentInput === 'object'
+        && input.step.inputSnapshot.resolvedDeploymentInput !== null
+        && !Array.isArray(input.step.inputSnapshot.resolvedDeploymentInput)
+        && typeof (input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables === 'object'
+        && (input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables !== null
+        && !Array.isArray((input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables)
+        && (input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables !== undefined
+        && ((input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables as Record<string, unknown>).allowInsecureTls === true,
+      executionGrantService: this.options.executionGrantService,
     });
     return result.success
       ? { success: true, detail: result as unknown as Record<string, unknown> }
@@ -189,8 +209,14 @@ export class CurlExecutor implements Executor {
     return this.executeWithRuntimeResponse(request, forceDryRun, context);
   }
 
+  async validateForWorkflow(request: CurlExecutionRequest, context: CurlSecretResolverContext = {}): Promise<void> {
+    validateRequest(request, true);
+    await validateTlsBypassAuthorization(request, context);
+  }
+
   private async executeWithRuntimeResponse(request: CurlExecutionRequest, forceDryRun: boolean, context: CurlSecretResolverContext): Promise<CurlWorkflowExecutionResult> {
     validateRequest(request);
+    await validateTlsBypassAuthorization(request, context);
     if (this.executed.has(request.idempotencyKey)) {
       throw new AppError('IDEMPOTENCY_CONFLICT', 'CURL 请求幂等键已执行', { idempotencyKey: request.idempotencyKey });
     }
@@ -267,9 +293,9 @@ export class CurlExecutor implements Executor {
   }
 }
 
-function validateRequest(request: CurlExecutionRequest): void {
+function validateRequest(request: CurlExecutionRequest, allowUnresolvedVariables = false): void {
   if (!request.idempotencyKey) throw new AppError('VALIDATION_FAILED', 'idempotencyKey 必填');
-  const url = new URL(renderTemplate(request.template.url, request.variables ?? {}, false));
+  const url = new URL(renderTemplate(request.template.url, request.variables ?? {}, false, allowUnresolvedVariables));
   if (!['https:', 'http:'].includes(url.protocol)) throw new AppError('VALIDATION_FAILED', '只允许 http/https URL', { url: request.template.url });
   if (url.protocol === 'http:' && !isLocalhost(url.hostname)) {
     throw new AppError('VALIDATION_FAILED', '非本地 HTTP 明文 URL 被拒绝', { url: request.template.url });
@@ -298,6 +324,41 @@ function validateRequest(request: CurlExecutionRequest): void {
   for (const extractor of request.extractors ?? []) {
     if (!extractor.name.trim()) throw new AppError('VALIDATION_FAILED', 'extractor name 必填');
     if (!extractor.path && !extractor.pattern && !extractor.header && extractor.source !== 'status') throw new AppError('VALIDATION_FAILED', 'extractor 必须提供 path、pattern 或 header');
+  }
+}
+
+async function validateTlsBypassAuthorization(request: CurlExecutionRequest, context: CurlSecretResolverContext): Promise<void> {
+  if (request.template.tls?.verify !== false) return;
+  if (context.allowInsecureTls !== true) {
+    throw new AppError('VALIDATION_FAILED', 'TLS 跳过校验请求缺少已绑定的 allowInsecureTls=true', {
+      policy: 'workflow.tls.insecure',
+      reason: 'binding_required',
+    });
+  }
+  if (!context.executionGrantId || !context.executionGrantService) {
+    throw new AppError('AUTH_FORBIDDEN', 'TLS 跳过校验必须携带宿主签发的 ExecutionGrant', {
+      policy: 'workflow.tls.insecure',
+      reason: 'execution_grant_required',
+    });
+  }
+  try {
+    await context.executionGrantService.validate({
+      grantId: context.executionGrantId,
+      tenantId: context.tenantId,
+      planId: context.planId,
+      runId: context.runId ?? '',
+      stepId: context.stepId ?? '',
+      targetId: context.targetId,
+      workflowVersionId: context.workflowVersionId,
+      approvalId: context.approvalId,
+      executorType: '017.CURL_HTTP',
+      action: 'workflow.tls.insecure',
+    });
+  } catch (error) {
+    throw new AppError('AUTH_FORBIDDEN', 'TLS 跳过校验的宿主 ExecutionGrant 无效', {
+      policy: 'workflow.tls.insecure',
+      reason: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -730,10 +791,13 @@ function renderUnknown(value: unknown, variables: Record<string, Primitive>): un
   return value;
 }
 
-function renderTemplate(value: string, variables: Record<string, Primitive>, encode = false): string {
+function renderTemplate(value: string, variables: Record<string, Primitive>, encode = false, allowUnresolvedVariables = false): string {
   return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => {
     const found = variables[key];
-    if (found === undefined) throw new AppError('VALIDATION_FAILED', `变量缺失：${key}`, { key });
+    if (found === undefined) {
+      if (allowUnresolvedVariables) return `{{${key}}}`;
+      throw new AppError('VALIDATION_FAILED', `变量缺失：${key}`, { key });
+    }
     return encode ? encodeURIComponent(String(found)) : String(found);
   });
 }

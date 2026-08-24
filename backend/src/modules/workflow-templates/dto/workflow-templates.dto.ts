@@ -412,6 +412,11 @@ export interface WorkflowRuntimeInput {
   mockResponses?: Record<string, WorkflowMockStepOutput>;
   mode: WorkflowTestRunMode;
   /**
+   * render_only 下是否仍调用宿主 dispatcher 做无副作用安全预检。
+   * 仅由宿主执行适配器使用，不能被 DSL 自身开启授权。
+   */
+  dispatchInRenderOnly?: boolean;
+  /**
    * 执行同一 WorkflowVersion 的哪一条分支。
    * 未提供时按 deploy 处理，并保留旧调用方的自动回滚兼容行为。
    */
