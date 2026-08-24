@@ -8,6 +8,7 @@ import type {
   CreateWorkflowTemplateInput,
   CreateWorkflowTemplateFromFileInput,
   UpdateWorkflowTemplateInput,
+  UpdateWorkflowTemplateVersionNoteInput,
   WorkflowAssertion,
   WorkflowCredentialBinding,
   WorkflowDslV1,
@@ -152,6 +153,17 @@ export class WorkflowTemplatesDomainService {
     template.updatedAt = new Date().toISOString();
     this.templates.set(template.id, template);
     await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
+    return clone(version);
+  }
+
+  async updateVersionNote(input: UpdateWorkflowTemplateVersionNoteInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const { template, version } = await this.findVersion(input.versionId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
+    const note = input.changeSummary?.trim();
+    version.changeSummary = note || undefined;
     await this.versionsRepository.upsert(version);
     return clone(version);
   }

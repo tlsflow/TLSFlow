@@ -5,6 +5,7 @@ import type {
   CreateWorkflowTemplateInput,
   CreateWorkflowTemplateFromFileInput,
   UpdateWorkflowTemplateInput,
+  UpdateWorkflowTemplateVersionNoteInput,
   WorkflowRuntimeInput,
   WorkflowStepRuntimeInput,
   WorkflowExecutorDispatcher,
@@ -57,6 +58,10 @@ export class WorkflowTemplatesApplicationService {
 
   async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
     return this.domain.publishVersion(versionId);
+  }
+
+  async updateVersionNote(input: UpdateWorkflowTemplateVersionNoteInput): Promise<WorkflowTemplateVersion> {
+    return this.domain.updateVersionNote(input);
   }
 
   async disableTemplate(templateId: string): Promise<WorkflowTemplate> {

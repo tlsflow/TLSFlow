@@ -219,6 +219,11 @@ export interface UpdateWorkflowTemplateInput {
   changeSummary?: string;
 }
 
+export interface UpdateWorkflowTemplateVersionNoteInput {
+  versionId: string;
+  changeSummary?: string;
+}
+
 export interface WorkflowTemplate {
   id: string;
   name: string;

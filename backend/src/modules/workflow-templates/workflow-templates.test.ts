@@ -361,6 +361,31 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
+  it('HTTP 版本备注接口只更新备注，不改写版本内容', async () => {
+    const app = new App();
+    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-templates',
+      body: { content: templateFixture(), changeSummary: '初始版本' },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdBody = created.body as { template: { id: string }; version: { id: string; contentHash: string } };
+
+    const noted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/workflow-template-versions/note',
+      body: { versionId: createdBody.version.id, changeSummary: '补充发布备注' },
+    });
+    assert.equal(noted.statusCode, 200);
+    assert.equal((noted.body as { changeSummary?: string }).changeSummary, '补充发布备注');
+    assert.equal((noted.body as { contentHash: string }).contentHash, createdBody.version.contentHash);
+
+    const versions = await app.inject({ method: 'GET', path: `/api/v1/workflow-template-versions?templateId=${createdBody.template.id}` });
+    assert.equal((versions.body as { items: Array<{ changeSummary?: string }> }).items[0]?.changeSummary, '补充发布备注');
+  });
+
   it('HTTP 删除接口会禁用模板和版本，并让列表不再返回该记录', async () => {
     const app = new App();
     new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);

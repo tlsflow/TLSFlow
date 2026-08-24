@@ -10,6 +10,7 @@ import type {
   CreateWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
+  UpdateWorkflowTemplateVersionNoteInput,
   WorkflowRuntimeInput,
   WorkflowStepRuntimeInput,
 } from '../dto/workflow-templates.dto.js';
@@ -31,6 +32,7 @@ export class WorkflowTemplatesController {
     router.get('/api/v1/workflow-template-versions', '列出模板版本', tag, async (request) => this.listVersions(request));
     router.post('/api/v1/workflow-template-versions', '创建不可变模板版本', tag, async (request) => ({ statusCode: 201, body: await this.service.createDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-template-versions/draft', '更新当前草稿版本', tag, async (request) => ({ statusCode: 200, body: await this.service.updateCurrentDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
+    router.post('/api/v1/workflow-template-versions/note', '更新模板版本备注', tag, async (request) => ({ statusCode: 200, body: await this.service.updateVersionNote(request.body as UpdateWorkflowTemplateVersionNoteInput) }));
     router.post('/api/v1/workflow-template-versions/publish', '发布模板版本', tag, async (request) => ({ statusCode: 200, body: await this.service.publishVersion((request.body as { versionId: string }).versionId) }));
     router.post('/api/v1/workflow-template-runs/preview', '渲染模板预览', tag, async (request) => ({ statusCode: 200, body: await this.service.preview(request.body as WorkflowRuntimeInput) }));
     router.post('/api/v1/workflow-template-runs/test', '执行模板测试运行计划', tag, async (request) => ({ statusCode: 200, body: await this.service.testRun(request.body as WorkflowRuntimeInput) }));
@@ -80,6 +82,7 @@ export function getWorkflowTemplateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/workflow-template-versions', operationId: 'listWorkflowTemplateVersions', summary: '列出模板版本', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-versions', operationId: 'createWorkflowTemplateVersion', summary: '创建不可变模板版本', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-versions/draft', operationId: 'updateCurrentWorkflowTemplateDraftVersion', summary: '更新当前草稿版本', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflow-template-versions/note', operationId: 'updateWorkflowTemplateVersionNote', summary: '更新模板版本备注', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-versions/publish', operationId: 'publishWorkflowTemplateVersion', summary: '发布模板版本', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-runs/preview', operationId: 'previewWorkflowTemplateRun', summary: '渲染模板预览', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-runs/test', operationId: 'testWorkflowTemplateRun', summary: '执行模板测试运行计划', tags: tag, responseSchema: objectSchema },
