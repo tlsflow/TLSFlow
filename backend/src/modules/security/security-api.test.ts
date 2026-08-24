@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import { createSecurityServices } from './security.controller.js';
+import { MockDirectoryConnector, ExternalIdentityService } from './external-identity.service.js';
 
 describe('安全 API 最小闭环', () => {
   it('AD/LDAP 身份源登录会按外部组映射本地角色', async () => {
     const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
     const app = createApp({ security });
     const login = await app.inject({
       method: 'POST',
@@ -60,7 +63,6 @@ describe('安全 API 最小闭环', () => {
       body: { sourceId, externalGroup: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=test', roleId },
     });
 
-    const connector = security.externalIdentity.getConnector() as unknown as { addProfile: (sourceId: string, profile: any) => void };
     connector.addProfile(sourceId, {
       externalId: 'ad-user-001',
       username: 'alice',
@@ -80,6 +82,70 @@ describe('安全 API 最小闭环', () => {
     assert.equal(session.user.username, `${sourceId}:alice`);
     assert.deepEqual(session.user.roles.map((item) => item.code), ['ad_ops']);
     assert.equal(session.permissions.includes('dashboard.read'), true);
+  });
+
+  it('LDAP 用户同步会写入本地用户列表并带来源字段', async () => {
+    const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '企业 LDAP',
+        type: 'ldap',
+        url: 'ldap://ldap.example.test:389',
+        baseDn: 'dc=example,dc=test',
+        userFilter: '(uid={{username}})',
+        syncUserFilter: '(uid={{username}})',
+        requireGroupMapping: false,
+        tlsMode: 'none',
+      },
+    });
+    const sourceId = (source.body as { id: string }).id;
+
+    connector.addProfile(sourceId, {
+      externalId: 'ldap-user-001',
+      username: 'bob',
+      displayName: 'Bob LDAP',
+      email: 'bob@example.test',
+      userDn: 'uid=bob,ou=people,dc=example,dc=test',
+      groups: [],
+      password: 'bob-password',
+    });
+
+    const sync = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources/sync-users',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId },
+    });
+    assert.equal(sync.statusCode, 200);
+    const syncBody = sync.body as { created: number; updated: number; failed: number };
+    assert.equal(syncBody.created, 1);
+    assert.equal(syncBody.failed, 0);
+
+    const users = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/users',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(users.statusCode, 200);
+    const items = (users.body as { items: Array<{ username: string; identityProvider: string; externalSourceId?: string; email?: string }> }).items;
+    const ldapUser = items.find((item) => item.username === `${sourceId}:bob`);
+    assert.equal(ldapUser?.identityProvider, 'ldap');
+    assert.equal(ldapUser?.externalSourceId, sourceId);
+    assert.equal(ldapUser?.email, 'bob@example.test');
   });
 
   it('支持登录、Bearer Token 当前用户和权限管理 API', async () => {
@@ -156,7 +222,7 @@ describe('安全 API 最小闭环', () => {
     });
     assert.equal(failed.statusCode, 401);
 
-    security.rbac.updateUserStatus('user_admin', 'disabled');
+    await security.rbac.updateUserStatus('user_admin', 'disabled');
     const disabled = await app.inject({
       method: 'POST',
       path: '/api/v1/auth/login',
@@ -167,7 +233,7 @@ describe('安全 API 最小闭环', () => {
 
   it('Secret 创建只返回元数据和 SecretRef，并写入审计', async () => {
     const security = createSecurityServices();
-    security.rbac.createPolicy({
+    await security.rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'user_secret',
       effect: 'allow',
@@ -214,7 +280,7 @@ describe('安全 API 最小闭环', () => {
 
   it('审批 API 支持创建和他人审批，且无权限审计查询会被拒绝', async () => {
     const security = createSecurityServices();
-    security.rbac.createPolicy({
+    await security.rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'requester',
       effect: 'allow',
@@ -222,7 +288,7 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['approval'],
       scope: { tenantId: 'tenant_1' },
     });
-    security.rbac.createPolicy({
+    await security.rbac.createPolicy({
       subjectType: 'user',
       subjectId: 'approver',
       effect: 'allow',

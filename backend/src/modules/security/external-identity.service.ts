@@ -1,17 +1,19 @@
 import { AppError } from '../../common/errors/app-error.js';
-import type { RequestContext } from '../../common/tracing/request-context.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { newId } from '../../shared/id.js';
-import type { SecuritySubject } from '../../shared/security-types.js';
+import type { RequestContext, SecuritySubject } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { RBACService } from '../rbac/rbac.service.js';
+import type { SecretService } from '../secrets/secret.service.js';
 import type { AuthService, AuthSessionResponse } from './auth.service.js';
+import { RealLdapConnector } from './real-ldap.connector.js';
 
 export type IdentitySourceType = 'active_directory' | 'ldap';
 export type IdentitySourceTlsMode = 'none' | 'starttls' | 'ldaps';
+export type IdentitySourceSyncStatus = 'idle' | 'success' | 'partial_failure' | 'failure';
 
 export interface IdentitySource {
   id: string;
@@ -22,12 +24,17 @@ export interface IdentitySource {
   baseDn: string;
   userFilter?: string;
   groupFilter?: string;
+  syncUserFilter?: string;
   userDnTemplate?: string;
   bindDn?: string;
   bindPasswordSecretRef?: string;
   defaultRoleId?: string;
   requireGroupMapping: boolean;
   tlsMode: IdentitySourceTlsMode;
+  userAttributes?: string[];
+  groupAttributes?: string[];
+  lastSyncAt?: string;
+  lastSyncStatus?: IdentitySourceSyncStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,9 +59,30 @@ export interface ExternalIdentityProfile {
   disabled?: boolean;
 }
 
+export interface LdapServiceCredentials {
+  bindPassword?: string;
+}
+
+export interface LdapConnectionTestResult {
+  ok: boolean;
+  code: string;
+  message: string;
+}
+
+export interface ExternalIdentitySyncResult {
+  sourceId: string;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: Array<{ code: string; message: string; externalId?: string }>;
+}
+
 export interface LdapConnector {
-  authenticate(source: IdentitySource, username: string, password: string): Promise<ExternalIdentityProfile>;
-  testConnection(source: IdentitySource): Promise<{ ok: boolean; message: string }>;
+  authenticate(source: IdentitySource, username: string, password: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile>;
+  testConnection(source: IdentitySource, credentials?: LdapServiceCredentials): Promise<LdapConnectionTestResult>;
+  syncUsers(source: IdentitySource, credentials?: LdapServiceCredentials, options?: { pageSize?: number; usernamePrefix?: string }): Promise<ExternalIdentityProfile[]>;
 }
 
 export class MockDirectoryConnector implements LdapConnector {
@@ -67,14 +95,25 @@ export class MockDirectoryConnector implements LdapConnector {
   async authenticate(source: IdentitySource, username: string, password: string): Promise<ExternalIdentityProfile> {
     const profile = this.profiles.get(`${source.id}:${username.toLowerCase()}`);
     if (!profile || profile.password !== password) {
-      throw new AppError('AUTH_UNAUTHENTICATED', '澶栭儴鐩綍鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒');
+      throw new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
     }
     const { password: _password, ...safeProfile } = profile;
     return safeProfile;
   }
 
-  async testConnection(source: IdentitySource): Promise<{ ok: boolean; message: string }> {
-    return source.enabled ? { ok: true, message: 'mock directory reachable' } : { ok: false, message: 'identity source disabled' };
+  async testConnection(source: IdentitySource): Promise<LdapConnectionTestResult> {
+    return source.enabled
+      ? { ok: true, code: 'OK', message: 'mock directory reachable' }
+      : { ok: false, code: 'DISABLED', message: 'identity source disabled' };
+  }
+
+  async syncUsers(source: IdentitySource): Promise<ExternalIdentityProfile[]> {
+    return [...this.profiles.entries()]
+      .filter(([key]) => key.startsWith(`${source.id}:`))
+      .map(([, profile]) => {
+        const { password: _password, ...safeProfile } = profile;
+        return safeProfile;
+      });
   }
 }
 
@@ -93,7 +132,8 @@ export class ExternalIdentityService {
     private readonly rbac: RBACService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
-    private readonly connector: LdapConnector = new MockDirectoryConnector(),
+    private readonly secrets?: SecretService,
+    private readonly connector: LdapConnector = new RealLdapConnector(),
     private readonly sources: AsyncRepositoryPort<IdentitySource> = ExternalIdentityService.createDefaultSourcesRepository(),
     private readonly mappings: AsyncRepositoryPort<ExternalGroupRoleMapping> = ExternalIdentityService.createDefaultMappingsRepository(),
   ) {}
@@ -121,12 +161,17 @@ export class ExternalIdentityService {
       baseDn: input.baseDn,
       userFilter: input.userFilter,
       groupFilter: input.groupFilter,
+      syncUserFilter: input.syncUserFilter,
       userDnTemplate: input.userDnTemplate,
       bindDn: input.bindDn,
       bindPasswordSecretRef: input.bindPasswordSecretRef,
       defaultRoleId: input.defaultRoleId,
       requireGroupMapping: input.requireGroupMapping,
       tlsMode: input.tlsMode,
+      userAttributes: input.userAttributes,
+      groupAttributes: input.groupAttributes,
+      lastSyncAt: input.lastSyncAt,
+      lastSyncStatus: input.lastSyncStatus ?? 'idle',
       createdAt: now,
       updatedAt: now,
     };
@@ -140,16 +185,30 @@ export class ExternalIdentityService {
       resourceId: source.id,
       result: 'success',
       riskLevel: 'medium',
-      context: { requestId: context.requestId, sourceIp: context.ip, actor },
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
       detail: { type: source.type, url: source.url, bindPasswordSecretRef: source.bindPasswordSecretRef },
     });
     return source;
   }
 
-  async testSource(sourceId: string): Promise<{ ok: boolean; message: string }> {
+  async testSource(sourceId: string, actorId = 'system', context: RequestContext = {}): Promise<LdapConnectionTestResult & { requestId?: string }> {
     const source = await this.sources.get(sourceId);
-    if (!source) throw new AppError('RESOURCE_NOT_FOUND', '韬唤婧愪笉瀛樺湪');
-    return this.connector.testConnection(source);
+    if (!source) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    const credentials = await this.resolveServiceCredentials(source, actorId, context);
+    const result = await this.connector.testConnection(source, credentials);
+    await this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.IDENTITY_SOURCE_TESTED,
+      actorType: actorId === 'system' ? 'system' : 'user',
+      actorId,
+      action: 'security.identity_source.test',
+      resourceType: 'identitySource',
+      resourceId: source.id,
+      result: result.ok ? 'success' : 'failure',
+      riskLevel: result.ok ? 'low' : 'medium',
+      context,
+      detail: { sourceType: source.type, code: result.code, message: result.message },
+    });
+    return { ...result, requestId: context.requestId };
   }
 
   async listMappings(): Promise<ExternalGroupRoleMapping[]> {
@@ -161,8 +220,8 @@ export class ExternalIdentityService {
     actor: SecuritySubject,
     context: RequestContext,
   ): Promise<ExternalGroupRoleMapping> {
-    if (!await this.sources.get(input.sourceId)) throw new AppError('RESOURCE_NOT_FOUND', '韬唤婧愪笉瀛樺湪');
-    if (!await this.rbac.getRole(input.roleId)) throw new AppError('RESOURCE_NOT_FOUND', '瑙掕壊涓嶅瓨鍦?');
+    if (!await this.sources.get(input.sourceId)) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在');
+    if (!await this.rbac.getRole(input.roleId)) throw new AppError('RESOURCE_NOT_FOUND', '角色不存在');
     const now = new Date().toISOString();
     const mapping: ExternalGroupRoleMapping = {
       id: input.id ?? newId('grpmap'),
@@ -183,7 +242,7 @@ export class ExternalIdentityService {
       resourceId: mapping.id,
       result: 'success',
       riskLevel: 'medium',
-      context: { requestId: context.requestId, sourceIp: context.ip, actor },
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
       detail: { sourceId: mapping.sourceId, externalGroup: mapping.externalGroup, roleId: mapping.roleId },
     });
     return mapping;
@@ -191,10 +250,11 @@ export class ExternalIdentityService {
 
   async login(input: { sourceId: string; username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
     const source = await this.sources.get(input.sourceId);
-    if (!source || !source.enabled) throw new AppError('AUTH_UNAUTHENTICATED', '韬唤婧愪笉鍙敤');
+    if (!source || !source.enabled) throw new AppError('AUTH_UNAUTHENTICATED', '身份源不可用');
+    const credentials = await this.resolveServiceCredentials(source, source.id, context);
     let profile: ExternalIdentityProfile;
     try {
-      profile = await this.connector.authenticate(source, input.username, input.password);
+      profile = await this.connector.authenticate(source, input.username, input.password, credentials);
     } catch (error) {
       await this.audit.write({
         eventType: AUDIT_EVENT_TYPES.EXTERNAL_LOGIN_FAILED,
@@ -205,31 +265,21 @@ export class ExternalIdentityService {
         resourceId: source.id,
         result: 'failure',
         riskLevel: 'medium',
-        context: { requestId: context.requestId, sourceIp: context.ip },
-        detail: { sourceType: source.type },
+        context: { requestId: context.requestId, sourceIp: context.sourceIp },
+        detail: { sourceType: source.type, error: error instanceof Error ? error.message : String(error) },
       });
       throw error;
     }
-    if (profile.disabled) throw new AppError('AUTH_FORBIDDEN', '澶栭儴鐩綍鐢ㄦ埛宸茬鐢?');
+    if (profile.disabled) throw new AppError('AUTH_FORBIDDEN', '外部目录用户已禁用');
 
     const matchedRoles = await this.matchRoleIds(source.id, profile.groups);
     if (matchedRoles.length === 0 && source.defaultRoleId) matchedRoles.push(source.defaultRoleId);
     if (matchedRoles.length === 0 && source.requireGroupMapping) {
-      throw new AppError('AUTH_FORBIDDEN', '鏈懡涓换浣曞閮ㄧ粍瑙掕壊鏄犲皠');
+      throw new AppError('AUTH_FORBIDDEN', '未命中任何外部组角色映射');
     }
 
-    const user = await this.rbac.createUserIfAbsent({
-      id: `external_${source.id}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
-      username: `${source.id}:${profile.username}`,
-      displayName: profile.displayName || profile.username,
-      status: 'active',
-      tenantId: 'default',
-      tenantName: '榛樿绉熸埛',
-      identityProvider: source.type,
-      externalId: profile.externalId,
-      externalSourceId: source.id,
-    });
-    if (user.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '鏈湴褰卞瓙鐢ㄦ埛宸茬鐢?');
+    const user = await this.upsertShadowUser(source, profile, 'login');
+    if (user.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '本地影子用户已禁用');
     for (const roleId of matchedRoles) {
       await this.rbac.assignRole(user.id, roleId);
     }
@@ -243,10 +293,113 @@ export class ExternalIdentityService {
       resourceId: source.id,
       result: 'success',
       riskLevel: 'low',
-      context: { requestId: context.requestId, sourceIp: context.ip, actor: { id: user.id, type: 'user' } },
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor: { id: user.id, type: 'user' } },
       detail: { sourceType: source.type, groups: profile.groups, roleIds: matchedRoles },
     });
     return this.auth.currentSession(user.id);
+  }
+
+  async syncUsers(input: { sourceId: string; usernamePrefix?: string; pageSize?: number }, actor: SecuritySubject, context: RequestContext): Promise<ExternalIdentitySyncResult> {
+    const source = await this.sources.get(input.sourceId);
+    if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
+    const credentials = await this.resolveServiceCredentials(source, actor.id, context);
+    const profiles = await this.connector.syncUsers(source, credentials, { pageSize: input.pageSize, usernamePrefix: input.usernamePrefix });
+    const result: ExternalIdentitySyncResult = {
+      sourceId: source.id,
+      total: profiles.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      errors: [],
+    };
+    for (const profile of profiles) {
+      try {
+        const existing = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
+        await this.upsertShadowUser(source, profile, 'manual_sync');
+        if (existing) result.updated += 1;
+        else result.created += 1;
+      } catch (error) {
+        result.failed += 1;
+        result.errors.push({
+          code: extractErrorCode(error),
+          message: error instanceof Error ? error.message : String(error),
+          externalId: profile.externalId,
+        });
+      }
+    }
+    const syncStatus: IdentitySourceSyncStatus = result.failed === 0
+      ? 'success'
+      : (result.created + result.updated) > 0 ? 'partial_failure' : 'failure';
+    await this.sources.update(source.id, {
+      lastSyncAt: new Date().toISOString(),
+      lastSyncStatus: syncStatus,
+      updatedAt: new Date().toISOString(),
+    });
+    await this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.IDENTITY_SOURCE_SYNCED,
+      actorType: 'user',
+      actorId: actor.id,
+      action: 'security.identity_source.sync_users',
+      resourceType: 'identitySource',
+      resourceId: source.id,
+      result: result.failed === 0 ? 'success' : 'failure',
+      riskLevel: 'medium',
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
+      detail: result,
+    });
+    return result;
+  }
+
+  private async resolveServiceCredentials(source: IdentitySource, actorId: string, context: RequestContext): Promise<LdapServiceCredentials | undefined> {
+    if (!source.bindDn) {
+      return undefined;
+    }
+    if (!source.bindPasswordSecretRef) {
+      throw new AppError('LDAP_CONFIG_INVALID', '服务账号缺少 bindPasswordSecretRef');
+    }
+    if (!this.secrets) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'SecretService 未注入');
+    }
+    const resolved = await this.secrets.resolveForService({
+      secretRef: source.bindPasswordSecretRef,
+      expectedType: 'password',
+      purpose: 'ldap.bind',
+      actorId,
+      context,
+    });
+    return { bindPassword: resolved.plainText };
+  }
+
+  private async upsertShadowUser(source: IdentitySource, profile: ExternalIdentityProfile, syncSource: 'login' | 'manual_sync') {
+    const existing = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
+    if (existing) {
+      return this.rbac.updateUser(existing.id, {
+        username: `${source.id}:${profile.username}`,
+        displayName: profile.displayName || profile.username,
+        email: profile.email,
+        identityProvider: source.type,
+        externalId: profile.externalId,
+        externalSourceId: source.id,
+        status: profile.disabled ? 'disabled' : existing.status,
+        lastSyncedAt: new Date().toISOString(),
+        syncSource,
+      });
+    }
+    return this.rbac.createUser({
+      id: `external_${source.id}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+      username: `${source.id}:${profile.username}`,
+      displayName: profile.displayName || profile.username,
+      email: profile.email,
+      status: profile.disabled ? 'disabled' : 'active',
+      tenantId: 'default',
+      tenantName: '默认租户',
+      identityProvider: source.type,
+      externalId: profile.externalId,
+      externalSourceId: source.id,
+      lastSyncedAt: new Date().toISOString(),
+      syncSource,
+    });
   }
 
   private async matchRoleIds(sourceId: string, groups: string[]): Promise<string[]> {
@@ -260,4 +413,11 @@ export class ExternalIdentityService {
 
 function normalizeGroup(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function extractErrorCode(error: unknown): string {
+  if (error && typeof error === 'object' && 'errorCode' in error && typeof (error as { errorCode?: unknown }).errorCode === 'string') {
+    return (error as { errorCode: string }).errorCode;
+  }
+  return 'SYSTEM_INTERNAL_ERROR';
 }

@@ -31,7 +31,7 @@ export function createSecurityServices(): SecurityServices {
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit);
   const rbac = new RBACService(undefined, undefined, undefined, undefined, audit);
   const auth = new AuthService(rbac, undefined, audit);
-  const externalIdentity = new ExternalIdentityService(rbac, auth, audit);
+  const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets);
   return { rbac, audit, approvals, secrets, auth, externalIdentity };
 }
 
@@ -61,6 +61,7 @@ export class SecurityController {
     router.get('/api/v1/security/identity-sources', '鏌ヨ韬唤婧?', ['Security'], (request) => this.listIdentitySources(request));
     router.post('/api/v1/security/identity-sources', '鍒涘缓韬唤婧?', ['Security'], (request) => this.createIdentitySource(request));
     router.post('/api/v1/security/identity-sources/test', '娴嬭瘯韬唤婧愯繛鎺?', ['Security'], (request) => this.testIdentitySource(request));
+    router.post('/api/v1/security/identity-sources/sync-users', '鍚屾 LDAP 鐢ㄦ埛', ['Security'], (request) => this.syncIdentitySourceUsers(request));
     router.get('/api/v1/security/group-role-mappings', '鏌ヨ澶栭儴缁勮鑹叉槧灏?', ['Security'], (request) => this.listGroupRoleMappings(request));
     router.post('/api/v1/security/group-role-mappings', '鍒涘缓澶栭儴缁勮鑹叉槧灏?', ['Security'], (request) => this.createGroupRoleMapping(request));
   }
@@ -122,7 +123,7 @@ export class SecurityController {
 
     return {
       statusCode: 201,
-      body: this.services.secrets.create({
+      body: await this.services.secrets.create({
         name: String(body.name),
         type: body.type as SecretType,
         scopeType: body.scopeType as SecretScopeType,
@@ -159,7 +160,7 @@ export class SecurityController {
     }, this.securityContext(request, subject));
     return {
       statusCode: 201,
-      body: this.services.approvals.create({
+      body: await this.services.approvals.create({
         operationType: String(body.operationType),
         resourceRefs: body.resourceRefs as Array<{ type: string; id: string }>,
         riskLevel: body.riskLevel as RiskLevel,
@@ -224,9 +225,15 @@ export class SecurityController {
         id: user.id,
         username: user.username,
         displayName: user.displayName,
+        email: user.email,
         tenantId: user.tenantId ?? request.context.tenantId ?? 'default',
         tenantName: user.tenantName ?? '榛樿绉熸埛',
         status: user.status,
+        identityProvider: user.identityProvider ?? 'local',
+        externalSourceId: user.externalSourceId,
+        externalId: user.externalId,
+        lastSyncedAt: user.lastSyncedAt,
+        syncSource: user.syncSource,
         roles: roles.map((role) => ({ id: role.id, code: role.code, name: role.name })),
         roleNames: roles.map((role) => role.name).join(', '),
         updatedAt: user.updatedAt,
@@ -367,12 +374,15 @@ export class SecurityController {
       baseDn: { type: 'string', required: true },
       userFilter: { type: 'string' },
       groupFilter: { type: 'string' },
+      syncUserFilter: { type: 'string' },
       userDnTemplate: { type: 'string' },
       bindDn: { type: 'string' },
       bindPasswordSecretRef: { type: 'string' },
       defaultRoleId: { type: 'string' },
       requireGroupMapping: { type: 'boolean' },
       tlsMode: { type: 'string', enum: ['none', 'starttls', 'ldaps'] },
+      userAttributes: { type: 'array' },
+      groupAttributes: { type: 'array' },
       enabled: { type: 'boolean' },
     });
     const source = await this.services.externalIdentity.createSource({
@@ -383,12 +393,15 @@ export class SecurityController {
       baseDn: String(body.baseDn),
       userFilter: body.userFilter === undefined ? undefined : String(body.userFilter),
       groupFilter: body.groupFilter === undefined ? undefined : String(body.groupFilter),
+      syncUserFilter: body.syncUserFilter === undefined ? undefined : String(body.syncUserFilter),
       userDnTemplate: body.userDnTemplate === undefined ? undefined : String(body.userDnTemplate),
       bindDn: body.bindDn === undefined ? undefined : String(body.bindDn),
       bindPasswordSecretRef: body.bindPasswordSecretRef === undefined ? undefined : String(body.bindPasswordSecretRef),
       defaultRoleId: body.defaultRoleId === undefined ? undefined : String(body.defaultRoleId),
       requireGroupMapping: body.requireGroupMapping === undefined ? true : Boolean(body.requireGroupMapping),
       tlsMode: (body.tlsMode ?? 'ldaps') as IdentitySourceTlsMode,
+      userAttributes: body.userAttributes === undefined ? undefined : toStringArray(body.userAttributes, 'userAttributes'),
+      groupAttributes: body.groupAttributes === undefined ? undefined : toStringArray(body.groupAttributes, 'groupAttributes'),
     }, subject, request.context);
     return { statusCode: 201, body: source };
   }
@@ -399,7 +412,22 @@ export class SecurityController {
     const body = validateObject(request.body, {
       sourceId: { type: 'string', required: true },
     });
-    return this.services.externalIdentity.testSource(String(body.sourceId));
+    return this.services.externalIdentity.testSource(String(body.sourceId), subject.id, this.securityContext(request, subject));
+  }
+
+  private async syncIdentitySourceUsers(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.identity_source.write', request, 'identitySource');
+    const body = validateObject(request.body, {
+      sourceId: { type: 'string', required: true },
+      usernamePrefix: { type: 'string' },
+      pageSize: { type: 'number' },
+    });
+    return this.services.externalIdentity.syncUsers({
+      sourceId: String(body.sourceId),
+      usernamePrefix: body.usernamePrefix === undefined ? undefined : String(body.usernamePrefix),
+      pageSize: body.pageSize === undefined ? undefined : Number(body.pageSize),
+    }, subject, this.securityContext(request, subject));
   }
 
   private async listGroupRoleMappings(request: HttpRequest) {
@@ -528,6 +556,7 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '鏌ヨ韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '鍒涘缓韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources/test', operationId: 'testIdentitySource', summary: '娴嬭瘯韬唤婧愯繛鎺?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/identity-sources/sync-users', operationId: 'syncIdentitySourceUsers', summary: '鍚屾 LDAP 鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/group-role-mappings', operationId: 'listGroupRoleMappings', summary: '鏌ヨ澶栭儴缁勮鑹叉槧灏?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/group-role-mappings', operationId: 'createGroupRoleMapping', summary: '鍒涘缓澶栭儴缁勮鑹叉槧灏?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
   ];

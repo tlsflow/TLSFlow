@@ -5,7 +5,7 @@ import { PgDocumentRepository } from '../../persistence/repositories/pg-document
 import { RBACService } from '../rbac/rbac.service.js';
 import { AuditService } from '../audits/audit.service.js';
 import { AuthService } from './auth.service.js';
-import { ExternalIdentityService, type ExternalGroupRoleMapping, type IdentitySource } from './external-identity.service.js';
+import { ExternalIdentityService, MockDirectoryConnector, type ExternalGroupRoleMapping, type IdentitySource } from './external-identity.service.js';
 import type { AuthPasswordCredentialEntity } from '../../persistence/entities/auth-credential.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 
@@ -23,7 +23,7 @@ describe('ExternalIdentityService 持久化', () => {
     const audit = new AuditService();
     const rbac = new RBACService(users, roles, userRoles, policies, audit);
     const auth = new AuthService(rbac, credentials, audit);
-    const first = new ExternalIdentityService(rbac, auth, audit, undefined, sources, mappings);
+    const first = new ExternalIdentityService(rbac, auth, audit, undefined, new MockDirectoryConnector(), sources, mappings);
 
     await rbac.createRole({ id: 'role_ad_ops', code: 'ad_ops', name: 'AD Ops', builtin: false });
     const source = await first.createSource({
@@ -36,10 +36,10 @@ describe('ExternalIdentityService 持久化', () => {
       groupFilter: '(member={{userDn}})',
       requireGroupMapping: true,
       tlsMode: 'ldaps',
-    }, { id: 'user_admin', type: 'user' }, { requestId: 'req_identity_persist', traceId: 'trace_identity_persist' });
-    await first.createMapping({ sourceId: source.id, externalGroup: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=test', roleId: 'role_ad_ops', enabled: true }, { id: 'user_admin', type: 'user' }, { requestId: 'req_identity_persist', traceId: 'trace_identity_persist' });
+    }, { id: 'user_admin', type: 'user' }, { requestId: 'req_identity_persist', sourceIp: '127.0.0.1' });
+    await first.createMapping({ sourceId: source.id, externalGroup: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=test', roleId: 'role_ad_ops', enabled: true }, { id: 'user_admin', type: 'user' }, { requestId: 'req_identity_persist', sourceIp: '127.0.0.1' });
 
-    const rebuilt = new ExternalIdentityService(rbac, auth, audit, undefined, sources, mappings);
+    const rebuilt = new ExternalIdentityService(rbac, auth, audit, undefined, new MockDirectoryConnector(), sources, mappings);
     const publicSources = await rebuilt.listPublicSources();
     const savedMappings = await rebuilt.listMappings();
 

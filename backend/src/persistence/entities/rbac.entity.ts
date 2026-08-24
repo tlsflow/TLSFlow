@@ -4,11 +4,14 @@ export interface UserEntity {
   id: string;
   username: string;
   displayName: string;
+  email?: string;
   tenantId?: string;
   tenantName?: string;
   identityProvider?: 'local' | 'active_directory' | 'ldap';
   externalId?: string;
   externalSourceId?: string;
+  lastSyncedAt?: string;
+  syncSource?: 'login' | 'manual_sync';
   status: 'active' | 'disabled';
   createdAt: string;
   updatedAt: string;

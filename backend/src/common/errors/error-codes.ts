@@ -28,6 +28,12 @@ export const errorCodes = {
   PLUGIN_PERMISSION_DENIED: { httpStatus: 403, message: '插件权限不足' },
   WORKFLOW_ASSERTION_FAILED: { httpStatus: 422, message: '工作流断言失败' },
   SECRET_REF_INVALID: { httpStatus: 422, message: 'Secret 引用无效' },
+  LDAP_SOURCE_UNREACHABLE: { httpStatus: 502, message: 'LDAP 身份源不可达' },
+  LDAP_TLS_FAILED: { httpStatus: 502, message: 'LDAP TLS 连接失败' },
+  LDAP_BIND_FAILED: { httpStatus: 401, message: 'LDAP 认证失败' },
+  LDAP_SEARCH_FAILED: { httpStatus: 502, message: 'LDAP 查询失败' },
+  LDAP_CONFIG_INVALID: { httpStatus: 422, message: 'LDAP 身份源配置无效' },
+  LDAP_PROFILE_INVALID: { httpStatus: 422, message: 'LDAP 用户记录无效' },
 } as const;
 
 export type ErrorCode = keyof typeof errorCodes;

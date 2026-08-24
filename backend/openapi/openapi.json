@@ -75,7 +75,7 @@
     "/api/v1/auth/login": {
       "post": {
         "operationId": "login",
-        "summary": "登录",
+        "summary": "鐧诲綍",
         "tags": [
           "Auth"
         ],
@@ -106,7 +106,7 @@
     "/api/v1/auth/external-login": {
       "post": {
         "operationId": "externalLogin",
-        "summary": "外部身份源登录",
+        "summary": "澶栭儴韬唤婧愮櫥褰?",
         "tags": [
           "Auth"
         ],
@@ -137,7 +137,7 @@
     "/api/v1/auth/identity-sources/public": {
       "get": {
         "operationId": "listPublicIdentitySources",
-        "summary": "获取可用身份源",
+        "summary": "鑾峰彇鍙敤韬唤婧?",
         "tags": [
           "Auth"
         ],
@@ -168,7 +168,7 @@
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "logout",
-        "summary": "退出登录",
+        "summary": "閫€鍑虹櫥褰?",
         "tags": [
           "Auth"
         ],
@@ -199,7 +199,7 @@
     "/api/v1/auth/me": {
       "get": {
         "operationId": "getCurrentUser",
-        "summary": "获取当前用户",
+        "summary": "鑾峰彇褰撳墠鐢ㄦ埛",
         "tags": [
           "Auth"
         ],
@@ -230,7 +230,7 @@
     "/api/v1/auth/permissions": {
       "get": {
         "operationId": "getCurrentPermissions",
-        "summary": "获取当前权限",
+        "summary": "鑾峰彇褰撳墠鏉冮檺",
         "tags": [
           "Auth"
         ],
@@ -261,7 +261,7 @@
     "/api/v1/secrets": {
       "post": {
         "operationId": "createSecret",
-        "summary": "创建 Secret",
+        "summary": "鍒涘缓 Secret",
         "tags": [
           "Security"
         ],
@@ -292,7 +292,7 @@
     "/api/v1/secrets/metadata": {
       "get": {
         "operationId": "getSecretMetadata",
-        "summary": "查询 Secret 元数据",
+        "summary": "鏌ヨ Secret 鍏冩暟鎹?",
         "tags": [
           "Security"
         ],
@@ -323,7 +323,7 @@
     "/api/v1/approvals": {
       "post": {
         "operationId": "createApproval",
-        "summary": "创建审批单",
+        "summary": "鍒涘缓瀹℃壒鍗?",
         "tags": [
           "Security"
         ],
@@ -354,7 +354,7 @@
     "/api/v1/approvals/decide": {
       "post": {
         "operationId": "decideApproval",
-        "summary": "审批决策",
+        "summary": "瀹℃壒鍐崇瓥",
         "tags": [
           "Security"
         ],
@@ -385,7 +385,7 @@
     "/api/v1/audit-events": {
       "get": {
         "operationId": "queryAuditEvents",
-        "summary": "查询审计事件",
+        "summary": "鏌ヨ瀹¤浜嬩欢",
         "tags": [
           "Security"
         ],
@@ -416,7 +416,7 @@
     "/api/v1/security/users": {
       "get": {
         "operationId": "listSecurityUsers",
-        "summary": "查询用户列表",
+        "summary": "鏌ヨ鐢ㄦ埛鍒楄〃",
         "tags": [
           "Security"
         ],
@@ -445,7 +445,7 @@
       },
       "post": {
         "operationId": "createSecurityUser",
-        "summary": "创建用户",
+        "summary": "鍒涘缓鐢ㄦ埛",
         "tags": [
           "Security"
         ],
@@ -476,7 +476,7 @@
     "/api/v1/security/users/status": {
       "patch": {
         "operationId": "updateSecurityUserStatus",
-        "summary": "修改用户状态",
+        "summary": "淇敼鐢ㄦ埛鐘舵€?",
         "tags": [
           "Security"
         ],
@@ -507,7 +507,7 @@
     "/api/v1/security/users/roles": {
       "post": {
         "operationId": "assignSecurityUserRole",
-        "summary": "分配用户角色",
+        "summary": "鍒嗛厤鐢ㄦ埛瑙掕壊",
         "tags": [
           "Security"
         ],
@@ -538,7 +538,7 @@
     "/api/v1/security/roles": {
       "get": {
         "operationId": "listSecurityRoles",
-        "summary": "查询角色列表",
+        "summary": "鏌ヨ瑙掕壊鍒楄〃",
         "tags": [
           "Security"
         ],
@@ -567,7 +567,7 @@
       },
       "post": {
         "operationId": "createSecurityRole",
-        "summary": "创建角色",
+        "summary": "鍒涘缓瑙掕壊",
         "tags": [
           "Security"
         ],
@@ -598,7 +598,7 @@
     "/api/v1/security/permission-policies": {
       "get": {
         "operationId": "listSecurityPermissionPolicies",
-        "summary": "查询权限策略",
+        "summary": "鏌ヨ鏉冮檺绛栫暐",
         "tags": [
           "Security"
         ],
@@ -627,7 +627,7 @@
       },
       "post": {
         "operationId": "createSecurityPermissionPolicy",
-        "summary": "创建权限策略",
+        "summary": "鍒涘缓鏉冮檺绛栫暐",
         "tags": [
           "Security"
         ],
@@ -658,7 +658,7 @@
     "/api/v1/security/identity-sources": {
       "get": {
         "operationId": "listIdentitySources",
-        "summary": "查询身份源",
+        "summary": "鏌ヨ韬唤婧?",
         "tags": [
           "Security"
         ],
@@ -687,7 +687,7 @@
       },
       "post": {
         "operationId": "createIdentitySource",
-        "summary": "创建身份源",
+        "summary": "鍒涘缓韬唤婧?",
         "tags": [
           "Security"
         ],
@@ -718,7 +718,38 @@
     "/api/v1/security/identity-sources/test": {
       "post": {
         "operationId": "testIdentitySource",
-        "summary": "测试身份源连接",
+        "summary": "娴嬭瘯韬唤婧愯繛鎺?",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/identity-sources/sync-users": {
+      "post": {
+        "operationId": "syncIdentitySourceUsers",
+        "summary": "鍚屾 LDAP 鐢ㄦ埛",
         "tags": [
           "Security"
         ],
@@ -749,7 +780,7 @@
     "/api/v1/security/group-role-mappings": {
       "get": {
         "operationId": "listGroupRoleMappings",
-        "summary": "查询外部组角色映射",
+        "summary": "鏌ヨ澶栭儴缁勮鑹叉槧灏?",
         "tags": [
           "Security"
         ],
@@ -778,7 +809,7 @@
       },
       "post": {
         "operationId": "createGroupRoleMapping",
-        "summary": "创建外部组角色映射",
+        "summary": "鍒涘缓澶栭儴缁勮鑹叉槧灏?",
         "tags": [
           "Security"
         ],
@@ -1404,6 +1435,149 @@
       "post": {
         "operationId": "deleteServiceInstance",
         "summary": "软删除 ServiceInstance",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/service-assets": {
+      "get": {
+        "operationId": "listServiceAssets",
+        "summary": "查询 ServiceAsset 列表",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createServiceAsset",
+        "summary": "创建 ServiceAsset",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateServiceAsset",
+        "summary": "更新 ServiceAsset",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/service-assets/delete": {
+      "post": {
+        "operationId": "deleteServiceAsset",
+        "summary": "软删除 ServiceAsset",
         "tags": [
           "Assets"
         ],
@@ -2462,7 +2636,7 @@
     "/api/v1/certificate-versions/:id/formats": {
       "get": {
         "operationId": "listCertificateVersionFormatsByVersionId",
-        "summary": "按版本查询证书格式产物",
+        "summary": "List certificate version formats by version id",
         "tags": [
           "Certificates"
         ],
@@ -2497,6 +2671,102 @@
                       "type": "number"
                     }
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-versions/import": {
+      "post": {
+        "operationId": "importCertificateVersion",
+        "summary": "Import certificate material",
+        "tags": [
+          "Certificates"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "certificateAssetId": {
+                    "type": "string"
+                  },
+                  "certificatePem": {
+                    "type": "string"
+                  },
+                  "privateKeyPem": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "pfxBase64": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "pfxPassword": {
+                    "type": "string",
+                    "writeOnly": true,
+                    "x-sensitive": true
+                  },
+                  "declaredFormat": {
+                    "type": "string",
+                    "enum": [
+                      "pem",
+                      "pfx",
+                      "jks",
+                      "p7b",
+                      "der"
+                    ]
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "manual",
+                      "acme",
+                      "adcs",
+                      "enterprise_ca",
+                      "external_api",
+                      "certd",
+                      "allinssl"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
                 }
               }
             }
@@ -2606,10 +2876,10 @@
         }
       }
     },
-    "/api/v1/certificate-versions/import": {
+    "/api/v1/certificate-versions/validate-import": {
       "post": {
-        "operationId": "importCertificateVersion",
-        "summary": "导入证书版本",
+        "operationId": "validateImportCertificateVersion",
+        "summary": "Validate certificate import material",
         "tags": [
           "Certificates"
         ],
@@ -2627,9 +2897,6 @@
                   "certificatePem": {
                     "type": "string"
                   },
-                  "certificateDerBase64": {
-                    "type": "string"
-                  },
                   "privateKeyPem": {
                     "type": "string",
                     "writeOnly": true,
@@ -2641,29 +2908,6 @@
                     "x-sensitive": true
                   },
                   "pfxPassword": {
-                    "type": "string",
-                    "writeOnly": true,
-                    "x-sensitive": true
-                  },
-                  "jksBase64": {
-                    "type": "string",
-                    "writeOnly": true,
-                    "x-sensitive": true
-                  },
-                  "jksPassword": {
-                    "type": "string",
-                    "writeOnly": true,
-                    "x-sensitive": true
-                  },
-                  "jksKeyPassword": {
-                    "type": "string",
-                    "writeOnly": true,
-                    "x-sensitive": true
-                  },
-                  "jksAlias": {
-                    "type": "string"
-                  },
-                  "p7bBase64": {
                     "type": "string",
                     "writeOnly": true,
                     "x-sensitive": true
@@ -2876,7 +3120,7 @@
     "/api/v1/certificate-sources/mock-sync": {
       "post": {
         "operationId": "mockSyncCertificateSource",
-        "summary": "Mock 来源同步证书",
+        "summary": "Mock 源同步证书",
         "tags": [
           "Certificates"
         ],
@@ -4205,6 +4449,49 @@
         }
       }
     },
+    "/api/v1/gateways/target-history": {
+      "get": {
+        "operationId": "listGatewayTargetHistory",
+        "summary": "查询 Gateway 代理目标历史",
+        "tags": [
+          "Gateways"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "delegatedTargetId": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/gateways/route": {
       "post": {
         "operationId": "routeGateway",
@@ -5414,5 +5701,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-06-09T13:09:24.239Z"
+  "x-generatedAt": "2026-06-21T13:50:06.531Z"
 }

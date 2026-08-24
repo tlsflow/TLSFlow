@@ -45,7 +45,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const auth = new AuthService(rbac, authCredentials, audit);
-  const externalIdentity = new ExternalIdentityService(rbac, auth, audit, undefined, identitySources, externalGroupRoleMappings);
+  const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
     services: { rbac, audit, approvals, secrets, auth, externalIdentity },

@@ -50,6 +50,10 @@ export class RBACService {
     return (await this.users.get(input.id)) ?? this.createUser(input);
   }
 
+  async updateUser(userId: string, patch: Partial<Omit<UserEntity, 'id' | 'createdAt'>>): Promise<UserEntity> {
+    return this.users.update(userId, { ...patch, updatedAt: new Date().toISOString() });
+  }
+
   async getUser(id: string): Promise<UserEntity | undefined> {
     return this.users.get(id);
   }
@@ -57,6 +61,10 @@ export class RBACService {
   async findUserByUsername(username: string): Promise<UserEntity | undefined> {
     const normalized = username.trim().toLowerCase();
     return (await this.users.list((user) => user.username.toLowerCase() === normalized))[0];
+  }
+
+  async findUserByExternalIdentity(sourceId: string, externalId: string): Promise<UserEntity | undefined> {
+    return (await this.users.list((user) => user.externalSourceId === sourceId && user.externalId === externalId))[0];
   }
 
   async listUsers(): Promise<UserEntity[]> {

@@ -10,6 +10,8 @@ export const AUDIT_EVENT_TYPES = {
   SECURITY_PERMISSION_POLICY_CREATED: 'security.permission_policy.created',
   IDENTITY_SOURCE_CREATED: 'security.identity_source.created',
   IDENTITY_GROUP_MAPPING_CREATED: 'security.identity_group_mapping.created',
+  IDENTITY_SOURCE_TESTED: 'security.identity_source.tested',
+  IDENTITY_SOURCE_SYNCED: 'security.identity_source.synced',
   EXTERNAL_LOGIN_SUCCESS: 'auth.external_login.success',
   EXTERNAL_LOGIN_FAILED: 'auth.external_login.failed',
   SECRET_CREATED: 'secret.created',

@@ -31,4 +31,16 @@ export const securityErrors = {
     new SecurityError('SEC_PLUGIN_PERMISSION_DENIED', '插件权限不足', 403, details),
   secretRefInvalid: (details: Record<string, unknown> = {}) =>
     new SecurityError('SECRET_REF_INVALID', 'Secret 引用无效', 422, details),
+  ldapSourceUnreachable: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_SOURCE_UNREACHABLE', 'LDAP 身份源不可达', 502, details),
+  ldapTlsFailed: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_TLS_FAILED', 'LDAP TLS 连接失败', 502, details),
+  ldapBindFailed: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_BIND_FAILED', 'LDAP 认证失败', 401, details),
+  ldapSearchFailed: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_SEARCH_FAILED', 'LDAP 查询失败', 502, details),
+  ldapConfigInvalid: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_CONFIG_INVALID', 'LDAP 身份源配置无效', 422, details),
+  ldapProfileInvalid: (details: Record<string, unknown> = {}) =>
+    new SecurityError('LDAP_PROFILE_INVALID', 'LDAP 用户记录无效', 422, details),
 };
