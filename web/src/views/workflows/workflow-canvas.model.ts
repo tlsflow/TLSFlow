@@ -1,8 +1,17 @@
+import {
+  isWorkflowCredentialBinding,
+  workflowCredentialBinding,
+  type WorkflowCredentialBinding,
+  type WorkflowManagedCredential,
+} from './workflow-credentials'
+
 export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
-export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secretRef'
+export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
 export type WorkflowCanvasStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify'
+export type WorkflowCanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls'
+export type WorkflowDslCredentialValue = WorkflowCredentialBinding | string
 
 export interface WorkflowCanvasPosition {
   readonly x: number
@@ -49,7 +58,7 @@ export interface WorkflowCanvasDefinition {
 }
 
 export interface WorkflowVariableDefinition {
-  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'secret' | 'certificate'
+  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate'
   readonly required?: boolean
   readonly default?: unknown
   readonly enum?: readonly unknown[]
@@ -111,7 +120,14 @@ export type WorkflowDslStep =
         readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
         readonly url: string
         readonly headers?: Record<string, string>
-        readonly auth?: { readonly type: 'bearer'; readonly secretRef: string }
+        readonly auth?:
+          | { readonly type: 'none' }
+          | { readonly type: 'basic'; readonly username: string; readonly credential: WorkflowDslCredentialValue }
+          | { readonly type: 'bearer'; readonly credential: WorkflowDslCredentialValue }
+          | { readonly type: 'api_key'; readonly credential: WorkflowDslCredentialValue; readonly in?: 'header' | 'query'; readonly name: string }
+          | { readonly type: 'cookie'; readonly secretRef: string; readonly name?: string }
+          | { readonly type: 'custom_header'; readonly secretRef: string; readonly headerName: string }
+          | { readonly type: 'mtls'; readonly certSecretRef: string; readonly keySecretRef: string }
         readonly body?: unknown
         readonly timeoutSeconds?: number
       }
@@ -128,8 +144,9 @@ export type WorkflowDslStep =
         readonly connection: {
           readonly host: string
           readonly username: string
-        readonly credentialSecretRef: string
-        readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
+          readonly credential: WorkflowDslCredentialValue
+          readonly expectedHostKeyFingerprint?: string
+          readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
         }
         readonly command?: string
         readonly commands?: readonly string[]
@@ -173,7 +190,8 @@ export interface WorkflowDslFileTransferConfig {
   readonly connection: {
     readonly host: string
     readonly username: string
-    readonly credentialSecretRef: string
+    readonly credential: WorkflowDslCredentialValue
+    readonly expectedHostKeyFingerprint?: string
     readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
   }
   readonly remotePath: string
@@ -199,8 +217,9 @@ export interface WorkflowDslCondition {
 
 export interface WorkflowDslExtractor {
   readonly name: string
-  readonly type: 'jsonPath' | 'header' | 'regex' | 'statusCode' | 'textContains'
+  readonly type: 'jsonPath' | 'outputPath' | 'firstOf' | 'header' | 'regex' | 'statusCode' | 'textContains'
   readonly path?: string
+  readonly paths?: readonly string[]
   readonly header?: string
   readonly pattern?: string
   readonly value?: string
@@ -215,6 +234,8 @@ export type WorkflowDslAssertion =
   | { readonly type: 'regex'; readonly pattern: string }
   | { readonly type: 'certificateFingerprint'; readonly actual: string; readonly expected: string }
 
+type WorkflowHttpRequestAuth = NonNullable<Extract<WorkflowDslStep, { type: 'http' }>['request']['auth']>
+
 export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   {
     type: 'http',
@@ -226,14 +247,13 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     fields: [
       { key: 'method', label: 'Method', kind: 'select', required: true, options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => ({ label: value, value })) },
       { key: 'url', label: 'URL', kind: 'text', required: true },
-      { key: 'authRef', label: '认证 SecretRef', kind: 'secretRef' },
       { key: 'body', label: 'Body', kind: 'textarea' },
       { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
     ],
     produces: [
       { name: 'statusCode', type: 'number' },
       { name: 'body', type: 'object' },
-      { name: 'token', type: 'string', sensitive: true },
+      { name: 'extracted', type: 'object' },
     ],
   },
   {
@@ -246,7 +266,13 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     fields: [
       { key: 'hostRef', label: '主机变量', kind: 'text', required: true },
       { key: 'username', label: '用户名变量', kind: 'text', required: true },
-      { key: 'credentialSecretRef', label: '凭据 SecretRef', kind: 'secretRef', required: true },
+      { key: 'credential', label: '凭据', kind: 'text', required: true },
+      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
+        { label: '首次信任', value: 'trust_on_first_use' },
+        { label: '严格校验', value: 'strict' },
+        { label: '人工审批', value: 'manual_approval_required' },
+      ] },
+      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
       { key: 'command', label: '命令', kind: 'textarea', required: true },
       { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
     ],
@@ -266,9 +292,16 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     fields: [
       { key: 'direction', label: '方向', kind: 'select', required: true, options: [{ label: '上传', value: 'upload' }, { label: '下载', value: 'download' }] },
       { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
-      { key: 'credentialSecretRef', label: '凭据 SecretRef', kind: 'secretRef', required: true },
+      { key: 'credential', label: '凭据', kind: 'text', required: true },
       { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
+      { key: 'temporaryPath', label: '临时路径', kind: 'text' },
       { key: 'username', label: '用户名变量', kind: 'text', required: true },
+      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
+        { label: '首次信任', value: 'trust_on_first_use' },
+        { label: '严格校验', value: 'strict' },
+        { label: '人工审批', value: 'manual_approval_required' },
+      ] },
+      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
       { key: 'contentRef', label: '内容变量', kind: 'text' },
       { key: 'localPath', label: '本地路径', kind: 'text' },
       { key: 'mode', label: '文件权限', kind: 'text' },
@@ -291,8 +324,15 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
       { key: 'direction', label: '方向', kind: 'select', required: true, options: [{ label: '上传', value: 'upload' }, { label: '下载', value: 'download' }] },
       { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
       { key: 'username', label: '用户名变量', kind: 'text', required: true },
-      { key: 'credentialSecretRef', label: '凭据 SecretRef', kind: 'secretRef', required: true },
+      { key: 'credential', label: '凭据', kind: 'text', required: true },
       { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
+      { key: 'temporaryPath', label: '临时路径', kind: 'text' },
+      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
+        { label: '首次信任', value: 'trust_on_first_use' },
+        { label: '严格校验', value: 'strict' },
+        { label: '人工审批', value: 'manual_approval_required' },
+      ] },
+      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
       { key: 'contentRef', label: '内容变量', kind: 'text' },
       { key: 'localPath', label: '本地路径', kind: 'text' },
       { key: 'mode', label: '文件权限', kind: 'text' },
@@ -392,9 +432,29 @@ export const WORKFLOW_FLOW_LAYOUT = {
 export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): WorkflowCanvasDefinition {
   const nodes: WorkflowCanvasNode[] = [
     createCanvasNode('http', 0, undefined, 'prepare'),
-    createCanvasNode('sftp', 1, undefined, 'install'),
-    createCanvasNode('ssh', 2, undefined, 'refresh'),
-    createCanvasNode('verify', 3, undefined, 'verify'),
+    {
+      ...createCanvasNode('ssh', 1, undefined, 'backup'),
+      label: '备份现有证书',
+      config: {
+        ...createDefaultConfig('ssh'),
+        command: [
+          'mkdir -p {{certificatePaths.backupDir}}',
+          'cp -f {{certificatePaths.certPath}} {{certificatePaths.backupCertPath}}',
+          'cp -f {{certificatePaths.keyPath}} {{certificatePaths.backupKeyPath}}',
+        ].join('\n'),
+      },
+    },
+    createCanvasNode('sftp', 2, undefined, 'install'),
+    createCanvasNode('scp', 3, undefined, 'install'),
+    {
+      ...createCanvasNode('ssh', 4, undefined, 'refresh'),
+      label: '重载服务',
+      config: {
+        ...createDefaultConfig('ssh'),
+        command: 'nginx -t\nsystemctl reload nginx',
+      },
+    },
+    createCanvasNode('verify', 5, undefined, 'verify'),
   ]
   return normalizeWorkflowCanvasFlow({
     schemaVersion: 'gcac.workflow.canvas/v1',
@@ -408,8 +468,22 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
     variables: {
       deviceHost: { type: 'string', required: true, description: '目标主机' },
       sshUsername: { type: 'string', required: true, description: 'SSH 用户名' },
-      credential: { type: 'secret', required: true, sensitive: true, description: '连接凭据 SecretRef' },
+      credential: { type: 'credential', required: true, sensitive: true, description: '连接凭据' },
       certificate: { type: 'certificate', required: true, sensitive: true, description: '证书材料' },
+      certificatePaths: {
+        type: 'object',
+        required: true,
+        default: {
+          certPath: '/etc/ssl/certs/site.pem',
+          keyPath: '/etc/ssl/private/site.key',
+          tempCertPath: '/tmp/gcac-certs/site.pem',
+          tempKeyPath: '/tmp/gcac-certs/site.key',
+          backupDir: '/var/backups/gcac-certs',
+          backupCertPath: '/var/backups/gcac-certs/site.pem.bak',
+          backupKeyPath: '/var/backups/gcac-certs/site.key.bak',
+        },
+        description: '证书部署、临时写入和备份路径',
+      },
       verifyUrl: { type: 'string', required: true, description: '验证 URL' },
     },
     nodes,
@@ -456,10 +530,10 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 }
 
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
-  if (type === 'http') return { method: 'GET', url: '{{verifyUrl}}', authRef: 'secret://workflow/device-api', body: '', timeoutSeconds: 30 }
-  if (type === 'ssh') return { hostRef: '{{deviceHost}}', username: '{{sshUsername}}', credentialSecretRef: 'secret://workflow/ssh', command: 'systemctl reload nginx', timeoutSeconds: 60 }
-  if (type === 'sftp') return createDefaultFileTransferConfig('{{certificate.pem}}', '/etc/ssl/certs/site.pem', '0644')
-  if (type === 'scp') return createDefaultFileTransferConfig('{{certificate.privateKey}}', '/etc/ssl/private/site.key', '0600')
+  if (type === 'http') return { method: 'GET', url: '{{verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', authCredentialId: '', body: '', timeoutSeconds: 30 }
+  if (type === 'ssh') return { hostRef: '{{deviceHost}}', username: '{{sshUsername}}', credential: '{{credential}}', hostKeyPolicy: 'trust_on_first_use', expectedHostKeyFingerprint: '', command: 'systemctl reload nginx', timeoutSeconds: 60 }
+  if (type === 'sftp') return createDefaultFileTransferConfig('{{certificate.pem}}', '{{certificatePaths.certPath}}', '{{certificatePaths.tempCertPath}}', '0644')
+  if (type === 'scp') return createDefaultFileTransferConfig('{{certificate.privateKey}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: '目标变量存在时继续执行' }
   if (type === 'wait') return { seconds: 10 }
@@ -480,15 +554,16 @@ export function validateWorkflowCanvas(canvas: WorkflowCanvasDefinition): Workfl
       if (field.required && isBlank(value)) {
         issues.push(fieldIssue(node, field.key, `${node.label} 缺少 ${field.label}。`, `在属性面板补全 ${field.label}。`))
       }
-      if (field.kind === 'secretRef' && !isBlank(value) && !isSecretRef(String(value))) {
-        issues.push(fieldIssue(node, field.key, `${node.label} 的 ${field.label} 必须是 SecretRef。`, '使用 secret:// 开头的凭据引用，不要填写密码明文。'))
+      if (field.kind === 'secret' && !isBlank(value) && containsPlainSecret(String(value))) {
+        issues.push(fieldIssue(node, field.key, `${node.label} 的 ${field.label} 疑似包含明文密钥。`, '改为选择已保存凭据或使用密文输入。'))
       }
     }
     for (const [key, value] of Object.entries(node.config)) {
       if (containsPlainSecret(value)) {
-        issues.push(fieldIssue(node, key, `${node.label} 的 ${key} 疑似包含明文 Secret。`, '改为引用 SecretRef 或变量表达式。'))
+        issues.push(fieldIssue(node, key, `${node.label} 的 ${key} 疑似包含明文密钥。`, '改为选择已保存凭据、密文输入或变量表达式。'))
       }
     }
+    if (node.type === 'http') validateHttpNodeConfig(node, issues)
     const timeout = node.config.timeoutSeconds ?? node.config.seconds
     if (['http', 'ssh', 'sftp', 'scp', 'verify'].includes(node.type) && (!Number.isInteger(Number(timeout)) || Number(timeout) <= 0)) {
       issues.push(fieldIssue(node, 'timeoutSeconds', `${node.label} 必须声明正整数超时。`, '为外部动作设置明确 timeoutSeconds。'))
@@ -657,7 +732,7 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
     source: '变量',
     name,
     type: definition.type,
-    sensitive: Boolean(definition.sensitive || definition.type === 'secret'),
+    sensitive: Boolean(definition.sensitive || definition.type === 'credential'),
     usedBy: findVariableUsers(canvas, name),
   }))
   const produced = canvas.nodes.flatMap((node) => getNodeTypeDefinition(node.type).produces.map((item) => ({
@@ -673,6 +748,7 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
 function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep {
   const name = buildDslStepName(node, index)
   if (node.type === 'http') {
+    const auth = buildHttpRequestAuth(node.config)
     return mergeImportedDslStep(node, {
       name,
       type: 'http',
@@ -680,7 +756,7 @@ function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep
       request: {
         method: String(node.config.method ?? 'GET') as 'GET',
         url: String(node.config.url ?? '{{verifyUrl}}'),
-        ...(isBlank(node.config.authRef) ? {} : { auth: { type: 'bearer', secretRef: String(node.config.authRef) } }),
+        ...(auth ? { auth } : {}),
         ...(isBlank(node.config.body) ? {} : { body: parseLooseJson(String(node.config.body)) }),
         timeoutSeconds: Number(node.config.timeoutSeconds ?? 30),
       },
@@ -706,8 +782,9 @@ function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep
         connection: {
           host: String(node.config.hostRef ?? '{{deviceHost}}'),
           username: String(node.config.username ?? '{{sshUsername}}'),
-          credentialSecretRef: String(node.config.credentialSecretRef ?? 'secret://workflow/ssh'),
-          hostKeyPolicy: 'manual_approval_required',
+          credential: readCredentialValue(node.config.credential) ?? '{{credential}}',
+          hostKeyPolicy: readHostKeyPolicy(node.config.hostKeyPolicy),
+          ...(isBlank(node.config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(node.config.expectedHostKeyFingerprint) }),
         },
         ...sshBody,
         timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
@@ -767,7 +844,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         : {
             method: step.request.method,
             url: step.request.url,
-            authRef: step.request.auth?.type === 'bearer' ? step.request.auth.secretRef : '',
+            ...buildHttpNodeConfig(step.request.auth),
             body: stringifyBody(step.request.body),
             timeoutSeconds: step.request.timeoutSeconds ?? 30,
           },
@@ -786,7 +863,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         config: {
           direction: direction.toLowerCase() === 'download' ? 'download' : 'upload',
           connectionRef: step.ssh.connection.host,
-          credentialSecretRef: step.ssh.connection.credentialSecretRef,
+          credential: cloneCredentialValue(step.ssh.connection.credential),
           localArtifactRef,
           remotePath,
           timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
@@ -802,7 +879,9 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       config: {
         hostRef: step.ssh.connection.host,
         username: step.ssh.connection.username,
-        credentialSecretRef: step.ssh.connection.credentialSecretRef,
+        credential: cloneCredentialValue(step.ssh.connection.credential),
+        hostKeyPolicy: step.ssh.connection.hostKeyPolicy ?? 'trust_on_first_use',
+        expectedHostKeyFingerprint: step.ssh.connection.expectedHostKeyFingerprint ?? '',
         command,
         timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
       },
@@ -820,8 +899,11 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         direction: config.direction,
         connectionRef: config.connection.host,
         username: config.connection.username,
-        credentialSecretRef: config.connection.credentialSecretRef,
+        credential: cloneCredentialValue(config.connection.credential),
+        hostKeyPolicy: config.connection.hostKeyPolicy ?? 'trust_on_first_use',
+        expectedHostKeyFingerprint: config.connection.expectedHostKeyFingerprint ?? '',
         remotePath: config.remotePath,
+        temporaryPath: config.temporaryPath ?? '',
         contentRef: config.contentRef ?? '',
         localPath: config.localPath ?? '',
         mode: config.mode ?? '',
@@ -979,6 +1061,126 @@ function hasCycle(canvas: WorkflowCanvasDefinition): boolean {
   return canvas.nodes.some((node) => visit(node.id))
 }
 
+function validateHttpNodeConfig(node: WorkflowCanvasNode, issues: WorkflowValidationIssue[]) {
+  const authType = readHttpAuthType(node.config.authType)
+  if (!authType) {
+    issues.push(fieldIssue(node, 'authType', `${node.label} 的 HTTP 认证类型不支持。`, '改为 none、basic、bearer、api_key、cookie、custom_header 或 mtls。'))
+    return
+  }
+  if (authType === 'none') return
+  if (authType === 'basic') {
+    if (isBlank(node.config.authUsername)) issues.push(fieldIssue(node, 'authUsername', `${node.label} 的 Basic 用户名不能为空。`, '填写用户名或选择已保存的用户名密码凭据。'))
+    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 Basic 凭据不能为空。`, '直接选择已保存的用户名密码凭据，或引用 credential 变量。'))
+    return
+  }
+  if (authType === 'bearer') {
+    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 Bearer 凭据不能为空。`, '直接选择已保存的 Bearer 凭据，或引用 credential 变量。'))
+    return
+  }
+  if (authType === 'cookie') {
+    if (isBlank(node.config.authSecretValue)) issues.push(fieldIssue(node, 'authSecretValue', `${node.label} 的认证值不能为空。`, '填写密文值或改用已保存凭据。'))
+    return
+  }
+  if (authType === 'api_key') {
+    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 API Key 凭据不能为空。`, '直接选择已保存的 API Key 凭据，或引用 credential 变量。'))
+    if (isBlank(node.config.authApiKeyName)) issues.push(fieldIssue(node, 'authApiKeyName', `${node.label} 的 API Key 名称不能为空。`, '填写 Header 名称或 Query 参数名。'))
+    if (!['header', 'query'].includes(String(node.config.authApiKeyIn ?? 'header'))) issues.push(fieldIssue(node, 'authApiKeyIn', `${node.label} 的 API Key 传递位置不支持。`, '改为 header 或 query。'))
+    return
+  }
+  if (authType === 'custom_header') {
+    if (isBlank(node.config.authSecretValue)) issues.push(fieldIssue(node, 'authSecretValue', `${node.label} 的自定义 Header 值不能为空。`, '填写密文值或改用已保存凭据。'))
+    if (isBlank(node.config.authHeaderName)) issues.push(fieldIssue(node, 'authHeaderName', `${node.label} 的 Header 名称不能为空。`, '填写实际 Header 名称。'))
+    return
+  }
+  if (isBlank(node.config.authCertSecretRef)) issues.push(fieldIssue(node, 'authCertSecretRef', `${node.label} 的客户端证书不能为空。`, '填写证书密文或使用证书变量。'))
+  if (isBlank(node.config.authKeySecretRef)) issues.push(fieldIssue(node, 'authKeySecretRef', `${node.label} 的客户端私钥不能为空。`, '填写私钥密文或使用证书变量。'))
+}
+
+function buildHttpRequestAuth(config: Record<string, unknown>): WorkflowHttpRequestAuth | undefined {
+  const authType = readHttpAuthType(config.authType) ?? 'none'
+  if (authType === 'none') return { type: 'none' }
+  if (authType === 'basic') {
+    const credential = readCredentialValue(config.authCredential)
+    if (!credential || isBlank(config.authUsername)) return undefined
+    return { type: 'basic', username: String(config.authUsername), credential }
+  }
+  if (authType === 'bearer') {
+    const credential = readCredentialValue(config.authCredential)
+    if (!credential) return undefined
+    return { type: 'bearer', credential }
+  }
+  if (authType === 'api_key') {
+    const credential = readCredentialValue(config.authCredential)
+    if (!credential || isBlank(config.authApiKeyName)) return undefined
+    return { type: 'api_key', credential, name: String(config.authApiKeyName), in: String(config.authApiKeyIn ?? 'header') === 'query' ? 'query' : 'header' }
+  }
+  if (authType === 'cookie') {
+    if (isBlank(config.authSecretValue)) return undefined
+    return { type: 'cookie', secretRef: String(config.authSecretValue), ...(isBlank(config.authCookieName) ? {} : { name: String(config.authCookieName) }) }
+  }
+  if (authType === 'custom_header') {
+    if (isBlank(config.authSecretValue) || isBlank(config.authHeaderName)) return undefined
+    return { type: 'custom_header', secretRef: String(config.authSecretValue), headerName: String(config.authHeaderName) }
+  }
+  if (isBlank(config.authCertSecretRef) || isBlank(config.authKeySecretRef)) return undefined
+  return { type: 'mtls', certSecretRef: String(config.authCertSecretRef), keySecretRef: String(config.authKeySecretRef) }
+}
+
+function buildHttpNodeConfig(auth: Extract<WorkflowDslStep, { type: 'http' }>['request']['auth']): Record<string, unknown> {
+  const base = {
+    authType: 'none',
+    authCredential: '',
+    authUsername: '',
+    authApiKeyName: 'X-API-Key',
+    authApiKeyIn: 'header',
+    authHeaderName: 'X-Custom-Auth',
+    authCookieName: '',
+    authSecretValue: '',
+    authCertSecretRef: '',
+    authKeySecretRef: '',
+    authCredentialId: '',
+  } as Record<string, unknown>
+  if (!auth || auth.type === 'none') return base
+  if (auth.type === 'basic') return { ...base, authType: 'basic', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential), authUsername: auth.username }
+  if (auth.type === 'bearer') return { ...base, authType: 'bearer', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential) }
+  if (auth.type === 'api_key') return { ...base, authType: 'api_key', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential), authApiKeyName: auth.name, authApiKeyIn: auth.in ?? 'header' }
+  if (auth.type === 'cookie') return { ...base, authType: 'cookie', authSecretValue: auth.secretRef, authCookieName: auth.name ?? '' }
+  if (auth.type === 'custom_header') return { ...base, authType: 'custom_header', authSecretValue: auth.secretRef, authHeaderName: auth.headerName }
+  return { ...base, authType: 'mtls', authCertSecretRef: auth.certSecretRef, authKeySecretRef: auth.keySecretRef }
+}
+
+function readHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType | null {
+  const authType = String(value ?? 'none')
+  return ['none', 'basic', 'bearer', 'api_key', 'cookie', 'custom_header', 'mtls'].includes(authType)
+    ? authType as WorkflowCanvasHttpAuthType
+    : null
+}
+
+function isCredentialValue(value: unknown): value is WorkflowDslCredentialValue {
+  return typeof value === 'string'
+    ? value.trim().startsWith('{{') && value.trim().endsWith('}}')
+    : isWorkflowCredentialBinding(value)
+}
+
+function readCredentialValue(value: unknown): WorkflowDslCredentialValue | undefined {
+  if (!isCredentialValue(value)) return undefined
+  return typeof value === 'string' ? value.trim() : workflowCredentialBinding(value)
+}
+
+function cloneCredentialValue(value: WorkflowDslCredentialValue): WorkflowDslCredentialValue {
+  return typeof value === 'string' ? value : workflowCredentialBinding(value)
+}
+
+function credentialValueId(value: WorkflowDslCredentialValue): string {
+  return typeof value === 'string' ? '' : value.id
+}
+
+function readHostKeyPolicy(value: unknown): 'strict' | 'trust_on_first_use' | 'manual_approval_required' {
+  const policy = String(value ?? 'trust_on_first_use')
+  if (policy === 'strict' || policy === 'manual_approval_required') return policy
+  return 'trust_on_first_use'
+}
+
 function findVariableUsers(canvas: WorkflowCanvasDefinition, variableName: string): string[] {
   const needle = `{{${variableName}}}`
   return canvas.nodes.filter((node) => JSON.stringify(node.config).includes(needle)).map((node) => node.label)
@@ -1049,11 +1251,11 @@ function sanitizeVariableDefinition(definition: WorkflowVariableDefinition): Wor
   const next: WorkflowVariableDefinition = {
     type: definition.type,
     required: Boolean(definition.required),
-    sensitive: Boolean(definition.sensitive || definition.type === 'secret' || definition.type === 'certificate'),
+    sensitive: Boolean(definition.sensitive || definition.type === 'credential' || definition.type === 'certificate'),
     description: definition.description,
     enum: definition.enum,
   }
-  if (definition.type !== 'secret' && definition.default !== undefined && definition.default !== '') return { ...next, default: definition.default }
+  if (definition.default !== undefined && definition.default !== '') return { ...next, default: definition.default }
   return next
 }
 
@@ -1075,13 +1277,16 @@ function parseConditionValue(value: unknown): unknown {
   return value
 }
 
-function createDefaultFileTransferConfig(contentRef: string, remotePath: string, mode: string): Record<string, unknown> {
+function createDefaultFileTransferConfig(contentRef: string, remotePath: string, temporaryPath: string, mode: string): Record<string, unknown> {
   return {
     direction: 'upload',
     connectionRef: '{{deviceHost}}',
     username: '{{sshUsername}}',
-    credentialSecretRef: 'secret://workflow/ssh',
+    credential: '{{credential}}',
+    hostKeyPolicy: 'trust_on_first_use',
+    expectedHostKeyFingerprint: '',
     remotePath,
+    temporaryPath,
     contentRef,
     localPath: '',
     mode,
@@ -1095,10 +1300,12 @@ function buildFileTransferDslStep(node: WorkflowCanvasNode, name: string, protoc
     connection: {
       host: String(node.config.connectionRef ?? '{{deviceHost}}'),
       username: String(node.config.username ?? '{{sshUsername}}'),
-      credentialSecretRef: String(node.config.credentialSecretRef ?? 'secret://workflow/ssh'),
-      hostKeyPolicy: 'manual_approval_required' as const,
+      credential: readCredentialValue(node.config.credential) ?? '{{credential}}',
+      hostKeyPolicy: readHostKeyPolicy(node.config.hostKeyPolicy),
+      ...(isBlank(node.config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(node.config.expectedHostKeyFingerprint) }),
     },
     remotePath: String(node.config.remotePath ?? '/tmp/cert.pem'),
+    ...(isBlank(node.config.temporaryPath) ? {} : { temporaryPath: String(node.config.temporaryPath) }),
     ...(isBlank(node.config.contentRef) ? {} : { contentRef: String(node.config.contentRef) }),
     ...(isBlank(node.config.localPath) ? {} : { localPath: String(node.config.localPath) }),
     ...(isBlank(node.config.mode) ? {} : { mode: String(node.config.mode) }),

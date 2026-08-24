@@ -2,6 +2,14 @@
 import { computed, ref, watch } from 'vue'
 import { testWorkflowTemplateStep } from '@/api/modules/workflow-templates.api'
 import {
+  findWorkflowCredentialById,
+  loadStoredWorkflowCredentials,
+  workflowCredentialBinding,
+  workflowCredentialLabel,
+  type WorkflowCredentialKind,
+  type WorkflowManagedCredential,
+} from './workflow-credentials'
+import {
   NODE_TYPE_DEFINITIONS,
   WORKFLOW_FLOW_LAYOUT,
   WORKFLOW_STAGE_DEFINITIONS,
@@ -25,6 +33,7 @@ import {
   workflowCanvasToDsl,
   workflowDslToCanvas,
   type WorkflowCanvasDefinition,
+  type WorkflowCanvasHttpAuthType,
   type WorkflowCanvasNode,
   type WorkflowCanvasNodeType,
   type WorkflowCanvasStage,
@@ -44,7 +53,16 @@ interface StepTestResult {
 
 interface StepRuntimeState {
   readonly userVariables: Record<string, unknown>
-  readonly secretRefBindings: Record<string, string>
+}
+
+interface StepTestErrorDetail {
+  readonly message?: string
+  readonly code?: string
+  readonly target?: string
+  readonly stage?: string
+  readonly category?: string
+  readonly cause?: string
+  readonly suggestion?: string
 }
 
 type BottomPanelKey = 'variables' | 'validation' | 'dsl' | 'runtime'
@@ -76,10 +94,76 @@ const stepTesting = ref(false)
 const stepTestMessage = ref('')
 const stepTestResult = ref<StepTestResult | null>(null)
 const stepTestStepName = ref('')
-const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {}, secretRefBindings: {} })
+const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {} })
 const dslEditorText = ref('')
 const dslEditorDirty = ref(false)
 const dslEditorMessage = ref('')
+const managedCredentials = ref<WorkflowManagedCredential[]>(loadStoredWorkflowCredentials())
+
+const SSH_NODE_TYPES: readonly WorkflowCanvasNodeType[] = ['ssh', 'sftp', 'scp']
+const HTTP_CREDENTIAL_AUTH_TYPES: readonly WorkflowCanvasHttpAuthType[] = ['basic', 'bearer', 'api_key']
+
+function refreshManagedCredentials() {
+  managedCredentials.value = loadStoredWorkflowCredentials()
+}
+
+function readNodeHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType {
+  const authType = String(value ?? 'none')
+  return ['none', 'basic', 'bearer', 'api_key'].includes(authType)
+    ? authType as WorkflowCanvasHttpAuthType
+    : 'none'
+}
+
+function credentialKindsForNode(node: WorkflowCanvasNode): readonly WorkflowCredentialKind[] {
+  if (node.type === 'http') {
+    const authType = readNodeHttpAuthType(node.config.authType)
+    if (authType === 'basic') return ['username_password']
+    if (authType === 'bearer') return ['curl_bearer']
+    if (authType === 'api_key') return ['curl_api_key']
+    return []
+  }
+  if (SSH_NODE_TYPES.includes(node.type)) return ['username_password', 'ssh_key']
+  return []
+}
+
+function isTemplateExpression(value: string): boolean {
+  return /^\s*\{\{.+\}\}\s*$/.test(value)
+}
+
+function compatibleCredentials(node: WorkflowCanvasNode): WorkflowManagedCredential[] {
+  const kinds = credentialKindsForNode(node)
+  return managedCredentials.value.filter((item) => kinds.includes(item.kind))
+}
+
+function resolveNodeCredential(node: WorkflowCanvasNode): WorkflowManagedCredential | null {
+  const candidates = compatibleCredentials(node)
+  if (candidates.length === 0) return null
+  if (node.type === 'http') {
+    const explicitId = String(node.config.authCredentialId ?? '').trim()
+    const explicit = explicitId ? candidates.find((item) => item.id === explicitId) : undefined
+    if (explicit) return explicit
+    const authCredential = readCredentialId(node.config.authCredential)
+    const authType = readNodeHttpAuthType(node.config.authType)
+    const authUsername = String(node.config.authUsername ?? '').trim()
+    const authApiKeyName = String(node.config.authApiKeyName ?? '').trim()
+    return candidates.find((item) => {
+      if (item.id !== authCredential) return false
+      if (authType === 'basic') return !authUsername || item.username === authUsername
+      if (authType === 'api_key') return !authApiKeyName || (item.apiKeyName ?? 'X-API-Key') === authApiKeyName
+      return true
+    }) ?? null
+  }
+  const explicitId = String(node.config.credentialId ?? '').trim()
+  const explicit = explicitId ? candidates.find((item) => item.id === explicitId) : undefined
+  if (explicit) return explicit
+  const credentialId = readCredentialId(node.config.credential)
+  const username = String(node.config.username ?? '').trim()
+  return candidates.find((item) => item.id === credentialId && (!username || item.username === username)) ?? null
+}
+
+const selectedNodeCredentialOptions = computed(() => selectedNode.value ? compatibleCredentials(selectedNode.value) : [])
+const selectedNodeCredentialId = computed(() => selectedNode.value ? resolveNodeCredential(selectedNode.value)?.id ?? '' : '')
+const selectedNodeHttpAuthType = computed(() => selectedNode.value?.type === 'http' ? readNodeHttpAuthType(selectedNode.value.config.authType) : 'none')
 
 const canvas = computed(() => props.modelValue ?? createDefaultWorkflowCanvas())
 const selectedNode = computed(() => canvas.value.nodes.find((node) => node.id === selectedNodeId.value) ?? canvas.value.nodes[0] ?? null)
@@ -108,15 +192,25 @@ const stepTestPlan = computed(() => stepTestStepResult.value?.plan ?? stepTestRe
 const stepTestPlanText = computed(() => stepTestPlan.value === null ? '' : JSON.stringify(stepTestPlan.value, null, 2))
 const stepTestOutputText = computed(() => stepTestOutput.value === null ? '' : JSON.stringify(stepTestOutput.value, null, 2))
 const stepTestLogs = computed(() => [...readStringArray(stepTestStepResult.value?.logs), ...readStringArray(stepTestResult.value?.logs)])
-const selectedStepSecretRefs = computed(() => {
-  const selected = selectedNode.value
-  if (!selected) return []
-  const stepName = getWorkflowDslStepName(canvas.value, selected.id)
-  const step = [...dslPreview.value.steps, ...(dslPreview.value.rollback ?? [])].find((item) => item.name === stepName)
-  return collectSecretRefs(step)
+const stepTestErrorDetail = computed<StepTestErrorDetail | null>(() => {
+  const result = stepTestStepResult.value
+  const output = stepTestOutputRecord.value
+  const body = readRecord(output?.body)
+  const raw = readRecord(output?.raw)
+  const detail = readRecord(body?.detail) ?? readRecord(raw?.detail) ?? readRecord(output?.detail)
+  const message = firstString(result?.errorMessage, output?.errorMessage, body?.errorMessage, raw?.errorMessage)
+  const code = firstString(result?.errorCode, output?.errorCode, body?.errorCode, raw?.errorCode, detail?.sshErrorCode)
+  const target = firstString(detail?.target)
+  const stage = firstString(detail?.stage)
+  const category = firstString(detail?.category)
+  const cause = firstString(detail?.cause, output?.stderr)
+  const suggestion = firstString(detail?.suggestion)
+  if (!message && !code && !target && !cause && !suggestion) return null
+  return { message, code, target, stage, category, cause, suggestion }
 })
 
 watch(() => props.modelValue, () => {
+  refreshManagedCredentials()
   if (!selectedNodeId.value && canvas.value.nodes[0]) selectedNodeId.value = canvas.value.nodes[0].id
 }, { immediate: true })
 
@@ -125,8 +219,8 @@ watch(dslPreview, (value) => {
   dslEditorText.value = JSON.stringify(value, null, 2)
 }, { immediate: true })
 
-watch([canvas, selectedNodeId, selectedStepSecretRefs], () => {
-  stepRuntimeState.value = mergeRuntimeState(stepRuntimeState.value, canvas.value, selectedStepSecretRefs.value)
+watch([canvas, selectedNodeId], () => {
+  stepRuntimeState.value = mergeRuntimeState(stepRuntimeState.value, canvas.value)
 }, { immediate: true, deep: true })
 
 function commit(next: WorkflowCanvasDefinition) {
@@ -216,6 +310,120 @@ function updateStage(event: Event) {
   commit(setNodeStage(canvas.value, selectedNode.value.id, target.value as WorkflowCanvasStage))
 }
 
+function updateSelectedNodeConfig(patch: Record<string, unknown>) {
+  if (!selectedNode.value) return
+  const next = {
+    ...canvas.value,
+    nodes: canvas.value.nodes.map((node) => node.id === selectedNode.value?.id ? { ...node, config: { ...node.config, ...patch } } : node),
+  }
+  commit(next)
+}
+
+function updateHttpAuthType(event: Event) {
+  const target = event.target as HTMLSelectElement
+  updateSelectedNodeConfig({ authType: target.value, authCredentialId: '' })
+}
+
+function updateSelectedCredential(event: Event) {
+  const node = selectedNode.value
+  if (!node) return
+  refreshManagedCredentials()
+  const target = event.target as HTMLSelectElement
+  const credential = managedCredentials.value.find((item) => item.id === target.value) ?? null
+  if (node.type === 'http') {
+    const authType = readNodeHttpAuthType(node.config.authType)
+    if (!HTTP_CREDENTIAL_AUTH_TYPES.includes(authType)) return
+    const currentUsername = String(node.config.authUsername ?? '')
+    const currentApiKeyName = String(node.config.authApiKeyName ?? 'X-API-Key')
+    const patch: Record<string, unknown> = {
+      authCredentialId: credential?.id ?? '',
+      authCredential: credential ? workflowCredentialBinding(credential) : '',
+    }
+    if (authType === 'basic' && credential) {
+      patch.authUsername = !currentUsername.trim() || isTemplateExpression(currentUsername) ? credential.username : currentUsername
+    }
+    if (authType === 'api_key' && credential) {
+      patch.authApiKeyName = !currentApiKeyName.trim() || currentApiKeyName === 'X-API-Key'
+        ? (credential.apiKeyName ?? 'X-API-Key')
+        : currentApiKeyName
+      patch.authApiKeyIn = credential.apiKeyIn ?? node.config.authApiKeyIn ?? 'header'
+    }
+    updateSelectedNodeConfig(patch)
+    return
+  }
+  if (!SSH_NODE_TYPES.includes(node.type)) return
+  const currentUsername = String(node.config.username ?? '')
+  updateSelectedNodeConfig({
+    credentialId: credential?.id ?? '',
+    credential: credential ? workflowCredentialBinding(credential) : '',
+    username: credential && (!currentUsername.trim() || isTemplateExpression(currentUsername))
+      ? credential.username
+      : currentUsername,
+  })
+}
+
+function credentialSelectorHint(node: WorkflowCanvasNode): string {
+  if (node.type === 'http') {
+    const authType = readNodeHttpAuthType(node.config.authType)
+    if (authType === 'basic') return '已保存的用户名 + 密码'
+    if (authType === 'bearer') return '已保存的 Bearer Token'
+    if (authType === 'api_key') return '已保存的 API Key'
+  }
+  return '已保存的 SSH / SFTP 凭据'
+}
+
+function resolveVariableCredential(definition: WorkflowVariableDefinition): WorkflowManagedCredential | null {
+  const id = readCredentialId(definition.default)
+  return id ? findWorkflowCredentialById(id, managedCredentials.value) : null
+}
+
+function resolveVariableCredentialId(definition: WorkflowVariableDefinition): string {
+  return resolveVariableCredential(definition)?.id ?? ''
+}
+
+function updateVariableCredential(name: string, event: Event) {
+  const target = event.target as HTMLSelectElement
+  const credential = managedCredentials.value.find((item) => item.id === target.value) ?? null
+  const current = canvas.value.variables[name]
+  if (!current) return
+  commit(upsertWorkflowVariable(canvas.value, name, {
+    ...current,
+    default: credential ? workflowCredentialBinding(credential) : undefined,
+    sensitive: true,
+  }))
+}
+
+function runtimeCredentialOptions(key: string): WorkflowManagedCredential[] {
+  const node = selectedNode.value
+  if (node) {
+    const candidates = compatibleCredentials(node)
+    if (candidates.length > 0) return candidates
+  }
+  if (/api|token/i.test(key)) {
+    return managedCredentials.value.filter((item) => item.kind === 'curl_bearer' || item.kind === 'curl_api_key')
+  }
+  if (/ssh|credential/i.test(key)) {
+    return managedCredentials.value.filter((item) => item.kind === 'username_password' || item.kind === 'ssh_key')
+  }
+  return managedCredentials.value
+}
+
+function resolveRuntimeCredentialId(key: string): string {
+  return readCredentialId(stepRuntimeState.value.userVariables[key]) ?? ''
+}
+
+function updateRuntimeCredentialBinding(key: string, event: Event) {
+  const target = event.target as HTMLSelectElement
+  const credential = managedCredentials.value.find((item) => item.id === target.value) ?? null
+  stepRuntimeState.value = {
+    ...stepRuntimeState.value,
+    userVariables: {
+      ...stepRuntimeState.value.userVariables,
+      [key]: credential ? workflowCredentialBinding(credential) : undefined,
+    },
+  }
+}
+
 function addVariable() {
   let index = Object.keys(canvas.value.variables).length + 1
   while (canvas.value.variables[`variable${index}`]) index += 1
@@ -233,7 +441,7 @@ function updateVariableField(name: string, field: keyof WorkflowVariableDefiniti
   if (!current) return
   const value = target instanceof HTMLInputElement && target.type === 'checkbox' ? target.checked : target.value
   const next = { ...current, [field]: value }
-  if (field === 'type' && value === 'secret') {
+  if (field === 'type' && value === 'credential') {
     next.default = undefined
     next.sensitive = true
   }
@@ -245,6 +453,7 @@ function deleteVariable(name: string) {
 }
 
 function save() {
+  refreshManagedCredentials()
   emit('save', { canvas: cloneCanvas(canvas.value), dsl: workflowCanvasToDsl(canvas.value) })
 }
 
@@ -304,6 +513,7 @@ async function testSelectedNode() {
 
 async function runSelectedNode(mode: 'mock' | 'real_test') {
   if (!selectedNode.value || stepTesting.value) return
+  refreshManagedCredentials()
   stepTesting.value = true
   stepTestMessage.value = ''
   stepTestResult.value = null
@@ -312,23 +522,25 @@ async function runSelectedNode(mode: 'mock' | 'real_test') {
   try {
     const stepName = getWorkflowDslStepName(canvas.value, selectedNode.value.id)
     stepTestStepName.value = stepName
-    const secretBindings = normalizeSecretRefBindings(stepRuntimeState.value.secretRefBindings)
-    const content = mode === 'real_test'
-      ? applySecretRefBindings(workflowCanvasToDsl(canvas.value), secretBindings)
-      : workflowCanvasToDsl(canvas.value)
     const result = await testWorkflowTemplateStep({
-      content,
+      content: workflowCanvasToDsl(canvas.value),
       stepName,
       mode,
       userVariables: mode === 'mock' ? buildMockUserVariables(canvas.value) : buildRuntimeUserVariables(),
       certificateMaterials: mode === 'mock' ? buildMockCertificateMaterials(canvas.value) : buildRuntimeCertificateMaterials(canvas.value),
-      secretRefs: mode === 'mock' ? buildMockSecretRefs() : secretBindings,
     })
     stepTestResult.value = (result.data ?? {}) as StepTestResult
     const status = String(readRecord(stepTestResult.value.stepResult)?.status ?? 'unknown')
-    stepTestMessage.value = mode === 'real_test'
-      ? `节点 ${stepName} 真实试跑完成：${status}`
-      : `节点 ${stepName} 模拟完成：${status}`
+    const errorMessage = stepTestErrorDetail.value?.message
+    if (status === 'failed' && errorMessage) {
+      stepTestMessage.value = mode === 'real_test'
+        ? `节点 ${stepName} 真实试跑失败：${errorMessage}`
+        : `节点 ${stepName} 模拟失败：${errorMessage}`
+    } else {
+      stepTestMessage.value = mode === 'real_test'
+        ? `节点 ${stepName} 真实试跑完成：${status}`
+        : `节点 ${stepName} 模拟完成：${status}`
+    }
   } catch (error) {
     stepTestMessage.value = error instanceof Error ? error.message : (mode === 'real_test' ? '单节点真实试跑失败。' : '单节点模拟运行失败。')
   } finally {
@@ -342,21 +554,17 @@ function issueLevelLabel(level: string) {
   return '警告'
 }
 
-function mergeRuntimeState(current: StepRuntimeState, definition: WorkflowCanvasDefinition, secretRefs: readonly string[]): StepRuntimeState {
+function mergeRuntimeState(current: StepRuntimeState, definition: WorkflowCanvasDefinition): StepRuntimeState {
   const userVariables: Record<string, unknown> = {}
   for (const [name, variable] of Object.entries(definition.variables)) {
-    if (variable.type === 'certificate' || variable.type === 'secret') continue
+    if (variable.type === 'certificate') continue
     if (current.userVariables[name] !== undefined) {
       userVariables[name] = current.userVariables[name]
       continue
     }
     userVariables[name] = runtimeValueForVariable(name, variable)
   }
-  const secretRefBindings: Record<string, string> = {}
-  for (const secretRef of secretRefs) {
-    secretRefBindings[secretRef] = current.secretRefBindings[secretRef] ?? (isRealSecretRef(secretRef) ? secretRef : '')
-  }
-  return { userVariables, secretRefBindings }
+  return { userVariables }
 }
 
 function runtimeValueForVariable(name: string, variable: WorkflowVariableDefinition): unknown {
@@ -364,6 +572,7 @@ function runtimeValueForVariable(name: string, variable: WorkflowVariableDefinit
   if (variable.type === 'number') return 22
   if (variable.type === 'boolean') return true
   if (variable.type === 'enum') return variable.enum?.[0] ?? ''
+  if (variable.type === 'credential') return variable.default
   if (name === 'deviceHost') return ''
   if (name === 'sshUsername') return 'admin'
   if (name === 'verifyUrl') return 'https://runtime-device.local/health'
@@ -375,10 +584,6 @@ function buildRuntimeUserVariables(): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const [name, variable] of Object.entries(canvas.value.variables)) {
     if (variable.type === 'certificate') continue
-    if (variable.type === 'secret') {
-      values[name] = typeof variable.default === 'string' ? variable.default : `secret://workflow/${name}`
-      continue
-    }
     const current = stepRuntimeState.value.userVariables[name]
     if (current === undefined) {
       values[name] = runtimeValueForVariable(name, variable)
@@ -449,13 +654,6 @@ function buildMockCertificateMaterials(definition: WorkflowCanvasDefinition): Re
   return certificates
 }
 
-function buildMockSecretRefs(): Record<string, Record<string, unknown>> {
-  return {
-    'secret://workflow/ssh': { username: 'admin', password: 'mock-password', privateKey: 'mock-private-key' },
-    'secret://workflow/device-api': { token: 'mock-token' },
-  }
-}
-
 function updateRuntimeVariableField(name: string, variable: WorkflowVariableDefinition, event: Event) {
   const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
   const value = target instanceof HTMLInputElement && target.type === 'checkbox'
@@ -470,59 +668,6 @@ function updateRuntimeVariableField(name: string, variable: WorkflowVariableDefi
   }
 }
 
-function updateRuntimeSecretRef(secretRef: string, event: Event) {
-  const target = event.target as HTMLInputElement
-  stepRuntimeState.value = {
-    ...stepRuntimeState.value,
-    secretRefBindings: {
-      ...stepRuntimeState.value.secretRefBindings,
-      [secretRef]: target.value.trim(),
-    },
-  }
-}
-
-function normalizeSecretRefBindings(bindings: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(bindings)
-      .filter(([, value]) => value.trim().length > 0)
-      .map(([key, value]) => [key, value.trim()]),
-  )
-}
-
-function applySecretRefBindings<T>(value: T, bindings: Record<string, string>): T {
-  if (typeof value === 'string') return (bindings[value] ?? value) as T
-  if (Array.isArray(value)) return value.map((item) => applySecretRefBindings(item, bindings)) as T
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, applySecretRefBindings(child, bindings)]),
-    ) as T
-  }
-  return value
-}
-
-function collectSecretRefs(value: unknown): string[] {
-  const refs = new Set<string>()
-  const visit = (current: unknown) => {
-    if (typeof current === 'string' && current.startsWith('secret://')) {
-      refs.add(current)
-      return
-    }
-    if (Array.isArray(current)) {
-      current.forEach(visit)
-      return
-    }
-    if (current && typeof current === 'object') {
-      Object.values(current as Record<string, unknown>).forEach(visit)
-    }
-  }
-  visit(value)
-  return [...refs]
-}
-
-function isRealSecretRef(value: string): boolean {
-  return /^secret:\/\/[a-z0-9_-]+\/[A-Za-z0-9_-]+#(?:current|v\d+)$/i.test(value)
-}
-
 function mockValueForVariable(name: string, variable: WorkflowVariableDefinition): unknown {
   if (variable.default !== undefined) return variable.default
   if (variable.type === 'number') return 1
@@ -530,8 +675,14 @@ function mockValueForVariable(name: string, variable: WorkflowVariableDefinition
   if (variable.type === 'enum') return variable.enum?.[0] ?? ''
   if (variable.type === 'object') return {}
   if (variable.type === 'file') return `mock-${name}`
-  if (variable.type === 'secret') return name === 'credential' ? 'secret://workflow/ssh' : `secret://workflow/${name}`
+  if (variable.type === 'credential') return variable.default
   return `mock-${name}`
+}
+
+function readCredentialId(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = (value as Record<string, unknown>).id
+  return typeof id === 'string' && id.trim() ? id.trim() : null
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
@@ -540,6 +691,13 @@ function readRecord(value: unknown): Record<string, unknown> | null {
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
 }
 </script>
 
@@ -652,14 +810,157 @@ function readStringArray(value: unknown): string[] {
             <span>节点名称</span>
             <input :value="selectedNode.label" :disabled="!canEdit" @input="updateLabel" />
           </label>
-          <label v-for="field in selectedNodeDefinition.fields" :key="field.key">
-            <span>{{ field.label }}</span>
-            <select v-if="field.kind === 'select'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @change="updateField(field, $event)">
-              <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-            <textarea v-else-if="field.kind === 'textarea'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" rows="4" @input="updateField(field, $event)" />
-            <input v-else :type="field.kind === 'number' ? 'number' : 'text'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @input="updateField(field, $event)" />
-          </label>
+          <template v-if="selectedNode.type === 'http'">
+            <label>
+              <span>Method</span>
+              <select :value="String(selectedNode.config.method ?? 'GET')" :disabled="!canEdit" @change="updateField({ key: 'method', label: 'Method', kind: 'select' }, $event)">
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+            </label>
+            <label>
+              <span>URL</span>
+              <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: 'URL', kind: 'text' }, $event)" />
+            </label>
+            <div class="workflow-canvas-editor__property-group">
+              <strong>HTTP 认证</strong>
+              <label>
+                <span>认证类型</span>
+                <select :value="selectedNodeHttpAuthType" :disabled="!canEdit" @change="updateHttpAuthType">
+                  <option value="none">none</option>
+                  <option value="basic">basic</option>
+                  <option value="bearer">bearer</option>
+                  <option value="api_key">api_key</option>
+                </select>
+              </label>
+              <label v-if="selectedNodeCredentialOptions.length && ['basic', 'bearer', 'api_key'].includes(selectedNodeHttpAuthType)">
+                <span>凭据选择器</span>
+                <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
+                  <option value="">手动填写</option>
+                  <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+                </select>
+                <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'basic'">
+                <span>用户名</span>
+                <input :value="String(selectedNode.config.authUsername ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authUsername', label: '用户名', kind: 'text' }, $event)" />
+              </label>
+              <label v-if="['cookie', 'custom_header'].includes(selectedNodeHttpAuthType)">
+                <span>密文值</span>
+                <input type="password" :value="String(selectedNode.config.authSecretValue ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authSecretValue', label: '密文值', kind: 'secret' }, $event)" />
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'api_key'">
+                <span>Key 名称</span>
+                <input :value="String(selectedNode.config.authApiKeyName ?? 'X-API-Key')" :disabled="!canEdit" @input="updateField({ key: 'authApiKeyName', label: 'Key 名称', kind: 'text' }, $event)" />
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'api_key'">
+                <span>传递位置</span>
+                <select :value="String(selectedNode.config.authApiKeyIn ?? 'header')" :disabled="!canEdit" @change="updateField({ key: 'authApiKeyIn', label: '传递位置', kind: 'select' }, $event)">
+                  <option value="header">header</option>
+                  <option value="query">query</option>
+                </select>
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'cookie'">
+                <span>Cookie 名称</span>
+                <input :value="String(selectedNode.config.authCookieName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCookieName', label: 'Cookie 名称', kind: 'text' }, $event)" />
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'custom_header'">
+                <span>Header 名称</span>
+                <input :value="String(selectedNode.config.authHeaderName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authHeaderName', label: 'Header 名称', kind: 'text' }, $event)" />
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'mtls'">
+                <span>客户端证书</span>
+                <input type="password" :value="String(selectedNode.config.authCertSecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCertSecretRef', label: '客户端证书', kind: 'secret' }, $event)" />
+              </label>
+              <label v-if="selectedNodeHttpAuthType === 'mtls'">
+                <span>客户端私钥</span>
+                <input type="password" :value="String(selectedNode.config.authKeySecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authKeySecretRef', label: '客户端私钥', kind: 'secret' }, $event)" />
+              </label>
+            </div>
+            <label>
+              <span>Body</span>
+              <textarea :value="String(selectedNode.config.body ?? '')" :disabled="!canEdit" rows="4" @input="updateField({ key: 'body', label: 'Body', kind: 'textarea' }, $event)" />
+            </label>
+            <label>
+              <span>超时秒数</span>
+              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 30)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: '超时秒数', kind: 'number' }, $event)" />
+            </label>
+          </template>
+          <template v-else-if="['ssh', 'sftp', 'scp'].includes(selectedNode.type)">
+            <label v-if="selectedNode.type === 'ssh'">
+              <span>主机变量 / 主机名</span>
+              <input :value="String(selectedNode.config.hostRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'hostRef', label: '主机变量', kind: 'text' }, $event)" />
+            </label>
+            <label v-else>
+              <span>主机变量 / 主机名</span>
+              <input :value="String(selectedNode.config.connectionRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'connectionRef', label: '连接变量', kind: 'text' }, $event)" />
+            </label>
+            <label>
+              <span>用户名</span>
+              <input :value="String(selectedNode.config.username ?? '')" :disabled="!canEdit" @input="updateField({ key: 'username', label: '用户名', kind: 'text' }, $event)" />
+            </label>
+            <label v-if="selectedNodeCredentialOptions.length">
+              <span>凭据选择器</span>
+              <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
+                <option value="">手动填写</option>
+                <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+              </select>
+              <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
+            </label>
+            <p v-if="!selectedNodeCredentialOptions.length" class="workflow-canvas-editor__property-empty">暂无可用凭据，请先在列表页打开“凭据管理”创建。</p>
+            <template v-if="selectedNode.type === 'ssh'">
+              <label>
+                <span>命令</span>
+                <textarea :value="String(selectedNode.config.command ?? '')" :disabled="!canEdit" rows="5" @input="updateField({ key: 'command', label: '命令', kind: 'textarea' }, $event)" />
+              </label>
+            </template>
+            <template v-else>
+              <label>
+                <span>方向</span>
+                <select :value="String(selectedNode.config.direction ?? 'upload')" :disabled="!canEdit" @change="updateField({ key: 'direction', label: '方向', kind: 'select' }, $event)">
+                  <option value="upload">上传</option>
+                  <option value="download">下载</option>
+                </select>
+              </label>
+              <label>
+                <span>远端路径</span>
+                <input :value="String(selectedNode.config.remotePath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'remotePath', label: '远端路径', kind: 'text' }, $event)" />
+              </label>
+              <label>
+                <span>临时路径</span>
+                <input :value="String(selectedNode.config.temporaryPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'temporaryPath', label: '临时路径', kind: 'text' }, $event)" />
+              </label>
+              <label>
+                <span>内容引用</span>
+                <input :value="String(selectedNode.config.contentRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'contentRef', label: '内容引用', kind: 'text' }, $event)" />
+              </label>
+              <label>
+                <span>本地路径</span>
+                <input :value="String(selectedNode.config.localPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'localPath', label: '本地路径', kind: 'text' }, $event)" />
+              </label>
+              <label>
+                <span>文件权限</span>
+                <input :value="String(selectedNode.config.mode ?? '')" :disabled="!canEdit" @input="updateField({ key: 'mode', label: '文件权限', kind: 'text' }, $event)" />
+              </label>
+            </template>
+            <label>
+              <span>超时秒数</span>
+              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 60)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: '超时秒数', kind: 'number' }, $event)" />
+            </label>
+          </template>
+          <template v-else>
+            <label v-for="field in selectedNodeDefinition.fields" :key="field.key">
+              <span>{{ field.label }}</span>
+              <select v-if="field.kind === 'select'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @change="updateField(field, $event)">
+                <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <textarea v-else-if="field.kind === 'textarea'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" rows="4" @input="updateField(field, $event)" />
+              <input v-else :type="field.kind === 'number' ? 'number' : 'text'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @input="updateField(field, $event)" />
+            </label>
+          </template>
           <div class="workflow-canvas-editor__test-actions">
             <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
               {{ stepTesting ? '模拟中...' : '模拟运行当前节点' }}
@@ -730,19 +1031,26 @@ function readStringArray(value: unknown): string[] {
                 <option value="object">object</option>
                 <option value="file">file</option>
                 <option value="certificate">certificate</option>
-                <option value="secret">secretRef</option>
+                <option value="credential">credential</option>
               </select>
             </label>
-            <label>
+            <label v-if="definition.type === 'credential'">
+              <span>凭据</span>
+              <select :value="resolveVariableCredentialId(definition)" :disabled="!canEdit" @change="updateVariableCredential(String(name), $event)">
+                <option value="">未选择</option>
+                <option v-for="item in managedCredentials" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+              </select>
+            </label>
+            <label v-else>
               <span>默认值</span>
-              <input :value="String(definition.default ?? '')" :disabled="!canEdit || definition.type === 'secret'" placeholder="Secret 只填写 secret:// 引用，不保存明文" @change="updateVariableField(String(name), 'default', $event)" />
+              <input :value="String(definition.default ?? '')" :disabled="!canEdit" @change="updateVariableField(String(name), 'default', $event)" />
             </label>
             <label class="workflow-canvas-editor__variable-check">
               <input type="checkbox" :checked="Boolean(definition.required)" :disabled="!canEdit" @change="updateVariableField(String(name), 'required', $event)" />
               <span>必填</span>
             </label>
             <label class="workflow-canvas-editor__variable-check">
-              <input type="checkbox" :checked="Boolean(definition.sensitive)" :disabled="!canEdit || definition.type === 'secret' || definition.type === 'certificate'" @change="updateVariableField(String(name), 'sensitive', $event)" />
+              <input type="checkbox" :checked="Boolean(definition.sensitive)" :disabled="!canEdit || definition.type === 'credential' || definition.type === 'certificate'" @change="updateVariableField(String(name), 'sensitive', $event)" />
               <span>敏感</span>
             </label>
             <label>
@@ -770,9 +1078,20 @@ function readStringArray(value: unknown): string[] {
           <span v-if="stepTestMessage">{{ stepTestMessage }}</span>
         </div>
         <div class="workflow-canvas-editor__runtime-inputs">
+          <strong>运行时凭据变量</strong>
+          <div v-if="Object.entries(canvas.variables).some(([, definition]) => definition.type === 'credential')" class="workflow-canvas-editor__runtime-form">
+            <label v-for="(definition, name) in canvas.variables" v-show="definition.type === 'credential'" :key="`runtime-credential:${name}`">
+              <span>{{ name }}</span>
+              <select :value="resolveRuntimeCredentialId(String(name)) || resolveVariableCredentialId(definition)" @change="updateRuntimeCredentialBinding(String(name), $event)">
+                <option value="">未选择</option>
+                <option v-for="item in runtimeCredentialOptions(String(name))" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+              </select>
+            </label>
+          </div>
+          <p v-else class="workflow-canvas-editor__runtime-empty">当前工作流没有凭据变量。</p>
           <strong>运行时变量</strong>
-          <div v-if="Object.entries(canvas.variables).filter(([, definition]) => definition.type !== 'certificate' && definition.type !== 'secret').length" class="workflow-canvas-editor__runtime-form">
-            <label v-for="(definition, name) in canvas.variables" v-show="definition.type !== 'certificate' && definition.type !== 'secret'" :key="`runtime:${name}`">
+          <div v-if="Object.entries(canvas.variables).filter(([, definition]) => definition.type !== 'certificate' && definition.type !== 'credential').length" class="workflow-canvas-editor__runtime-form">
+            <label v-for="(definition, name) in canvas.variables" v-show="definition.type !== 'certificate' && definition.type !== 'credential'" :key="`runtime:${name}`">
               <span>{{ name }}</span>
               <select
                 v-if="definition.type === 'enum'"
@@ -802,18 +1121,6 @@ function readStringArray(value: unknown): string[] {
             </label>
           </div>
           <p v-else class="workflow-canvas-editor__runtime-empty">当前节点没有额外运行时变量。</p>
-          <strong>SecretRef 映射</strong>
-          <div v-if="selectedStepSecretRefs.length" class="workflow-canvas-editor__runtime-form">
-            <label v-for="secretRef in selectedStepSecretRefs" :key="`secret:${secretRef}`">
-              <span>{{ secretRef }}</span>
-              <input
-                :value="stepRuntimeState.secretRefBindings[secretRef] ?? ''"
-                :placeholder="isRealSecretRef(secretRef) ? '已是正式 SecretRef，可直接使用' : '填写真实 SecretRef，例如 secret://password/sec_xxx#current'"
-                @change="updateRuntimeSecretRef(secretRef, $event)"
-              />
-            </label>
-          </div>
-          <p v-else class="workflow-canvas-editor__runtime-empty">当前节点未引用 SecretRef。</p>
         </div>
         <p v-if="!stepTestResult && !stepTesting">选择节点后，在属性面板点击“模拟运行当前节点”或“真实试跑当前节点”。</p>
         <p v-else-if="stepTesting">正在执行测试运行...</p>
@@ -825,6 +1132,35 @@ function readStringArray(value: unknown): string[] {
               <small>plannedOnly: {{ String(stepTestResult?.plannedOnly ?? false) }} / mode: {{ String(stepTestResult?.mode ?? 'mock') }}</small>
             </li>
           </ul>
+          <div v-if="stepTestErrorDetail" class="workflow-canvas-editor__runtime-error">
+            <strong>失败详情</strong>
+            <dl>
+              <div v-if="stepTestErrorDetail.message">
+                <dt>错误</dt>
+                <dd>{{ stepTestErrorDetail.message }}</dd>
+              </div>
+              <div v-if="stepTestErrorDetail.code">
+                <dt>代码</dt>
+                <dd>{{ stepTestErrorDetail.code }}</dd>
+              </div>
+              <div v-if="stepTestErrorDetail.target">
+                <dt>目标</dt>
+                <dd>{{ stepTestErrorDetail.target }}</dd>
+              </div>
+              <div v-if="stepTestErrorDetail.stage || stepTestErrorDetail.category">
+                <dt>阶段</dt>
+                <dd>{{ [stepTestErrorDetail.stage, stepTestErrorDetail.category].filter(Boolean).join(' / ') }}</dd>
+              </div>
+              <div v-if="stepTestErrorDetail.cause">
+                <dt>原因</dt>
+                <dd>{{ stepTestErrorDetail.cause }}</dd>
+              </div>
+              <div v-if="stepTestErrorDetail.suggestion">
+                <dt>建议</dt>
+                <dd>{{ stepTestErrorDetail.suggestion }}</dd>
+              </div>
+            </dl>
+          </div>
           <strong>执行计划</strong>
           <pre>{{ stepTestPlanText }}</pre>
           <template v-if="stepTestOutput !== null">
@@ -1163,6 +1499,33 @@ function readStringArray(value: unknown): string[] {
   font-weight: 800;
 }
 
+.workflow-canvas-editor__property-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.workflow-canvas-editor__property-group > strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.workflow-canvas-editor__property-hint {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.workflow-canvas-editor__property-empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .workflow-canvas-editor__properties textarea {
   resize: vertical;
 }
@@ -1461,6 +1824,46 @@ function readStringArray(value: unknown): string[] {
 .workflow-canvas-editor__runtime-result {
   display: grid;
   gap: 8px;
+}
+
+.workflow-canvas-editor__runtime-error {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  border-radius: 8px;
+  background: #fff7f7;
+}
+
+.workflow-canvas-editor__runtime-error > strong {
+  color: #991b1b;
+  font-size: 12px;
+}
+
+.workflow-canvas-editor__runtime-error dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.workflow-canvas-editor__runtime-error dl > div {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.workflow-canvas-editor__runtime-error dt {
+  color: #7f1d1d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.workflow-canvas-editor__runtime-error dd {
+  margin: 0;
+  color: #334155;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .workflow-canvas-editor__runtime-result > strong {

@@ -157,7 +157,7 @@ describe('WorkflowTemplatesView', () => {
     }))
   })
 
-  it('支持创建通用用户名密码凭据并生成 SSH/CURL 片段', async () => {
+  it('支持创建通用用户名密码凭据并以紧凑布局展示', async () => {
     mount(WorkflowTemplatesView, {
       attachTo: document.body,
       global: { stubs: { teleport: true, Teleport: true } },
@@ -188,13 +188,11 @@ describe('WorkflowTemplatesView', () => {
       scopeType: 'global',
       plainText: 'secret-password',
     }))
-    expect(document.body.textContent).toContain('secret://password/sec-ssh-1#current')
-    expect(document.body.textContent).toContain('用户名 + 密码')
-    expect(document.body.textContent).toContain('SSH connection / CURL request.auth')
-    expect(document.body.textContent).toContain('"credentialSecretRef": "secret://password/sec-ssh-1#current"')
-    expect(document.body.textContent).toContain('"type": "basic"')
-    expect(document.body.textContent).toContain('"username": "deploy"')
-    expect(document.body.textContent).not.toContain('"name": "deploy"')
+    expect(document.body.textContent).toContain('edge-01 root')
+    expect(document.body.textContent).toContain('用户名 + 密码 / deploy')
+    expect(document.body.textContent).toContain('SSH / HTTP Basic')
+    expect(document.body.textContent).not.toContain('复制连接片段')
+    expect(document.body.textContent).not.toContain('复制 SecretRef')
   })
 
   it('支持创建 CURL Bearer Token 凭据', async () => {
@@ -231,11 +229,11 @@ describe('WorkflowTemplatesView', () => {
       scopeType: 'global',
       plainText: 'bearer-token',
     }))
-    expect(document.body.textContent).toContain('"type": "bearer"')
-    expect(document.body.textContent).toContain('secret://api_token/sec-curl-1#current')
+    expect(document.body.textContent).toContain('curl prod api')
+    expect(document.body.textContent).toContain('Bearer Token')
   })
 
-  it('支持创建 CURL API Key 凭据并生成 request.auth 片段', async () => {
+  it('支持创建 CURL API Key 凭据并展示基本信息', async () => {
     vi.mocked(createSecret).mockResolvedValueOnce({
       data: { id: 'sec-api-key-1', secretRef: 'secret://api_token/sec-api-key-1#current' },
       requestId: 'req_ok',
@@ -274,8 +272,7 @@ describe('WorkflowTemplatesView', () => {
       scopeType: 'global',
       plainText: 'api-key-secret',
     }))
-    expect(document.body.textContent).toContain('"type": "api_key"')
-    expect(document.body.textContent).toContain('"name": "api_key"')
-    expect(document.body.textContent).toContain('"in": "query"')
+    expect(document.body.textContent).toContain('curl api key')
+    expect(document.body.textContent).toContain('API Key / api_key / Query')
   })
 })

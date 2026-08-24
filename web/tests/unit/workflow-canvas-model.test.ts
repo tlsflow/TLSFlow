@@ -12,30 +12,55 @@ import {
 } from '@/views/workflows/workflow-canvas.model'
 
 describe('workflow canvas model', () => {
-  it('默认草稿包含 HTTP、SSH、SFTP 和 VERIFY 节点并能转成 DSL v1', () => {
+  it('默认草稿包含完整证书更换流程骨架并能转成 DSL v1', () => {
     const canvas = createDefaultWorkflowCanvas('device-cert-workflow')
     const dsl = workflowCanvasToDsl(canvas)
 
-    expect(canvas.nodes.map((node) => node.type)).toEqual(['http', 'sftp', 'ssh', 'verify'])
-    expect(canvas.nodes.map((node) => node.ui?.stage)).toEqual(['prepare', 'install', 'refresh', 'verify'])
+    expect(canvas.nodes.map((node) => node.type)).toEqual(['http', 'ssh', 'sftp', 'scp', 'ssh', 'verify'])
+    expect(canvas.nodes.map((node) => node.ui?.stage)).toEqual(['prepare', 'backup', 'install', 'install', 'refresh', 'verify'])
     expect(new Set(canvas.nodes.map((node) => node.position.x)).size).toBe(1)
     expect(canvas.nodes.every((node, index, nodes) => index === 0 || node.position.y > nodes[index - 1]!.position.y)).toBe(true)
+    expect(canvas.variables.certificatePaths).toEqual(expect.objectContaining({
+      type: 'object',
+      required: true,
+      default: expect.objectContaining({
+        certPath: '/etc/ssl/certs/site.pem',
+        keyPath: '/etc/ssl/private/site.key',
+        tempCertPath: '/tmp/gcac-certs/site.pem',
+        tempKeyPath: '/tmp/gcac-certs/site.key',
+        backupDir: '/var/backups/gcac-certs',
+      }),
+    }))
     expect(dsl.apiVersion).toBe('gcac.workflow/v1')
-    expect(dsl.steps).toHaveLength(4)
-    expect(dsl.steps.map((step) => step.type)).toEqual(['http', 'sftp', 'ssh', 'http'])
-    expect(dsl.steps.map((step) => step.stage)).toEqual(['prepare', 'install', 'refresh', 'verify'])
+    expect(dsl.steps).toHaveLength(6)
+    expect(dsl.steps.map((step) => step.type)).toEqual(['http', 'ssh', 'sftp', 'scp', 'ssh', 'http'])
+    expect(dsl.steps.map((step) => step.stage)).toEqual(['prepare', 'backup', 'install', 'install', 'refresh', 'verify'])
     expect(JSON.stringify(dsl)).not.toContain('SFTP_UPLOAD')
-    expect(dsl.steps[1]).toEqual(expect.objectContaining({
+    expect(dsl.steps[1]?.type === 'ssh' ? dsl.steps[1].ssh.connection.hostKeyPolicy : undefined).toBe('trust_on_first_use')
+    expect(dsl.steps[2]?.type === 'sftp' ? dsl.steps[2].sftp.connection.hostKeyPolicy : undefined).toBe('trust_on_first_use')
+    expect(dsl.steps[3]?.type === 'scp' ? dsl.steps[3].scp.connection.hostKeyPolicy : undefined).toBe('trust_on_first_use')
+    expect(dsl.steps[4]?.type === 'ssh' ? dsl.steps[4].ssh.commands : undefined).toEqual(['nginx -t', 'systemctl reload nginx'])
+    expect(dsl.steps[2]).toEqual(expect.objectContaining({
       type: 'sftp',
       sftp: expect.objectContaining({
         direction: 'upload',
         contentRef: '{{certificate.pem}}',
-        remotePath: '/etc/ssl/certs/site.pem',
+        remotePath: '{{certificatePaths.certPath}}',
+        temporaryPath: '{{certificatePaths.tempCertPath}}',
+      }),
+    }))
+    expect(dsl.steps[3]).toEqual(expect.objectContaining({
+      type: 'scp',
+      scp: expect.objectContaining({
+        direction: 'upload',
+        contentRef: '{{certificate.privateKey}}',
+        remotePath: '{{certificatePaths.keyPath}}',
+        temporaryPath: '{{certificatePaths.tempKeyPath}}',
       }),
     }))
   })
 
-  it('默认 HTTP 认证保留 SecretRef，不生成未声明变量引用', () => {
+  it('默认 HTTP 认证不生成未声明变量引用', () => {
     const canvas = createDefaultWorkflowCanvas()
     const dsl = workflowCanvasToDsl(canvas)
     const firstStep = dsl.steps[0]
@@ -43,18 +68,17 @@ describe('workflow canvas model', () => {
 
     expect(firstStep?.type).toBe('http')
     expect(firstStep?.type === 'http' ? firstStep.request.auth : undefined).toEqual({
-      type: 'bearer',
-      secretRef: 'secret://workflow/device-api',
+      type: 'none',
     })
     expect(payload).not.toContain('{{secret_workflow_device_api}}')
   })
 
-  it('保存 DSL 不包含明文 Secret', () => {
+  it('保存 DSL 不包含明文密钥', () => {
     const canvas = createDefaultWorkflowCanvas()
     const dsl = workflowCanvasToDsl(canvas)
     const payload = JSON.stringify(dsl)
 
-    expect(payload).toContain('secret://workflow/ssh')
+    expect(payload).toContain('{{credential}}')
     expect(payload).not.toMatch(/password\s*[:=]/i)
     expect(payload).not.toContain('-----BEGIN PRIVATE KEY-----')
   })
@@ -77,7 +101,7 @@ describe('workflow canvas model', () => {
 
   it('SSH 节点多行命令保存为 commands 数组', () => {
     const canvas = createDefaultWorkflowCanvas()
-    const sshNode = canvas.nodes.find((node) => node.type === 'ssh')!
+    const sshNode = canvas.nodes.find((node) => node.type === 'ssh' && node.ui?.stage === 'refresh')!
     const configured = setNodeConfigValue(canvas, sshNode.id, 'command', 'nginx -t\nsystemctl reload nginx')
     const dsl = workflowCanvasToDsl(configured)
     const sshStep = dsl.steps.find((step) => step.type === 'ssh' && step.stage === 'refresh')
@@ -90,14 +114,14 @@ describe('workflow canvas model', () => {
   it('校验错误能定位到节点字段', () => {
     const canvas = createDefaultWorkflowCanvas()
     const sshNode = canvas.nodes.find((node) => node.type === 'ssh')!
-    const broken = setNodeConfigValue(canvas, sshNode.id, 'credentialSecretRef', 'plain-password')
+    const broken = setNodeConfigValue(canvas, sshNode.id, 'credential', '')
     const issues = validateWorkflowCanvas(broken)
 
     expect(issues).toEqual(expect.arrayContaining([
       expect.objectContaining({
         targetType: 'field',
         nodeId: sshNode.id,
-        field: 'credentialSecretRef',
+        field: 'credential',
         severity: 'error',
       }),
     ]))
@@ -126,6 +150,7 @@ describe('workflow canvas model', () => {
       },
       variables: {
         deviceHost: { type: 'string', required: true, description: '目标主机' },
+        apiCredential: { type: 'credential', required: true, sensitive: true },
       },
       steps: [
         {
@@ -136,12 +161,12 @@ describe('workflow canvas model', () => {
             method: 'POST',
             url: 'https://{{deviceHost}}/api/login',
             headers: { 'X-Trace-Id': 'trace-1' },
-            auth: { type: 'bearer', secretRef: 'secret://workflow/device-api' },
+            auth: { type: 'bearer', credential: '{{apiCredential}}' },
             body: { username: 'api-user' },
             timeoutSeconds: 45,
           },
           retry: { count: 2, intervalSeconds: 3 },
-          extract: [{ name: 'accessToken', type: 'jsonPath', path: '$.token', sensitive: true }],
+          extract: [{ name: 'accessToken', type: 'firstOf', paths: ['$.body.token', '$.body.access_token', '$.body.data.token'], sensitive: true }],
           assert: [{ type: 'statusCode', equals: 200 }],
         },
       ],
@@ -163,9 +188,9 @@ describe('workflow canvas model', () => {
 
     expect(step?.type).toBe('http')
     expect(step?.type === 'http' ? step.request.headers : undefined).toEqual({ 'X-Trace-Id': 'trace-1' })
-    expect(step?.type === 'http' ? step.request.auth : undefined).toEqual({ type: 'bearer', secretRef: 'secret://workflow/device-api' })
+    expect(step?.type === 'http' ? step.request.auth : undefined).toEqual({ type: 'bearer', credential: '{{apiCredential}}' })
     expect(step?.type === 'http' ? step.retry : undefined).toEqual({ count: 2, intervalSeconds: 3 })
-    expect(step?.type === 'http' ? step.extract : undefined).toEqual([{ name: 'accessToken', type: 'jsonPath', path: '$.token', sensitive: true }])
+    expect(step?.type === 'http' ? step.extract : undefined).toEqual([{ name: 'accessToken', type: 'firstOf', paths: ['$.body.token', '$.body.access_token', '$.body.data.token'], sensitive: true }])
     expect(roundtrip.rollback).toEqual(importedDsl.rollback)
   })
 
@@ -177,6 +202,7 @@ describe('workflow canvas model', () => {
       variables: {
         deviceHost: { type: 'string', required: true },
         sshUsername: { type: 'string', required: true },
+        credential: { type: 'credential', required: true, sensitive: true },
       },
       steps: [
         {
@@ -188,7 +214,7 @@ describe('workflow canvas model', () => {
             connection: {
               host: '{{deviceHost}}',
               username: '{{sshUsername}}',
-              credentialSecretRef: 'secret://workflow/ssh',
+              credential: '{{credential}}',
               hostKeyPolicy: 'manual_approval_required',
             },
             script: "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ntest -f \"$site_conf\"\nprintf 'OK\\n'",
@@ -208,6 +234,7 @@ describe('workflow canvas model', () => {
     expect(node?.config.command).toContain("site_conf='{{apacheSiteConfigPath}}'")
     expect(step?.type).toBe('ssh')
     expect(step?.type === 'ssh' ? step.ssh.mode : undefined).toBe('script')
+    expect(step?.type === 'ssh' ? step.ssh.connection.hostKeyPolicy : undefined).toBe('manual_approval_required')
     expect(step?.type === 'ssh' ? step.ssh.script : undefined).toContain("site_conf='{{apacheSiteConfigPath}}'")
     expect(step?.type === 'ssh' ? step.extract : undefined).toEqual([{ name: 'ok', type: 'regex', pattern: 'OK' }])
   })
@@ -220,6 +247,7 @@ describe('workflow canvas model', () => {
       variables: {
         deviceHost: { type: 'string', required: true },
         sshUsername: { type: 'string', required: true },
+        credential: { type: 'credential', required: true, sensitive: true },
         certificate: { type: 'certificate', required: true, sensitive: true },
       },
       steps: [
@@ -232,15 +260,16 @@ describe('workflow canvas model', () => {
             connection: {
               host: '{{deviceHost}}',
               username: '{{sshUsername}}',
-              credentialSecretRef: 'secret://workflow/ssh',
+              credential: '{{credential}}',
               hostKeyPolicy: 'manual_approval_required',
             },
             remotePath: '/etc/gcac-test/certs/test.crt',
+            temporaryPath: '/tmp/gcac-test/certs/test.crt',
             contentRef: '{{certificate.pem}}',
             mode: '0644',
             timeoutSeconds: 90,
           },
-          extract: [{ name: 'certHash', type: 'jsonPath', path: '$.transferResults[0].hash' }],
+          extract: [{ name: 'certHash', type: 'outputPath', path: '$.body.transferResults[0].hash' }],
         },
         {
           name: 'install_private_key',
@@ -251,10 +280,11 @@ describe('workflow canvas model', () => {
             connection: {
               host: '{{deviceHost}}',
               username: '{{sshUsername}}',
-              credentialSecretRef: 'secret://workflow/ssh',
+              credential: '{{credential}}',
               hostKeyPolicy: 'manual_approval_required',
             },
             remotePath: '/etc/gcac-test/certs/test.key',
+            temporaryPath: '/tmp/gcac-test/certs/test.key',
             contentRef: '{{certificate.privateKey}}',
             mode: '0600',
             timeoutSeconds: 90,
@@ -273,17 +303,21 @@ describe('workflow canvas model', () => {
       name: 'install_certificate_pem',
       type: 'sftp',
       sftp: expect.objectContaining({
+        connection: expect.objectContaining({ hostKeyPolicy: 'manual_approval_required' }),
         remotePath: '/etc/gcac-test/certs/test.crt',
+        temporaryPath: '/tmp/gcac-test/certs/test.crt',
         contentRef: '{{certificate.pem}}',
         mode: '0644',
       }),
-      extract: [{ name: 'certHash', type: 'jsonPath', path: '$.transferResults[0].hash' }],
+      extract: [{ name: 'certHash', type: 'outputPath', path: '$.body.transferResults[0].hash' }],
     }))
     expect(roundtrip.steps[1]).toEqual(expect.objectContaining({
       name: 'install_private_key',
       type: 'scp',
       scp: expect.objectContaining({
+        connection: expect.objectContaining({ hostKeyPolicy: 'manual_approval_required' }),
         remotePath: '/etc/gcac-test/certs/test.key',
+        temporaryPath: '/tmp/gcac-test/certs/test.key',
         contentRef: '{{certificate.privateKey}}',
         mode: '0600',
       }),

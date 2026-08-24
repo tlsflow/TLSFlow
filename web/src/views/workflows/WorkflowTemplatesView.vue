@@ -17,6 +17,15 @@ import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
+import {
+  loadStoredWorkflowCredentials,
+  saveStoredWorkflowCredentials,
+  workflowCredentialSummary,
+  workflowSecretTypeForCredentialKind,
+  type WorkflowCredentialKind as CredentialKind,
+  type WorkflowCredentialSecretType as CredentialSecretType,
+  type WorkflowManagedCredential as ManagedCredential,
+} from './workflow-credentials'
 import WorkflowCanvasEditor from './WorkflowCanvasEditor.vue'
 import {
   createDefaultWorkflowCanvas,
@@ -62,9 +71,6 @@ const credentialForm = ref<CredentialForm>({
   secretValue: '',
 })
 
-type CredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key'
-type CredentialSecretType = 'ssh_key' | 'password' | 'api_token'
-
 interface CredentialForm {
   name: string
   username: string
@@ -73,20 +79,6 @@ interface CredentialForm {
   apiKeyIn: 'header' | 'query'
   secretValue: string
 }
-
-interface ManagedCredential {
-  id: string
-  name: string
-  username: string
-  kind: CredentialKind
-  type: CredentialSecretType
-  apiKeyName?: string
-  apiKeyIn?: 'header' | 'query'
-  secretRef: string
-  createdAt: string
-}
-
-const credentialStorageKey = 'gcac.workflow.credentials.v2'
 const credentialKindOptions: readonly { kind: CredentialKind; title: string; subtitle: string; family: '通用' | 'SSH' | 'CURL' }[] = [
   { kind: 'username_password', title: '用户名 + 密码', subtitle: 'SSH connection / CURL Basic', family: '通用' },
   { kind: 'ssh_key', title: 'SSH 私钥', subtitle: 'username + private key', family: 'SSH' },
@@ -188,8 +180,8 @@ const credentialRequiresUsername = computed(() => ['username_password', 'ssh_key
 const credentialRequiresApiKeyName = computed(() => credentialForm.value.kind === 'curl_api_key')
 const selectedCredentialKindOption = computed(() => credentialKindOptions.find((item) => item.kind === credentialForm.value.kind) ?? credentialKindOptions[0]!)
 const credentialTargetLabel = computed(() => {
-  if (credentialForm.value.kind === 'username_password') return 'SSH connection / CURL request.auth'
-  return credentialForm.value.kind === 'ssh_key' ? 'SSH connection' : 'CURL request.auth'
+  if (credentialForm.value.kind === 'username_password') return 'SSH / HTTP Basic'
+  return credentialForm.value.kind === 'ssh_key' ? 'SSH' : 'HTTP'
 })
 const credentialSecretLabel = computed(() => {
   if (credentialForm.value.kind === 'ssh_key') return 'SSH 私钥'
@@ -213,7 +205,7 @@ const credentialCreateDisabled = computed(() => {
 })
 
 function openCredentialManager() {
-  credentialItems.value = loadStoredCredentials()
+  credentialItems.value = loadStoredWorkflowCredentials()
   credentialMessage.value = ''
   credentialError.value = ''
   credentialManagerOpen.value = true
@@ -235,14 +227,14 @@ async function submitCredential() {
   credentialError.value = ''
   try {
     const form = credentialForm.value
-    const secretType = secretTypeForCredentialKind(form.kind)
+    const secretType = workflowSecretTypeForCredentialKind(form.kind)
     const created = await createSecret({
       name: form.name.trim(),
       type: secretType,
       scopeType: 'global',
       plainText: form.secretValue,
     })
-    if (!created.data) throw new Error('创建凭据未返回 SecretRef')
+    if (!created.data?.id) throw new Error('创建凭据未返回有效编号')
     const item: ManagedCredential = {
       id: created.data.id,
       name: form.name.trim(),
@@ -251,17 +243,16 @@ async function submitCredential() {
       type: secretType,
       apiKeyName: form.kind === 'curl_api_key' ? form.apiKeyName.trim() : undefined,
       apiKeyIn: form.kind === 'curl_api_key' ? form.apiKeyIn : undefined,
-      secretRef: created.data.secretRef,
       createdAt: new Date().toISOString(),
     }
     credentialItems.value = [item, ...credentialItems.value.filter((credential) => credential.id !== item.id)]
-    saveStoredCredentials(credentialItems.value)
+    saveStoredWorkflowCredentials(credentialItems.value)
     credentialForm.value = {
       ...credentialForm.value,
       name: '',
       secretValue: '',
     }
-    credentialMessage.value = '凭据已创建，SecretRef 可直接用于工作流 SSH 或 CURL 验证。'
+    credentialMessage.value = '凭据已创建，可直接在工作流变量、SSH 节点和 HTTP 节点中选择。'
   } catch (cause) {
     credentialError.value = cause instanceof Error ? cause.message : '创建凭据失败'
   } finally {
@@ -269,84 +260,15 @@ async function submitCredential() {
   }
 }
 
-async function copyCredentialText(text: string, label: string) {
-  try {
-    if (!navigator.clipboard) throw new Error('clipboard unavailable')
-    await navigator.clipboard.writeText(text)
-    credentialMessage.value = `${label} 已复制。`
-    credentialError.value = ''
-  } catch {
-    credentialError.value = '当前浏览器不允许写入剪贴板，请手动复制。'
-  }
-}
-
 function removeStoredCredential(id: string) {
   credentialItems.value = credentialItems.value.filter((item) => item.id !== id)
-  saveStoredCredentials(credentialItems.value)
+  saveStoredWorkflowCredentials(credentialItems.value)
 }
 
-function credentialTypeLabel(item: ManagedCredential) {
-  const labels: Record<CredentialKind, string> = {
-    username_password: '用户名 + 密码',
-    ssh_key: 'SSH 私钥',
-    curl_bearer: 'CURL Bearer',
-    curl_api_key: 'CURL API Key',
-  }
-  return labels[item.kind] ?? item.type
-}
-
-function credentialUsageSnippet(item: ManagedCredential) {
-  if (item.kind === 'username_password') {
-    return `"connection": {\n  "username": "${item.username}",\n  "credentialSecretRef": "${item.secretRef}"\n}\n\n"auth": {\n  "type": "basic",\n  "username": "${item.username}",\n  "secretRef": "${item.secretRef}"\n}`
-  }
-  if (item.kind === 'curl_bearer') {
-    return `"auth": {\n  "type": "bearer",\n  "secretRef": "${item.secretRef}"\n}`
-  }
-  if (item.kind === 'curl_api_key') {
-    return `"auth": {\n  "type": "api_key",\n  "name": "${item.apiKeyName ?? 'X-API-Key'}",\n  "in": "${item.apiKeyIn ?? 'header'}",\n  "secretRef": "${item.secretRef}"\n}`
-  }
-  return `"connection": {\n  "username": "${item.username}",\n  "credentialSecretRef": "${item.secretRef}"\n}`
-}
-
-function secretTypeForCredentialKind(kind: CredentialKind): CredentialSecretType {
-  if (kind === 'ssh_key') return 'ssh_key'
-  if (kind === 'curl_bearer' || kind === 'curl_api_key') return 'api_token'
-  return 'password'
-}
-
-function loadStoredCredentials(): ManagedCredential[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(credentialStorageKey) ?? '[]') as Array<Partial<ManagedCredential>>
-    return Array.isArray(parsed)
-      ? parsed.flatMap((item) => {
-        if (!item || typeof item.id !== 'string' || typeof item.secretRef !== 'string' || !isCredentialKind(item.kind)) return []
-        return [{
-          id: item.id,
-          name: typeof item.name === 'string' ? item.name : item.id,
-          username: typeof item.username === 'string' ? item.username : '',
-          kind: item.kind,
-          type: secretTypeForCredentialKind(item.kind),
-          apiKeyName: typeof item.apiKeyName === 'string' ? item.apiKeyName : undefined,
-          apiKeyIn: item.apiKeyIn === 'query' ? 'query' : item.apiKeyIn === 'header' ? 'header' : undefined,
-          secretRef: item.secretRef,
-          createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
-        }]
-      })
-      : []
-  } catch {
-    return []
-  }
-}
-
-function isCredentialKind(value: unknown): value is CredentialKind {
-  return value === 'username_password'
-    || value === 'ssh_key'
-    || value === 'curl_bearer'
-    || value === 'curl_api_key'
-}
-
-function saveStoredCredentials(items: ManagedCredential[]) {
-  window.localStorage.setItem(credentialStorageKey, JSON.stringify(items))
+function credentialUsageSummary(item: ManagedCredential) {
+  if (item.kind === 'username_password') return 'SSH / HTTP Basic'
+  if (item.kind === 'ssh_key') return 'SSH'
+  return 'HTTP'
 }
 
 async function openDetail(row: ViewRow) {
@@ -650,7 +572,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
     <GcModal
       v-model:open="credentialManagerOpen"
       title="凭据管理"
-      description="集中创建工作流 SSH 和 CURL 验证凭据。密码、私钥和 Token 只写入后端 Secret，前端仅保留工作流需要引用的非明文信息。"
+      description="集中创建工作流要复用的登录凭据与 API 凭据。前端只做选择和复用，不再要求手工维护内部引用串。"
       size="xl"
       width="min(1080px, calc(100vw - 32px))"
     >
@@ -712,7 +634,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <div class="credential-manager__form-summary">
             <div>
               <span>存储类型</span>
-              <strong>{{ secretTypeForCredentialKind(credentialForm.kind) }}</strong>
+              <strong>{{ workflowSecretTypeForCredentialKind(credentialForm.kind) }}</strong>
             </div>
             <div>
               <span>引用位置</span>
@@ -736,26 +658,19 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <ul v-if="credentialItems.length" class="credential-manager__list">
             <li v-for="item in credentialItems" :key="item.id" class="credential-manager__item">
               <div class="credential-manager__item-head">
-                <div>
+                <div class="credential-manager__item-meta">
                   <strong>{{ item.name }}</strong>
-                  <span>{{ credentialTypeLabel(item) }}<template v-if="item.username"> / {{ item.username }}</template></span>
+                  <span>{{ workflowCredentialSummary(item) }}</span>
                 </div>
                 <span class="credential-manager__item-kind">{{ item.kind === 'username_password' ? '通用' : item.kind === 'ssh_key' ? 'SSH' : 'CURL' }}</span>
-                <button class="gc-button" type="button" @click="removeStoredCredential(item.id)">移除记录</button>
-              </div>
-              <dl class="credential-manager__facts">
-                <div><dt>SecretRef</dt><dd>{{ item.secretRef }}</dd></div>
-                <div><dt>工作流片段</dt><dd>{{ item.kind === 'username_password' ? 'SSH connection / CURL request.auth' : item.kind === 'ssh_key' ? 'SSH connection' : 'CURL request.auth' }}</dd></div>
-              </dl>
-              <div class="credential-manager__snippet">{{ credentialUsageSnippet(item) }}</div>
-              <div class="credential-manager__item-actions">
-                <button v-if="item.username" class="gc-button" type="button" @click="copyCredentialText(item.username, '用户名')">复制用户名</button>
-                <button class="gc-button" type="button" @click="copyCredentialText(item.secretRef, 'SecretRef')">复制 SecretRef</button>
-                <button class="gc-button" type="button" @click="copyCredentialText(credentialUsageSnippet(item), '连接片段')">复制连接片段</button>
+                <span class="credential-manager__item-usage">{{ credentialUsageSummary(item) }}</span>
+                <div class="credential-manager__item-actions">
+                  <button class="gc-button" type="button" @click="removeStoredCredential(item.id)">移除记录</button>
+                </div>
               </div>
             </li>
           </ul>
-          <p v-else class="credential-manager__empty">暂无本地登记记录。创建凭据后会显示用户名、SecretRef 和工作流连接片段。</p>
+          <p v-else class="credential-manager__empty">暂无本地登记记录。创建后可直接在变量、SSH 节点和 HTTP 节点里选择。</p>
         </section>
       </section>
       <template #actions>
@@ -1327,7 +1242,6 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .credential-manager__form-actions,
-.credential-manager__item-actions,
 .credential-manager__item-head {
   display: flex;
   align-items: center;
@@ -1336,9 +1250,16 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   flex-wrap: wrap;
 }
 
+.credential-manager__item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .credential-manager__list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   max-height: min(54vh, 620px);
   margin: 0;
   padding: 0;
@@ -1347,57 +1268,24 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .credential-manager__item {
-  display: grid;
-  gap: 12px;
-  padding: 13px;
+  display: block;
+  padding: 10px 12px;
   border: 1px solid #dbe6f4;
   border-radius: 8px;
   background: #fff;
 }
 
-.credential-manager__facts {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(140px, 0.65fr);
-  gap: 8px;
-  margin: 0;
-}
-
-.credential-manager__facts div {
+.credential-manager__item-meta {
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding: 9px 10px;
-  border-radius: 8px;
-  background: #f8fbff;
 }
 
-.credential-manager__facts dt {
-  color: #64748b;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.credential-manager__facts dd {
-  margin: 0;
-  color: #0f172a;
+.credential-manager__item-usage {
+  margin-top: 0;
+  color: #475569;
   font-size: 12px;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.credential-manager__snippet {
-  padding: 10px 12px;
-  border: 1px solid #1e293b;
-  border-radius: 8px;
-  background: #111827;
-  color: #f8fafc;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  font-weight: 700;
 }
 
 @media (max-width: 900px) {
