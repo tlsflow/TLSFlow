@@ -26,6 +26,19 @@ export const notificationFailureCategories = [
 ] as const;
 export type NotificationFailureCategory = typeof notificationFailureCategories[number];
 
+export interface NotificationSettings {
+  tenantId: string;
+  privateOrigins: {
+    wecom: string[];
+    feishu: string[];
+    dingtalk: string[];
+  };
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  version: number;
+}
+
 export interface NotificationChannel {
   id: string;
   tenantId: string;

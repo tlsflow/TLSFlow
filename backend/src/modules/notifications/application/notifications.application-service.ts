@@ -8,6 +8,7 @@ import type {
   UpdateNotificationChannelInput,
   UpdateNotificationRouteInput,
   UpdateNotificationSilenceInput,
+  UpdateNotificationSettingsInput,
   UpsertNotificationTemplateInput,
 } from '../dto/notifications.dto.js';
 import { NotificationDedupeService } from './notification-dedupe.service.js';
@@ -19,6 +20,7 @@ import type { NotificationChannel, NotificationChannelTarget } from '../schema/n
 import type { NotificationWorker } from './notification-worker.js';
 import type { ChannelAdapterRegistry } from './channel-adapter-registry.js';
 import { NotificationsDomainService } from '../domain/notifications.domain-service.js';
+import { validatePrivateOrigins } from '../security/platform-webhook-endpoint-policy.js';
 
 export class NotificationsApplicationService implements NotificationPort {
   constructor(
@@ -113,6 +115,17 @@ export class NotificationsApplicationService implements NotificationPort {
     this.domain.assertChannelSecrets(input.config ?? {}, input.secretRefs ?? {});
     await this.adapters?.get(input.type).validateConfig(channelForValidation(input));
     return this.repository.createChannel(input);
+  }
+  getSettings(tenantId: string) { return this.repository.getSettings(tenantId); }
+  updateSettings(input: UpdateNotificationSettingsInput) {
+    return this.repository.updateSettings({
+      ...input,
+      privateOrigins: {
+        wecom: validatePrivateOrigins(input.privateOrigins.wecom),
+        feishu: validatePrivateOrigins(input.privateOrigins.feishu),
+        dingtalk: validatePrivateOrigins(input.privateOrigins.dingtalk),
+      },
+    });
   }
   async updateChannel(input: UpdateNotificationChannelInput) {
     const current = await this.repository.getChannel(input.tenantId, input.id);

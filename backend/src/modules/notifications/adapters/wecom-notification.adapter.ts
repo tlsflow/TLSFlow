@@ -15,7 +15,7 @@ export class WeComNotificationAdapter implements NotificationChannelAdapter {
   async send(input: NotificationSendInput): Promise<NotificationSendResult> {
     const content = `${input.delivery.renderedTitle ?? ''}\n${input.delivery.renderedBody ?? ''}`.trim().slice(0, 4096);
     const webhookUrl = requiredSecret(input, 'webhookUrl');
-    const endpoint = validatePlatformWebhookEndpoint('wecom', webhookUrl);
+    const endpoint = validatePlatformWebhookEndpoint('wecom', webhookUrl, input.privateOrigins);
     const response = await this.client.request({
       url: webhookUrl,
       headers: { 'content-type': 'application/json; charset=utf-8' },

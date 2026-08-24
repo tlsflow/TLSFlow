@@ -18,7 +18,7 @@ export class DingTalkNotificationAdapter implements NotificationChannelAdapter {
 
   async send(input: NotificationSendInput): Promise<NotificationSendResult> {
     const webhookUrl = requiredSecret(input, 'webhookUrl');
-    const endpoint = validatePlatformWebhookEndpoint('dingtalk', webhookUrl);
+    const endpoint = validatePlatformWebhookEndpoint('dingtalk', webhookUrl, input.privateOrigins);
     const url = signedUrl(webhookUrl, input.secrets.signingSecret);
     const response = await this.client.request({
       url,

@@ -11,6 +11,7 @@ import type {
   NotificationPageQuery,
   UpdateNotificationChannelInput,
   UpdateNotificationRouteInput,
+  UpdateNotificationSettingsInput,
   UpdateNotificationSilenceInput,
   UpsertNotificationTemplateInput,
 } from '../dto/notifications.dto.js';
@@ -20,6 +21,7 @@ import type {
   NotificationDeliveryAttempt,
   NotificationRequest,
   NotificationRequestStatus,
+  NotificationSettings,
   NotificationRoute,
   NotificationSilence,
   NotificationTemplate,
@@ -48,6 +50,8 @@ export interface CreateNotificationRequestRecordInput {
 }
 
 export interface NotificationsRepository {
+  getSettings(tenantId: string): Promise<NotificationSettings>;
+  updateSettings(input: UpdateNotificationSettingsInput): Promise<NotificationSettings>;
   createChannel(input: CreateNotificationChannelInput): Promise<NotificationChannel>;
   updateChannel(input: UpdateNotificationChannelInput): Promise<NotificationChannel>;
   deleteChannel(tenantId: string, id: string, version: number): Promise<NotificationChannel>;
@@ -81,6 +85,28 @@ export interface NotificationsRepository {
 
 export class PgNotificationsRepository implements NotificationsRepository {
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
+
+  async getSettings(tenantId: string): Promise<NotificationSettings> {
+    const result = await this.db.query<SettingsRow>('select * from notification_settings where tenant_id=$1', [tenantId]);
+    return result.rows[0] ? toSettings(result.rows[0]) : emptySettings(tenantId);
+  }
+
+  async updateSettings(input: UpdateNotificationSettingsInput): Promise<NotificationSettings> {
+    const now = new Date().toISOString();
+    if (input.version === 0) {
+      const created = await this.db.query<SettingsRow>(`insert into notification_settings (
+        tenant_id, private_origins, updated_by, created_at, updated_at
+      ) values ($1,$2::jsonb,$3,$4::timestamptz,$4::timestamptz)
+      on conflict (tenant_id) do nothing returning *`, [input.tenantId, json(input.privateOrigins), input.updatedBy, now]);
+      if (created.rows[0]) return toSettings(created.rows[0]);
+    }
+    const result = await this.db.query<SettingsRow>(`update notification_settings set
+      private_origins=$1::jsonb, updated_by=$2, updated_at=$3::timestamptz, version=version+1
+      where tenant_id=$4 and version=$5 returning *`, [
+      json(input.privateOrigins), input.updatedBy, now, input.tenantId, input.version,
+    ]);
+    return toSettings(requireUpdated(result.rows[0], '通知设置版本已变化', input));
+  }
 
   async createChannel(input: CreateNotificationChannelInput): Promise<NotificationChannel> {
     const now = new Date().toISOString();
@@ -423,6 +449,7 @@ function object(value: unknown): Record<string, unknown> { return (value && type
 function strings(value: unknown): Record<string, string> { return Object.fromEntries(Object.entries(object(value)).filter((entry): entry is [string, string] => typeof entry[1] === 'string')); }
 
 type ChannelRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; type: string; status: string; config: unknown; secret_refs: unknown; health_status: string; consecutive_failures: number; created_at: string; updated_at: string; version: number };
+type SettingsRow = Record<string, unknown> & { tenant_id: string; private_origins: unknown; updated_by: string; created_at: string; updated_at: string; version: number };
 type RouteRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; status: string; priority: number; matcher: unknown; channel_targets: unknown; stop_on_match: boolean; dedupe_window_seconds: number; created_at: string; updated_at: string; version: number };
 type TemplateRow = Record<string, unknown> & { id: string; tenant_id: string; template_key: string; locale: string; title_template: string; body_template: string; required_variables: unknown; status: string; created_at: string; updated_at: string; version: number };
 type SilenceRow = Record<string, unknown> & { id: string; tenant_id: string; name: string; status: string; matcher: unknown; reason: string; starts_at: string; ends_at: string; created_by: string; created_at: string; updated_at: string; version: number };
@@ -435,6 +462,27 @@ function toChannel(row: ChannelRow): NotificationChannel { return {
   consecutiveFailures: Number(row.consecutive_failures), lastSucceededAt: optionalString(row.last_succeeded_at), lastFailedAt: optionalString(row.last_failed_at),
   lastLatencyMs: optionalNumber(row.last_latency_ms), createdAt: String(row.created_at), updatedAt: String(row.updated_at), deletedAt: optionalString(row.deleted_at), version: Number(row.version),
 }; }
+function emptySettings(tenantId: string): NotificationSettings { return {
+  tenantId,
+  privateOrigins: { wecom: [], feishu: [], dingtalk: [] },
+  version: 0,
+}; }
+function toSettings(row: SettingsRow): NotificationSettings {
+  const privateOrigins = object(row.private_origins);
+  return {
+    tenantId: row.tenant_id,
+    privateOrigins: {
+      wecom: stringArray(privateOrigins.wecom),
+      feishu: stringArray(privateOrigins.feishu),
+      dingtalk: stringArray(privateOrigins.dingtalk),
+    },
+    updatedBy: row.updated_by,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    version: Number(row.version),
+  };
+}
+function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
 function toRoute(row: RouteRow): NotificationRoute { return {
   id: row.id, tenantId: row.tenant_id, name: row.name, status: row.status as NotificationRoute['status'], priority: Number(row.priority),
   matcher: object(row.matcher), channelTargets: Array.isArray(row.channel_targets) ? row.channel_targets as NotificationRoute['channelTargets'] : [],

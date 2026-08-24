@@ -25,6 +25,17 @@ export interface UpdateNotificationChannelInput {
   secretRefs?: Record<string, string>;
 }
 
+export interface UpdateNotificationSettingsInput {
+  tenantId: string;
+  privateOrigins: {
+    wecom: string[];
+    feishu: string[];
+    dingtalk: string[];
+  };
+  updatedBy: string;
+  version: number;
+}
+
 export interface CreateNotificationRouteInput {
   tenantId: string;
   name: string;

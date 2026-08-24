@@ -12,6 +12,9 @@ import { PgNotificationsRepository } from './repository/notifications.repository
 import { NotificationRouteMatcher } from './application/notification-route-matcher.js';
 import { WebhookTargetPolicy, isBlockedAddress } from './security/webhook-target-policy.js';
 import { AutomationNotificationPort } from './application/notification.port.js';
+import { NotificationsController } from './controller/notifications.controller.js';
+import { Router } from '../../common/http/router.js';
+import type { SecurityServices } from '../security/security.controller.js';
 
 describe('通知核心', () => {
   it('迁移后 NotificationPort 持久化并保持幂等', async () => {
@@ -43,6 +46,98 @@ describe('通知核心', () => {
       await fixture.db.query("update notification_deliveries set lease_until=now()-interval '1 second'");
       const recovered = await repository.leaseNextDelivery('worker-c', 60);
       assert.equal(recovered?.id, (left ?? right)?.id);
+    } finally { await fixture.close(); }
+  });
+
+  it('私有化 Origin 设置按租户持久化并使用版本并发控制', async () => {
+    const fixture = await createFixture();
+    try {
+      const repository = new PgNotificationsRepository(fixture.db);
+      assert.deepEqual(await repository.getSettings('tenant-1'), {
+        tenantId: 'tenant-1',
+        privateOrigins: { wecom: [], feishu: [], dingtalk: [] },
+        version: 0,
+      });
+      const created = await repository.updateSettings({
+        tenantId: 'tenant-1',
+        updatedBy: 'admin-1',
+        version: 0,
+        privateOrigins: {
+          wecom: ['https://wecom.internal.example'],
+          feishu: ['https://feishu.internal.example:8443'],
+          dingtalk: [],
+        },
+      });
+      assert.equal(created.version, 1);
+      assert.deepEqual((await repository.getSettings('tenant-1')).privateOrigins, created.privateOrigins);
+      await assert.rejects(repository.updateSettings({
+        tenantId: 'tenant-1',
+        updatedBy: 'admin-2',
+        version: 0,
+        privateOrigins: { wecom: [], feishu: [], dingtalk: [] },
+      }), /版本已变化/);
+      assert.equal((await repository.getSettings('tenant-2')).version, 0);
+    } finally { await fixture.close(); }
+  });
+
+  it('应用服务规范化私有化 Origin 并拒绝完整 Webhook URL', async () => {
+    const fixture = await createFixture();
+    try {
+      const repository = new PgNotificationsRepository(fixture.db);
+      const service = new NotificationsApplicationService(repository);
+      const settings = await service.updateSettings({
+        tenantId: 'tenant-1',
+        updatedBy: 'admin-1',
+        version: 0,
+        privateOrigins: {
+          wecom: ['https://wecom.internal.example', 'https://wecom.internal.example/'],
+          feishu: [],
+          dingtalk: [],
+        },
+      });
+      assert.deepEqual(settings.privateOrigins.wecom, ['https://wecom.internal.example']);
+      assert.throws(() => service.updateSettings({
+          tenantId: 'tenant-1',
+          updatedBy: 'admin-1',
+          version: settings.version,
+          privateOrigins: {
+            wecom: ['https://wecom.internal.example/hook?token=secret'],
+            feishu: [],
+            dingtalk: [],
+          },
+        }), /精确 HTTPS Origin/);
+    } finally { await fixture.close(); }
+  });
+
+  it('通知设置读取和保存使用不同的 RBAC 权限', async () => {
+    const fixture = await createFixture();
+    try {
+      const actions: Array<{ action: string; resourceType: string }> = [];
+      const security = {
+        rbac: {
+          assertCan: async (_subject: unknown, action: string, resource: { type: string }) => {
+            actions.push({ action, resourceType: resource.type });
+          },
+        },
+        audit: { write: async () => undefined },
+      } as unknown as SecurityServices;
+      const service = new NotificationsApplicationService(new PgNotificationsRepository(fixture.db));
+      const router = new Router();
+      new NotificationsController(service, security).register(router);
+      const context = { requestId: 'req-1', traceId: 'trace-1', tenantId: 'tenant-1', actorId: 'admin-1' };
+
+      await router.match('GET', '/api/v1/notification-settings')!.handler({
+        method: 'GET', path: '/api/v1/notification-settings', query: {}, headers: {}, context,
+      });
+      await router.match('PATCH', '/api/v1/notification-settings')!.handler({
+        method: 'PATCH', path: '/api/v1/notification-settings', query: {}, headers: {}, context,
+        body: { version: 0, wecomPrivateOrigins: [], feishuPrivateOrigins: [], dingtalkPrivateOrigins: [] },
+      });
+
+      assert.deepEqual(actions, [
+        { action: 'notification.channel.read', resourceType: 'notificationChannel' },
+        { action: 'settings.write', resourceType: 'settings' },
+      ]);
     } finally { await fixture.close(); }
   });
 

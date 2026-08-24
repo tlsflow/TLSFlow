@@ -28,7 +28,7 @@ export class FeishuNotificationAdapter implements NotificationChannelAdapter {
       body.sign = createHmac('sha256', `${timestamp}\n${signingSecret}`).digest('base64');
     }
     const webhookUrl = requiredSecret(input, 'webhookUrl');
-    const endpoint = validatePlatformWebhookEndpoint('feishu', webhookUrl);
+    const endpoint = validatePlatformWebhookEndpoint('feishu', webhookUrl, input.privateOrigins);
     const response = await this.client.request({
       url: webhookUrl,
       headers: { 'content-type': 'application/json; charset=utf-8' },

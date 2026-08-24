@@ -6,14 +6,18 @@ import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { NotificationsApplicationService } from '../application/notifications.application-service.js';
 import { notificationChannelStatuses, notificationChannelTypes } from '../schema/notifications.schema.js';
+import type { SecuritySubject } from '../../../shared/security-types.js';
+import type { SecurityServices } from '../../security/security.controller.js';
 
 const tags = ['Notifications'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class NotificationsController {
-  constructor(private readonly service: NotificationsApplicationService) {}
+  constructor(private readonly service: NotificationsApplicationService, private readonly security?: SecurityServices) {}
 
   register(router: Router): void {
+    router.get('/api/v1/notification-settings', '查询通知设置', tags, (request) => this.getSettings(request));
+    router.patch('/api/v1/notification-settings', '更新通知设置', tags, (request) => this.updateSettings(request));
     router.get('/api/v1/notification-channels', '查询通知渠道', tags, (request) => this.service.listChannels(tenantId(request)));
     router.post('/api/v1/notification-channels', '创建通知渠道', tags, (request) => this.createChannel(request));
     router.patch('/api/v1/notification-channels/:id', '更新通知渠道', tags, (request) => this.updateChannel(request));
@@ -37,6 +41,59 @@ export class NotificationsController {
     router.get('/api/v1/notification-deliveries', '查询通知投递', tags, (request) => this.service.listDeliveries(pageQuery(request)));
     router.get('/api/v1/notification-deliveries/:id', '查询通知投递详情', tags, (request) => this.requireDelivery(request));
     router.post('/api/v1/notification-deliveries/:id/actions/retry', '重发失败通知', tags, (request) => this.service.retryDelivery(tenantId(request), pathId(request, 'notification-deliveries')));
+  }
+
+  private async getSettings(request: HttpRequest) {
+    await this.assertCan(request, 'notification.channel.read', 'notificationChannel');
+    return this.service.getSettings(tenantId(request));
+  }
+
+  private async updateSettings(request: HttpRequest) {
+    await this.assertCan(request, 'settings.write', 'settings');
+    const body = validateObject(request.body, {
+      version: { type: 'number', required: true },
+      wecomPrivateOrigins: { type: 'array', required: true },
+      feishuPrivateOrigins: { type: 'array', required: true },
+      dingtalkPrivateOrigins: { type: 'array', required: true },
+    });
+    const before = await this.service.getSettings(tenantId(request));
+    const updated = await this.service.updateSettings({
+      tenantId: tenantId(request),
+      version: Number(body.version),
+      updatedBy: request.context.actorId ?? 'system',
+      privateOrigins: {
+        wecom: asStrings(body.wecomPrivateOrigins),
+        feishu: asStrings(body.feishuPrivateOrigins),
+        dingtalk: asStrings(body.dingtalkPrivateOrigins),
+      },
+    });
+    void this.security?.audit.write({
+      eventType: 'notification.settings.updated',
+      actorType: 'user',
+      actorId: request.context.actorId ?? 'system',
+      action: 'settings.write',
+      resourceType: 'settings',
+      resourceId: tenantId(request),
+      result: 'success',
+      riskLevel: 'medium',
+      context: { requestId: request.context.requestId, sourceIp: request.context.ip, actor: this.subjectFromRequest(request) },
+      detail: { before, after: updated },
+    }).catch(() => undefined);
+    return updated;
+  }
+
+  private async assertCan(request: HttpRequest, action: string, resourceType: string): Promise<void> {
+    if (!this.security) return;
+    const subject = this.subjectFromRequest(request);
+    await this.security.rbac.assertCan(subject, action, {
+      type: resourceType,
+      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+    }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
+  }
+
+  private subjectFromRequest(request: HttpRequest): SecuritySubject {
+    if (!request.context.actorId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少 actor 上下文');
+    return { id: request.context.actorId, type: 'user', scope: { tenantId: request.context.tenantId } };
   }
 
   private createChannel(request: HttpRequest) {

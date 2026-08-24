@@ -36,9 +36,10 @@ export class NotificationWorker {
     const startedAt = Date.now();
     let channel: NotificationChannel | undefined;
     try {
-      const [loadedChannel, request] = await Promise.all([
+      const [loadedChannel, request, settings] = await Promise.all([
         this.repository.getChannel(delivery.tenantId, delivery.channelId),
         this.repository.getRequest(delivery.tenantId, delivery.requestId),
+        this.repository.getSettings(delivery.tenantId),
       ]);
       channel = loadedChannel;
       if (!channel || !request || !(channel.status === 'active' || request.source === 'test' && channel.status === 'disabled')) {
@@ -60,7 +61,10 @@ export class NotificationWorker {
         key,
         await this.secretResolver.resolve(secretRef, activeChannel.id),
       ])));
-      const result = await adapter.send({ channel: activeChannel, request, delivery, secrets });
+      const privateOrigins = activeChannel.type === 'wecom' || activeChannel.type === 'feishu' || activeChannel.type === 'dingtalk'
+        ? settings.privateOrigins[activeChannel.type]
+        : [];
+      const result = await adapter.send({ channel: activeChannel, request, delivery, secrets, privateOrigins });
       const latencyMs = Date.now() - startedAt;
       await this.repository.completeDeliveryAttempt({
         deliveryId: delivery.id,

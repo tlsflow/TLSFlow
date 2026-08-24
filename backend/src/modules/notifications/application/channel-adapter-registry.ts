@@ -12,6 +12,7 @@ export interface NotificationSendInput {
   request: NotificationRequest;
   delivery: NotificationDelivery;
   secrets: Record<string, string>;
+  privateOrigins: string[];
 }
 
 export interface NotificationSendResult {
