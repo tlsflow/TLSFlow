@@ -17,6 +17,7 @@ import type { PluginWorkflowPublisherService } from '../../plugins/application/p
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
+import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugins/runtime/plugin-runtime-guard.service.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -29,6 +30,7 @@ export class DevicesApplicationService {
     private readonly pluginBindings?: PluginBindingsApplicationService,
     private readonly pluginWorkflows?: PluginWorkflowPublisherService,
     private readonly workflows?: WorkflowTemplatesApplicationService,
+    private readonly runtimeGuard: PluginRuntimeGuardService = pluginRuntimeGuard,
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -111,11 +113,14 @@ export class DevicesApplicationService {
       this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
       this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
     ]);
-    return this.workflows.testRun({
+    return this.runtimeGuard.execute({
+      tenantId, pluginVersionId: assignment.pluginVersionId, capabilityKey,
+      gatewayId: typeof binding.connectionBindings.gatewayId === 'string' ? binding.connectionBindings.gatewayId : undefined,
+    }, () => this.workflows!.testRun({
       templateVersionId: workflow.workflowVersionId,
       mode: 'real_test',
       userVariables: { ...binding.variableBindings, ...binding.secretBindings },
-    });
+    }));
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {

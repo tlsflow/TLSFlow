@@ -11,6 +11,7 @@ import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
+import { pluginRuntimeGuard } from '../runtime/plugin-runtime-guard.service.js';
 import type {
   PluginEnableInput,
   PluginExecutionRequest,
@@ -63,6 +64,7 @@ export class PluginsController {
     router.post('/api/v1/plugin-promotions/confirm', '确认 Standalone 目标归集', tags, (request) => this.confirmPromotion(request));
     router.post('/api/v1/plugin-promotions/revoke', '撤销 Standalone 目标归集', tags, (request) => this.revokePromotion(request));
     router.get('/api/v1/plugin-promotions', '查询 Standalone 目标归集记录', tags, (request) => this.getPromotion(request));
+    router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => ({ items: pluginRuntimeGuard.listMetrics(tenantId(request)) }));
     router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/disable', '禁用 DSL 模板插件', tags, (request) => this.disableWorkflowTemplatePlugin(request));
     router.get('/api/v1/plugins/agent-packages', '查询 Agent 插件包', tags, (request) => this.listAgentPackages(request));
@@ -432,6 +434,7 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-promotions/confirm', operationId: 'confirmPluginPromotion', summary: '确认 Standalone 目标归集', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageResponseSchema },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/disable', operationId: 'disableWorkflowTemplatePlugin', summary: '禁用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugins/agent-packages', operationId: 'listAgentPluginPackages', summary: '查询 Agent 插件包', tags, responseSchema: pageResponseSchema },

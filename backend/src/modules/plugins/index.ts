@@ -17,3 +17,4 @@ export * from './application/plugin-bindings.application-service.js';
 export * from './promotion/plugin-promotion.dto.js';
 export * from './promotion/plugin-promotion.repository.js';
 export * from './promotion/plugin-promotion.service.js';
+export * from './runtime/plugin-runtime-guard.service.js';
