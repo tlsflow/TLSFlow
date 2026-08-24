@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   createCredential,
+  acquireBrowserCredentialSession,
+  cancelBrowserCredentialSession,
+  createBrowserCredentialSession,
   deleteCredential,
+  getBrowserCredentialSession,
   getCredential,
   getCredentialUsage,
   listCredentials,
@@ -14,14 +18,16 @@ import {
   type CredentialProfileSummary,
   type CredentialSecretValueInput,
   type CredentialUsage,
+  type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
 import { GcModal, GcPageHeader, GcSecretInput, GcStatusTag } from '@/design-system/components'
-import { formatMaybeLocalTime } from '@/utils/browser-local-time'
-import { useSystemCapabilitiesStore } from '@/stores/system-capabilities.store'
+import { listPluginCatalog } from '@/api/modules/plugins.api'
+import { formatBrowserLocalTime, formatMaybeLocalTime, getExpiryRemaining } from '@/utils/browser-local-time'
 
 type EditorMode = 'create' | 'edit'
 type UsageItem = CredentialUsage['items'][number]
 type CloudProviderKey = 'cloud.aliyun' | 'cloud.tencent' | 'cloud.huawei' | 'cloud.volcengine'
+type DurationInput = string | number
 
 interface CredentialFormState {
   name: string
@@ -34,10 +40,18 @@ interface CredentialFormState {
   cloudProviderKey: CloudProviderKey
   primarySecret: string
   secondarySecret: string
+  validityDays: DurationInput
+  validityHours: DurationInput
+  validityMinutes: DurationInput
+  browserLoginUrl: string
+}
+
+interface BrowserOptionItem {
+  id: string
+  label: string
 }
 
 const { t } = useI18n()
-const systemCapabilities = useSystemCapabilitiesStore()
 const loading = ref(false)
 const loadingSelection = ref(false)
 const saving = ref(false)
@@ -49,24 +63,39 @@ const editorMode = ref<EditorMode>('create')
 const selected = ref<CredentialProfileDetail | null>(null)
 const usage = ref<CredentialUsage | null>(null)
 const form = ref<CredentialFormState>(emptyForm())
+const initialValidityDays = ref('')
+const initialValidityHours = ref('')
+const initialValidityMinutes = ref('')
+const initialExpiresAt = ref<string | null>(null)
+const now = ref(Date.now())
+let remainingTimer: ReturnType<typeof setInterval> | undefined
+let browserPollTimer: number | undefined
 
-const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER']
+const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER', 'BROWSER_SESSION']
 const scopes: CredentialProfileSummary['scopeType'][] = ['global', 'team', 'zone', 'host', 'plugin']
 const isEditing = computed(() => editorMode.value === 'edit')
 const requiresUsername = computed(() => requiresUsernameFor(form.value.kind))
 const isCloudProviderCredential = computed(() => form.value.kind === 'CLOUD_PROVIDER')
+const isBrowserSessionCredential = computed(() => form.value.kind === 'BROWSER_SESSION')
 const requiresSecondarySecret = computed(() => form.value.kind === 'CLIENT_CERTIFICATE' || isCloudProviderCredential.value)
 const cloudProviderFields = computed(() => CLOUD_PROVIDER_SECRET_FIELDS[form.value.cloudProviderKey])
 const editorTitle = computed(() => t(isEditing.value ? 'credentials.edit.title' : 'credentials.create.title'))
 const editorDescription = computed(() => t('credentials.create.description'))
+const validityDurationValid = computed(() => {
+  const days = parseDurationPart(form.value.validityDays)
+  const hours = parseDurationPart(form.value.validityHours, isBrowserSessionCredential.value ? 23 : undefined)
+  const minutes = parseDurationPart(form.value.validityMinutes, isBrowserSessionCredential.value ? 59 : undefined)
+  return days !== null && hours !== null && minutes !== null
+})
 const canSubmit = computed(() => {
   const hasRequiredFields = Boolean(
     form.value.name.trim()
     && (!requiresUsername.value || form.value.username.trim())
     && (form.value.scopeType === 'global' || form.value.scopeId.trim()),
   )
-  if (!hasRequiredFields) return false
+  if (!hasRequiredFields || !validityDurationValid.value) return false
   if (isEditing.value) return true
+  if (isBrowserSessionCredential.value) return Boolean(form.value.browserLoginUrl.trim())
   return Boolean(form.value.primarySecret && (!requiresSecondarySecret.value || form.value.secondarySecret))
 })
 const usageGroups = computed(() => ({
@@ -74,7 +103,35 @@ const usageGroups = computed(() => ({
   workflows: usage.value?.items.filter((item) => item.type === 'DEPLOYMENT_PLAN') ?? [],
   plugins: usage.value?.items.filter((item) => item.type === 'PLUGIN_BINDING') ?? [],
 }))
-const browserRuntimeEnabled = computed(() => systemCapabilities.hasFeature('browser.runtime'))
+const browserPlugins = ref<BrowserOptionItem[]>([])
+const browserModalOpen = ref(false)
+const browserSaveSuccessOpen = ref(false)
+const browserAssetId = ref('')
+const browserCredentialId = ref('')
+const browserPluginVersionId = ref('')
+const browserLoginUrl = ref('')
+const browserTtlSeconds = ref(1800)
+const browserSharePassword = ref('')
+const browserSession = ref<BrowserCredentialSession | null>(null)
+const browserCopied = ref(false)
+const browserLoading = ref(false)
+const browserAcquiring = ref(false)
+const browserError = ref('')
+const browserCanCreate = computed(() => Boolean(
+  browserLoginUrl.value.trim()
+  && browserPluginVersionId.value
+  && browserSharePassword.value.length >= 8
+  && Number.isInteger(browserTtlSeconds.value)
+  && browserTtlSeconds.value >= 60
+  && browserTtlSeconds.value <= 3600
+  && !browserLoading.value
+  && !browserSession.value,
+))
+const browserCanAcquire = computed(() => browserSession.value?.status === 'READY_FOR_ACQUISITION' && !browserAcquiring.value)
+const browserCanCancel = computed(() => Boolean(
+  browserSession.value
+  && !['SAVED', 'FAILED', 'EXPIRED', 'CLOSED'].includes(browserSession.value.status),
+))
 
 function emptyForm(): CredentialFormState {
   return {
@@ -88,7 +145,199 @@ function emptyForm(): CredentialFormState {
     cloudProviderKey: 'cloud.aliyun',
     primarySecret: '',
     secondarySecret: '',
+    validityDays: '',
+    validityHours: '',
+    validityMinutes: '',
+    browserLoginUrl: '',
   }
+}
+
+function readBrowserCapabilityKey(value: unknown): string {
+  return value && typeof value === 'object' && 'key' in value
+    ? String((value as { key?: unknown }).key ?? '')
+    : String(value ?? '')
+}
+
+function readMetadataString(metadata: Record<string, unknown> | undefined, key: string): string {
+  const value = metadata?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function generateBrowserPassword(): void {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_'
+  const values = new Uint32Array(16)
+  crypto.getRandomValues(values)
+  browserSharePassword.value = Array.from(values, (value) => alphabet[value % alphabet.length]).join('')
+}
+
+async function loadBrowserPlugins(preferredPluginVersionId = ''): Promise<void> {
+  browserLoading.value = true
+  browserError.value = ''
+  try {
+    const result = await listPluginCatalog({ page: 1, pageSize: 200 })
+    browserPlugins.value = (result.data?.items ?? [])
+      .filter((item) => Array.isArray(item.capabilities) && item.capabilities.some((capability) => readBrowserCapabilityKey(capability) === 'credential.acquire'))
+      .map((item) => ({
+        id: String(item.pluginVersionId ?? item.id ?? ''),
+        label: String(item.displayName ?? item.name ?? item.pluginId ?? item.id ?? ''),
+      }))
+      .filter((item) => item.id)
+    if (!browserPlugins.value.some((item) => item.id === browserPluginVersionId.value)) {
+      browserPluginVersionId.value = browserPlugins.value.some((item) => item.id === preferredPluginVersionId)
+        ? preferredPluginVersionId
+        : browserPlugins.value[0]?.id ?? ''
+    }
+  } catch (cause) {
+    browserError.value = cause instanceof Error ? cause.message : t('credentials.browser.errors.load')
+  } finally {
+    browserLoading.value = false
+  }
+}
+
+function openBrowserAcquire(item: CredentialProfileSummary): void {
+  if (browserSession.value && !['SAVED', 'FAILED', 'EXPIRED', 'CLOSED'].includes(browserSession.value.status)) {
+    browserModalOpen.value = true
+    return
+  }
+  browserSession.value = null
+  browserModalOpen.value = true
+  browserSaveSuccessOpen.value = false
+  browserCredentialId.value = item.id
+  browserAssetId.value = readMetadataString(item.metadata, 'assetId')
+  browserPluginVersionId.value = readMetadataString(item.metadata, 'pluginVersionId')
+  browserLoginUrl.value = readMetadataString(item.metadata, 'browserLoginUrl')
+  browserTtlSeconds.value = 1800
+  browserSharePassword.value = ''
+  browserCopied.value = false
+  browserError.value = ''
+  void loadBrowserPlugins(browserPluginVersionId.value)
+}
+
+async function createBrowserSession(): Promise<void> {
+  if (!browserCanCreate.value) return
+  browserLoading.value = true
+  browserError.value = ''
+  try {
+    const result = await createBrowserCredentialSession({
+      credentialId: browserCredentialId.value,
+      ...(browserAssetId.value ? { assetId: browserAssetId.value } : {}),
+      pluginVersionId: browserPluginVersionId.value,
+      loginUrl: browserLoginUrl.value.trim(),
+      ttlSeconds: browserTtlSeconds.value,
+      sharePassword: browserSharePassword.value,
+      screenWidth: Math.round(window.innerWidth),
+      screenHeight: Math.round(window.innerHeight),
+    })
+    browserSession.value = requireBrowserSession(result.data)
+    startBrowserPolling()
+  } catch (cause) {
+    browserError.value = cause instanceof Error ? cause.message : t('credentials.browser.errors.create')
+  } finally {
+    browserLoading.value = false
+  }
+}
+
+async function refreshBrowserSession(): Promise<void> {
+  if (!browserSession.value) return
+  const result = await getBrowserCredentialSession(browserSession.value.id)
+  browserSession.value = requireBrowserSession(result.data, browserSession.value)
+}
+
+async function acquireBrowserSession(): Promise<void> {
+  if (!browserSession.value || !browserCanAcquire.value) return
+  browserAcquiring.value = true
+  browserError.value = ''
+  try {
+    const result = await acquireBrowserCredentialSession(browserSession.value.id)
+    browserSession.value = requireBrowserSession(result.data, browserSession.value)
+    stopBrowserPolling()
+    browserSaveSuccessOpen.value = true
+    await load().catch(() => undefined)
+  } catch (cause) {
+    browserError.value = cause instanceof Error ? cause.message : t('credentials.browser.errors.acquire')
+    await refreshBrowserSession().catch(() => undefined)
+  } finally {
+    browserAcquiring.value = false
+  }
+}
+
+function closeBrowserSaveSuccess(): void {
+  browserSaveSuccessOpen.value = false
+  browserModalOpen.value = false
+  browserSession.value = null
+  browserCredentialId.value = ''
+}
+
+function updateBrowserSaveSuccessOpen(open: boolean): void {
+  browserSaveSuccessOpen.value = open
+  if (!open) closeBrowserSaveSuccess()
+}
+
+async function cancelBrowserSession(): Promise<void> {
+  if (!browserSession.value || !browserCanCancel.value) return
+  browserLoading.value = true
+  browserError.value = ''
+  try {
+    const result = await cancelBrowserCredentialSession(browserSession.value.id)
+    browserSession.value = requireBrowserSession(result.data, browserSession.value)
+  } catch (cause) {
+    browserError.value = cause instanceof Error ? cause.message : t('credentials.browser.errors.cancel')
+  } finally {
+    browserLoading.value = false
+  }
+}
+
+async function copyBrowserLink(): Promise<void> {
+  if (!browserSession.value?.temporaryUrl) return
+  try {
+    await navigator.clipboard.writeText(browserSession.value.temporaryUrl)
+    browserCopied.value = true
+    window.setTimeout(() => { browserCopied.value = false }, 2000)
+  } catch {
+    browserError.value = t('credentials.browser.errors.copy')
+  }
+}
+
+function openBrowserLink(): void {
+  if (!browserSession.value?.temporaryUrl) return
+  window.open(browserSession.value.temporaryUrl, '_blank', 'noopener,noreferrer')
+}
+
+function startNewBrowserSession(): void {
+  stopBrowserPolling()
+  browserSaveSuccessOpen.value = false
+  browserSession.value = null
+  browserSharePassword.value = ''
+  browserCopied.value = false
+  browserError.value = ''
+}
+
+function startBrowserPolling(): void {
+  stopBrowserPolling()
+  browserPollTimer = window.setInterval(() => {
+    if (!browserSession.value || ['SAVED', 'FAILED', 'EXPIRED', 'CLOSED'].includes(browserSession.value.status)) {
+      stopBrowserPolling()
+      return
+    }
+    void refreshBrowserSession().catch(() => undefined)
+  }, 5000)
+}
+
+function stopBrowserPolling(): void {
+  if (browserPollTimer !== undefined) window.clearInterval(browserPollTimer)
+  browserPollTimer = undefined
+}
+
+function requireBrowserSession(value: BrowserCredentialSession | undefined, previous?: BrowserCredentialSession): BrowserCredentialSession {
+  if (!value) throw new Error(t('credentials.browser.errors.emptyResponse'))
+  return {
+    ...value,
+    ...(value.temporaryUrl || !previous?.temporaryUrl ? {} : { temporaryUrl: previous.temporaryUrl }),
+  }
+}
+
+function browserSessionLocalTime(value: string | undefined): string {
+  return value ? formatBrowserLocalTime(value, { includeSeconds: false }) || t('common.notAvailable') : t('common.notAvailable')
 }
 
 function requiresUsernameFor(kind: CredentialKind): boolean {
@@ -107,7 +356,69 @@ function editForm(detail: CredentialProfileDetail): CredentialFormState {
     cloudProviderKey: cloudProviderKey(detail.metadata.providerKey),
     primarySecret: '',
     secondarySecret: '',
+    ...expiryToDuration(detail.expiresAt, detail.kind),
+    browserLoginUrl: readMetadataString(detail.metadata, 'browserLoginUrl'),
   }
+}
+
+function expiryToDuration(expiresAt: string | undefined, kind: CredentialKind): { validityDays: string; validityHours: string; validityMinutes: string } {
+  if (!expiresAt) return { validityDays: '', validityHours: '', validityMinutes: '' }
+  const difference = Date.parse(expiresAt) - Date.now()
+  if (!Number.isFinite(difference) || difference <= 0) return { validityDays: '0', validityHours: '0', validityMinutes: '0' }
+  if (kind !== 'BROWSER_SESSION') {
+    return { validityDays: String(Math.ceil(difference / (24 * 60 * 60 * 1000))), validityHours: '', validityMinutes: '' }
+  }
+  const totalMinutes = Math.max(1, Math.ceil(difference / 60_000))
+  const validityDays = Math.floor(totalMinutes / (24 * 60))
+  const remainderMinutes = totalMinutes % (24 * 60)
+  return {
+    validityDays: String(validityDays),
+    validityHours: String(Math.floor(remainderMinutes / 60)),
+    validityMinutes: String(remainderMinutes % 60),
+  }
+}
+
+function parseDurationPart(value: unknown, maximum?: number): number | null {
+  const normalized = String(value ?? '').trim()
+  if (!normalized) return 0
+  const parsed = Number(normalized)
+  if (!Number.isInteger(parsed) || parsed < 0 || (maximum !== undefined && parsed > maximum)) return null
+  return parsed
+}
+
+function buildExpiresAt(daysValue: unknown, hoursValue: unknown, minutesValue: unknown): string | null {
+  const days = parseDurationPart(daysValue)
+  const hours = parseDurationPart(hoursValue, 23)
+  const minutes = parseDurationPart(minutesValue, 59)
+  if (days === null || hours === null || minutes === null) throw new Error(t('credentials.errors.invalidExpiry'))
+  const totalMinutes = days * 24 * 60 + hours * 60 + minutes
+  if (totalMinutes === 0) return null
+  return new Date(Date.now() + totalMinutes * 60_000).toISOString()
+}
+
+function expiryInputKey(): string {
+  return [
+    String(form.value.validityDays ?? '').trim(),
+    String(form.value.validityHours ?? '').trim(),
+    String(form.value.validityMinutes ?? '').trim(),
+  ].join('|')
+}
+
+function expiresAtForSubmit(): string | null {
+  const unchanged = isEditing.value
+    && expiryInputKey() === [initialValidityDays.value, initialValidityHours.value, initialValidityMinutes.value].join('|')
+  if (unchanged && initialExpiresAt.value && Date.parse(initialExpiresAt.value) > Date.now()) {
+    return initialExpiresAt.value
+  }
+  return buildExpiresAt(form.value.validityDays, form.value.validityHours, form.value.validityMinutes)
+}
+
+function remainingTime(expiresAt: string | undefined): string {
+  const result = getExpiryRemaining(expiresAt, new Date(now.value))
+  if (result.kind === 'longTerm') return t('credentials.expiry.longTerm')
+  if (result.kind === 'expired') return t('credentials.expiry.expired')
+  if (result.kind === 'days') return t('credentials.expiry.remainingDays', { days: result.days })
+  return t('credentials.expiry.remainingHoursMinutes', { hours: result.hours, minutes: result.minutes })
 }
 
 function buildSecretValues(
@@ -139,6 +450,25 @@ function buildSecretValues(
   return values
 }
 
+function createMetadata(): Record<string, unknown> | undefined {
+  if (isCloudProviderCredential.value) {
+    return { providerKey: form.value.cloudProviderKey }
+  }
+  if (isBrowserSessionCredential.value) {
+    const metadata: Record<string, unknown> = isEditing.value
+      ? { ...(selected.value?.metadata ?? {}) }
+      : {
+        outputContract: {
+          version: 'credential.output/v1',
+          parameters: {},
+        },
+      }
+    metadata.browserLoginUrl = form.value.browserLoginUrl.trim()
+    return metadata
+  }
+  return undefined
+}
+
 function cloudProviderKey(value: unknown): CloudProviderKey {
   return typeof value === 'string' && value in CLOUD_PROVIDER_SECRET_FIELDS
     ? value as CloudProviderKey
@@ -167,6 +497,10 @@ function openCreate(): void {
   selected.value = null
   usage.value = null
   form.value = emptyForm()
+  initialValidityDays.value = ''
+  initialValidityHours.value = ''
+  initialValidityMinutes.value = ''
+  initialExpiresAt.value = null
   error.value = ''
   editorOpen.value = true
 }
@@ -192,6 +526,10 @@ async function openEdit(id: string): Promise<void> {
     if (!selected.value) return
     editorMode.value = 'edit'
     form.value = editForm(selected.value)
+    initialValidityDays.value = String(form.value.validityDays ?? '')
+    initialValidityHours.value = String(form.value.validityHours ?? '')
+    initialValidityMinutes.value = String(form.value.validityMinutes ?? '')
+    initialExpiresAt.value = selected.value.expiresAt ?? null
     editorOpen.value = true
   } catch {
     // 错误已由 loadSelection 统一展示。
@@ -227,9 +565,8 @@ async function submitEditor(): Promise<void> {
       delivery: form.value.kind === 'API_KEY'
         ? { location: form.value.deliveryLocation, name: form.value.deliveryName.trim() }
         : undefined,
-      metadata: isCloudProviderCredential.value
-        ? { providerKey: form.value.cloudProviderKey }
-        : undefined,
+      metadata: createMetadata(),
+      expiresAt: expiresAtForSubmit(),
     }
     if (isEditing.value && selected.value) {
       await updateCredential(selected.value.id, {
@@ -309,8 +646,15 @@ async function removeSelected(): Promise<void> {
 }
 
 onMounted(() => {
-  void systemCapabilities.load().catch(() => undefined)
   void load()
+  remainingTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 60_000)
+})
+
+onUnmounted(() => {
+  if (remainingTimer) clearInterval(remainingTimer)
+  stopBrowserPolling()
 })
 </script>
 
@@ -319,7 +663,6 @@ onMounted(() => {
     <GcPageHeader :title="t('credentials.title')" :description="t('credentials.description')">
       <template #actions>
         <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
-        <RouterLink v-if="browserRuntimeEnabled" class="gc-button" to="/settings/browser-credentials">{{ t('credentials.browser.actions.open') }}</RouterLink>
         <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
       </template>
     </GcPageHeader>
@@ -345,6 +688,8 @@ onMounted(() => {
               <th>{{ t('credentials.columns.scope') }}</th>
               <th>{{ t('credentials.columns.username') }}</th>
               <th>{{ t('credentials.columns.status') }}</th>
+              <th>{{ t('credentials.columns.expiresAt') }}</th>
+              <th>{{ t('credentials.columns.remainingTime') }}</th>
               <th>{{ t('credentials.columns.updatedAt') }}</th>
               <th class="credentials-list__actions-heading">{{ t('credentials.columns.actions') }}</th>
             </tr>
@@ -367,9 +712,12 @@ onMounted(() => {
                 </div>
                 <GcStatusTag v-else :status="item.status" />
               </td>
+              <td>{{ item.expiresAt ? formatBrowserLocalTime(item.expiresAt, { includeSeconds: false }) : t('credentials.expiry.longTerm') }}</td>
+              <td>{{ remainingTime(item.expiresAt) }}</td>
               <td>{{ formatMaybeLocalTime(item.updatedAt) }}</td>
               <td>
                 <div class="credentials-list__actions">
+                  <button v-if="item.kind === 'BROWSER_SESSION'" class="gc-button" type="button" :disabled="browserLoading" @click="openBrowserAcquire(item)">{{ t('credentials.browser.actions.open') }}</button>
                   <button class="gc-button" type="button" :disabled="loadingSelection" @click="openEdit(item.id)">{{ t('credentials.actions.edit') }}</button>
                   <button class="gc-button gc-button--danger" type="button" :disabled="loadingSelection" @click="openDelete(item.id)">{{ t('credentials.actions.delete') }}</button>
                 </div>
@@ -416,10 +764,35 @@ onMounted(() => {
               </span>
               <small>{{ t('credentials.cloudProviders.hint') }}</small>
             </label>
+            <label v-if="isBrowserSessionCredential" class="credentials-field gc-form-field credentials-editor__field--wide">
+              <span>{{ t('credentials.browser.fields.loginUrl') }}</span>
+              <input v-model="form.browserLoginUrl" type="url" required autocomplete="url">
+              <small>{{ t('credentials.browser.hints.savedLoginUrl') }}</small>
+            </label>
+            <div v-if="isBrowserSessionCredential" class="credentials-editor__expiry-duration credentials-editor__field--wide">
+              <label class="credentials-field gc-form-field">
+                <span>{{ t('credentials.fields.validityDays') }}</span>
+                <input v-model="form.validityDays" type="number" min="0" step="1" inputmode="numeric">
+              </label>
+              <label class="credentials-field gc-form-field">
+                <span>{{ t('credentials.fields.validityHours') }}</span>
+                <input v-model="form.validityHours" type="number" min="0" max="23" step="1" inputmode="numeric">
+              </label>
+              <label class="credentials-field gc-form-field">
+                <span>{{ t('credentials.fields.validityMinutes') }}</span>
+                <input v-model="form.validityMinutes" type="number" min="0" max="59" step="1" inputmode="numeric">
+              </label>
+              <small>{{ t('credentials.hints.validityDuration') }}</small>
+            </div>
+            <label v-else class="credentials-field gc-form-field">
+              <span>{{ t('credentials.fields.validityDays') }}</span>
+              <input v-model="form.validityDays" type="number" min="0" step="1" inputmode="numeric">
+              <small>{{ t('credentials.hints.validityDays') }}</small>
+            </label>
           </div>
         </section>
 
-        <section class="credentials-editor__section credentials-editor__section--secret">
+        <section v-if="!isBrowserSessionCredential" class="credentials-editor__section credentials-editor__section--secret">
           <header><h3>{{ t('credentials.form.secretTitle') }}</h3><p v-if="!isEditing">{{ t('credentials.form.secretCreateDescription') }}</p></header>
           <div class="credentials-editor__grid">
             <label v-if="form.kind === 'DNS_PROVIDER'" class="credentials-dns-config gc-form-field">
@@ -430,6 +803,9 @@ onMounted(() => {
             <GcSecretInput v-else v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.primary.labelKey) : t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
             <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.secondary.labelKey) : t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
           </div>
+        </section>
+        <section v-else class="credentials-editor__section credentials-editor__section--secret">
+          <header><h3>{{ t('credentials.form.secretTitle') }}</h3><p>{{ t('credentials.form.browserSessionDescription') }}</p></header>
         </section>
 
         <section v-if="isEditing" class="credentials-editor__section">
@@ -464,6 +840,90 @@ onMounted(() => {
       </template>
     </GcModal>
 
+    <GcModal v-model:open="browserModalOpen" :title="t('credentials.browser.title')" :description="t('credentials.browser.description')" size="xl">
+      <form v-if="!browserSession" class="browser-session-modal" @submit.prevent="createBrowserSession">
+        <div class="browser-session-modal__grid">
+          <label class="gc-form-field browser-session-modal__field--wide">
+            <span>{{ t('credentials.browser.fields.loginUrl') }}</span>
+            <input v-model="browserLoginUrl" type="url" required autocomplete="url" :disabled="browserLoading">
+          </label>
+          <label class="gc-form-field">
+            <span>{{ t('credentials.browser.fields.plugin') }}</span>
+            <select v-model="browserPluginVersionId" required :disabled="browserLoading">
+              <option v-for="item in browserPlugins" :key="item.id" :value="item.id">{{ item.label }}</option>
+            </select>
+          </label>
+          <label class="gc-form-field">
+            <span>{{ t('credentials.browser.fields.ttl') }}</span>
+            <input v-model.number="browserTtlSeconds" type="number" min="60" max="3600" step="60" required :disabled="browserLoading">
+          </label>
+          <label class="gc-form-field browser-session-modal__field--wide">
+            <span>{{ t('credentials.browser.fields.sharePassword') }}</span>
+            <div class="browser-session-modal__password">
+              <input v-model="browserSharePassword" type="text" minlength="8" maxlength="128" autocomplete="off" required :disabled="browserLoading">
+              <button class="gc-button" type="button" :disabled="browserLoading" @click="generateBrowserPassword">{{ t('credentials.browser.actions.generatePassword') }}</button>
+            </div>
+          </label>
+        </div>
+      </form>
+
+      <section v-else class="browser-session-modal">
+        <header class="browser-session-modal__status">
+          <div>
+            <h3>{{ t('credentials.browser.session.title') }}</h3>
+            <p>{{ t('credentials.browser.session.expiresAt', { time: browserSessionLocalTime(browserSession.expiresAt) }) }}</p>
+          </div>
+          <GcStatusTag :status="browserSession.status" />
+        </header>
+        <dl class="browser-session-modal__facts">
+          <div><dt>{{ t('credentials.browser.fields.loginUrl') }}</dt><dd>{{ browserSession.capability.loginUrl }}</dd></div>
+          <div><dt>{{ t('credentials.browser.fields.plugin') }}</dt><dd>{{ browserSession.capability.pluginId }}@{{ browserSession.capability.pluginVersion }}</dd></div>
+          <div><dt>{{ t('credentials.browser.fields.outputs') }}</dt><dd>{{ browserSession.capability.outputParameters.join(', ') }}</dd></div>
+          <div v-if="browserSession.credentialId"><dt>{{ t('credentials.browser.fields.credentialId') }}</dt><dd>{{ browserSession.credentialId }}</dd></div>
+        </dl>
+        <label v-if="browserSharePassword" class="gc-form-field browser-session-modal__share-password">
+          <span>{{ t('credentials.browser.fields.sharePassword') }}</span>
+          <input :value="browserSharePassword" readonly autocomplete="off">
+        </label>
+        <div v-if="browserSession.temporaryUrl" class="browser-session-modal__share">
+          <label class="gc-form-field">
+            <span>{{ t('credentials.browser.fields.shareUrl') }}</span>
+            <input :value="browserSession.temporaryUrl" readonly>
+          </label>
+          <div class="browser-session-modal__share-actions">
+            <button class="gc-button" type="button" @click="copyBrowserLink">{{ browserCopied ? t('credentials.browser.actions.copied') : t('credentials.browser.actions.copyShareUrl') }}</button>
+            <button class="gc-button gc-button--primary" type="button" @click="openBrowserLink">{{ t('credentials.browser.actions.openShareUrl') }}</button>
+          </div>
+        </div>
+        <p v-if="browserSession.errorMessage" class="credentials-page__error" role="alert">{{ browserSession.errorCode }} · {{ browserSession.errorMessage }}</p>
+      </section>
+
+      <p v-if="browserError" class="credentials-page__error" role="alert">{{ browserError }}</p>
+
+      <template #actions>
+        <button v-if="browserSession && ['SAVED', 'FAILED', 'EXPIRED', 'CLOSED'].includes(browserSession.status)" class="gc-button" type="button" @click="startNewBrowserSession">{{ t('credentials.browser.actions.newSession') }}</button>
+        <button v-if="browserSession && browserCanCancel" class="gc-button" type="button" :disabled="browserLoading" @click="cancelBrowserSession">{{ t('common.cancel') }}</button>
+        <button v-if="browserSession" class="gc-button gc-button--primary" type="button" :disabled="!browserCanAcquire" @click="acquireBrowserSession">{{ browserAcquiring ? t('credentials.browser.actions.acquiring') : t('credentials.browser.actions.acquire') }}</button>
+        <button v-if="!browserSession" class="gc-button" type="button" @click="browserModalOpen = false">{{ t('credentials.actions.close') }}</button>
+        <button v-if="!browserSession" class="gc-button gc-button--primary" type="button" :disabled="!browserCanCreate" @click="createBrowserSession">{{ t('credentials.browser.actions.create') }}</button>
+        <button v-else class="gc-button" type="button" @click="browserModalOpen = false">{{ t('credentials.actions.close') }}</button>
+      </template>
+    </GcModal>
+
+    <GcModal :open="browserSaveSuccessOpen" :title="t('credentials.browser.saveSuccess.title')" :description="t('credentials.browser.saveSuccess.description')" size="sm" @update:open="updateBrowserSaveSuccessOpen">
+      <section class="browser-save-success">
+        <GcStatusTag status="success" />
+        <p>{{ t('credentials.browser.saveSuccess.message') }}</p>
+        <dl v-if="browserSession?.credentialId">
+          <dt>{{ t('credentials.browser.fields.credentialId') }}</dt>
+          <dd>{{ browserSession.credentialId }}</dd>
+        </dl>
+      </section>
+      <template #actions>
+        <button class="gc-button gc-button--primary" type="button" @click="closeBrowserSaveSuccess">{{ t('credentials.actions.close') }}</button>
+      </template>
+    </GcModal>
+
     <GcModal v-model:open="deleteOpen" :title="t('credentials.deleteDialog.title')" :description="t('credentials.deleteDialog.description')" size="lg">
       <section v-if="selected" class="delete-dialog">
         <div class="delete-dialog__credential"><span>{{ t('credentials.fields.credential') }}</span><strong>{{ selected.name }}</strong><small>{{ t(`credentials.kinds.${selected.kind}`) }} · {{ selected.id }}</small></div>
@@ -491,24 +951,28 @@ onMounted(() => {
 .credentials-page { display: grid; gap: var(--gc-space-5); }
 .credentials-page__error { margin: 0; padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); background: var(--gc-color-danger-bg); color: var(--gc-color-danger); }
 .credentials-list { overflow: hidden; padding: 0; }
-.credentials-list__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); padding: var(--gc-space-4) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-gradient-surface-soft); }
+.credentials-list__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); padding: var(--gc-space-3) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-gradient-surface-soft); }
 .credentials-list__header h2, .credentials-editor h3, .usage-group h4 { margin: 0; color: var(--gc-color-text-strong); }
+.credentials-list__header h2 { font-size: var(--gc-font-size-sm); }
 .credentials-list__header p, .credentials-editor header p, .usage-group p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
+.credentials-list__header p { font-size: var(--gc-font-size-xs); font-weight: 650; }
 .credentials-list__state { margin: 0; padding: var(--gc-space-10); text-align: center; color: var(--gc-color-text-muted); }
 .credentials-list__table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-th, td { padding: var(--gc-space-3) var(--gc-space-4); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: middle; }
-th { background: var(--gc-color-surface-muted); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 800; }
-td { color: var(--gc-color-text); }
-tbody tr { background: var(--gc-color-surface); }
+table { width: 100%; min-width: var(--gc-size-modal-wide); border-collapse: separate; border-spacing: 0; }
+th, td { padding: var(--gc-space-2) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: middle; line-height: 1.25; }
+th { background: var(--gc-color-surface-muted); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 900; white-space: nowrap; }
+td { color: var(--gc-color-text); font-size: var(--gc-font-size-xs); white-space: nowrap; }
+tbody tr { background: var(--gc-color-surface); transition: background .16s ease; }
 tbody tr:hover { background: var(--gc-color-surface-hover); }
 tbody tr:last-child td { border-bottom: 0; }
 .credentials-list__actions-heading { text-align: right; }
-.credentials-list__actions { display: flex; justify-content: flex-end; gap: var(--gc-space-2); }
-.credential-name { display: flex; align-items: center; gap: var(--gc-space-3); min-width: var(--gc-size-card-min); }
-.credential-name__mark { display: grid; flex: 0 0 var(--gc-control-height-md); width: var(--gc-control-height-md); height: var(--gc-control-height-md); place-items: center; border-radius: var(--gc-radius-md); background: var(--gc-color-primary-soft); color: var(--gc-color-primary-strong); font-weight: 800; }
-.credential-name > span:last-child { display: grid; gap: var(--gc-space-1); }
-.credential-name small, .usage-group small, .delete-dialog__credential small { color: var(--gc-color-text-muted); }
+.credentials-list__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-1); }
+.credentials-list__actions .gc-button { min-height: var(--gc-space-8); padding: 0 var(--gc-space-2); font-size: var(--gc-font-size-xs); white-space: nowrap; }
+.credential-name { display: flex; align-items: center; gap: var(--gc-space-2); min-width: var(--gc-size-card-min); }
+.credential-name__mark { display: grid; flex: 0 0 var(--gc-space-8); width: var(--gc-space-8); height: var(--gc-space-8); place-items: center; border-radius: var(--gc-radius-sm); background: var(--gc-color-primary-soft); color: var(--gc-color-primary-strong); font-size: var(--gc-font-size-xs); font-weight: 800; }
+.credential-name > span:last-child { display: grid; min-width: 0; gap: var(--gc-space-1); }
+.credential-name strong { overflow: hidden; text-overflow: ellipsis; }
+.credential-name small, .usage-group small, .delete-dialog__credential small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
 .credential-kind { display: inline-flex; padding: var(--gc-space-1) var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-xl); background: var(--gc-color-info-soft); color: var(--gc-color-info); font-size: var(--gc-font-size-xs); font-weight: 700; white-space: nowrap; }
 .credential-status { display: grid; justify-items: start; gap: var(--gc-space-1); }
 .credential-status span { display: inline-flex; padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-xl); font-size: var(--gc-font-size-xs); font-weight: 700; }
@@ -520,10 +984,36 @@ tbody tr:last-child td { border-bottom: 0; }
 .credential-status-action--enable:hover { border-color: var(--gc-color-success); background: var(--gc-color-success-soft); }
 .credential-status-action--disable { border-color: var(--gc-color-warning-border); background: var(--gc-color-warning-bg); color: var(--gc-color-warning); }
 .credential-status-action--disable:hover { border-color: var(--gc-color-warning); background: var(--gc-color-warning-soft); }
+.browser-session-modal { display: grid; gap: var(--gc-space-4); }
+.browser-session-modal__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
+.browser-session-modal__field--wide { grid-column: 1 / -1; }
+.browser-session-modal__password { display: flex; align-items: center; gap: var(--gc-space-2); }
+.browser-session-modal__password input { flex: 1; min-width: 0; }
+.browser-session-modal__password .gc-button { flex: 0 0 auto; }
+.browser-session-modal__status { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); padding-bottom: var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
+.browser-session-modal__status h3, .browser-session-modal__status p { margin: 0; }
+.browser-session-modal__status h3 { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
+.browser-session-modal__status p { margin-top: var(--gc-space-1); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.browser-session-modal__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); margin: 0; }
+.browser-session-modal__facts div { min-width: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); }
+.browser-session-modal__facts dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.browser-session-modal__facts dd { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text); overflow-wrap: anywhere; }
+.browser-session-modal__share-password { margin: 0; }
+.browser-session-modal__share { display: flex; align-items: end; gap: var(--gc-space-3); }
+.browser-session-modal__share .gc-form-field { flex: 1; min-width: 0; }
+.browser-session-modal__share-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.browser-save-success { display: grid; gap: var(--gc-space-3); }
+.browser-save-success p { margin: 0; color: var(--gc-color-text); }
+.browser-save-success dl { display: grid; gap: var(--gc-space-1); margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); }
+.browser-save-success dt { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.browser-save-success dd { margin: 0; overflow-wrap: anywhere; color: var(--gc-color-text); }
 .credentials-editor { display: grid; gap: var(--gc-space-4); }
 .credentials-editor__section { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
 .credentials-editor__section--secret { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-weak); }
 .credentials-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
+.credentials-editor__field--wide { grid-column: 1 / -1; }
+.credentials-editor__expiry-duration { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-4); }
+.credentials-editor__expiry-duration > small { grid-column: 1 / -1; color: var(--gc-color-text-muted); }
 .credentials-field { align-content: start; color: var(--gc-color-text); }
 .credentials-select { position: relative; display: block; }
 .credentials-select select { appearance: none; padding-right: var(--gc-space-8); cursor: pointer; }
@@ -549,6 +1039,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .delete-dialog__credential { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-raised); }
 .delete-dialog__credential > span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
 @media (max-width: 56.25rem) {
-  .credentials-editor__grid, .usage-groups { grid-template-columns: 1fr; }
+  .credentials-editor__grid, .credentials-editor__expiry-duration, .usage-groups, .browser-session-modal__grid, .browser-session-modal__facts { grid-template-columns: 1fr; }
+  .browser-session-modal__field--wide { grid-column: auto; }
+  .browser-session-modal__share { align-items: stretch; flex-direction: column; }
+  .browser-session-modal__share-actions { justify-content: flex-end; }
 }
 </style>

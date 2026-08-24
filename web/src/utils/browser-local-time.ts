@@ -13,6 +13,12 @@ export interface ExpiryCountdown {
   readonly days: number
 }
 
+export type ExpiryRemaining =
+  | { readonly kind: 'longTerm' }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'days'; readonly days: number }
+  | { readonly kind: 'hoursMinutes'; readonly hours: number; readonly minutes: number }
+
 function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
@@ -68,6 +74,24 @@ export function getExpiryCountdown(value: unknown, now = new Date()): ExpiryCoun
   return {
     expired: difference < 0,
     days: Math.ceil(Math.abs(difference) / MILLISECONDS_PER_DAY),
+  }
+}
+
+export function getExpiryRemaining(value: unknown, now = new Date()): ExpiryRemaining {
+  const expiry = parseDateValue(value)
+  if (!expiry) return { kind: 'longTerm' }
+
+  const difference = expiry.getTime() - now.getTime()
+  if (difference <= 0) return { kind: 'expired' }
+
+  const totalMinutes = Math.floor(difference / (60 * 1000))
+  const days = Math.floor(totalMinutes / (24 * 60))
+  if (days >= 1) return { kind: 'days', days }
+
+  return {
+    kind: 'hoursMinutes',
+    hours: Math.floor(totalMinutes / 60),
+    minutes: totalMinutes % 60,
   }
 }
 

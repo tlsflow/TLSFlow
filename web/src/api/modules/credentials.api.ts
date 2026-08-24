@@ -14,6 +14,7 @@ export interface CredentialProfileSummary {
   status: 'active' | 'disabled' | 'error'
   version: number
   updatedAt: string
+  expiresAt?: string
   metadata?: Record<string, unknown>
 }
 
@@ -47,6 +48,7 @@ export interface CreateCredentialInput {
   username?: string
   delivery?: CredentialProfileDetail['delivery']
   metadata?: Record<string, unknown>
+  expiresAt?: string | null
   secretValues: Record<string, CredentialSecretValueInput>
 }
 
@@ -58,6 +60,7 @@ export interface UpdateCredentialInput {
   delivery?: CredentialProfileDetail['delivery']
   metadata?: Record<string, unknown>
   secretValues?: Record<string, CredentialSecretValueInput>
+  expiresAt?: string | null
   expectedVersion: number
 }
 
@@ -102,6 +105,7 @@ export interface BrowserCredentialSession {
   id: string
   assetId: string
   pluginVersionId: string
+  loginUrl?: string
   workflowVersionId: string
   status: BrowserCredentialSessionStatus
   temporaryUrl?: string
@@ -118,9 +122,14 @@ export interface BrowserCredentialSession {
 }
 
 export interface CreateBrowserCredentialSessionInput {
-  assetId: string
+  credentialId: string
+  assetId?: string
   pluginVersionId: string
+  loginUrl: string
   ttlSeconds?: number
+  sharePassword: string
+  screenWidth?: number
+  screenHeight?: number
 }
 
 export function createBrowserCredentialSession(input: CreateBrowserCredentialSessionInput): Promise<ApiResult<BrowserCredentialSession>> {
