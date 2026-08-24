@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "管理地址",
   "plugin.synologyDsm.field.port": "管理端口",
   "plugin.synologyDsm.field.gateway": "执行网关",
+  "plugin.synologyDsm.field.httpsEnabled": "启用 HTTPS",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "忽略证书错误",
   "plugin.synologyDsm.field.tlsVerify": "验证服务端证书",
   "plugin.synologyDsm.field.product": "产品",
   "plugin.synologyDsm.field.version": "版本",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "到期时间",
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM（通过 DSM Web API）",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理地址",
-  "plugin.synologyDsm.onboarding.requiredCredential": "具备证书管理权限的 DSM 管理员凭据"
+  "plugin.synologyDsm.onboarding.requiredCredential": "具备证书管理权限的 DSM 管理员凭据",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "服务协议不是 HTTP 或 HTTPS，已跳过证书目标"
 }

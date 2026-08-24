@@ -22,6 +22,7 @@ const SERVICE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=
 const CERTIFICATE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list';
 const IMPORT_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import';
 const SERVICE_BINDING_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.Service&version=1&method=set';
+const ALL_HTTP_SERVICES_NAME = '全部 HTTP 服务';
 
 /** 标准 Runner 只加载这个工厂；本文件不实现 IPC 入口，也不监听 stdin/stdout。 */
 export function createPluginRunnerExecutor() {
@@ -157,6 +158,8 @@ async function deploy(input, fixture, credential, state, context, hostApi) {
   const current = await requestFixture(fixture, state, context.signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(current, state);
   const previous = findTargetCertificate(current.body, target);
+  const previousServices = findTargetServices(previous, target);
+  if (!previous || previousServices.length === 0) fail('DSM 未找到目标服务的当前证书绑定');
   const certificateId = requiredIdentifier(
     input.certificateId ?? `gcac-${sha256Hex(artifact.artifactRef).slice(0, 16)}`,
     'certificateId',
@@ -170,7 +173,7 @@ async function deploy(input, fixture, credential, state, context, hostApi) {
       artifactSha256: artifact.sha256,
       intermediateCount: optionalNonNegativeInteger(input.intermediateCount) ?? 0,
     });
-    await bindCertificate(fixture, state, context.signal, session.sid, target, previous, certificateId);
+    await bindCertificate(fixture, state, context.signal, session.sid, previousServices, certificateId, previous);
     const verified = await requestFixture(fixture, state, context.signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
     assertDsmSuccess(verified, state);
     if (!hasTargetCertificate(verified.body, target, certificateId)) {
@@ -181,6 +184,7 @@ async function deploy(input, fixture, credential, state, context, hostApi) {
       operation: 'certificate.deploy',
       target,
       certificateId,
+      serviceCount: previousServices.length,
       previousCertificate: redactCertificate(previous),
       verified: true,
       requestCount: state.requestCount,
@@ -202,7 +206,9 @@ async function rollback(input, fixture, credential, state, signal) {
   const current = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(current, state);
   const currentCertificate = findTargetCertificate(current.body, target);
-  await bindCertificate(fixture, state, signal, session.sid, target, previous, certificateId, currentCertificate);
+  const previousServices = findTargetServices(previous, target);
+  if (previousServices.length === 0) fail('回滚快照中没有目标服务绑定');
+  await bindCertificate(fixture, state, signal, session.sid, previousServices, certificateId, currentCertificate);
   const verified = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(verified, state);
   if (!hasTargetCertificate(verified.body, target, certificateId)) {
@@ -224,23 +230,24 @@ async function attemptRollback(fixture, state, signal, sid, target, previous, fa
   if (rawCertificateId === undefined || rawCertificateId === null) return;
   const certificateId = String(rawCertificateId);
   try {
-    await bindCertificate(fixture, state, signal, sid, target, previous, certificateId, { id: failedCertificateId });
+    const previousServices = findTargetServices(previous, target);
+    if (previousServices.length === 0) return;
+    await bindCertificate(fixture, state, signal, sid, previousServices, certificateId, { id: failedCertificateId });
   } catch (error) {
     error.writeStarted = true;
     throw error;
   }
 }
 
-async function bindCertificate(fixture, state, signal, sid, target, previous, certificateId, current = previous) {
-  const previousService = findTargetService(previous, target) ?? { display_name: target };
+async function bindCertificate(fixture, state, signal, sid, services, certificateId, current) {
   const currentId = current?.id ?? current?.certificateId ?? certificateId;
   await writeDsm(fixture, state, signal, SERVICE_BINDING_PATH, {
     sid,
-    settings: JSON.stringify([{
-      service: { ...sanitizeService(previousService), multiple_cert: true, user_setable: true },
+    settings: JSON.stringify(services.map((service) => ({
+      service: { ...sanitizeService(service), multiple_cert: true, user_setable: true },
       old_id: String(currentId),
       id: String(certificateId),
-    }]),
+    }))),
   });
 }
 
@@ -326,7 +333,9 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
   const certificates = array(certificatesBody.data?.certificates ?? [], 'DSM certificates');
   const frameworkStableKey = 'framework:synology-dsm';
   const frameworks = [{ stableKey: frameworkStableKey, frameworkType: 'synology.dsm-web', displayName: 'DSM Web' }];
-  const sites = services.map((service) => {
+  const webServices = services.filter((service) => ['HTTP', 'HTTPS'].includes(normalizeProtocol(service.protocol)));
+  const unknownServices = services.filter((service) => !['HTTP', 'HTTPS'].includes(normalizeProtocol(service.protocol)));
+  const sites = webServices.map((service) => {
     const name = requiredName(String(service.name ?? service.id ?? ''), 'DSM service name');
     return {
       stableKey: `DSM:${safeKey(name)}`,
@@ -335,19 +344,40 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
       displayName: name,
       addresses: [address],
       port: optionalNonNegativeInteger(service.port),
-      protocol: String(service.protocol ?? 'HTTPS'),
+      protocol: normalizeProtocol(service.protocol),
       metadata: { serviceId: optionalText(service.id), certificateId: optionalText(service.certificateId) },
     };
   });
-  const managedTargets = sites.map((site) => ({
+  const httpsSites = sites.filter((site) => site.protocol === 'HTTPS');
+  const aggregateSite = httpsSites.length > 0 ? {
+    stableKey: 'DSM:ALL_HTTP_SERVICES',
+    frameworkStableKey,
+    siteType: 'device.service.aggregate',
+    displayName: ALL_HTTP_SERVICES_NAME,
+    addresses: [address],
+    port: optionalNonNegativeInteger(input.managementPort) ?? optionalNonNegativeInteger(fixture.device?.managementPort) ?? 5001,
+    protocol: 'HTTPS',
+    metadata: { allServices: true },
+  } : undefined;
+  const managedTargets = httpsSites.map((site) => ({
     stableKey: `TARGET:${site.stableKey}`,
     frameworkStableKey,
     siteStableKey: site.stableKey,
     targetType: 'tls.binding',
     targetKey: site.stableKey,
-    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+    supportedCapabilities: ['certificate.deploy', 'certificate.rollback'],
     executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
-  }));
+  })).concat(aggregateSite ? [{
+    stableKey: 'TARGET:DSM:ALL_HTTP_SERVICES',
+    frameworkStableKey,
+    siteStableKey: aggregateSite.stableKey,
+    targetType: 'tls.binding',
+    targetKey: aggregateSite.stableKey,
+    supportedCapabilities: ['certificate.deploy', 'certificate.rollback'],
+    executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
+    metadata: { allServices: true },
+  }] : []);
+  const projectedSites = aggregateSite ? [...sites, aggregateSite] : sites;
   const normalizedCertificates = certificates.map((certificate) => ({
     stableKey: `CERT:${safeKey(requiredIdentifier(String(certificate.id ?? certificate.certificateId ?? ''), 'DSM certificate id'))}`,
     sha256Fingerprint: requiredFingerprint(certificate.sha256Fingerprint ?? certificate.fingerprint),
@@ -363,7 +393,7 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
     const normalizedCertificate = certificateById.get(certificateId);
     if (!normalizedCertificate) return [];
     return certificateServiceNames(certificate).flatMap((serviceName) => {
-      const site = sites.find((item) => item.displayName === serviceName);
+      const site = httpsSites.find((item) => item.displayName === serviceName);
       if (!site) return [];
       return [{
         stableKey: `BINDING:${safeKey(`${serviceName}:${certificateId}`)}`,
@@ -386,36 +416,34 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
     },
     capabilities: CAPABILITIES.map((key) => ({ key, available: true })),
     frameworks,
-    sites,
+    sites: projectedSites,
     managedTargets,
     certificates: normalizedCertificates,
     certificateBindings,
-    warnings: [],
+    warnings: unknownServices.map((service) => ({
+      code: 'SYNOLOGY_SERVICE_PROTOCOL_UNSUPPORTED',
+      messageKey: 'plugin.synologyDsm.warning.unsupportedServiceProtocol',
+      metadata: { serviceName: optionalText(service.name ?? service.id), protocol: optionalText(service.protocol) },
+    })),
   };
 }
 
 function findTargetCertificate(body, target) {
   const certificates = array(body.data?.certificates ?? [], 'DSM certificates');
-  return certificates.find((certificate) => findDefaultDsmService(certificate) !== undefined)
-    ?? certificates.find((certificate) => certificateServiceNames(certificate).includes(target));
+  return certificates.find((certificate) => certificateServiceNames(certificate).includes(target))
+    ?? certificates.find((certificate) => findDefaultDsmService(certificate) !== undefined);
 }
 
 function hasTargetCertificate(body, target, certificateId) {
   const certificate = findTargetCertificate(body, target);
-  return Boolean(certificate && sameIdentifier(certificate.id ?? certificate.certificateId, certificateId));
+  if (!certificate || !sameIdentifier(certificate.id ?? certificate.certificateId, certificateId)) return false;
+  return findTargetServices(certificate, target).length > 0;
 }
 
-function findTargetService(certificate, target) {
-  if (!certificate || typeof certificate !== 'object') return undefined;
-  const defaultService = findDefaultDsmService(certificate);
-  if (defaultService) return defaultService;
-  const service = Array.isArray(certificate.services)
-    ? certificate.services.find((item) => serviceName(item) === target)
-    : undefined;
-  if (service && typeof service === 'object' && !Array.isArray(service)) return service;
-  if (Array.isArray(certificate.serviceNames) && certificate.serviceNames.includes(target)) return { display_name: target };
-  if (certificate.serviceName === target) return { display_name: target };
-  return undefined;
+function findTargetServices(certificate, target) {
+  const services = certificateServiceEntries(certificate);
+  const selected = services.filter((service) => serviceName(service) === target);
+  return selected.length > 0 ? selected : services;
 }
 
 function findDefaultDsmService(certificate) {
@@ -425,12 +453,21 @@ function findDefaultDsmService(certificate) {
 }
 
 function certificateServiceNames(certificate) {
-  if (!certificate || typeof certificate !== 'object') return [];
-  const services = Array.isArray(certificate.services) ? certificate.services : [];
-  const names = services.map(serviceName).filter(Boolean);
-  if (Array.isArray(certificate.serviceNames)) names.push(...certificate.serviceNames.filter((item) => typeof item === 'string'));
-  if (typeof certificate.serviceName === 'string') names.push(certificate.serviceName);
-  return [...new Set(names)];
+  return certificateServiceEntries(certificate).map(serviceName).filter(Boolean);
+}
+
+function certificateServiceEntries(certificate) {
+  if (!certificate || typeof certificate !== 'object' || Array.isArray(certificate)) return [];
+  const entries = Array.isArray(certificate.services) ? certificate.services.filter((item) => item && typeof item === 'object' && !Array.isArray(item)) : [];
+  if (Array.isArray(certificate.serviceNames)) entries.push(...certificate.serviceNames.filter((item) => typeof item === 'string').map((display_name) => ({ display_name })));
+  if (typeof certificate.serviceName === 'string') entries.push({ display_name: certificate.serviceName });
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const name = serviceName(entry);
+    if (!name || seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
 }
 
 function serviceName(service) {
@@ -558,6 +595,10 @@ function requiredName(value, name) {
 
 function optionalText(value) {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+function normalizeProtocol(value) {
+  return optionalText(value)?.toUpperCase() ?? '';
 }
 
 function optionalNonNegativeInteger(value) {

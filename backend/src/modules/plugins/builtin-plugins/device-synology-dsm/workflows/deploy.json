@@ -1,20 +1,37 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "1.0.18", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "1.1.1", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
+      "allowInsecureTls": {
+        "type": "boolean",
+        "required": true,
+        "configurationMode": "required",
+        "source": { "kind": "binding" },
+        "lifecycle": "pre_execution",
+        "bindingPolicy": "required_binding",
+        "descriptionKey": "deploymentInputs.allowInsecureTls.description",
+        "ui": {
+          "labelKey": "deploymentInputs.allowInsecureTls.label",
+          "group": "security",
+          "order": 10,
+          "helpKey": "deploymentInputs.allowInsecureTls.help"
+        }
+      },
       "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "certificateId": { "type": "string", "required": false, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
     },
     "connections": {
       "management": {
         "transport": "http",
+        "allowedProtocols": ["http", "https"],
         "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
         "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 5001 },
         "credentialSlot": "credential",
         "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
           "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
           "serverName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" }
         }
@@ -45,12 +62,12 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/auth.cgi",
+        "url": "/webapi/auth.cgi",
         "bodyType": "form",
         "form": { "api": "SYNO.API.Auth", "version": 7, "method": "login", "session": "GCAC", "format": "sid", "enable_syno_token": "yes", "client": "browser", "account": "{{credentials.credential.username}}" },
         "formCredentialRefs": { "passwd": "{{credentials.credential}}" },
         "headers": { "Accept": "application/json" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,
         "successStatusCodes": [200]
@@ -68,9 +85,9 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list&_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list&_sid={{steps.authenticate.extracted.sid}}",
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "extract": [{ "name": "previousCertificate", "type": "outputPath", "path": "$.body" }],
@@ -84,8 +101,8 @@
         "engine": "jsonata",
         "input": { "target": "{{variables.target}}", "certificates": "{{steps.readCurrentCertificate.extracted.previousCertificate}}" },
         "outputs": {
-          "previousCertificateId": { "expression": "($target := target; $byDefault := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[service = 'default']) > 0}); $byTarget := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[display_name = $target]) > 0}); $candidates := $append($append([], $byDefault), $append([], $byTarget)); $candidates[0].id)" },
-          "previousCertificateService": { "expression": "($target := target; $byDefault := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[service = 'default']) > 0}); $byTarget := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[display_name = $target]) > 0}); $certificate := $append($append([], $byDefault), $append([], $byTarget))[0]; $services := $append($append([], $certificate.services[service = 'default']), $append([], $certificate.services[display_name = $target])); $services[0])" }
+          "previousCertificateId": { "expression": "($target := target; $byTarget := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[display_name = $target]) > 0}); $byDefault := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[service = 'default']) > 0}); $candidate := ($count($byTarget) > 0 ? $byTarget : $byDefault)[0]; $candidate.id)" },
+          "previousCertificateServices": { "expression": "($target := target; $byTarget := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[display_name = $target]) > 0}); $byDefault := $filter(certificates.data.certificates, function($certificate){$count($certificate.services[service = 'default']) > 0}); $candidate := ($count($byTarget) > 0 ? $byTarget : $byDefault)[0]; $selected := $candidate.services[display_name = $target]; $count($selected) > 0 ? $selected : $candidate.services)" }
         },
         "timeoutMs": 200,
         "maxInputBytes": 1048576,
@@ -100,7 +117,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "multipart",
         "multipart": {
           "key": { "value": "{{artifacts.certificate.outputs.privateKey.content}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
@@ -111,7 +128,7 @@
           "as_default": { "value": "" }
         },
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200],
         "timeoutSeconds": 60
       },
@@ -126,7 +143,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "multipart",
         "multipart": {
           "key": { "value": "{{artifacts.certificate.outputs.privateKey.content}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
@@ -136,7 +153,7 @@
           "as_default": { "value": "" }
         },
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200],
         "timeoutSeconds": 60
       },
@@ -150,9 +167,9 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list&_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list&_sid={{steps.authenticate.extracted.sid}}",
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200]
       },
       "extract": [{ "name": "certificatesAfterImport", "type": "outputPath", "path": "$.body" }],
@@ -166,12 +183,12 @@
       "transform": {
         "engine": "jsonata",
         "input": {
-          "service": "{{steps.selectCurrentCertificate.extracted.previousCertificateService}}",
+          "services": "{{steps.selectCurrentCertificate.extracted.previousCertificateServices}}",
           "oldId": "{{steps.selectCurrentCertificate.extracted.previousCertificateId}}",
           "newId": "{{steps.importCertificateWithChain.extracted.newCertificateId}}"
         },
         "outputs": {
-          "settings": { "expression": "[{'service':$merge([service, {'multiple_cert':true,'user_setable':true}]),'old_id':oldId,'id':newId}]", "format": "jsonString" }
+          "settings": { "expression": "$append([], $map(services, function($service){ {'service':$merge([$service, {'multiple_cert':true,'user_setable':true}]),'old_id':oldId,'id':newId} }))", "format": "jsonString" }
         },
         "timeoutMs": 200,
         "maxInputBytes": 1048576,
@@ -186,11 +203,11 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "form",
         "form": { "api": "SYNO.Core.Certificate.Service", "version": 1, "method": "set", "settings": "{{steps.buildServiceSettingsWithChain.extracted.settings}}" },
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200],
         "timeoutSeconds": 60
       },
@@ -204,12 +221,12 @@
       "transform": {
         "engine": "jsonata",
         "input": {
-          "service": "{{steps.selectCurrentCertificate.extracted.previousCertificateService}}",
+          "services": "{{steps.selectCurrentCertificate.extracted.previousCertificateServices}}",
           "oldId": "{{steps.selectCurrentCertificate.extracted.previousCertificateId}}",
           "newId": "{{steps.importCertificateWithoutChain.extracted.newCertificateId}}"
         },
         "outputs": {
-          "settings": { "expression": "[{'service':$merge([service, {'multiple_cert':true,'user_setable':true}]),'old_id':oldId,'id':newId}]", "format": "jsonString" }
+          "settings": { "expression": "$append([], $map(services, function($service){ {'service':$merge([$service, {'multiple_cert':true,'user_setable':true}]),'old_id':oldId,'id':newId} }))", "format": "jsonString" }
         },
         "timeoutMs": 200,
         "maxInputBytes": 1048576,
@@ -224,11 +241,11 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/entry.cgi?_sid={{steps.authenticate.extracted.sid}}",
+        "url": "/webapi/entry.cgi?_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "form",
         "form": { "api": "SYNO.Core.Certificate.Service", "version": 1, "method": "set", "settings": "{{steps.buildServiceSettingsWithoutChain.extracted.settings}}" },
         "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200],
         "timeoutSeconds": 60
       },
@@ -241,12 +258,12 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/webapi/auth.cgi",
+        "url": "/webapi/auth.cgi",
         "bodyType": "form",
         "form": { "api": "SYNO.API.Auth", "version": 7, "method": "login", "session": "GCAC-verify", "format": "sid", "enable_syno_token": "yes", "client": "browser", "account": "{{credentials.credential.username}}" },
         "formCredentialRefs": { "passwd": "{{credentials.credential}}" },
         "headers": { "Accept": "application/json" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": false },
+        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
         "successStatusCodes": [200],
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576

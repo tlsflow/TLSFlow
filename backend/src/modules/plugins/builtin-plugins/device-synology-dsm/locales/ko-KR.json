@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "관리 주소",
   "plugin.synologyDsm.field.port": "관리 포트",
   "plugin.synologyDsm.field.gateway": "실행 게이트웨이",
+  "plugin.synologyDsm.field.httpsEnabled": "HTTPS 사용",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "인증서 오류 무시",
   "plugin.synologyDsm.field.tlsVerify": "서버 인증서 검증",
   "plugin.synologyDsm.field.product": "제품",
   "plugin.synologyDsm.field.version": "버전",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "만료",
   "plugin.synologyDsm.onboarding.compatibility": "DSM Web API를 통한 Synology DSM",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 관리 주소",
-  "plugin.synologyDsm.onboarding.requiredCredential": "인증서 관리 권한이 있는 DSM 관리자 자격 증명"
+  "plugin.synologyDsm.onboarding.requiredCredential": "인증서 관리 권한이 있는 DSM 관리자 자격 증명",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "서비스 프로토콜이 HTTP 또는 HTTPS가 아니므로 인증서 대상을 건너뛰었습니다"
 }

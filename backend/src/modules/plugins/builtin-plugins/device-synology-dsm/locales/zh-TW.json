@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "管理位址",
   "plugin.synologyDsm.field.port": "管理連接埠",
   "plugin.synologyDsm.field.gateway": "執行閘道",
+  "plugin.synologyDsm.field.httpsEnabled": "啟用 HTTPS",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "忽略憑證錯誤",
   "plugin.synologyDsm.field.tlsVerify": "驗證伺服器憑證",
   "plugin.synologyDsm.field.product": "產品",
   "plugin.synologyDsm.field.version": "版本",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "到期時間",
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM（透過 DSM Web API）",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理位址",
-  "plugin.synologyDsm.onboarding.requiredCredential": "具備憑證管理權限的 DSM 管理員憑證"
+  "plugin.synologyDsm.onboarding.requiredCredential": "具備憑證管理權限的 DSM 管理員憑證",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "服務協定不是 HTTP 或 HTTPS，已略過憑證目標"
 }

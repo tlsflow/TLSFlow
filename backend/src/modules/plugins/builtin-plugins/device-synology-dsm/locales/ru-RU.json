@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "Адрес управления",
   "plugin.synologyDsm.field.port": "Порт управления",
   "plugin.synologyDsm.field.gateway": "Шлюз выполнения",
+  "plugin.synologyDsm.field.httpsEnabled": "Включить HTTPS",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "Игнорировать ошибки сертификата",
   "plugin.synologyDsm.field.tlsVerify": "Проверять сертификат сервера",
   "plugin.synologyDsm.field.product": "Продукт",
   "plugin.synologyDsm.field.version": "Версия",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "Истекает",
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM через DSM Web API",
   "plugin.synologyDsm.onboarding.requiredAddress": "Адрес управления DSM",
-  "plugin.synologyDsm.onboarding.requiredCredential": "Учетные данные администратора DSM с правом управления сертификатами"
+  "plugin.synologyDsm.onboarding.requiredCredential": "Учетные данные администратора DSM с правом управления сертификатами",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "Протокол службы не HTTP и не HTTPS; цель сертификата пропущена"
 }

@@ -1375,6 +1375,38 @@ describe('WorkflowTemplates', () => {
     }), /必须引用 HTTP 连接/);
   });
 
+  it('HTTP 连接关闭 HTTPS 时由适配器生成明文 URL，并移除 TLS 配置', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'http-connection-ref-plain-runtime' },
+      inputContract: workflowInputContract(),
+      steps: [{ name: 'probe', type: 'http', request: { method: 'GET', url: '/health', connectionRef: 'management', tls: { verify: false } } }],
+    };
+    const result = await service.testStep({
+      content,
+      stepName: 'probe',
+      mode: 'render_only',
+      resolvedInput: resolvedWorkflowInput({
+        connections: {
+          management: {
+            transport: 'http',
+            host: 'npm.example.test',
+            port: 8080,
+            allowedProtocols: ['http', 'https'],
+            tls: { enabled: false, verifyPeer: false },
+          },
+        },
+      }),
+    });
+    const plan = result.stepResult.plan as { curlRequest: { template: { url: string; tls?: unknown; connection: { tlsEnabled: boolean; allowedProtocols: string[] } } } };
+    assert.equal(plan.curlRequest.template.url, '/health');
+    assert.equal(plan.curlRequest.template.connection.tlsEnabled, false);
+    assert.deepEqual(plan.curlRequest.template.connection.allowedProtocols, ['http', 'https']);
+    assert.equal(plan.curlRequest.template.tls, undefined);
+  });
+
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();

@@ -18,7 +18,7 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
 
   for (const [name, certificateSteps] of cases) {
     const workflow = readWorkflow(name);
-    assert.equal(workflow.metadata?.version, '1.0.18');
+    assert.equal(workflow.metadata?.version, '1.1.1');
     const steps = workflow.steps as Array<Record<string, any>>;
     assert.equal(steps[0]?.name, 'authenticate');
     assert.equal(steps[0]?.request?.form?.api, 'SYNO.API.Auth');
@@ -35,6 +35,69 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
         assert.equal(step.request.url.includes('api=SYNO.Core.Certificate.CRT'), true);
       }
     }
+  }
+});
+
+test('Synology TLS 校验开关同时满足连接校验和宿主 TLS 例外授权声明', () => {
+  for (const name of ['connection-test', 'discover', 'deploy', 'rollback']) {
+    const workflow = readWorkflow(name);
+    const allowInsecureTls = workflow.inputContract?.variables?.allowInsecureTls;
+    assert.equal(allowInsecureTls?.type, 'boolean', `${name} 必须声明 allowInsecureTls 类型`);
+    assert.equal(allowInsecureTls?.required, true, `${name} 必须要求 allowInsecureTls 绑定`);
+    assert.deepEqual(allowInsecureTls?.source, { kind: 'binding' });
+    assert.equal(allowInsecureTls?.bindingPolicy, 'required_binding');
+
+    const requests: Array<Record<string, any>> = [];
+    const visit = (steps: unknown): void => {
+      if (!Array.isArray(steps)) return;
+      for (const step of steps) {
+        if (!step || typeof step !== 'object') continue;
+        const item = step as Record<string, any>;
+        if (item.request?.tls) requests.push(item.request);
+        visit(item.foreach?.steps);
+      }
+    };
+    visit(workflow.steps);
+    assert.ok(requests.length > 0, `${name} 至少应包含一个 HTTP 请求`);
+    for (const request of requests) {
+      assert.equal(request.tls.verify, '{{connections.management.tls.verifyPeer}}');
+      assert.equal(request.tls.allowInsecure, true, `${name}.${request.url ?? 'request'} 必须声明 TLS 例外意图`);
+    }
+  }
+});
+
+test('Synology 接入表单将 HTTPS 协议和证书错误例外拆成两个独立选项', () => {
+  const form = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/forms/device.json', import.meta.url), 'utf8')) as Record<string, any>;
+  const fields = (form.sections as Array<Record<string, any>>).flatMap((section) => section.fields as Array<Record<string, any>>);
+  const https = fields.find((field) => field.key === 'httpsEnabled');
+  const ignore = fields.find((field) => field.key === 'ignoreCertificateErrors');
+  assert.equal(https?.type, 'switch');
+  assert.equal(https?.defaultValue, true);
+  assert.equal(https?.standardField, 'tls.enabled');
+  assert.equal(ignore?.type, 'switch');
+  assert.equal(ignore?.defaultValue, false);
+  assert.equal(ignore?.standardField, 'tls.ignoreCertificateErrors');
+  assert.deepEqual(ignore?.enabledWhen, { field: 'httpsEnabled', operator: 'truthy' });
+  assert.equal(fields.some((field) => field.key === 'tlsVerify'), false, '表单不应再用单一 tlsVerify 开关代替两个选项');
+
+  for (const name of ['connection-test', 'discover', 'deploy', 'rollback']) {
+    const workflow = readWorkflow(name);
+    const connection = workflow.inputContract?.connections?.management;
+    assert.deepEqual(connection?.allowedProtocols, ['http', 'https']);
+    assert.equal(connection?.tls?.enabled?.type, 'boolean');
+    const requests: Array<Record<string, any>> = [];
+    const visit = (steps: unknown): void => {
+      if (!Array.isArray(steps)) return;
+      for (const step of steps) {
+        if (!step || typeof step !== 'object') continue;
+        const item = step as Record<string, any>;
+        if (item.request?.connectionRef === 'management') requests.push(item.request);
+        visit(item.foreach?.steps);
+      }
+    };
+    visit(workflow.steps);
+    assert.ok(requests.length > 0, `${name} 至少应包含一个管理 HTTP 请求`);
+    assert.ok(requests.every((request) => String(request.url).startsWith('/')));
   }
 });
 
@@ -62,8 +125,8 @@ test('Synology DSM 工作流优先使用 DSM 默认服务键，并保留目标�
     'dsm-default',
   );
   assert.deepEqual(
-    await jsonata(select?.transform?.outputs?.previousCertificateService?.expression).evaluate(transformInput),
-    { display_name: 'DSM Desktop Service', service: 'default', multiple_cert: true, user_setable: true },
+    JSON.parse(JSON.stringify(await jsonata(select?.transform?.outputs?.previousCertificateServices?.expression).evaluate(transformInput))),
+    [{ display_name: 'DSM Desktop Service', service: 'default', multiple_cert: true, user_setable: true }],
   );
 
   const rollback = readWorkflow('rollback');

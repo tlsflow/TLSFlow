@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "Endereço de gerenciamento",
   "plugin.synologyDsm.field.port": "Porta de gerenciamento",
   "plugin.synologyDsm.field.gateway": "Gateway de execução",
+  "plugin.synologyDsm.field.httpsEnabled": "Ativar HTTPS",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "Ignorar erros de certificado",
   "plugin.synologyDsm.field.tlsVerify": "Verificar certificado do servidor",
   "plugin.synologyDsm.field.product": "Produto",
   "plugin.synologyDsm.field.version": "Versão",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "Expira em",
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM pelo DSM Web API",
   "plugin.synologyDsm.onboarding.requiredAddress": "Endereco de gerenciamento do DSM",
-  "plugin.synologyDsm.onboarding.requiredCredential": "Credencial de administrador DSM com permissao de gerenciar certificados"
+  "plugin.synologyDsm.onboarding.requiredCredential": "Credencial de administrador DSM com permissao de gerenciar certificados",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "O protocolo do servico nao e HTTP nem HTTPS; o destino do certificado foi ignorado"
 }

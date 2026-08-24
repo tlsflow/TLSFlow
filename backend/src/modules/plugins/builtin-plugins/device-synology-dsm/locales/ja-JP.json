@@ -9,6 +9,8 @@
   "plugin.synologyDsm.field.address": "管理アドレス",
   "plugin.synologyDsm.field.port": "管理ポート",
   "plugin.synologyDsm.field.gateway": "実行ゲートウェイ",
+  "plugin.synologyDsm.field.httpsEnabled": "HTTPS を有効にする",
+  "plugin.synologyDsm.field.ignoreCertificateErrors": "証明書エラーを無視",
   "plugin.synologyDsm.field.tlsVerify": "サーバー証明書を検証",
   "plugin.synologyDsm.field.product": "製品",
   "plugin.synologyDsm.field.version": "バージョン",
@@ -26,5 +28,6 @@
   "plugin.synologyDsm.column.expiresAt": "有効期限",
   "plugin.synologyDsm.onboarding.compatibility": "DSM Web API 経由の Synology DSM",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理アドレス",
-  "plugin.synologyDsm.onboarding.requiredCredential": "証明書管理権限を持つ DSM 管理者の認証情報"
+  "plugin.synologyDsm.onboarding.requiredCredential": "証明書管理権限を持つ DSM 管理者の認証情報",
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "サービスプロトコルが HTTP または HTTPS ではないため、証明書ターゲットを除外しました"
 }
