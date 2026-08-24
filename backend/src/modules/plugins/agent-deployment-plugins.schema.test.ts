@@ -1,68 +1,36 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { validateUnifiedPluginManifest } from './schema/unified-plugins.schema.js';
 
-import { builtinAgentPluginManifests } from './builtin-plugins/agent-recipes.js';
-import { validateAgentDeploymentPluginManifest } from './schema/agent-deployment-plugins.schema.js';
-
-test('Agent Recipe 根对象严格拒绝旧输入字段和未知字段', () => {
-  const manifest = builtinAgentPluginManifests[0];
-  assert.ok(manifest);
-
-  for (const field of ['variables', 'artifactInputs', 'unexpected']) {
-    assert.throws(
-      () => validateAgentDeploymentPluginManifest({ ...manifest, [field]: {} }),
-      (error: unknown) => {
-        assert.equal((error as { errorCode?: string }).errorCode, 'AGENT_PLUGIN_MANIFEST_INVALID');
-        assert.match(String((error as Error).message), /manifest 包含未知字段/);
-        return true;
-      },
-    );
-  }
+test('旧 Agent Deployment Plugin Schema 已清退，旧 Runtime 不能进入最新 Manifest 合同', async () => {
+  await assertModuleMissing('./schema/agent-deployment-plugins.schema.js');
+  assert.throws(
+    () => validateUnifiedPluginManifest({
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'fixture.retired-agent-plugin',
+      version: '1.0.0',
+      displayNameKey: 'fixture.retiredAgentPlugin',
+      publisher: 'fixture',
+      runtime: 'AGENT_ATOMIC',
+      source: 'USER',
+      scope: 'MANAGED',
+      trust: 'USER_SIGNED',
+      support: 'SELF_MANAGED',
+      capabilities: [{ key: 'certificate.deploy', contractVersion: '1.0', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['AGENT'] }],
+      permissions: [],
+      resources: {},
+    }),
+    /统一插件 Manifest 无效|必须是 AGENT_PLAN、WORKFLOW_DSL、TRUSTED_JS 之一/,
+  );
 });
 
-test('Agent Recipe 接受插件声明的开放 Operation 与权限 Scope', () => {
-  const manifest = structuredClone(builtinAgentPluginManifests[0]);
-  manifest.permissions.push({
-    name: 'storage-admin',
-    risk: 'high',
-    scope: 'storage_admin',
-    values: ['pool-a'],
-  });
-  manifest.operations[0] = {
-    ...manifest.operations[0],
-    operationType: 'storage.nas.inspect',
-  };
-
-  const validated = validateAgentDeploymentPluginManifest(manifest);
-  assert.equal(validated.operations[0]?.operationType, 'storage.nas.inspect');
-  assert.equal(validated.permissions.at(-1)?.scope, 'storage_admin');
-});
-
-test('Agent Recipe 拒绝不能作为开放标识使用的 Operation 与权限 Scope', () => {
-  const manifest = structuredClone(builtinAgentPluginManifests[0]);
-  manifest.operations[0] = { ...manifest.operations[0], operationType: 'Bad Operation' };
-  assert.throws(() => validateAgentDeploymentPluginManifest(manifest), /operationType 格式不合法/);
-
-  const invalidScope = structuredClone(builtinAgentPluginManifests[0]);
-  invalidScope.permissions[0] = { ...invalidScope.permissions[0], scope: 'Bad Scope' };
-  assert.throws(() => validateAgentDeploymentPluginManifest(invalidScope), /scope 格式不合法/);
-});
-
-test('Windows NGINX、Apache、Tomcat Recipe 完整声明验证、回滚和精确权限范围', () => {
-  const pluginIds = [
-    'builtin.windows.nginx.pem',
-    'builtin.windows.apache.pem',
-    'builtin.windows.tomcat.pkcs12',
-    'builtin.windows.custom.certificate',
-  ];
-  for (const pluginId of pluginIds) {
-    const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === pluginId);
-    assert.ok(recipe);
-    const validated = validateAgentDeploymentPluginManifest(recipe);
-    assert.deepEqual(validated.compatibility.platforms, ['WINDOWS']);
-    assert.ok(validated.operations.some((operation) => operation.stage === 'verify'));
-    assert.ok(validated.rollback?.length);
-    assert.ok(validated.permissions.every((permission) => !permission.values.includes('*')));
-    assert.ok(validated.operations.every((operation) => operation.operationType !== 'shell.execute'));
-  }
-});
+async function assertModuleMissing(modulePath: string): Promise<void> {
+  await assert.rejects(
+    () => import(modulePath),
+    (error: unknown) => {
+      if (!error || typeof error !== 'object' || !('code' in error)) return false;
+      return (error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND';
+    },
+  );
+}
