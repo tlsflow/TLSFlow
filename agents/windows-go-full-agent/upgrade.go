@@ -56,6 +56,7 @@ type agentUpgradeEnvelope struct {
 	PlanID                string              `json:"planId"`
 	TransactionID         string              `json:"transactionId"`
 	AgentID               string              `json:"agentId"`
+	UpgradeBootstrapURL   string              `json:"upgradeBootstrapUrl,omitempty"`
 	Release               agentUpgradeRelease `json:"release"`
 	PolicyRef             string              `json:"policyRef,omitempty"`
 	ApprovalRef           string              `json:"approvalRef,omitempty"`
@@ -141,6 +142,20 @@ func executeLocalUpgrade(ctx context.Context, config *AgentConfig, registration 
 	if err := saveUpgradeStatus(config, status); err != nil {
 		return directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_STATE_UNAVAILABLE", ErrorMessage: err.Error()}
 	}
+	executable, err := os.Executable()
+	if err != nil || strings.TrimSpace(executable) == "" {
+		return failUpgradeBeforeLaunch(config, status, "AGENT_UPGRADE_TARGET_UNAVAILABLE", "读取当前 Agent 可执行文件路径失败")
+	}
+	if strings.TrimSpace(envelope.UpgradeBootstrapURL) != "" {
+		status.Phase = "script_started"
+		if err := saveUpgradeStatus(config, status); err != nil {
+			return directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_STATE_UNAVAILABLE", ErrorMessage: err.Error()}
+		}
+		if err := startWindowsUpgradeBootstrap(filepath.Join(filepath.Dir(executable), "gcac-agent-updater.exe"), envelope.UpgradeBootstrapURL, statusPath, status); err != nil {
+			return failUpgradeBeforeLaunch(config, status, "AGENT_UPGRADE_SCRIPT_START_FAILED", err.Error())
+		}
+		return directUpgradeResponse{Success: true, Accepted: true, TransactionID: status.TransactionID, Status: "accepted", Detail: map[string]any{"phase": status.Phase, "targetVersion": envelope.Release.Version, "transport": "bootstrap_script"}}
+	}
 
 	artifactPath, err := downloadAndVerifyUpgradeArtifact(ctx, config, envelope.Release, envelope.TransactionID)
 	if err != nil {
@@ -156,10 +171,6 @@ func executeLocalUpgrade(ctx context.Context, config *AgentConfig, registration 
 		return directUpgradeResponse{ErrorCode: "AGENT_UPGRADE_STATE_UNAVAILABLE", ErrorMessage: err.Error()}
 	}
 
-	executable, err := os.Executable()
-	if err != nil || strings.TrimSpace(executable) == "" {
-		return failUpgradeBeforeLaunch(config, status, "AGENT_UPGRADE_TARGET_UNAVAILABLE", "读取当前 Agent 可执行文件路径失败")
-	}
 	updaterPath := filepath.Join(filepath.Dir(executable), "gcac-agent-updater.exe")
 	if !fileExists(updaterPath) {
 		return failUpgradeBeforeLaunch(config, status, "AGENT_UPGRADE_HELPER_UNAVAILABLE", "升级器 gcac-agent-updater.exe 不存在")
@@ -208,6 +219,29 @@ func executeLocalUpgrade(ctx context.Context, config *AgentConfig, registration 
 	return directUpgradeResponse{Success: true, Accepted: true, TransactionID: envelope.TransactionID, Status: "accepted", Detail: map[string]any{"phase": status.Phase, "targetVersion": envelope.Release.Version}}
 }
 
+// startWindowsUpgradeBootstrap 由独立升级器执行正式安装 bootstrap，避免旧服务停止时
+// 杀掉正在替换自身文件的子进程。bootstrap URL 含一次性安装 token，不能写入日志。
+func startWindowsUpgradeBootstrap(updaterPath, bootstrapURL, statusPath string, status agentUpgradeStatus) error {
+	if !fileExists(updaterPath) {
+		return errors.New("升级器 gcac-agent-updater.exe 不存在")
+	}
+	command := exec.Command(updaterPath,
+		"--bootstrap-url", bootstrapURL,
+		"--status", statusPath,
+		"--transaction-id", status.TransactionID,
+		"--plan-id", status.PlanID,
+		"--agent-id", status.AgentID,
+		"--from-version", status.FromVersion,
+		"--to-version", status.TargetVersion,
+		"--expected-sha256", status.ArtifactSHA256,
+	)
+	command.Dir = filepath.Dir(updaterPath)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("启动 Windows bootstrap 升级器失败: %w", err)
+	}
+	return nil
+}
+
 func validateUpgradeEnvelope(config *AgentConfig, agentID string, envelope agentUpgradeEnvelope) error {
 	if envelope.SchemaVersion != agentUpgradeSchemaVersion || strings.TrimSpace(envelope.PlanID) == "" || strings.TrimSpace(envelope.TransactionID) == "" || strings.TrimSpace(envelope.Nonce) == "" {
 		return errors.New("升级信封缺少版本、计划、事务或 Nonce")
@@ -236,6 +270,12 @@ func validateUpgradeEnvelope(config *AgentConfig, agentID string, envelope agent
 	if len(config.UpgradeTrustKeySet) > 0 {
 		if err := verifyUpgradeSignature(envelope.AuthorityKeyID, envelope.ControlPlaneSignature, upgradeEnvelopeWithoutSignature(envelope), config.UpgradeTrustKeySet); err != nil {
 			return fmt.Errorf("升级信封签名无效: %w", err)
+		}
+	}
+	if strings.TrimSpace(envelope.UpgradeBootstrapURL) != "" {
+		bootstrapURL, bootstrapErr := url.Parse(strings.TrimSpace(envelope.UpgradeBootstrapURL))
+		if bootstrapErr != nil || (bootstrapURL.Scheme != "http" && bootstrapURL.Scheme != "https") || bootstrapURL.Host == "" || bootstrapURL.User != nil {
+			return errors.New("Windows 升级 bootstrap 地址必须是 HTTP(S) 地址")
 		}
 	}
 	if strings.TrimSpace(release.ArtifactSignature) != "" {
@@ -335,6 +375,9 @@ func upgradeEnvelopeWithoutSignature(envelope agentUpgradeEnvelope) []byte {
 		},
 		"policyRef": envelope.PolicyRef, "approvalRef": envelope.ApprovalRef, "nonce": envelope.Nonce,
 		"issuedAt": envelope.IssuedAt, "expiresAt": envelope.ExpiresAt, "authorityKeyId": envelope.AuthorityKeyID,
+	}
+	if strings.TrimSpace(envelope.UpgradeBootstrapURL) != "" {
+		value["upgradeBootstrapUrl"] = envelope.UpgradeBootstrapURL
 	}
 	return []byte(stableJSON(value))
 }

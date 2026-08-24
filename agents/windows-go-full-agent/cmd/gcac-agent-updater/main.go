@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +22,11 @@ import (
 	"time"
 )
 
-const maxArtifactSize int64 = 512 * 1024 * 1024
+const (
+	maxArtifactSize int64 = 512 * 1024 * 1024
+	// Windows bootstrap 内嵌 Agent、updater 和发现插件的 base64 制品，大小明显高于单个脚本。
+	maxBootstrapSize int64 = 128 * 1024 * 1024
+)
 
 type upgradeStatus struct {
 	SchemaVersion  string `json:"schemaVersion"`
@@ -59,6 +64,7 @@ func main() {
 	artifactSignature := flags.String("artifact-signature", "", "制品签名")
 	releasePublicKey := flags.String("release-public-key", "", "制品签名公钥")
 	releaseKeyID := flags.String("release-key-id", "", "制品签名 Key ID")
+	bootstrapURL := flags.String("bootstrap-url", "", "正式 Windows 安装 bootstrap 地址")
 	healthPort := flags.Int("health-port", 18930, "管理健康端口")
 	healthTimeoutSeconds := flags.Int("health-timeout-seconds", 90, "健康检查超时")
 	healthTLS := flags.Bool("health-tls", false, "使用 mTLS 执行本机健康检查")
@@ -73,7 +79,8 @@ func main() {
 		transactionID: *transactionID, planID: *planID, agentID: *agentID, fromVersion: *fromVersion, toVersion: *toVersion,
 		expectedSHA256: *expectedSHA256, artifactSignature: *artifactSignature,
 		releasePublicKey: *releasePublicKey, releaseKeyID: *releaseKeyID,
-		healthPort: *healthPort, healthTimeout: time.Duration(*healthTimeoutSeconds) * time.Second,
+		bootstrapURL: *bootstrapURL,
+		healthPort:   *healthPort, healthTimeout: time.Duration(*healthTimeoutSeconds) * time.Second,
 		healthTLS: *healthTLS, healthCA: *healthCA, healthCert: *healthCert, healthKey: *healthKey,
 	}
 	if err := runUpgrade(args); err != nil {
@@ -87,6 +94,7 @@ type updaterArgs struct {
 	planID, agentID                                              string
 	fromVersion, toVersion, expectedSHA256, artifactSignature    string
 	releasePublicKey, releaseKeyID                               string
+	bootstrapURL                                                 string
 	healthPort                                                   int
 	healthTimeout                                                time.Duration
 	healthTLS                                                    bool
@@ -96,6 +104,9 @@ type updaterArgs struct {
 func runUpgrade(args updaterArgs) error {
 	if err := validateArgs(args); err != nil {
 		return err
+	}
+	if args.bootstrapURL != "" {
+		return runBootstrap(args)
 	}
 	if err := verifyArtifact(args); err != nil {
 		return err
@@ -150,6 +161,19 @@ func runUpgrade(args updaterArgs) error {
 }
 
 func validateArgs(args updaterArgs) error {
+	if args.bootstrapURL != "" {
+		if args.statusPath == "" || args.transactionID == "" || args.planID == "" || args.agentID == "" || args.toVersion == "" {
+			return errors.New("bootstrap 升级器参数不完整")
+		}
+		if !filepath.IsAbs(args.statusPath) {
+			return errors.New("bootstrap 状态路径必须是绝对路径")
+		}
+		parsed, err := url.Parse(strings.TrimSpace(args.bootstrapURL))
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+			return errors.New("bootstrap 地址必须是 HTTP(S) 地址")
+		}
+		return nil
+	}
 	if args.artifact == "" || args.target == "" || args.backup == "" || args.service == "" || args.statusPath == "" || args.transactionID == "" || args.planID == "" || args.agentID == "" || args.toVersion == "" || args.healthPort <= 0 || args.healthPort > 65535 {
 		return errors.New("升级器参数不完整")
 	}
@@ -166,6 +190,74 @@ func validateArgs(args updaterArgs) error {
 		return errors.New("Windows 服务名无效")
 	}
 	return nil
+}
+
+func runBootstrap(args updaterArgs) error {
+	status := upgradeStatus{
+		SchemaVersion: "management.upgrade.v1", PlanID: args.planID, TransactionID: args.transactionID, AgentID: args.agentID,
+		FromVersion: args.fromVersion, TargetVersion: args.toVersion, ArtifactSHA256: strings.ToLower(args.expectedSHA256), Phase: "downloading_script", Status: "running",
+		ObservedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := saveStatus(args.statusPath, status); err != nil {
+		return err
+	}
+	script, err := downloadBootstrap(args.bootstrapURL)
+	if err != nil {
+		return err
+	}
+	status.Phase = "executing_script"
+	if err := saveStatus(args.statusPath, status); err != nil {
+		return err
+	}
+	scriptPath := args.statusPath + fmt.Sprintf(".bootstrap-%d.ps1", os.Getpid())
+	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+		return fmt.Errorf("写入 bootstrap 临时脚本失败: %w", err)
+	}
+	defer os.Remove(scriptPath)
+	command := exec.Command(windowsPowerShellPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath)
+	command.Dir = windowsSystem32Directory
+	output, err := command.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if len(message) > 1000 {
+			message = message[len(message)-1000:]
+		}
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("Windows bootstrap 执行失败: %s", message)
+	}
+	status.Phase = "succeeded"
+	status.Status = "succeeded"
+	status.Rollback = "not_required"
+	return saveStatus(args.statusPath, status)
+}
+
+func downloadBootstrap(rawURL string) (string, error) {
+	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("创建 bootstrap 下载请求失败: %w", err)
+	}
+	client := &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return errors.New("bootstrap 下载禁止重定向") }}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("下载 bootstrap 失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("下载 bootstrap 返回 HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > maxBootstrapSize {
+		return "", errors.New("bootstrap 文件过大")
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, maxBootstrapSize+1))
+	if err != nil {
+		return "", fmt.Errorf("读取 bootstrap 失败: %w", err)
+	}
+	if len(content) == 0 || int64(len(content)) > maxBootstrapSize {
+		return "", errors.New("bootstrap 内容为空或过大")
+	}
+	return string(content), nil
 }
 
 func verifyArtifact(args updaterArgs) error {
@@ -363,10 +455,17 @@ func writeFailure(args updaterArgs, err error) {
 	if status.Status == "rolled_back" || status.Status == "manual_required" || status.Status == "succeeded" {
 		return
 	}
+	phaseBeforeFailure := status.Phase
 	status.Status = "failed"
 	status.Phase = "failed"
 	status.ErrorCode = "AGENT_UPGRADE_HELPER_FAILED"
 	status.ErrorMessage = err.Error()
+	if args.bootstrapURL != "" && (phaseBeforeFailure == "executing_script" || phaseBeforeFailure == "script_started") {
+		status.Status = "manual_required"
+		status.Phase = "manual_required"
+		status.Rollback = "unknown"
+		status.ErrorCode = "AGENT_UPGRADE_BOOTSTRAP_FAILED"
+	}
 	_ = saveStatus(args.statusPath, status)
 }
 

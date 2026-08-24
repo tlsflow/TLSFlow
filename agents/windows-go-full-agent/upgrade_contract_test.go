@@ -66,18 +66,40 @@ func TestUpgradeEnvelopeSignatureRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUpgradeEnvelopeBootstrapURLIsSigned(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	envelope := agentUpgradeEnvelope{
+		SchemaVersion: agentUpgradeSchemaVersion, PlanID: "plan-bootstrap", TransactionID: "txn-bootstrap", AgentID: "agent-bootstrap",
+		UpgradeBootstrapURL: "https://control.example/agent-install.ps1?token=one-time",
+		Nonce:               "nonce-bootstrap", IssuedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), ExpiresAt: now.Add(time.Minute).Format(time.RFC3339Nano),
+		Release: agentUpgradeRelease{ReleaseID: "release-bootstrap", ProductLine: agentUpgradeProductLine, Version: "0.2.0", Platform: "windows", Architecture: "amd64", DownloadURL: "https://release.example/agent.exe", ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ArtifactSize: 100},
+	}
+	signature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, upgradeEnvelopeWithoutSignature(envelope)))
+	if err := verifyUpgradeSignature("control", signature, upgradeEnvelopeWithoutSignature(envelope), map[string]string{"control": base64.RawURLEncoding.EncodeToString(publicKey)}); err != nil {
+		t.Fatalf("bootstrap URL 签名回放失败: %v", err)
+	}
+	envelope.UpgradeBootstrapURL = "https://control.example/agent-install.ps1?token=tampered"
+	if err := verifyUpgradeSignature("control", signature, upgradeEnvelopeWithoutSignature(envelope), map[string]string{"control": base64.RawURLEncoding.EncodeToString(publicKey)}); err == nil {
+		t.Fatal("bootstrap URL 被篡改时必须拒绝")
+	}
+}
+
 func TestValidateUpgradeEnvelopeAllowsUnsignedHTTPForDevelopment(t *testing.T) {
 	now := time.Now().UTC()
 	envelope := agentUpgradeEnvelope{
 		SchemaVersion: agentUpgradeSchemaVersion,
-		PlanID: "plan-dev", TransactionID: "transaction-dev", AgentID: "agent-dev", Nonce: "nonce-dev",
-		IssuedAt: now.Add(-time.Minute).Format(time.RFC3339Nano),
+		PlanID:        "plan-dev", TransactionID: "transaction-dev", AgentID: "agent-dev", Nonce: "nonce-dev",
+		IssuedAt:  now.Add(-time.Minute).Format(time.RFC3339Nano),
 		ExpiresAt: now.Add(time.Minute).Format(time.RFC3339Nano),
 		Release: agentUpgradeRelease{
 			ReleaseID: "release-dev", ProductLine: agentUpgradeProductLine, Version: "0.2.0",
 			Platform: "windows", Architecture: "amd64", DownloadURL: "http://127.0.0.1:3003/agent-releases/release-dev",
 			ArtifactSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			ArtifactSize: 100,
+			ArtifactSize:   100,
 		},
 	}
 	if err := validateUpgradeEnvelope(&AgentConfig{}, "agent-dev", envelope); err != nil {
