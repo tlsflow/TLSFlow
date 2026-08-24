@@ -8,6 +8,10 @@ export interface ExecutionVariableDefinition {
   required?: boolean;
   description?: string;
   default?: unknown;
+  source?: {
+    kind: 'execution_context';
+    path: string;
+  };
   enum?: string[];
   pattern?: string;
   minimum?: number;

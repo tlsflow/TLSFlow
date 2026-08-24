@@ -443,10 +443,12 @@ export async function createAppAsync(
   if (unifiedPlugins && pluginWorkflowPublisher) {
     const installed = await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
     for (const plugin of installed) await pluginWorkflowPublisher.publishPlugin(plugin);
-    const citrixAdc = installed.find((plugin) => plugin.pluginId === 'citrix.netscaler-adc');
-    if (citrixAdc) {
-      const database = app.getResource<DatabasePort>('database');
-      if (database) await new BuiltinPluginCompatibilityUpgradeService(database).upgradeCitrixAdc(citrixAdc.tenantId, citrixAdc.id, citrixAdc.version);
+    const database = app.getResource<DatabasePort>('database');
+    if (database) {
+      const upgrades = new BuiltinPluginCompatibilityUpgradeService(database);
+      for (const plugin of installed) {
+        await upgrades.upgradePatchLine(plugin.tenantId, plugin.id, plugin.pluginId, plugin.version);
+      }
     }
   }
   return app;

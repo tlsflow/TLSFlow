@@ -284,6 +284,7 @@ export class AgentExecutorAdapter implements Executor {
       executionStepId: input.step.id,
       pluginBindingId,
       artifacts,
+      executionContext: resolvePluginExecutionContext(snapshot),
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
     });
     return { payload: {
@@ -292,6 +293,51 @@ export class AgentExecutorAdapter implements Executor {
         plan,
       } };
   }
+}
+
+function resolvePluginExecutionContext(snapshot: Record<string, unknown>): Record<string, unknown> | undefined {
+  const current = readRecord(snapshot.pluginExecutionContext);
+  if (current) return current;
+
+  const targetSnapshot = readRecord(snapshot.targetSnapshot);
+  if (!targetSnapshot) return undefined;
+  const managedTarget = readRecord(targetSnapshot.managedTarget);
+  const host = readRecord(targetSnapshot.host);
+  const siteAsset = readRecord(targetSnapshot.siteAsset);
+  const verification = readRecord(snapshot.certificateVerification);
+  return {
+    application: {
+      id: snapshot.applicationAssetId,
+      serverName: verification?.serverName,
+      port: verification?.port,
+    },
+    target: managedTarget ? {
+      id: managedTarget.id,
+      type: managedTarget.targetType,
+      key: managedTarget.targetKey,
+      bindingKey: managedTarget.bindingKey,
+      frameworkType: snapshot.frameworkType,
+      metadata: managedTarget.metadata,
+    } : undefined,
+    host: host ? {
+      id: host.id,
+      primaryIp: host.primaryIp,
+      osType: host.osType,
+    } : undefined,
+    site: siteAsset ? {
+      id: siteAsset.id,
+      type: siteAsset.siteType,
+      name: siteAsset.siteName,
+      key: siteAsset.siteKey,
+      bindingInformation: siteAsset.bindingInformation ?? managedTarget?.bindingKey,
+      hostHeader: siteAsset.hostHeader,
+      listenIp: siteAsset.listenIp,
+      port: siteAsset.port,
+      protocol: siteAsset.protocol,
+      configPath: siteAsset.configPath,
+      metadata: siteAsset.metadata,
+    } : undefined,
+  };
 }
 
 function resolveAgentAtomicArtifacts(artifact: Record<string, unknown>): Record<string, unknown> {

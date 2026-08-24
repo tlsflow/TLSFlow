@@ -122,6 +122,7 @@ function validateVariables(input: unknown): Record<string, ExecutionVariableDefi
       required: value.required === true,
       description: optionalString(value.description),
       default: value.default,
+      source: validateVariableSource(value.source, `variables.${name}.source`),
       enum: stringArray(value.enum, `variables.${name}.enum`, true),
       pattern: optionalString(value.pattern),
       minimum: optionalNumber(value.minimum, `variables.${name}.minimum`),
@@ -133,6 +134,17 @@ function validateVariables(input: unknown): Record<string, ExecutionVariableDefi
     if (definition.default !== undefined) validateVariableValue(name, definition, definition.default);
     return [name, definition];
   }));
+}
+
+function validateVariableSource(input: unknown, field: string): ExecutionVariableDefinition['source'] {
+  if (input === undefined) return undefined;
+  const value = record(input, field);
+  requireExact(value.kind, 'execution_context', `${field}.kind`);
+  const path = nonEmptyString(value.path, `${field}.path`);
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)*$/.test(path)) {
+    throw validationError(`${field}.path 不合法`, { field: `${field}.path` });
+  }
+  return { kind: 'execution_context', path };
 }
 
 function validateArtifacts(input: unknown): AgentDeploymentPluginManifestV1['artifactInputs'] {

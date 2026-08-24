@@ -83,6 +83,36 @@ func TestWindowsRollbackOperationSkipsWhenRequiredOperationWasNotCompleted(t *te
 	}
 }
 
+func TestDirectControlAtomicPlanUsesRegisteredAgentIdentity(t *testing.T) {
+	plan := signedWindowsTestPlan(t)
+	plan.AgentID = "agent-direct"
+	plan.Operations = []atomicOperation{{
+		ID: "identity-preflight", Name: "identity-preflight", Stage: "prepare",
+		OperationType: "preflight.assert", SchemaVersion: "1.0", Input: map[string]any{},
+	}}
+	plan.IdempotencyKey = "direct-control-agent-identity"
+	plan = signWindowsTestPlan(t, plan)
+	config := &AgentConfig{}
+	config.Paths.Windows.DataDir = t.TempDir()
+	config.Paths.Windows.LogDir = t.TempDir()
+	rawPlan, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transportedPlan map[string]any
+	if err := json.Unmarshal(rawPlan, &transportedPlan); err != nil {
+		t.Fatal(err)
+	}
+
+	response, statusCode := executeDirectControlAction(config, &runtimeRegistration{AgentID: "agent-direct"}, directActionExecuteRequest{
+		ActionType: "agent.atomic_plan.execute",
+		Inputs:     map[string]any{"plan": transportedPlan},
+	})
+	if statusCode != 200 || response["success"] != true {
+		t.Fatalf("直连原子计划应使用真实注册 Agent 身份：status=%d response=%#v", statusCode, response)
+	}
+}
+
 func signedWindowsTestPlan(t *testing.T) atomicPlan {
 	t.Helper()
 	plan := atomicPlan{
@@ -93,6 +123,12 @@ func signedWindowsTestPlan(t *testing.T) atomicPlan {
 		Operations:    []atomicOperation{{ID: "replace", Name: "replace", Stage: "install", OperationType: "file.atomic_replace", SchemaVersion: "1.0", Input: map[string]any{"path": "C:\\GCAC\\server.pem", "content": "certificate"}}},
 		Authorization: atomicAuthorization{KeyID: "agent-plan-v1"},
 	}
+	return signWindowsTestPlan(t, plan)
+}
+
+func signWindowsTestPlan(t *testing.T, plan atomicPlan) atomicPlan {
+	t.Helper()
+	plan.Authorization.Signature = ""
 	raw, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

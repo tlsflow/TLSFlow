@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { DatabasePort, QueryResult } from '../../database/database-port.js';
 import { BuiltinPluginCompatibilityUpgradeService } from './application/builtin-plugin-compatibility-upgrade.service.js';
 
-test('Citrix ADC 内置插件兼容升级原子切换五类版本引用', async () => {
+test('内置插件 Patch 升级原子切换五类版本引用', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const db = fakeDatabase(calls, [
     { rows: [{ id: 'citrix-1.1.10' }] },
@@ -19,11 +19,12 @@ test('Citrix ADC 内置插件兼容升级原子切换五类版本引用', async 
       { id: 'citrix-1.1.8', plugin_version: '1.1.8' },
       { id: 'citrix-1.1.9', plugin_version: '1.1.9' },
       { id: 'citrix-1.1.11', plugin_version: '1.1.11' },
+      { id: 'citrix-1.2.0', plugin_version: '1.2.0' },
     ] },
     ...Array.from({ length: 50 }, () => ({ rows: [] })),
   ]);
 
-  await new BuiltinPluginCompatibilityUpgradeService(db).upgradeCitrixAdc('tenant-1', 'citrix-1.1.10', '1.1.10');
+  await new BuiltinPluginCompatibilityUpgradeService(db).upgradePatchLine('tenant-1', 'citrix-1.1.10', 'fixture.builtin.plugin', '1.1.10');
 
   assert.equal(calls.length, 52);
   const sourceIds = ['citrix-1.1.0', 'citrix-1.1.1', 'citrix-1.1.2', 'citrix-1.1.3', 'citrix-1.1.4', 'citrix-1.1.5', 'citrix-1.1.6', 'citrix-1.1.7', 'citrix-1.1.8', 'citrix-1.1.9'];
@@ -42,12 +43,12 @@ test('Citrix ADC 内置插件兼容升级原子切换五类版本引用', async 
   }
 });
 
-test('Citrix ADC 内置插件兼容升级拒绝非官方目标版本', async () => {
+test('内置插件 Patch 升级拒绝非官方目标版本', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const db = fakeDatabase(calls, [{ rows: [] }]);
   await assert.rejects(
-    () => new BuiltinPluginCompatibilityUpgradeService(db).upgradeCitrixAdc('tenant-1', 'user-plugin-version', '1.1.10'),
-    /Citrix ADC 内置插件目标版本不存在/,
+    () => new BuiltinPluginCompatibilityUpgradeService(db).upgradePatchLine('tenant-1', 'user-plugin-version', 'fixture.builtin.plugin', '1.1.10'),
+    /内置插件目标版本不存在/,
   );
   assert.equal(calls.length, 1);
 });

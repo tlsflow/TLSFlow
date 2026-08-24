@@ -2,19 +2,26 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { compareSemanticVersions } from './unified-plugins.application-service.js';
 
-const citrixPluginId = 'citrix.netscaler-adc';
-
 export class BuiltinPluginCompatibilityUpgradeService {
   constructor(private readonly db: DatabasePort) {}
 
-  async upgradeCitrixAdc(tenantId: string, targetPluginVersionId: string, targetVersion: string): Promise<void> {
+  async upgradePatchLine(
+    tenantId: string,
+    targetPluginVersionId: string,
+    pluginId: string,
+    targetVersion: string,
+  ): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const target = await requireBuiltinVersion(tx, tenantId, targetPluginVersionId, targetVersion);
+      const target = await requireBuiltinVersion(tx, tenantId, targetPluginVersionId, pluginId, targetVersion);
+      const targetLine = semanticVersionLine(targetVersion);
       const sources = (await tx.query<{ id: string; plugin_version: string }>(
         `select id, plugin_version from unified_plugin_versions
           where tenant_id=$1 and plugin_id=$2 and id<>$3 and source='BUILTIN'`,
-        [tenantId, citrixPluginId, targetPluginVersionId],
-      )).rows.filter((source) => compareSemanticVersions(source.plugin_version, targetVersion) < 0);
+        [tenantId, pluginId, targetPluginVersionId],
+      )).rows.filter((source) => (
+        semanticVersionLine(source.plugin_version) === targetLine
+        && compareSemanticVersions(source.plugin_version, targetVersion) < 0
+      ));
 
       for (const source of sources) {
         await tx.query(
@@ -63,18 +70,26 @@ async function requireBuiltinVersion(
   db: DatabasePort,
   tenantId: string,
   pluginVersionId: string,
+  pluginId: string,
   expectedVersion: string,
 ): Promise<{ id: string }> {
   const version = (await db.query<{ id: string }>(
     `select id from unified_plugin_versions
       where id=$1 and tenant_id=$2 and plugin_id=$3 and plugin_version=$4 and source='BUILTIN'`,
-    [pluginVersionId, tenantId, citrixPluginId, expectedVersion],
+    [pluginVersionId, tenantId, pluginId, expectedVersion],
   )).rows[0];
   if (!version) {
-    throw new AppError('RESOURCE_NOT_FOUND', 'Citrix ADC 内置插件目标版本不存在', {
+    throw new AppError('RESOURCE_NOT_FOUND', '内置插件目标版本不存在', {
       pluginVersionId,
+      pluginId,
       expectedVersion,
     });
   }
   return version;
+}
+
+function semanticVersionLine(version: string): string {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) throw new AppError('VALIDATION_FAILED', '内置插件版本不是标准 SemVer', { version });
+  return `${match[1]}.${match[2]}`;
 }

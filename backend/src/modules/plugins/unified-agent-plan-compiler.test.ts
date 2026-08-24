@@ -14,7 +14,8 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
   const tenantId = 'tenant-unified-agent-plan';
-  const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === 'builtin.linux.nginx.pem')!;
+  const recipe = structuredClone(builtinAgentPluginManifests.find((item) => item.pluginId === 'builtin.linux.nginx.pem')!);
+  recipe.variables.serviceName = { type: 'string', required: true, source: { kind: 'execution_context', path: 'service.name' } };
   const resourcePath = 'agent-recipes/nginx.json';
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
   const imported = await plugins.importVersion(tenantId, {
@@ -39,7 +40,7 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
     mode: 'MANAGED',
     variableBindings: {
       certificatePath: '/etc/gcac-test/certs/test.crt', privateKeyPath: '/etc/gcac-test/certs/test.key',
-      serviceName: 'nginx', nginxProgram: '/usr/sbin/nginx',
+      nginxProgram: '/usr/sbin/nginx',
     },
     secretBindings: {},
     certificateArtifactBindings: {
@@ -56,12 +57,14 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
       certificate: { outputs: { certificatePem: { artifactRef: 'memory://certificate/<certificate>&chain', sha256: 'aa', size: 10, sensitive: false } } },
       privateKey: { outputs: { privateKeyPem: { artifactRef: 'memory://privateKey/privateKeyPem', sha256: 'bb', size: 10, sensitive: true } } },
     },
+    executionContext: { service: { name: 'nginx-target-service' } },
   });
 
   assert.equal(plan.apiVersion, 'gcac.agent-plan/v1');
   assert.equal(plan.plugin.pluginVersionId, imported.id);
   assert.equal(plan.agentId, 'agent-1');
   assert.ok(plan.operations.some((item) => item.operationType === 'file.atomic_replace'));
+  assert.equal(plan.operations.find((item) => item.operationType === 'service.control')?.input.serviceName, 'nginx-target-service');
   const filesystemPermissions = plan.permissions.filter((item) => item.scope === 'filesystem').flatMap((item) => item.values);
   assert.equal(filesystemPermissions.includes('/etc/gcac-test/certs/test.crt'), true);
   assert.equal(filesystemPermissions.includes('/etc/gcac-test/certs/test.key'), true);
@@ -82,6 +85,7 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
       certificate: { outputs: { certificatePem: { artifactRef: 'memory://certificate/<certificate>&chain', sha256: 'aa', size: 10, sensitive: false } } },
       privateKey: { outputs: { privateKeyPem: { artifactRef: 'memory://privateKey/privateKeyPem', sha256: 'bb', size: 10, sensitive: true } } },
     },
+    executionContext: { service: { name: 'nginx-target-service' } },
   });
   assert.equal(preflightPlan.executionMode, 'PREFLIGHT');
   assert.equal(preflightPlan.operations.length, recipe.operations.length);

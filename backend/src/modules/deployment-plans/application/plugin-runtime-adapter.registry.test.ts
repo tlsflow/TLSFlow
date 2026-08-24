@@ -24,6 +24,15 @@ test('PluginRuntimeAdapterRegistry 使用同一接口编译 Agent Atomic', async
   assert.deepEqual(result.payload.certificateVerification, {
     capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443, expectedDomains: ['test02.jacksonz.cn'],
   });
+  assert.deepEqual(result.payload.pluginExecutionContext, {
+    application: { id: 'asset-1', serverName: 'test02.jacksonz.cn', port: 443 },
+    target: { id: 'target-1', type: 'tls.binding', key: 'target-1', bindingKey: undefined, frameworkType: 'web.nginx', metadata: {} },
+    host: { id: 'host-1', primaryIp: '10.255.0.127', osType: 'LINUX' },
+    site: {
+      id: 'site-1', type: undefined, name: 'TEST02', key: undefined, bindingInformation: '*:443:test02.jacksonz.cn',
+      hostHeader: 'test02.jacksonz.cn', listenIp: undefined, port: 443, protocol: 'HTTPS', configPath: undefined, metadata: {},
+    },
+  });
 });
 
 test('PluginRuntimeAdapterRegistry 使用同一接口编译 Workflow DSL', async () => {

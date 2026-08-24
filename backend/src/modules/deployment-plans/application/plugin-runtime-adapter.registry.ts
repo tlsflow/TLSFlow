@@ -98,6 +98,7 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
         certificateBindingId: input.certificateBindingId,
         managedTargetId: input.context.managedTarget.id,
         certificateVerification: hostCertificateVerification(input),
+        pluginExecutionContext: buildPluginExecutionContext(input),
         siteAssetId: input.context.siteAsset?.id,
         frameworkType: input.context.frameworkType,
         siteName: input.context.siteAsset?.siteName,
@@ -119,6 +120,43 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
       },
     };
   }
+}
+
+function buildPluginExecutionContext(input: RuntimeCompileInput): Record<string, unknown> {
+  const site = input.context.siteAsset;
+  return {
+    application: {
+      id: input.applicationAssetId,
+      serverName: input.serverName,
+      port: input.port,
+    },
+    target: {
+      id: input.context.managedTarget.id,
+      type: input.context.managedTarget.targetType,
+      key: input.context.managedTarget.targetKey,
+      bindingKey: input.context.managedTarget.bindingKey,
+      frameworkType: input.context.frameworkType,
+      metadata: input.context.managedTarget.metadata,
+    },
+    host: {
+      id: input.context.host.id,
+      primaryIp: input.context.host.primaryIp,
+      osType: input.context.host.osType,
+    },
+    site: site ? {
+      id: site.id,
+      type: site.siteType,
+      name: site.siteName,
+      key: site.siteKey,
+      bindingInformation: site.bindingInformation ?? input.context.managedTarget.bindingKey,
+      hostHeader: site.hostHeader,
+      listenIp: site.listenIp,
+      port: site.port,
+      protocol: site.protocol,
+      configPath: site.configPath,
+      metadata: site.metadata,
+    } : undefined,
+  };
 }
 
 export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {

@@ -52,6 +52,11 @@
       "packageSha256": "sha256:9b723b88deb34f9c949e90bc065fc80e013c1293303711da54c600c708d872d8"
     },
     {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.6",
+      "packageSha256": "sha256:9dc52bcd51681f86db4eef70fa66bc548b10149d5feb6ab1c05a37a68f7ada5d"
+    },
+    {
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
       "version": "1.1.6",
       "packageSha256": "sha256:75fd9041977e011ae410dab651ad472725371d59199e89836f55a7455c359d47"

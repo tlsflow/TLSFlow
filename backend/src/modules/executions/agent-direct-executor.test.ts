@@ -122,6 +122,7 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
   let enqueueCount = 0;
   let directCount = 0;
   let compiledArtifacts: Record<string, unknown> | undefined;
+  let compiledExecutionContext: Record<string, unknown> | undefined;
   const progressUpdates: Record<string, unknown>[] = [];
   const agents = {
     enqueueDirectTask: async () => {
@@ -158,8 +159,9 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
     },
   } as unknown as AgentsApplicationService;
   const compiler = {
-    compile: async (input: { artifacts: Record<string, unknown> }) => {
+    compile: async (input: { artifacts: Record<string, unknown>; executionContext?: Record<string, unknown> }) => {
       compiledArtifacts = input.artifacts;
+      compiledExecutionContext = input.executionContext;
       return {
         planId: 'agplan_atomic_preflight',
         operations: [{ id: 'nginx-program-preflight' }],
@@ -186,6 +188,14 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
         agentId: 'agt_atomic_preflight',
         actionType: 'agent.atomic_plan.execute',
         pluginBindingId: 'plgb_atomic_preflight',
+        frameworkType: 'web.fixture',
+        applicationAssetId: 'asset-atomic-preflight',
+        certificateVerification: { serverName: 'test.example.com', port: 4433 },
+        targetSnapshot: {
+          managedTarget: { id: 'target-atomic-preflight', targetType: 'tls.binding', targetKey: 'target-key', bindingKey: '*:4433:', metadata: {} },
+          host: { id: 'host-atomic-preflight', primaryIp: '10.0.0.8', osType: 'WINDOWS' },
+          siteAsset: { id: 'site-atomic-preflight', siteType: 'web.site', siteName: 'TEST', siteKey: 'site-key', bindingInformation: '*:4433:', port: 4433, protocol: 'HTTPS', metadata: {} },
+        },
         deploymentArtifact: {
           workflowCertificateMaterials: {},
           certificatePem: 'certificate-content',
@@ -214,6 +224,15 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
   assert.equal((progressUpdates[0]?.dryRunChecks as unknown[]).length, 1);
   assert.equal(((compiledArtifacts?.certificate as Record<string, unknown>).content), 'certificate-content');
   assert.equal(((compiledArtifacts?.privateKey as Record<string, unknown>).content), 'private-key-content');
+  assert.deepEqual(compiledExecutionContext, {
+    application: { id: 'asset-atomic-preflight', serverName: 'test.example.com', port: 4433 },
+    target: { id: 'target-atomic-preflight', type: 'tls.binding', key: 'target-key', bindingKey: '*:4433:', frameworkType: 'web.fixture', metadata: {} },
+    host: { id: 'host-atomic-preflight', primaryIp: '10.0.0.8', osType: 'WINDOWS' },
+    site: {
+      id: 'site-atomic-preflight', type: 'web.site', name: 'TEST', key: 'site-key', bindingInformation: '*:4433:',
+      hostHeader: undefined, listenIp: undefined, port: 4433, protocol: 'HTTPS', configPath: undefined, metadata: {},
+    },
+  });
 });
 
 test('AgentExecutorAdapter 主动直连失败时明确失败且不会调用队列接口', async () => {

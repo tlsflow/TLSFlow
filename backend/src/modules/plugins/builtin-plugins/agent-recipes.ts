@@ -56,7 +56,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.windows.iis.pfx',
     name: 'windows-iis-pfx-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.4',
+    version: '1.0.5',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'IIS PFX 证书部署', description: '检查并导入 PFX、授权应用池私钥、更新 IIS HTTPS Binding 并验证 TLS。', logoUrl: '/plugin-logos/iis.svg', category: 'web-server', tags: ['iis', 'pfx', 'windows'] },
     compatibility: {
@@ -74,8 +74,8 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
       },
     },
     variables: {
-      siteName: { type: 'string', required: true },
-      bindingInformation: { type: 'string', required: true },
+      siteName: { type: 'string', required: true, source: { kind: 'execution_context', path: 'site.name' } },
+      bindingInformation: { type: 'string', required: true, source: { kind: 'execution_context', path: 'site.bindingInformation' } },
       appPoolName: { type: 'string', required: false },
     },
     artifactInputs: { certificate: { type: 'bundle', required: true } },

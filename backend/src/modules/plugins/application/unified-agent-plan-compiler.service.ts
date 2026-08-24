@@ -21,6 +21,7 @@ export class UnifiedAgentPlanCompilerService {
     executionStepId: string;
     pluginBindingId: string;
     artifacts: Record<string, unknown>;
+    executionContext?: Record<string, unknown>;
     executionVariables?: Record<string, unknown>;
     executionMode?: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
     ttlSeconds?: number;
@@ -41,9 +42,11 @@ export class UnifiedAgentPlanCompilerService {
     if (!recipePath || !recipeText) throw new AppError('RESOURCE_NOT_FOUND', '统一插件缺少 Agent Recipe', { pluginVersionId: plugin.id });
     const recipe = validateAgentDeploymentPluginManifest(JSON.parse(recipeText));
     if (recipe.pluginId !== plugin.pluginId) throw new AppError('AGENT_PLUGIN_BINDING_INVALID', 'Agent Recipe 与统一插件身份不一致');
+    const sourcedVariables = resolveExecutionContextVariables(recipe.variables, input.executionContext ?? {});
     const variables = validateAgentPluginVariableValues(recipe.variables, {
       ...binding.variableBindings,
       ...binding.secretBindings,
+      ...sourcedVariables,
       ...input.executionVariables,
     });
     const values = { variables, artifacts: normalizeArtifacts(binding, input.artifacts) };
@@ -92,6 +95,28 @@ export class UnifiedAgentPlanCompilerService {
       .digest('hex');
     return { ...transportUnsigned, authorization: { keyId: 'agent-plan-v1', signature } };
   }
+}
+
+function resolveExecutionContextVariables(
+  definitions: AgentDeploymentPluginManifestV1['variables'],
+  executionContext: Record<string, unknown>,
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [name, definition] of Object.entries(definitions)) {
+    if (definition.source?.kind !== 'execution_context') continue;
+    const value = readContextPath(executionContext, definition.source.path);
+    if (value !== undefined) resolved[name] = value;
+  }
+  return resolved;
+}
+
+function readContextPath(context: Record<string, unknown>, path: string): unknown {
+  let current: unknown = context;
+  for (const segment of path.split('.')) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return current;
 }
 
 function normalizeArtifacts(binding: PluginBindingV1, artifacts: Record<string, unknown>): Record<string, unknown> {
