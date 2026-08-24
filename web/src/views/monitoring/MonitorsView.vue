@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
+import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import {
   createMonitorTarget,
@@ -13,6 +14,7 @@ import {
   listMonitorTargets,
   listRiskEvents,
   probeMonitorServiceAsset,
+  scanMonitorRisks,
   updateMonitorTarget,
 } from '@/api/modules/monitors.api'
 import { GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
@@ -20,6 +22,7 @@ import { GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
 type TargetStatus = ProbeStatus | 'NONE'
+type MonitorWarningReason = 'certificateNotApplied' | 'chainVerificationFailed'
 
 interface MonitorTarget {
   readonly id: string
@@ -51,6 +54,16 @@ interface CertificateObservation {
   readonly dnsNames?: string[]
   readonly verified?: boolean
   readonly verificationError?: string
+  readonly chain?: ReadonlyArray<{
+    readonly fingerprintSha256: string
+    readonly subject?: string
+    readonly issuer?: string
+    readonly serialNumber?: string
+    readonly notBefore?: string
+    readonly notAfter?: string
+    readonly isCa?: boolean
+  }>
+  readonly chainStatus?: 'valid' | 'incomplete' | 'invalid' | 'untrusted'
 }
 
 const storageKey = 'gcac.monitor.targets.v1'
@@ -59,6 +72,8 @@ const historyStorageKey = 'gcac.monitor.probe-history.v1'
 const assets = ref<ApiRecord[]>([])
 const risks = ref<ApiRecord[]>([])
 const bindings = ref<ApiRecord[]>([])
+const certificateAssets = ref<ApiRecord[]>([])
+const certificateVersions = ref<ApiRecord[]>([])
 const monitorTargets = ref<MonitorTarget[]>([])
 const probeResults = ref<Record<string, ProbeResult>>({})
 const probeHistory = ref<Record<string, ProbeResult[]>>({})
@@ -108,12 +123,15 @@ const monitorRows = computed(() =>
     const asset = assetById(target.assetId)
     const assetRisks = risksForAsset(target.assetId)
     const probe = probeResults.value[target.assetId]
+    const warningReasons = monitorWarningReasons(target.assetId, latestCertificateObservation(target.assetId))
+    const status = statusFromProbeAndRisks(probe, assetRisks, warningReasons)
     return {
       target,
       title: assetLabel(asset),
       endpoint: endpointLabel(asset),
-      status: statusFromProbeAndRisks(probe, assetRisks),
-      statusLabel: probeStatusLabel(statusFromProbeAndRisks(probe, assetRisks)),
+      status,
+      statusLabel: probeStatusLabel(status),
+      warningSummary: warningSummary(warningReasons),
       recentResults: recentProbeResults(target.assetId),
     }
   }),
@@ -124,16 +142,19 @@ onMounted(() => {
   void refreshAll()
 })
 
-async function refreshAll() {
+async function refreshAll(options: { scanRisks?: boolean } = {}) {
   loading.value = true
   error.value = ''
   try {
-    const [targetResult, probeResult, assetResult, riskResult, bindingResult] = await Promise.all([
-      listMonitorTargets({ page: 1, pageSize: 500, sort: 'createdAt:desc' }),
-      listMonitorProbeResults({ page: 1, pageSize: 500 }),
+    if (options.scanRisks) await scanMonitorRisks()
+    const [targetResult, probeResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult] = await Promise.all([
+      listMonitorTargets({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
+      listMonitorProbeResults({ page: 1, pageSize: 200 }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listCertificateVersions({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
     ])
     monitorTargets.value = (targetResult.data?.items ?? [])
       .map(normalizeMonitorTargetRecord)
@@ -144,6 +165,8 @@ async function refreshAll() {
     assets.value = [...(assetResult.data?.items ?? [])]
     risks.value = [...(riskResult.data?.items ?? [])]
     bindings.value = [...(bindingResult.data?.items ?? [])]
+    certificateAssets.value = [...(certificateAssetResult.data?.items ?? [])]
+    certificateVersions.value = [...(certificateVersionResult.data?.items ?? [])]
     await refreshCertificateObservations()
     if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
       selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
@@ -229,6 +252,7 @@ async function probeAllTargets(options: { silent?: boolean } = {}) {
     for (const target of monitorTargets.value) {
       await probeTarget(target)
     }
+    await refreshAll({ scanRisks: true })
   } finally {
     probing.value = false
   }
@@ -269,7 +293,7 @@ async function probeTarget(target: MonitorTarget) {
 async function refreshCertificateObservations(assetId?: string) {
   const result = await listMonitorCertificateObservations({
     page: 1,
-    pageSize: 500,
+    pageSize: 200,
     filters: assetId ? { serviceAssetId: assetId } : undefined,
   })
   const grouped = groupCertificateObservations(result.data?.items ?? [])
@@ -281,7 +305,7 @@ async function refreshCertificateObservations(assetId?: string) {
 async function refreshProbeResults(assetId?: string) {
   const result = await listMonitorProbeResults({
     page: 1,
-    pageSize: 500,
+    pageSize: 200,
     filters: assetId ? { serviceAssetId: assetId } : undefined,
   })
   const grouped = groupProbeResults(result.data?.items ?? [])
@@ -345,10 +369,82 @@ function observedCertificateChangedAt(certificate: CertificateObservation): stri
   return formatLocalTime(certificate.checkedAt)
 }
 
-function statusFromProbeAndRisks(probe: ProbeResult | undefined, assetRisks: ApiRecord[]): TargetStatus {
+function statusFromProbeAndRisks(
+  probe: ProbeResult | undefined,
+  assetRisks: ApiRecord[],
+  warningReasons: readonly MonitorWarningReason[],
+): TargetStatus {
   if (probe?.status === 'ERROR') return 'ERROR'
-  if (assetRisks.some((risk) => ['critical', 'high'].includes(readString(risk, ['severity', 'risk'], '').toLowerCase()))) return 'WARNING'
+  if (warningReasons.length > 0) return 'WARNING'
+  if (assetRisks.some(isActiveRisk)) return 'WARNING'
   return probe?.status ?? 'NONE'
+}
+
+function isActiveRisk(risk: ApiRecord): boolean {
+  return ['OPEN', 'ACKED'].includes(readString(risk, ['status'], '').toUpperCase())
+}
+
+function monitorWarningReasons(assetId: string, observedCertificate: CertificateObservation | null): MonitorWarningReason[] {
+  if (!observedCertificate) return []
+  const reasons: MonitorWarningReason[] = []
+  const latestFingerprints = latestCertificateFingerprintsForAsset(assetId)
+  if (
+    latestFingerprints.length > 0
+    && !latestFingerprints.includes(normalizeFingerprint(observedCertificate.fingerprintSha256))
+  ) {
+    reasons.push('certificateNotApplied')
+  }
+  if (observedCertificate.verified === false || Boolean(observedCertificate.verificationError)) {
+    reasons.push('chainVerificationFailed')
+  }
+  return reasons
+}
+
+function probeHistoryBlockStatus(
+  row: { readonly status: TargetStatus; readonly recentResults: readonly ProbeResult[] },
+  index: number,
+): ProbeStatus | 'NONE' {
+  const result = row.recentResults[index]
+  if (!result) return 'NONE'
+  if (index === 0 && row.status === 'WARNING' && result.status === 'READY') return 'WARNING'
+  return result.status
+}
+
+function latestCertificateFingerprintsForAsset(assetId: string): string[] {
+  const certificateAssetIds = new Set<string>()
+  for (const binding of bindingsForAsset(assetId)) {
+    for (const versionId of bindingCertificateVersionIds(binding)) {
+      const version = certificateVersions.value.find((item) => readId(item) === versionId)
+      const certificateAssetId = readString(version, ['certificateAssetId'], '')
+      if (certificateAssetId) certificateAssetIds.add(certificateAssetId)
+    }
+  }
+  return [...certificateAssetIds]
+    .map(latestCertificateVersionForAsset)
+    .map((version) => normalizeFingerprint(readString(version, ['fingerprintSha256'], '')))
+    .filter(Boolean)
+}
+
+function bindingCertificateVersionIds(binding: ApiRecord): string[] {
+  return [...new Set([
+    readString(binding, ['certificateVersionId'], ''),
+    readString(binding, ['targetCertificateVersionId'], ''),
+    readString(binding, ['localCertificateVersionId'], ''),
+  ].filter(Boolean))]
+}
+
+function latestCertificateVersionForAsset(certificateAssetId: string): ApiRecord | null {
+  const certificateAsset = certificateAssets.value.find((item) => readId(item) === certificateAssetId)
+  const currentVersionId = readString(certificateAsset, ['currentVersionId'], '')
+  const currentVersion = certificateVersions.value.find((item) => readId(item) === currentVersionId)
+  if (currentVersion) return currentVersion
+  return certificateVersions.value
+    .filter((item) => readString(item, ['certificateAssetId'], '') === certificateAssetId)
+    .sort((left, right) => (readNumber(right.versionNo) ?? 0) - (readNumber(left.versionNo) ?? 0))[0] ?? null
+}
+
+function warningSummary(reasons: readonly MonitorWarningReason[]): string {
+  return reasons.map((reason) => t(`monitoring.warnings.${reason}`)).join(' / ')
 }
 
 function recentProbeResults(assetId: string): ProbeResult[] {
@@ -453,8 +549,9 @@ function readPath(record: ApiRecord | null | undefined, path: string): unknown {
   }, record)
 }
 
-function formatLocalTime(value: number): string {
+function formatLocalTime(value: number | string): string {
   const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return t('monitoring.fallback.notCollected')
   const year = date.getFullYear()
   const month = pad(date.getMonth() + 1)
   const day = pad(date.getDate())
@@ -482,6 +579,15 @@ function sourceLabel(source: string | undefined): string {
 
 function riskCertificateId(risk: ApiRecord): string {
   return readString(risk, ['certificateId', 'certificateAssetId'], '')
+}
+
+function riskOccurredAt(risk: ApiRecord): string {
+  return formatLocalTime(readString(risk, ['firstDetectedAt', 'detectedAt'], ''))
+}
+
+function riskClosedAt(risk: ApiRecord): string {
+  const resolvedAt = readString(risk, ['resolvedAt'], '')
+  return resolvedAt ? formatLocalTime(resolvedAt) : t('monitoring.fallback.notClosed')
 }
 
 function groupCertificateObservations(items: readonly ApiRecord[]): Record<string, CertificateObservation[]> {
@@ -544,6 +650,8 @@ function normalizeStoredCertificateObservation(item: ApiRecord): CertificateObse
     dnsNames: Array.isArray(dnsNamesValue) ? dnsNamesValue.map(String).filter(Boolean) : undefined,
     verified: readBoolean(item, ['verified']),
     verificationError: readString(item, ['verificationError'], ''),
+    chain: Array.isArray(readPath(item, 'chain')) ? readPath(item, 'chain') as CertificateObservation['chain'] : undefined,
+    chainStatus: readString(item, ['chainStatus'], '') as CertificateObservation['chainStatus'],
   }
 }
 
@@ -593,7 +701,7 @@ function trimProbeStateToTargets() {
 <template>
   <section class="gc-page monitor-page">
     <div class="monitor-page__actions">
-      <button class="gc-button" type="button" :disabled="loading" @click="refreshAll">
+      <button class="gc-button" type="button" :disabled="loading" @click="() => refreshAll({ scanRisks: true })">
         {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
       </button>
       <button class="gc-button gc-button--danger" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
@@ -635,12 +743,20 @@ function trimProbeStateToTargets() {
               <i
                 v-for="index in 10"
                 :key="index"
-                :data-status="row.recentResults[index - 1]?.status ?? 'NONE'"
+                :data-status="probeHistoryBlockStatus(row, index - 1)"
                 :title="probeHistoryBlockLabel(row.recentResults[index - 1], index - 1)"
               />
             </div>
           </div>
-          <span class="monitor-page__target-status" :data-status="row.status">{{ row.statusLabel }}</span>
+          <span
+            class="monitor-page__target-status"
+            :data-status="row.status"
+            :title="row.warningSummary"
+            :aria-label="row.warningSummary || row.statusLabel"
+          >
+            <b v-if="row.status === 'WARNING'" aria-hidden="true">!</b>
+            {{ row.statusLabel }}
+          </span>
         </button>
       </aside>
 
@@ -765,6 +881,49 @@ function trimProbeStateToTargets() {
           <article class="monitor-page__panel monitor-page__panel--wide gc-card">
             <header class="monitor-page__section-head">
               <div>
+                <strong>{{ t('monitoring.sections.riskEvents') }}</strong>
+                <span>{{ t('monitoring.sections.riskEventsHint') }}</span>
+              </div>
+            </header>
+            <div v-if="selectedAssetRisks.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.riskEvents') }}</div>
+            <div v-else class="monitor-page__table-scroll">
+              <table class="monitor-page__table monitor-page__risk-table">
+                <thead>
+                  <tr>
+                    <th>{{ t('monitoring.columns.warningContent') }}</th>
+                    <th>{{ t('monitoring.columns.occurredAt') }}</th>
+                    <th>{{ t('monitoring.columns.currentStatus') }}</th>
+                    <th>{{ t('monitoring.columns.closedAt') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="risk in selectedAssetRisks" :key="readId(risk)">
+                    <td>
+                      <RouterLink
+                        v-if="riskCertificateId(risk)"
+                        class="monitor-page__risk-link"
+                        :to="{ path: '/certificates', query: { certificateId: riskCertificateId(risk) } }"
+                      >
+                        <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
+                        <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
+                      </RouterLink>
+                      <div v-else class="monitor-page__risk-content">
+                        <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
+                        <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
+                      </div>
+                    </td>
+                    <td>{{ riskOccurredAt(risk) }}</td>
+                    <td><GcStatusTag :status="readString(risk, ['status'], 'OPEN')" /></td>
+                    <td>{{ riskClosedAt(risk) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="monitor-page__panel monitor-page__panel--wide gc-card">
+            <header class="monitor-page__section-head">
+              <div>
                 <strong>{{ t('monitoring.sections.probeHistory') }}</strong>
                 <span>{{ t('monitoring.sections.probeHistoryHint') }}</span>
               </div>
@@ -792,32 +951,6 @@ function trimProbeStateToTargets() {
             </table>
           </article>
 
-          <article class="monitor-page__panel gc-card">
-            <header class="monitor-page__section-head">
-              <div>
-                <strong>{{ t('monitoring.sections.riskEvents') }}</strong>
-                <span>{{ t('monitoring.sections.riskEventsHint') }}</span>
-              </div>
-            </header>
-            <div v-if="selectedAssetRisks.length === 0" class="monitor-page__empty-line">{{ t('monitoring.empty.riskEvents') }}</div>
-            <ul v-else class="monitor-page__risk-list">
-              <li v-for="risk in selectedAssetRisks" :key="readId(risk)">
-                <RouterLink
-                  v-if="riskCertificateId(risk)"
-                  class="monitor-page__risk-link"
-                  :to="{ path: '/certificates', query: { certificateId: riskCertificateId(risk) } }"
-                >
-                  <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
-                  <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
-                </RouterLink>
-                <div v-else>
-                  <strong>{{ readString(risk, ['title', 'name'], t('monitoring.fallback.unnamedEvent')) }}</strong>
-                  <span>{{ readString(risk, ['summary', 'message'], t('monitoring.fallback.noSummary')) }}</span>
-                </div>
-                <GcStatusTag :status="readString(risk, ['status'], 'OPEN')" />
-              </li>
-            </ul>
-          </article>
         </section>
       </section>
     </section>
@@ -1185,14 +1318,6 @@ function trimProbeStateToTargets() {
   font-weight: 700;
 }
 
-.monitor-page__risk-list {
-  display: grid;
-  gap: 8px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
 .monitor-page__certificate-detail {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1244,26 +1369,27 @@ function trimProbeStateToTargets() {
   font-weight: 850;
 }
 
-.monitor-page__risk-list li {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--gc-color-muted-bg);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--gc-color-surface-solid);
+.monitor-page__table-scroll {
+  width: 100%;
+  overflow-x: auto;
 }
 
-.monitor-page__risk-list li div {
+.monitor-page__risk-table {
+  min-width: calc(var(--gc-space-10) * 18);
+}
+
+.monitor-page__risk-table th:first-child {
+  width: 55%;
+}
+
+.monitor-page__risk-content,
+.monitor-page__risk-link {
   display: grid;
-  gap: 4px;
+  gap: var(--gc-space-1);
 }
 
 .monitor-page__risk-link {
   color: inherit;
-  display: grid;
-  gap: 4px;
   text-decoration: none;
 }
 
@@ -1271,9 +1397,10 @@ function trimProbeStateToTargets() {
   color: var(--gc-color-success);
 }
 
-.monitor-page__risk-list li span {
+.monitor-page__risk-content span,
+.monitor-page__risk-link span {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: var(--gc-font-size-xs);
   line-height: 1.45;
 }
 
@@ -1290,8 +1417,7 @@ function trimProbeStateToTargets() {
 
 @media (max-width: 720px) {
   .monitor-page__summary-title,
-  .monitor-page__section-head,
-  .monitor-page__risk-list li {
+  .monitor-page__section-head {
     align-items: stretch;
     flex-direction: column;
   }
