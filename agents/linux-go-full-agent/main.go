@@ -33,6 +33,10 @@ import (
 	"unicode"
 
 	"gcac/linux-go-full-agent/internal/buildinfo"
+	"gcac/linux-go-full-agent/internal/core/controlplane"
+	"gcac/linux-go-full-agent/internal/core/recovery"
+	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
+	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
 const (
@@ -105,6 +109,7 @@ type InspectResult struct {
 	Uname             map[string]string      `json:"uname"`
 	Proc              map[string]string      `json:"proc"`
 	Environment       map[string]string      `json:"environment"`
+	PlatformFacts     linuxFacts.Snapshot    `json:"platformFacts"`
 }
 
 type NetworkInterfaceInfo struct {
@@ -938,6 +943,7 @@ func collectInspectResult() (*InspectResult, error) {
 		Uname:             map[string]string{},
 		Proc:              map[string]string{},
 		Environment:       pickEnvironment([]string{"LANG", "LC_ALL", "LC_CTYPE", "PATH", "HOME", "SHELL", "USER"}),
+		PlatformFacts:     collectLinuxPlatformFacts(),
 	}
 
 	for _, entry := range []struct {
@@ -1632,34 +1638,27 @@ func (s *directControlServer) shutdown(ctx context.Context) {
 
 func executeDirectControlAction(request directActionExecuteRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
-	if !strings.EqualFold(actionType, "linux.nginx.deploy_certificate") {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
-		}, http.StatusBadRequest
-	}
-
-	payload := map[string]any{}
-	for key, value := range request.Inputs {
-		payload[key] = value
-	}
-	payload["type"] = "linux.nginx.deploy_certificate"
+	payload := cloneMap(request.Inputs)
+	payload["type"] = actionType
 
 	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
-	success, errorCode, errorMessage, detail := executeLinuxTaskPayload(taskID, payload)
+	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
+		TaskID:     taskID,
+		ActionType: actionType,
+		Payload:    payload,
+	})
 	statusCode := http.StatusOK
-	if !success {
+	if !result.Success {
 		statusCode = http.StatusBadRequest
 	}
 	return map[string]any{
-		"success":      success,
-		"errorCode":    errorCode,
-		"errorMessage": errorMessage,
-		"detail":       detail,
+		"success":      result.Success,
+		"errorCode":    result.ErrorCode,
+		"errorMessage": result.ErrorMessage,
+		"detail":       result.Detail,
 		"taskId":       taskID,
 		"requestId":    request.RequestID,
-		"actionType":   "linux.nginx.deploy_certificate",
+		"actionType":   actionType,
 	}, statusCode
 }
 
@@ -1692,43 +1691,45 @@ func executeDirectControlActionWithRuntime(
 
 func startDirectControlAction(request directActionStartRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
-	if !strings.EqualFold(actionType, "linux.nginx.deploy_certificate") {
+	registry := newLinuxActionRegistry(nil)
+	if _, err := registry.Lookup(actionType, coreRegistry.DefaultSchemaVersion); err != nil {
 		return map[string]any{
 			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": fmt.Sprintf("unsupported direct action: %s", actionType),
+			"errorCode":    "ACTION_HANDLER_NOT_REGISTERED",
+			"errorMessage": fmt.Sprintf("action handler not registered: %s", actionType),
 		}, http.StatusBadRequest
 	}
 
-	payload := map[string]any{}
-	for key, value := range request.Inputs {
-		payload[key] = value
-	}
-	payload["type"] = "linux.nginx.deploy_certificate"
+	payload := cloneMap(request.Inputs)
+	payload["type"] = actionType
 
 	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
 	startedAt := time.Now().Format(time.RFC3339)
 	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
 		ActionID:   actionID,
-		ActionType: "linux.nginx.deploy_certificate",
+		ActionType: actionType,
 		RequestID:  request.RequestID,
 		Status:     "running",
 		StartedAt:  startedAt,
 	})
 
 	go func() {
-		success, errorCode, errorMessage, detail := executeLinuxTaskPayload(actionID, payload)
+		result := registry.Execute(context.Background(), coreRegistry.Request{
+			TaskID:     actionID,
+			ActionType: actionType,
+			Payload:    payload,
+		})
 		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
 			ActionID:     actionID,
-			ActionType:   "linux.nginx.deploy_certificate",
+			ActionType:   actionType,
 			RequestID:    request.RequestID,
 			Status:       "completed",
 			StartedAt:    startedAt,
 			FinishedAt:   time.Now().Format(time.RFC3339),
-			Success:      success,
-			ErrorCode:    errorCode,
-			ErrorMessage: errorMessage,
-			Detail:       detail,
+			Success:      result.Success,
+			ErrorCode:    result.ErrorCode,
+			ErrorMessage: result.ErrorMessage,
+			Detail:       result.Detail,
 		})
 	}()
 
@@ -1737,7 +1738,7 @@ func startDirectControlAction(request directActionStartRequest) (map[string]any,
 		"accepted":   true,
 		"actionId":   actionID,
 		"requestId":  request.RequestID,
-		"actionType": "linux.nginx.deploy_certificate",
+		"actionType": actionType,
 		"status":     "running",
 	}, http.StatusAccepted
 }
@@ -1808,27 +1809,21 @@ func executeDirectActionPayload(
 	actionType string,
 	inputs map[string]any,
 ) (bool, string, string, map[string]any) {
-	payload := map[string]any{}
-	for key, value := range inputs {
-		payload[key] = value
-	}
-
-	switch {
-	case strings.EqualFold(actionType, "linux.nginx.deploy_certificate"):
-		payload["type"] = "linux.nginx.deploy_certificate"
-		return executeLinuxTaskPayload(taskID, payload)
-	case strings.EqualFold(actionType, "agent.capability.rescan"):
-		payload["type"] = "agent.capability.rescan"
-		detail, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "manual", payload)
-		if err != nil {
-			return false, "RESCAN_REPORT_FAILED", err.Error(), detail
-		}
-		return true, "", "", detail
-	default:
-		return false, "DIRECT_ACTION_UNSUPPORTED", fmt.Sprintf("unsupported direct action: %s", actionType), map[string]any{
-			"actionType": actionType,
-		}
-	}
+	payload := cloneMap(inputs)
+	payload["type"] = actionType
+	registry := newLinuxActionRegistry(&linuxActionRuntime{
+		client:   client,
+		config:   config,
+		state:    state,
+		counters: counters,
+		rescan:   rescan,
+	})
+	result := registry.Execute(ctx, coreRegistry.Request{
+		TaskID:     taskID,
+		ActionType: actionType,
+		Payload:    payload,
+	})
+	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
 func readDirectControlActionStatus(actionID string) (map[string]any, int) {
@@ -2374,29 +2369,18 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
 		return success, code, message, detail
 	}
-	switch taskType {
-	case "", "agent.self_test":
-		return true, "", "", map[string]any{
-			"executor": "linux-go-agent-runtime",
-			"mode":     "self-test",
-			"taskId":   task.ID,
-		}
-	case "linux.nginx.deploy_certificate":
-		return executeLinuxTaskPayload(task.ID, payload)
-	case "agent.capability.rescan":
-		detail, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "manual", payload)
-		if err != nil {
-			return false, "RESCAN_REPORT_FAILED", err.Error(), detail
-		}
-		return true, "", "", detail
-	default:
-		return false, "UNSUPPORTED_TASK", "当前 Linux Go Agent 尚未接入该任务类型", map[string]any{
-			"taskId":         task.ID,
-			"type":           taskType,
-			"executor":       "linux-go-agent-runtime",
-			"supportedModes": []string{"agent.self_test", "agent.capability.rescan", "linux.nginx.deploy_certificate"},
-		}
+	if strings.TrimSpace(taskType) == "" {
+		taskType = "agent.self_test"
 	}
+	registry := newLinuxActionRegistry(&linuxActionRuntime{
+		client:   client,
+		config:   config,
+		state:    state,
+		counters: counters,
+		rescan:   rescan,
+	})
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, Payload: payload})
+	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
 type linuxNginxDeployInput struct {
@@ -2525,23 +2509,198 @@ var (
 
 func executeLinuxTaskPayload(taskID string, payload map[string]any) (bool, string, string, map[string]any) {
 	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
-	if !strings.EqualFold(taskType, "linux.nginx.deploy_certificate") {
-		return false, "UNSUPPORTED_TASK", "当前 Linux Go Agent 仅支持 linux.nginx.deploy_certificate 的执行入口", map[string]any{
-			"taskId":         taskID,
-			"type":           taskType,
-			"executor":       "linux-go-agent-runtime",
-			"supportedModes": []string{"linux.nginx.deploy_certificate"},
-		}
-	}
+	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
+		TaskID:     taskID,
+		ActionType: taskType,
+		Payload:    payload,
+	})
+	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
+}
 
-	input, err := parseLinuxNginxDeployInput(payload)
-	if err != nil {
-		return false, "TASK_PAYLOAD_INVALID", err.Error(), map[string]any{
-			"taskId":   taskID,
-			"executor": "linux-nginx-provider",
+type linuxActionRuntime struct {
+	client   *http.Client
+	config   *AgentConfig
+	state    *runtimeState
+	counters *runtimeCounters
+	rescan   *rescanState
+}
+
+func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry {
+	registry := coreRegistry.New()
+	mustRegisterAction(registry, coreRegistry.HandlerFunc{
+		ActionType: "agent.self_test",
+		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
+			return coreRegistry.Result{Success: true, Detail: map[string]any{
+				"executor": "linux-go-agent-runtime",
+				"mode":     "self-test",
+				"taskId":   request.TaskID,
+			}}
+		},
+	})
+	mustRegisterAction(registry, coreRegistry.HandlerFunc{
+		ActionType: "linux.nginx.deploy_certificate",
+		Execute: func(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
+			input, err := parseLinuxNginxDeployInput(request.Payload)
+			if err != nil {
+				return coreRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error(), Detail: map[string]any{
+					"taskId":   request.TaskID,
+					"executor": "linux-nginx-provider",
+				}}
+			}
+			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
+			return coreRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
+		},
+	})
+	if runtime != nil {
+		mustRegisterAction(registry, coreRegistry.HandlerFunc{
+			ActionType: "agent.capability.rescan",
+			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
+				detail, err := runCapabilityRescan(ctx, runtime.client, runtime.config, runtime.state, runtime.counters, runtime.rescan, "manual", request.Payload)
+				if err != nil {
+					return coreRegistry.Result{ErrorCode: "RESCAN_REPORT_FAILED", ErrorMessage: err.Error(), Detail: detail}
+				}
+				return coreRegistry.Result{Success: true, Detail: detail}
+			},
+		})
+	}
+	return registry
+}
+
+func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Handler) {
+	if err := registry.Register(handler); err != nil {
+		panic(err)
+	}
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	target := make(map[string]any, len(source)+1)
+	for key, value := range source {
+		target[key] = value
+	}
+	return target
+}
+
+func sanitizePathComponent(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var builder strings.Builder
+	for _, current := range value {
+		switch {
+		case current >= 'a' && current <= 'z':
+			builder.WriteRune(current)
+		case current >= 'A' && current <= 'Z':
+			builder.WriteRune(current)
+		case current >= '0' && current <= '9':
+			builder.WriteRune(current)
+		case current == '-', current == '_', current == '.':
+			builder.WriteRune(current)
+		default:
+			builder.WriteByte('_')
 		}
 	}
-	return runLinuxNginxDeployment(taskID, input)
+	return builder.String()
+}
+
+func collectLinuxPlatformFacts() linuxFacts.Snapshot {
+	registry := linuxFacts.New()
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "runtime", CollectorTimeout: 2 * time.Second, Execute: collectRuntimeFacts})
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "service", CollectorTimeout: 2 * time.Second, Execute: collectServiceFacts})
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "privilege", CollectorTimeout: 2 * time.Second, Execute: collectPrivilegeFacts})
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "filesystem", CollectorTimeout: 2 * time.Second, Execute: collectFilesystemFacts})
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "security", CollectorTimeout: 2 * time.Second, Execute: collectSecurityFacts})
+	mustRegisterFactCollector(registry, linuxFacts.CollectorFunc{CollectorName: "products", CollectorTimeout: 10 * time.Second, Execute: collectProductFacts})
+	return registry.Collect(context.Background())
+}
+
+func mustRegisterFactCollector(registry *linuxFacts.Registry, collector linuxFacts.Collector) {
+	if err := registry.Register(collector); err != nil {
+		panic(err)
+	}
+}
+
+func collectRuntimeFacts(context.Context) (any, error) {
+	return map[string]any{
+		"goos":       runtime.GOOS,
+		"goarch":     runtime.GOARCH,
+		"goVersion":  runtime.Version(),
+		"kernel":     firstNonEmpty(strings.TrimSpace(commandOutput("uname", "-r")), "unknown"),
+		"libc":       detectLibcFact(),
+		"cgoEnabled": false,
+	}, nil
+}
+
+func collectServiceFacts(context.Context) (any, error) {
+	return map[string]any{
+		"systemd": map[string]any{"available": lookPath("systemctl"), "runtimeDirectory": fileExists("/run/systemd/system")},
+		"sysv":    map[string]any{"available": lookPath("service") || fileExists("/etc/init.d")},
+		"openrc":  map[string]any{"available": lookPath("rc-service")},
+	}, nil
+}
+
+func collectPrivilegeFacts(context.Context) (any, error) {
+	return map[string]any{
+		"effectiveUid": os.Geteuid(),
+		"root":         os.Geteuid() == 0,
+		"sudo":         lookPath("sudo"),
+		"su":           lookPath("su"),
+		"doas":         lookPath("doas"),
+	}, nil
+}
+
+func collectFilesystemFacts(context.Context) (any, error) {
+	return map[string]any{
+		"temporaryDirectory": os.TempDir(),
+		"atomicRename":       true,
+		"posixPermissions":   true,
+		"symbolicLinks":      true,
+	}, nil
+}
+
+func collectSecurityFacts(context.Context) (any, error) {
+	return map[string]any{
+		"selinux":  map[string]any{"available": lookPath("getenforce") || fileExists("/sys/fs/selinux"), "status": commandOutput("getenforce")},
+		"apparmor": map[string]any{"available": lookPath("aa-status") || fileExists("/sys/module/apparmor"), "status": commandOutput("aa-status", "--enabled")},
+	}, nil
+}
+
+func collectProductFacts(context.Context) (any, error) {
+	return map[string]any{
+		"nginx":  summarizeProductFact(detectNginxDetail()),
+		"apache": summarizeProductFact(detectApacheDetail()),
+		"tomcat": summarizeProductFact(detectTomcatDetail()),
+	}, nil
+}
+
+func summarizeProductFact(detail any) map[string]any {
+	raw, err := json.Marshal(detail)
+	if err != nil || string(raw) == "null" {
+		return map[string]any{"installed": false}
+	}
+	value := map[string]any{}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return map[string]any{"installed": false}
+	}
+	return value
+}
+
+func commandOutput(name string, args ...string) string {
+	output, err := captureCommand(name, args...)
+	if err != nil {
+		return ""
+	}
+	return output
+}
+
+func detectLibcFact() map[string]any {
+	if output := commandOutput("getconf", "GNU_LIBC_VERSION"); output != "" {
+		return map[string]any{"type": "glibc", "version": output}
+	}
+	if output := commandOutput("ldd", "--version"); output != "" {
+		return map[string]any{"type": "detected", "version": strings.Split(output, "\n")[0]}
+	}
+	return map[string]any{"type": "unknown"}
 }
 
 func parseLinuxNginxDeployInput(payload map[string]any) (linuxNginxDeployInput, error) {
@@ -2591,6 +2750,46 @@ func normalizeLinuxNginxOperation(input linuxNginxDeployInput) string {
 }
 
 func runLinuxNginxDeployment(taskID string, input linuxNginxDeployInput) (bool, string, string, map[string]any) {
+	baseDir, err := resolveLinuxNginxBackupBaseDir()
+	if err != nil {
+		return false, "RECOVERY_LEDGER_FAILED", err.Error(), map[string]any{"taskId": taskID}
+	}
+	ledgerPath := filepath.Join(baseDir, "operations", sanitizePathComponent(taskID)+".json")
+	ledger, err := recovery.Start(ledgerPath, recovery.Entry{
+		OperationID: taskID,
+		ActionType:  "linux.nginx.deploy_certificate",
+		AuditID:     firstNonEmpty(input.ExecutionRunID, taskID),
+		BeforeState: map[string]any{
+			"certPath": input.BindingSelector.CertPath,
+			"keyPath":  input.BindingSelector.KeyPath,
+		},
+		Files: []recovery.FileState{
+			{Path: input.BindingSelector.CertPath},
+			{Path: input.BindingSelector.KeyPath},
+		},
+	})
+	if err != nil {
+		return false, "RECOVERY_LEDGER_FAILED", err.Error(), map[string]any{"taskId": taskID, "recoveryLedgerPath": ledgerPath}
+	}
+	operation := normalizeLinuxNginxOperation(input)
+	_ = ledger.CompleteStep("prepared:" + operation)
+	success, errorCode, errorMessage, detail := runLinuxNginxDeploymentInternal(taskID, input)
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	detail["recoveryLedgerPath"] = ledgerPath
+	if success {
+		_ = ledger.CompleteStep("completed:" + operation)
+		return success, errorCode, errorMessage, detail
+	}
+	_ = ledger.Fail(operation, errorCode, errorMessage)
+	if operation == "rollback" || detail["rollback"] != nil || detail["rollbackResult"] != nil {
+		_ = ledger.RecordRecovery([]string{"product-rollback"}, "attempted", errorMessage)
+	}
+	return success, errorCode, errorMessage, detail
+}
+
+func runLinuxNginxDeploymentInternal(taskID string, input linuxNginxDeployInput) (bool, string, string, map[string]any) {
 	operation := normalizeLinuxNginxOperation(input)
 	switch strings.ToLower(strings.TrimSpace(operation)) {
 	case "dryrun":
@@ -7354,70 +7553,11 @@ func uniqueTomcatApps(items []tomcatAppDetail) []tomcatAppDetail {
 }
 
 func doJSONRequest(ctx context.Context, client *http.Client, config *AgentConfig, method string, endpointPath string, payload any, target any) error {
-	baseURL := strings.TrimRight(strings.TrimSpace(config.ControlPlane), "/")
-	if baseURL == "" {
-		return errors.New("controlPlaneUrl 不能为空")
-	}
-
-	var body io.Reader
-	if payload != nil {
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("编码请求失败: %w", err)
-		}
-		body = bytes.NewReader(encoded)
-	}
-
-	request, err := http.NewRequestWithContext(ctx, method, baseURL+endpointPath, body)
-	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Request-Id", fmt.Sprintf("linux_agent_%d", time.Now().UnixNano()))
-	if strings.TrimSpace(config.TenantID) != "" {
-		request.Header.Set("X-Tenant-Id", strings.TrimSpace(config.TenantID))
-	}
-
-	response, err := client.Do(request)
-	if err != nil {
-		return fmt.Errorf("请求服务端失败: %w", err)
-	}
-	defer response.Body.Close()
-
-	responseBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		var apiErr apiErrorResponse
-		if err := json.Unmarshal(responseBody, &apiErr); err == nil && strings.TrimSpace(apiErr.Message) != "" {
-			if strings.TrimSpace(apiErr.ErrorCode) != "" {
-				return fmt.Errorf("%s (%s)", apiErr.Message, apiErr.ErrorCode)
-			}
-			return errors.New(apiErr.Message)
-		}
-		return fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-
-	if target == nil || len(bytes.TrimSpace(responseBody)) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(responseBody, target); err == nil {
-		return nil
-	}
-
-	var wrapped struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(responseBody, &wrapped); err == nil && len(wrapped.Data) > 0 {
-		if err := json.Unmarshal(wrapped.Data, target); err == nil {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("解析响应失败: %s", strings.TrimSpace(string(responseBody)))
+	transport := controlplane.New(client, controlplane.Config{
+		BaseURL:  config.ControlPlane,
+		TenantID: config.TenantID,
+	})
+	return transport.DoJSON(ctx, method, endpointPath, payload, target)
 }
 
 func parseConfigPath(args []string) string {
