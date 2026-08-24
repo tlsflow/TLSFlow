@@ -528,11 +528,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
             <h3>{{ pluginTitle(plugin) }}</h3>
             <span class="plugin-version">{{ pluginVersion(plugin) }}</span>
           </div>
-          <p class="plugin-card__id">{{ plugin.pluginId }}</p>
           <p>{{ pluginDescription(plugin) }}</p>
-          <div v-if="plugin.metadata.tags.length" class="plugin-tags">
-            <span v-for="tag in plugin.metadata.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
-          </div>
           <div v-if="compactPluginChips(plugin).length" class="plugin-card__chips">
             <span
               v-for="chip in compactPluginChips(plugin)"
@@ -738,12 +734,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
   color: var(--gc-color-text-muted);
   line-height: 1.45;
   font-size: var(--gc-font-size-xs);
-}
-
-.plugin-card__id {
-  color: var(--gc-color-text-secondary);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 600;
 }
 
 .market-stats {
@@ -1059,8 +1049,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
   gap: var(--gc-space-2);
 }
 
-.plugin-card__badges,
-.plugin-tags {
+.plugin-card__badges {
   display: flex;
   gap: var(--gc-space-1);
   flex-wrap: wrap;
@@ -1071,7 +1060,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .plugin-state,
 .plugin-version,
 .plugin-chip,
-.plugin-tags span,
 .plugin-methods span {
   display: inline-flex;
   align-items: center;
@@ -1148,17 +1136,11 @@ function pluginStatusClass(plugin: PluginRecord): string {
   -webkit-line-clamp: 3;
 }
 
-.plugin-tags,
 .plugin-methods {
   display: flex;
   gap: var(--gc-space-1);
   flex-wrap: wrap;
   justify-content: flex-start;
-}
-
-.plugin-tags span {
-  color: var(--gc-color-text-soft);
-  background: var(--gc-color-surface-hover);
 }
 
 .plugin-methods span {
@@ -1295,7 +1277,29 @@ function pluginStatusClass(plugin: PluginRecord): string {
   overflow-wrap: anywhere;
 }
 
-.plugin-card__chips,
+.plugin-card__chips {
+  display: flex;
+  gap: var(--gc-space-1);
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.plugin-card__chips > .plugin-chip {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+.plugin-card__chips > .plugin-chip:not([data-kind='more']) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plugin-card__chips > .plugin-chip[data-kind='more'] {
+  flex-shrink: 0;
+}
+
 .plugin-detail__chip-list {
   display: flex;
   gap: var(--gc-space-1);
