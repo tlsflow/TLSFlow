@@ -21,7 +21,13 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 .\build.ps1
 ```
 
-构建脚本使用系统 C# 编译器和 .NET Framework 3.5 Reference Assemblies（引用程序集），生成 `bin\Release\GCAC.WindowsCompatibilityAgent.exe` 和独立测试程序。正式产物不依赖 .NET Core、.NET Framework 4.8 或 PowerShell 运行任务循环。
+构建脚本使用系统 C# 编译器和 .NET Framework 3.5 Reference Assemblies（引用程序集），并校验 `mscorlib.dll` 必须为 `Version=2.0.0.0`，生成 `bin\Release\GCAC.WindowsCompatibilityAgent.exe` 和独立测试程序。正式产物不依赖 .NET Core、.NET Framework 4.8 或 PowerShell 运行任务循环。
+
+如果开发机没有安装 .NET Framework 3.5 Developer Targeting Pack，可使用 Microsoft.NETFramework.ReferenceAssemblies.net35 包解压后的 `build\.NETFramework\v3.5` 目录：
+
+```powershell
+.\build.ps1 -ReferenceAssemblyPath 'C:\path\to\build\.NETFramework\v3.5'
+```
 
 ## 前置检查
 
@@ -30,6 +36,14 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 ```
 
 前置检查把系统信息采集为 Fact（环境事实），再用通用约束运算符判断最低内核版本、.NET Framework 3.5.1、控制面连通性和服务权限；使用 HTTPS 控制面时额外检查 TLS 1.2。HTTP 控制面可以连接，但必须部署在受控内网或通过受信 Gateway 隔离，不建议用于生产公网。
+
+## IIS 绑定诊断
+
+```powershell
+.\bin\Release\GCAC.WindowsCompatibilityAgent.exe --inspect-iis
+```
+
+该命令只读检查 IIS 站点和 HTTPS Binding，并输出 `CertificateThumbprint`、`Certificate` 以及证书来源。Server 2008 R2 上如果 IIS 管理对象没有返回证书哈希，Agent 会继续检查 `netsh http show sslcert` 的 HTTP.sys SSL 绑定表。
 
 ## 安装、升级与恢复
 

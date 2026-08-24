@@ -10,6 +10,14 @@ if (-not (Test-Path -LiteralPath $compiler)) {
     throw ".NET Framework C# compiler not found: $compiler"
 }
 
+function Get-AssemblyIdentity([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    return [Reflection.AssemblyName]::GetAssemblyName($Path)
+}
+
 if ([string]::IsNullOrEmpty($ReferenceAssemblyPath)) {
     $candidates = @(
         (Join-Path ${env:ProgramFiles(x86)} "Reference Assemblies\Microsoft\Framework\.NETFramework\v3.5"),
@@ -20,6 +28,13 @@ if ([string]::IsNullOrEmpty($ReferenceAssemblyPath)) {
 }
 if ([string]::IsNullOrEmpty($ReferenceAssemblyPath) -or -not (Test-Path -LiteralPath (Join-Path $ReferenceAssemblyPath "mscorlib.dll"))) {
     throw ".NET Framework 3.5 reference assemblies not found. Install the developer targeting pack or pass -ReferenceAssemblyPath."
+}
+
+$mscorlibPath = Join-Path $ReferenceAssemblyPath "mscorlib.dll"
+$mscorlibIdentity = Get-AssemblyIdentity $mscorlibPath
+if ($null -eq $mscorlibIdentity -or $mscorlibIdentity.Name -ne "mscorlib" -or $mscorlibIdentity.Version.ToString() -ne "2.0.0.0") {
+    $actualIdentity = if ($null -eq $mscorlibIdentity) { "unreadable" } else { $mscorlibIdentity.FullName }
+    throw "Invalid .NET Framework 3.5 reference assemblies: $mscorlibPath is $actualIdentity; expected mscorlib, Version=2.0.0.0."
 }
 
 $references = @(
@@ -38,6 +53,14 @@ $agentOutput = Join-Path $output "GCAC.WindowsCompatibilityAgent.exe"
 & $compiler /noconfig /nologo /nostdlib+ /langversion:3 /target:exe /platform:anycpu /optimize+ /debug:pdbonly "/out:$agentOutput" $references $sources
 if ($LASTEXITCODE -ne 0) { throw "Compatibility Agent build failed" }
 Copy-Item -LiteralPath (Join-Path $root "config\runtime.config") -Destination ($agentOutput + ".config") -Force
+
+$agentIdentity = Get-AssemblyIdentity $agentOutput
+$agentAssembly = [Reflection.Assembly]::LoadFile($agentOutput)
+$agentMscorlibReference = $agentAssembly.GetReferencedAssemblies() | Where-Object { $_.Name -eq "mscorlib" } | Select-Object -First 1
+if ($null -eq $agentMscorlibReference -or $agentMscorlibReference.Version.ToString() -ne "2.0.0.0") {
+    $actualReference = if ($null -eq $agentMscorlibReference) { "missing" } else { $agentMscorlibReference.FullName }
+    throw "Compatibility Agent was not built for .NET Framework 3.5: mscorlib reference is $actualReference."
+}
 
 $testSources = @($sources | Where-Object { $_ -notlike "*\Program.cs" }) + (Join-Path $root "tests\Program.cs")
 $testOutput = Join-Path $output "GCAC.WindowsCompatibilityAgent.Tests.exe"
