@@ -136,7 +136,11 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       })
       requestId.value = result.requestId
       const items = [...(result.data?.items ?? [])]
-      replaceStepRecords(items)
+      if (runId.value === lastLoadedRunId) {
+        mergeStepRecords(items)
+      } else {
+        replaceStepRecords(items)
+      }
       agentLogsByTaskId.value = await loadAgentLogsByTaskId(items)
       recomputeView()
       lastLoadedRunId = runId.value
@@ -217,7 +221,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     updateRunStatus(snapshot.run)
     const items = [...(snapshot.steps ?? [])]
     if (items.length > 0) {
-      replaceStepRecords(items)
+      mergeStepRecords(items)
       void refreshAgentLogsForItems(items)
       recomputeView()
     }
@@ -249,20 +253,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   }
 
   function upsertStep(step: ApiRecord) {
-    const id = stepRecordId(step)
-    const nextById = new Map(stepRecordsById.value)
-    if (id) {
-      nextById.set(id, step)
-    } else {
-      nextById.set(`anonymous-${nextById.size + 1}`, step)
-    }
-    const items = [...nextById.values()]
-    items.sort((left, right) => {
-      const leftNo = Number(readPath(left, 'stepNo') ?? 0)
-      const rightNo = Number(readPath(right, 'stepNo') ?? 0)
-      return leftNo - rightNo
-    })
-    replaceStepRecords(items)
+    mergeStepRecords([step])
   }
 
   async function refreshAgentLogsForItems(items: readonly ApiRecord[]) {
@@ -301,6 +292,20 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     const nextItems = [...items]
     stepRecords.value = nextItems
     stepRecordsById.value = new Map(nextItems.map((item, index) => [stepRecordId(item) || `anonymous-${index + 1}`, item]))
+  }
+
+  function mergeStepRecords(items: readonly ApiRecord[]) {
+    const nextById = new Map(stepRecordsById.value)
+    for (const item of items) {
+      const id = stepRecordId(item) || `anonymous-${nextById.size + 1}`
+      nextById.set(id, mergeStepRecord(nextById.get(id), item))
+    }
+    const nextItems = [...nextById.values()].sort((left, right) => {
+      const leftNo = Number(readPath(left, 'stepNo') ?? 0)
+      const rightNo = Number(readPath(right, 'stepNo') ?? 0)
+      return leftNo - rightNo
+    })
+    replaceStepRecords(nextItems)
   }
 
   function setLogLines(items: readonly ExecutionLogLine[]) {
@@ -392,6 +397,57 @@ function readDispatchTaskId(record: Record<string, unknown>): string {
 
 function stepRecordId(record: Record<string, unknown>): string {
   return readString(record, ['id', 'stepId'], '')
+}
+
+function mergeStepRecord(current: ApiRecord | undefined, incoming: ApiRecord): ApiRecord {
+  if (!current || shouldAcceptStepRecord(current, incoming)) return incoming
+  return current
+}
+
+function shouldAcceptStepRecord(current: ApiRecord, incoming: ApiRecord): boolean {
+  const currentStatusRank = executionStepStatusRank(current)
+  const incomingStatusRank = executionStepStatusRank(incoming)
+  if (currentStatusRank === 4 && incomingStatusRank < 4) return false
+
+  const currentVersion = readNumeric(current, 'version')
+  const incomingVersion = readNumeric(incoming, 'version')
+  if (currentVersion !== undefined && incomingVersion !== undefined && currentVersion !== incomingVersion) {
+    return incomingVersion > currentVersion
+  }
+  if (currentVersion !== undefined && incomingVersion === undefined) return false
+  if (currentVersion === undefined && incomingVersion !== undefined) return true
+
+  const currentTime = recordTimestamp(current)
+  const incomingTime = recordTimestamp(incoming)
+  if (currentTime !== undefined && incomingTime !== undefined && currentTime !== incomingTime) {
+    return incomingTime > currentTime
+  }
+  if (currentTime !== undefined && incomingTime === undefined) return false
+  if (currentTime === undefined && incomingTime !== undefined) return true
+
+  return incomingStatusRank >= currentStatusRank
+}
+
+function readNumeric(record: ApiRecord, path: string): number | undefined {
+  const value = readPath(record, path)
+  const number = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(number) ? number : undefined
+}
+
+function recordTimestamp(record: ApiRecord): number | undefined {
+  const value = readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], '')
+  if (!value) return undefined
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : undefined
+}
+
+function executionStepStatusRank(record: ApiRecord): number {
+  const status = readString(record, ['status', 'state', 'result'], '').toUpperCase()
+  if (status === 'PENDING') return 1
+  if (status === 'DISPATCHED') return 2
+  if (status === 'RUNNING') return 3
+  if (['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'SKIPPED'].includes(status)) return 4
+  return 0
 }
 
 function collectDryRunChecks(items: readonly Record<string, unknown>[], alreadyExpanded = false): ApiRecord[] {

@@ -238,6 +238,56 @@ describe('useExecutionDetail', () => {
     wrapper.unmount()
   })
 
+  it('旧 SSE 快照不会把已完成步骤回退为 PENDING', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-stale-snapshot',
+      data: {
+        items: [{
+          id: 'step-discover',
+          name: 'DISCOVER target-1',
+          stepType: 'DISCOVER',
+          status: 'SUCCESS',
+          version: 3,
+          updatedAt: '2026-08-03T00:00:01.000Z',
+          inputSnapshot: { dryRun: true },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+    apiMocks.streamExecutionDetail.mockImplementation(async (_runId: string, handlers: any) => {
+      handlers.onSnapshot?.({
+        run: { status: 'RUNNING' },
+        steps: [{
+          id: 'step-discover',
+          name: 'DISCOVER target-1',
+          stepType: 'DISCOVER',
+          status: 'PENDING',
+          version: 2,
+          updatedAt: '2026-08-03T00:00:00.000Z',
+          inputSnapshot: { dryRun: true },
+        }],
+      })
+      return () => undefined
+    })
+
+    const selectedRow = ref({
+      id: 'run-stale-snapshot',
+      raw: { id: 'run-stale-snapshot', status: 'RUNNING' },
+    })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.steps.value).toHaveLength(1))
+    expect(detail?.steps.value[0]?.status).toBe('SUCCESS')
+
+    wrapper.unmount()
+  })
+
   it('TLS Grant 缺失时标记预检已完成但仍保留安全失败', async () => {
     apiMocks.listExecutionStepsByRunId.mockResolvedValue({
       requestId: 'req-tls-grant-required',
