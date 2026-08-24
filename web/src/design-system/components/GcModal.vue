@@ -1,3 +1,32 @@
+<script lang="ts">
+let bodyScrollLockCount = 0
+let previousBodyOverflow = ''
+let previousRootOverflow = ''
+let rootHadModalOpenClass = false
+
+function acquireBodyScrollLock() {
+  if (typeof document === 'undefined') return
+  if (bodyScrollLockCount === 0) {
+    previousBodyOverflow = document.body.style.overflow
+    previousRootOverflow = document.documentElement.style.overflow
+    rootHadModalOpenClass = document.documentElement.classList.contains('gc-modal-open')
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    document.documentElement.classList.add('gc-modal-open')
+  }
+  bodyScrollLockCount += 1
+}
+
+function releaseBodyScrollLock() {
+  if (typeof document === 'undefined' || bodyScrollLockCount === 0) return
+  bodyScrollLockCount -= 1
+  if (bodyScrollLockCount > 0) return
+  document.body.style.overflow = previousBodyOverflow
+  document.documentElement.style.overflow = previousRootOverflow
+  if (!rootHadModalOpenClass) document.documentElement.classList.remove('gc-modal-open')
+}
+</script>
+
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -23,6 +52,8 @@ const props = withDefaults(defineProps<{
   maxHeight?: string
   /** 只保留遮罩和内容插槽，不渲染默认卡片标题、内边距和 footer。 */
   frameless?: boolean
+  /** 缩小遮罩和卡片边距，用于接近全屏的工作区。 */
+  edgeToEdge?: boolean
   /** 自定义过渡动画名称；默认保持原有 gc-modal 动画。 */
   transitionName?: string
   /** 收起动画的目标元素选择器，用于把模态框动态收进入口按钮。 */
@@ -31,6 +62,7 @@ const props = withDefaults(defineProps<{
   size: 'md',
   closeOnBackdrop: false,
   frameless: false,
+  edgeToEdge: false,
   transitionName: 'gc-modal',
   collapseTargetSelector: '',
 })
@@ -56,6 +88,11 @@ const modalClass = computed(() => [
   `gc-modal--${props.size}`,
   props.frameless ? '' : 'gc-card',
   props.frameless ? 'gc-modal--frameless' : '',
+  props.edgeToEdge ? 'gc-modal--edge-to-edge' : '',
+].filter(Boolean).join(' '))
+const maskClass = computed(() => [
+  'gc-modal__mask',
+  props.edgeToEdge ? 'gc-modal__mask--edge-to-edge' : '',
 ].filter(Boolean).join(' '))
 const modalStyle = computed(() => ({
   ...(props.width ? { '--gc-modal-width': props.width } : {}),
@@ -92,18 +129,29 @@ function cleanupLeave(element: Element) {
   modalElement?.style.removeProperty('--gc-modal-collapse-y')
 }
 
+let ownsBodyScrollLock = false
+
 // 只在打开时监听 ESC，关闭后立即释放，避免全局事件泄漏。
 watch(isOpen, (opened) => {
   if (opened) {
     window.addEventListener('keydown', handleKeydown)
+    if (!ownsBodyScrollLock) {
+      acquireBodyScrollLock()
+      ownsBodyScrollLock = true
+    }
     return
   }
 
   window.removeEventListener('keydown', handleKeydown)
+  if (ownsBodyScrollLock) {
+    releaseBodyScrollLock()
+    ownsBodyScrollLock = false
+  }
 }, { immediate: true })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  if (ownsBodyScrollLock) releaseBodyScrollLock()
 })
 </script>
 
@@ -112,7 +160,7 @@ onBeforeUnmount(() => {
     <Transition :name="transitionName" @before-leave="prepareLeave" @after-leave="cleanupLeave">
       <div
         v-if="isOpen"
-        class="gc-modal__mask"
+        :class="maskClass"
         role="presentation"
       >
         <section
@@ -161,6 +209,14 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(var(--gc-space-3)) saturate(125%);
 }
 
+:global(html.gc-modal-open .gc-shell__content) {
+  overflow: hidden;
+}
+
+.gc-modal__mask--edge-to-edge {
+  padding: var(--gc-space-1);
+}
+
 .gc-modal {
   width: min(var(--gc-modal-width), calc(100vw - var(--gc-space-6)));
   max-height: var(--gc-modal-max-height, calc(100vh - var(--gc-space-6)));
@@ -179,6 +235,15 @@ onBeforeUnmount(() => {
 .gc-modal--lg { --gc-modal-width: 45rem; }
 .gc-modal--xl { --gc-modal-width: 53.75rem; }
 .gc-modal--xxl { --gc-modal-width: 70rem; }
+
+.gc-modal--edge-to-edge {
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2);
+}
+
+.gc-modal--edge-to-edge .gc-modal__header {
+  padding-bottom: var(--gc-space-2);
+}
 
 .gc-modal__header {
   display: flex;
@@ -300,6 +365,10 @@ onBeforeUnmount(() => {
 
   .gc-modal__header h2 {
     font-size: var(--gc-font-size-lg);
+  }
+
+  .gc-modal--edge-to-edge {
+    padding: var(--gc-space-2);
   }
 }
 

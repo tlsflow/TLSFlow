@@ -480,7 +480,10 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/monitors/tls',
     name: 'monitor.tls.overview',
-    component: () => import('@/views/monitoring/MonitorTlsOverviewView.vue'),
+    redirect: (to) => ({
+      path: '/monitors',
+      query: { ...to.query, tlsModal: '1' }
+    }),
     meta: {
       title: 'TLS Deep Monitoring',
       titleKey: 'nav.monitorTls',
@@ -496,7 +499,10 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/monitors/tls/:id',
     name: 'monitor.tls.detail',
-    component: () => import('@/views/monitoring/MonitorTlsDetailView.vue'),
+    redirect: (to) => ({
+      path: '/monitors',
+      query: { ...to.query, tlsModal: '1', tlsTargetId: String(to.params.id ?? '') }
+    }),
     meta: {
       title: 'TLS Deep Detail',
       titleKey: 'monitoring.tls.detailTitle',

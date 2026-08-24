@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { listAssets } from '@/api/modules/assets.api'
 import { listMonitorTargets } from '@/api/modules/monitors.api'
@@ -13,7 +12,7 @@ import {
   type TlsInspectionSnapshot,
   type TlsInspectorTargetRecord,
 } from '@/api/modules/tls-inspector.api'
-import { GcEmptyState, GcPageToolbar, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcEmptyState, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
 import {
   computeCertificateScore,
@@ -21,8 +20,12 @@ import {
   computeKeyExchangeScore,
   computeOverallScore,
   computeProtocolScore,
+  computeTlsInspectionRating,
   countRealTrustPathIssues,
   countUnsupportedTrustPaths,
+  scoreToTlsGrade,
+  scoreToTlsScalePosition,
+  tlsRatingTone,
 } from './monitor-tls-scoring'
 
 type RecordLike = Record<string, unknown>
@@ -103,14 +106,26 @@ interface GradeScaleMarker {
   readonly grade: string
   readonly tone: StatusTone
   readonly score: number
+  readonly position: number
 }
 
-const route = useRoute()
+const props = withDefaults(defineProps<{
+  monitorTargetId: string
+  embedded?: boolean
+}>(), {
+  embedded: false,
+})
+const emit = defineEmits<{
+  inspectionUpdated: [snapshot: TlsInspectionSnapshot]
+}>()
+
 const { t } = useI18n()
-const monitorTargetId = computed(() => String(route.params.id ?? ''))
 const loading = ref(true)
 const scanning = ref(false)
 const error = ref('')
+const monitorTargets = ref<RecordLike[]>([])
+const assets = ref<RecordLike[]>([])
+const inspectorTargets = ref<TlsInspectorTargetRecord[]>([])
 const monitorTarget = ref<RecordLike | null>(null)
 const asset = ref<RecordLike | null>(null)
 const inspectorTarget = ref<TlsInspectorTargetRecord | null>(null)
@@ -131,6 +146,17 @@ const endpoint = computed(() => endpointLabel(asset.value))
 const riskSummary = computed(() => snapshot.value?.riskSummary ?? null)
 const certificate = computed(() => snapshot.value?.certificate ?? null)
 const protocolLookup = computed(() => new Map((snapshot.value?.protocols ?? []).map((item) => [item.label, item])))
+const currentRating = computed(() => computeTlsInspectionRating(snapshot.value))
+const currentRatingTone = computed(() => tlsRatingTone(currentRating.value))
+
+const tabCounts = computed<Record<string, number>>(() => ({
+  overview: snapshot.value ? 1 : 0,
+  basicInfo: certificateOverview.value.length,
+  trustPaths: trustPathViews.value.length,
+  protocols: protocolSummaryRows.value.length,
+  simulations: simulationRows.value.length,
+  protocolDetails: protocolDetailGroups.value.length,
+}))
 
 const metricCards = computed<ReportMetric[]>(() => {
   if (!snapshot.value) return []
@@ -153,24 +179,19 @@ const gradeScaleMarkers = computed<GradeScaleMarker[]>(() =>
     grade: metric.grade,
     tone: metric.tone,
     score: metric.score,
+    position: scoreToTlsScalePosition(metric.score),
   })),
 )
 
 const gradeScaleTicks = [0, 20, 40, 60, 80, 100]
 
-const summaryFacts = computed<ReportDetailItem[]>(() => {
+const overviewFacts = computed<ReportDetailItem[]>(() => {
   if (!snapshot.value) return []
   return [
     { label: t('monitoring.tls.labels.endpoint'), value: snapshot.value.summary.endpoint || endpoint.value },
     { label: t('monitoring.tls.labels.lastInspectedAt'), value: formatMaybeLocalTime(snapshot.value.finishedAt) },
-    { label: t('monitoring.tls.labels.snapshotStatus'), value: snapshotStateLabel(snapshot.value.status) },
-    { label: t('monitoring.tls.labels.implementationVersion'), value: snapshot.value.implementationVersion || t('monitoring.tls.values.unknown') },
-    { label: t('monitoring.tls.labels.profileCatalogVersion'), value: snapshot.value.profileCatalogVersion || t('monitoring.tls.values.unknown') },
-    { label: t('monitoring.tls.labels.trustCatalogVersion'), value: snapshot.value.trustCatalogVersion || t('monitoring.tls.values.unknown') },
   ]
 })
-
-const overviewFacts = computed(() => summaryFacts.value.slice(0, 3))
 
 const trustPathSummary = computed(() => {
   const current = snapshot.value
@@ -372,9 +393,8 @@ const simulationRows = computed(() => (snapshot.value?.simulations ?? []).map((i
   reasonLabel: simulationReasonLabel(item.failureReason),
   protocolDisplay: item.protocolDisplay || item.protocol || t('monitoring.tls.values.none'),
   serverCertificateLabel: item.serverCertificate || t('monitoring.tls.values.unknown'),
-  keyExchangeLabel: item.keyExchange || t('monitoring.tls.values.none'),
+  keyExchangeLabel: formatKeyExchangeLabel(item.keyExchange),
   explanationLabel: item.explanation || t('monitoring.tls.values.none'),
-  noteLabel: simulationNoteLabel(item),
   resultFlags: item.resultFlags?.length
     ? item.resultFlags
     : item.forwardSecrecy === null || item.forwardSecrecy === undefined
@@ -443,36 +463,30 @@ const protocolDetailGroups = computed<ProtocolDetailGroup[]>(() => {
   ]
 })
 
-const boundaryNotes = computed(() => {
-  const notes = [
-    ...(snapshot.value?.riskSummary.boundaryNotes ?? []),
-    ...(snapshot.value?.protocolDetails.boundaryNotes ?? []),
-  ]
-  return [...new Set(notes.filter((item) => item.trim()))]
-})
-
-const errorItems = computed(() => snapshot.value?.errors ?? [])
-
 onMounted(() => {
   void loadDetail()
 })
+
+watch(
+  () => props.monitorTargetId,
+  async () => {
+    await loadDetail()
+  },
+)
 
 async function loadDetail() {
   loading.value = true
   error.value = ''
   try {
-    const [monitorResult, assetResult] = await Promise.all([
+    const [monitorResult, assetResult, inspectorResult] = await Promise.all([
       listMonitorTargets({ page: 1, pageSize: 200 }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+      listTlsInspectorTargets({ page: 1, pageSize: 200 }).catch(() => null),
     ])
-    monitorTarget.value = (monitorResult.data?.items ?? []).find((item) => readString(item, ['id']) === monitorTargetId.value) ?? null
-    const assetId = readString(monitorTarget.value, ['serviceAssetId', 'assetId'])
-    asset.value = (assetResult.data?.items ?? []).find((item) => readString(item, ['id']) === assetId) ?? null
-    if (!monitorTarget.value || !asset.value) {
-      throw new Error(t('monitoring.tls.messages.loadFailed'))
-    }
-
-    await loadInspectorTarget(assetId)
+    monitorTargets.value = [...(monitorResult.data?.items ?? [])]
+    assets.value = [...(assetResult.data?.items ?? [])]
+    inspectorTargets.value = [...(inspectorResult?.data?.items ?? [])]
+    await activateTarget(props.monitorTargetId)
   } catch (cause) {
     error.value = resolveInspectorError(cause, t('monitoring.tls.messages.loadFailed'))
   } finally {
@@ -480,17 +494,31 @@ async function loadDetail() {
   }
 }
 
+async function activateTarget(targetId: string) {
+  const target = monitorTargets.value.find((item) => readString(item, ['id']) === targetId) ?? null
+  const assetId = readString(target, ['serviceAssetId', 'assetId'])
+  const assetRecord = assetById(assetId)
+  if (!target || !assetRecord) {
+    throw new Error(t('monitoring.tls.messages.loadFailed'))
+  }
+  monitorTarget.value = target
+  asset.value = assetRecord
+  await loadInspectorTarget(assetId)
+  activeTab.value = 'overview'
+}
+
 async function loadInspectorTarget(assetId: string) {
   if (!asset.value) {
     throw new Error(t('monitoring.tls.messages.loadFailed'))
   }
   try {
-    const targetResult = await listTlsInspectorTargets({ page: 1, pageSize: 200 })
-    inspectorTarget.value = findInspectorTarget(targetResult.data?.items ?? [], assetId, asset.value) ?? null
+    inspectorTarget.value = findInspectorTargetRecord(inspectorTargets.value, assetId, asset.value) ?? null
     if (!inspectorTarget.value) {
       const created = await createTlsInspectorTarget(buildInspectorTargetPayload(asset.value, assetId))
-      if (!created.data) throw new Error(t('monitoring.tls.messages.initFailed'))
-      inspectorTarget.value = created.data
+      const createdTarget = created.data
+      if (!createdTarget) throw new Error(t('monitoring.tls.messages.initFailed'))
+      inspectorTarget.value = createdTarget
+      inspectorTargets.value = [createdTarget, ...inspectorTargets.value.filter((item) => item.id !== createdTarget.id)]
     }
 
     await loadLatestSnapshot()
@@ -514,8 +542,28 @@ async function refreshInspection() {
   error.value = ''
   try {
     const result = await runTlsInspection(inspectorTarget.value.id)
-    if (!result.data) throw new Error(t('monitoring.tls.messages.scanFailed'))
-    snapshot.value = result.data
+    const refreshed = result.data
+    if (!refreshed) throw new Error(t('monitoring.tls.messages.scanFailed'))
+    snapshot.value = refreshed
+    emit('inspectionUpdated', refreshed)
+    inspectorTarget.value = {
+      ...inspectorTarget.value,
+      latestSnapshotId: refreshed.id,
+      latestStatus: refreshed.status,
+      latestSummary: refreshed.summary,
+      lastInspectedAt: refreshed.finishedAt,
+    }
+    inspectorTargets.value = inspectorTargets.value.map((item) =>
+      item.id === inspectorTarget.value?.id
+        ? {
+            ...item,
+            latestSnapshotId: refreshed.id,
+            latestStatus: refreshed.status,
+            latestSummary: refreshed.summary,
+            lastInspectedAt: refreshed.finishedAt,
+          }
+        : item,
+    )
   } catch (cause) {
     error.value = resolveInspectorError(cause, t('monitoring.tls.messages.scanFailed'))
   } finally {
@@ -524,7 +572,7 @@ async function refreshInspection() {
 }
 
 function buildMetricCard(key: string, score: number): ReportMetric {
-  const grade = toGrade(score)
+  const grade = scoreToTlsGrade(score)
   return {
     key,
     label: t(`monitoring.tls.metrics.${key}`),
@@ -549,28 +597,8 @@ function gradeBucket(score: number): string {
   return 'poor'
 }
 
-function toGrade(score: number): string {
-  if (score >= 97) return 'A+'
-  if (score >= 92) return 'A'
-  if (score >= 85) return 'B'
-  if (score >= 72) return 'C'
-  if (score >= 60) return 'D'
-  return 'F'
-}
-
 function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)))
-}
-
-function snapshotStateLabel(status: string) {
-  return t(`monitoring.tls.states.${status}`, status)
-}
-
-function snapshotStateTone(status: string): StatusTone {
-  if (status === 'succeeded') return 'success'
-  if (status === 'partial') return 'warning'
-  if (status === 'failed') return 'danger'
-  return 'muted'
 }
 
 function trustPathStatusLabel(status: string) {
@@ -607,13 +635,6 @@ function simulationTone(status: string): StatusTone {
   return status === 'succeeded' ? 'success' : 'warning'
 }
 
-function simulationNoteLabel(item: NonNullable<TlsInspectionSnapshot['simulations']>[number]) {
-  if (item.status === 'failed' && item.failureReason === 'sni_required') return t('monitoring.tls.values.noSni')
-  if (item.forwardSecrecy === false) return t('monitoring.tls.values.noFs')
-  if (item.forwardSecrecy) return t('monitoring.tls.values.fs')
-  return t('monitoring.tls.values.none')
-}
-
 function booleanTone(value: boolean | null | undefined, preferredTrueTone: StatusTone): StatusTone | undefined {
   if (value === undefined || value === null) return undefined
   if (value) return preferredTrueTone
@@ -642,6 +663,12 @@ function formatAnyValue(value: unknown) {
 function formatNegotiatedResult(protocol: string | null | undefined, cipher: string | null | undefined) {
   const parts = [protocol, cipher].filter((item): item is string => Boolean(item?.trim()))
   return parts.length ? parts.join(' / ') : t('monitoring.tls.values.none')
+}
+
+function formatKeyExchangeLabel(value: unknown) {
+  const label = String(value ?? '').trim()
+  if (!label) return t('monitoring.tls.values.none')
+  return /^ECDH(?:\s+ECDH)+$/i.test(label) ? 'ECDH' : label
 }
 
 function formatRemainingValidity(value: unknown) {
@@ -714,7 +741,7 @@ function parseEndpoint(value: string) {
   }
 }
 
-function findInspectorTarget(items: readonly TlsInspectorTargetRecord[], assetId: string, currentAsset: RecordLike) {
+function findInspectorTargetRecord(items: readonly TlsInspectorTargetRecord[], assetId: string, currentAsset: RecordLike) {
   const currentHost = parseEndpoint(endpointLabel(currentAsset)).host
   return items.find((item) => item.serviceAssetId === assetId)
     ?? items.find((item) => item.host === currentHost)
@@ -745,6 +772,10 @@ function readString(record: RecordLike | null | undefined, keys: readonly string
   return typeof value === 'string' ? value : value === undefined ? '' : String(value)
 }
 
+function assetById(assetId: string) {
+  return assets.value.find((item) => readString(item, ['id']) === assetId) ?? null
+}
+
 function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   if (cause instanceof ApiClientError && cause.status >= 500) {
     return t('monitoring.tls.messages.inspectorUnavailable')
@@ -760,54 +791,55 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 </script>
 
 <template>
-  <section class="tls-report-page">
-    <header class="tls-report-page__header">
-      <div class="tls-report-page__header-copy">
-        <span class="tls-report-page__sr-only">{{ t('monitoring.tls.detailTitle') }}</span>
-        <div class="tls-report-page__headline">
-          <h1>{{ title }}</h1>
-        </div>
-        <GcPageToolbar class="tls-report-page__toolbar">
-          <template #actions>
-            <RouterLink class="tls-action-button tls-action-button--secondary" to="/monitors/tls">
-              {{ t('monitoring.tls.actions.back') }}
-            </RouterLink>
-            <button
-              class="tls-action-button tls-action-button--primary"
-              type="button"
-              :disabled="loading || scanning"
-              @click="refreshInspection"
-            >
-              {{ scanning ? t('monitoring.tls.actions.refreshing') : t('monitoring.tls.actions.refresh') }}
-            </button>
-          </template>
-          <template #tabs>
-            <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('monitoring.tls.report.tabsAriaLabel')" />
-          </template>
-        </GcPageToolbar>
-      </div>
-    </header>
+  <section class="tls-report-page monitor-tls-report" :class="{ 'monitor-tls-report--embedded': embedded }">
+        <header class="tls-report-page__header monitor-tls-page__header">
+          <div class="tls-report-page__header-copy">
+            <span class="tls-report-page__sr-only">{{ t('monitoring.tls.detailTitle') }}</span>
+            <div class="tls-report-page__headline monitor-tls-page__headline">
+              <div>
+                <h1>{{ title }}</h1>
+              </div>
+              <div class="monitor-tls-page__header-meta">
+                <span class="monitor-tls-page__header-grade" :data-tone="currentRatingTone">{{ currentRating }}</span>
+                <button
+                  class="gc-button gc-button--primary"
+                  type="button"
+                  :disabled="loading || scanning || !inspectorTarget"
+                  @click="refreshInspection"
+                >
+                  {{ scanning ? t('monitoring.tls.actions.refreshing') : t('monitoring.tls.actions.refresh') }}
+                </button>
+              </div>
+            </div>
+            <nav class="ca-operations__views monitor-tls-page__views" :aria-label="t('monitoring.tls.report.tabsAriaLabel')">
+              <button
+                v-for="tab in tabs"
+                :key="tab.value"
+                type="button"
+                :class="{ 'ca-operations__view--active': activeTab === tab.value }"
+                @click="activeTab = tab.value"
+              >
+                <span>{{ tab.label }}</span>
+                <small>{{ tabCounts[tab.value] ?? 0 }}</small>
+              </button>
+            </nav>
+          </div>
+        </header>
 
-    <GcEmptyState
-      v-if="error && !snapshot && !loading"
-      :title="t('monitoring.tls.messages.loadFailed')"
-      :description="error"
-    />
-    <div v-else-if="loading" class="tls-report-page__loading">{{ t('common.loading') }}</div>
-    <template v-else-if="snapshot">
+        <GcEmptyState
+          v-if="error && !snapshot && !loading"
+          :title="t('monitoring.tls.messages.loadFailed')"
+          :description="error"
+        />
+        <div v-else-if="loading" class="tls-report-page__loading">{{ t('common.loading') }}</div>
+        <template v-else-if="snapshot">
       <section v-if="activeTab === 'overview'" class="tls-section-stack">
         <section class="tls-overview-shell" :aria-label="t('monitoring.tls.report.summaryAriaLabel')">
           <article class="tls-grade-panel">
             <header class="tls-grade-panel__header">
               <div class="tls-grade-panel__heading">
                 <p class="tls-report-card__eyebrow">{{ t('monitoring.tls.report.overallRating') }}</p>
-                <h2>{{ t('monitoring.tls.report.summaryTitle') }}</h2>
               </div>
-              <GcStatusTag
-                :status="snapshot.status.toUpperCase()"
-                :label="snapshotStateLabel(snapshot.status)"
-                :tone="snapshotStateTone(snapshot.status)"
-              />
             </header>
             <div class="tls-grade-panel__body">
               <div class="tls-grade-panel__badge" :data-tone="overallMetric.tone">{{ overallMetric.grade }}</div>
@@ -835,7 +867,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                   :key="`marker-${marker.key}`"
                   class="tls-grade-scale__marker"
                   :data-tone="marker.tone"
-                  :style="{ left: `${marker.score}%` }"
+                  :style="{ left: `${marker.position}%` }"
                   :title="t('monitoring.tls.report.gradeScaleMarkerTitle', {
                     label: marker.label,
                     grade: marker.grade,
@@ -876,26 +908,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
         <article class="tls-report-card">
           <header class="tls-report-card__header">
             <div>
-              <p class="tls-report-card__eyebrow">{{ t('monitoring.tls.report.executiveSummary') }}</p>
-              <h2>{{ t('monitoring.tls.report.basicInfoTitle') }}</h2>
-            </div>
-            <GcStatusTag :status="snapshot.status.toUpperCase()" :label="snapshotStateLabel(snapshot.status)" :tone="snapshotStateTone(snapshot.status)" />
-          </header>
-
-          <div class="tls-report-grid tls-report-grid--facts">
-            <dl class="tls-report-facts">
-              <div v-for="item in summaryFacts" :key="item.label" class="tls-report-facts__row">
-                <dt>{{ item.label }}</dt>
-                <dd>{{ item.value }}</dd>
-              </div>
-            </dl>
-          </div>
-        </article>
-
-        <article class="tls-report-card">
-          <header class="tls-report-card__header">
-            <div>
-              <p class="tls-report-card__eyebrow">{{ t('monitoring.tls.report.keyFindings') }}</p>
               <h2>{{ t('monitoring.tls.report.keyFindings') }}</h2>
             </div>
           </header>
@@ -909,29 +921,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
       </section>
 
       <section v-else-if="activeTab === 'basicInfo'" class="tls-section-stack">
-        <article class="tls-report-card">
-          <header class="tls-report-card__header">
-            <div>
-              <p class="tls-report-card__eyebrow">{{ t('monitoring.tls.report.executiveSummary') }}</p>
-              <h2>{{ t('monitoring.tls.report.basicInfoTitle') }}</h2>
-            </div>
-            <GcStatusTag :status="snapshot.status.toUpperCase()" :label="snapshotStateLabel(snapshot.status)" :tone="snapshotStateTone(snapshot.status)" />
-          </header>
-
-          <div class="tls-report-grid tls-report-grid--double">
-            <dl class="tls-report-facts tls-report-facts--panel">
-              <div v-for="item in summaryFacts" :key="item.label" class="tls-report-facts__row">
-                <dt>{{ item.label }}</dt>
-                <dd>{{ item.value }}</dd>
-              </div>
-            </dl>
-            <div class="tls-basic-info-callout">
-              <strong>{{ t('monitoring.tls.report.basicInfoHintTitle') }}</strong>
-              <p>{{ t('monitoring.tls.report.basicInfoHintDescription') }}</p>
-            </div>
-          </div>
-        </article>
-
         <article class="tls-report-card">
           <header class="tls-report-card__header">
             <div>
@@ -1188,7 +1177,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                       >{{ flag.label }}</span>
                     </div>
                     <span v-else>{{ t('monitoring.tls.values.none') }}</span>
-                    <div v-if="item.noteLabel !== t('monitoring.tls.values.none')" class="tls-table__subtle">{{ item.noteLabel }}</div>
                   </td>
                   <td>
                     <GcStatusTag
@@ -1241,39 +1229,248 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
           </div>
         </article>
 
-        <article class="tls-report-card">
-          <header class="tls-report-card__header">
-            <div>
-              <p class="tls-report-card__eyebrow">{{ t('monitoring.tls.report.boundariesTitle') }}</p>
-              <h2>{{ t('monitoring.tls.report.boundariesTitle') }}</h2>
-            </div>
-          </header>
-          <div class="tls-report-grid tls-report-grid--double">
-            <div class="tls-subsection">
-              <h3>{{ t('monitoring.tls.report.boundariesTitle') }}</h3>
-              <ul v-if="boundaryNotes.length" class="tls-note-list">
-                <li v-for="item in boundaryNotes" :key="item">{{ item }}</li>
-              </ul>
-              <p v-else class="tls-report-empty">{{ t('monitoring.tls.empty.boundaries') }}</p>
-            </div>
-            <div class="tls-subsection">
-              <h3>{{ t('monitoring.tls.report.errorsTitle') }}</h3>
-              <ul v-if="errorItems.length" class="tls-note-list">
-                <li v-for="item in errorItems" :key="`${item.code}-${item.message}`">
-                  <strong>{{ item.code }}</strong>
-                  <span>{{ item.message }}</span>
-                </li>
-              </ul>
-              <p v-else class="tls-report-empty">{{ t('monitoring.tls.empty.errors') }}</p>
-            </div>
-          </div>
-        </article>
       </section>
     </template>
   </section>
 </template>
 
 <style scoped>
+.monitor-tls-report {
+  min-width: 0;
+}
+
+.monitor-tls-report--embedded {
+  padding: 0;
+}
+
+.monitor-page {
+  display: grid;
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-6);
+}
+
+.monitor-page__workspace {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--gc-space-4);
+  align-items: start;
+}
+
+.monitor-page__targets,
+.monitor-page__detail {
+  min-width: 0;
+}
+
+.monitor-page__targets {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.monitor-page__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitor-page__section-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.monitor-page__section-head strong {
+  color: var(--gc-color-text);
+  font-size: 15px;
+}
+
+.monitor-page__section-head span {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.monitor-page__target {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: calc(var(--gc-space-8) * 3);
+  border: 1px solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  padding: 12px;
+  background: var(--gc-color-surface-solid);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.monitor-page__target:hover {
+  border-color: var(--gc-color-border-soft);
+  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
+}
+
+.monitor-page__target.is-active {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-selected);
+}
+
+.monitor-page__target-body {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.monitor-page__target strong,
+.monitor-page__target span {
+  overflow-wrap: anywhere;
+}
+
+.monitor-page__target strong {
+  color: var(--gc-color-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.monitor-page__target span {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+}
+
+.monitor-tls-page__target-meta {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.monitor-tls-page__target-badge-group {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.monitor-tls-page__target-grade,
+.monitor-tls-page__header-grade {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--gc-color-surface-muted);
+  color: var(--gc-color-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.monitor-tls-page__target-grade[data-tone='success'],
+.monitor-tls-page__header-grade[data-tone='success'] {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
+}
+
+.monitor-tls-page__target-grade[data-tone='info'],
+.monitor-tls-page__header-grade[data-tone='info'] {
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-bg);
+}
+
+.monitor-tls-page__target-grade[data-tone='warning'],
+.monitor-tls-page__header-grade[data-tone='warning'] {
+  color: var(--gc-color-warning);
+  background: var(--gc-color-warning-bg);
+}
+
+.monitor-tls-page__target-grade[data-tone='danger'],
+.monitor-tls-page__header-grade[data-tone='danger'] {
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+}
+
+.monitor-tls-page__views {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  background: var(--gc-color-surface-muted);
+  border: 1px solid var(--gc-color-border-subtle);
+  border-radius: 999px;
+}
+
+.monitor-tls-page__views button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  padding: 6px 14px;
+  color: var(--gc-color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.monitor-tls-page__views button:hover,
+.monitor-tls-page__views .ca-operations__view--active {
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-solid);
+  box-shadow: 0 4px 14px var(--gc-color-border);
+}
+
+.monitor-tls-page__views small {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  color: inherit;
+}
+
+.monitor-tls-page__header {
+  padding: var(--gc-space-5);
+  border: 1px solid var(--gc-color-border);
+  border-radius: var(--gc-radius-xl);
+  background: linear-gradient(135deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  box-shadow: var(--gc-shadow-sm);
+}
+
+.monitor-tls-page__headline {
+  align-items: flex-start;
+}
+
+.monitor-tls-page__headline > div {
+  display: grid;
+  gap: 4px;
+}
+
+.monitor-tls-page__headline p {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.monitor-tls-page__headline > .monitor-tls-page__header-meta {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  margin-left: auto;
+}
+
+.monitor-tls-page__header-meta > * {
+  white-space: nowrap;
+}
+
+.monitor-tls-page__detail {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
 .tls-report-page {
   display: grid;
   gap: var(--gc-space-6);
@@ -1502,18 +1699,26 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-inline-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gc-space-3);
   margin-top: var(--gc-space-1);
 }
 
 .tls-inline-facts__item {
   display: grid;
-  gap: var(--gc-space-1);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--gc-space-3);
+  row-gap: 0;
   padding: var(--gc-space-3);
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-md);
   background: var(--gc-color-surface-solid);
+}
+
+.tls-inline-facts__item dt,
+.tls-inline-facts dd {
+  margin: 0;
 }
 
 .tls-inline-facts dd {
@@ -1530,7 +1735,9 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-score-card {
   align-content: start;
-  min-height: 10rem;
+  gap: var(--gc-space-2);
+  min-height: 8rem;
+  padding: var(--gc-space-3);
 }
 
 .tls-score-card span {
@@ -1544,6 +1751,7 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 }
 
 .tls-score-card p {
+  margin: 0;
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
 }
@@ -1585,10 +1793,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 
 .tls-grade-scale__track {
   position: relative;
-  height: var(--gc-space-2);
+  height: var(--gc-space-4);
   margin: var(--gc-space-2) 0;
   border-radius: 999rem;
-  background: var(--gc-gradient-progress);
+  background: var(--gc-gradient-risk-scale);
 }
 
 .tls-grade-scale__tick {
@@ -1604,8 +1812,8 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 .tls-grade-scale__marker {
   position: absolute;
   top: 50%;
-  width: var(--gc-space-3);
-  height: var(--gc-space-3);
+  width: var(--gc-space-4);
+  height: var(--gc-space-4);
   border-radius: 999rem;
   border: calc(var(--gc-border-width-default) * 2) solid var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-md);
@@ -2150,7 +2358,6 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
 @media (max-width: 1024px) {
   .tls-overview-shell,
   .tls-score-grid,
-  .tls-inline-facts,
   .tls-report-grid--certificate,
   .tls-report-grid--double,
   .tls-report-grid--detail-groups {
@@ -2176,6 +2383,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
   }
 
   .tls-report-facts__row {
+    grid-template-columns: 1fr;
+  }
+
+  .tls-inline-facts {
     grid-template-columns: 1fr;
   }
 

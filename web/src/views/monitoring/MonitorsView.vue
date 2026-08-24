@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
 import { listBindings } from '@/api/modules/bindings.api'
 import { listCertificates, listCertificateVersions } from '@/api/modules/certificates.api'
@@ -17,7 +17,15 @@ import {
   scanMonitorRisks,
   updateMonitorTarget,
 } from '@/api/modules/monitors.api'
+import {
+  getLatestTlsInspection,
+  listTlsInspectorTargets,
+  type TlsInspectionSnapshot,
+  type TlsInspectorTargetRecord,
+} from '@/api/modules/tls-inspector.api'
 import { GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
+import MonitorTlsDetailView from './MonitorTlsDetailView.vue'
+import { computeTlsInspectionRating, tlsRatingTone } from './monitor-tls-scoring'
 
 type MonitorMetric = 'availability' | 'latency' | 'certificate' | 'certificateHistory'
 type ProbeStatus = 'READY' | 'WARNING' | 'ERROR'
@@ -74,6 +82,8 @@ const risks = ref<ApiRecord[]>([])
 const bindings = ref<ApiRecord[]>([])
 const certificateAssets = ref<ApiRecord[]>([])
 const certificateVersions = ref<ApiRecord[]>([])
+const tlsInspectorTargets = ref<TlsInspectorTargetRecord[]>([])
+const tlsInspectionsByTargetId = ref<Record<string, TlsInspectionSnapshot>>({})
 const monitorTargets = ref<MonitorTarget[]>([])
 const probeResults = ref<Record<string, ProbeResult>>({})
 const probeHistory = ref<Record<string, ProbeResult[]>>({})
@@ -84,10 +94,15 @@ const selectedTargetId = ref('')
 const loading = ref(false)
 const probing = ref(false)
 const addDialogOpen = ref(false)
+const tlsDialogOpen = ref(false)
+const tlsDialogTargetId = ref('')
 const error = ref('')
 const activeProbeIds = new Set<string>()
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const shouldTeleportActions = ref(false)
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
 
@@ -119,6 +134,16 @@ const selectedObservedCertificateHistory = computed(() =>
   selectedTarget.value ? certificateObservations.value[selectedTarget.value.assetId] ?? [] : [],
 )
 
+const selectedTlsInspectorTarget = computed(() =>
+  selectedTarget.value ? findTlsInspectorTarget(selectedTarget.value.assetId) : null,
+)
+
+const selectedTlsRating = computed(() => computeTlsInspectionRating(
+  selectedTlsInspectorTarget.value ? tlsInspectionsByTargetId.value[selectedTlsInspectorTarget.value.id] : null,
+))
+
+const selectedTlsRatingTone = computed(() => tlsRatingTone(selectedTlsRating.value))
+
 const monitorRows = computed(() =>
   monitorTargets.value.map((target) => {
     const asset = assetById(target.assetId)
@@ -126,6 +151,10 @@ const monitorRows = computed(() =>
     const probe = probeResults.value[target.assetId]
     const warningReasons = monitorWarningReasons(target.assetId, latestCertificateObservation(target.assetId))
     const status = statusFromProbeAndRisks(probe, assetRisks, warningReasons)
+    const tlsInspectorTarget = findTlsInspectorTarget(target.assetId)
+    const tlsRating = computeTlsInspectionRating(
+      tlsInspectorTarget ? tlsInspectionsByTargetId.value[tlsInspectorTarget.id] : null,
+    )
     return {
       target,
       title: assetLabel(asset),
@@ -134,11 +163,14 @@ const monitorRows = computed(() =>
       statusLabel: probeStatusLabel(status),
       warningSummary: warningSummary(warningReasons),
       recentResults: recentProbeResults(target.assetId),
+      tlsRating,
+      tlsRatingTone: tlsRatingTone(tlsRating),
     }
   }),
 )
 
 onMounted(() => {
+  shouldTeleportActions.value = Boolean(document.querySelector('#gc-shell-hero-actions'))
   clearStoredMonitorState()
   void refreshAll()
   refreshTimer = setInterval(() => {
@@ -151,12 +183,21 @@ onUnmounted(() => {
   refreshTimer = undefined
 })
 
+watch(
+  () => [route.query.tlsModal, route.query.tlsTargetId],
+  () => syncTlsDialogFromRoute(),
+)
+
+watch(tlsDialogOpen, (open) => {
+  if (!open) void clearTlsDialogQuery()
+})
+
 async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {}) {
   if (!options.silent) loading.value = true
   error.value = ''
   try {
     if (options.scanRisks) await scanMonitorRisks()
-    const [targetResult, probeResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult] = await Promise.all([
+    const [targetResult, probeResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
       listMonitorTargets({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
       listMonitorProbeResults({ page: 1, pageSize: 200 }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -164,6 +205,7 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificateVersions({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
+      listTlsInspectorTargets({ page: 1, pageSize: 200 }).catch(() => null),
     ])
     monitorTargets.value = (targetResult.data?.items ?? [])
       .map(normalizeMonitorTargetRecord)
@@ -176,10 +218,15 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     bindings.value = [...(bindingResult.data?.items ?? [])]
     certificateAssets.value = [...(certificateAssetResult.data?.items ?? [])]
     certificateVersions.value = [...(certificateVersionResult.data?.items ?? [])]
+    if (tlsInspectorResult) {
+      tlsInspectorTargets.value = [...(tlsInspectorResult.data?.items ?? [])]
+      await refreshTlsInspectionRatings(tlsInspectorTargets.value)
+    }
     await refreshCertificateObservations()
     if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
       selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
     }
+    syncTlsDialogFromRoute()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('monitoring.errors.loadFailed')
   } finally {
@@ -213,6 +260,45 @@ function openAddDialog() {
   selectedAssetId.value = assetOptions.value[0] ? readId(assetOptions.value[0]) : ''
   selectedIntervalSeconds.value = 60
   addDialogOpen.value = true
+}
+
+async function openTlsDialog(targetId = selectedTarget.value?.id ?? '') {
+  if (!targetId) return
+  selectedTargetId.value = targetId
+  tlsDialogTargetId.value = targetId
+  tlsDialogOpen.value = true
+  await router.replace({
+    query: {
+      ...route.query,
+      tlsModal: '1',
+      tlsTargetId: targetId,
+    },
+  })
+}
+
+function syncTlsDialogFromRoute() {
+  if (readQueryValue(route.query.tlsModal) !== '1') {
+    tlsDialogOpen.value = false
+    return
+  }
+
+  const requestedTargetId = readQueryValue(route.query.tlsTargetId)
+  const targetId = monitorTargets.value.some((target) => target.id === requestedTargetId)
+    ? requestedTargetId
+    : selectedTarget.value?.id ?? monitorTargets.value[0]?.id ?? ''
+  if (!targetId) return
+
+  selectedTargetId.value = targetId
+  tlsDialogTargetId.value = targetId
+  tlsDialogOpen.value = true
+}
+
+async function clearTlsDialogQuery() {
+  if (!route.query.tlsModal && !route.query.tlsTargetId) return
+  const query = { ...route.query }
+  delete query.tlsModal
+  delete query.tlsTargetId
+  await router.replace({ query })
 }
 
 async function removeMonitorTarget(targetId: string) {
@@ -512,6 +598,65 @@ function endpointLabel(asset: ApiRecord | null): string {
   return probeUrl(asset) || t('monitoring.fallback.noEndpoint')
 }
 
+function findTlsInspectorTarget(assetId: string): TlsInspectorTargetRecord | null {
+  const directMatch = tlsInspectorTargets.value.find((target) => target.serviceAssetId === assetId)
+  if (directMatch) return directMatch
+
+  const host = endpointHost(assetById(assetId))
+  if (!host) return null
+  return tlsInspectorTargets.value.find((target) => target.host.toLowerCase() === host) ?? null
+}
+
+function handleTlsInspectionUpdated(snapshot: TlsInspectionSnapshot) {
+  tlsInspectionsByTargetId.value = {
+    ...tlsInspectionsByTargetId.value,
+    [snapshot.targetId]: snapshot,
+  }
+  tlsInspectorTargets.value = tlsInspectorTargets.value.map((target) => (
+    target.id === snapshot.targetId
+      ? {
+          ...target,
+          latestSnapshotId: snapshot.id,
+          latestStatus: snapshot.status,
+          latestSummary: snapshot.summary,
+          lastInspectedAt: snapshot.finishedAt,
+        }
+      : target
+  ))
+}
+
+async function refreshTlsInspectionRatings(targets: readonly TlsInspectorTargetRecord[]) {
+  const entries = await Promise.all(targets.map(async (target) => {
+    const cached = tlsInspectionsByTargetId.value[target.id]
+    if (cached && (!target.latestSnapshotId || cached.id === target.latestSnapshotId)) {
+      return [target.id, cached] as const
+    }
+
+    const result = await getLatestTlsInspection(target.id).catch(() => null)
+    const inspection = result?.data ?? cached
+    return inspection ? [target.id, inspection] as const : null
+  }))
+
+  tlsInspectionsByTargetId.value = Object.fromEntries(
+    entries.filter((entry): entry is readonly [string, TlsInspectionSnapshot] => Boolean(entry)),
+  )
+}
+
+function endpointHost(asset: ApiRecord | null): string {
+  const endpoint = endpointLabel(asset)
+  if (!endpoint || endpoint === t('monitoring.fallback.noEndpoint')) return ''
+  try {
+    return new URL(endpoint).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function readQueryValue(value: unknown): string {
+  if (Array.isArray(value)) return String(value[0] ?? '')
+  return typeof value === 'string' ? value : ''
+}
+
 function assetLabel(asset: ApiRecord | null): string {
   return readString(asset, ['displayName', 'address', 'domainName', 'name'], t('monitoring.fallback.unknownAsset'))
 }
@@ -709,17 +854,19 @@ function trimProbeStateToTargets() {
 
 <template>
   <section class="gc-page monitor-page">
-    <div class="monitor-page__actions">
-      <button class="gc-button" type="button" :disabled="loading" @click="() => refreshAll({ scanRisks: true })">
-        {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
-      </button>
-      <button class="gc-button gc-button--danger" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
-        {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
-      </button>
-      <button class="gc-button gc-button--danger" type="button" :disabled="loading" @click="openAddDialog">
-        {{ t('monitoring.actions.add') }}
-      </button>
-    </div>
+    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportActions">
+      <div class="monitor-page__actions">
+        <button class="gc-button" type="button" :disabled="loading" @click="() => refreshAll({ scanRisks: true })">
+          {{ loading ? t('monitoring.actions.refreshing') : t('monitoring.actions.refresh') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="probing || monitorTargets.length === 0" @click="() => probeAllTargets()">
+          {{ probing ? t('monitoring.actions.probing') : t('monitoring.actions.probe') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="loading" @click="openAddDialog">
+          {{ t('monitoring.actions.add') }}
+        </button>
+      </div>
+    </Teleport>
 
     <GcEmptyState v-if="error" :title="t('monitoring.errors.loadFailed')" :description="error" />
 
@@ -757,15 +904,24 @@ function trimProbeStateToTargets() {
               />
             </div>
           </div>
-          <span
-            class="monitor-page__target-status"
-            :data-status="row.status"
-            :title="row.warningSummary"
-            :aria-label="row.warningSummary || row.statusLabel"
-          >
-            <b v-if="row.status === 'WARNING'" aria-hidden="true">!</b>
-            {{ row.statusLabel }}
-          </span>
+          <div class="monitor-page__target-indicators">
+            <span
+              class="monitor-page__target-tls-rating"
+              :data-tone="row.tlsRatingTone"
+              :aria-label="t('monitoring.tls.aria.rating', { rating: row.tlsRating })"
+            >
+              {{ row.tlsRating }}
+            </span>
+            <span
+              class="monitor-page__target-status"
+              :data-status="row.status"
+              :title="row.warningSummary"
+              :aria-label="row.warningSummary || row.statusLabel"
+            >
+              <b v-if="row.status === 'WARNING'" aria-hidden="true">!</b>
+              {{ row.statusLabel }}
+            </span>
+          </div>
         </button>
       </aside>
 
@@ -775,7 +931,6 @@ function trimProbeStateToTargets() {
             <div>
               <span>{{ t('monitoring.labels.currentTarget') }}</span>
               <h2>{{ assetLabel(selectedAsset) }}</h2>
-              <p>{{ endpointLabel(selectedAsset) }}</p>
             </div>
             <div v-if="selectedTarget" class="monitor-page__target-actions">
               <label class="monitor-page__target-interval">
@@ -810,6 +965,20 @@ function trimProbeStateToTargets() {
             <article>
               <span>{{ t('monitoring.metrics.observedCertificateChanges') }}</span>
               <strong>{{ selectedObservedCertificateHistory.length }}</strong>
+            </article>
+            <article class="monitor-page__tls-kpi">
+              <span>{{ t('monitoring.tls.metrics.entryRating') }}</span>
+              <div class="monitor-page__tls-kpi-body">
+                <strong class="monitor-page__tls-grade" :data-tone="selectedTlsRatingTone">{{ selectedTlsRating }}</strong>
+                <button
+                  class="gc-button monitor-page__tls-open"
+                  type="button"
+                  :disabled="!selectedTarget"
+                  @click="openTlsDialog()"
+                >
+                  {{ t('monitoring.tls.actions.openDetail') }}
+                </button>
+              </div>
             </article>
           </div>
         </section>
@@ -965,6 +1134,24 @@ function trimProbeStateToTargets() {
     </section>
 
     <GcModal
+      :open="tlsDialogOpen"
+      :title="t('monitoring.tls.detailTitle')"
+      size="xxl"
+      width="calc(100vw - var(--gc-space-2))"
+      max-height="calc(100vh - var(--gc-space-2))"
+      edge-to-edge
+      @update:open="tlsDialogOpen = $event"
+    >
+      <MonitorTlsDetailView
+        v-if="tlsDialogTargetId"
+        :key="tlsDialogTargetId"
+        :monitor-target-id="tlsDialogTargetId"
+        embedded
+        @inspection-updated="handleTlsInspectionUpdated"
+      />
+    </GcModal>
+
+    <GcModal
       v-model:open="addDialogOpen"
       :title="t('monitoring.dialog.title')"
       :description="t('monitoring.dialog.description')"
@@ -1010,7 +1197,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: var(--gc-space-2);
   flex-wrap: wrap;
 }
@@ -1142,6 +1329,58 @@ function trimProbeStateToTargets() {
   text-align: center;
   font-size: 12px;
   font-weight: 850;
+}
+
+.monitor-page__target-indicators {
+  display: grid;
+  flex: 0 0 auto;
+  width: calc(var(--gc-space-10) + var(--gc-space-4));
+  justify-items: center;
+  gap: var(--gc-space-2);
+}
+
+.monitor-page__target-status {
+  display: inline-grid;
+  place-items: center;
+  align-self: auto;
+}
+
+.monitor-page__target-tls-rating,
+.monitor-page__tls-grade {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--gc-space-10);
+  min-height: var(--gc-space-8);
+  border-radius: var(--gc-radius-xl);
+  padding-inline: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-muted);
+  font-size: var(--gc-font-size-md);
+  font-weight: 850;
+}
+
+.monitor-page__target-tls-rating[data-tone='success'],
+.monitor-page__tls-grade[data-tone='success'] {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
+}
+
+.monitor-page__target-tls-rating[data-tone='info'],
+.monitor-page__tls-grade[data-tone='info'] {
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-bg);
+}
+
+.monitor-page__target-tls-rating[data-tone='warning'],
+.monitor-page__tls-grade[data-tone='warning'] {
+  color: var(--gc-color-warning);
+  background: var(--gc-color-warning-bg);
+}
+
+.monitor-page__target-tls-rating[data-tone='danger'],
+.monitor-page__tls-grade[data-tone='danger'] {
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
 }
 
 .monitor-page__target-status[data-status='READY'] {
@@ -1280,7 +1519,7 @@ function trimProbeStateToTargets() {
 
 .monitor-page__kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1307,6 +1546,41 @@ function trimProbeStateToTargets() {
   line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.monitor-page__tls-kpi {
+  align-content: start;
+}
+
+.monitor-page__tls-kpi-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  min-width: 0;
+}
+
+.monitor-page__tls-grade {
+  justify-self: start;
+  font-size: var(--gc-font-size-lg);
+}
+
+.monitor-page__tls-open {
+  flex: 0 0 auto;
+  min-height: var(--gc-space-10);
+  border-color: var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  padding-inline: var(--gc-space-3);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
+  color: var(--gc-color-text);
+  font-weight: 800;
+}
+
+.monitor-page__tls-open:hover:not(:disabled) {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-selected);
+  color: var(--gc-color-primary-strong);
 }
 
 .monitor-page__panels {

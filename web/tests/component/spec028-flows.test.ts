@@ -1096,6 +1096,127 @@ describe('spec028 前端闭环', () => {
     expect(wrapper.text()).toContain('a.example.com')
   })
 
+  it('监控页面挂载后将操作按钮移动到壳层顶部', async () => {
+    const heroActions = document.createElement('div')
+    heroActions.id = 'gc-shell-hero-actions'
+    document.body.appendChild(heroActions)
+
+    const router = createTestRouter('/monitors')
+    router.push('/monitors')
+    await router.isReady()
+
+    const wrapper = mount(MonitorsView, {
+      attachTo: document.body,
+      global: { plugins: [router, i18n] },
+    })
+    await flushPromises()
+
+    expect(heroActions.querySelector('.monitor-page__actions')).toBeTruthy()
+    expect(heroActions.textContent).toContain('刷新数据')
+    expect(heroActions.textContent).toContain('检测站点')
+    expect(heroActions.textContent).toContain('添加监控')
+    wrapper.unmount()
+  })
+
+  it('监控页面展示 TLS 评级并通过全屏模态框打开深度详情', async () => {
+    monitorMocks.listMonitorTargets.mockResolvedValue(okPage([
+      {
+        id: 'target-1',
+        serviceAssetId: 'asset-1',
+        metrics: ['availability', 'latency'],
+        intervalSeconds: 120,
+        createdAt: '2026-06-08T00:00:00.000Z',
+      },
+    ]))
+    tlsInspectorMocks.listTlsInspectorTargets.mockResolvedValue(okList([
+      {
+        id: 'tls-target-1',
+        serviceAssetId: 'asset-1',
+        host: 'a.example.com',
+        port: 443,
+        status: 'active',
+        latestStatus: 'succeeded',
+        latestSnapshotId: 'snapshot-1',
+        latestSummary: {
+          endpoint: 'a.example.com:443',
+          tls13Supported: true,
+          legacyProtocolEnabled: false,
+          weakCipherDetected: false,
+          trustPathIssueCount: 0,
+          trustPathUnsupportedCount: 0,
+          simulationFailedCount: 0,
+        },
+        schedule: { intervalSeconds: 3600 },
+      },
+    ]))
+    tlsInspectorMocks.getLatestTlsInspection.mockResolvedValue({
+      data: {
+        id: 'snapshot-1',
+        tenantId: 'tenant-1',
+        targetId: 'tls-target-1',
+        startedAt: '2026-08-08T00:00:00.000Z',
+        finishedAt: '2026-08-08T00:00:05.000Z',
+        status: 'succeeded',
+        summary: { endpoint: 'a.example.com:443' },
+        certificate: { subject: 'CN=a.example.com', notAfter: '2026-12-31T00:00:00.000Z' },
+        trustPaths: [{ view: 'mozilla', viewLabel: 'Mozilla', status: 'trusted' }],
+        protocols: [
+          { id: 'tls1_3', label: 'TLS 1.3', supported: true },
+          { id: 'tls1_2', label: 'TLS 1.2', supported: true },
+        ],
+        cipherSuites: [],
+        simulations: [],
+        protocolDetails: {
+          forwardSecrecy: true,
+          pqcSupported: false,
+          supportedNamedGroups: ['X25519'],
+        },
+        riskSummary: {
+          legacyProtocolEnabled: false,
+          weakCipherDetected: false,
+          tls13Supported: true,
+          hstsTooShort: false,
+          trustPathIssueCount: 0,
+          trustPathUnsupportedCount: 0,
+          simulationFailedCount: 0,
+          boundaryNotes: [],
+        },
+        implementationVersion: '2026.08.07',
+      },
+    })
+
+    const router = createTestRouter('/monitors')
+    router.push('/monitors')
+    await router.isReady()
+
+    const wrapper = mount(MonitorsView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          teleport: true,
+          Teleport: true,
+          MonitorTlsDetailView: {
+            props: ['monitorTargetId'],
+            template: '<div class="tls-detail-stub">{{ monitorTargetId }}</div>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.monitor-page__target-tls-rating').text()).toBe('A+')
+    expect(wrapper.find('.monitor-page__tls-grade').text()).toBe('A+')
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('查看详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toMatchObject({ tlsModal: '1', tlsTargetId: 'target-1' })
+    expect(wrapper.find('.tls-detail-stub').text()).toBe('target-1')
+  })
+
   it('工作流详情可加载版本并发布草稿版本', async () => {
     const wrapper = mount(WorkflowTemplatesView, {
       attachTo: document.body,

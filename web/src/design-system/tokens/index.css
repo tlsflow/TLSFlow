@@ -63,6 +63,7 @@
   --gc-gradient-brand: linear-gradient(90deg, var(--gc-color-primary-strong), var(--gc-color-success));
   --gc-gradient-hero: linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
   --gc-gradient-progress: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary-strong) 55%, var(--gc-color-success));
+  --gc-gradient-risk-scale: linear-gradient(90deg, var(--gc-color-danger) 0%, var(--gc-color-danger) 18%, var(--gc-color-warning) 20%, var(--gc-color-warning) 58%, var(--gc-color-success) 60%, var(--gc-color-success) 100%);
   --gc-shadow-hover: 0 8px 20px rgb(15 23 42 / 8%);
   --gc-shadow-overlay: 0 24px 80px rgb(15 23 42 / 16%);
   --gc-shadow-primary: 0 10px 24px rgb(10 107 255 / 22%);
@@ -201,6 +202,7 @@
   --gc-gradient-brand: linear-gradient(90deg, var(--gc-color-primary), var(--gc-color-success));
   --gc-gradient-hero: linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
   --gc-gradient-progress: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary) 55%, var(--gc-color-success));
+  --gc-gradient-risk-scale: linear-gradient(90deg, var(--gc-color-danger) 0%, var(--gc-color-danger) 18%, var(--gc-color-warning) 20%, var(--gc-color-warning) 58%, var(--gc-color-success) 60%, var(--gc-color-success) 100%);
   --gc-shadow-hover: 0 8px 20px rgb(0 0 0 / 24%);
   --gc-shadow-overlay: 0 24px 80px rgb(0 0 0 / 34%);
   --gc-shadow-primary: 0 10px 24px rgb(74 163 255 / 20%);

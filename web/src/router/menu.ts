@@ -76,13 +76,6 @@ export const mainMenuItems: MenuItem[] = [
         permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
         descriptionKey: 'nav.monitorAlertsDesc',
       },
-      {
-        titleKey: 'nav.monitorTls',
-        path: '/monitors/tls',
-        module: 'monitoring',
-        permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
-        descriptionKey: 'nav.monitorTlsDesc',
-      },
       { titleKey: 'nav.audits', path: '/audits', module: 'audit', permission: 'audit.read', descriptionKey: 'nav.auditsDesc' }
     ]
   },

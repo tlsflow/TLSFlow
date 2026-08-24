@@ -1,6 +1,8 @@
 import type { TlsInspectionSnapshot } from '@/api/modules/tls-inspector.api'
 import { getExpiryCountdown } from '@/utils/browser-local-time'
 
+export type TlsRatingTone = 'success' | 'warning' | 'danger' | 'info' | 'muted'
+
 const REAL_TRUST_PATH_ISSUE_STATUSES = new Set(['untrusted', 'incomplete'])
 
 export const TLS_SCORE_WEIGHTS = {
@@ -68,6 +70,35 @@ export function computeCipherStrengthScore(current: TlsInspectionSnapshot): numb
   const maxStrength = Math.max(...current.cipherSuites.map((item) => item.strengthBits ?? 0), 0)
   if (current.cipherSuites.length && maxStrength < 128) score -= 15
   return clampScore(score)
+}
+
+export function computeTlsInspectionRating(snapshot: TlsInspectionSnapshot | null | undefined, now = new Date()): string {
+  if (!snapshot) return '—'
+  return scoreToTlsGrade(computeOverallScore(snapshot, now))
+}
+
+export function tlsRatingTone(grade: string): TlsRatingTone {
+  if (grade === '—') return 'muted'
+  if (grade.startsWith('A')) return 'success'
+  if (grade === 'B') return 'info'
+  if (grade === 'C') return 'warning'
+  return 'danger'
+}
+
+export function scoreToTlsGrade(score: number): string {
+  if (score >= 97) return 'A+'
+  if (score >= 92) return 'A'
+  if (score >= 85) return 'B'
+  if (score >= 72) return 'C'
+  if (score >= 60) return 'D'
+  return 'F'
+}
+
+export function scoreToTlsScalePosition(score: number): number {
+  const normalized = Math.max(0, Math.min(100, score))
+  if (normalized < 60) return (normalized / 60) * 20
+  if (normalized < 85) return 20 + ((normalized - 60) / 25) * 40
+  return 60 + ((normalized - 85) / 15) * 40
 }
 
 function clampScore(score: number): number {

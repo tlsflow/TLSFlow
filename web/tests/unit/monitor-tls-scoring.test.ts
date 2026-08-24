@@ -3,8 +3,10 @@ import type { TlsInspectionSnapshot } from '@/api/modules/tls-inspector.api'
 import {
   computeCertificateScore,
   computeOverallScore,
+  computeTlsInspectionRating,
   countRealTrustPathIssues,
   countUnsupportedTrustPaths,
+  scoreToTlsScalePosition,
   TLS_SCORE_WEIGHTS,
 } from '@/views/monitoring/monitor-tls-scoring'
 
@@ -126,5 +128,14 @@ describe('TLS 深度探测评分口径', () => {
     expect(TLS_SCORE_WEIGHTS.certificate + TLS_SCORE_WEIGHTS.protocol + TLS_SCORE_WEIGHTS.keyExchange + TLS_SCORE_WEIGHTS.cipherStrength).toBe(1)
     expect(score).toBe(76)
     expect(score).toBeGreaterThan(60)
+    expect(computeTlsInspectionRating(snapshot, new Date('2026-08-08T00:00:00.000Z'))).toBe('C')
+  })
+
+  it('将原始分数映射到与评级等级一致的三段色带', () => {
+    expect(scoreToTlsScalePosition(45)).toBe(15)
+    expect(scoreToTlsScalePosition(60)).toBe(20)
+    expect(scoreToTlsScalePosition(76)).toBe(45.6)
+    expect(scoreToTlsScalePosition(85)).toBe(60)
+    expect(scoreToTlsScalePosition(100)).toBe(100)
   })
 })

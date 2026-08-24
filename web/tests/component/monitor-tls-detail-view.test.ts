@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import { i18n } from '@/i18n'
 
 const assetMocks = vi.hoisted(() => ({
@@ -128,7 +127,7 @@ describe('MonitorTlsDetailView', () => {
         { protocol: 'TLS 1.2', standardName: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256', strengthBits: 128, forwardSecrecy: true, insecure: false, weak: false },
       ],
       simulations: [
-        { profileId: 'chrome-131', profileName: 'Chrome 131 / Win 10', profileVersion: '2026.08.07', status: 'succeeded', protocol: 'TLS 1.2', cipherSuite: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256', forwardSecrecy: true, boundaryNote: 'simulated result' },
+        { profileId: 'chrome-131', profileName: 'Chrome 131 / Win 10', profileVersion: '2026.08.07', status: 'succeeded', protocol: 'TLS 1.2', cipherSuite: 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256', keyExchange: 'ECDH ECDH', forwardSecrecy: true, boundaryNote: 'simulated result' },
       ],
       protocolDetails: {
         alpn: 'http/1.1',
@@ -160,28 +159,33 @@ describe('MonitorTlsDetailView', () => {
     tlsInspectorMocks.runTlsInspection.mockResolvedValue({ data: snapshot })
     tlsInspectorMocks.getTlsInspectionSnapshot.mockResolvedValue({ data: snapshot })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/monitors', component: { template: '<div>monitor list</div>' } },
-        { path: '/monitors/tls/:id', component: MonitorTlsDetailView },
-      ],
-    })
-    router.push('/monitors/tls/target-1')
-    await router.isReady()
-
     const wrapper = mount(MonitorTlsDetailView, {
+      props: {
+        monitorTargetId: 'target-1',
+        embedded: true,
+      },
       global: {
-        plugins: [router, i18n],
-        stubs: { RouterLink: false },
+        plugins: [i18n],
       },
     })
     await flushPromises()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('TLS 深度详情')
+    expect(wrapper.text()).toContain('TLS深度检测结果')
     expect(wrapper.text()).toContain('a.example.com')
     expect(wrapper.text()).not.toContain('2026-08-07T12:00:05.000Z')
+    expect(wrapper.text()).not.toContain('基于协议、证书链、兼容性和策略的近似报告')
+    expect(wrapper.findAll('.tls-report-card__eyebrow').some((item) => item.text() === '重点发现')).toBe(false)
+    expect(wrapper.findAll('.tls-inline-facts__item')).toHaveLength(2)
+    expect(wrapper.find('.monitor-tls-page__header-grade').text()).toBe(wrapper.find('.tls-grade-panel__badge').text())
+
+    const simulationTab = wrapper.findAll('button').find((item) => item.text().includes('握手模拟'))
+    expect(simulationTab).toBeTruthy()
+    await simulationTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('ECDH')
+    expect(wrapper.text()).not.toContain('ECDH ECDH')
+    expect(wrapper.find('.tls-table--simulation tbody tr td:nth-child(6) .tls-table__subtle').exists()).toBe(false)
 
     const trustTab = wrapper.findAll('button').find((item) => item.text().includes('证书认证路径'))
     expect(trustTab).toBeTruthy()

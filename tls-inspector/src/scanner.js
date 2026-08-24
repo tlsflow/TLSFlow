@@ -492,7 +492,8 @@ function buildSimulationKeyExchangeLabel(standardName, protocolDetails) {
   if (!/^TLS_(ECDHE|ECDH)_/.test(standardName) && !standardName.startsWith('TLS_AES_') && !standardName.startsWith('TLS_CHACHA20_')) {
     return null
   }
-  const group = normalizeNamedGroupLabel(protocolDetails?.supportedNamedGroups?.[0] ?? '')
+  const rawGroup = protocolDetails?.supportedNamedGroups?.[0] ?? ''
+  const group = normalizeNamedGroupLabel(rawGroup.replace(/^ECDH(?:E)?\s*,?\s*/i, ''))
   if (!group) return 'ECDH'
   return `ECDH ${group}`
 }
