@@ -70,6 +70,7 @@ export function createTlsInspectorServer(options = {}) {
             tls13Supported: false,
             hstsTooShort: false,
             trustPathIssueCount: 0,
+            trustPathUnsupportedCount: 0,
             simulationFailedCount: 0,
             boundaryNotes: [error instanceof Error ? error.message : '计划扫描失败'],
           },

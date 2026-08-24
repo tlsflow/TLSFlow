@@ -109,6 +109,8 @@ test('tls-inspector 可以创建目标并返回深度扫描快照', async () => 
     assert.equal(inspectResult.body.data.targetId, targetId)
     assert.equal(inspectResult.body.data.summary.legacyProtocolEnabled, false)
     assert.equal(inspectResult.body.data.protocolDetails.hsts.enabled, true)
+    assert.equal(typeof inspectResult.body.data.riskSummary.trustPathIssueCount, 'number')
+    assert.equal(typeof inspectResult.body.data.riskSummary.trustPathUnsupportedCount, 'number')
     assert.ok(Array.isArray(inspectResult.body.data.protocols))
     assert.ok(Array.isArray(inspectResult.body.data.trustPaths))
     assert.ok(Array.isArray(inspectResult.body.data.simulations))

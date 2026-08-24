@@ -39,6 +39,7 @@ export interface TlsInspectionSummary {
   readonly legacyProtocolEnabled?: boolean
   readonly weakCipherDetected?: boolean
   readonly trustPathIssueCount?: number
+  readonly trustPathUnsupportedCount?: number
   readonly simulationFailedCount?: number
 }
 
@@ -58,6 +59,7 @@ export interface TlsInspectionRiskSummary {
   readonly tls13Supported: boolean
   readonly hstsTooShort: boolean
   readonly trustPathIssueCount: number
+  readonly trustPathUnsupportedCount: number
   readonly simulationFailedCount: number
   readonly boundaryNotes: string[]
 }
