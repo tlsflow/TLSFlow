@@ -632,8 +632,10 @@ async function refreshTaskEntryCount(): Promise<void> {
           role="status"
         >
           <span class="gc-shell__toast-dot" aria-hidden="true" />
-          <span>{{ notice.message }}</span>
-          <button class="gc-shell__toast-close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="removeToastNotice(notice.id)">×</button>
+          <span class="gc-shell__toast-message">{{ notice.message }}</span>
+          <button class="gc-shell__toast-close" type="button" :aria-label="t('designSystem.toast.close')" @click="removeToastNotice(notice.id)">
+            {{ t('designSystem.toast.close') }}
+          </button>
         </div>
       </TransitionGroup>
     </Teleport>

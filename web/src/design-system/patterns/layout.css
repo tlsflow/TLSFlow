@@ -247,7 +247,7 @@
 .gc-shell__toasts {
   position: fixed;
   top: calc(var(--gc-control-height-md) + var(--gc-space-5));
-  right: var(--gc-space-5);
+  right: 0;
   z-index: 60;
   display: grid;
   gap: var(--gc-space-2);
@@ -257,13 +257,13 @@
 
 .gc-shell__toast {
   display: grid;
-  grid-template-columns: var(--gc-space-3) minmax(0, 1fr) var(--gc-space-7);
-  align-items: center;
-  gap: var(--gc-space-2);
-  min-height: var(--gc-control-height-lg);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  min-height: var(--gc-control-height-md);
   border: var(--gc-border-width-default) solid var(--gc-toast-border);
   border-radius: var(--gc-radius-lg);
-  padding: var(--gc-space-2) var(--gc-space-2) var(--gc-space-2) var(--gc-space-3);
+  padding: 0 0 0 var(--gc-space-3);
+  overflow: hidden;
   color: var(--gc-color-text);
   background: var(--gc-color-surface-overlay);
   box-shadow: var(--gc-shadow-overlay);
@@ -293,13 +293,17 @@
 .gc-shell__toast-dot {
   width: var(--gc-space-2);
   height: var(--gc-space-2);
+  align-self: center;
+  margin-right: var(--gc-space-2);
   border-radius: var(--gc-radius-xl);
   background: var(--gc-toast-tone);
   box-shadow: 0 0 0 var(--gc-space-1) var(--gc-toast-border);
 }
 
-.gc-shell__toast span:nth-child(2) {
+.gc-shell__toast-message {
   min-width: 0;
+  align-self: center;
+  padding: var(--gc-space-2);
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
   font-weight: 750;
@@ -309,31 +313,35 @@
 .gc-shell__toast-close {
   display: grid;
   place-items: center;
-  width: var(--gc-space-7);
-  height: var(--gc-space-7);
+  align-self: stretch;
+  width: auto;
+  min-width: var(--gc-control-height-md);
+  min-height: var(--gc-control-height-md);
+  aspect-ratio: 1;
+  padding: 0;
   border: 0;
-  border-radius: var(--gc-radius-md);
-  color: var(--gc-color-text-muted);
-  background: transparent;
+  border-radius: 0;
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-danger);
   cursor: pointer;
-  font-size: var(--gc-font-size-lg);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 750;
   line-height: 1;
 }
 
 .gc-shell__toast-close:hover {
-  color: var(--gc-color-text);
-  background: var(--gc-color-surface-field);
+  background: color-mix(in srgb, var(--gc-color-danger) 86%, var(--gc-color-text) 14%);
 }
 
 .gc-shell-toast-enter-active,
 .gc-shell-toast-leave-active {
-  transition: opacity .18s ease, transform .18s ease;
+  transition: opacity .24s ease, transform .24s ease;
 }
 
 .gc-shell-toast-enter-from,
 .gc-shell-toast-leave-to {
   opacity: 0;
-  transform: translateY(calc(var(--gc-space-2) * -1)) scale(.98);
+  transform: translateX(100%);
 }
 
 .gc-shell__user-button {
