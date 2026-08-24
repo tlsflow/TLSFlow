@@ -4007,6 +4007,8 @@ export default {
     missingPermission: "缺少權限：{permission}",
     notFoundTitle: "404 頁面不存在",
     notFoundMessage: "該頁面不存在，請確認存取位址是否正確。",
-    backDashboard: "返回儀表板"
+    backDashboard: "返回儀表板",
+    back: "返回",
+    logout: "登出"
   }
 } as const

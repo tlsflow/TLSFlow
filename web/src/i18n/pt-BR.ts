@@ -3963,6 +3963,8 @@ export default {
     missingPermission: 'Permissão ausente: {permission}',
     notFoundTitle: '404 Página não encontrada',
     notFoundMessage: 'Esta página não existe. Verifique se o endereço acessado está correto.',
-    backDashboard: 'Voltar ao painel'
+    backDashboard: 'Voltar ao painel',
+    back: 'Voltar',
+    logout: 'Sair'
   }
 } as const

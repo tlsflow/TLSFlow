@@ -3963,6 +3963,8 @@ export default {
     missingPermission: '누락권한: {permission}',
     notFoundTitle: '404 페이지가 존재하지 않습니다',
     notFoundMessage: '이 페이지가 존재하지 않습니다. 방문 주소가 올바른지 확인하세요.',
-    backDashboard: '대시보드로 돌아가기'
+    backDashboard: '대시보드로 돌아가기',
+    back: '뒤로',
+    logout: '로그아웃'
   }
 } as const

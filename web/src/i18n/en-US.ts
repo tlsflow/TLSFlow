@@ -4285,6 +4285,8 @@ export default {
     missingPermission: 'Missing permission: {permission}',
     notFoundTitle: '404 Not Found',
     notFoundMessage: 'This route is not registered.',
-    backDashboard: 'Back to dashboard'
+    backDashboard: 'Back to dashboard',
+    back: 'Back',
+    logout: 'Sign out'
   }
 } as const

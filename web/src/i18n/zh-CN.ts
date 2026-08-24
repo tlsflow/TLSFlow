@@ -4324,6 +4324,8 @@ export default {
     missingPermission: '缺失权限：{permission}',
     notFoundTitle: '404 页面不存在',
     notFoundMessage: '该页面不存在，请确认访问地址是否正确。',
-    backDashboard: '返回仪表盘'
+    backDashboard: '返回仪表盘',
+    back: '后退',
+    logout: '注销'
   }
 } as const

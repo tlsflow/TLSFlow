@@ -3963,6 +3963,8 @@ export default {
     missingPermission: 'Отсутствует право: {permission}',
     notFoundTitle: '404 Страница не найдена',
     notFoundMessage: 'Эта страница не существует, проверьте адрес.',
-    backDashboard: 'Вернуться на панель мониторинга'
+    backDashboard: 'Вернуться на панель мониторинга',
+    back: 'Назад',
+    logout: 'Выйти'
   }
 } as const

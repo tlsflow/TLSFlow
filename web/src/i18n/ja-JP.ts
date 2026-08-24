@@ -3989,6 +3989,8 @@ export default {
     missingPermission: '不足している権限：{permission}',
     notFoundTitle: '404 ページが存在しません',
     notFoundMessage: 'このページは存在しません。アクセス先が正しいか確認してください。',
-    backDashboard: 'ダッシュボードへ戻る'
+    backDashboard: 'ダッシュボードへ戻る',
+    back: '戻る',
+    logout: 'ログアウト'
   }
 } as const

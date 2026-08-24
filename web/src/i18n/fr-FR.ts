@@ -4224,6 +4224,8 @@ export default {
     missingPermission: 'Missing permission: {permission}',
     notFoundTitle: '404 Page introuvable',
     notFoundMessage: 'This route is not registered.',
-    backDashboard: 'Retour au tableau de bord'
+    backDashboard: 'Retour au tableau de bord',
+    back: 'Retour',
+    logout: 'Déconnexion'
   }
 } as const
