@@ -55,8 +55,8 @@ export class DeploymentStrategyResolver {
       });
     }
     const mode = agent.mode ?? 'NATIVE_HANDLER';
-    if (mode === 'PLUGIN' && (!agent.plugin?.mountId || !agent.plugin.pluginPackageId || !agent.plugin.pluginVersionId)) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少挂载和插件版本信息', {
+    if (mode === 'PLUGIN' && (!agent.plugin?.pluginPackageId || !agent.plugin.pluginVersionId)) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少插件包和版本信息', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: input.applicationAsset.id,
       });

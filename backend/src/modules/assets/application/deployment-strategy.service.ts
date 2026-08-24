@@ -73,7 +73,7 @@ function normalizeAgentPluginBinding(value: unknown): NonNullable<NonNullable<De
   const secretBindings = normalizeSecretRefRecord(value.secretBindings, 'agent.plugin.secretBindings') ?? {};
   const certificateArtifactBindings = normalizeCertificateArtifactBindings(value.certificateArtifactBindings) ?? {};
   return {
-    mountId: requireNonEmpty(value.mountId, 'agent.plugin.mountId'),
+    mountId: optionalNonEmpty(value.mountId),
     pluginPackageId: requireNonEmpty(value.pluginPackageId, 'agent.plugin.pluginPackageId'),
     pluginVersionId: requireNonEmpty(value.pluginVersionId, 'agent.plugin.pluginVersionId'),
     variableBindings,

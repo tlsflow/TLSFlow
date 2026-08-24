@@ -135,6 +135,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     security.secrets,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
+  const pluginsRepository = new PgPluginsRepository(appDb);
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
     new WorkflowTemplatesDomainService(
       new PgDocumentRepository(appDb, 'workflow.templates'),
@@ -143,8 +144,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     {
       stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
     },
+    pluginsRepository,
   );
-  const pluginsRepository = new PgPluginsRepository(appDb);
   const pluginsService = new PluginsApplicationService(pluginsRepository);
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);

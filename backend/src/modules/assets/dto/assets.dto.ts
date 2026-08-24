@@ -41,7 +41,7 @@ export interface AgentDeploymentStrategyDto {
   certificateFormatId?: string;
   deploymentMode?: string;
   plugin?: {
-    mountId: string;
+    mountId?: string;
     pluginPackageId: string;
     pluginVersionId: string;
     variableBindings: Record<string, unknown>;

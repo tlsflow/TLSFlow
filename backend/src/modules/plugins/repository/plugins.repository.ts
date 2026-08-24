@@ -3,7 +3,7 @@ import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import type { IdentifiedEntity } from '../../../persistence/repositories/repository-port.js';
 import type { PluginExecutionResult, PluginPackageRecord } from '../dto/plugins.dto.js';
-import type { AgentPluginMount, AgentPluginPackageRecord } from '../dto/agent-deployment-plugins.dto.js';
+import type { AgentPluginMount, AgentPluginPackageRecord, PluginCatalogActivationRecord, PluginCatalogActivationType } from '../dto/agent-deployment-plugins.dto.js';
 
 export interface PluginsRepository {
   readonly moduleName: 'plugins';
@@ -15,6 +15,9 @@ export interface PluginsRepository {
   saveAgentPackage(record: AgentPluginPackageRecord): Promise<AgentPluginPackageRecord>;
   findAgentPackage(id: string): Promise<AgentPluginPackageRecord | undefined>;
   listAgentPackages(tenantId?: string): Promise<AgentPluginPackageRecord[]>;
+  saveCatalogActivation(record: PluginCatalogActivationRecord): Promise<PluginCatalogActivationRecord>;
+  findCatalogActivation(tenantId: string, catalogType: PluginCatalogActivationType, pluginId: string): Promise<PluginCatalogActivationRecord | undefined>;
+  listCatalogActivations(tenantId: string): Promise<PluginCatalogActivationRecord[]>;
   saveAgentMount(record: AgentPluginMount): Promise<AgentPluginMount>;
   findAgentMount(id: string): Promise<AgentPluginMount | undefined>;
   listAgentMounts(tenantId: string, agentId?: string): Promise<AgentPluginMount[]>;
@@ -24,6 +27,7 @@ export interface PluginsRepository {
 type PluginPackageEntity = PluginPackageRecord & IdentifiedEntity;
 type PluginExecutionEntity = PluginExecutionResult & IdentifiedEntity;
 type AgentPluginPackageEntity = AgentPluginPackageRecord & IdentifiedEntity;
+type PluginCatalogActivationEntity = PluginCatalogActivationRecord & IdentifiedEntity;
 
 export class PgPluginsRepository implements PluginsRepository {
   readonly moduleName = 'plugins' as const;
@@ -31,12 +35,14 @@ export class PgPluginsRepository implements PluginsRepository {
   private readonly packages: PgDocumentRepository<PluginPackageEntity>;
   private readonly executions: PgDocumentRepository<PluginExecutionEntity>;
   private readonly agentPackages: PgDocumentRepository<AgentPluginPackageEntity>;
+  private readonly catalogActivations: PgDocumentRepository<PluginCatalogActivationEntity>;
   private agentMountsInitialized?: Promise<void>;
 
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {
     this.packages = new PgDocumentRepository(db, 'plugins:packages');
     this.executions = new PgDocumentRepository(db, 'plugins:executions');
     this.agentPackages = new PgDocumentRepository(db, 'plugins:agent-packages');
+    this.catalogActivations = new PgDocumentRepository(db, 'plugins:catalog-activations');
   }
 
   async savePackage(record: PluginPackageRecord): Promise<PluginPackageRecord> {
@@ -72,6 +78,19 @@ export class PgPluginsRepository implements PluginsRepository {
   async listAgentPackages(tenantId?: string): Promise<AgentPluginPackageRecord[]> {
     const records = await this.agentPackages.list();
     return tenantId ? records.filter((record) => record.tenantId === tenantId) : records;
+  }
+
+  async saveCatalogActivation(record: PluginCatalogActivationRecord): Promise<PluginCatalogActivationRecord> {
+    return this.catalogActivations.upsert(record as PluginCatalogActivationEntity);
+  }
+
+  async findCatalogActivation(tenantId: string, catalogType: PluginCatalogActivationType, pluginId: string): Promise<PluginCatalogActivationRecord | undefined> {
+    const records = await this.catalogActivations.list((record) => record.tenantId === tenantId && record.catalogType === catalogType && record.pluginId === pluginId);
+    return records[0];
+  }
+
+  async listCatalogActivations(tenantId: string): Promise<PluginCatalogActivationRecord[]> {
+    return this.catalogActivations.list((record) => record.tenantId === tenantId);
   }
 
   async saveAgentMount(record: AgentPluginMount): Promise<AgentPluginMount> {

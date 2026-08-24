@@ -14,6 +14,7 @@ import type {
   AgentPluginMount,
   AgentPluginPackageRecord,
   AgentPluginPackageUploadInput,
+  PluginCatalogActivationType,
   CreateAgentPluginMountInput,
   PluginCatalogItem,
 } from '../dto/agent-deployment-plugins.dto.js';
@@ -67,7 +68,17 @@ export class AgentDeploymentPluginsApplicationService {
 
   private async listPackagesWithBuiltins(tenantId: string): Promise<AgentPluginPackageRecord[]> {
     await this.ensureBuiltinPackages(tenantId);
-    return this.repository.listAgentPackages(tenantId);
+    const [records, activations] = await Promise.all([
+      this.repository.listAgentPackages(tenantId),
+      this.repository.listCatalogActivations(tenantId),
+    ]);
+    const enabled = new Set(activations
+      .filter((record) => record.catalogType === 'AGENT_DEPLOYMENT' && record.status === 'enabled')
+      .map((record) => record.pluginId));
+    return records.map((record) => ({
+      ...record,
+      catalogEnabled: record.installStatus === 'enabled' && enabled.has(record.id),
+    }));
   }
 
   async approvePermissions(input: PluginPermissionApprovalInput): Promise<AgentPluginPackageRecord> {
@@ -92,12 +103,15 @@ export class AgentDeploymentPluginsApplicationService {
       .map((permission) => permission.name);
     if (missing.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', 'Agent 插件高风险权限未审批', { missing });
     if (record.signatureStatus === 'invalid') throw new AppError('PLUGIN_SIGNATURE_INVALID', 'Agent 插件签名无效');
-    return this.repository.saveAgentPackage({ ...record, installStatus: 'enabled', updatedAt: new Date().toISOString() });
+    const updated = await this.repository.saveAgentPackage({ ...record, installStatus: 'enabled', updatedAt: new Date().toISOString() });
+    await this.setCatalogActivation(record.tenantId, 'AGENT_DEPLOYMENT', record.id, true);
+    return { ...updated, catalogEnabled: true };
   }
 
   async disablePackage(input: PluginEnableInput): Promise<AgentPluginPackageRecord> {
     const record = await this.requirePackage(input.pluginPackageId);
     const updated = await this.repository.saveAgentPackage({ ...record, installStatus: 'disabled', updatedAt: new Date().toISOString() });
+    await this.setCatalogActivation(record.tenantId, 'AGENT_DEPLOYMENT', record.id, false);
     const mounts = await this.repository.listAgentMounts(record.tenantId);
     await Promise.all(mounts.filter((mount) => mount.pluginPackageId === record.id).map((mount) => this.repository.saveAgentMount({
       ...mount,
@@ -108,11 +122,14 @@ export class AgentDeploymentPluginsApplicationService {
   }
 
   async listCatalog(tenantId = tenantFallback): Promise<PluginCatalogItem[]> {
-    await this.ensureBuiltinPackages(tenantId);
-    const [workflowFiles, agentPackages] = await Promise.all([
+    const [workflowFiles, agentPackages, activations] = await Promise.all([
       this.workflowTemplates.listFileTemplates(),
-      this.repository.listAgentPackages(tenantId),
+      this.listPackagesWithBuiltins(tenantId),
+      this.repository.listCatalogActivations(tenantId),
     ]);
+    const workflowActivation = new Map(activations
+      .filter((record) => record.catalogType === 'WORKFLOW_TEMPLATE')
+      .map((record) => [record.pluginId, record.status]));
     const workflowItems: PluginCatalogItem[] = workflowFiles.map((item) => {
       const metadata = item.metadata;
       return {
@@ -123,7 +140,7 @@ export class AgentDeploymentPluginsApplicationService {
         displayName: metadata?.displayName,
         description: metadata?.description,
         version: metadata?.version,
-        status: item.valid ? 'valid' : 'invalid',
+        status: item.valid ? workflowActivation.get(item.id) === 'enabled' ? 'enabled' : 'disabled' : 'invalid',
         platforms: (metadata?.platforms ?? []).map((platform) => platform.toUpperCase()) as PluginCatalogItem['platforms'],
         tags: metadata?.tags ?? [],
         updatedAt: item.updatedAt,
@@ -133,12 +150,12 @@ export class AgentDeploymentPluginsApplicationService {
     const agentItems: PluginCatalogItem[] = agentPackages.map((record) => ({
       id: record.id,
       catalogType: 'AGENT_DEPLOYMENT',
-      source: 'PACKAGE',
+      source: record.id.startsWith('builtin:') ? 'BUILTIN' : 'USER',
       name: record.manifest.name,
       displayName: record.manifest.metadata?.displayName,
       description: record.manifest.metadata?.description,
       version: record.manifest.version,
-      status: record.installStatus,
+      status: record.installStatus === 'pending_approval' ? 'pending_approval' : record.catalogEnabled ? 'enabled' : 'disabled',
       platforms: record.manifest.compatibility.platforms,
       tags: record.manifest.metadata?.tags ?? [],
       updatedAt: record.updatedAt,
@@ -151,7 +168,13 @@ export class AgentDeploymentPluginsApplicationService {
     const plugin = await this.requirePackage(input.pluginPackageId);
     if (plugin.tenantId !== tenantId) throw new AppError('AUTH_FORBIDDEN', '不能挂载其他租户的 Agent 插件');
     if (plugin.installStatus !== 'enabled') throw new AppError('PLUGIN_PERMISSION_DENIED', 'Agent 插件未启用');
-    const detail = await this.agents.getAgentDetail(tenantId, input.agentId);
+    await this.requireCatalogEnabled(tenantId, 'AGENT_DEPLOYMENT', plugin.id);
+    const compatibility = await this.validatePackageCompatibility(tenantId, input.agentId, plugin);
+    return { ...compatibility, plugin };
+  }
+
+  private async validatePackageCompatibility(tenantId: string, agentId: string, plugin: AgentPluginPackageRecord) {
+    const detail = await this.agents.getAgentDetail(tenantId, agentId);
     const osType = detail.agent.descriptor.osType.toUpperCase();
     const platform = osType.includes('WINDOWS') ? 'WINDOWS' : osType.includes('LINUX') ? 'LINUX' : undefined;
     const missing: string[] = [];
@@ -172,7 +195,6 @@ export class AgentDeploymentPluginsApplicationService {
       platform,
       agentStatus: detail.agent.status,
       capabilitySnapshot: [...capabilities],
-      plugin,
     };
   }
 
@@ -219,12 +241,22 @@ export class AgentDeploymentPluginsApplicationService {
   }
 
   async previewBinding(tenantId: string, agentId: string, binding: AgentPluginBindingInput) {
-    const mount = await this.requireMount(tenantId, binding.mountId);
-    if (mount.agentId !== agentId || mount.status !== 'MOUNTED') throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件未挂载到目标 Agent');
-    if (mount.pluginPackageId !== binding.pluginPackageId || mount.pluginVersionId !== binding.pluginVersionId) {
-      throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件绑定版本与挂载版本不一致');
-    }
     const plugin = await this.requirePackage(binding.pluginPackageId);
+    if (plugin.tenantId !== tenantId) throw new AppError('AUTH_FORBIDDEN', '不能使用其他租户的 Agent 插件');
+    if (plugin.installStatus !== 'enabled') throw new AppError('PLUGIN_PERMISSION_DENIED', 'Agent 插件未启用');
+    await this.requireCatalogEnabled(tenantId, 'AGENT_DEPLOYMENT', plugin.id);
+    if (plugin.id !== binding.pluginVersionId) throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件绑定版本不存在');
+    if (binding.mountId) {
+      const mount = await this.requireMount(tenantId, binding.mountId);
+      if (mount.agentId !== agentId || mount.status !== 'MOUNTED') throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '历史插件挂载对目标 Agent 不可用');
+      if (mount.pluginPackageId !== binding.pluginPackageId || mount.pluginVersionId !== binding.pluginVersionId) {
+        throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件绑定版本与历史挂载版本不一致');
+      }
+    }
+    const compatibility = await this.validatePackageCompatibility(tenantId, agentId, plugin);
+    if (!compatibility.compatible) {
+      throw new AppError('AGENT_PLUGIN_BINDING_INVALID', '插件与目标 Agent 不兼容', { missing: compatibility.missing });
+    }
     const variables = validateAgentPluginVariableValues(plugin.manifest.variables, {
       ...(binding.variableBindings ?? {}),
       ...(binding.secretBindings ?? {}),
@@ -319,26 +351,36 @@ export class AgentDeploymentPluginsApplicationService {
   }
 
   private async ensureBuiltinPackages(tenantId: string): Promise<void> {
-    const existing = new Set((await this.repository.listAgentPackages(tenantId)).map((record) => record.manifest.pluginId));
+    const existing = new Map((await this.repository.listAgentPackages(tenantId)).map((record) => [record.manifest.pluginId, record]));
     for (const manifest of builtinAgentPluginManifests) {
-      if (existing.has(manifest.pluginId)) continue;
       const normalized = validateAgentDeploymentPluginManifest(manifest);
       const packageHash = hash(JSON.stringify(normalized));
+      const current = existing.get(normalized.pluginId);
+      if (current?.packageHash === packageHash) continue;
       const now = new Date().toISOString();
       const highRiskPermissions = normalized.permissions.filter((permission) => permission.risk === 'high').map((permission) => permission.name);
+      const declaredPermissions = new Set(normalized.permissions.map((permission) => permission.name));
+      const approvedPermissions = [...new Set([
+        ...(current?.approvedPermissions ?? []).filter((permission) => declaredPermissions.has(permission)),
+        ...normalized.permissions.filter((permission) => permission.risk !== 'high').map((permission) => permission.name),
+      ])];
+      const missingHighRiskPermissions = highRiskPermissions.filter((permission) => !approvedPermissions.includes(permission));
+      const installStatus = current
+        ? missingHighRiskPermissions.length > 0 && current.installStatus === 'enabled' ? 'pending_approval' : current.installStatus
+        : missingHighRiskPermissions.length > 0 ? 'pending_approval' : 'installed_disabled';
       await this.repository.saveAgentPackage({
-        id: `builtin:${tenantId}:${normalized.pluginId}`,
+        id: current?.id ?? `builtin:${tenantId}:${normalized.pluginId}`,
         tenantId,
         manifest: normalized,
         packageHash,
         expectedHash: packageHash,
         signature: `${trustedMockSignaturePrefix}${packageHash}`,
         signatureStatus: 'trusted',
-        installStatus: highRiskPermissions.length > 0 ? 'pending_approval' : 'enabled',
-        permissionApprovalStatus: highRiskPermissions.length > 0 ? 'pending' : 'not_required',
-        approvedPermissions: normalized.permissions.filter((permission) => permission.risk !== 'high').map((permission) => permission.name),
+        installStatus,
+        permissionApprovalStatus: missingHighRiskPermissions.length > 0 ? 'pending' : highRiskPermissions.length > 0 ? 'approved' : 'not_required',
+        approvedPermissions,
         storageKey: `plugins/agent/builtin/${normalized.pluginId}/${normalized.version}`,
-        uploadedAt: now,
+        uploadedAt: current?.uploadedAt ?? now,
         updatedAt: now,
       });
     }
@@ -388,14 +430,49 @@ export class AgentDeploymentPluginsApplicationService {
     if (!mount || mount.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 插件挂载不存在', { mountId });
     return mount;
   }
+
+  async enableWorkflowTemplatePlugin(tenantId: string, fileTemplateId: string) {
+    const file = (await this.workflowTemplates.listFileTemplates()).find((item) => item.id === fileTemplateId);
+    if (!file) throw new AppError('RESOURCE_NOT_FOUND', 'DSL 模板插件不存在', { fileTemplateId });
+    if (!file.valid) throw new AppError('VALIDATION_FAILED', '无效的 DSL 模板插件不能启用', { fileTemplateId, error: file.error });
+    return this.setCatalogActivation(tenantId, 'WORKFLOW_TEMPLATE', fileTemplateId, true);
+  }
+
+  async disableWorkflowTemplatePlugin(tenantId: string, fileTemplateId: string) {
+    const file = (await this.workflowTemplates.listFileTemplates()).find((item) => item.id === fileTemplateId);
+    if (!file) throw new AppError('RESOURCE_NOT_FOUND', 'DSL 模板插件不存在', { fileTemplateId });
+    return this.setCatalogActivation(tenantId, 'WORKFLOW_TEMPLATE', fileTemplateId, false);
+  }
+
+  private async requireCatalogEnabled(tenantId: string, catalogType: PluginCatalogActivationType, pluginId: string): Promise<void> {
+    const activation = await this.repository.findCatalogActivation(tenantId, catalogType, pluginId);
+    if (activation?.status !== 'enabled') throw new AppError('PLUGIN_PERMISSION_DENIED', '插件未手动启用', { catalogType, pluginId });
+  }
+
+  private setCatalogActivation(tenantId: string, catalogType: PluginCatalogActivationType, pluginId: string, enabled: boolean) {
+    const now = new Date().toISOString();
+    return this.repository.saveCatalogActivation({
+      id: `catalog-activation:${hash(`${tenantId}:${catalogType}:${pluginId}`)}`,
+      tenantId,
+      catalogType,
+      pluginId,
+      status: enabled ? 'enabled' : 'disabled',
+      enabledAt: enabled ? now : undefined,
+      updatedAt: now,
+    });
+  }
 }
 
 function normalizeBoundArtifacts(binding: AgentPluginBindingInput, artifacts: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(binding.certificateArtifactBindings ?? {}).map(([name, definition]) => {
     const material = isRecord(artifacts[name]) ? artifacts[name] : {};
     const outputs = isRecord(material.outputs) ? material.outputs : {};
-    const selected = Object.keys(definition.outputBindings).map((slot) => outputs[slot]).filter((value) => value !== undefined);
-    return [name, selected.length === 1 ? selected[0] : { ...material, ...Object.fromEntries(Object.keys(definition.outputBindings).map((slot) => [slot, outputs[slot]])) }];
+    const selectedBySlot = Object.fromEntries(Object.entries(definition.outputBindings)
+      .map(([slot, outputKey]) => [slot, outputs[outputKey]] as const)
+      .filter(([, value]) => value !== undefined));
+    const selected = Object.values(selectedBySlot);
+    const primary = selected.length === 1 && isRecord(selected[0]) ? selected[0] : {};
+    return [name, { ...material, ...primary, ...selectedBySlot }];
   }));
 }
 
@@ -430,12 +507,18 @@ function verifyMockSignature(signature: string | undefined, packageHash: string)
 function interpolateValue(value: unknown, context: { variables: Record<string, unknown>; artifacts: Record<string, unknown> }): unknown {
   if (typeof value === 'string') {
     const exact = value.match(/^\$\{(variables|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/);
-    if (exact) return context[exact[1] as 'variables' | 'artifacts'][exact[2]];
-    return value.replace(/\$\{(variables|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: 'variables' | 'artifacts', key: string) => String(context[group][key] ?? ''));
+    if (exact) return resolveContextPath(context[exact[1] as 'variables' | 'artifacts'], exact[2]);
+    return value.replace(/\$\{(variables|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: 'variables' | 'artifacts', key: string) => String(resolveContextPath(context[group], key) ?? ''));
   }
   if (Array.isArray(value)) return value.map((item) => interpolateValue(item, context));
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, interpolateValue(item, context)]));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value)
+    .map(([key, item]) => [key, interpolateValue(item, context)] as const)
+    .filter(([, item]) => item !== undefined));
   return value;
+}
+
+function resolveContextPath(root: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, segment) => isRecord(current) ? current[segment] : undefined, root);
 }
 
 function assertResolvedPermissions(manifest: AgentDeploymentPluginManifestV1, operations: Array<{ operationType: string; input: Record<string, unknown> }>): void {
@@ -459,6 +542,18 @@ function assertResolvedPermissions(manifest: AgentDeploymentPluginManifestV1, op
       const port = typeof operation.input.port === 'number' ? operation.input.port : undefined;
       const target = host && port ? `${host}:${port}` : host;
       if (target && !matchesPermission(target, byScope.get('network') ?? [])) throw new AppError('PLUGIN_PERMISSION_DENIED', '网络目标超出插件权限', { target });
+    }
+    if (operation.operationType.startsWith('windows.certificate')) {
+      const store = stringValue(operation.input.store) ?? 'LocalMachine/My';
+      if (!matchesPermission(store, byScope.get('certificate_store') ?? [])) {
+        throw new AppError('PLUGIN_PERMISSION_DENIED', 'Windows 证书库超出插件权限', { store });
+      }
+    }
+    if (operation.operationType.startsWith('windows.iis.')) {
+      const siteName = stringValue(operation.input.siteName);
+      if (!siteName || !matchesPermission(siteName, byScope.get('iis') ?? [])) {
+        throw new AppError('PLUGIN_PERMISSION_DENIED', 'IIS Site 超出插件权限', { siteName });
+      }
     }
   }
 }

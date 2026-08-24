@@ -1,4 +1,6 @@
 import { WorkflowTemplatesDomainService } from '../domain/workflow-templates.domain-service.js';
+import { AppError } from '../../../common/errors/app-error.js';
+import { PgPluginsRepository, type PluginsRepository } from '../../plugins/repository/plugins.repository.js';
 import { compileWorkflowCanvas, validateWorkflowCanvasInput } from '../domain/workflow-canvas.compiler.js';
 import type {
   ApplyWorkflowTemplateFromFileInput,
@@ -20,10 +22,16 @@ export interface WorkflowTemplatesApplicationServiceOptions {
   stepDispatcher?: WorkflowExecutorDispatcher;
 }
 
+export interface WorkflowFileTemplateListOptions {
+  tenantId?: string;
+  enabledOnly?: boolean;
+}
+
 export class WorkflowTemplatesApplicationService {
   constructor(
     private readonly domain = new WorkflowTemplatesDomainService(),
     private readonly options: WorkflowTemplatesApplicationServiceOptions = {},
+    private readonly pluginsRepository: PluginsRepository = new PgPluginsRepository(),
   ) {}
 
   async createTemplate(input: CreateWorkflowTemplateInput) {
@@ -42,11 +50,19 @@ export class WorkflowTemplatesApplicationService {
     return validateWorkflowCanvasInput(input);
   }
 
-  async listFileTemplates(): Promise<WorkflowFileTemplate[]> {
-    return await this.domain.listFileTemplates();
+  async listFileTemplates(options: WorkflowFileTemplateListOptions = {}): Promise<WorkflowFileTemplate[]> {
+    const files = await this.domain.listFileTemplates();
+    if (!options.enabledOnly) return files;
+    if (!options.tenantId) return [];
+    const activations = await this.pluginsRepository.listCatalogActivations(options.tenantId);
+    const enabled = new Set(activations
+      .filter((record) => record.catalogType === 'WORKFLOW_TEMPLATE' && record.status === 'enabled')
+      .map((record) => record.pluginId));
+    return files.filter((file) => file.valid && enabled.has(file.id));
   }
 
-  async createTemplateFromFile(input: CreateWorkflowTemplateFromFileInput) {
+  async createTemplateFromFile(input: CreateWorkflowTemplateFromFileInput, tenantId?: string) {
+    if (tenantId) await this.assertFileTemplateEnabled(tenantId, input.fileTemplateId);
     return await this.domain.createTemplateFromFile(input);
   }
 
@@ -58,8 +74,14 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.updateCurrentDraftVersion(input);
   }
 
-  async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
+  async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput, tenantId?: string): Promise<WorkflowTemplateVersion> {
+    if (tenantId) await this.assertFileTemplateEnabled(tenantId, input.fileTemplateId);
     return await this.domain.applyFileTemplateToTemplate(input);
+  }
+
+  private async assertFileTemplateEnabled(tenantId: string, fileTemplateId: string): Promise<void> {
+    const activation = await this.pluginsRepository.findCatalogActivation(tenantId, 'WORKFLOW_TEMPLATE', fileTemplateId);
+    if (activation?.status !== 'enabled') throw new AppError('PLUGIN_PERMISSION_DENIED', 'DSL 模板插件未手动启用', { fileTemplateId });
   }
 
   async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {

@@ -33,6 +33,8 @@ export class PluginsController {
     router.post('/api/v1/plugins/permission-summary', '生成插件权限摘要', tags, (request) => this.getPermissionSummary(request));
     router.post('/api/v1/plugins/capabilities', '输出插件 Capability 声明', tags, (request) => this.publishCapabilities(request));
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
+    router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
+    router.post('/api/v1/plugin-catalog/workflow-templates/disable', '禁用 DSL 模板插件', tags, (request) => this.disableWorkflowTemplatePlugin(request));
     router.get('/api/v1/plugins/agent-packages', '查询 Agent 插件包', tags, (request) => this.listAgentPackages(request));
     router.post('/api/v1/plugins/agent-packages', '上传 Agent 插件包', tags, (request) => this.uploadAgentPackage(request));
     router.post('/api/v1/plugins/agent-packages/permissions/approve', '审批 Agent 插件权限', tags, (request) => this.approveAgentPermissions(request));
@@ -127,6 +129,16 @@ export class PluginsController {
   private async listCatalog(request: HttpRequest) {
     const items = await this.agentPlugins.listCatalog(tenantId(request));
     return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private enableWorkflowTemplatePlugin(request: HttpRequest) {
+    const body = validateObject(request.body, { fileTemplateId: { type: 'string', required: true } });
+    return this.agentPlugins.enableWorkflowTemplatePlugin(tenantId(request), String(body.fileTemplateId));
+  }
+
+  private disableWorkflowTemplatePlugin(request: HttpRequest) {
+    const body = validateObject(request.body, { fileTemplateId: { type: 'string', required: true } });
+    return this.agentPlugins.disableWorkflowTemplatePlugin(tenantId(request), String(body.fileTemplateId));
   }
 
   private async listAgentPackages(request: HttpRequest) {
@@ -235,6 +247,8 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugins/permission-summary', operationId: 'createPluginPermissionSummary', summary: '生成插件权限摘要', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugins/capabilities', operationId: 'publishPluginCapabilities', summary: '输出插件 Capability 声明', tags, responseSchema: { type: 'array', items: objectSchema() } },
     { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageResponseSchema },
+    { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/disable', operationId: 'disableWorkflowTemplatePlugin', summary: '禁用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugins/agent-packages', operationId: 'listAgentPluginPackages', summary: '查询 Agent 插件包', tags, responseSchema: pageResponseSchema },
     { method: 'POST', path: '/api/v1/plugins/agent-packages', operationId: 'uploadAgentPluginPackage', summary: '上传 Agent 插件包', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugins/agent-packages/permissions/approve', operationId: 'approveAgentPluginPermissions', summary: '审批 Agent 插件权限', tags, responseSchema: objectSchema() },

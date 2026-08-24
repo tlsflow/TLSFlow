@@ -271,7 +271,10 @@ export class AgentExecutorAdapter implements Executor {
 }
 
 function buildDefaultAgentPluginArtifacts(binding: AgentPluginBindingInput, artifact: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.keys(binding.certificateArtifactBindings ?? {}).map((name) => [name, artifact]));
+  const material = buildWorkflowCertificateMaterial(artifact, {
+    expectedCertificateFingerprintSha256: artifact.expectedFingerprintSha256,
+  });
+  return Object.fromEntries(Object.keys(binding.certificateArtifactBindings ?? {}).map((name) => [name, material]));
 }
 
 export class WorkflowExecutorAdapter implements Executor {

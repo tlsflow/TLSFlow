@@ -28,9 +28,12 @@ export class WorkflowTemplatesController {
     router.post('/api/v1/workflow-templates/canvas/compile', '后端编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/canvas/validate', '后端校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/delete', '删除工作流模板', tag, async (request) => ({ statusCode: 200, body: await this.service.disableTemplate(String((request.body as { id?: string }).id ?? '')) }));
-    router.get('/api/v1/workflow-file-templates', '扫描内置与用户导入工作流文件模板', tag, async () => ({ statusCode: 200, body: { items: await this.service.listFileTemplates() } }));
-    router.post('/api/v1/workflow-file-templates/create', '基于工作流文件模板创建草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplateFromFile(request.body as CreateWorkflowTemplateFromFileInput) }));
-    router.post('/api/v1/workflow-file-templates/apply', '用工作流文件模板覆盖现有草稿', tag, async (request) => ({ statusCode: 200, body: await this.service.applyFileTemplateToTemplate(request.body as ApplyWorkflowTemplateFromFileInput) }));
+    router.get('/api/v1/workflow-file-templates', '扫描内置与用户导入工作流文件模板', tag, async (request) => ({
+      statusCode: 200,
+      body: { items: await this.service.listFileTemplates({ tenantId: tenantId(request), enabledOnly: request.query.enabledOnly === 'true' }) },
+    }));
+    router.post('/api/v1/workflow-file-templates/create', '基于工作流文件模板创建草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplateFromFile(request.body as CreateWorkflowTemplateFromFileInput, tenantId(request)) }));
+    router.post('/api/v1/workflow-file-templates/apply', '用工作流文件模板覆盖现有草稿', tag, async (request) => ({ statusCode: 200, body: await this.service.applyFileTemplateToTemplate(request.body as ApplyWorkflowTemplateFromFileInput, tenantId(request)) }));
     router.get('/api/v1/workflow-template-versions', '列出模板版本', tag, async (request) => this.listVersions(request));
     router.post('/api/v1/workflow-template-versions', '创建不可变模板版本', tag, async (request) => ({ statusCode: 201, body: await this.service.createDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-template-versions/draft', '更新当前草稿版本', tag, async (request) => ({ statusCode: 200, body: await this.service.updateCurrentDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
@@ -68,6 +71,10 @@ export class WorkflowTemplatesController {
     const authorization = await this.security.objectPermissions.buildAuthorizedQuery(subject, objectType, 'read');
     return applyAuthorizationFilter(items, { page: 1, pageSize: Math.max(items.length, 1), filter: {}, authorization: { ...authorization, objectIdField } });
   }
+}
+
+function tenantId(request: HttpRequest): string {
+  return request.context.tenantId ?? '00000000-0000-0000-0000-000000000000';
 }
 
 export function getWorkflowTemplateRouteContracts(): RouteContract[] {

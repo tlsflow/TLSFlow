@@ -7586,6 +7586,68 @@
         }
       }
     },
+    "/api/v1/plugin-catalog/workflow-templates/enable": {
+      "post": {
+        "operationId": "enableWorkflowTemplatePlugin",
+        "summary": "启用 DSL 模板插件",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-catalog/workflow-templates/disable": {
+      "post": {
+        "operationId": "disableWorkflowTemplatePlugin",
+        "summary": "禁用 DSL 模板插件",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/plugins/agent-packages": {
       "get": {
         "operationId": "listAgentPluginPackages",

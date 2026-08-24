@@ -17,6 +17,12 @@ const operationTypes = [
   'command.execute',
   'service.control',
   'tls.verify',
+  'windows.certificate.inspect_pfx',
+  'windows.certificate_store.import_pfx',
+  'windows.certificate_private_key.grant',
+  'windows.iis.binding.capture',
+  'windows.iis.binding.update_certificate',
+  'windows.iis.binding.restore_certificate',
 ] as const;
 const variableTypes = ['string', 'number', 'boolean', 'enum', 'object', 'file', 'certificate', 'credential'] as const;
 const stageOrder = new Map(stages.map((stage, index) => [stage, index]));
@@ -95,6 +101,7 @@ function validateCompatibility(input: unknown): AgentDeploymentPluginManifestV1[
     : Object.fromEntries(Object.entries(record(value.operationSchemaVersions, 'compatibility.operationSchemaVersions')).map(([key, versions]) => [key, stringArray(versions, `compatibility.operationSchemaVersions.${key}`)]));
   return {
     platforms: declaredPlatforms as AgentDeploymentPluginManifestV1['compatibility']['platforms'],
+    frameworks: stringArray(value.frameworks, 'compatibility.frameworks', true).map((item) => item.toUpperCase()),
     architectures: stringArray(value.architectures, 'compatibility.architectures', true),
     requiredCapabilities: stringArray(value.requiredCapabilities, 'compatibility.requiredCapabilities', true),
     operationSchemaVersions,
@@ -148,7 +155,7 @@ function validatePermissions(input: unknown): AgentPluginPermissionDeclaration[]
     const risk = nonEmptyString(value.risk, `permissions.${index}.risk`);
     const scope = nonEmptyString(value.scope, `permissions.${index}.scope`);
     if (!['low', 'medium', 'high'].includes(risk)) throw validationError(`permissions.${index}.risk 不支持`);
-    if (!['filesystem', 'process', 'service', 'network', 'secret', 'shell'].includes(scope)) throw validationError(`permissions.${index}.scope 不支持`);
+    if (!['filesystem', 'process', 'service', 'network', 'secret', 'shell', 'certificate_store', 'iis'].includes(scope)) throw validationError(`permissions.${index}.scope 不支持`);
     return {
       name,
       description: optionalString(value.description),
@@ -232,7 +239,15 @@ function validateStageOrder(operations: AgentPluginOperation[]): void {
 }
 
 function validateRollbackCoverage(operations: AgentPluginOperation[], rollback: AgentPluginOperation[]): void {
-  const hasSideEffect = operations.some((item) => ['file.atomic_replace', 'file.set_permissions', 'command.execute', 'service.control'].includes(item.operationType));
+  const hasSideEffect = operations.some((item) => [
+    'file.atomic_replace',
+    'file.set_permissions',
+    'command.execute',
+    'service.control',
+    'windows.certificate_store.import_pfx',
+    'windows.certificate_private_key.grant',
+    'windows.iis.binding.update_certificate',
+  ].includes(item.operationType));
   if (hasSideEffect && rollback.length === 0) throw validationError('包含副作用的插件必须声明 rollback');
 }
 
@@ -250,7 +265,8 @@ function validateReferences(
       if (!variables[match[1]]) throw validationError(`操作 ${operation.id} 引用了不存在的变量 ${match[1]}`);
     }
     for (const match of serialized.matchAll(artifactPattern)) {
-      if (!artifacts[match[1]]) throw validationError(`操作 ${operation.id} 引用了不存在的 Artifact ${match[1]}`);
+      const artifactName = match[1].split('.')[0];
+      if (!artifacts[artifactName]) throw validationError(`操作 ${operation.id} 引用了不存在的 Artifact ${match[1]}`);
     }
   }
 }

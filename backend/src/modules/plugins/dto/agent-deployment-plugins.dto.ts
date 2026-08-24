@@ -19,6 +19,7 @@ export interface ExecutionVariableDefinition {
 
 export interface AgentPluginCompatibility {
   platforms: AgentPluginPlatform[];
+  frameworks?: string[];
   architectures?: string[];
   requiredCapabilities?: string[];
   operationSchemaVersions?: Record<string, string[]>;
@@ -34,7 +35,7 @@ export interface AgentPluginPermissionDeclaration {
   name: string;
   description?: string;
   risk: 'low' | 'medium' | 'high';
-  scope: 'filesystem' | 'process' | 'service' | 'network' | 'secret' | 'shell';
+  scope: 'filesystem' | 'process' | 'service' | 'network' | 'secret' | 'shell' | 'certificate_store' | 'iis';
   values: string[];
 }
 
@@ -50,7 +51,13 @@ export interface AgentPluginOperation {
     | 'file.set_permissions'
     | 'command.execute'
     | 'service.control'
-    | 'tls.verify';
+    | 'tls.verify'
+    | 'windows.certificate.inspect_pfx'
+    | 'windows.certificate_store.import_pfx'
+    | 'windows.certificate_private_key.grant'
+    | 'windows.iis.binding.capture'
+    | 'windows.iis.binding.update_certificate'
+    | 'windows.iis.binding.restore_certificate';
   schemaVersion: '1.0';
   timeoutSeconds?: number;
   continueOnError?: boolean;
@@ -94,6 +101,19 @@ export interface AgentPluginPackageRecord {
   approvedPermissions: string[];
   storageKey: string;
   uploadedAt: string;
+  updatedAt: string;
+  catalogEnabled?: boolean;
+}
+
+export type PluginCatalogActivationType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT';
+
+export interface PluginCatalogActivationRecord {
+  id: string;
+  tenantId: string;
+  catalogType: PluginCatalogActivationType;
+  pluginId: string;
+  status: 'enabled' | 'disabled';
+  enabledAt?: string;
   updatedAt: string;
 }
 
@@ -144,7 +164,7 @@ export interface PluginCatalogItem {
 }
 
 export interface AgentPluginBindingInput {
-  mountId: string;
+  mountId?: string;
   pluginPackageId: string;
   pluginVersionId: string;
   variableBindings: Record<string, unknown>;
