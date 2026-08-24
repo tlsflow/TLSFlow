@@ -6,6 +6,7 @@ const acmeMocks = vi.hoisted(() => ({
   getAcmeStatus: vi.fn(),
   listAcmeProviders: vi.fn(),
   listAcmeProviderProfiles: vi.fn(),
+  probeAcmeDirectory: vi.fn(),
   listAcmeAccounts: vi.fn(),
   listAcmeDnsProviders: vi.fn(),
   listAcmeRenewalPolicies: vi.fn(),
@@ -129,6 +130,7 @@ describe('AcmeOperationsView', () => {
           directory: { userInputRequired: true },
           account: { eab: 'discover' },
           form: { providerFields: ['profileKey', 'displayName', 'directoryUrl', 'isDefault'], accountFields: ['contactEmail', 'eabSecretRef'] },
+          preconfiguration: { required: true, source: 'digicert_console' },
         }],
       },
     })
@@ -140,6 +142,7 @@ describe('AcmeOperationsView', () => {
     acmeMocks.createAcmeProvider.mockResolvedValue({ data: { id: 'provider-digicert' } })
     acmeMocks.updateAcmeProvider.mockResolvedValue({ data: acmeProvider })
     acmeMocks.testAcmeProvider.mockResolvedValue({ data: { reachable: true } })
+    acmeMocks.probeAcmeDirectory.mockResolvedValue({ data: { reachable: true, directory: { externalAccountRequired: true } } })
     acmeMocks.createAcmeCertificate.mockResolvedValue({ data: { id: 'asset-1' } })
     acmeMocks.updateAcmeCertificate.mockResolvedValue({ data: {} })
     acmeMocks.manualRenewAcmeCertificate.mockResolvedValue({ data: {} })
@@ -358,14 +361,17 @@ describe('AcmeOperationsView', () => {
     const nameInput = [...inputs].find((item) => item.required && item.type !== 'url')
     const directoryInput = [...inputs].find((item) => item.type === 'url')
     const emailInput = [...inputs].find((item) => item.type === 'email')
+    if (!directoryInput) throw new Error('未找到 Directory URL 输入框')
+    directoryInput.value = 'https://acme.example.digicert.com/directory'
+    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
+    findButton('探测 Directory').click()
+    await settle()
     const eabSelect = [...form.querySelectorAll<HTMLSelectElement>('select')].find((item) =>
       [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))
     if (!nameInput || !directoryInput || !emailInput || !eabSelect) throw new Error('Provider 最小表单字段不完整')
 
     nameInput.value = 'DigiCert ACME'
     nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    directoryInput.value = 'https://acme.example.digicert.com/directory'
-    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
     emailInput.value = 'admin@example.com'
     emailInput.dispatchEvent(new Event('input', { bubbles: true }))
     eabSelect.value = 'secret://acme_eab/sec_eab#current'
@@ -387,5 +393,70 @@ describe('AcmeOperationsView', () => {
       termsOfServiceAgreed: true,
       eabSecretRef: 'secret://acme_eab/sec_eab#current',
     })
+  })
+
+  it('discover EAB 在 Directory 探测前隐藏，探测声明需要 EAB 后才显示', async () => {
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+    findButton('ACME Provider 管理').click()
+    await settle()
+    findButton('新增 Provider').click()
+    await settle()
+
+    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
+    if (!form) throw new Error('未找到 Provider 表单')
+    const profileSelect = form.querySelector<HTMLSelectElement>('select')
+    if (!profileSelect) throw new Error('未找到 Profile 选择框')
+    profileSelect.value = 'digicert'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+
+    expect(document.body.textContent).toContain('需要厂商后台预配置')
+    expect(document.body.textContent).toContain('DigiCert 控制台')
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
+    const directoryInput = form.querySelector<HTMLInputElement>('input[type="url"]')
+    if (!directoryInput) throw new Error('未找到 Directory URL 输入框')
+    directoryInput.value = 'https://acme.example.digicert.com/directory'
+    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
+    findButton('探测 Directory').click()
+    await settle()
+
+    expect(acmeMocks.probeAcmeDirectory).toHaveBeenCalledWith(expect.objectContaining({
+      profileKey: 'digicert',
+      directoryUrl: 'https://acme.example.digicert.com/directory',
+    }))
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(true)
+
+    directoryInput.value = 'https://acme-2.example.digicert.com/directory'
+    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
+  })
+
+  it('切换 Profile 时只更新自动名称，不覆盖用户自定义名称', async () => {
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+    findButton('ACME Provider 管理').click()
+    await settle()
+    findButton('新增 Provider').click()
+    await settle()
+
+    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
+    if (!form) throw new Error('未找到 Provider 表单')
+    const profileSelect = form.querySelector<HTMLSelectElement>('select')
+    const nameInput = [...form.querySelectorAll<HTMLInputElement>('input')].find((item) => item.required && item.type !== 'url')
+    if (!profileSelect || !nameInput) throw new Error('未找到名称或 Profile 字段')
+    expect(nameInput.value).toContain('Let')
+    profileSelect.value = 'digicert'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(nameInput.value).toContain('DigiCert')
+
+    nameInput.value = '企业 ACME'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    profileSelect.value = 'letsencrypt'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(nameInput.value).toBe('企业 ACME')
   })
 })

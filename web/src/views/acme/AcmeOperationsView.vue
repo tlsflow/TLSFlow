@@ -37,6 +37,7 @@ type AcmeProviderProfile = InternalCaRecord & {
   directory?: InternalCaRecord
   account?: InternalCaRecord
   form?: InternalCaRecord
+  preconfiguration?: InternalCaRecord
 }
 
 const VERSION_PAGE_SIZE = 200
@@ -66,8 +67,12 @@ const eabEditorOpen = ref(false)
 const formError = ref('')
 const providerError = ref('')
 const providerEditingId = ref('')
+const providerNameAuto = ref(true)
 const providerTestId = ref('')
 const providerTestResult = ref('')
+const providerDirectoryProbeState = ref<'idle' | 'probing' | 'succeeded' | 'failed'>('idle')
+const providerDirectoryProbeError = ref('')
+const providerDirectoryExternalAccountRequired = ref<boolean | null>(null)
 const eabError = ref('')
 const eabPending = ref(false)
 const eabSecretOptions = ref<Array<{ value: string; label: string }>>([])
@@ -107,8 +112,13 @@ const eabDraft = reactive({
 const selectedProviderProfile = computed(() => providerProfile(providerDraft.profileKey))
 const providerDraftRequiresDirectory = computed(() => profileHasProviderField(selectedProviderProfile.value, 'directoryUrl'))
 const providerDraftUsesTrustBundle = computed(() => profileHasAccountField(selectedProviderProfile.value, 'trustBundleSecretRef'))
-const providerDraftRequiresEab = computed(() => text(recordValue(selectedProviderProfile.value?.account).eab) === 'required')
-const providerDraftUsesEab = computed(() => profileHasAccountField(selectedProviderProfile.value, 'eabSecretRef'))
+const providerDraftEabPolicy = computed(() => text(recordValue(selectedProviderProfile.value?.account).eab))
+const providerDraftRequiresEab = computed(() => providerDraftEabPolicy.value === 'required'
+  || (providerDraftEabPolicy.value === 'discover' && providerDirectoryExternalAccountRequired.value === true))
+const providerDraftUsesEab = computed(() => providerDraftEabPolicy.value === 'required'
+  || (providerDraftEabPolicy.value === 'discover' && providerDirectoryProbeState.value === 'succeeded' && providerDirectoryExternalAccountRequired.value === true))
+const selectedProviderNeedsPreconfiguration = computed(() => recordValue(selectedProviderProfile.value?.preconfiguration).required === true)
+const selectedProviderPreconfigurationSource = computed(() => text(recordValue(selectedProviderProfile.value?.preconfiguration).source, 'none'))
 
 const activeProviders = computed(() => providers.value.filter((item) => (
   text(item.type, 'acme') === 'acme' && text(item.status, 'active') === 'active'
@@ -333,12 +343,21 @@ function openProviderSettings(): void {
 function openProviderEditor(provider?: AcmeProvider): void {
   providerError.value = ''
   providerEditingId.value = text(provider?.id)
+  providerNameAuto.value = !provider
+  providerDirectoryProbeState.value = 'idle'
+  providerDirectoryProbeError.value = ''
+  providerDirectoryExternalAccountRequired.value = null
   const configuration = providerConfig(provider)
   const profileKey = normalizeProfileKey(configuration.profileKey ?? configuration.preset)
     || text(providerProfiles.value[0]?.key, 'letsencrypt')
   const profile = providerProfile(profileKey)
+  const savedDirectory = recordValue(recordValue(configuration.verification).directory)
+  if (savedDirectory.reachable === true && typeof savedDirectory.externalAccountRequired === 'boolean') {
+    providerDirectoryProbeState.value = 'succeeded'
+    providerDirectoryExternalAccountRequired.value = savedDirectory.externalAccountRequired
+  }
   Object.assign(providerDraft, {
-    name: text(provider?.name),
+    name: text(provider?.name, profileLabel(profile)),
     profileKey,
     directoryUrl: text(configuration.directoryUrl, text(provider?.endpoint, text(recordValue(profile?.directory).defaultUrl))),
     trustBundleSecretRef: text(configuration.trustBundleSecretRef),
@@ -350,9 +369,41 @@ function openProviderEditor(provider?: AcmeProvider): void {
   providerEditorOpen.value = true
 }
 
+async function probeProviderDirectory(): Promise<void> {
+  if (!providerDraft.profileKey || (providerDraftRequiresDirectory.value && !providerDraft.directoryUrl.trim())) {
+    providerDirectoryProbeState.value = 'failed'
+    providerDirectoryProbeError.value = t('acme.provider.messages.directoryRequired')
+    return
+  }
+  providerDirectoryProbeState.value = 'probing'
+  providerDirectoryProbeError.value = ''
+  providerDirectoryExternalAccountRequired.value = null
+  try {
+    const result = await internalCaApi.probeAcmeDirectory({
+      profileKey: providerDraft.profileKey,
+      directoryUrl: providerDraftRequiresDirectory.value ? providerDraft.directoryUrl.trim() : undefined,
+      trustBundleSecretRef: providerDraftUsesTrustBundle.value ? providerDraft.trustBundleSecretRef.trim() || undefined : undefined,
+    })
+    if (result.data?.reachable !== true) {
+      throw new Error(text(result.data?.detail, t('acme.provider.messages.directoryProbeFailed')))
+    }
+    providerDirectoryExternalAccountRequired.value = recordValue(result.data.directory).externalAccountRequired === true
+    providerDirectoryProbeState.value = 'succeeded'
+  } catch (caught) {
+    providerDirectoryProbeState.value = 'failed'
+    providerDirectoryProbeError.value = caught instanceof ApiClientError
+      ? caught.message
+      : caught instanceof Error ? caught.message : t('acme.provider.messages.directoryProbeFailed')
+  }
+}
+
 async function saveProvider(): Promise<void> {
   if (!providerDraft.name.trim() || !providerDraft.profileKey || (providerDraftRequiresDirectory.value && !providerDraft.directoryUrl.trim())) {
     providerError.value = t('acme.provider.messages.required')
+    return
+  }
+  if (providerDraftEabPolicy.value === 'discover' && providerDraft.contactEmail.trim() && providerDirectoryProbeState.value !== 'succeeded') {
+    providerError.value = t('acme.provider.messages.directoryProbeRequired')
     return
   }
   if (providerDraft.contactEmail.trim() && providerDraftRequiresEab.value && !providerDraft.eabSecretRef.trim()) {
@@ -488,6 +539,21 @@ function providerProfileLabel(provider: AcmeProvider): string {
   return profileLabel(profile)
 }
 
+function providerPreconfigurationLabel(provider: AcmeProvider): string {
+  const configuration = providerConfig(provider)
+  const profile = providerProfile(configuration.profileKey ?? configuration.preset)
+  return recordValue(profile?.preconfiguration).required === true
+    ? t('acme.provider.preconfiguration.required')
+    : t('acme.provider.preconfiguration.none')
+}
+
+function providerPreconfigurationSource(provider: AcmeProvider): string {
+  const configuration = providerConfig(provider)
+  const profile = providerProfile(configuration.profileKey ?? configuration.preset)
+  const source = text(recordValue(profile?.preconfiguration).source, 'none')
+  return t(`acme.provider.preconfiguration.sources.${source}`, source)
+}
+
 function providerVerificationLevel(provider: AcmeProvider): string {
   return text(providerConfig(provider).verificationLevel, 'unconfigured')
 }
@@ -516,9 +582,20 @@ function profileHasAccountField(profile: AcmeProviderProfile | undefined, field:
 function resetProviderProfileFields(): void {
   const profile = selectedProviderProfile.value
   providerDraft.directoryUrl = text(recordValue(profile?.directory).defaultUrl)
-  if (!providerDraft.name.trim()) providerDraft.name = profileLabel(profile)
+  if (providerNameAuto.value) providerDraft.name = profileLabel(profile)
+  providerDirectoryProbeState.value = 'idle'
+  providerDirectoryProbeError.value = ''
+  providerDirectoryExternalAccountRequired.value = null
   if (!providerDraftUsesTrustBundle.value) providerDraft.trustBundleSecretRef = ''
   if (!providerDraftUsesEab.value) providerDraft.eabSecretRef = ''
+}
+
+function invalidateDirectoryProbe(): void {
+  if (providerDirectoryProbeState.value === 'idle' && providerDirectoryExternalAccountRequired.value === null) return
+  providerDirectoryProbeState.value = 'idle'
+  providerDirectoryProbeError.value = ''
+  providerDirectoryExternalAccountRequired.value = null
+  providerDraft.eabSecretRef = ''
 }
 
 function openEabEditor(): void {
@@ -797,6 +874,7 @@ function dateValue(value: unknown): number {
           <div>
             <strong>{{ text(provider.name, text(provider.id)) }}</strong>
             <small>{{ providerProfileLabel(provider) }} · {{ providerVerificationLabel(provider) }} · {{ providerAccountStatus(provider) }}</small>
+            <small>{{ providerPreconfigurationLabel(provider) }} · {{ providerPreconfigurationSource(provider) }}</small>
             <small>{{ text(providerConfig(provider).directoryUrl, text(provider.endpoint)) }}</small>
           </div>
           <div class="acme-page__row-actions">
@@ -822,8 +900,18 @@ function dateValue(value: unknown): number {
             <option v-if="!providerProfiles.length" value="letsencrypt">{{ t('acme.provider.profiles.letsencrypt') }}</option>
           </select>
         </label>
-        <label class="gc-form-field"><span>{{ t('acme.provider.fields.name') }}</span><input v-model="providerDraft.name" required /></label>
-        <label v-if="providerDraftRequiresDirectory" class="gc-form-field acme-page__field--wide"><span>{{ t('acme.provider.fields.directoryUrl') }}</span><input v-model="providerDraft.directoryUrl" type="url" required /></label>
+        <label class="gc-form-field"><span>{{ t('acme.provider.fields.name') }}</span><input v-model="providerDraft.name" required @input="providerNameAuto = false" /></label>
+        <label v-if="providerDraftRequiresDirectory" class="gc-form-field acme-page__field--wide"><span>{{ t('acme.provider.fields.directoryUrl') }}</span><input v-model="providerDraft.directoryUrl" type="url" required @input="invalidateDirectoryProbe" /></label>
+        <div v-if="selectedProviderNeedsPreconfiguration" class="acme-page__provider-preconfiguration acme-page__field--wide">
+          <GcStatusTag status="PRECONFIGURATION_REQUIRED" :label="t('acme.provider.preconfiguration.required')" tone="warning" />
+          <p>{{ t(`acme.provider.preconfiguration.sources.${selectedProviderPreconfigurationSource}`) }}</p>
+        </div>
+        <div v-if="providerDraftRequiresDirectory" class="acme-page__directory-probe acme-page__field--wide">
+          <GcButton variant="secondary" type="button" :disabled="actionPending || providerDirectoryProbeState === 'probing'" :loading="providerDirectoryProbeState === 'probing'" @click="probeProviderDirectory">{{ t('acme.provider.actions.probeDirectory') }}</GcButton>
+          <GcStatusTag v-if="providerDirectoryProbeState === 'succeeded'" status="DIRECTORY_REACHABLE" :label="t('acme.provider.verification.directory_reachable')" tone="success" />
+          <span v-if="providerDirectoryProbeState === 'succeeded'" class="acme-page__directory-probe-result">{{ providerDirectoryExternalAccountRequired ? t('acme.provider.messages.eabDiscoveredRequired') : t('acme.provider.messages.eabDiscoveredNotRequired') }}</span>
+          <p v-if="providerDirectoryProbeError" class="acme-page__provider-probe-error">{{ providerDirectoryProbeError }}</p>
+        </div>
         <label class="acme-page__checkbox acme-page__field--wide"><input v-model="providerDraft.isDefault" type="checkbox" /><span>{{ t('acme.provider.fields.isDefault') }}</span></label>
         <fieldset class="acme-page__account-field acme-page__field--wide">
           <legend>{{ t('acme.provider.account.title') }}</legend>
@@ -841,7 +929,9 @@ function dateValue(value: unknown): number {
             v-model="providerDraft.trustBundleSecretRef"
             :label="t('acme.provider.fields.trustBundleSecretRef')"
             :accepted-types="['certificate_trust_bundle']"
+            @update:model-value="invalidateDirectoryProbe"
           />
+          <p v-if="providerDraftEabPolicy === 'discover' && providerDirectoryProbeState !== 'succeeded'" class="acme-page__provider-hint">{{ t('acme.provider.messages.eabAfterProbe') }}</p>
           <GcButton v-if="providerDraftUsesEab" variant="secondary" type="button" :disabled="actionPending" @click="openEabEditor">{{ t('acme.provider.account.createEab') }}</GcButton>
         </fieldset>
         <footer class="acme-page__form-actions acme-page__field--wide"><GcButton variant="secondary" :disabled="actionPending" @click="providerEditorOpen = false">{{ t('acme.actions.close') }}</GcButton><GcButton variant="primary" type="submit" :loading="actionPending">{{ t('acme.provider.save') }}</GcButton></footer>
@@ -887,6 +977,10 @@ function dateValue(value: unknown): number {
 .acme-page__challenge-field label { display: inline-flex; gap: var(--gc-space-2); align-items: center; min-height: var(--gc-control-height-md); color: var(--gc-color-text); }
 .acme-page__dns-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); padding: var(--gc-space-4); border-inline-start: var(--gc-border-width-strong) solid var(--gc-color-info-border); background: var(--gc-color-info-bg); }
 .acme-page__provider-list, .acme-page__detail, .acme-page__terms { display: grid; gap: var(--gc-space-3); }
+.acme-page__provider-preconfiguration, .acme-page__directory-probe { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); border-inline-start: var(--gc-border-width-strong) solid var(--gc-color-warning-border); background: var(--gc-color-warning-bg); }
+.acme-page__provider-preconfiguration p, .acme-page__directory-probe p, .acme-page__provider-hint { margin: 0; color: var(--gc-color-text-muted); }
+.acme-page__directory-probe { display: flex; flex-wrap: wrap; align-items: center; }
+.acme-page__provider-probe-error { color: var(--gc-color-danger) !important; flex-basis: 100%; }
 .acme-page__provider { display: flex; justify-content: space-between; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
 .acme-page__provider > div:first-child { display: grid; gap: var(--gc-space-1); min-width: 0; }
 .acme-page__provider small { overflow-wrap: anywhere; }

@@ -54,6 +54,7 @@ export const internalCaApi = {
   listAcmeAccounts: (providerId?: string) => getList(`/api/v1/acme/accounts${providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''}`),
   createAcmeAccount: (body: ApiBody) => post('/api/v1/acme/accounts', body),
   listAcmeProviderProfiles: () => apiClient.get<InternalCaRecord>(toClientPath('/api/v1/acme/provider-profiles')),
+  probeAcmeDirectory: (body: ApiBody) => post('/api/v1/acme/providers/probe-directory', body),
   listAcmeProviders: () => apiClient.get<InternalCaRecord>(toClientPath('/api/v1/acme/providers')),
   createAcmeProvider: (body: ApiBody) => post('/api/v1/acme/providers', body),
   updateAcmeProvider: (providerId: string, body: ApiBody) => patch(`/api/v1/acme/providers/${encodeURIComponent(providerId)}`, body),
