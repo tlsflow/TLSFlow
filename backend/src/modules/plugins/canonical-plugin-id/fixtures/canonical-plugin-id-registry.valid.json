@@ -1,0 +1,24 @@
+{
+  "apiVersion": "gcac.canonical-plugin-registry/v1",
+  "kind": "CanonicalPluginIdRegistry",
+  "registryVersion": "2026-08-09",
+  "entries": [
+    { "canonicalId": "web.nginx", "displayKey": "plugins.canonical.webNginx", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem", "windows.agent_plan.pem"] },
+    { "canonicalId": "web.apache", "displayKey": "plugins.canonical.webApache", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem", "windows.agent_plan.pem"] },
+    { "canonicalId": "web.iis", "displayKey": "plugins.canonical.webIis", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.iis-pfx"] },
+    { "canonicalId": "app.tomcat", "displayKey": "plugins.canonical.appTomcat", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pkcs12", "windows.agent_plan.pkcs12"] },
+    { "canonicalId": "app.java-keystore", "displayKey": "plugins.canonical.appJavaKeystore", "executionMode": "isolated_process", "supportedPlatformProfiles": ["cross-platform.agent_plan.pkcs12"] },
+    { "canonicalId": "app.rabbitmq", "displayKey": "plugins.canonical.appRabbitmq", "executionMode": "isolated_process", "supportedPlatformProfiles": ["linux.agent_plan.pem"] },
+    { "canonicalId": "app.service-certificate-file", "displayKey": "plugins.canonical.appServiceCertificateFile", "executionMode": "isolated_process", "supportedPlatformProfiles": ["windows.agent_plan.file"] },
+    { "canonicalId": "device.citrix.netscaler-adc", "displayKey": "plugins.canonical.deviceCitrixNetscalerAdc", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
+    { "canonicalId": "device.synology-dsm", "displayKey": "plugins.canonical.deviceSynologyDsm", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.gateway"] },
+    { "canonicalId": "cloud.aliyun", "displayKey": "plugins.canonical.cloudAliyun", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
+    { "canonicalId": "cloud.tencent", "displayKey": "plugins.canonical.cloudTencent", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
+    { "canonicalId": "cloud.huawei", "displayKey": "plugins.canonical.cloudHuawei", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
+    { "canonicalId": "cloud.volcengine", "displayKey": "plugins.canonical.cloudVolcengine", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
+    { "canonicalId": "ca.openssl", "displayKey": "plugins.canonical.caOpenssl", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] },
+    { "canonicalId": "ca.acme", "displayKey": "plugins.canonical.caAcme", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] },
+    { "canonicalId": "ca.microsoft-adcs", "displayKey": "plugins.canonical.caMicrosoftAdcs", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca", "windows.agent_plan.adcs"] },
+    { "canonicalId": "ca.acme-dns", "displayKey": "plugins.canonical.caAcmeDns", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://plugin-runner/host-api/v1",
+  "title": "GCAC Plugin Runner Host API v1",
+  "type": "object",
+  "required": ["method", "request", "result", "error"],
+  "properties": {
+    "method": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(?:\\.[A-Za-z0-9_-]+)+$" },
+    "request": { "$ref": "#/$defs/requestEnvelope" },
+    "result": { "$ref": "#/$defs/resultEnvelope" },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "record": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
+    "requestEnvelope": { "type": "object", "additionalProperties": false, "required": ["input", "grantRefs"], "properties": { "input": { "$ref": "#/$defs/record" }, "grantRefs": { "type": "array", "items": { "$ref": "#/$defs/id" }, "maxItems": 100 } } },
+    "resultEnvelope": { "type": "object", "additionalProperties": false, "required": ["ok"], "properties": { "ok": { "type": "boolean" }, "data": { "$ref": "#/$defs/record" }, "error": { "$ref": "#/$defs/error" } } },
+    "error": { "type": "object", "additionalProperties": false, "required": ["code", "message", "retryable", "mayBeUnknown", "secretRedacted"], "properties": { "code": { "type": "string", "minLength": 1, "maxLength": 128 }, "message": { "type": "string", "minLength": 1, "maxLength": 512 }, "retryable": { "type": "boolean" }, "mayBeUnknown": { "type": "boolean" }, "details": { "$ref": "#/$defs/record" }, "secretRedacted": { "const": true } } },
+    "methodCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifact.grant.read": { "$ref": "#/$defs/grantRead" },
+        "secret.grant.resolve": { "$ref": "#/$defs/secretResolve" },
+        "execution.progress": { "$ref": "#/$defs/progressRequest" },
+        "execution.checkpoint.save": { "$ref": "#/$defs/checkpointSave" },
+        "execution.checkpoint.load": { "$ref": "#/$defs/checkpointLoad" },
+        "execution.isCancelled": { "$ref": "#/$defs/cancelledRequest" },
+        "resourceLock.acquire": { "$ref": "#/$defs/lockAcquire" },
+        "resourceLock.release": { "$ref": "#/$defs/lockRelease" },
+        "audit.append": { "$ref": "#/$defs/auditAppend" }
+      }
+    },
+    "grantRead": { "type": "object", "additionalProperties": false, "required": ["grantId", "artifactRef"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "artifactRef": { "$ref": "#/$defs/id" } } },
+    "secretResolve": { "type": "object", "additionalProperties": false, "required": ["grantId", "secretRef", "purpose"], "properties": { "grantId": { "$ref": "#/$defs/id" }, "secretRef": { "$ref": "#/$defs/id" }, "purpose": { "type": "string", "minLength": 1, "maxLength": 512 } } },
+    "progressRequest": { "type": "object", "additionalProperties": false, "required": ["executionId", "executionStepId", "sequence", "stage", "summary"], "properties": { "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "sequence": { "type": "integer", "minimum": 0 }, "stage": { "type": "string", "minLength": 1, "maxLength": 512 }, "summary": { "type": "string", "minLength": 1, "maxLength": 512 } } },
+    "checkpointSave": { "type": "object", "additionalProperties": false, "required": ["executionId", "executionStepId", "payload", "digest"], "properties": { "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "payload": { "$ref": "#/$defs/record" }, "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+    "checkpointLoad": { "type": "object", "additionalProperties": false, "required": ["checkpointRef"], "properties": { "checkpointRef": { "$ref": "#/$defs/id" } } },
+    "cancelledRequest": { "type": "object", "additionalProperties": false, "required": ["executionId", "executionStepId"], "properties": { "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" } } },
+    "lockAcquire": { "type": "object", "additionalProperties": false, "required": ["resourceKey", "ownerRunId", "ownerStepId", "ttlSeconds"], "properties": { "resourceKey": { "type": "string", "minLength": 1, "maxLength": 512 }, "ownerRunId": { "$ref": "#/$defs/id" }, "ownerStepId": { "$ref": "#/$defs/id" }, "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 } } },
+    "lockRelease": { "type": "object", "additionalProperties": false, "required": ["lockId", "ownerRunId", "ownerStepId"], "properties": { "lockId": { "$ref": "#/$defs/id" }, "ownerRunId": { "$ref": "#/$defs/id" }, "ownerStepId": { "$ref": "#/$defs/id" } } },
+    "auditAppend": { "type": "object", "additionalProperties": false, "required": ["eventType", "action", "resourceType", "resourceId", "result"], "properties": { "eventType": { "type": "string", "minLength": 1, "maxLength": 512 }, "action": { "type": "string", "minLength": 1, "maxLength": 512 }, "resourceType": { "type": "string", "minLength": 1, "maxLength": 128 }, "resourceId": { "$ref": "#/$defs/id" }, "result": { "enum": ["success", "failure", "denied"] }, "detail": { "$ref": "#/$defs/record" } } }
+  }
+}

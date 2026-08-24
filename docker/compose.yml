@@ -12,10 +12,29 @@ services:
       GCAC_DEPLOYMENT_ARCHITECTURE: small
       GCAC_PERSISTENCE_BACKEND: pglite
       GCAC_PGLITE_DATA_DIR: /var/lib/gcac/pglite
+      GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
+      GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
       GCAC_WEB_ROOT: /app/web
       GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
       GCAC_AGENT_RELEASE_BUNDLE_ROOT: /opt/gcac/agent-release-bundle
+      GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: /usr/local/bin/node
+      GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: /app
+      GCAC_PLUGIN_RUNNER_ARGS_JSON: '["/app/dist/modules/plugins/runner/runner-server.js"]'
+      GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: ${GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH:?请设置 GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH}
+      GCAC_PLUGIN_RUNNER_VERSION: ${GCAC_PLUGIN_RUNNER_VERSION:?请设置 GCAC_PLUGIN_RUNNER_VERSION}
+      GCAC_PLUGIN_SDK_VERSION: ${GCAC_PLUGIN_SDK_VERSION:?请设置 GCAC_PLUGIN_SDK_VERSION}
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2
     ports:
       - "${GCAC_PORT:-3003}:3003"
     volumes:
@@ -57,13 +76,32 @@ services:
       GCAC_DATABASE_NAME: ${POSTGRES_DB:-gcac}
       GCAC_DATABASE_USER: ${POSTGRES_USER:-gcac}
       GCAC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
+      GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
       GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
       GCAC_AGENT_RELEASE_BUNDLE_ROOT: /opt/gcac/agent-release-bundle
+      GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: /usr/local/bin/node
+      GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: /app
+      GCAC_PLUGIN_RUNNER_ARGS_JSON: '["/app/dist/modules/plugins/runner/runner-server.js"]'
+      GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH: ${GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH:?请设置 GCAC_PLUGIN_RUNNER_EXECUTOR_MODULE_PATH}
+      GCAC_PLUGIN_RUNNER_VERSION: ${GCAC_PLUGIN_RUNNER_VERSION:?请设置 GCAC_PLUGIN_RUNNER_VERSION}
+      GCAC_PLUGIN_SDK_VERSION: ${GCAC_PLUGIN_SDK_VERSION:?请设置 GCAC_PLUGIN_SDK_VERSION}
       BROWSER_RUNTIME_URL: http://browser-runtime:8787
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
       BROWSER_RUNTIME_MAX_SESSIONS: ${BROWSER_RUNTIME_MAX_SESSIONS:-4}
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2
     depends_on:
       db:
         condition: service_healthy

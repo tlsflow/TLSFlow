@@ -1,0 +1,8 @@
+{
+  "cases": [
+    { "name": "重复 Canonical ID", "change": { "entries[1].canonicalId": "web.nginx" } },
+    { "name": "未知 Canonical ID", "change": { "entries[0].canonicalId": "builtin.linux.nginx.pem" } },
+    { "name": "历史别名字段被拒绝", "change": { "entries[0].historicalAliases": [] } },
+    { "name": "执行模式必须是独立进程", "change": { "entries[0].executionMode": "in_process" } }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://schemas/canonical-plugin-id-registry-v1.schema.json",
+  "title": "Canonical Plugin ID Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "registryVersion", "entries"],
+  "properties": {
+    "apiVersion": { "const": "gcac.canonical-plugin-registry/v1" },
+    "kind": { "const": "CanonicalPluginIdRegistry" },
+    "registryVersion": { "type": "string", "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}$" },
+    "entries": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "canonicalId": {
+      "enum": [
+        "web.nginx",
+        "web.apache",
+        "web.iis",
+        "app.tomcat",
+        "app.java-keystore",
+        "app.rabbitmq",
+        "app.service-certificate-file",
+        "device.citrix.netscaler-adc",
+        "device.synology-dsm",
+        "cloud.aliyun",
+        "cloud.tencent",
+        "cloud.huawei",
+        "cloud.volcengine",
+        "ca.openssl",
+        "ca.acme",
+        "ca.microsoft-adcs",
+        "ca.acme-dns"
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalId", "displayKey", "executionMode", "supportedPlatformProfiles"],
+      "properties": {
+        "canonicalId": { "$ref": "#/$defs/canonicalId" },
+        "displayKey": { "$ref": "#/$defs/identifier" },
+        "executionMode": { "const": "isolated_process" },
+        "supportedPlatformProfiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://plugin-runner/ipc/v1",
+  "title": "GCAC Plugin Runner IPC v1",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/hello_result" },
+    { "$ref": "#/$defs/execute" },
+    { "$ref": "#/$defs/execute_result" },
+    { "$ref": "#/$defs/host_call" },
+    { "$ref": "#/$defs/host_result" },
+    { "$ref": "#/$defs/progress" },
+    { "$ref": "#/$defs/cancel" },
+    { "$ref": "#/$defs/cancel_result" },
+    { "$ref": "#/$defs/ping" },
+    { "$ref": "#/$defs/pong" },
+    { "$ref": "#/$defs/shutdown" },
+    { "$ref": "#/$defs/shutdown_result" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "dateTime": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "artifactHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "record": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
+    "stringArray": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 512 }, "maxItems": 200 },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "mayBeUnknown", "secretRedacted"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" },
+        "mayBeUnknown": { "type": "boolean" },
+        "details": { "$ref": "#/$defs/record" },
+        "secretRedacted": { "const": true }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "secretRedacted"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "details": { "$ref": "#/$defs/record" },
+        "secretRedacted": { "const": true }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "digest", "version"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,512}$" },
+        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "version": { "$ref": "#/$defs/id" }
+      }
+    },
+    "baseProperties": {
+      "protocolVersion": { "const": "gcac.plugin-runner/v1" },
+      "messageType": { "$ref": "#/$defs/id" },
+      "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" },
+      "sentAt": { "$ref": "#/$defs/dateTime" },
+      "pluginVersionId": { "$ref": "#/$defs/id" },
+      "tenantId": { "$ref": "#/$defs/id" },
+      "executionId": { "$ref": "#/$defs/id" },
+      "executionStepId": { "$ref": "#/$defs/id" }
+    },
+    "hello": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "pluginId", "pluginVersion", "runner", "capabilities", "permissions", "packageHash", "resourceHash", "manifestHash"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "hello" },
+        "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" },
+        "pluginVersionId": { "$ref": "#/$defs/id" }, "pluginId": { "$ref": "#/$defs/id" }, "pluginVersion": { "$ref": "#/$defs/id" },
+        "runner": { "type": "object", "additionalProperties": false, "required": ["pid", "sdkVersion", "runnerVersion"], "properties": { "pid": { "type": "integer", "minimum": 1 }, "sdkVersion": { "$ref": "#/$defs/id" }, "runnerVersion": { "$ref": "#/$defs/id" } } },
+        "capabilities": { "$ref": "#/$defs/stringArray" }, "permissions": { "$ref": "#/$defs/stringArray" }, "packageHash": { "$ref": "#/$defs/artifactHash" }, "resourceHash": { "$ref": "#/$defs/artifactHash" }, "manifestHash": { "$ref": "#/$defs/artifactHash" }
+      }
+    },
+    "hello_result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "accepted", "pluginId", "pluginVersion", "runnerVersion", "sdkVersion", "capabilities", "permissions", "packageHash", "resourceHash", "manifestHash"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "hello_result" },
+        "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" },
+        "accepted": { "type": "boolean" }, "pluginId": { "$ref": "#/$defs/id" }, "pluginVersion": { "$ref": "#/$defs/id" }, "runnerVersion": { "$ref": "#/$defs/id" }, "sdkVersion": { "$ref": "#/$defs/id" }, "capabilities": { "$ref": "#/$defs/stringArray" }, "permissions": { "$ref": "#/$defs/stringArray" }, "packageHash": { "$ref": "#/$defs/artifactHash" }, "resourceHash": { "$ref": "#/$defs/artifactHash" }, "manifestHash": { "$ref": "#/$defs/artifactHash" }, "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "execute": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "capability", "input", "grantRefs", "idempotencyKey", "deadlineAt", "writeEffect"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "execute" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" },
+        "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "input": { "$ref": "#/$defs/record" }, "grantRefs": { "$ref": "#/$defs/stringArray" }, "idempotencyKey": { "$ref": "#/$defs/id" }, "deadlineAt": { "$ref": "#/$defs/dateTime" }, "writeEffect": { "type": "boolean" }, "checkpoint": { "$ref": "#/$defs/checkpoint" }
+      }
+    },
+    "execute_result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "success", "status", "summary", "normalizedObjects", "warnings"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "execute_result" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" },
+        "success": { "type": "boolean" }, "status": { "enum": ["SUCCESS", "FAILED", "UNKNOWN", "CANCELLED"] }, "summary": { "$ref": "#/$defs/record" }, "normalizedObjects": { "type": "array", "items": { "$ref": "#/$defs/record" }, "maxItems": 200 }, "checkpoint": { "$ref": "#/$defs/checkpoint" }, "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" }, "maxItems": 100 }, "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "host_call": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "capability", "method", "input", "grantRefs", "timeoutMs"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "host_call" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "method": { "enum": ["artifact.grant.read", "secret.grant.resolve", "execution.progress", "execution.checkpoint.save", "execution.checkpoint.load", "execution.isCancelled", "resourceLock.acquire", "resourceLock.release", "audit.append"] }, "input": { "$ref": "#/$defs/record" }, "grantRefs": { "type": "array", "items": { "$ref": "#/$defs/id" }, "maxItems": 100 }, "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 }
+      }
+    },
+    "host_result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "capability", "ok"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "host_result" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "ok": { "type": "boolean" }, "output": { "$ref": "#/$defs/record" }, "error": { "$ref": "#/$defs/error" }
+      }
+    },
+    "progress": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "sequence", "stage", "summary"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "progress" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "sequence": { "type": "integer", "minimum": 0, "maximum": 1000000 }, "stage": { "$ref": "#/$defs/id" }, "percent": { "type": "number", "minimum": 0, "maximum": 100 }, "summary": { "type": "string", "minLength": 1, "maxLength": 512 }, "checkpoint": { "$ref": "#/$defs/checkpoint" }
+      }
+    },
+    "cancel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "targetRequestId", "reason"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "cancel" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "targetRequestId": { "$ref": "#/$defs/id" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "cancel_result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "tenantId", "executionId", "executionStepId", "targetRequestId", "accepted", "status"],
+      "properties": {
+        "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "cancel_result" }, "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "executionId": { "$ref": "#/$defs/id" }, "executionStepId": { "$ref": "#/$defs/id" }, "targetRequestId": { "$ref": "#/$defs/id" }, "accepted": { "type": "boolean" }, "status": { "enum": ["ACCEPTED", "ALREADY_COMPLETED", "UNKNOWN"] }
+      }
+    },
+    "ping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "nonce"],
+      "properties": { "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "ping" }, "requestId": { "$ref": "#/$defs/id" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" } }
+    },
+    "pong": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "nonce"],
+      "properties": { "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "pong" }, "requestId": { "$ref": "#/$defs/id" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" } }
+    },
+    "shutdown": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "reason", "graceMs"],
+      "properties": { "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "shutdown" }, "requestId": { "$ref": "#/$defs/id" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "reason": { "enum": ["DRAIN", "HOST_EXIT", "VERSION_SWITCH", "DOCKER_STOP"] }, "graceMs": { "type": "integer", "minimum": 0, "maximum": 120000 } }
+    },
+    "shutdown_result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolVersion", "messageType", "requestId", "sentAt", "pluginVersionId", "accepted", "status"],
+      "properties": { "protocolVersion": { "const": "gcac.plugin-runner/v1" }, "messageType": { "const": "shutdown_result" }, "requestId": { "$ref": "#/$defs/id" }, "sentAt": { "$ref": "#/$defs/dateTime" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "accepted": { "type": "boolean" }, "status": { "enum": ["DRAINING", "SHUTDOWN"] } }
+    }
+  }
+}
