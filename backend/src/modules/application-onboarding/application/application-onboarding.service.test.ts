@@ -169,6 +169,45 @@ test('平台目录按语义版本选择配方，旧版本更新更晚也不能�
   assert.equal(platform?.pluginVersion, '1.0.5');
 });
 
+test('新版本移除的平台不得从旧版本继续出现在目录', async () => {
+  const older = recipe('MANAGED_TARGET');
+  const olderRemoved = {
+    ...older,
+    pluginVersionId: 'plugin-version-removed',
+    pluginVersion: '1.0.4',
+    recipeHash: 'sha256:removed',
+  } as LoadedApplicationOnboardingRecipe;
+  olderRemoved.recipe = {
+    ...older.recipe,
+    platformKey: 'vendor.removed-platform',
+    displayNameKey: 'plugin.test.recipe.removed',
+  };
+  const newer = {
+    ...older,
+    pluginVersionId: 'plugin-version-kept',
+    pluginVersion: '1.0.5',
+    recipeHash: 'sha256:kept',
+  } as LoadedApplicationOnboardingRecipe;
+  const olderVersion = pluginVersionRecord(olderRemoved, '2026-08-14T08:00:00.000Z');
+  const newerVersion = pluginVersionRecord(newer, '2026-08-14T09:00:00.000Z');
+  const plugins = {
+    listAccessibleVersions: async () => [olderVersion, newerVersion],
+    getVersionForTenant: async (_tenantId: string, id: string) => id === olderVersion.id ? olderVersion : newerVersion,
+  } as unknown as UnifiedPluginsApplicationService;
+  const loader = {
+    loadAll: (version: UnifiedPluginVersionRecord) => version.id === olderVersion.id ? [olderRemoved] : [newer],
+  } as never;
+  const service = new ApplicationOnboardingService(new MemoryRepository() as never, plugins, loader, {});
+
+  const platforms = await service.listPlatforms('tenant-1');
+  const removed = platforms.find((item) => item.platformKey === 'vendor.removed-platform');
+  const kept = platforms.find((item) => item.platformKey === newer.recipe.platformKey);
+
+  assert.equal(removed, undefined, '被新版本移除的平台键不得由旧版本继续提供');
+  assert.equal(kept?.pluginVersionId, newer.pluginVersionId);
+  assert.equal(kept?.pluginVersion, '1.0.5');
+});
+
 test('新增设备缺少接入端口时失败关闭，不会伪造连接测试状态', async () => {
   const { service, repository } = fixture({ execution: {} });
   const session = await service.createSession('tenant-1', 'actor-1', { platformKey: 'vendor.test-platform', idempotencyKey: 'create-2' });

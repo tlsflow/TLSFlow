@@ -52,7 +52,7 @@ export class ApplicationOnboardingService {
   ) {}
 
   async listPlatforms(tenantId: string, locale = 'zh-CN'): Promise<OnboardingPlatformDto[]> {
-    const versions = await this.plugins.listAccessibleVersions(tenantId);
+    const versions = highestEnabledVersionsPerPlugin(await this.plugins.listAccessibleVersions(tenantId));
     const result: OnboardingPlatformDto[] = [{
       platformKey: 'CUSTOM_MANUAL',
       source: 'CUSTOM_MANUAL',
@@ -360,6 +360,27 @@ function preferPlatformVersion(
   const versionOrder = compareSemanticVersions(candidate.pluginVersion, current.pluginVersion ?? '0.0.0');
   if (versionOrder !== 0) return versionOrder > 0;
   return candidateVersion.updatedAt > (current.updatedAt ?? '');
+}
+
+/**
+ * 目录只读取每个插件当前最高的已启用版本：插件配方随版本递进而冻结/退役，
+ * 被新版本取代的旧版本不再向普通用户目录贡献平台。`preferPlatformVersion`
+ * 只能对同名平台键按高版本去重，无法清除旧版本独有、但新版本已移除的平台。
+ */
+function highestEnabledVersionsPerPlugin(versions: UnifiedPluginVersionRecord[]): UnifiedPluginVersionRecord[] {
+  const byPlugin = new Map<string, UnifiedPluginVersionRecord[]>();
+  for (const version of versions) {
+    if (version.status !== 'ENABLED') continue;
+    byPlugin.set(version.pluginId, [...(byPlugin.get(version.pluginId) ?? []), version]);
+  }
+  const selected: UnifiedPluginVersionRecord[] = [];
+  for (const pluginVersions of byPlugin.values()) {
+    const highest = [...pluginVersions].sort(
+      (left, right) => compareSemanticVersions(right.version, left.version) || right.updatedAt.localeCompare(left.updatedAt),
+    )[0];
+    if (highest) selected.push(highest);
+  }
+  return selected;
 }
 
 function sanitizeInput(input: Record<string, unknown>): Record<string, unknown> {
