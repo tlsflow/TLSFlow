@@ -48,7 +48,20 @@ export class DeploymentStrategyResolver {
 
   private resolveAgent(input: DeploymentStrategyResolutionInput, strategy: DeploymentStrategyDto): ResolvedDeploymentStrategySnapshot {
     const agent = strategy.agent;
-    if (!agent?.agentId || !agent.siteAssetId || !agent.managedTargetId) {
+    if (!agent?.agentId) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agentId', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: input.applicationAsset.id,
+      });
+    }
+    const mode = agent.mode ?? 'NATIVE_HANDLER';
+    if (mode === 'PLUGIN' && (!agent.plugin?.mountId || !agent.plugin.pluginPackageId || !agent.plugin.pluginVersionId)) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少挂载和插件版本信息', {
+        code: 'DEPLOYMENT_STRATEGY_INVALID',
+        applicationAssetId: input.applicationAsset.id,
+      });
+    }
+    if (mode === 'NATIVE_HANDLER' && (!agent.siteAssetId || !agent.managedTargetId)) {
       throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agentId/siteAssetId/managedTargetId', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: input.applicationAsset.id,
@@ -63,10 +76,11 @@ export class DeploymentStrategyResolver {
     return {
       strategyType: 'AGENT',
       executorType: 'AGENT',
-      executionTargetId: agent.managedTargetId,
-      requiredCapabilities: ['cert.install', 'cert.verify'],
+      executionTargetId: mode === 'PLUGIN' ? agent.agentId : agent.managedTargetId,
+      requiredCapabilities: mode === 'PLUGIN' ? ['agent.atomic_plan.execute'] : ['cert.install', 'cert.verify'],
       payload: {
         deploymentStrategy: strategy,
+        agentDeploymentMode: mode,
         agentId: agent.agentId,
         siteAssetId: agent.siteAssetId,
         managedTargetId: agent.managedTargetId,

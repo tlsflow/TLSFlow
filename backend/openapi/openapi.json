@@ -2550,6 +2550,37 @@
         }
       }
     },
+    "/api/v1/service-assets/workflow-binding-projection": {
+      "post": {
+        "operationId": "projectWorkflowBinding",
+        "summary": "生成工作流绑定配置投影",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/service-assets/delete": {
       "post": {
         "operationId": "deleteServiceAsset",
@@ -3452,6 +3483,490 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/device-assets": {
+      "get": {
+        "operationId": "listDeviceAssets",
+        "summary": "查询设备资产列表",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "tenantId",
+                      "displayName",
+                      "managementAddress",
+                      "managementPort",
+                      "deviceFamily",
+                      "credentialId",
+                      "authMode",
+                      "tlsVerify",
+                      "supportTier"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "tenantId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "managementAddress": {
+                        "type": "string"
+                      },
+                      "managementPort": {
+                        "type": "number"
+                      },
+                      "deviceFamily": {
+                        "type": "string",
+                        "enum": [
+                          "NETSCALER_ADC"
+                        ]
+                      },
+                      "credentialId": {
+                        "type": "string"
+                      },
+                      "authMode": {
+                        "type": "string",
+                        "enum": [
+                          "AUTO",
+                          "SESSION",
+                          "PER_REQUEST"
+                        ]
+                      },
+                      "tlsVerify": {
+                        "type": "boolean"
+                      },
+                      "supportTier": {
+                        "type": "string",
+                        "enum": [
+                          "SUPPORTED",
+                          "COMPATIBLE",
+                          "READ_ONLY",
+                          "UNSUPPORTED"
+                        ]
+                      },
+                      "capabilityProfile": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createDeviceAsset",
+        "summary": "创建设备资产",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "displayName",
+                    "managementAddress",
+                    "managementPort",
+                    "deviceFamily",
+                    "credentialId",
+                    "authMode",
+                    "tlsVerify",
+                    "supportTier"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "managementAddress": {
+                      "type": "string"
+                    },
+                    "managementPort": {
+                      "type": "number"
+                    },
+                    "deviceFamily": {
+                      "type": "string",
+                      "enum": [
+                        "NETSCALER_ADC"
+                      ]
+                    },
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "authMode": {
+                      "type": "string",
+                      "enum": [
+                        "AUTO",
+                        "SESSION",
+                        "PER_REQUEST"
+                      ]
+                    },
+                    "tlsVerify": {
+                      "type": "boolean"
+                    },
+                    "supportTier": {
+                      "type": "string",
+                      "enum": [
+                        "SUPPORTED",
+                        "COMPATIBLE",
+                        "READ_ONLY",
+                        "UNSUPPORTED"
+                      ]
+                    },
+                    "capabilityProfile": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateDeviceAsset",
+        "summary": "更新设备资产",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "displayName",
+                    "managementAddress",
+                    "managementPort",
+                    "deviceFamily",
+                    "credentialId",
+                    "authMode",
+                    "tlsVerify",
+                    "supportTier"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "managementAddress": {
+                      "type": "string"
+                    },
+                    "managementPort": {
+                      "type": "number"
+                    },
+                    "deviceFamily": {
+                      "type": "string",
+                      "enum": [
+                        "NETSCALER_ADC"
+                      ]
+                    },
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "authMode": {
+                      "type": "string",
+                      "enum": [
+                        "AUTO",
+                        "SESSION",
+                        "PER_REQUEST"
+                      ]
+                    },
+                    "tlsVerify": {
+                      "type": "boolean"
+                    },
+                    "supportTier": {
+                      "type": "string",
+                      "enum": [
+                        "SUPPORTED",
+                        "COMPATIBLE",
+                        "READ_ONLY",
+                        "UNSUPPORTED"
+                      ]
+                    },
+                    "capabilityProfile": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/device-assets/detail": {
+      "get": {
+        "operationId": "getDeviceAsset",
+        "summary": "查询设备资产详情",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "displayName",
+                    "managementAddress",
+                    "managementPort",
+                    "deviceFamily",
+                    "credentialId",
+                    "authMode",
+                    "tlsVerify",
+                    "supportTier"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "managementAddress": {
+                      "type": "string"
+                    },
+                    "managementPort": {
+                      "type": "number"
+                    },
+                    "deviceFamily": {
+                      "type": "string",
+                      "enum": [
+                        "NETSCALER_ADC"
+                      ]
+                    },
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "authMode": {
+                      "type": "string",
+                      "enum": [
+                        "AUTO",
+                        "SESSION",
+                        "PER_REQUEST"
+                      ]
+                    },
+                    "tlsVerify": {
+                      "type": "boolean"
+                    },
+                    "supportTier": {
+                      "type": "string",
+                      "enum": [
+                        "SUPPORTED",
+                        "COMPATIBLE",
+                        "READ_ONLY",
+                        "UNSUPPORTED"
+                      ]
+                    },
+                    "capabilityProfile": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/device-assets/delete": {
+      "post": {
+        "operationId": "deleteDeviceAsset",
+        "summary": "删除设备资产",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "tenantId",
+                    "displayName",
+                    "managementAddress",
+                    "managementPort",
+                    "deviceFamily",
+                    "credentialId",
+                    "authMode",
+                    "tlsVerify",
+                    "supportTier"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "managementAddress": {
+                      "type": "string"
+                    },
+                    "managementPort": {
+                      "type": "number"
+                    },
+                    "deviceFamily": {
+                      "type": "string",
+                      "enum": [
+                        "NETSCALER_ADC"
+                      ]
+                    },
+                    "credentialId": {
+                      "type": "string"
+                    },
+                    "authMode": {
+                      "type": "string",
+                      "enum": [
+                        "AUTO",
+                        "SESSION",
+                        "PER_REQUEST"
+                      ]
+                    },
+                    "tlsVerify": {
+                      "type": "boolean"
+                    },
+                    "supportTier": {
+                      "type": "string",
+                      "enum": [
+                        "SUPPORTED",
+                        "COMPATIBLE",
+                        "READ_ONLY",
+                        "UNSUPPORTED"
+                      ]
+                    },
+                    "capabilityProfile": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/device-assets/test-connection": {
+      "post": {
+        "operationId": "testDeviceAssetConnection",
+        "summary": "测试设备连接",
+        "tags": [
+          "Device Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }
@@ -7017,6 +7532,472 @@
         }
       }
     },
+    "/api/v1/plugin-catalog": {
+      "get": {
+        "operationId": "listPluginCatalog",
+        "summary": "查询统一插件目录",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-packages": {
+      "get": {
+        "operationId": "listAgentPluginPackages",
+        "summary": "查询 Agent 插件包",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "uploadAgentPluginPackage",
+        "summary": "上传 Agent 插件包",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-packages/permissions/approve": {
+      "post": {
+        "operationId": "approveAgentPluginPermissions",
+        "summary": "审批 Agent 插件权限",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-packages/enable": {
+      "post": {
+        "operationId": "enableAgentPluginPackage",
+        "summary": "启用 Agent 插件",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-packages/disable": {
+      "post": {
+        "operationId": "disableAgentPluginPackage",
+        "summary": "禁用 Agent 插件",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-mounts": {
+      "get": {
+        "operationId": "listAgentPluginMounts",
+        "summary": "查询 Agent 插件挂载",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAgentPluginMount",
+        "summary": "创建 Agent 插件挂载",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAgentPluginMount",
+        "summary": "删除 Agent 插件挂载",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-mounts/validate": {
+      "post": {
+        "operationId": "validateAgentPluginMount",
+        "summary": "校验 Agent 插件挂载",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-mounts/disable": {
+      "post": {
+        "operationId": "disableAgentPluginMount",
+        "summary": "禁用 Agent 插件挂载",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-binding/preview": {
+      "post": {
+        "operationId": "previewAgentPluginBinding",
+        "summary": "预览 Agent 插件资产绑定",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/plugins/agent-plan/compile": {
+      "post": {
+        "operationId": "compileAgentPluginPlan",
+        "summary": "编译 Agent 插件执行计划",
+        "tags": [
+          "Plugins"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/workflow-templates": {
       "get": {
         "operationId": "listWorkflowTemplates",
@@ -7050,6 +8031,37 @@
       "post": {
         "operationId": "createWorkflowTemplate",
         "summary": "创建工作流模板草稿",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-templates/rename": {
+      "post": {
+        "operationId": "renameWorkflowTemplate",
+        "summary": "修改工作流名称",
         "tags": [
           "WorkflowTemplates"
         ],
@@ -7484,6 +8496,465 @@
         "summary": "执行单节点测试运行",
         "tags": [
           "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations": {
+      "get": {
+        "operationId": "listAutomations",
+        "summary": "列出自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAutomation",
+        "summary": "创建自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id": {
+      "get": {
+        "operationId": "getAutomation",
+        "summary": "获取自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateAutomation",
+        "summary": "更新自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAutomation",
+        "summary": "删除自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/actions/copy": {
+      "post": {
+        "operationId": "copyAutomation",
+        "summary": "复制自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/actions/enable": {
+      "post": {
+        "operationId": "enableAutomation",
+        "summary": "启用自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/actions/disable": {
+      "post": {
+        "operationId": "disableAutomation",
+        "summary": "停用自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/preview": {
+      "post": {
+        "operationId": "previewAutomation",
+        "summary": "预览自动化目标",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/runs": {
+      "post": {
+        "operationId": "createAutomationRun",
+        "summary": "按需执行自动化",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automation-runs": {
+      "get": {
+        "operationId": "listAutomationRuns",
+        "summary": "列出自动化运行",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automation-runs/:id": {
+      "get": {
+        "operationId": "getAutomationRun",
+        "summary": "获取自动化运行",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automation-runs/:id/targets": {
+      "get": {
+        "operationId": "listAutomationRunTargets",
+        "summary": "列出自动化运行目标",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automation-runs/:id/actions/stop": {
+      "post": {
+        "operationId": "stopAutomationRun",
+        "summary": "停止自动化运行",
+        "tags": [
+          "Automations"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/automation-runs/:id/actions/retry-failed": {
+      "post": {
+        "operationId": "retryAutomationRun",
+        "summary": "重试自动化失败目标",
+        "tags": [
+          "Automations"
         ],
         "responses": {
           "200": {
@@ -8207,6 +9678,279 @@
         }
       }
     },
+    "/api/v1/notification-channels": {
+      "get": {
+        "operationId": "listNotificationChannels",
+        "summary": "查询通知渠道",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createNotificationChannel",
+        "summary": "创建通知渠道",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-routes": {
+      "get": {
+        "operationId": "listNotificationRoutes",
+        "summary": "查询通知路由",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-templates": {
+      "get": {
+        "operationId": "listNotificationTemplates",
+        "summary": "查询通知模板",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-silences": {
+      "get": {
+        "operationId": "listNotificationSilences",
+        "summary": "查询通知静默",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-requests": {
+      "get": {
+        "operationId": "listNotificationRequests",
+        "summary": "查询通知请求",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/notification-deliveries": {
+      "get": {
+        "operationId": "listNotificationDeliveries",
+        "summary": "查询通知投递",
+        "tags": [
+          "Notifications"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/reports/incident-window/overview": {
       "get": {
         "operationId": "getIncidentWindowOverview",
@@ -8766,5 +10510,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-21T14:11:42.988Z"
+  "x-generatedAt": "2026-07-22T08:57:11.118Z"
 }

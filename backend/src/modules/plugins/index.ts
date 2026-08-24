@@ -4,3 +4,6 @@ export * from './domain/plugins.domain-service.js';
 export * from './repository/plugins.repository.js';
 export * from './dto/plugins.dto.js';
 export * from './schema/plugins.schema.js';
+export * from './application/agent-deployment-plugins.application-service.js';
+export * from './dto/agent-deployment-plugins.dto.js';
+export * from './schema/agent-deployment-plugins.schema.js';

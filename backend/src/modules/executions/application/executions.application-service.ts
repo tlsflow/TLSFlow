@@ -473,7 +473,9 @@ export class ExecutionsApplicationService {
     for (const targetId of targetIds) {
       let previousStepNo: number | undefined;
       const targetExecutorType = executorTypeByTargetId.get(targetId);
-      const stepTypes = targetExecutorType === 'WORKFLOW' ? ['CUSTOM'] as const : defaultStepTypes;
+      const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
+      const isAgentPlugin = readString(agentPayload.agentDeploymentMode) === 'PLUGIN';
+      const stepTypes = targetExecutorType === 'WORKFLOW' || isAgentPlugin ? ['CUSTOM'] as const : defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
 	        const baseExecutorType = targetExecutorType;
@@ -485,7 +487,6 @@ export class ExecutionsApplicationService {
 	        }
 	        const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
 	        const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
-	        const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
 	        const executorType = resolveStepExecutorType(baseExecutorType, stepType, agentPayload);
 	        const operation = mapStepTypeToOperation(stepType);
         const sourceRunId = run.type === 'rollback'

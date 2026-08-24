@@ -1044,6 +1044,13 @@ export class AssetsApplicationService {
     if (strategy.type === 'AGENT') {
       const agent = strategy.agent;
       if (!agent) throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agent 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+      if ((agent.mode ?? 'NATIVE_HANDLER') === 'PLUGIN') {
+        if (!agent.plugin) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
+        return;
+      }
+      if (!agent.siteAssetId || !agent.managedTargetId) {
+        throw new AppError('VALIDATION_FAILED', '原生 AGENT 策略缺少 SiteAsset 或 ManagedTarget', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+      }
       if (!await this.repository.getSiteAsset(tenantId, agent.siteAssetId)) {
         throw new AppError('RESOURCE_NOT_FOUND', 'AGENT 策略引用的 SiteAsset 不存在', { siteAssetId: agent.siteAssetId });
       }

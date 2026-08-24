@@ -51,6 +51,7 @@ import { createGatewayPersistenceRepositories, GatewaysApplicationService, Gatew
 import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
+import { AgentDeploymentPluginsApplicationService } from './modules/plugins/application/agent-deployment-plugins.application-service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
@@ -132,6 +133,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
       stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
     },
   );
+  const pluginsRepository = new PgPluginsRepository(appDb);
+  const pluginsService = new PluginsApplicationService(pluginsRepository);
+  const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);
 
@@ -147,6 +151,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     gatewayTaskAuditWriter,
     secrets: security.secrets,
     workflows: workflowTemplatesService,
+    agentPlugins: agentPluginsService,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans
@@ -196,7 +201,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assetsService,
     repository: new PgProvidersRepository(appDb),
   });
-  const pluginsService = new PluginsApplicationService(new PgPluginsRepository(appDb));
   const automationsRepository = new AutomationsRepository(appDb);
   const automationTargetSelector = new AutomationTargetSelector(
     certificateServices.certificates.getRepository(),
@@ -262,7 +266,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
-  new PluginsController(pluginsService).register(app.router);
+  new PluginsController(pluginsService, agentPluginsService).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({

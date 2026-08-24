@@ -18,12 +18,17 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'AGENT') {
     const agent = input.agent;
     if (!agent) throw strategyError('AGENT 策略必须提供 agent 配置');
+    const mode = agent.mode ?? 'NATIVE_HANDLER';
+    if (mode !== 'NATIVE_HANDLER' && mode !== 'PLUGIN') throw strategyError('agent.mode 只支持 NATIVE_HANDLER/PLUGIN');
+    const plugin = mode === 'PLUGIN' ? normalizeAgentPluginBinding(agent.plugin) : undefined;
     const normalized = {
+      mode,
       agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
-      siteAssetId: requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId'),
-      managedTargetId: requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId'),
+      siteAssetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId') : optionalNonEmpty(agent.siteAssetId),
+      managedTargetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId') : optionalNonEmpty(agent.managedTargetId),
       certificateFormatId: optionalNonEmpty(agent.certificateFormatId),
       deploymentMode: optionalNonEmpty(agent.deploymentMode),
+      plugin,
     };
     return { type: 'AGENT', agent: normalized, updatedAt: now, updatedBy: context.actorId };
   }
@@ -60,6 +65,21 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   }
 
   throw strategyError('deploymentStrategy.type 只支持 AGENT/WORKFLOW');
+}
+
+function normalizeAgentPluginBinding(value: unknown): NonNullable<NonNullable<DeploymentStrategyDto['agent']>['plugin']> {
+  if (!isRecord(value)) return strategyError('agent.plugin 必须是对象');
+  const variableBindings = isRecord(value.variableBindings) ? value.variableBindings : value.variableBindings === undefined ? {} : strategyError('agent.plugin.variableBindings 必须是对象');
+  const secretBindings = normalizeSecretRefRecord(value.secretBindings, 'agent.plugin.secretBindings') ?? {};
+  const certificateArtifactBindings = normalizeCertificateArtifactBindings(value.certificateArtifactBindings) ?? {};
+  return {
+    mountId: requireNonEmpty(value.mountId, 'agent.plugin.mountId'),
+    pluginPackageId: requireNonEmpty(value.pluginPackageId, 'agent.plugin.pluginPackageId'),
+    pluginVersionId: requireNonEmpty(value.pluginVersionId, 'agent.plugin.pluginVersionId'),
+    variableBindings,
+    secretBindings,
+    certificateArtifactBindings,
+  };
 }
 
 function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'] | undefined {

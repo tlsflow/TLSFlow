@@ -14,6 +14,8 @@ import { WorkflowTemplatesApplicationService } from '../../workflow-templates/ap
 import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
+import type { AgentDeploymentPluginsApplicationService } from '../../plugins/application/agent-deployment-plugins.application-service.js';
+import type { AgentPluginBindingInput } from '../../plugins/dto/agent-deployment-plugins.dto.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
 export interface StepExecutionInput {
@@ -64,6 +66,7 @@ export interface DefaultExecutorDependencies {
   gatewayTaskAuditWriter?: GatewayTaskAuditWriter;
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
+  agentPlugins?: AgentDeploymentPluginsApplicationService;
 }
 
 export class ExecutorRegistry {
@@ -126,7 +129,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
-    new AgentExecutorAdapter(dependencies.agents),
+    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlugins),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
     new LegacyAgentExecutorAdapter(),
@@ -165,17 +168,31 @@ export class AgentExecutorAdapter implements Executor {
   constructor(
     private readonly agents = new AgentsApplicationService(),
     private readonly actionDispatch = new AgentActionDispatchRegistry(),
+    private readonly agentPlugins?: AgentDeploymentPluginsApplicationService,
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const agentId = stringFromSnapshot(input.step.inputSnapshot.agentId) ?? stringFromSnapshot(input.step.inputSnapshot.executionTargetId) ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanTargetId);
     if (!agentId) return { success: false, errorCode: 'AGENT_ID_REQUIRED', errorMessage: 'AGENT 执行器缺少 agentId/executionTargetId，拒绝伪装成功' };
+    const resolved = await this.resolveAgentPayload(input, agentId);
+    if (resolved.error) return resolved.error;
+    const payload = resolved.payload;
+    if (input.dryRun && payload.actionType === 'agent.atomic_plan.execute') {
+      return {
+        success: true,
+        detail: {
+          mode: 'agent_atomic_plan_preflight',
+          planId: readRecord(payload.plan)?.planId,
+          operationCount: Array.isArray(readRecord(payload.plan)?.operations) ? (readRecord(payload.plan)?.operations as unknown[]).length : 0,
+        },
+      };
+    }
     const task = await this.agents.enqueueTask(input.step.tenantId ?? '', {
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
-      payload: { ...input.step.inputSnapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun },
+      payload,
     }, `execution-step:${input.step.id}`);
     if (this.actionDispatch.resolve(input.step.inputSnapshot)?.mode === 'direct_preferred') {
       try {
@@ -217,6 +234,44 @@ export class AgentExecutorAdapter implements Executor {
     }
     return { success: true, asyncPending: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
   }
+
+  private async resolveAgentPayload(input: StepExecutionInput, agentId: string): Promise<{
+    payload: Record<string, unknown>;
+    error?: undefined;
+  } | {
+    payload?: undefined;
+    error: StepExecutionResult;
+  }> {
+    const snapshot = input.step.inputSnapshot;
+    if (snapshot.actionType !== 'agent.atomic_plan.execute') {
+      return { payload: { ...snapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun } };
+    }
+    if (!this.agentPlugins) {
+      return { error: { success: false, errorCode: 'AGENT_PLUGIN_SERVICE_REQUIRED', errorMessage: 'Agent 插件执行服务未配置' } };
+    }
+    const binding = readRecord(snapshot.pluginBinding) as AgentPluginBindingInput | undefined;
+    if (!binding) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少绑定快照' } };
+    const artifact = readRecord(snapshot.deploymentArtifact) ?? {};
+    const artifacts = readRecord(artifact.workflowCertificateMaterials) ?? buildDefaultAgentPluginArtifacts(binding, artifact);
+    const plan = await this.agentPlugins.compileExecutionPlan({
+      tenantId: input.step.tenantId ?? '',
+      agentId,
+      executionRunId: input.step.executionRunId,
+      executionStepId: input.step.id,
+      binding,
+      artifacts,
+      executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
+    });
+    return { payload: {
+        actionType: 'agent.atomic_plan.execute',
+        actionSchemaVersion: '1.0',
+        plan,
+      } };
+  }
+}
+
+function buildDefaultAgentPluginArtifacts(binding: AgentPluginBindingInput, artifact: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(binding.certificateArtifactBindings ?? {}).map((name) => [name, artifact]));
 }
 
 export class WorkflowExecutorAdapter implements Executor {

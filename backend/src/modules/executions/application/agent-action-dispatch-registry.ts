@@ -57,11 +57,18 @@ export class AgentActionDispatchRegistry {
 }
 
 export function defaultAgentActionDispatchDescriptors(): AgentActionDispatchDescriptor[] {
-  return [{
-    actionType: 'certificate.deploy',
-    aliases: ['windows.iis.deploy_certificate', 'linux.nginx.deploy_certificate'],
-    mode: 'direct_preferred',
-  }];
+  return [
+    {
+      actionType: 'certificate.deploy',
+      aliases: ['windows.iis.deploy_certificate', 'linux.nginx.deploy_certificate'],
+      mode: 'direct_preferred',
+    },
+    {
+      actionType: 'agent.atomic_plan.execute',
+      aliases: [],
+      mode: 'direct_preferred',
+    },
+  ];
 }
 
 function readActionType(snapshot: Record<string, unknown>): string | undefined {

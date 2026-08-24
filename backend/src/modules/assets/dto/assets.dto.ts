@@ -22,6 +22,7 @@ export type ManagedTargetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 
 export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR' | 'DELETED';
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
 export type DeploymentStrategyType = 'AGENT' | 'WORKFLOW';
+export type AgentDeploymentMode = 'NATIVE_HANDLER' | 'PLUGIN';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
 
@@ -33,11 +34,23 @@ export interface ManagementChannelDto {
 }
 
 export interface AgentDeploymentStrategyDto {
+  mode?: AgentDeploymentMode;
   agentId: string;
-  siteAssetId: string;
-  managedTargetId: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
   certificateFormatId?: string;
   deploymentMode?: string;
+  plugin?: {
+    mountId: string;
+    pluginPackageId: string;
+    pluginVersionId: string;
+    variableBindings: Record<string, unknown>;
+    secretBindings: Record<string, string>;
+    certificateArtifactBindings: Record<string, {
+      certificateFormatId: string;
+      outputBindings: Record<string, string>;
+    }>;
+  };
 }
 
 export interface WorkflowDeploymentStrategyDto {

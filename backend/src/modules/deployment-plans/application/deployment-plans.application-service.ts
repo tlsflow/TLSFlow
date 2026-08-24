@@ -1717,8 +1717,12 @@ export class DeploymentPlansApplicationService {
     }
     const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
     const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(strategyPayload.workflowRequest)?.certificateArtifactBindings);
-    if (Object.keys(workflowBindings).length > 0) {
-      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, workflowBindings);
+    const agentPluginBindings = readWorkflowCertificateArtifactBindings(
+      readRecord(readRecord(readRecord(strategyPayload.deploymentStrategy)?.agent)?.plugin)?.certificateArtifactBindings,
+    );
+    const artifactBindings = Object.keys(agentPluginBindings).length > 0 ? agentPluginBindings : workflowBindings;
+    if (Object.keys(artifactBindings).length > 0) {
+      return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings);
     }
     if (!target.certificateBindingId) {
       throw new AppError('RESOURCE_NOT_FOUND', '部署目标缺少 CertificateBinding，无法解析部署材料', {
@@ -1883,6 +1887,20 @@ export class DeploymentPlansApplicationService {
     if (target.executorType === 'WORKFLOW') return undefined;
     const resolvedTenantId = target.tenantId ?? tenantId;
     if (!resolvedTenantId) return undefined;
+    const strategyPayload = target.strategyPayload ?? {};
+    const deploymentStrategy = readRecord(strategyPayload.deploymentStrategy);
+    const agentStrategy = readRecord(deploymentStrategy?.agent);
+    if (readOptionalString(agentStrategy?.mode) === 'PLUGIN') {
+      return {
+        ...strategyPayload,
+        actionType: 'agent.atomic_plan.execute',
+        actionSchemaVersion: '1.0',
+        agentDeploymentMode: 'PLUGIN',
+        agentId: readOptionalString(agentStrategy?.agentId) ?? readOptionalString(strategyPayload.agentId),
+        pluginBinding: readRecord(agentStrategy?.plugin),
+        deploymentArtifact: artifact,
+      };
+    }
     if (!target.certificateBindingId) return undefined;
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) return undefined;
