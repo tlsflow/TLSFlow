@@ -1,8 +1,8 @@
 ---
-title: GCAC 官方文档
-description: GCAC 证书生命周期管理平台官方文档入口
-docStatus: in_review
-productVersion: current
+title: TLSFlow 官方文档
+description: TLSFlow 证书生命周期管理平台官方文档入口
+docStatus: implemented
+productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs:
@@ -20,24 +20,31 @@ codeRefs:
   - backend/src/modules/plugins
   - backend/src/modules/workflow-templates
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-22
 ---
 
-# GCAC 官方文档
+# TLSFlow v1.0.0 官方用户文档
 
-GCAC 是证书生命周期管理平台，负责证书资产、CA、设备、应用资产、工作流、部署执行和运营监控。
+TLSFlow（证书生命周期管理平台）把证书资产、CA（证书颁发机构）、目标设备、应用资产、插件、工作流、部署执行和运营监控放在同一租户边界内管理。本套文档只描述 v1.0.0 当前代码和 Docker 发布说明已经支持的行为。
 
 ## 从哪里开始
 
-- 新接入系统：阅读[快速开始](/quick-install/)。
-- 日常管理证书和设备：阅读[用户指南](/user-guide/)。
-- 开发插件或工作流：阅读[开发者手册](/developer-guide/)。
-- 处理升级、排障和恢复：阅读[运维指南](/operations/)。
-- 查询事实来源和当前实现状态：阅读[参考资料](/reference/)。
+- 安装部署：进入[安装部署](/installation/)，按需选择[标准部署](/installation/20260822-标准部署)或[单机部署](/installation/20260822-单机部署)。
+- 首次使用：阅读[首次登录](/installation/20260822-首次登录)，再从[用户手册](/manual/)的仪表盘开始。
+- 日常管理：按控制台菜单阅读[用户手册](/manual/)，每个一级、二级菜单都有独立页面。
+- 开发扩展：阅读[开发文档](/developer/)；开发文档不是对所有外部厂商环境的兼容承诺。
 
-## 当前文档状态
+## 版本和事实边界
 
-当前文档库正在建设中。页面会明确标注 `implemented`、`in_review` 或 `todo`，未完成能力不会因为页面已经存在就被当作已发布能力。
+版本统一为 **v1.0.0**。文档中的“支持”表示当前代码存在对应控制台/API路径和必要的状态校验；外部厂商网络、证书签发机构、反向代理和灾备演练仍需在你的环境中单独验收。没有平台 API 的能力会明确写为外部运维步骤，不会以页面存在代替产品能力。
+
+## TLSFlow 解决什么问题
+
+TLSFlow 将证书资产、设备发现、应用资产、部署执行和运营监控放在同一租户边界中，重点解决证书材料分散、目标位置不清、部署过程不可审计和失败难恢复的问题。它不是任意远程 Shell（远程命令行）平台，也不是开放脚本沙箱；代码型插件只能在受控的独立 Runner 中调用登记的宿主接口。
+
+核心对象的关系是：`PluginVersion → PluginBinding → CapabilityAssignment → ApplicationAsset → ManagedTarget → WorkflowVersion/Agent Plan → DeploymentPlan → ExecutionRun`。执行位置描述“在哪里执行”，不能决定“使用哪个插件”；证书私钥和凭据只能通过受控制品与 Secret 引用进入执行。
+
+页面状态只用于文档治理：`implemented` 表示有代码和验证证据，`in_review` 表示仍需环境或协议复核，`todo` 表示未实现或无充分事实。它们不是控制台任务状态。
 
 ## 核心主链
 

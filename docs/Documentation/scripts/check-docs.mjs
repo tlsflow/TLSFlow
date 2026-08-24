@@ -6,14 +6,7 @@ import { fileURLToPath } from "node:url";
 const documentationRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectRoot = path.resolve(documentationRoot, "..", "..");
 const localeDirectories = new Map([
-  ["", "zh-CN"],
-  ["en", "en-US"],
-  ["fr", "fr-FR"],
-  ["ja", "ja-JP"],
-  ["ko", "ko-KR"],
-  ["pt", "pt-BR"],
-  ["ru", "ru-RU"],
-  ["zh-TW", "zh-TW"]
+  ["", "zh-CN"]
 ]);
 const requiredMetadata = ["title", "description", "docStatus", "productVersion", "sourceLocale", "locale", "specRefs", "codeRefs", "testRefs", "lastVerified"];
 const allowedStatuses = new Set(["implemented", "in_review", "todo"]);
