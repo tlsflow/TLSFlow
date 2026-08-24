@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AppError } from '../../common/errors/app-error.js';
@@ -8,6 +9,7 @@ import { PluginRunnerClient, PluginRunnerSupervisor } from '../plugins/runner/in
 import {
   createPluginRunnerExecutors,
   PluginRunnerExecutorAdapter,
+  PluginWorkflowCapabilityExecutorAdapter,
   pluginRunnerBindingApiVersion,
 } from './application/plugin-runner-executor.adapter.js';
 import type { StepExecutionInput } from './application/executors.js';
@@ -96,6 +98,146 @@ test('生产 Runner 启动前验证每个 Grant 的租户、运行、版本、�
   const deniedResult = await denied.executeStep(stepInput({ pluginRunnerBinding: binding() }));
   assert.equal(deniedResult.success, false);
   assert.equal(deniedResult.errorCode, 'PLUGIN_HOST_CALL_DENIED');
+});
+
+test('内置包只兼容可由当前资源精确重算的历史数组摘要', async () => {
+  const resourceSha256 = { 'runtime/index.js': `sha256:${'c'.repeat(64)}`, 'workflows/deploy.json': `sha256:${'d'.repeat(64)}` };
+  const legacyResourceHash = `sha256:${createHash('sha256').update(JSON.stringify(Object.entries(resourceSha256).sort(([left], [right]) => left.localeCompare(right))), 'utf8').digest('hex')}`;
+  const canonicalResourceHash = `sha256:${createHash('sha256').update(JSON.stringify(resourceSha256), 'utf8').digest('hex')}`;
+  let launchedResourceHash: string | undefined;
+  const client = { execute: async () => successResult() } as unknown as PluginRunnerClient;
+  const builtinRegistry = {
+    refresh: async () => undefined,
+    get: () => ({
+      packageSha256: hash,
+      manifestSha256: hash,
+      resourceSha256,
+      resourceHash: canonicalResourceHash,
+    }),
+  };
+  const adapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry as never,
+    supervisor: { start: async (spec) => {
+      launchedResourceHash = spec.resourceHash;
+      return client;
+    } },
+  });
+
+  const accepted = await adapter.executeStep(stepInput({ pluginRunnerBinding: binding({ resourceHash: legacyResourceHash }) }));
+  assert.equal(accepted.success, true);
+  assert.equal(launchedResourceHash, canonicalResourceHash);
+
+  const rejected = await adapter.executeStep(stepInput({ pluginRunnerBinding: binding({ resourceHash: `sha256:${'e'.repeat(64)}` }) }));
+  assert.equal(rejected.success, false);
+  assert.equal(rejected.errorCode, 'PLUGIN_RUNNER_VERSION_MISMATCH');
+});
+
+test('内置多能力插件启动时传递 Manifest 的完整原始能力顺序', async () => {
+  let launchedCapabilities: readonly string[] | undefined;
+  const client = { execute: async () => successResult() } as unknown as PluginRunnerClient;
+  const builtinRegistry = {
+    refresh: async () => undefined,
+    get: () => ({
+      packageSha256: hash,
+      manifestSha256: hash,
+      resourceSha256: { 'runtime/index.js': hash },
+      resourceHash: hash,
+      capabilities: [
+        { key: 'device.connection.test' },
+        { key: 'device.identity.detect' },
+        { key: 'device.discover' },
+        { key: 'certificate.deploy' },
+        { key: 'certificate.rollback' },
+      ],
+    }),
+  };
+  const adapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry as never,
+    supervisor: {
+      start: async (spec) => {
+        launchedCapabilities = spec.capabilities;
+        return client;
+      },
+    },
+  });
+
+  const result = await adapter.executeStep(stepInput({
+    pluginRunnerBinding: binding({ capability: 'certificate.deploy' }),
+  }));
+
+  assert.equal(result.success, true);
+  assert.deepEqual(launchedCapabilities, [
+    'device.connection.test',
+    'device.identity.detect',
+    'device.discover',
+    'certificate.deploy',
+    'certificate.rollback',
+  ]);
+});
+
+test('Runner 启动或握手失败在执行请求前明确失败，不进入 UNKNOWN', async () => {
+  const adapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    supervisor: {
+      start: async () => {
+        throw new AppError('PLUGIN_RUNNER_START_FAILED', 'fixture handshake failed');
+      },
+    },
+  });
+
+  const result = await adapter.executeStep(stepInput({ pluginRunnerBinding: binding() }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'PLUGIN_RUNNER_START_FAILED');
+  assert.equal(result.detail?.executionStatus, 'FAILED');
+  assert.equal(result.detail?.mayBeUnknown, false);
+});
+
+test('非部署计划的 PluginWorkflow 能力入口先创建 Grant，再调用独立 Runner', async () => {
+  let captured: StepExecutionInput | undefined;
+  const grantCalls: Record<string, unknown>[] = [];
+  const capabilityExecutor = new PluginWorkflowCapabilityExecutorAdapter(
+    {
+      executeStep: async (input) => {
+        captured = input;
+        return { success: true, detail: { executionMode: 'plugin_runner' } };
+      },
+    },
+    {
+      create: async (input) => {
+        grantCalls.push(input as unknown as Record<string, unknown>);
+        return { id: 'grant-capability' } as never;
+      },
+    },
+  );
+  const result = await capabilityExecutor.execute({
+    tenantId: 'tenant-fixture',
+    targetId: 'device-fixture',
+    workflowVersionId: 'workflow-version-fixture',
+    pluginVersionId: 'plugin-version-fixture',
+    pluginId: 'test.echo',
+    pluginVersion: '1.0.0',
+    packageHash: hash,
+    manifestHash: hash,
+    resourceHash: hash,
+    capability: 'test.echo',
+    writeEffect: false,
+    hostPermissions: ['secret.resolve'],
+    input: { credential: { secretRef: 'secret://credential/password' } },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.executionId.startsWith('plugin-run_'), true);
+  assert.equal(grantCalls.length, 1);
+  assert.deepEqual(grantCalls[0]?.allowedSecretRefs, ['secret://credential/password']);
+  assert.equal(grantCalls[0]?.executorType, 'PLUGIN_RUNNER');
+  assert.equal(captured?.step.inputSnapshot.executorType, 'PLUGIN_RUNNER');
+  const binding = captured?.step.inputSnapshot.pluginRunnerBinding as Record<string, unknown>;
+  assert.equal(binding.workflowVersionId, 'workflow-version-fixture');
+  assert.equal(binding.pluginVersionId, 'plugin-version-fixture');
+  assert.deepEqual(binding.grantRefs, ['grant-capability']);
 });
 
 test('Runner adapter 拒绝缺失绑定、旧快照和运行步骤不一致', async () => {

@@ -163,3 +163,92 @@ test('WORKFLOW dry-run 不进入结果同步服务，避免重复收尾运行', 
   assert.equal(result.success, true);
   assert.equal(resultSyncCalls.length, 0);
 });
+
+test('PLUGIN_RUNNER 步骤执行前创建绑定和 Grant，成功收尾保留绑定快照', async () => {
+  const grantCalls: Array<Record<string, unknown>> = [];
+  let runnerInput: Record<string, unknown> | undefined;
+  const service = new ExecutionsApplicationService({
+    deploymentPlansRepository: new DeploymentPlansRepository(),
+    deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
+    executionGrants: {
+      create: async (input: Record<string, unknown>) => {
+        grantCalls.push(input);
+        return { id: 'grant-plugin-runner-1' };
+      },
+    } as any,
+    stageIntervalMs: 0,
+    tasks: testTaskEnqueuer(),
+  });
+  const bindingDraft = {
+    apiVersion: 'gcac.plugin-runner-binding/v1',
+    workflowVersionId: 'workflow-plugin-1',
+    pluginVersionId: 'plugin-version-plugin-1',
+    pluginId: 'fixture.plugin',
+    pluginVersion: '1.0.0',
+    packageHash: `sha256:${'a'.repeat(64)}`,
+    manifestHash: `sha256:${'b'.repeat(64)}`,
+    resourceHash: `sha256:${'c'.repeat(64)}`,
+    capability: 'certificate.deploy',
+    writeEffect: true,
+    hostPermissions: ['network.http'],
+  };
+  const created = await service.createApplyRun({
+    deploymentPlanId: 'plan_plugin_runner',
+    deploymentPlanTargetIds: ['target_plugin_runner'],
+    type: 'apply',
+    idempotencyKey: 'idem_plugin_runner_binding',
+    actorId: 'tester',
+    tenantId: 'tenant_plugin_runner',
+    executorTypeByTargetId: new Map([['target_plugin_runner', 'PLUGIN_RUNNER']]),
+    agentPayloadByTargetId: new Map([[
+      'target_plugin_runner',
+      withTestDeploymentInputSnapshot('plan_plugin_runner', 'target_plugin_runner', {
+        pluginRunnerBindingDraft: bindingDraft,
+        executionRuntimeSnapshot: {
+          apiVersion: 'gcac.deployment-input-runtime-snapshot/v1',
+          resolvedDeploymentInput: {
+            apiVersion: 'gcac.resolved-deployment-input/v1',
+            variables: { targetVirtualServers: ['lb-one'] },
+            connections: { management: { host: '192.0.2.20', port: 443 } },
+            credentials: { management: { username: 'fixture-user', secretRefs: { password: 'secret://citrix/password' } } },
+            artifacts: {
+              certificate: {
+                artifactRef: 'artifact://certificate-format/certfmt_test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                artifactSha256: `sha256:${'a'.repeat(64)}`,
+              },
+            },
+          },
+          deploymentArtifact: { certificateVersionId: 'certver_test', certificateFormatId: 'certfmt_test', format: 'pem', containsPrivateKey: true },
+        },
+      }),
+    ]]),
+    stepMaxAttempts: 1,
+  });
+
+  const result = await service.runDispatchedExecution(
+    created.run.id,
+    'tester',
+    'tenant_plugin_runner',
+    ExecutorRegistry.forTests([{
+      type: 'PLUGIN_RUNNER',
+      executeStep: async ({ step }) => {
+        runnerInput = step.inputSnapshot.pluginRunnerBinding as Record<string, unknown>;
+        return { success: true, detail: { executionStatus: 'SUCCESS', runner: 'plugin' } };
+      },
+    }, {
+      type: 'CONTROL_PLANE_TLS',
+      executeStep: async () => ({ success: true }),
+    }]),
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(grantCalls.length, 1);
+  assert.equal(grantCalls[0]?.executorType, 'PLUGIN_RUNNER');
+  assert.deepEqual(grantCalls[0]?.allowedArtifactRefs, ['artifact://certificate-format/certfmt_test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']);
+  assert.equal((runnerInput?.grantRefs as string[])[0], 'grant-plugin-runner-1');
+  assert.equal((runnerInput?.input as Record<string, unknown>)?.artifact && ((runnerInput?.input as Record<string, unknown>).artifact as Record<string, unknown>).artifactRef, 'artifact://certificate-format/certfmt_test/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+  const steps = await service.listSteps({ tenantId: 'tenant_plugin_runner', executionRunId: created.run.id });
+  const install = steps.find((step: any) => step.stepType === 'INSTALL');
+  assert.equal(install?.status, 'SUCCESS');
+  assert.equal((install?.inputSnapshot.pluginRunnerBinding as Record<string, unknown>)?.executionRunId, created.run.id);
+});

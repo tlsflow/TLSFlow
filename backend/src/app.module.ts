@@ -157,7 +157,11 @@ import {
 import { resolvePluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
-import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
+import {
+  PluginRunnerExecutorAdapter,
+  PluginWorkflowCapabilityExecutorAdapter,
+  type PluginRunnerExecutionDependencies,
+} from './modules/executions/application/plugin-runner-executor.adapter.js';
 import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
 import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate } from './modules/plugins/runner/host-api.request-gate.js';
 import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
@@ -354,6 +358,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
         builtinRegistry: builtinPluginRegistry,
       }
       : undefined);
+  const pluginWorkflowCapabilityExecutor = pluginRunnerDependencies?.runner && pluginRunnerDependencies.supervisor
+    ? new PluginWorkflowCapabilityExecutorAdapter(
+      new PluginRunnerExecutorAdapter({ ...pluginRunnerDependencies, executionGrants: security.grants }),
+      security.grants,
+    )
+    : undefined;
   new ProvidersController(
     cloudAccountAssetsService,
     security,
@@ -437,6 +447,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     workflowTemplatesService,
     undefined,
     standardDeviceDiscoveryProjector,
+    undefined,
+    pluginWorkflowCapabilityExecutor,
   );
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization

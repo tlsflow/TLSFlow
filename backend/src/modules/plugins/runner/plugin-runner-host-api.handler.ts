@@ -456,7 +456,8 @@ async function readArtifact(
       artifactRef: artifact.artifactRef,
       contentBase64: artifact.content.toString('base64'),
       contentType: artifact.contentType,
-      sha256: artifact.sha256,
+      // 历史制品记录可能只保存短指纹；Runner 合同要求完整 SHA-256 摘要。
+      sha256: `sha256:${createHash('sha256').update(artifact.content).digest('hex')}`,
       ...(artifact.expiresAt ? { expiresAt: artifact.expiresAt } : {}),
     },
   };

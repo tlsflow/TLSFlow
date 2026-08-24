@@ -103,8 +103,10 @@ export class PluginWorkflowPublisherService {
 
   private workflowDeclarationsFor(record: UnifiedPluginVersionRecord): PluginWorkflowDeclaration[] {
     const resolved = this.declarationResolver?.(record.pluginId, record.version);
-    const declarations = this.declarationResolver
-      ? [...(resolved ?? [])]
+    // 只有固定 Registry 明确声明了该插件时才使用它；用户插件或旧插件
+    // 不在 Registry 中，继续按已验证的 Manifest 资源声明发布。
+    const declarations = resolved
+      ? [...resolved]
       : resolveManifestWorkflowDeclarations(record);
     const resources = record.manifest.resources.workflows ?? {};
     const capabilities = new Set(record.manifest.capabilities.map((capability) => capability.key));

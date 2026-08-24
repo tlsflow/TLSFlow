@@ -89,6 +89,9 @@ export interface CreateExecutionRunInput {
 export interface DeploymentArtifactSnapshotDto {
   certificateVersionId: string;
   certificateFormatId: string;
+  /** Plugin Runner 通过 Host API 读取的租户隔离制品引用。 */
+  artifactRef?: string;
+  artifactSha256?: string;
   format: string;
   containsPrivateKey: boolean;
   certificatePem?: string;
