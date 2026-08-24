@@ -63,6 +63,22 @@ export class InternalCaRepository {
     return this.list('pg_ca_trust_domains', tenantId);
   }
 
+  async saveTrustDomainWithDefaultSwitch(entity: CaTrustDomainEntity): Promise<CaTrustDomainEntity> {
+    return this.db.transaction(async (tx) => {
+      const repository = new InternalCaRepository(tx);
+      if (entity.isDefault) {
+        const existing = await repository.listTrustDomains(entity.tenantId);
+        const now = entity.updatedAt;
+        for (const domain of existing) {
+          if (domain.id !== entity.id && domain.isDefault) {
+            await repository.saveTrustDomain({ ...domain, isDefault: false, updatedAt: now });
+          }
+        }
+      }
+      return repository.saveTrustDomain(entity);
+    });
+  }
+
   saveAuthority(entity: CertificateAuthorityEntity): Promise<CertificateAuthorityEntity> {
     return this.upsert('pg_certificate_authorities', entity.id, entity, {
       tenant_id: entity.tenantId,

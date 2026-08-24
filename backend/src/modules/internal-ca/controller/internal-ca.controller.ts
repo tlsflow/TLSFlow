@@ -7,10 +7,12 @@ import type { SecurityServices } from '../../security/security.controller.js';
 import type {
   CreateAuthorityInput,
   CreateCaProviderInput,
+  CreateCaTrustDomainInput,
   CreateCertificateRequestInput,
   CreateProfileInput,
   InternalCaApplicationService,
   PreviewCaInput,
+  UpdateCaTrustDomainInput,
 } from '../application/internal-ca.application-service.js';
 
 const tags = ['Internal CA'];
@@ -23,6 +25,9 @@ export class InternalCaController {
     router.get('/api/v1/ca-providers', '查询 CA Provider', tags, (request) => this.listProviders(request));
     router.post('/api/v1/ca-providers', '创建 CA Provider', tags, (request) => this.createProvider(request));
     router.post('/api/v1/ca-providers/:id/test', '测试 CA Provider', tags, (request) => this.testProvider(request));
+    router.get('/api/v1/ca-trust-domains', '查询 CA 信任域', tags, (request) => this.listTrustDomains(request));
+    router.post('/api/v1/ca-trust-domains', '创建 CA 信任域', tags, (request) => this.createTrustDomain(request));
+    router.patch('/api/v1/ca-trust-domains/:id', '更新 CA 信任域', tags, (request) => this.updateTrustDomain(request));
     router.get('/api/v1/certificate-authorities', '查询证书机构', tags, (request) => this.listAuthorities(request));
     router.post('/api/v1/certificate-authorities/preview', '预览 CA 拓扑风险', tags, (request) => this.previewAuthority(request));
     router.post('/api/v1/certificate-authorities', '创建证书机构', tags, (request) => this.createAuthority(request));
@@ -73,6 +78,35 @@ export class InternalCaController {
   private async testProvider(request: HttpRequest) {
     await this.assertManage(request, 'ca_provider');
     return this.service.testProvider(tenantId(request), pathId(request));
+  }
+
+  private async listTrustDomains(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_authority');
+    return this.service.listTrustDomains(tenantId(request));
+  }
+
+  private async createTrustDomain(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_authority');
+    return {
+      statusCode: 201,
+      body: await this.service.createTrustDomain(
+        tenantId(request),
+        objectBody(request) as unknown as CreateCaTrustDomainInput,
+        actorId(request),
+        request.context,
+      ),
+    };
+  }
+
+  private async updateTrustDomain(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_authority');
+    return this.service.updateTrustDomain(
+      tenantId(request),
+      pathId(request),
+      objectBody(request) as unknown as UpdateCaTrustDomainInput,
+      actorId(request),
+      request.context,
+    );
   }
 
   private async listAuthorities(request: HttpRequest) {

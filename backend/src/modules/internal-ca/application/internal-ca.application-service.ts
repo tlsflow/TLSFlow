@@ -17,6 +17,9 @@ import type {
   CaProviderType,
   CaRiskPreview,
   CaRuntimePlatform,
+  CaTrustDomainEntity,
+  CaTrustDomainIsolationLevel,
+  CaTrustDomainStatus,
   CaTopologyMode,
   CaNodeEntity,
   CaNodeTaskEntity,
@@ -45,6 +48,26 @@ export interface CreateCaProviderInput {
   configuration?: Record<string, unknown>;
 }
 
+export interface CreateCaTrustDomainInput {
+  name: string;
+  code: string;
+  purpose: string;
+  isolationLevel?: CaTrustDomainIsolationLevel;
+  isDefault?: boolean;
+  rootPolicy?: Record<string, unknown>;
+  trustPolicy?: Record<string, unknown>;
+}
+
+export interface UpdateCaTrustDomainInput {
+  name?: string;
+  purpose?: string;
+  status?: CaTrustDomainStatus;
+  isolationLevel?: CaTrustDomainIsolationLevel;
+  isDefault?: boolean;
+  rootPolicy?: Record<string, unknown>;
+  trustPolicy?: Record<string, unknown>;
+}
+
 export interface PreviewCaInput {
   topologyMode: CaTopologyMode;
   deploymentMode: CaDeploymentMode;
@@ -55,6 +78,7 @@ export interface PreviewCaInput {
 
 export interface CreateAuthorityInput extends PreviewCaInput {
   providerId: string;
+  trustDomainId?: string;
   name: string;
   commonName: string;
   securityDomain: string;
@@ -67,6 +91,7 @@ export interface CreateAuthorityInput extends PreviewCaInput {
 export interface CreateProfileInput {
   name: string;
   securityDomain: string;
+  trustDomainId?: string;
   rules?: Partial<CertificateProfileRules>;
   actorId: string;
 }
@@ -74,6 +99,7 @@ export interface CreateProfileInput {
 export interface CreateCertificateRequestInput {
   applicationAssetId: string;
   caId: string;
+  trustDomainId?: string;
   profileVersionId: string;
   commonName: string;
   sans: string[];
@@ -146,6 +172,59 @@ export class InternalCaApplicationService {
     return sanitizeProvider(provider);
   }
 
+  listTrustDomains(tenantId: string): Promise<CaTrustDomainEntity[]> {
+    return this.repository.listTrustDomains(tenantId);
+  }
+
+  async createTrustDomain(tenantId: string, input: CreateCaTrustDomainInput, actorId: string, context?: RequestContext): Promise<CaTrustDomainEntity> {
+    const now = new Date().toISOString();
+    const existing = await this.repository.listTrustDomains(tenantId);
+    const domain: CaTrustDomainEntity = {
+      id: newId('catd'),
+      tenantId,
+      name: requiredText(input.name, 'name'),
+      code: normalizeTrustDomainCode(input.code),
+      purpose: requiredText(input.purpose, 'purpose'),
+      status: 'active',
+      isDefault: input.isDefault ?? existing.length === 0,
+      isolationLevel: input.isolationLevel ?? 'standard',
+      rootPolicy: structuredClone(input.rootPolicy ?? {}),
+      trustPolicy: structuredClone(input.trustPolicy ?? {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const saved = await this.repository.saveTrustDomainWithDefaultSwitch(domain);
+    await this.audit('internal_ca.trust_domain.created', actorId, 'certificate_authority.create', 'ca_trust_domain', saved.id, 'critical', context, {
+      code: saved.code, isolationLevel: saved.isolationLevel, isDefault: saved.isDefault,
+    });
+    return saved;
+  }
+
+  async updateTrustDomain(tenantId: string, id: string, input: UpdateCaTrustDomainInput, actorId: string, context?: RequestContext): Promise<CaTrustDomainEntity> {
+    const current = await this.requireTrustDomain(tenantId, id);
+    const status = input.status ?? current.status;
+    const isDefault = input.isDefault ?? current.isDefault;
+    if (input.isDefault === true && !isTrustDomainUsable(status)) {
+      throw new AppError('CA_TRUST_DOMAIN_STATE_INVALID', '停用或失陷的 CA 信任域不能设为默认域', { id, status });
+    }
+    const updated: CaTrustDomainEntity = {
+      ...current,
+      name: input.name === undefined ? current.name : requiredText(input.name, 'name'),
+      purpose: input.purpose === undefined ? current.purpose : requiredText(input.purpose, 'purpose'),
+      status,
+      isDefault: isTrustDomainUsable(status) ? isDefault : false,
+      isolationLevel: input.isolationLevel ?? current.isolationLevel,
+      rootPolicy: input.rootPolicy === undefined ? current.rootPolicy : structuredClone(input.rootPolicy),
+      trustPolicy: input.trustPolicy === undefined ? current.trustPolicy : structuredClone(input.trustPolicy),
+      updatedAt: new Date().toISOString(),
+    };
+    const saved = await this.repository.saveTrustDomainWithDefaultSwitch(updated);
+    await this.audit('internal_ca.trust_domain.updated', actorId, 'certificate_authority.create', 'ca_trust_domain', saved.id, 'critical', context, {
+      status: saved.status, isolationLevel: saved.isolationLevel, isDefault: saved.isDefault,
+    });
+    return saved;
+  }
+
   async testProvider(tenantId: string, providerId: string): Promise<{ reachable: boolean; capabilities: CaProviderEntity['capabilities']; detail?: string }> {
     const provider = await this.requireProvider(tenantId, providerId);
     return this.providers.get(provider.type).validateConnection(provider);
@@ -203,11 +282,18 @@ export class InternalCaApplicationService {
     }
     if (preview.blockers.length > 0) throw new AppError('CA_TOPOLOGY_INVALID', 'CA 拓扑存在阻断项', { blockers: preview.blockers });
     const provider = await this.requireProvider(tenantId, input.providerId);
+    const trustDomain = input.trustDomainId
+      ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
+      : await this.createTrustDomain(tenantId, {
+          name: `${requiredText(input.name, 'name')} 信任域`,
+          code: `auto_${newId('domain').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()}`,
+          purpose: input.securityDomain,
+        }, input.actorId, context);
     if (provider.deploymentMode !== input.deploymentMode || provider.runtimePlatform !== input.runtimePlatform) {
       throw new AppError('CA_TOPOLOGY_INVALID', 'CA 创建参数与 Provider 部署模式不一致');
     }
     if (provider.type !== 'gcac_builtin') {
-      const external = await this.createExternalAuthority(tenantId, input, provider);
+      const external = await this.createExternalAuthority(tenantId, input, provider, trustDomain.id);
       await this.audit('internal_ca.authority.connected', input.actorId, 'certificate_authority.create', 'certificate_authority', external.id, 'high', context, {
         providerId: provider.id,
         topologyMode: input.topologyMode,
@@ -237,6 +323,7 @@ export class InternalCaApplicationService {
       role: 'root',
       topologyMode: input.topologyMode,
       providerId: provider.id,
+      trustDomainId: trustDomain.id,
       keyReferenceId: rootKey.id,
       privateKeySecretRef: rootSecret.secretRef,
       certificatePem: rootMaterial.certificatePem,
@@ -284,6 +371,7 @@ export class InternalCaApplicationService {
         parentCaId: root.id,
         topologyMode: input.topologyMode,
         providerId: provider.id,
+        trustDomainId: trustDomain.id,
         keyReferenceId: intermediateKey.id,
         privateKeySecretRef: intermediateSecret.secretRef,
         certificatePem: intermediateMaterial.certificatePem,
@@ -319,11 +407,14 @@ export class InternalCaApplicationService {
   async createProfile(tenantId: string, input: CreateProfileInput): Promise<{ profile: CertificateProfileEntity; version: CertificateProfileVersionEntity }> {
     const now = new Date().toISOString();
     const rules = normalizeProfileRules(input.rules);
+    const trustDomainId = input.trustDomainId ?? await this.resolveLegacyProfileTrustDomain(tenantId, input.securityDomain);
+    if (trustDomainId) await this.requireUsableTrustDomain(tenantId, trustDomainId);
     const profile: CertificateProfileEntity = {
       id: newId('certprof'),
       tenantId,
       name: requiredText(input.name, 'name'),
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
+      trustDomainId,
       status: 'active',
       currentVersion: 1,
       createdAt: now,
@@ -371,7 +462,16 @@ export class InternalCaApplicationService {
     const profileVersion = await this.repository.getProfileVersion(input.profileVersionId);
     if (!profileVersion) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 版本不存在', { profileVersionId: input.profileVersionId });
     const profile = await this.repository.getProfile(tenantId, profileVersion.profileId);
-    if (!profile || profile.securityDomain !== authority.securityDomain) {
+    if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId: profileVersion.profileId });
+    if (authority.trustDomainId) {
+      await this.requireUsableTrustDomain(tenantId, authority.trustDomainId);
+      if (input.trustDomainId && input.trustDomainId !== authority.trustDomainId) {
+        throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书申请与 CA 信任域不匹配');
+      }
+      if (profile.trustDomainId && profile.trustDomainId !== authority.trustDomainId) {
+        throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书 Profile 与 CA 信任域不匹配');
+      }
+    } else if (profile.securityDomain !== authority.securityDomain) {
       throw new AppError('CERTIFICATE_PROFILE_VIOLATION', '证书 Profile 与 CA 安全域不匹配');
     }
     validateProfile(input, profileVersion.rules);
@@ -400,6 +500,7 @@ export class InternalCaApplicationService {
       tenantId,
       applicationAssetId: input.applicationAssetId,
       caId: authority.id,
+      trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
       keyReferenceId: keyMaterial.keyReference.id,
       csrPem: keyMaterial.csrPem,
@@ -568,7 +669,7 @@ export class InternalCaApplicationService {
     }, context);
     const now = new Date().toISOString();
     return this.repository.saveRevocation({
-      id: newId('revoke'), tenantId, certificateVersionId, caId: authority.id,
+      id: newId('revoke'), tenantId, certificateVersionId, caId: authority.id, trustDomainId: authority.trustDomainId,
       reason: requiredText(reason, 'reason'), status: 'pending_approval', requestedBy: actorId,
       approvalId: approval?.id,
       warnings: [
@@ -605,7 +706,7 @@ export class InternalCaApplicationService {
   }
 
   async createTrustDistribution(tenantId: string, caId: string, targetScope: Record<string, unknown>, actorId: string, context?: RequestContext): Promise<TrustDistributionEntity> {
-    await this.requireAuthority(tenantId, caId);
+    const authority = await this.requireAuthority(tenantId, caId);
     const now = new Date().toISOString();
     const id = newId('trust');
     const approval = await this.dependencies.approvals?.create({
@@ -616,7 +717,7 @@ export class InternalCaApplicationService {
       requestedBy: actorId,
     }, context);
     return this.repository.saveTrustDistribution({
-      id, tenantId, caId, targetScope: structuredClone(targetScope), status: 'pending_approval',
+      id, tenantId, caId, trustDomainId: authority.trustDomainId, targetScope: structuredClone(targetScope), status: 'pending_approval',
       requestedBy: actorId, approvalId: approval?.id, createdAt: now, updatedAt: now,
     });
   }
@@ -906,7 +1007,7 @@ export class InternalCaApplicationService {
     return { keyReference, ...parsed };
   }
 
-  private async createExternalAuthority(tenantId: string, input: CreateAuthorityInput, provider: CaProviderEntity): Promise<CertificateAuthorityEntity> {
+  private async createExternalAuthority(tenantId: string, input: CreateAuthorityInput, provider: CaProviderEntity, trustDomainId: string): Promise<CertificateAuthorityEntity> {
     const now = new Date().toISOString();
     return this.repository.saveAuthority({
       id: newId('ca'),
@@ -915,6 +1016,7 @@ export class InternalCaApplicationService {
       role: input.topologyMode === 'root_with_intermediate' ? 'intermediate' : 'root',
       topologyMode: 'external_managed',
       providerId: provider.id,
+      trustDomainId,
       securityDomain: input.securityDomain,
       status: 'active',
       subjectCommonName: input.commonName,
@@ -933,6 +1035,27 @@ export class InternalCaApplicationService {
     const authority = await this.repository.getAuthority(tenantId, id);
     if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId: id });
     return authority;
+  }
+
+  private async requireTrustDomain(tenantId: string, id: string): Promise<CaTrustDomainEntity> {
+    const domain = await this.repository.getTrustDomain(tenantId, id);
+    if (!domain) throw new AppError('RESOURCE_NOT_FOUND', 'CA 信任域不存在', { trustDomainId: id });
+    return domain;
+  }
+
+  private async requireUsableTrustDomain(tenantId: string, id: string): Promise<CaTrustDomainEntity> {
+    const domain = await this.requireTrustDomain(tenantId, id);
+    if (!isTrustDomainUsable(domain.status)) {
+      throw new AppError('CA_TRUST_DOMAIN_STATE_INVALID', 'CA 信任域当前不可签发', { trustDomainId: id, status: domain.status });
+    }
+    return domain;
+  }
+
+  private async resolveLegacyProfileTrustDomain(tenantId: string, securityDomain: string): Promise<string | undefined> {
+    const candidates = new Set((await this.repository.listAuthorities(tenantId))
+      .filter((authority) => authority.securityDomain === securityDomain && authority.trustDomainId)
+      .map((authority) => authority.trustDomainId!));
+    return candidates.size === 1 ? [...candidates][0] : undefined;
   }
 
   private async requireRequest(tenantId: string, id: string): Promise<CertificateRequestEntity> {
@@ -1123,6 +1246,18 @@ function requiredText(value: string, field: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
   return normalized;
+}
+
+function normalizeTrustDomainCode(value: string): string {
+  const code = requiredText(value, 'code').toLowerCase();
+  if (!/^[a-z][a-z0-9_-]{1,63}$/.test(code)) {
+    throw new AppError('VALIDATION_FAILED', 'CA 信任域 code 必须以字母开头且仅包含小写字母、数字、下划线或连字符', { field: 'code' });
+  }
+  return code;
+}
+
+function isTrustDomainUsable(status: CaTrustDomainStatus): boolean {
+  return status === 'active' || status === 'rotating';
 }
 
 function optionalText(value?: string): string | undefined {

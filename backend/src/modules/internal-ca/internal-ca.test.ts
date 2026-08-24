@@ -144,6 +144,66 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   assert.equal(verified.status, 'verified');
 });
 
+test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-multi-root-ca';
+  const actorId = 'user-admin';
+  const provider = await service.createProvider(tenantId, {
+    name: '外部 CA 管理器',
+    type: 'microsoft_adcs',
+    deploymentMode: 'external',
+    runtimePlatform: 'external',
+    availabilityMode: 'single',
+  }, actorId);
+  const productionDomain = await service.createTrustDomain(tenantId, {
+    name: '生产信任域', code: 'production', purpose: 'production_tls', isDefault: true, isolationLevel: 'strict',
+  }, actorId);
+  const developmentDomain = await service.createTrustDomain(tenantId, {
+    name: '开发信任域', code: 'development', purpose: 'development_tls', isDefault: true,
+  }, actorId);
+  const domains = await service.listTrustDomains(tenantId);
+  assert.equal(domains.length, 2);
+  assert.equal(domains.filter((domain) => domain.isDefault).length, 1);
+  assert.equal(domains.find((domain) => domain.isDefault)?.id, developmentDomain.id);
+
+  const preview = service.previewAuthority({
+    topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'hsm',
+  });
+  const productionAuthority = (await service.createAuthority(tenantId, {
+    providerId: provider.id, trustDomainId: productionDomain.id, name: '生产 CA', commonName: 'Production Root CA', securityDomain: 'shared',
+    topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'hsm',
+    confirmationToken: preview.confirmationToken, actorId,
+  }))[0];
+  const developmentAuthority = (await service.createAuthority(tenantId, {
+    providerId: provider.id, trustDomainId: developmentDomain.id, name: '开发 CA', commonName: 'Development Root CA', securityDomain: 'shared',
+    topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'hsm',
+    confirmationToken: preview.confirmationToken, actorId,
+  }))[0];
+  assert.notEqual(productionAuthority.trustDomainId, developmentAuthority.trustDomainId);
+
+  const { version: productionProfile } = await service.createProfile(tenantId, {
+    name: '生产 TLS', securityDomain: 'shared', trustDomainId: productionDomain.id, actorId,
+  });
+  await assert.rejects(
+    () => service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'app-development', caId: developmentAuthority.id, trustDomainId: developmentDomain.id,
+      profileVersionId: productionProfile.id, commonName: 'dev.example.com', sans: ['dev.example.com'],
+      custodyMode: 'managed_secret', actorId,
+    }),
+    (error: unknown) => typeof error === 'object' && error !== null && 'errorCode' in error && error.errorCode === 'CERTIFICATE_TRUST_DOMAIN_MISMATCH',
+  );
+
+  await service.updateTrustDomain(tenantId, developmentDomain.id, { status: 'compromised' }, actorId);
+  await assert.rejects(
+    () => service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'app-development', caId: developmentAuthority.id, trustDomainId: developmentDomain.id,
+      profileVersionId: productionProfile.id, commonName: 'dev.example.com', sans: ['dev.example.com'],
+      custodyMode: 'managed_secret', actorId,
+    }),
+    (error: unknown) => typeof error === 'object' && error !== null && 'errorCode' in error && error.errorCode === 'CA_TRUST_DOMAIN_STATE_INVALID',
+  );
+});
+
 test('CA Node 注册令牌只能使用一次，主备拒绝双主且多活允许多节点', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-ca-node';
