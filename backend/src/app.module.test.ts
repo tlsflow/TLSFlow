@@ -142,7 +142,7 @@ test('内置插件 Workflow 发布失败时启动初始化仍继续', async () =
   );
 });
 
-test('Registry 包摘要冲突会中止内置插件初始化', async () => {
+test('Registry 包摘要冲突只跳过违规插件并继续后端初始化', async () => {
   const warnings: LogEvent[] = [];
   const logger = new StructuredLogger((event) => warnings.push(event));
   const registry = {
@@ -155,11 +155,23 @@ test('Registry 包摘要冲突会中止内置插件初始化', async () => {
   };
   const publisher = { publishPlugin: async () => [] } as unknown as PluginWorkflowPublisherService;
 
-  await assert.rejects(
-    () => initializeBuiltinPlugins({} as UnifiedPluginsApplicationService, publisher, { registry: registry as never, logger }),
-    (error: unknown) => error instanceof AppError && error.errorCode === 'RESOURCE_VERSION_CONFLICT',
-  );
+  const installed = await initializeBuiltinPlugins({} as UnifiedPluginsApplicationService, publisher, { registry: registry as never, logger });
+  assert.deepEqual(installed, []);
   assert.equal((warnings[0]?.details as { phase?: string } | undefined)?.phase, 'registry');
+});
+
+test('Registry 基础设施错误仍然阻止初始化', async () => {
+  const registry = {
+    registerAll: async () => {
+      throw new Error('数据库不可用');
+    },
+  };
+  const publisher = { publishPlugin: async () => [] } as unknown as PluginWorkflowPublisherService;
+
+  await assert.rejects(
+    () => initializeBuiltinPlugins({} as UnifiedPluginsApplicationService, publisher, { registry: registry as never }),
+    /数据库不可用/,
+  );
 });
 
 function pluginRecord(pluginId: string, version: string): UnifiedPluginVersionRecord {

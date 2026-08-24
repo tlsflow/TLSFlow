@@ -7,6 +7,12 @@ import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+const pluginScopedErrorCodes = new Set([
+  'VALIDATION_FAILED',
+  'RESOURCE_VERSION_CONFLICT',
+  'PLUGIN_RUNNER_START_FAILED',
+  'PLUGIN_RUNNER_VERSION_MISMATCH',
+]);
 
 export interface BuiltinPluginPackage {
   packageDirectory: string;
@@ -36,7 +42,15 @@ export class BuiltinUnifiedPluginLoader {
         // 非插件资源目录不参与包扫描。
       }
     }
-    const nativePackages = await Promise.all(packageDirectories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
+    const nativePackages = (await Promise.all(packageDirectories.map(async (directory) => {
+      try {
+        return await this.loadPackage(join(rootDirectory, directory));
+      } catch (error) {
+        // 单个插件包损坏时只跳过该包，不能让其他插件或宿主启动失败。
+        this.warnFailure('scan', { pluginId: directory }, error);
+        return undefined;
+      }
+    }))).filter((pluginPackage): pluginPackage is BuiltinPluginPackage => pluginPackage !== undefined);
     if (this.configuredRootDirectory) return nativePackages;
     return nativePackages;
   }
@@ -59,6 +73,7 @@ export class BuiltinUnifiedPluginLoader {
       try {
         imported = await service.importVersion(storageTenantId, pluginPackage, 'BUILTIN');
       } catch (error) {
+        if (!isPluginScopedFailure(error)) throw error;
         this.warnFailure('import', identity, error);
         if (options.failFast) throw error;
         continue;
@@ -70,6 +85,7 @@ export class BuiltinUnifiedPluginLoader {
           ? imported
           : await service.approvePermissions(imported.id, imported.manifest.permissions);
       } catch (error) {
+        if (!isPluginScopedFailure(error)) throw error;
         this.warnFailure('approvePermissions', identityOf(imported), error, imported.id);
         if (options.failFast) throw error;
         continue;
@@ -78,6 +94,7 @@ export class BuiltinUnifiedPluginLoader {
       try {
         installed.push(approved.status === 'ENABLED' ? approved : await service.enableVersion(approved.id));
       } catch (error) {
+        if (!isPluginScopedFailure(error)) throw error;
         this.warnFailure('enable', identityOf(approved), error, approved.id);
         if (options.failFast) throw error;
       }
@@ -86,7 +103,7 @@ export class BuiltinUnifiedPluginLoader {
   }
 
   private warnFailure(
-    phase: 'import' | 'approvePermissions' | 'enable',
+    phase: 'scan' | 'import' | 'approvePermissions' | 'enable',
     identity: { pluginId?: string; version?: string },
     error: unknown,
     resourceId?: string,
@@ -188,6 +205,11 @@ function errorCodeOf(error: unknown): string {
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isPluginScopedFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('errorCode' in error)) return false;
+  return pluginScopedErrorCodes.has(String(error.errorCode));
 }
 
 async function resolveBuiltinRootDirectory(): Promise<string> {

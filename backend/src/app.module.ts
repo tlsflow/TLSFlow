@@ -189,6 +189,12 @@ export interface AppDependencies {
 
 /** 生成证书产物必须包含私钥的格式码；证书版本本身只保存公钥/私钥材料。 */
 const certificateKeyRequiredFormats = new Set(['PEM', 'PFX', 'JKS']);
+const pluginScopedInitializationErrorCodes = new Set([
+  'VALIDATION_FAILED',
+  'RESOURCE_VERSION_CONFLICT',
+  'PLUGIN_RUNNER_START_FAILED',
+  'PLUGIN_RUNNER_VERSION_MISMATCH',
+]);
 
 export function createApp(dependencies: AppDependencies = {}): App {
   const deploymentArchitecture = dependencies.deploymentArchitecture ?? resolveDeploymentArchitecture();
@@ -323,7 +329,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginRunnerSupervisor = pluginRunnerConfig
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
-  const builtinPluginRegistry = new BuiltinPluginRegistry();
+  const builtinPluginRegistry = new BuiltinPluginRegistry(undefined, {
+    blockedPackageDirectories: readBlockedBuiltinPluginDirectories(process.env),
+  });
   const pluginRunnerHostApiHandler = pluginRunnerConfig
     ? createPluginRunnerHostApiHandler({
       security,
@@ -1135,11 +1143,13 @@ export async function initializeBuiltinPlugins(
     installed = await registry.registerAll(unifiedPlugins);
   } catch (error) {
     warnBuiltinPluginFailure(logger, 'registry', undefined, undefined, error);
-    throw error;
+    // 已知插件级校验/版本冲突按包隔离；数据库等基础设施错误仍必须阻止启动。
+    if (!isPluginScopedInitializationFailure(error)) throw error;
+    return [];
   }
 
-  // Registry/Manifest/Policy/包摘要校验是启动硬门禁；Workflow 发布只是已注册版本的派生后处理。
-  // 后处理失败只隔离对应插件，不把第二套 Workflow 版本事实带回启动边界。
+  // Registry、Manifest、Policy 和包摘要校验都按插件隔离；Workflow 发布只是已注册版本的派生后处理。
+  // 已注册插件的后处理失败只禁用该插件，不把错误抬高到后端启动边界。
   for (let index = 0; index < installed.length; index += 1) {
     const plugin = installed[index]!;
     try {
@@ -1155,6 +1165,17 @@ export async function initializeBuiltinPlugins(
   }
 
   return installed;
+}
+
+function readBlockedBuiltinPluginDirectories(environment: NodeJS.ProcessEnv): string[] {
+  return (environment.GCAC_BUILTIN_PLUGIN_VERSION_VIOLATIONS ?? '')
+    .split(',')
+    .map((directory) => directory.trim())
+    .filter(Boolean);
+}
+
+function isPluginScopedInitializationFailure(error: unknown): boolean {
+  return error instanceof AppError && pluginScopedInitializationErrorCodes.has(error.errorCode);
 }
 
 export async function createAppAsync(
@@ -1219,7 +1240,11 @@ function warnBuiltinPluginFailure(
   error: unknown,
 ): void {
   logger.warn(
-    phase === 'registry' ? '内置插件 Registry 校验失败，拒绝启动或热刷新' : '内置插件启动后处理失败，已继续启动后端',
+    phase === 'registry'
+      ? (isPluginScopedInitializationFailure(error)
+        ? '内置插件 Registry 校验失败，已跳过该插件并继续启动'
+        : '内置插件 Registry 基础设施错误，启动将失败')
+      : '内置插件启动后处理失败，已继续启动后端',
     {
     phase,
     ...(plugin ? { pluginId: plugin.pluginId, version: plugin.version } : {}),

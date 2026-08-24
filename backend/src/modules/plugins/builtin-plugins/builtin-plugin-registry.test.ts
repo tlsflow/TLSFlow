@@ -32,6 +32,35 @@ test('未登记在历史发布台账中的包仍可按 Manifest 注册', async (
   assert.equal((await registry.refresh())[0]?.pluginId, 'web.nginx');
 });
 
+test('版本门禁名单只跳过指定插件包', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const registry = new BuiltinPluginRegistry(loader, { blockedPackageDirectories: ['web-nginx'] });
+
+  assert.deepEqual(await registry.refresh(), []);
+});
+
+test('一个插件 Registry 校验失败时其他插件仍保留', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const [validPackage] = await loader.loadPackages();
+  assert.ok(validPackage);
+  const invalidPackage = {
+    ...validPackage,
+    packageDirectory: '/tmp/web-unknown',
+    manifest: { ...(validPackage.manifest as Record<string, unknown>), pluginId: 'web.unknown' },
+  };
+  const isolatedLoader = {
+    loadPackages: async () => [validPackage, invalidPackage],
+    installPackages: loader.installPackages.bind(loader),
+  } as unknown as BuiltinUnifiedPluginLoader;
+
+  const entries = await new BuiltinPluginRegistry(isolatedLoader).refresh();
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.pluginId, 'web.nginx');
+});
+
 test('同一插件版本且摘要相同的重复扫描保持幂等', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);
@@ -49,7 +78,7 @@ test('同一插件版本且摘要相同的重复扫描保持幂等', async () =>
   assert.equal(entries[0]?.packageSha256, `sha256:${sha256(pluginPackage.packageContent)}`);
 });
 
-test('同一插件版本摘要不同会拒绝刷新并保留旧 Registry 快照', async () => {
+test('同一插件版本摘要不同只跳过冲突插件', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);
   const [pluginPackage] = await loader.loadPackages();
@@ -65,31 +94,28 @@ test('同一插件版本摘要不同会拒绝刷新并保留旧 Registry 快照'
   const conflictingPackage = { ...pluginPackage, packageContent: `${pluginPackage.packageContent}changed` };
   scannedPackages = [pluginPackage, conflictingPackage];
 
-  await assert.rejects(
-    () => registry.refresh(),
-    /同一插件版本存在不同包内容/,
-  );
-  assert.equal(registry.get('web.nginx', '1.0.0').version, '1.0.0');
+  assert.deepEqual(await registry.refresh(), []);
+  assert.throws(() => registry.get('web.nginx', '1.0.0'), /固定的 Manifest PluginVersion/);
 });
 
-test('Registry 在 Manifest 边界拒绝非法 SemVer', async () => {
+test('Registry 在 Manifest 边界跳过非法 SemVer 插件', async () => {
   const root = await createPackageRoot();
   const manifestPath = join(root, 'web-nginx', 'manifest.json');
   const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   manifest.version = 'v1.0.0';
   await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
 
-  await assert.rejects(() => new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), /合法 SemVer/);
+  assert.deepEqual(await new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), []);
 });
 
-test('Registry 在 Policy 边界拒绝未知 Canonical Plugin ID', async () => {
+test('Registry 在 Policy 边界跳过未知 Canonical Plugin ID 插件', async () => {
   const root = await createPackageRoot();
   const manifestPath = join(root, 'web-nginx', 'manifest.json');
   const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   manifest.pluginId = 'web.unknown';
   await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
 
-  await assert.rejects(() => new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), /Canonical Plugin ID/);
+  assert.deepEqual(await new BuiltinPluginRegistry(new BuiltinUnifiedPluginLoader(root)).refresh(), []);
 });
 
 async function createPackageRoot(): Promise<string> {

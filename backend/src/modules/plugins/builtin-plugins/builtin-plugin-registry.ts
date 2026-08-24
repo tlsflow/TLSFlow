@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import { basename } from 'node:path';
 import { AppError } from '../../../common/errors/app-error.js';
+import { structuredLogger, type StructuredLogger } from '../../../common/logging/structured-logger.js';
 import { canonicalPluginIds, type CanonicalPluginId } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
 import type { UnifiedPluginCapabilityDescriptor, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import { validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
@@ -25,6 +27,11 @@ export interface BuiltinPluginRegistryEntry {
   resourceHash: string;
 }
 
+export interface BuiltinPluginRegistryOptions {
+  logger?: Pick<StructuredLogger, 'warn'>;
+  blockedPackageDirectories?: readonly string[];
+}
+
 /**
  * 内置插件注册表只登记可验证的 Manifest、资源摘要和 Runner 入口路径。
  * 宿主不会 import、require 或实例化 runtime/index.js；真正的模块加载由 Runner 子进程完成。
@@ -32,28 +39,54 @@ export interface BuiltinPluginRegistryEntry {
 export class BuiltinPluginRegistry {
   private readonly entries = new Map<string, BuiltinPluginRegistryEntry>();
   private readonly packages = new Map<string, BuiltinPluginPackage>();
+  private readonly logger: Pick<StructuredLogger, 'warn'>;
+  private readonly blockedPackageDirectories: ReadonlySet<string>;
 
   constructor(
     private readonly loader: BuiltinUnifiedPluginLoader = new BuiltinUnifiedPluginLoader(),
-  ) {}
+    options: BuiltinPluginRegistryOptions = {},
+  ) {
+    this.logger = options.logger ?? structuredLogger;
+    this.blockedPackageDirectories = new Set(options.blockedPackageDirectories ?? []);
+  }
 
   async refresh(): Promise<BuiltinPluginRegistryEntry[]> {
-    // 只有整批扫描校验成功后才替换内存 Registry，热刷新失败不能破坏当前可执行快照。
+    // 逐包扫描并替换内存快照；单个包失败只会从本次快照中剔除，不影响其他插件。
     const nextEntries = new Map<string, BuiltinPluginRegistryEntry>();
     const nextPackages = new Map<string, BuiltinPluginPackage>();
     const packages = await this.loader.loadPackages();
+    const conflictedKeys = new Set<string>();
     for (const pluginPackage of packages) {
-      const entry = buildRegistryEntry(pluginPackage);
+      const packageDirectory = basename(pluginPackage.packageDirectory);
+      if (this.blockedPackageDirectories.has(packageDirectory)) {
+        this.warnFailure('versionGate', pluginPackage, new AppError('RESOURCE_VERSION_CONFLICT', '插件版本不可变检查未通过', {
+          packageDirectory,
+        }));
+        continue;
+      }
+
+      let entry: BuiltinPluginRegistryEntry;
+      try {
+        entry = buildRegistryEntry(pluginPackage);
+      } catch (error) {
+        this.warnFailure('registry', pluginPackage, error);
+        continue;
+      }
       const key = identityKey(entry.pluginId, entry.version);
+      if (conflictedKeys.has(key)) continue;
       const existing = nextEntries.get(key);
       if (existing) {
         if (existing.packageSha256 !== entry.packageSha256) {
-          throw new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
+          conflictedKeys.add(key);
+          nextEntries.delete(key);
+          nextPackages.delete(key);
+          this.warnFailure('registry', pluginPackage, new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
             pluginId: entry.pluginId,
             version: entry.version,
             expectedPackageSha256: existing.packageSha256,
             actualPackageSha256: entry.packageSha256,
-          });
+          }));
+          continue;
         }
         // 同一摘要是重复扫描，不创建第二个 Registry 或数据库版本记录。
         continue;
@@ -96,7 +129,28 @@ export class BuiltinPluginRegistry {
   /** 启动与热刷新共用同一条“扫描、校验、注册”链路。 */
   async registerAll(service: UnifiedPluginsApplicationService): Promise<Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>> {
     await this.refresh();
-    return this.loader.installPackages(service, [...this.packages.values()], { failFast: true });
+    return this.loader.installPackages(service, [...this.packages.values()], { failFast: false });
+  }
+
+  private warnFailure(
+    phase: 'versionGate' | 'registry',
+    pluginPackage: BuiltinPluginPackage,
+    error: unknown,
+  ): void {
+    const manifest = pluginPackage.manifest;
+    const identity = manifest && typeof manifest === 'object' && !Array.isArray(manifest)
+      ? manifest as Record<string, unknown>
+      : {};
+    this.logger.warn('内置插件注册阶段失败，已跳过该插件', {
+      phase,
+      pluginId: typeof identity.pluginId === 'string' ? identity.pluginId : basename(pluginPackage.packageDirectory),
+      version: typeof identity.version === 'string' ? identity.version : undefined,
+      errorCode: errorCodeOf(error),
+      error: errorMessageOf(error),
+    }, {
+      module: 'builtin-plugin-startup',
+      resourceType: 'pluginVersion',
+    });
   }
 }
 
@@ -156,6 +210,17 @@ function stableJson(value: unknown): string {
 
 function identityKey(pluginId: string, version: string): string {
   return `${pluginId}@${version}`;
+}
+
+function errorCodeOf(error: unknown): string {
+  if (error && typeof error === 'object' && 'errorCode' in error && typeof error.errorCode === 'string') {
+    return error.errorCode;
+  }
+  return 'UNKNOWN_ERROR';
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function assertPackageDirectory(packageDirectory: unknown): void {
