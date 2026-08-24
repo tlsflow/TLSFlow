@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
 import type { StandardDeviceDiscoveryV2 } from './device-discovery.dto.js';
@@ -29,8 +30,12 @@ export class StandardDeviceDiscoveryProjector {
 
   async preview(context: StandardDiscoveryProjectionContext, rawDiscovery: unknown): Promise<StandardDiscoveryProjectionSummary> {
     const discovery = this.schema.validate(rawDiscovery);
+    return this.previewValidated(this.db, context, discovery);
+  }
+
+  private async previewValidated(db: DatabasePort, context: StandardDiscoveryProjectionContext, discovery: StandardDeviceDiscoveryV2): Promise<StandardDiscoveryProjectionSummary> {
     const discoveryProviderKey = resolveProviderKey(context);
-    const existingSites = await this.db.query<{ site_key: string }>(
+    const existingSites = await db.query<{ site_key: string }>(
       'select site_key from pg_site_assets where tenant_id=$1 and device_id=$2 and discovery_provider_key=$3 and deleted_at is null',
       [context.tenantId, context.hostId, discoveryProviderKey],
     );
@@ -47,14 +52,26 @@ export class StandardDeviceDiscoveryProjector {
   }
 
   async project(context: StandardDiscoveryProjectionContext, rawDiscovery: unknown): Promise<StandardDiscoveryProjectionSummary> {
-    const discovery = this.schema.validate(rawDiscovery);
-    const summary = await this.preview(context, discovery);
     const discoveredAt = new Date().toISOString();
     const snapshotId = newId('pds');
-    const projectionRootId = context.deviceAssetId ?? context.hostId;
     const discoveryProviderKey = resolveProviderKey(context);
+    let discovery: StandardDeviceDiscoveryV2;
     try {
-      await this.db.transaction(async (tx) => {
+      discovery = this.schema.validate(rawDiscovery);
+    } catch (cause) {
+      await this.recordFailureDiagnostic(context, snapshotId, rawDiscovery, cause, discoveredAt);
+      throw cause;
+    }
+    const normalizedPayload = stableJson(discovery);
+    const normalizedSha256 = sha256(normalizedPayload);
+    const projectionRootId = context.deviceAssetId ?? context.hostId;
+    let summary = emptySummary();
+    try {
+      return await this.db.transaction(async (tx) => {
+        await lockProjectionRoot(tx, context);
+        const latestSucceeded = await findLatestSucceededSnapshot(tx, context, discoveryProviderKey);
+        if (latestSucceeded?.normalized_sha256 === normalizedSha256) return latestSucceeded.summary;
+        summary = await this.previewValidated(tx, context, discovery);
         if (context.deviceAssetId) await tx.query(
           `update pg_device_assets set product_family=$1, product_name=$2, software_version=$3,
              plugin_version_id=$4, plugin_binding_id=$5, capability_profile=$6::jsonb, metadata=$7::jsonb,
@@ -237,14 +254,49 @@ export class StandardDeviceDiscoveryProjector {
               })],
           );
         }
-        if (context.deviceAssetId) await insertSnapshot(tx, snapshotId, context, discovery, summary, 'SUCCEEDED', undefined, discoveredAt);
+        await insertSnapshot(tx, snapshotId, context, discoveryProviderKey, normalizedSha256, normalizedPayload, summary, 'SUCCEEDED', undefined, discoveredAt);
+        return summary;
       });
-      return summary;
     } catch (cause) {
-      if (context.deviceAssetId) await insertSnapshot(this.db, snapshotId, context, discovery, summary, 'FAILED', cause instanceof Error ? cause.message : 'DISCOVERY_PROJECTION_FAILED', discoveredAt);
+      await this.recordFailureDiagnostic(context, snapshotId, discovery, cause, discoveredAt, summary);
       throw cause;
     }
   }
+
+  private async recordFailureDiagnostic(
+    context: StandardDiscoveryProjectionContext,
+    snapshotId: string,
+    rawDiscovery: unknown,
+    cause: unknown,
+    discoveredAt: string,
+    summary: StandardDiscoveryProjectionSummary = emptySummary(),
+  ): Promise<void> {
+    try {
+      const discoveryProviderKey = resolveProviderKey(context);
+      const normalizedSha256 = sha256(stableJson(rawDiscovery));
+      await insertSnapshot(
+        this.db,
+        snapshotId,
+        context,
+        discoveryProviderKey,
+        normalizedSha256,
+        null,
+        summary,
+        'FAILED',
+        discoveryErrorCode(cause),
+        discoveredAt,
+      );
+    } catch {
+      // 诊断写入不能掩盖原始 Schema 或投影错误。
+    }
+  }
+}
+
+async function lockProjectionRoot(db: DatabasePort, context: StandardDiscoveryProjectionContext): Promise<void> {
+  await db.query(
+    'select id from pg_hosts where tenant_id=$1 and id=$2 for update',
+    [context.tenantId, context.hostId],
+  );
 }
 
 async function markStale(db: DatabasePort, context: StandardDiscoveryProjectionContext, discoveryProviderKey: string, discoveredAt: string) {
@@ -280,21 +332,60 @@ async function insertSnapshot(
   db: DatabasePort,
   id: string,
   context: StandardDiscoveryProjectionContext,
-  discovery: StandardDeviceDiscoveryV2,
+  discoveryProviderKey: string,
+  normalizedSha256: string,
+  payload: string | null,
   summary: StandardDiscoveryProjectionSummary,
   status: 'SUCCEEDED' | 'FAILED',
   errorCode: string | undefined,
   now: string,
 ) {
-  const payload = stableJson(discovery);
   await db.query(
     `insert into plugin_discovery_snapshots (
-       id, tenant_id, device_asset_id, plugin_version_id, plugin_binding_id, normalized_sha256,
-       status, summary, payload, error_code, created_at
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11)`,
-    [id, context.tenantId, context.deviceAssetId, context.pluginVersionId ?? null, context.pluginBindingId ?? null,
-      createHash('sha256').update(payload).digest('hex'), status, JSON.stringify(summary), payload, errorCode ?? null, now],
+       id, tenant_id, device_id, device_asset_id, plugin_version_id, plugin_binding_id,
+       discovery_provider_key, discovery_source, normalized_sha256, status, summary, payload, error_code, created_at
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14)`,
+    [id, context.tenantId, context.hostId, context.deviceAssetId ?? null, context.pluginVersionId ?? null,
+      context.pluginBindingId ?? null, discoveryProviderKey, context.discoverySource ?? 'PROVIDER', normalizedSha256,
+      status, JSON.stringify(summary), payload, errorCode ?? null, now],
   );
+}
+
+async function findLatestSucceededSnapshot(
+  db: DatabasePort,
+  context: StandardDiscoveryProjectionContext,
+  discoveryProviderKey: string,
+): Promise<{ normalized_sha256: string; summary: StandardDiscoveryProjectionSummary } | undefined> {
+  const result = await db.query<{ normalized_sha256: string; summary: StandardDiscoveryProjectionSummary }>(
+    `select normalized_sha256, summary
+     from plugin_discovery_snapshots
+     where tenant_id=$1 and device_id=$2 and discovery_provider_key=$3
+       and status='SUCCEEDED'
+     order by created_at desc
+     limit 1`,
+    [context.tenantId, context.hostId, discoveryProviderKey],
+  );
+  return result.rows[0];
+}
+
+function emptySummary(): StandardDiscoveryProjectionSummary {
+  return { serviceInstances: 0, sites: 0, managedTargets: 0, certificates: 0, certificateBindings: 0, stale: 0, conflicts: 0 };
+}
+
+function discoveryErrorCode(cause: unknown): string {
+  if (cause instanceof AppError) {
+    const detailCode = isRecord(cause.details) ? cause.details.code : undefined;
+    return typeof detailCode === 'string' ? detailCode : cause.errorCode;
+  }
+  return 'DISCOVERY_PROJECTION_FAILED';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function capabilityProfile(discovery: StandardDeviceDiscoveryV2) {

@@ -58,7 +58,9 @@ function assertCollection(result: StandardDeviceDiscoveryV2, collectionName: key
 function assertUnique(items: Array<{ stableKey: string }>, collection: string) { const keys = new Set<string>(); for (const item of items) { requireStableKey(item.stableKey, `${collection}.stableKey`); if (keys.has(item.stableKey)) throw new AppError('VALIDATION_FAILED', '设备发现稳定键重复', { collection, stableKey: item.stableKey }); keys.add(item.stableKey); } }
 function requireStableKey(value: string, path: string) { if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(value)) throw invalidField(path); }
 function requireNamespace(value: string, path: string) { if (typeof value !== 'string' || !/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(value)) throw invalidField(path); }
-function invalidRelation(path: string, stableKey: string): never { throw new AppError('VALIDATION_FAILED', '设备发现父子关系不存在', { path, stableKey }); }
+function invalidRelation(path: string, stableKey: string): never {
+  throw new AppError('VALIDATION_FAILED', '设备发现父子关系不存在', { code: 'DISCOVERY_RELATION_INVALID', path, stableKey });
+}
 function invalidSchema(): never { throw new AppError('VALIDATION_FAILED', '设备发现结果 Schema 不合法', { code: 'DISCOVERY_SCHEMA_INVALID' }); }
 function invalidField(path: string): never { throw new AppError('VALIDATION_FAILED', '设备发现字段不合法', { code: 'DISCOVERY_SCHEMA_INVALID', path }); }
 function assertNoSecrets(value: unknown, path = '$') { if (Array.isArray(value)) return value.forEach((item, index) => assertNoSecrets(item, `${path}[${index}]`)); if (!isRecord(value)) return; for (const [key, child] of Object.entries(value)) { if (forbiddenKeyPattern.test(key)) throw new AppError('VALIDATION_FAILED', '设备发现结果包含敏感字段', { path: `${path}.${key}` }); assertNoSecrets(child, `${path}.${key}`); } }

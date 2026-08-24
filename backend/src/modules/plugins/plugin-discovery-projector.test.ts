@@ -47,10 +47,15 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   const projector = new StandardDeviceDiscoveryProjector(db);
   const context = { tenantId: 'tenant-1', deviceAssetId: 'device-1', hostId: 'host-1', pluginVersionId: plugin.id };
   const first = await projector.project(context, fixture);
+  const versionAfterFirstProjection = (await db.query<{ version: number }>(
+    'select version from pg_framework_instances where tenant_id=$1 and device_id=$2',
+    ['tenant-1', 'host-1'],
+  )).rows[0]?.version;
   const second = await projector.project(context, fixture);
   assert.deepEqual(second, first);
   assert.equal((await db.query<{ count: string }>("select count(*)::text as count from pg_site_assets where status='ACTIVE'")).rows[0]?.count, '1');
-  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots')).rows[0]?.count, '2');
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots')).rows[0]?.count, '1');
+  assert.equal((await db.query<{ version: number }>('select version from pg_framework_instances where tenant_id=$1 and device_id=$2', ['tenant-1', 'host-1'])).rows[0]?.version, versionAfterFirstProjection);
   assert.equal((await db.query<{ software_version: string }>('select software_version from pg_device_assets where service_asset_id=$1', ['device-1'])).rows[0]?.software_version, longSoftwareVersion);
   const detail = await new PgDevicesRepository(db).get('tenant-1', 'host-1');
   assert.equal(detail?.productFamily, 'Mock ADC');
@@ -86,11 +91,82 @@ test('非法发现关系不会污染上次成功投影', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
   const projector = new StandardDeviceDiscoveryProjector(db);
-  await assert.rejects(() => projector.preview({
-    tenantId: 'tenant-1', deviceAssetId: 'device-1', hostId: 'host-1', pluginVersionId: 'plugin-1',
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-invalid','tenant-1','invalid.example','NETWORK_DEVICE','MANUAL','L1','AGENTLESS','ACTIVE')`);
+  await assert.rejects(() => projector.project({
+    tenantId: 'tenant-1', hostId: 'host-invalid', discoveryProviderKey: 'test:invalid', discoverySource: 'AGENT',
   }, {
     apiVersion: 'gcac.device-discovery/v2', device: { stableKey: 'device:1', displayName: 'Device', productFamily: 'Mock' },
     capabilities: [], frameworks: [], sites: [], managedTargets: [], certificates: [],
     certificateBindings: [{ stableKey: 'binding:1', managedTargetStableKey: 'missing', certificateStableKey: 'missing' }], warnings: [],
   }));
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from pg_framework_instances where device_id=$1', ['host-invalid'])).rows[0]?.count, '0');
+  const failed = (await db.query<{ status: string; payload: unknown; error_code: string }>(
+    'select status, payload, error_code from plugin_discovery_snapshots where device_id=$1',
+    ['host-invalid'],
+  )).rows[0];
+  assert.equal(failed?.status, 'FAILED');
+  assert.equal(failed?.payload, null, '校验失败快照不得持久化未经验证的原始数据');
+  assert.equal(failed?.error_code, 'DISCOVERY_RELATION_INVALID');
+});
+
+test('Agent 发现使用相同标准快照和投影幂等链', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-agent','tenant-agent','agent.example','LINUX','AGENT','L1','AGENT','ACTIVE')`);
+  const projector = new StandardDeviceDiscoveryProjector(db);
+  const context = {
+    tenantId: 'tenant-agent',
+    hostId: 'host-agent',
+    discoveryProviderKey: 'agent:agent-1',
+    discoverySource: 'AGENT' as const,
+  };
+  const discovery = {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'agent-host:agent-1', displayName: 'Agent Host', productFamily: 'AGENT_HOST' },
+    capabilities: [{ key: 'nginx.cert.install', available: true }],
+    frameworks: [{ stableKey: 'nginx', frameworkType: 'web.nginx', displayName: 'NGINX' }],
+    sites: [{ stableKey: 'site:default', frameworkStableKey: 'nginx', siteType: 'web.virtual-host', displayName: 'Default', addresses: ['*'], port: 443, protocol: 'HTTPS' }],
+    managedTargets: [{ stableKey: 'target:default', frameworkStableKey: 'nginx', siteStableKey: 'site:default', targetType: 'tls.file', targetKey: 'nginx:default', supportedCapabilities: ['nginx.cert.install'], executionLocations: ['AGENT'] }],
+    certificates: [],
+    certificateBindings: [],
+    warnings: [],
+  };
+
+  const first = await projector.project(context, discovery);
+  const second = await projector.project(context, structuredClone(discovery));
+  assert.deepEqual(second, first);
+  const snapshots = await db.query<{ count: string; device_asset_id: string | null; discovery_source: string }>(
+    `select count(*) over ()::text as count, device_asset_id, discovery_source
+     from plugin_discovery_snapshots
+     where tenant_id=$1 and device_id=$2`,
+    ['tenant-agent', 'host-agent'],
+  );
+  assert.equal(snapshots.rows[0]?.count, '1');
+  assert.equal(snapshots.rows[0]?.device_asset_id, null);
+  assert.equal(snapshots.rows[0]?.discovery_source, 'AGENT');
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from pg_framework_instances where device_id=$1', ['host-agent'])).rows[0]?.count, '1');
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from pg_managed_targets where device_id=$1', ['host-agent'])).rows[0]?.count, '1');
+});
+
+test('并发重复发现只提交一次标准快照和业务投影', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-concurrent','tenant-concurrent','concurrent.example','LINUX','AGENT','L1','AGENT','ACTIVE')`);
+  const projector = new StandardDeviceDiscoveryProjector(db);
+  const context = { tenantId: 'tenant-concurrent', hostId: 'host-concurrent', discoveryProviderKey: 'agent:concurrent', discoverySource: 'AGENT' as const };
+  const discovery = {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'agent-host:concurrent', displayName: 'Concurrent Host', productFamily: 'AGENT_HOST' },
+    capabilities: [], frameworks: [], sites: [], managedTargets: [], certificates: [], certificateBindings: [], warnings: [],
+  };
+
+  const [left, right] = await Promise.all([
+    projector.project(context, discovery),
+    projector.project(context, structuredClone(discovery)),
+  ]);
+  assert.deepEqual(right, left);
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots where device_id=$1 and status=$2', ['host-concurrent', 'SUCCEEDED'])).rows[0]?.count, '1');
 });
