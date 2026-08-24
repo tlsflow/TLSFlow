@@ -245,8 +245,8 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
     mockResponses: deploymentResponses(),
   });
   assert.equal(result.status, 'success');
-  assert.deepEqual(result.stepResults.map((item) => item.name).slice(-5), [
-    'bindTargets', 'removeOldBindings', 'saveConfiguration', 'verifyCertificateControlPlane', 'verifyTlsHandshakes',
+  assert.deepEqual(result.stepResults.map((item) => item.name).slice(-4), [
+    'bindTargets', 'removeOldBindings', 'saveConfiguration', 'verifyCertificateControlPlane',
   ]);
   const remove = result.stepResults.find((item) => item.name === 'removeOldBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:old-cert/);
@@ -310,7 +310,7 @@ test('Citrix ADC 回滚恢复旧绑定、移除新绑定并验证集合语义等
   });
   assert.equal(result.status, 'success');
   assert.deepEqual(result.stepResults.map((item) => item.name).slice(-4), [
-    'compareFinalBindings', 'requireFinalBindingsEquivalent', 'saveConfiguration', 'verifyPreviousTlsHandshakes',
+    'readFinalBindings', 'compareFinalBindings', 'requireFinalBindingsEquivalent', 'saveConfiguration',
   ]);
   const remove = result.stepResults.find((item) => item.name === 'removeNewBindings')?.children?.[0];
   assert.match(JSON.stringify(remove?.plan), /args=certkeyname:gcac-leaf-20260724/);
