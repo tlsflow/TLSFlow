@@ -5,6 +5,7 @@ import { structuredLogger } from './common/logging/structured-logger.js';
 import { loadEnvFile } from './config/load-env.js';
 import { bootstrapDatabase } from './database/database-bootstrap.js';
 import type { AgentsApplicationService } from './modules/agents/application/agents.application-service.js';
+import type { LivenessApplicationService } from './modules/liveness/application/liveness.application-service.js';
 import type { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
 import type { NotificationWorker } from './modules/notifications/application/notification-worker.js';
@@ -71,6 +72,29 @@ async function start(): Promise<void> {
     };
     evaluateOfflineAgents();
     setInterval(evaluateOfflineAgents, evaluatorIntervalMs);
+  }
+
+  const livenessService = app.getResource<LivenessApplicationService>('livenessService');
+  if (livenessService) {
+    const probeIntervalMs = positiveNumber(process.env.DEVICE_LIVENESS_PROBE_INTERVAL_MS, 10_000);
+    const probeTimeoutMs = positiveNumber(process.env.DEVICE_LIVENESS_TCP_TIMEOUT_MS, 3_000);
+    const probeConcurrency = positiveNumber(process.env.DEVICE_LIVENESS_PROBE_CONCURRENCY, 20);
+    let probing = false;
+    const evaluateManagementProbes = () => {
+      if (probing) return;
+      probing = true;
+      void livenessService.evaluateManagementProbes({ timeoutMs: probeTimeoutMs, concurrency: probeConcurrency })
+        .catch((error: unknown) => {
+          structuredLogger.warn('Device liveness probe failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'device-liveness-probe' });
+        })
+        .finally(() => {
+          probing = false;
+        });
+    };
+    evaluateManagementProbes();
+    setInterval(evaluateManagementProbes, probeIntervalMs);
   }
 
   const executionsService = app.getResource<ExecutionsApplicationService>('executionsService');

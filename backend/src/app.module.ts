@@ -67,6 +67,7 @@ import { UnifiedPluginsApplicationService } from './modules/plugins/application/
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
 import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/standard-device-discovery.projector.js';
+import { LivenessApplicationService } from './modules/liveness/index.js';
 import { PluginCertificateResultService } from './modules/plugins/results/plugin-certificate-result.service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
@@ -117,6 +118,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
+  const livenessService = new LivenessApplicationService(appDb, gatewayTasksService);
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
   const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
   const deviceAssetsService = new DeviceAssetsApplicationService(deviceAssetsRepository);
@@ -148,6 +150,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     security.secrets,
     executionResultSync,
     executionDetailStream,
+    livenessService,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const pluginsRepository = new PgPluginsRepository(appDb);
@@ -181,6 +184,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   const agentPlanCompiler = new UnifiedAgentPlanCompilerService(unifiedPluginsService, pluginBindingsService);
   app.setResource('agentsService', agentsService);
+  app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('workflowTemplatesService', workflowTemplatesService);
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);

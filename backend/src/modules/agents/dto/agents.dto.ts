@@ -335,6 +335,10 @@ export interface GatewayEnableSessionProjection {
 
 export interface AgentDetailProjection {
   agent: AgentRegistration;
+  livenessStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+  livenessReasonCode?: string;
+  livenessObservedAt?: string;
+  signals?: import('../../liveness/schema/liveness.schema.js').DeviceLivenessSignal[];
   lifecycle: AgentLifecycleProjection;
   latestHeartbeat?: AgentHeartbeat;
   health: AgentHealthProjection;

@@ -3,6 +3,8 @@ import type {
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
+import { LivenessDomainService } from '../../liveness/domain/liveness.domain-service.js';
+import type { DeviceLivenessSignal } from '../../liveness/schema/liveness.schema.js';
 
 export interface ManagedDeviceProjectionSource {
   id: string;
@@ -16,6 +18,7 @@ export interface ManagedDeviceProjectionSource {
   hostStatus: string;
   lastDiscoveredAt?: string;
   applicationAssetCount: number;
+  livenessSignals?: DeviceLivenessSignal[];
   agent?: {
     payload: Record<string, unknown>;
     capabilitySnapshot: Record<string, unknown>;
@@ -61,6 +64,8 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       ?? stringValue(payload.updatedAt)
       ?? source.lastDiscoveredAt;
     const osType = (stringValue(descriptor.osType) ?? source.osType).toUpperCase();
+    const healthStatus = mapAgentHealth(sourceStatus, lastContactAt);
+    const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['HEARTBEAT', 'MANAGEMENT_TCP']);
     return {
       id: source.id,
       displayName: source.displayName ?? source.hostname ?? source.primaryIp ?? source.id,
@@ -68,7 +73,10 @@ export class AgentManagedDeviceProjectionAdapter implements ManagedDeviceProject
       productFamily: SERVER_PRODUCT_FAMILY_BY_OS[osType] ?? source.osName ?? osType,
       managementMethod: source.managementMode,
       managementAddress: source.primaryIp ?? source.hostname,
-      health: mapAgentHealth(sourceStatus, lastContactAt),
+      ...liveness,
+      livenessSignals: liveness.signals,
+      healthStatus,
+      health: liveness.livenessStatus === 'OFFLINE' ? 'UNREACHABLE' : healthStatus,
       sourceStatus,
       softwareVersion: projectAgentSystemVersion(osType, descriptor, source),
       lastContactAt,
@@ -96,6 +104,13 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       : appliance.lastDiscoveredAt
         ? 'DISCOVERED'
         : source.hostStatus;
+    const healthStatus = mapNetworkDeviceHealth(
+      source.hostStatus,
+      appliance.lastErrorCode,
+      appliance.supportTier,
+      appliance.lastDiscoveredAt,
+    );
+    const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['MANAGEMENT_TCP']);
     return {
       id: source.id,
       displayName: source.displayName ?? appliance.managementAddress ?? source.id,
@@ -103,12 +118,10 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       productFamily: appliance.productName ?? appliance.deviceFamily,
       managementMethod: 'PLUGIN',
       managementAddress: appliance.managementAddress ?? source.primaryIp ?? source.hostname,
-      health: mapNetworkDeviceHealth(
-        source.hostStatus,
-        appliance.lastErrorCode,
-        appliance.supportTier,
-        appliance.lastDiscoveredAt,
-      ),
+      ...liveness,
+      livenessSignals: liveness.signals,
+      healthStatus,
+      health: liveness.livenessStatus === 'OFFLINE' ? 'UNREACHABLE' : healthStatus,
       sourceStatus,
       softwareVersion: joinVersion(appliance.softwareVersion, appliance.softwareBuild),
       lastContactAt: appliance.lastDiscoveredAt ?? source.lastDiscoveredAt,

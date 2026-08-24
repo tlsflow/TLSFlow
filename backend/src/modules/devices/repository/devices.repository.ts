@@ -72,7 +72,7 @@ export class PgDevicesRepository implements DevicesRepository {
         deviceType: summary.extensionType === 'AGENT' ? 'AGENT' : row.device_family ?? 'NETWORK_APPLIANCE',
         productFamily: summary.productFamily,
         managementMode: row.management_mode,
-        status: summary.health,
+        status: summary.livenessStatus ?? 'UNKNOWN',
         updatedAt,
       },
       informationSections: buildInformationSections(row, summary, updatedAt, resources),
@@ -345,6 +345,31 @@ const DEVICE_LIST_SQL = `
     from pg_documents
     where namespace = 'agents:heartbeats'
     order by payload->>'agentId', payload->>'receivedAt' desc
+  ), liveness_signals as (
+    select tenant_id, resource_type, resource_id,
+           jsonb_agg(jsonb_build_object(
+             'id', id,
+             'tenant_id', tenant_id,
+             'resource_type', resource_type,
+             'resource_id', resource_id,
+             'signal_type', signal_type,
+             'required', required,
+             'status', status,
+             'consecutive_failures', consecutive_failures,
+             'last_observed_at', last_observed_at,
+             'last_success_at', last_success_at,
+             'last_failure_at', last_failure_at,
+             'endpoint_host', endpoint_host,
+             'endpoint_port', endpoint_port,
+             'source', source,
+             'reason_code', reason_code,
+             'reason_detail', reason_detail,
+             'observation_id', observation_id,
+             'created_at', created_at,
+             'updated_at', updated_at
+           ) order by signal_type) signals
+      from pg_device_liveness_signals
+     group by tenant_id, resource_type, resource_id
   ), application_counts as (
     select host_id, count(distinct asset_id)::int as asset_count
     from (
@@ -376,6 +401,7 @@ const DEVICE_LIST_SQL = `
     agent.payload as agent_payload,
     snapshot.payload as agent_capability_payload,
     heartbeat.received_at as agent_last_heartbeat_at,
+    coalesce(liveness.signals, '[]'::jsonb) as liveness_signals,
     device.service_asset_id as device_asset_id,
     device.device_family,
     device.management_port,
@@ -396,6 +422,9 @@ const DEVICE_LIST_SQL = `
   left join agent_extensions agent on agent.agent_id = host.agent_id
   left join agent_snapshots snapshot on snapshot.agent_id = host.agent_id
   left join agent_heartbeats heartbeat on heartbeat.agent_id = host.agent_id
+  left join liveness_signals liveness on liveness.tenant_id=host.tenant_id
+    and liveness.resource_type=case when host.agent_id is not null then 'AGENT' else 'DEVICE' end
+    and liveness.resource_id=coalesce(host.agent_id, host.id)
   left join pg_device_assets device on device.tenant_id = host.tenant_id and device.host_id = host.id
   left join pg_service_assets service on service.tenant_id = device.tenant_id and service.id = device.service_asset_id and service.deleted_at is null
   left join application_counts counts on counts.host_id = host.id
@@ -420,6 +449,7 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   agent_payload: Record<string, unknown> | null;
   agent_capability_payload: Record<string, unknown> | null;
   agent_last_heartbeat_at: string | null;
+  liveness_signals: Array<Record<string, unknown>> | null;
   device_asset_id: string | null;
   device_family: string | null;
   management_port: number | null;
@@ -538,6 +568,7 @@ function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSourc
     hostStatus: row.host_status,
     lastDiscoveredAt: row.last_discovered_at ?? undefined,
     applicationAssetCount: Number(row.application_asset_count),
+    livenessSignals: (row.liveness_signals ?? []).map(mapLivenessSignal),
   };
   if (row.device_family) {
     source.networkAppliance = {
@@ -559,6 +590,34 @@ function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSourc
     };
   }
   return source;
+}
+
+function mapLivenessSignal(row: Record<string, unknown>): import('../../liveness/schema/liveness.schema.js').DeviceLivenessSignal {
+  return {
+    id: String(row.id),
+    tenantId: String(row.tenant_id),
+    resourceType: String(row.resource_type) as 'AGENT' | 'DEVICE',
+    resourceId: String(row.resource_id),
+    signalType: String(row.signal_type) as 'HEARTBEAT' | 'MANAGEMENT_TCP',
+    required: row.required !== false,
+    status: String(row.status) as 'UNKNOWN' | 'HEALTHY' | 'SUSPECT' | 'FAILED',
+    consecutiveFailures: Number(row.consecutive_failures ?? 0),
+    lastObservedAt: optionalString(row.last_observed_at),
+    lastSuccessAt: optionalString(row.last_success_at),
+    lastFailureAt: optionalString(row.last_failure_at),
+    endpointHost: optionalString(row.endpoint_host),
+    endpointPort: row.endpoint_port === null || row.endpoint_port === undefined ? undefined : Number(row.endpoint_port),
+    source: String(row.source) as 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY',
+    reasonCode: optionalString(row.reason_code),
+    reasonDetail: optionalString(row.reason_detail),
+    observationId: optionalString(row.observation_id),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
 }
 
 function matches(item: ManagedDeviceSummaryDto, query: ManagedDeviceListQuery): boolean {

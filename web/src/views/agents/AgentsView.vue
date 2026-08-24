@@ -607,6 +607,9 @@ function formatHealthStatus(value: unknown): string {
 }
 
 function resolveHealthStatus(data: ApiRecord): string {
+  const livenessStatus = readValue(data, ['livenessStatus'], '').toUpperCase()
+  if (livenessStatus === 'OFFLINE') return t('designSystem.status.OFFLINE')
+  if (livenessStatus === 'UNKNOWN') return t('designSystem.status.UNKNOWN')
   const agentStatus = readValue(data, ['agent.status', 'agent.state', 'status'], '').toUpperCase()
   if (agentStatus === 'OFFLINE' || readPath(data, 'health.offline') === true) {
     return t('designSystem.status.OFFLINE')

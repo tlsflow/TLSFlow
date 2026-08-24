@@ -20,11 +20,11 @@ import type { CertificatesApplicationService } from '../../certificates/applicat
 import type { SecretService } from '../../secrets/secret.service.js';
 import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
 import type { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
+import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
   private readonly offlineTimeoutCounts = new Map<string, number>();
-
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -33,6 +33,7 @@ export class AgentsApplicationService {
     private readonly secrets?: SecretService,
     private readonly executionResultSync?: ExecutionResultSyncService,
     private readonly detailStream?: ExecutionDetailStreamService,
+    private readonly liveness?: LivenessApplicationService,
   ) {}
 
   getModuleMetadata() {
@@ -136,6 +137,7 @@ export class AgentsApplicationService {
       receivedAt: now,
       requestId,
     });
+    await this.liveness?.recordHeartbeat(tenantId, agent.id, now);
     return { agent: updated, heartbeat };
   }
 
@@ -266,6 +268,7 @@ export class AgentsApplicationService {
 
   async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
     await this.requireAgent(tenantId, input.agentId);
+    await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
     if (existing) return existing;
     const now = new Date().toISOString();
@@ -322,6 +325,10 @@ export class AgentsApplicationService {
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
     const agent = await this.requireAgent(tenantId, agentId);
     if (agent.status === 'DISABLED') return [];
+    if (this.liveness) {
+      const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']);
+      if (projection.signals.length > 0 && projection.livenessStatus !== 'ONLINE') return [];
+    }
     const tasks = await this.repository.listTasks(tenantId, agentId, ['queued']);
     return tasks.slice(0, limit);
   }
@@ -886,9 +893,13 @@ export class AgentsApplicationService {
   }
 
   listAgents(tenantId: string, query: PageQuery) {
-    return this.repository.listRegistrations(tenantId, query).then((page) => {
+    return this.repository.listRegistrations(tenantId, query).then(async (page) => {
       const items = this.deduplicateRegistrations(page.items);
-      return { ...page, items, total: items.length };
+      const projected = await Promise.all(items.map(async (agent) => ({
+        ...agent,
+        ...(this.liveness ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP']) : {}),
+      })));
+      return { ...page, items: projected, total: projected.length };
     });
   }
 
@@ -923,13 +934,27 @@ export class AgentsApplicationService {
         this.offlineTimeoutCounts.delete(timeoutKey);
         continue;
       }
-      if (agent.status === 'OFFLINE') {
-        this.offlineTimeoutCounts.delete(timeoutKey);
-        continue;
+      if (!this.liveness) {
+        if (agent.status === 'OFFLINE') {
+          this.offlineTimeoutCounts.delete(timeoutKey);
+          continue;
+        }
+        const timeoutCount = (this.offlineTimeoutCounts.get(timeoutKey) ?? 0) + 1;
+        this.offlineTimeoutCounts.set(timeoutKey, timeoutCount);
+        if (timeoutCount < requiredConsecutiveTimeouts) continue;
       }
-      const timeoutCount = (this.offlineTimeoutCounts.get(timeoutKey) ?? 0) + 1;
-      this.offlineTimeoutCounts.set(timeoutKey, timeoutCount);
-      if (timeoutCount < requiredConsecutiveTimeouts) continue;
+      await this.liveness?.recordHeartbeatTimeout({
+        tenantId: agent.tenantId,
+        agentId: agent.id,
+        observedAt: nowIso,
+        reasonDetail: `lastHeartbeatAt=${referenceAt};offlineTimeoutSeconds=${offlineTimeoutSeconds}`,
+      });
+      const liveness = this.liveness
+        ? await this.liveness.project(agent.tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP'])
+        : undefined;
+      if (liveness && liveness.livenessStatus !== 'OFFLINE') continue;
+      if (!liveness && requiredConsecutiveTimeouts > 1) continue;
+      if (agent.status === 'OFFLINE') continue;
 
       const updated = await this.repository.updateRegistration(agent.id, {
         status: 'OFFLINE',
@@ -937,8 +962,8 @@ export class AgentsApplicationService {
         updatedAt: nowIso,
         lastRequestId: `offline_evaluator:${now.getTime()}`,
       });
-      this.offlineTimeoutCounts.delete(timeoutKey);
       transitioned += 1;
+      this.offlineTimeoutCounts.delete(timeoutKey);
       this.syncGatewayRegistryInBackground(agent.tenantId, updated);
     }
 
@@ -961,11 +986,21 @@ export class AgentsApplicationService {
     const recentErrors = await this.repository.listAgentTaskLogs(tenantId, agent.id, ['error']);
     const runtimeLogs = await this.repository.listAgentRuntimeLogs(tenantId, agent.id);
     const recentTaskLogs = await this.listRecentTaskRuntimeLogs(tenantId, agent.id);
+    const liveness = this.liveness
+      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP'])
+      : undefined;
+    const health = this.toHealthProjection(agent, latestHeartbeat);
+    if (liveness?.livenessStatus === 'OFFLINE') {
+      health.status = 'failed';
+      health.offline = true;
+      health.offlineEvidence = [...health.offlineEvidence, `livenessReasonCode=${liveness.livenessReasonCode ?? 'unknown'}`];
+    }
     return {
       agent,
+      ...liveness,
       lifecycle: this.toLifecycle(agent),
       latestHeartbeat,
-      health: this.toHealthProjection(agent, latestHeartbeat),
+      health,
       capabilitySnapshot,
       capabilities,
       taskQueue,
@@ -1183,6 +1218,18 @@ export class AgentsApplicationService {
     return readPositiveSeconds('AGENT_OFFLINE_TIMEOUT_SECONDS', 180);
   }
 
+  private async assertLivenessAllowsExecution(tenantId: string, agentId: string): Promise<void> {
+    if (!this.liveness) return;
+    const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']);
+    if (projection.signals.length === 0) return;
+    if (projection.livenessStatus === 'ONLINE') return;
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', projection.livenessStatus === 'OFFLINE' ? 'Agent 已离线，不能下发任务' : 'Agent 存活状态尚未确认，不能下发任务', {
+      agentId,
+      livenessStatus: projection.livenessStatus,
+      reasonCode: projection.livenessReasonCode,
+    });
+  }
+
   private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
     const tasks = await this.repository.listTasks(tenantId, agentId, ['queued', 'leased', 'acked']);
     return tasks.find((task) => task.payload?.type === 'agent.capability.rescan');
@@ -1337,8 +1384,12 @@ async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSes
       agentKey: session.agentKey,
       enrollmentToken: session.enrollmentToken,
       controlPlaneUrl: session.controlPlaneUrl,
-      heartbeatIntervalSeconds: 30,
+      heartbeatIntervalSeconds: 10,
       taskPollIntervalSeconds: 5,
+      directControlEnabled: true,
+      directControlListenHost: '0.0.0.0',
+      directControlListenPort: 18933,
+      directControlAdvertiseHost: '',
       requiredHotfixes: [],
       dataDirectory: session.dataDir,
       logDirectory: session.logDir,
@@ -1348,6 +1399,7 @@ async function buildWindowsCompatibilityInstallManifest(session: AgentInstallSes
 
 function installDirectControlListenPort(session: AgentInstallSession): number {
   if (session.role === 'gateway') return 18932;
+  if (session.platform === 'windows_compatibility_service') return 18933;
   return session.platform === 'linux_go_systemd' ? 18931 : 18930;
 }
 

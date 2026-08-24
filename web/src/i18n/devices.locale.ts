@@ -1,7 +1,7 @@
 const english = {
   page: { title: 'Devices', description: 'Manage servers and network appliances from one device inventory.' },
   actions: { add: 'Add device', detail: 'View details', delete: 'Delete', cancel: 'Cancel', previous: 'Previous', finish: 'Finish', generateCommand: 'Generate install command', copyCommand: 'Copy command', copied: 'Copied' },
-  columns: { name: 'Name', category: 'Category', productFamily: 'Product family', managementMethod: 'Management method', managementAddress: 'Management address', health: 'Health', version: 'Version', applications: 'Applications', lastContact: 'Last contact', actions: 'Actions' },
+  columns: { name: 'Name', category: 'Category', productFamily: 'Product family', managementMethod: 'Management method', managementAddress: 'Management address', liveness: 'Liveness', health: 'Health', version: 'Version', applications: 'Applications', lastContact: 'Last contact', actions: 'Actions' },
   metrics: { total: 'Total devices', totalDescription: 'All authorized managed devices', abnormal: 'Needs attention', abnormalDescription: 'Unreachable or degraded devices' },
   filters: { category: 'Category', managementMethod: 'Management method', health: 'Health' },
   categories: { server: 'Server', networkAppliance: 'Network appliance', securityAppliance: 'Security appliance' },
@@ -20,7 +20,7 @@ export const devicesZhCN = {
   ...english,
   page: { title: '设备', description: '在同一设备清单中管理服务器和网络设备。' },
   actions: { add: '添加设备', detail: '详情', delete: '删除', cancel: '取消', previous: '上一步', finish: '完成', generateCommand: '生成安装命令', copyCommand: '一键复制', copied: '已复制' },
-  columns: { name: '名称', category: '设备类别', productFamily: '产品族', managementMethod: '管理方式', managementAddress: '管理地址', health: '健康状态', version: '版本', applications: '应用数量', lastContact: '最近通信', actions: '操作' },
+  columns: { name: '名称', category: '设备类别', productFamily: '产品族', managementMethod: '管理方式', managementAddress: '管理地址', liveness: '存活状态', health: '健康状态', version: '版本', applications: '应用数量', lastContact: '最近通信', actions: '操作' },
   metrics: { total: '设备总数', totalDescription: '当前有权访问的全部受管设备', abnormal: '需要关注', abnormalDescription: '不可达或降级的设备' },
   filters: { category: '设备类别', managementMethod: '管理方式', health: '健康状态' }, categories: { server: '服务器', networkAppliance: '网络设备', securityAppliance: '安全设备' }, managementMethods: { agent: 'Agent 管理', api: 'API 管理' }, health: { healthy: '健康', degraded: '降级', unreachable: '不可达', disabled: '已禁用', unknown: '未知' },
   empty: { title: '暂无设备', description: '安装服务器 Agent，或连接受支持的网络设备。' }, platforms: { windows: 'Windows', windowsCompatibility: 'Windows（兼容）', linux: 'Linux', citrixAdc: 'Citrix ADC', sangfor: 'Sangfor', f5: 'F5' },

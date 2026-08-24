@@ -56,7 +56,7 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'productFamily', title: t('devices.columns.productFamily'), candidates: ['productFamily'] },
     { key: 'managementMethod', title: t('devices.columns.managementMethod'), candidates: ['managementMethod'] },
     { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'] },
-    { key: 'status', title: t('devices.columns.health'), candidates: ['health', 'sourceStatus'], kind: 'status' },
+    { key: 'status', title: t('devices.columns.liveness'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status' },
     { key: 'version', title: t('devices.columns.version'), candidates: ['softwareVersion'] },
     { key: 'applicationAssetCount', title: t('devices.columns.applications'), candidates: ['applicationAssetCount'], kind: 'count' },
     { key: 'lastSeenAt', title: t('devices.columns.lastContact'), candidates: ['lastContactAt'], kind: 'date' },

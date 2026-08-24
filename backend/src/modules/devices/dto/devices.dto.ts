@@ -1,5 +1,6 @@
 export type ManagedDeviceCategory = 'SERVER' | 'NETWORK_APPLIANCE' | 'SECURITY_APPLIANCE';
 export type ManagedDeviceHealth = 'HEALTHY' | 'DEGRADED' | 'UNREACHABLE' | 'DISABLED' | 'UNKNOWN';
+export type ManagedDeviceLivenessStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 export type ManagedDeviceExtensionType = 'AGENT' | 'NETWORK_APPLIANCE';
 
 export interface ManagedDeviceSummaryDto {
@@ -9,6 +10,11 @@ export interface ManagedDeviceSummaryDto {
   productFamily: string;
   managementMethod: string;
   managementAddress?: string;
+  livenessStatus?: ManagedDeviceLivenessStatus;
+  healthStatus?: ManagedDeviceHealth;
+  livenessReasonCode?: string;
+  livenessObservedAt?: string;
+  livenessSignals?: import('../../liveness/schema/liveness.schema.js').DeviceLivenessSignal[];
   health: ManagedDeviceHealth;
   sourceStatus: string;
   softwareVersion?: string;

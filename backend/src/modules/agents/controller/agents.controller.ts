@@ -1031,7 +1031,7 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  gatewayEnabled: manifest.gatewayEnabled === true,',
     '  zone: manifest.zone,',
     '  controlPlaneUrl: manifest.controlPlaneUrl,',
-    '  heartbeatIntervalSeconds: 30,',
+    '  heartbeatIntervalSeconds: 10,',
     '  taskPollIntervalSeconds: 60,',
     '  healthCheckIntervalSeconds: 30,',
     '  offlineTimeoutSeconds: 180,',

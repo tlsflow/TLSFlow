@@ -44,7 +44,7 @@ const pluginTabRows = computed(() => ({
   logs: arrayRecords(detail.value?.logs),
 }))
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
-const status = computed(() => String(detail.value?.health ?? 'UNKNOWN'))
+const status = computed(() => String(detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
 const heroSubtitle = computed(() => String(detail.value?.category ?? detail.value?.managementMode ?? ''))
 const deviceAssetId = computed(() => {
