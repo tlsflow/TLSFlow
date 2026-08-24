@@ -2273,6 +2273,7 @@ export default {
       siteInstance: 'Экземпляр сайта',
       certificateFormat: 'Конфигурация артефакта сертификата',
       workflow: 'Рабочий процесс',
+      workflowVersionSelection: 'Политика версии рабочего процесса',
       publishedVersion: 'Опубликованная версия',
       runner: 'Место запуска',
       artifactFormat: 'Конфигурация формата артефакта'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: 'Привязать Agent, экземпляр сайта и управляемую цель',
       workflow: 'Режим рабочего процесса',
       workflowDescription: 'Выбрать версию рабочего процесса и переменные запуска'
+    },
+    workflowVersionSelection: {
+      pinned: 'Закрепить выбранную версию',
+      latestPublished: 'Всегда использовать последнюю опубликованную версию'
     },
     loading: {
       agents: 'Загрузка Agent...',

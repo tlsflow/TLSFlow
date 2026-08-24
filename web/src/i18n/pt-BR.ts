@@ -2273,6 +2273,7 @@ export default {
       siteInstance: 'Instância do site',
       certificateFormat: 'Configuração do artefato de certificado',
       workflow: 'Fluxo de trabalho',
+      workflowVersionSelection: 'Política de versão do workflow',
       publishedVersion: 'Versão publicada',
       runner: 'Local de execução',
       artifactFormat: 'Configuração de formato do artefato'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: 'Vincular Agent, instância do site e destino gerenciado',
       workflow: 'Modo workflow',
       workflowDescription: 'Selecionar versão do workflow e variáveis de execução'
+    },
+    workflowVersionSelection: {
+      pinned: 'Fixar versão selecionada',
+      latestPublished: 'Sempre usar a versão publicada mais recente'
     },
     loading: {
       agents: 'Carregando Agents...',

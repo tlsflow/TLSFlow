@@ -27,6 +27,7 @@ type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
 type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM'
 type AssetManagementMode = 'AGENT' | 'WORKFLOW'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
+type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
 type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate'
 
@@ -46,6 +47,7 @@ interface AssetDraft {
   environment: string
   tagsText: string
   workflowId: string
+  workflowVersionSelection: WorkflowVersionSelection
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
   workflowGatewayId: string
@@ -220,6 +222,7 @@ const assetDraft = reactive<AssetDraft>({
   environment: '',
   tagsText: '',
   workflowId: '',
+  workflowVersionSelection: 'PINNED',
   workflowVersionId: '',
   workflowRunner: 'CONTROL_PLANE',
   workflowGatewayId: '',
@@ -410,8 +413,21 @@ const selectedWorkflowTemplate = computed(() =>
   workflowItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowId) ?? null,
 )
 
+const latestPublishedWorkflowVersion = computed(() => {
+  const currentVersionId = String(selectedWorkflowTemplate.value?.currentVersionId ?? '')
+  const current = workflowVersionItems.value.find((item) =>
+    String(item.id ?? '') === currentVersionId && workflowVersionStatus(item) === 'published',
+  )
+  if (current) return current
+  return [...workflowVersionItems.value]
+    .filter((item) => workflowVersionStatus(item) === 'published')
+    .sort((left, right) => Number(right.version ?? 0) - Number(left.version ?? 0))[0] ?? null
+})
+
 const selectedWorkflowVersion = computed(() =>
-  workflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
+  assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
+    ? latestPublishedWorkflowVersion.value
+    : workflowVersionItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowVersionId) ?? null,
 )
 
 const publishedWorkflowVersionItems = computed(() =>
@@ -515,10 +531,13 @@ const workflowStepReady = computed(() => {
   if (assetDraft.managementMode !== 'WORKFLOW') return true
   const selectedVersionIsPublished = assetDraft.workflowVersionId
     && workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
+  const versionSelectionReady = assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'
+    ? workflowVersionStatus(selectedWorkflowVersion.value) === 'published'
+    : selectedVersionIsPublished
   const gatewayReady = assetDraft.workflowRunner === 'CONTROL_PLANE' || assetDraft.workflowGatewayId.trim()
   return Boolean(
     assetDraft.workflowId.trim()
-    && selectedVersionIsPublished
+    && versionSelectionReady
     && gatewayReady
     && !workflowVariablesError.value
     && !workflowCertificateArtifactError.value
@@ -613,6 +632,7 @@ async function openEditDialog(row: ViewRow) {
       assetDraft.workflowTargetSniName = workflowTarget.sniName ?? ''
     }
     assetDraft.workflowId = String(readNested(deploymentStrategy, ['workflow', 'workflowId']) ?? '')
+    assetDraft.workflowVersionSelection = readWorkflowVersionSelection(deploymentStrategy)
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
     assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
@@ -632,7 +652,7 @@ async function openEditDialog(row: ViewRow) {
   createRequestId.value = ''
   await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
-  if (assetDraft.workflowVersionId) syncWorkflowVariableRowsFromVersion()
+  if (selectedWorkflowVersion.value) syncWorkflowVariableRowsFromVersion()
 }
 
 function closeCreateDialog() {
@@ -683,8 +703,11 @@ async function loadWorkflowVersions(workflowId: string) {
     if (assetDraft.workflowVersionId && !workflowVersionItems.value.some((item) => String(item.id ?? '') === assetDraft.workflowVersionId)) {
       assetDraft.workflowVersionId = ''
     }
-    if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
+    if (assetDraft.workflowVersionSelection === 'PINNED' && !assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
       assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
+    }
+    if (assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED') {
+      syncWorkflowVariableRowsFromVersion()
     }
     ensureWorkflowCertificateArtifactBindings()
   } catch (cause) {
@@ -946,6 +969,7 @@ function resetDraft() {
   assetDraft.environment = ''
   assetDraft.tagsText = ''
   assetDraft.workflowId = ''
+  assetDraft.workflowVersionSelection = 'PINNED'
   assetDraft.workflowVersionId = ''
   assetDraft.workflowRunner = 'CONTROL_PLANE'
   assetDraft.workflowGatewayId = ''
@@ -1011,7 +1035,10 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
       type: 'WORKFLOW',
       workflow: {
         workflowId: assetDraft.workflowId.trim(),
-        workflowVersionId: assetDraft.workflowVersionId.trim(),
+        workflowVersionSelection: assetDraft.workflowVersionSelection,
+        ...(assetDraft.workflowVersionSelection === 'PINNED'
+          ? { workflowVersionId: assetDraft.workflowVersionId.trim() }
+          : {}),
         runner: assetDraft.workflowRunner,
         gatewayId,
         target: workflowTarget,
@@ -1556,6 +1583,15 @@ function readDeploymentStrategy(source: unknown): ApiRecord | null {
   return null
 }
 
+function readWorkflowVersionSelection(deploymentStrategy: ApiRecord | null): WorkflowVersionSelection {
+  const value = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionSelection']) ?? '')
+  if (value === 'LATEST_PUBLISHED') return 'LATEST_PUBLISHED'
+  if (value === 'PINNED') return 'PINNED'
+  return String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '').trim()
+    ? 'PINNED'
+    : 'LATEST_PUBLISHED'
+}
+
 function readWorkflowTargetFromAsset(source: unknown, deploymentStrategy: ApiRecord | null = readDeploymentStrategy(source)): WorkflowTargetInfo | null {
   const target = readRecord(readNested(source, ['metadata', 'workflowTarget']))
     ?? readRecord(readNested(deploymentStrategy, ['workflow', 'target']))
@@ -2033,6 +2069,20 @@ watch(
   () => assetDraft.workflowVersionId,
   () => {
     if (assetDraft.managementMode !== 'WORKFLOW') return
+    syncWorkflowVariableRowsFromVersion()
+    ensureWorkflowCertificateArtifactBindings()
+  },
+)
+
+watch(
+  () => assetDraft.workflowVersionSelection,
+  () => {
+    if (assetDraft.managementMode !== 'WORKFLOW') return
+    if (assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED') {
+      assetDraft.workflowVersionId = ''
+    } else if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
+      assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
+    }
     syncWorkflowVariableRowsFromVersion()
     ensureWorkflowCertificateArtifactBindings()
   },
@@ -2535,9 +2585,16 @@ watch(
                 </select>
               </label>
               <label class="asset-form__field">
+                <span>{{ t('assets.fields.workflowVersionSelection') }} <strong>*</strong></span>
+                <select v-model="assetDraft.workflowVersionSelection" :disabled="!assetDraft.workflowId">
+                  <option value="PINNED">{{ t('assets.workflowVersionSelection.pinned') }}</option>
+                  <option value="LATEST_PUBLISHED">{{ t('assets.workflowVersionSelection.latestPublished') }}</option>
+                </select>
+              </label>
+              <label class="asset-form__field">
                 <span>{{ t('assets.fields.publishedVersion') }} <strong>*</strong></span>
-                <select v-model="assetDraft.workflowVersionId" :disabled="workflowVersionListLoading || !assetDraft.workflowId">
-                  <option value="">{{ workflowVersionListLoading ? t('assets.loading.versions') : t('assets.select.publishedVersion') }}</option>
+                <select v-model="assetDraft.workflowVersionId" :disabled="workflowVersionListLoading || !assetDraft.workflowId || assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED'">
+                  <option value="">{{ workflowVersionListLoading ? t('assets.loading.versions') : assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED' && selectedWorkflowVersion ? workflowVersionLabel(selectedWorkflowVersion) : t('assets.select.publishedVersion') }}</option>
                   <option
                     v-for="version in workflowVersionItems"
                     :key="String(version.id)"
@@ -2815,7 +2872,7 @@ watch(
             </div>
             <div v-else>
               <dt>{{ t('assets.review.workflowVersion') }}</dt>
-              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
+              <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED' ? t('assets.workflowVersionSelection.latestPublished') : workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'WORKFLOW'">
               <dt>{{ t('assets.workflowTarget.title') }}</dt>

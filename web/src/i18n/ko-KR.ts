@@ -2273,6 +2273,7 @@ export default {
       siteInstance: '사이트 인스턴스',
       certificateFormat: '인증서 아티팩트 설정',
       workflow: '워크플로',
+      workflowVersionSelection: '워크플로 버전 정책',
       publishedVersion: '배포된 버전',
       runner: '실행 위치',
       artifactFormat: '제품 형식 설정'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: 'Agent 바인딩, 사이트 인스턴스 및 관리되는 대상',
       workflow: '워크플로 모드',
       workflowDescription: '워크플로 버전과 실행 변수를 선택하세요'
+    },
+    workflowVersionSelection: {
+      pinned: '지정 버전 고정',
+      latestPublished: '항상 최신 배포 버전 사용'
     },
     loading: {
       agents: 'Agent 로드 중...',

@@ -766,8 +766,9 @@ function normalizeWorkflowApplicationAssetTarget(item: ApiRecord): ApiRecord | n
   const applicationAssetId = readString(item, ['id'])
   if (!applicationAssetId) return null
   const workflowId = readString(item, ['deploymentStrategy.workflow.workflowId', 'metadata.deploymentStrategy.workflow.workflowId'])
+  const workflowVersionSelection = readString(item, ['deploymentStrategy.workflow.workflowVersionSelection', 'metadata.deploymentStrategy.workflow.workflowVersionSelection'], 'PINNED')
   const workflowVersionId = readString(item, ['deploymentStrategy.workflow.workflowVersionId', 'metadata.deploymentStrategy.workflow.workflowVersionId'])
-  if (!workflowId || !workflowVersionId) return null
+  if (!workflowId || (workflowVersionSelection !== 'LATEST_PUBLISHED' && !workflowVersionId)) return null
   const displayName = readString(item, ['displayName', 'address', 'domainName'], applicationAssetId)
   const runner = readString(item, ['deploymentStrategy.workflow.runner', 'metadata.deploymentStrategy.workflow.runner'], 'CONTROL_PLANE')
   const gatewayId = readString(item, ['deploymentStrategy.workflow.gatewayId', 'metadata.deploymentStrategy.workflow.gatewayId'])
@@ -791,8 +792,11 @@ function normalizeWorkflowApplicationAssetTarget(item: ApiRecord): ApiRecord | n
     displayName,
     workflowId,
     workflowVersionId,
+    workflowVersionSelection,
     workflowLabel: workflowTemplateLabelById(workflowId),
-    workflowVersionLabel: workflowVersionLabelById(workflowId, workflowVersionId),
+    workflowVersionLabel: workflowVersionSelection === 'LATEST_PUBLISHED'
+      ? t('assets.workflowVersionSelection.latestPublished')
+      : workflowVersionLabelById(workflowId, workflowVersionId),
     runner,
     runnerLabel: runner === 'GATEWAY' ? `Gateway${gatewayId ? `：${gatewayId}` : ''}` : t('deploymentPlans.target.controlPlane'),
     verifyUrl: readString(item, ['verifyUrl', 'metadata.verifyUrl']),

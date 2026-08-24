@@ -2273,6 +2273,7 @@ export default {
       siteInstance: '站点实例',
       certificateFormat: '证书产物配置',
       workflow: '工作流',
+      workflowVersionSelection: '工作流版本策略',
       publishedVersion: '已发布版本',
       runner: '运行位置',
       artifactFormat: '产物格式配置'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: '绑定 Agent、站点实例和受管目标',
       workflow: '工作流模式',
       workflowDescription: '选择工作流版本和运行变量'
+    },
+    workflowVersionSelection: {
+      pinned: '固定指定版本',
+      latestPublished: '始终使用最新发布版本'
     },
     loading: {
       agents: '加载 Agent 中...',

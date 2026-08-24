@@ -2273,6 +2273,7 @@ export default {
       siteInstance: 'サイトインスタンス',
       certificateFormat: '証明書成果物設定',
       workflow: 'ワークフロー',
+      workflowVersionSelection: 'ワークフローバージョンポリシー',
       publishedVersion: '公開済みバージョン',
       runner: '実行場所',
       artifactFormat: '成果物形式設定'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: 'Agent、サイトインスタンス、管理対象ターゲットをバインド',
       workflow: 'ワークフローモード',
       workflowDescription: '選択ワークフローバージョンと実行変数'
+    },
+    workflowVersionSelection: {
+      pinned: '指定バージョンに固定',
+      latestPublished: '常に最新の公開済みバージョンを使用'
     },
     loading: {
       agents: '読み込み Agent 中...',

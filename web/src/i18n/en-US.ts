@@ -2273,6 +2273,7 @@ export default {
       siteInstance: 'Site instance',
       certificateFormat: 'Certificate artifact format',
       workflow: 'Workflow',
+      workflowVersionSelection: 'Workflow version policy',
       publishedVersion: 'Published version',
       runner: 'Runner',
       artifactFormat: 'Artifact format'
@@ -2327,6 +2328,10 @@ export default {
       agentDescription: 'Bind Agent, site instance, and managed target',
       workflow: 'Workflow mode',
       workflowDescription: 'Select workflow version and runtime variables'
+    },
+    workflowVersionSelection: {
+      pinned: 'Pin selected version',
+      latestPublished: 'Always use latest published version'
     },
     loading: {
       agents: 'Loading Agents...',
