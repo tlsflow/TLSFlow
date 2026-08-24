@@ -16,6 +16,11 @@ const packageCases = [
   ['cloud-huawei', 'cloud.huawei', 'huawei'],
   ['cloud-volcengine', 'cloud.volcengine', 'volcengine'],
 ];
+const publicManifestKeys = [
+  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'defaultLocale', 'publisher',
+  'runtime', 'source', 'scope', 'trust', 'support', 'capabilities', 'permissions', 'compatibility', 'resources',
+];
+const publicResourceKeys = ['runtimeEntrypoint', 'workflows', 'forms', 'presentations', 'discoveryMappings', 'locales'];
 
 test('四个 Cloud 包结构符合 P2 Manifest 合同并由真实 Runner 子进程加载', async () => {
   for (const [directory, pluginId, provider] of packageCases) {
@@ -26,9 +31,13 @@ test('四个 Cloud 包结构符合 P2 Manifest 合同并由真实 Runner 子进�
     assert.equal(manifest.pluginId, pluginId);
     assert.equal(manifest.version, '2.0.0');
     assert.equal(manifest.runtime, 'WORKFLOW_DSL');
+    assert.deepEqual(Object.keys(manifest).sort(), [...publicManifestKeys].sort(), `${pluginId} 含公共 Schema 未允许的 Manifest 字段`);
+    assert.deepEqual(Object.keys(manifest.resources).sort(), [...publicResourceKeys].sort(), `${pluginId} 含公共 Schema 未允许的资源字段`);
     assert.equal(manifest.resources.runtimeEntrypoint, 'runtime/index.js');
     assert.ok(manifest.resources.workflows);
-    for (const forbidden of ['executionMode', 'ipcProtocol', 'providerKey', 'hostApiGrants']) assert.equal(Object.hasOwn(manifest, forbidden), false, `${pluginId} 含旧 Manifest 字段 ${forbidden}`);
+    assert.equal(Object.hasOwn(manifest.resources, 'agentPlans'), false, `${pluginId} 不得声明 Agent Plan`);
+    for (const forbidden of ['executionMode', 'ipcProtocol', 'providerKey', 'hostApiGrants', 'readOnly']) assert.equal(Object.hasOwn(manifest, forbidden), false, `${pluginId} 含旧 Manifest 字段 ${forbidden}`);
+    assert.deepEqual(Object.keys(manifest.resources.workflows).sort(), manifest.capabilities.map((item) => item.key).sort(), `${pluginId} Capability 与 Workflow 未一一绑定`);
     for (const directoryName of ['runtime', 'workflows', 'discovery', 'locales', 'presentations', 'fixtures']) assert.equal(existsSync(join(packageDirectory, directoryName)), true, `${pluginId} 缺少 ${directoryName} 目录`);
     const digest = packageDigest(packageDirectory, manifest);
     const result = await runChild({ packageDirectory, manifest, pluginId, provider, digest });
