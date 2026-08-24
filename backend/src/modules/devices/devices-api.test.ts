@@ -8,6 +8,7 @@ import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { PgDevicesRepository } from './repository/devices.repository.js';
 import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.repository.js';
+import { DevicePlatformRegistry } from './domain/device-platform.registry.js';
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
   const database = new CountingDatabase(new PgliteDatabase());
@@ -115,6 +116,18 @@ test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边
   assert.ok(detail?.allowedActions.includes('TEST_CONNECTION'));
   assert.ok(!detail?.allowedActions.includes('UPGRADE_AGENT'));
   assert.equal(detail?.publicSummary.managementMode, 'AGENTLESS');
+});
+
+test('Spec033 平台 Registry 返回六个平台并拒绝未支持厂商', () => {
+  const registry = new DevicePlatformRegistry();
+  const platforms = registry.list();
+  assert.equal(platforms.length, 6);
+  assert.deepEqual(platforms.filter((item) => item.supportStatus === 'SUPPORTED').map((item) => item.key), [
+    'windows', 'windows-compatibility', 'linux', 'citrix-adc',
+  ]);
+  assert.throws(() => registry.requireSupported('f5'));
+  assert.throws(() => registry.requireSupported('sangfor'));
+  assert.ok(platforms.flatMap((item) => item.formSchema).filter((field) => field.key === 'password').every((field) => field.type === 'SECRET_INPUT'));
 });
 
 class CountingDatabase implements DatabasePort {

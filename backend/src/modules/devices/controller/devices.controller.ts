@@ -15,6 +15,7 @@ export class DevicesController {
 
   register(router: Router): void {
     router.get('/api/v1/devices', '查询统一设备列表', tags, (request) => this.list(request));
+    router.get('/api/v1/devices/onboarding-platforms', '查询设备添加平台', tags, () => this.service.listOnboardingPlatforms());
     router.get('/api/v1/devices/:deviceId', '查询统一设备详情', tags, (request) => this.get(request));
   }
 
@@ -58,6 +59,13 @@ export function getDeviceRouteContracts(): RouteContract[] {
     summary: '查询统一设备列表',
     tags,
     responseSchema: { type: 'object' },
+  }, {
+    method: 'GET',
+    path: '/api/v1/devices/onboarding-platforms',
+    operationId: 'listDeviceOnboardingPlatforms',
+    summary: '查询设备添加平台',
+    tags,
+    responseSchema: { type: 'array', items: { type: 'object' } },
   }, {
     method: 'GET',
     path: '/api/v1/devices/:deviceId',

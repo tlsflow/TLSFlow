@@ -44,3 +44,24 @@ export interface ManagedDeviceDetailDto extends ManagedDeviceSummaryDto {
   };
   extensionSummary: Record<string, unknown>;
 }
+
+export type DeviceOnboardingKind = 'AGENT_INSTALL' | 'API_CONNECTION';
+export type DevicePlatformSupportStatus = 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED';
+export type DeviceOnboardingFieldType = 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SECRET_INPUT' | 'SECRET_REF';
+
+export interface DeviceOnboardingFieldDescriptor {
+  key: string;
+  type: DeviceOnboardingFieldType;
+  required: boolean;
+}
+
+export interface DeviceOnboardingPlatformDescriptor {
+  key: string;
+  displayNameKey: string;
+  productFamily: string;
+  managementMethod: string;
+  onboardingKind: DeviceOnboardingKind;
+  supportStatus: DevicePlatformSupportStatus;
+  formSchema: DeviceOnboardingFieldDescriptor[];
+  handlerKey?: string;
+}
