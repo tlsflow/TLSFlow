@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
@@ -86,6 +86,7 @@ const probing = ref(false)
 const addDialogOpen = ref(false)
 const error = ref('')
 const activeProbeIds = new Set<string>()
+let refreshTimer: ReturnType<typeof setInterval> | undefined
 const { t } = useI18n()
 
 const defaultMetrics: MonitorMetric[] = ['availability', 'latency', 'certificate', 'certificateHistory']
@@ -140,10 +141,18 @@ const monitorRows = computed(() =>
 onMounted(() => {
   clearStoredMonitorState()
   void refreshAll()
+  refreshTimer = setInterval(() => {
+    if (!loading.value && !probing.value) void refreshAll({ silent: true })
+  }, 10_000)
 })
 
-async function refreshAll(options: { scanRisks?: boolean } = {}) {
-  loading.value = true
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  refreshTimer = undefined
+})
+
+async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {}) {
+  if (!options.silent) loading.value = true
   error.value = ''
   try {
     if (options.scanRisks) await scanMonitorRisks()
@@ -174,7 +183,7 @@ async function refreshAll(options: { scanRisks?: boolean } = {}) {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('monitoring.errors.loadFailed')
   } finally {
-    loading.value = false
+    if (!options.silent) loading.value = false
   }
 }
 
