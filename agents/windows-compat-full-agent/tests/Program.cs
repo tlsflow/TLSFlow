@@ -223,11 +223,13 @@ internal static class Tests
             payload = new Dictionary<string, object>
             {
                 { "actionType", AgentV2Actions.PlanValidate },
+                { "actionSchemaVersion", "1.0" },
                 { "schemaVersion", ProductIdentity.ActionSchemaVersion }
             }
         });
         Assert(task.action == AgentV2Actions.PlanValidate, "控制面 actionType 未转换为 canonical action");
         Assert(task.schemaVersion == ProductIdentity.ActionSchemaVersion, "actionType 转换丢失 Schema Version");
+        Assert(!task.payload.ContainsKey("actionType") && !task.payload.ContainsKey("actionSchemaVersion"), "队列动作字段未在边界转换后移除");
     }
 
     private static void QueueBoundaryRejectsLegacyActions()
@@ -255,26 +257,26 @@ internal static class Tests
                 payload = new Dictionary<string, object>
                 {
                     { "action", AgentV2Actions.PlanValidate },
-                    { "actionType", AgentV2Actions.PlanExecute }
+                    { "actionType", AgentV2Actions.PlanValidate }
                 }
             });
-            throw new InvalidOperationException("冲突动作字段未被拒绝");
+            throw new InvalidOperationException("并存 action 与 actionType 未被拒绝");
         }
         catch (InvalidOperationException error)
         {
-            Assert(error.Message.IndexOf("不一致", StringComparison.Ordinal) >= 0, "冲突动作拒绝原因不明确");
+            Assert(error.Message.IndexOf("wire action", StringComparison.Ordinal) >= 0, "双路径动作拒绝原因不明确");
         }
         try
         {
             ControlPlaneClient.NormalizeTask(new AgentTask
             {
-                payload = new Dictionary<string, object> { { "actionType", AgentV2Actions.PlanValidate }, { "actionSchemaVersion", "gcac.action/v1" } }
+                payload = new Dictionary<string, object> { { "actionType", AgentV2Actions.PlanValidate }, { "actionSchemaVersion", "2.0" } }
             });
-            throw new InvalidOperationException("旧 actionSchemaVersion 未被拒绝");
+            throw new InvalidOperationException("不支持的 actionSchemaVersion 未被拒绝");
         }
         catch (InvalidOperationException error)
         {
-            Assert(error.Message.IndexOf("actionSchemaVersion", StringComparison.Ordinal) >= 0, "旧协议字段拒绝原因不明确");
+            Assert(error.Message.IndexOf("actionSchemaVersion", StringComparison.Ordinal) >= 0, "不支持的 actionSchemaVersion 拒绝原因不明确");
         }
     }
 

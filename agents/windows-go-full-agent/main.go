@@ -1593,6 +1593,24 @@ func (e *taskExecutionContext) submitLog(level string, format string, args ...an
 }
 
 func executeTask(execution *taskExecutionContext) (bool, string, string, map[string]any) {
+	if execution == nil {
+		return false, "ACTION_HANDLER_NOT_REGISTERED", "Agent v2 执行上下文不能为空", nil
+	}
+	payload := execution.task.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if success, code, message, detail, handled := executeGatewayTask(execution.ctx, execution.client, execution.config, execution.task, payload); handled {
+		return success, code, message, detail
+	}
+	wirePayload, _, err := decodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return false, "ACTION_HANDLER_NOT_REGISTERED", err.Error(), map[string]any{
+			"taskId":          execution.task.ID,
+			"executionStepId": execution.task.ExecutionStepID,
+		}
+	}
+	execution.task.Payload = wirePayload
 	result := windowsActionHandlers.Execute(execution)
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }

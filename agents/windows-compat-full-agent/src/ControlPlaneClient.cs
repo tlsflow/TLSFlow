@@ -95,17 +95,25 @@ namespace GCAC.WindowsCompatibilityAgent
             if (task == null) return null;
             task.leaseId = "compat:" + Guid.NewGuid().ToString("N");
             string taskAction = ReadCanonicalAction(task.action, "task.action");
-            string payloadAction = ReadCanonicalAction(task.payload, "action");
             string payloadActionType = ReadCanonicalAction(task.payload, "actionType");
+            if (task.payload != null && task.payload.ContainsKey("action"))
+                throw new InvalidOperationException("Agent v2 队列载荷不得直接携带 wire action");
             if (task.payload != null && task.payload.ContainsKey("actionSchemaVersion"))
-                throw new InvalidOperationException("旧 Agent 动作协议字段 actionSchemaVersion 被拒绝");
-            if (!TextUtility.IsBlank(payloadAction) && !TextUtility.IsBlank(payloadActionType) && !string.Equals(payloadAction, payloadActionType, StringComparison.Ordinal))
-                throw new InvalidOperationException("控制面动作字段 action 与 actionType 不一致");
-            string normalizedAction = !TextUtility.IsBlank(payloadActionType) ? payloadActionType : payloadAction;
+            {
+                object actionSchemaVersion = task.payload["actionSchemaVersion"];
+                if (!(actionSchemaVersion is string) || !string.Equals((string)actionSchemaVersion, "1.0", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Agent v2 actionSchemaVersion 只支持 1.0");
+            }
+            string normalizedAction = payloadActionType;
             if (!TextUtility.IsBlank(taskAction) && !TextUtility.IsBlank(normalizedAction) && !string.Equals(taskAction, normalizedAction, StringComparison.Ordinal))
                 throw new InvalidOperationException("任务动作与控制面载荷动作不一致");
             if (!TextUtility.IsBlank(normalizedAction)) task.action = normalizedAction;
             else if (!TextUtility.IsBlank(taskAction)) task.action = taskAction;
+            if (task.payload != null)
+            {
+                task.payload.Remove("actionType");
+                task.payload.Remove("actionSchemaVersion");
+            }
             object value;
             if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value))
             {
