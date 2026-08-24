@@ -432,28 +432,14 @@ test('Spec033 统一健康状态覆盖五种公共状态且保留详情动作边
   assert.equal(detail?.publicSummary.managementMode, 'AGENTLESS');
 });
 
-test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', async () => {
+test('Spec033 设备详情只读取统一发现框架、站点、证书和绑定资源', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
-  const tenantId = 'tenant_adc_detail_resources';
+  const tenantId = 'tenant_unified_detail_resources';
   const device = await new PgDeviceAssetsRepository(database).create(tenantId, {
     displayName: 'ADC Resources', managementAddress: '10.33.4.50', managementPort: 443,
     deviceFamily: 'NETSCALER_ADC', credentialId: 'secret_resources', authMode: 'AUTO', tlsVerify: false,
   });
-  await database.query(
-    `insert into pg_device_virtual_servers (
-      id, tenant_id, device_asset_id, virtual_server_type, virtual_server_name, target_key,
-      address, port, protocol, runtime_state, sni_names, status
-    ) values ('vs_detail', $1, $2, 'LB', 'lb-detail', 'LB:lb-detail', '10.33.4.60', 443, 'SSL', 'UP', '[]'::jsonb, 'ACTIVE')`,
-    [tenantId, device.id],
-  );
-  await database.query(
-    `insert into pg_device_virtual_servers (
-      id, tenant_id, device_asset_id, virtual_server_type, virtual_server_name, target_key,
-      address, port, protocol, runtime_state, sni_names, status
-    ) values ('vs_vpn_detail', $1, $2, 'VPN', 'vpn-detail', 'VPN:vpn-detail', '10.33.4.61', 443, 'SSL', 'UP', '["vpn.example.test"]'::jsonb, 'ACTIVE')`,
-    [tenantId, device.id],
-  );
   await database.query(
     `insert into pg_certificate_assets (
       id, name, primary_domain, source_type, status, created_by
@@ -471,26 +457,63 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
       'storage://detail', 'COMPLETE', true, 'IMPORTED', 'ACTIVE', 'user_admin'
     )`,
   );
-  await database.query(
-    `insert into pg_device_certificate_resources (
-      id, tenant_id, device_asset_id, certkey_name, subject, issuer, not_before, not_after,
-      fingerprint_sha256, source_version
-    ) values ('cert_detail', $1, $2, 'cert-detail', 'CN=detail.example', 'CN=issuer',
-      '2026-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', repeat('a', 64), '13.1')`,
-    [tenantId, device.id],
-  );
-  await database.query(
-    `insert into pg_device_certificate_bindings (
-      id, tenant_id, device_asset_id, virtual_server_id, certificate_resource_id, binding_key
-    ) values ('binding_detail', $1, $2, 'vs_detail', 'cert_detail', 'LB:lb-detail:cert-detail')`,
-    [tenantId, device.id],
-  );
-  await database.query(
-    `insert into pg_device_certificate_bindings (
-      id, tenant_id, device_asset_id, virtual_server_id, certificate_resource_id, binding_key
-    ) values ('binding_vpn_detail', $1, $2, 'vs_vpn_detail', 'cert_detail', 'VPN:vpn-detail:cert-detail')`,
-    [tenantId, device.id],
-  );
+  await new StandardDeviceDiscoveryProjector(database).project({
+    tenantId,
+    hostId: device.hostId,
+    deviceAssetId: device.id,
+    discoveryProviderKey: 'plugin-version:citrix-fixture',
+    discoverySource: 'AGENT',
+  }, {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: {
+      stableKey: 'citrix-adc:10.33.4.50',
+      displayName: 'ADC Resources',
+      productFamily: 'citrix.netscaler-adc',
+      softwareVersion: '13.1',
+      managementAddress: '10.33.4.50',
+    },
+    capabilities: [{ key: 'device.discover', available: true }],
+    frameworks: [
+      { stableKey: 'framework:lbserver', frameworkType: 'citrix.lb-server', displayName: 'LBServer' },
+      { stableKey: 'framework:vpnserver', frameworkType: 'citrix.vpn-server', displayName: 'VPNServer' },
+    ],
+    sites: [
+      {
+        stableKey: 'LB:lb-detail', frameworkStableKey: 'framework:lbserver', siteType: 'network.virtual-server',
+        displayName: 'lb-detail', addresses: ['10.33.4.60'], port: 443, protocol: 'HTTPS', metadata: { virtualServerType: 'LB' },
+      },
+      {
+        stableKey: 'VPN:vpn-detail', frameworkStableKey: 'framework:vpnserver', siteType: 'network.virtual-server',
+        displayName: 'vpn-detail', addresses: ['10.33.4.61'], port: 443, protocol: 'HTTPS', metadata: { virtualServerType: 'VPN' },
+      },
+    ],
+    managedTargets: [
+      {
+        stableKey: 'TARGET:LB:lb-detail', frameworkStableKey: 'framework:lbserver', siteStableKey: 'LB:lb-detail',
+        targetType: 'tls.binding', targetKey: 'LB:lb-detail', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'],
+      },
+      {
+        stableKey: 'TARGET:VPN:vpn-detail', frameworkStableKey: 'framework:vpnserver', siteStableKey: 'VPN:vpn-detail',
+        targetType: 'tls.binding', targetKey: 'VPN:vpn-detail', supportedCapabilities: ['certificate.deploy'], executionLocations: ['CONTROL_PLANE'],
+      },
+    ],
+    certificates: [{
+      stableKey: 'CERT:cert-detail', fingerprintSha256: 'a'.repeat(64), name: 'cert-detail',
+      subject: 'CN=detail.example', issuer: 'CN=issuer', notBefore: '2026-01-01T00:00:00.000Z', notAfter: '2027-01-01T00:00:00.000Z',
+      metadata: { certkey: 'cert-detail' },
+    }],
+    certificateBindings: [
+      {
+        stableKey: 'BINDING:LB:lb-detail:cert-detail', managedTargetStableKey: 'TARGET:LB:lb-detail',
+        certificateStableKey: 'CERT:cert-detail', bindingName: 'lb-detail',
+      },
+      {
+        stableKey: 'BINDING:VPN:vpn-detail:cert-detail', managedTargetStableKey: 'TARGET:VPN:vpn-detail',
+        certificateStableKey: 'CERT:cert-detail', bindingName: 'vpn-detail',
+      },
+    ],
+    warnings: [],
+  });
   await database.query(
     `insert into pg_documents (namespace, document_id, payload)
      values ('security.audit_logs', 'audit_detail', $1::jsonb)`,
@@ -507,36 +530,19 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
   );
 
   const detail = await new PgDevicesRepository(database).get(tenantId, device.hostId);
-  const extension = detail?.extensionSummary as {
-    virtualServers: unknown[];
-    certificateResources: unknown[];
-    certificateBindings: Array<{
-      virtualServerType: string;
-      certificateIssuer: string;
-      certificateNotBefore: string;
-      certificateNotAfter: string;
-    }>;
-    deviceLogs: Array<{ eventType: string }>;
-  };
-  assert.equal(extension.virtualServers.length, 2);
-  assert.equal(extension.certificateResources.length, 1);
-  assert.equal(extension.certificateBindings.length, 2);
-  assert.equal(extension.certificateBindings[0]?.virtualServerType, 'LB');
-  assert.equal(extension.certificateBindings[0]?.certificateIssuer, 'CN=issuer');
-  assert.match(extension.certificateBindings[0]?.certificateNotBefore ?? '', /^2026-01-01/);
-  assert.match(extension.certificateBindings[0]?.certificateNotAfter ?? '', /^2027-01-01/);
-  assert.equal(extension.deviceLogs[0]?.eventType, 'device_asset.connection_tested');
+  const extension = detail?.extensionSummary ?? {};
+  assert.equal('virtualServers' in extension, false);
+  assert.equal('certificateResources' in extension, false);
+  assert.equal('certificateBindings' in extension, false);
+  assert.equal('deviceLogs' in extension, false);
+  assert.deepEqual(detail?.frameworks.map((framework) => framework.displayName), ['LBServer', 'VPNServer']);
+  assert.deepEqual(detail?.sites.map((site) => site.frameworkType), ['citrix.lb-server', 'citrix.vpn-server']);
   assert.equal(detail?.overview.deviceType, 'NETSCALER_ADC');
   assert.equal(detail?.certificates[0]?.issuer, 'CN=issuer');
-  assert.equal(detail?.certificates[0]?.certificateAssetId, 'asset_detail');
-  assert.equal(detail?.certificates[0]?.certificateVersionId, 'version_detail');
-  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings[0]?.certificate?.name, 'cert-detail');
-  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings[0]?.certificate?.certificateAssetId, 'asset_detail');
-  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings[0]?.certificate?.issuer, 'CN=issuer');
-  assert.match(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings[0]?.certificate?.notAfter ?? '', /^2027-01-01/);
+  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings.length, 1);
+  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings.length, 1);
   assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
-
 test('Spec033 平台 Registry 只保留 Agent 安装入口', () => {
   const registry = new DevicePlatformRegistry();
   const platforms = registry.list();
@@ -588,6 +594,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     }),
   } as PluginWorkflowPublisherService;
   const workflows = {
+    getVersion: async (versionId: string) => workflowVersionFixture(versionId, manifest.resources.workflows?.[versionId], resources),
     execute: async ({ templateVersionId }: { templateVersionId: string }): Promise<WorkflowRunResult> => {
       executedCapabilities.push(templateVersionId);
       return {
@@ -611,6 +618,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
       };
     },
   } as unknown as WorkflowTemplatesApplicationService;
+  const bindingService = new PluginBindingsApplicationService(new PluginBindingsRepository(database));
   const service = new DevicesApplicationService(
     new PgDevicesRepository(database),
     undefined,
@@ -618,7 +626,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
     database,
     plugins,
     undefined,
-    new PluginBindingsApplicationService(new PluginBindingsRepository(database)),
+    bindingService,
     pluginWorkflows,
     workflows,
     undefined,
@@ -636,6 +644,10 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
   assert.equal(result.binding.managedContext?.hostId, result.device.hostId);
   assert.deepEqual(result.binding.inputBindings.credentials.credential, { credentialId: 'cred_adc' });
+  assert.deepEqual(result.binding.inputBindings.variables, {});
+  assert.deepEqual(result.binding.inputBindings.connections.management, {
+    host: '10.33.5.49', port: 443, tls: { verifyPeer: true },
+  });
   assert.equal(result.assignments.length, 6);
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery && result.discovery.projection.certificateBindings === 1);
@@ -663,6 +675,32 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   );
   assert.equal(serviceAsset.rows[0]?.status, 'ACTIVE');
   assert.equal(serviceAsset.rows[0]?.metadata.onboardingState, 'ACTIVE');
+
+  await bindingService.updateBinding(tenantId, result.binding.id, {
+    expectedVersion: result.binding.version,
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: { address: '10.33.5.49', managementPort: 443, tlsVerify: true },
+      connections: {
+        'connection.address': '10.33.5.49',
+        'connection.port': 443,
+        'tls.verifyPeer': true,
+      } as never,
+      credentials: { credential: { credentialId: 'cred_adc' } },
+      artifacts: {},
+    },
+  });
+  executedCapabilities.length = 0;
+  await assert.rejects(
+    () => service.executeCapability(tenantId, result.device.hostId, 'device.discover'),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED',
+  );
+  assert.deepEqual(executedCapabilities, []);
+  const rejectedBinding = await bindingService.getTenantBinding(tenantId, result.binding.id);
+  assert.deepEqual(rejectedBinding.inputBindings.variables, {
+    address: '10.33.5.49', managementPort: 443, tlsVerify: true,
+  });
+  assert.equal(rejectedBinding.inputBindings.connections.management, undefined);
 });
 
 test('Spec033 插件设备接入失败保留设备并写入可恢复状态', async () => {
@@ -690,6 +728,7 @@ test('Spec033 插件设备接入失败保留设备并写入可恢复状态', asy
     }),
   } as PluginWorkflowPublisherService;
   const workflows = {
+    getVersion: async (versionId: string) => workflowVersionFixture(versionId, manifest.resources.workflows?.[versionId], resources),
     execute: async (): Promise<WorkflowRunResult> => {
       throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '模拟连接失败');
     },
@@ -771,6 +810,21 @@ async function createUsernamePasswordCredential(
     createdAt: now,
     updatedAt: now,
   });
+}
+
+function workflowVersionFixture(versionId: string, path: string | undefined, resources: Record<string, string>) {
+  if (!path) throw new Error(`测试插件 Manifest 未声明 Workflow：${versionId}`);
+  const source = resources[path];
+  if (!source) throw new Error(`测试插件缺少 Workflow 资源：${path}`);
+  return {
+    id: versionId,
+    templateId: `template_${versionId}`,
+    version: 1,
+    dslVersion: 'v1',
+    status: 'published',
+    contentHash: `sha256:${versionId}`,
+    content: JSON.parse(source),
+  };
 }
 
 class CountingDatabase implements DatabasePort {

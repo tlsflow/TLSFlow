@@ -56,6 +56,7 @@ export interface DeviceSiteView {
   siteAssetId: string
   managedTargetId?: string
   kind: DeviceSiteKind
+  frameworkType: string
   name: string
   status?: string
   endpoint?: {
@@ -67,8 +68,10 @@ export interface DeviceSiteView {
   configPath?: string
   presentation?: {
     groupKey: string
-    groupLabel: string
-    typeLabel: string
+    groupLabelKey: string
+    typeLabelKey: string
+    groupLabel?: string
+    typeLabel?: string
   }
   bindings: readonly DeviceSiteBindingView[]
   metadata: Readonly<Record<string, unknown>>

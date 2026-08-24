@@ -2,6 +2,7 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type {
   ManagedDeviceDetailDto,
+  ManagedDeviceCertificateDto,
   ManagedDeviceListQuery,
   ManagedDevicePageDto,
   ManagedDeviceSiteDto,
@@ -49,10 +50,10 @@ export class PgDevicesRepository implements DevicesRepository {
     const summary = this.projectionRegistry.project(toProjectionSource(row));
     const [managedSites, resources] = await Promise.all([
       this.getManagedSites(tenantId, row.id),
-      row.device_asset_id ? this.getNetworkDeviceResources(tenantId, row.device_asset_id) : Promise.resolve(undefined),
+      this.getStandardDeviceResources(tenantId, row.id, row.device_asset_id ?? undefined),
     ]);
-    const sites = resources ? mergeNetworkSites(managedSites, resources.sites) : managedSites;
-    const certificates = resources?.certificates ?? collectSiteCertificates(sites);
+    const sites = managedSites;
+    const certificates = mergeCertificates(resources.certificates, collectSiteCertificates(sites));
     const updatedAt = String(row.updated_at);
     return {
       ...summary,
@@ -76,10 +77,10 @@ export class PgDevicesRepository implements DevicesRepository {
         updatedAt,
       },
       informationSections: buildInformationSections(row, summary, updatedAt, resources),
-      frameworks: resources?.frameworks ?? [],
+      frameworks: resources.frameworks,
       sites,
       certificates,
-      logs: resources?.logs ?? [],
+      logs: resources.logs,
       extension: summary.extensionType === 'AGENT'
         ? { type: 'AGENT', agentId: row.agent_id ?? '' }
         : row.plugin_version_id && row.plugin_binding_id
@@ -98,68 +99,29 @@ export class PgDevicesRepository implements DevicesRepository {
             pluginVersion: row.control_version,
             discoveryMetadata: asRecord(row.device_metadata),
             capabilityProfile: asRecord(row.capability_profile),
-            virtualServers: resources?.virtualServers ?? [],
-            certificateResources: resources?.certificateResources ?? [],
-            certificateBindings: resources?.certificateBindings ?? [],
-            deviceLogs: resources?.deviceLogs ?? [],
           },
     };
   }
 
-  private async getNetworkDeviceResources(tenantId: string, deviceAssetId: string) {
-    const [virtualServers, certificateResources, certificateBindings, deviceLogs, frameworks, discoveredCertificates] = await Promise.all([
-      this.db.query<DeviceVirtualServerRow>(
-        `select id, virtual_server_type, virtual_server_name, address, port, protocol, runtime_state, sni_names
-         from pg_device_virtual_servers
-         where tenant_id=$1 and device_asset_id=$2 and deleted_at is null and status<>'DELETED'
-         order by virtual_server_type, virtual_server_name`,
-        [tenantId, deviceAssetId],
-      ),
-      this.db.query<DeviceCertificateResourceRow>(
-        `select resource.id, resource.certkey_name, resource.subject, resource.issuer,
-                resource.not_before, resource.not_after, resource.remote_status, resource.fingerprint_sha256,
-                version.id as certificate_version_id, version.certificate_asset_id
-         from pg_device_certificate_resources resource
-         left join pg_certificate_versions version
-           on version.fingerprint_sha256=resource.fingerprint_sha256
-         where resource.tenant_id=$1 and resource.device_asset_id=$2 and resource.deleted_at is null
-         order by resource.certkey_name`,
-        [tenantId, deviceAssetId],
-      ),
-      this.db.query<DeviceCertificateBindingRow>(
-         `select binding.id, virtual_server.virtual_server_type, virtual_server.virtual_server_name,
-                 certificate.certkey_name, certificate.subject, certificate.issuer,
-                 certificate.not_before, certificate.not_after, certificate.remote_status,
-                 certificate.fingerprint_sha256, version.id as certificate_version_id,
-                 version.certificate_asset_id, binding.sni_certificate
-          from pg_device_certificate_bindings binding
-          join pg_device_virtual_servers virtual_server on virtual_server.id=binding.virtual_server_id
-          join pg_device_certificate_resources certificate on certificate.id=binding.certificate_resource_id
-          left join pg_certificate_versions version
-            on version.fingerprint_sha256=certificate.fingerprint_sha256
-         where binding.tenant_id=$1 and binding.device_asset_id=$2 and binding.deleted_at is null
-         order by virtual_server.virtual_server_name, certificate.certkey_name`,
-        [tenantId, deviceAssetId],
-      ),
+  private async getStandardDeviceResources(tenantId: string, deviceId: string, deviceAssetId?: string) {
+    const [deviceLogs, frameworks, discoveredCertificates] = await Promise.all([
       this.db.query<DeviceLogRow>(
         `select document_id, payload
          from pg_documents
          where namespace='security.audit_logs'
-           and payload->>'resourceType'='device_asset'
-           and payload->>'resourceId'=$1
+           and payload->>'resourceId' in ($1, $2)
          order by payload->>'createdAt' desc, updated_at desc
          limit 100`,
-        [deviceAssetId],
+        [deviceId, deviceAssetId ?? deviceId],
       ),
-      this.db.query<DiscoverySnapshotRow>(
-        `select payload
-         from plugin_discovery_snapshots
-         where tenant_id=$1 and device_asset_id=$2 and status='SUCCEEDED'
-         order by created_at desc
-         limit 1`,
-        [tenantId, deviceAssetId],
+      this.db.query<FrameworkRow>(
+        `select id, framework_key, framework_type, display_name, version_text, status, raw_facts
+         from pg_framework_instances
+         where tenant_id=$1 and device_id=$2 and status='ACTIVE' and deleted_at is null
+         order by display_name, framework_key`,
+        [tenantId, deviceId],
       ),
-      this.db.query<DiscoveredCertificateRow>(
+      deviceAssetId ? this.db.query<DiscoveredCertificateRow>(
         `select certificate.id, certificate.stable_key, certificate.fingerprint_sha256,
                 certificate.subject, certificate.issuer, certificate.not_before, certificate.not_after,
                 certificate.metadata, certificate.status, certificate.certificate_version_id,
@@ -170,119 +132,30 @@ export class PgDevicesRepository implements DevicesRepository {
           where certificate.tenant_id=$1 and certificate.device_asset_id=$2 and certificate.status='ACTIVE'
           order by certificate.stable_key`,
         [tenantId, deviceAssetId],
-      ),
+      ) : Promise.resolve({ rows: [] as DiscoveredCertificateRow[] }),
     ]);
-    const standardCertificates = discoveredCertificates.rows.map((item) => ({
-      id: item.id,
-      certificateAssetId: item.certificate_asset_id ?? undefined,
-      certificateVersionId: item.certificate_version_id ?? undefined,
-      name: item.certificate_name ?? String(item.metadata?.certkey ?? item.stable_key),
-      subject: item.subject ?? undefined,
-      issuer: item.issuer ?? undefined,
-      notBefore: optionalTimestamp(item.not_before),
-      notAfter: optionalTimestamp(item.not_after),
-      fingerprintSha256: item.fingerprint_sha256 ?? undefined,
-      status: item.status,
-    }));
     return {
-      frameworks: Array.isArray(frameworks.rows[0]?.payload.frameworks)
-        ? frameworks.rows[0]!.payload.frameworks as Array<Record<string, unknown>>
-        : [],
-      virtualServers: virtualServers.rows.map((item) => ({
-        id: item.id,
-        type: item.virtual_server_type,
-        name: item.virtual_server_name,
-        address: item.address,
-        port: item.port,
-        protocol: item.protocol,
-        runtimeState: item.runtime_state,
-        sniNames: item.sni_names,
+      frameworks: frameworks.rows.map((framework) => ({
+        id: framework.id,
+        stableKey: framework.framework_key,
+        frameworkType: framework.framework_type,
+        displayName: framework.display_name,
+        version: framework.version_text ?? undefined,
+        status: framework.status,
+        metadata: asRecord(framework.raw_facts),
       })),
-      certificateResources: certificateResources.rows.map((item) => ({
-        id: item.id,
-        certkeyName: item.certkey_name,
-        subject: item.subject,
-        issuer: item.issuer,
-        notBefore: optionalTimestamp(item.not_before),
-        notAfter: optionalTimestamp(item.not_after),
-        remoteStatus: item.remote_status,
-      })),
-      certificateBindings: certificateBindings.rows.map((item) => ({
-        id: item.id,
-        virtualServerType: item.virtual_server_type,
-        virtualServerName: item.virtual_server_name,
-        certkeyName: item.certkey_name,
-        certificateSubject: item.subject,
-        certificateIssuer: item.issuer,
-        certificateNotBefore: optionalTimestamp(item.not_before),
-        certificateNotAfter: optionalTimestamp(item.not_after),
-        certificateStatus: item.remote_status,
-        sniCertificate: item.sni_certificate,
-      })),
-      deviceLogs: deviceLogs.rows.map((item) => ({
-        id: item.document_id,
-        eventType: item.payload.eventType,
-        action: item.payload.action,
-        result: item.payload.result,
-        riskLevel: item.payload.riskLevel,
-        actorId: item.payload.actorId,
-        requestId: item.payload.requestId,
-        detail: item.payload.detail,
-        createdAt: item.payload.createdAt,
-      })),
-      certificates: standardCertificates.length > 0 ? standardCertificates : certificateResources.rows.map((item) => ({
+      certificates: discoveredCertificates.rows.map((item) => ({
         id: item.id,
         certificateAssetId: item.certificate_asset_id ?? undefined,
         certificateVersionId: item.certificate_version_id ?? undefined,
-        name: item.certkey_name,
+        name: item.certificate_name ?? String(item.metadata?.certkey ?? item.stable_key),
         subject: item.subject ?? undefined,
         issuer: item.issuer ?? undefined,
         notBefore: optionalTimestamp(item.not_before),
         notAfter: optionalTimestamp(item.not_after),
         fingerprintSha256: item.fingerprint_sha256 ?? undefined,
-        status: item.remote_status ?? undefined,
+        status: item.status,
       })),
-      sites: virtualServers.rows
-        .filter((item) => item.virtual_server_type === 'LB' || item.virtual_server_type === 'VPN')
-        .map((item) => ({
-          id: item.id,
-          siteAssetId: item.id,
-          kind: 'network.virtual-server' as const,
-          name: item.virtual_server_name,
-          status: item.runtime_state ?? undefined,
-          endpoint: {
-            address: item.address ?? undefined,
-            hostName: Array.isArray(item.sni_names) ? String(item.sni_names[0] ?? '') || undefined : undefined,
-            port: item.port ?? undefined,
-            protocol: item.protocol ?? undefined,
-          },
-          presentation: {
-            groupKey: 'network.virtual-server.' + item.virtual_server_type.toLowerCase(),
-            groupLabel: item.virtual_server_type,
-            typeLabel: item.virtual_server_type,
-          },
-          bindings: certificateBindings.rows
-            .filter((binding) => binding.virtual_server_type === item.virtual_server_type && binding.virtual_server_name === item.virtual_server_name)
-            .map((binding) => ({
-              id: binding.id,
-              bindingKey: `${binding.virtual_server_type}:${binding.virtual_server_name}:${binding.certkey_name}`,
-              bindingType: binding.sni_certificate ? 'SNI' : 'DEFAULT',
-              status: binding.remote_status ?? 'ACTIVE',
-              certificate: {
-                certificateAssetId: binding.certificate_asset_id ?? undefined,
-                certificateVersionId: binding.certificate_version_id ?? undefined,
-                name: binding.certkey_name,
-                subject: binding.subject ?? undefined,
-                issuer: binding.issuer ?? undefined,
-                notBefore: optionalTimestamp(binding.not_before),
-                notAfter: optionalTimestamp(binding.not_after),
-                fingerprintSha256: binding.fingerprint_sha256 ?? undefined,
-                status: binding.remote_status ?? undefined,
-              },
-              replacement: { allowed: false, reasonCode: 'MANAGED_TARGET_UNAVAILABLE' },
-            })),
-          metadata: { virtualServerType: item.virtual_server_type, sniNames: item.sni_names },
-        })),
       logs: deviceLogs.rows.map((item) => ({
         id: item.document_id,
         eventType: item.payload.eventType ?? item.payload.action ?? 'device.event',
@@ -303,7 +176,7 @@ export class PgDevicesRepository implements DevicesRepository {
     const rows = (await this.db.query<ManagedSiteRow>(
       `select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
-              framework.framework_type, framework.display_name as framework_display_name,
+              framework.framework_type,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
               binding.status as binding_status, binding.certificate_version_id, binding.observed_fingerprint_sha256,
@@ -322,17 +195,18 @@ export class PgDevicesRepository implements DevicesRepository {
         and (binding.site_asset_id=site.id or (target.id is not null and binding.managed_target_id=target.id))
        left join pg_certificate_versions version on version.id=binding.certificate_version_id
        left join pg_certificate_assets asset on asset.id=version.certificate_asset_id
-       where site.tenant_id=$1 and site.device_id=$2 and site.deleted_at is null
+       where site.tenant_id=$1 and site.device_id=$2 and site.status='ACTIVE' and site.deleted_at is null
        order by site.site_name, binding.binding_key`,
       [tenantId, deviceId],
     )).rows;
     const sites = new Map<string, ManagedDeviceSiteDto>();
     for (const row of rows) {
-      const existing = sites.get(row.id) ?? {
+      const existing: ManagedDeviceSiteDto = sites.get(row.id) ?? {
         id: row.id,
         siteAssetId: row.id,
         managedTargetId: row.managed_target_id ?? undefined,
         kind: row.site_type,
+        frameworkType: row.framework_type,
         name: row.site_name,
         status: row.runtime_status ?? row.status,
         endpoint: {
@@ -342,12 +216,7 @@ export class PgDevicesRepository implements DevicesRepository {
           protocol: row.protocol ?? undefined,
         },
         configPath: row.config_path ?? undefined,
-        presentation: {
-          groupKey: row.framework_type,
-          groupLabel: row.framework_display_name,
-          typeLabel: row.framework_display_name,
-        },
-        bindings: [],
+        bindings: [] as ManagedDeviceSiteDto['bindings'],
         metadata: asRecord(row.metadata),
       } satisfies ManagedDeviceSiteDto;
       if (row.binding_id && !existing.bindings.some((binding) => binding.id === row.binding_id)) {
@@ -527,46 +396,6 @@ interface ManagedDeviceRow extends Record<string, unknown> {
   application_asset_count: number;
 }
 
-interface DeviceVirtualServerRow extends Record<string, unknown> {
-  id: string;
-  virtual_server_type: string;
-  virtual_server_name: string;
-  address: string | null;
-  port: number | null;
-  protocol: string | null;
-  runtime_state: string | null;
-  sni_names: unknown;
-}
-
-interface DeviceCertificateResourceRow extends Record<string, unknown> {
-  id: string;
-  certkey_name: string;
-  subject: string | null;
-  issuer: string | null;
-  not_before: string | null;
-  not_after: string | null;
-  remote_status: string | null;
-  fingerprint_sha256: string | null;
-  certificate_version_id: string | null;
-  certificate_asset_id: string | null;
-}
-
-interface DeviceCertificateBindingRow extends Record<string, unknown> {
-  id: string;
-  virtual_server_type: string;
-  virtual_server_name: string;
-  certkey_name: string;
-  subject: string | null;
-  issuer: string | null;
-  not_before: string | null;
-  not_after: string | null;
-  remote_status: string | null;
-  fingerprint_sha256: string | null;
-  certificate_version_id: string | null;
-  certificate_asset_id: string | null;
-  sni_certificate: boolean;
-}
-
 interface DeviceLogRow extends Record<string, unknown> {
   document_id: string;
   payload: {
@@ -581,8 +410,14 @@ interface DeviceLogRow extends Record<string, unknown> {
   };
 }
 
-interface DiscoverySnapshotRow extends Record<string, unknown> {
-  payload: Record<string, unknown>;
+interface FrameworkRow extends Record<string, unknown> {
+  id: string;
+  framework_key: string;
+  framework_type: string;
+  display_name: string;
+  version_text: string | null;
+  status: string;
+  raw_facts: Record<string, unknown> | null;
 }
 
 interface DiscoveredCertificateRow extends Record<string, unknown> {
@@ -614,7 +449,6 @@ interface ManagedSiteRow extends Record<string, unknown> {
   status: string;
   metadata: Record<string, unknown> | null;
   framework_type: string;
-  framework_display_name: string;
   managed_target_id: string | null;
   target_binding_key: string | null;
   target_status: string | null;
@@ -731,30 +565,6 @@ function distinguishedName(value: unknown): string | undefined {
   return entries.length ? entries.map(([key, entry]) => `${key}=${String(entry)}`).join(', ') : undefined;
 }
 
-function mergeNetworkSites(managedSites: ManagedDeviceSiteDto[], discoveredSites: ManagedDeviceSiteDto[]): ManagedDeviceSiteDto[] {
-  if (!managedSites.length) return discoveredSites;
-  return managedSites.map((site) => {
-    const virtualServerType = String(site.metadata.virtualServerType ?? '').toUpperCase();
-    const virtualServerName = String(site.metadata.virtualServerName ?? site.name);
-    const discovered = discoveredSites.find((item) => (
-      String(item.metadata.virtualServerType ?? '').toUpperCase() === virtualServerType
-      && item.name === virtualServerName
-    ));
-    return discovered ? {
-      ...site,
-      presentation: discovered.presentation ?? site.presentation,
-      status: discovered.status ?? site.status,
-      endpoint: discovered.endpoint ?? site.endpoint,
-      bindings: discovered.bindings.map((binding) => ({
-        ...binding,
-        replacement: site.managedTargetId
-          ? { allowed: true, managedTargetId: site.managedTargetId }
-          : binding.replacement,
-      })),
-    } : site;
-  });
-}
-
 function collectSiteCertificates(sites: ManagedDeviceSiteDto[]) {
   const certificates = new Map<string, NonNullable<ManagedDeviceSiteDto['bindings'][number]['certificate']> & { id: string }>();
   for (const site of sites) {
@@ -768,11 +578,23 @@ function collectSiteCertificates(sites: ManagedDeviceSiteDto[]) {
   return [...certificates.values()];
 }
 
+function mergeCertificates(
+  primary: ManagedDeviceCertificateDto[],
+  secondary: ManagedDeviceCertificateDto[],
+): ManagedDeviceCertificateDto[] {
+  const identity = (certificate: ManagedDeviceCertificateDto) => (
+    certificate.certificateVersionId ?? certificate.fingerprintSha256 ?? certificate.id
+  );
+  const certificates = new Map(primary.map((certificate) => [identity(certificate), certificate]));
+  for (const certificate of secondary) if (!certificates.has(identity(certificate))) certificates.set(identity(certificate), certificate);
+  return [...certificates.values()];
+}
+
 function buildInformationSections(
   row: ManagedDeviceRow,
   summary: ManagedDeviceSummaryDto,
   updatedAt: string,
-  resources: Awaited<ReturnType<PgDevicesRepository['getNetworkDeviceResources']>> | undefined,
+  resources: Awaited<ReturnType<PgDevicesRepository['getStandardDeviceResources']>>,
 ) {
   const common = {
     key: 'common',
@@ -797,8 +619,7 @@ function buildInformationSections(
       { key: 'pluginVersion', value: row.control_version, valueType: 'TEXT' as const },
       { key: 'supportTier', value: row.support_tier, valueType: 'STATUS' as const },
       { key: 'healthStatus', value: summary.health, valueType: 'STATUS' as const },
-      { key: 'virtualServerCount', value: resources?.virtualServers.length ?? 0, valueType: 'NUMBER' as const },
-      { key: 'certificateCount', value: resources?.certificateResources.length ?? 0, valueType: 'NUMBER' as const },
+      { key: 'certificateCount', value: resources?.certificates.length ?? 0, valueType: 'NUMBER' as const },
     ],
   }];
 }

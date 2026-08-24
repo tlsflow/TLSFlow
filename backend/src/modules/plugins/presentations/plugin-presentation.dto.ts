@@ -15,6 +15,19 @@ export interface PresentationColumnV1 {
 
 export interface DevicePresentationSchemaV1 {
   schemaVersion: 'gcac.device-presentation/v1';
+  resourceLabels?: {
+    frameworks: Array<{
+      frameworkType: string;
+      labelKey: string;
+    }>;
+    sites: Array<{
+      frameworkType: string;
+      siteType: string;
+      groupKey: string;
+      groupLabelKey: string;
+      typeLabelKey: string;
+    }>;
+  };
   overview: Array<{ id: string; titleKey: string; fields: PresentationFieldV1[] }>;
   tabs: Array<{
     type: 'frameworks' | 'sites' | 'certificate_bindings' | 'device_logs' | 'records';

@@ -89,6 +89,13 @@ test('插件 Locale 不重复承担宿主标准字段翻译', () => {
 test('Presentation Schema 统一支持设备详情、框架、站点、证书和日志', () => {
   const schema = new PluginPresentationSchemaService().validate({
     schemaVersion: 'gcac.device-presentation/v1',
+    resourceLabels: {
+      frameworks: [{ frameworkType: 'storage.nas', labelKey: 'plugin.test.framework.nas' }],
+      sites: [{
+        frameworkType: 'storage.nas', siteType: 'network.virtual-server', groupKey: 'storage.nas',
+        groupLabelKey: 'plugin.test.framework.nas', typeLabelKey: 'plugin.test.site.management',
+      }],
+    },
     overview: [{ id: 'base', titleKey: 'plugin.test.overview', fields: [{ key: 'version', labelKey: 'plugin.test.version', valuePath: 'device.version', type: 'text' }] }],
     tabs: [
       { type: 'frameworks', id: 'frameworks', titleKey: 'plugin.test.frameworks', columns: [] },
@@ -99,6 +106,7 @@ test('Presentation Schema 统一支持设备详情、框架、站点、证书和
     actions: [{ capabilityKey: 'device.refresh', labelKey: 'plugin.test.refresh', tone: 'info' }],
   }, ['device.logs.read', 'device.refresh']);
   assert.deepEqual(schema.tabs.map((tab) => tab.type), ['frameworks', 'sites', 'certificate_bindings', 'device_logs']);
+  assert.equal(schema.resourceLabels?.sites[0]?.siteType, 'network.virtual-server');
 });
 
 function manifest(source: 'BUILTIN' | 'USER', locales: Record<string, string>): UnifiedPluginManifestV1 {

@@ -56,12 +56,13 @@ const siteBindingSchema: OpenApiSchema = {
 const siteSchema: OpenApiSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['id', 'siteAssetId', 'kind', 'name', 'bindings', 'metadata'],
+  required: ['id', 'siteAssetId', 'kind', 'frameworkType', 'name', 'bindings', 'metadata'],
   properties: {
     id: { type: 'string' },
     siteAssetId: { type: 'string' },
     managedTargetId: { type: 'string' },
     kind: { type: 'string', pattern: MANAGED_DEVICE_SITE_KIND_PATTERN },
+    frameworkType: { type: 'string', pattern: MANAGED_DEVICE_SITE_KIND_PATTERN },
     name: { type: 'string' },
     status: { type: 'string' },
     endpoint: {
@@ -78,9 +79,11 @@ const siteSchema: OpenApiSchema = {
     presentation: {
       type: 'object',
       additionalProperties: false,
-      required: ['groupKey', 'groupLabel', 'typeLabel'],
+      required: ['groupKey', 'groupLabelKey', 'typeLabelKey'],
       properties: {
         groupKey: { type: 'string' },
+        groupLabelKey: { type: 'string' },
+        typeLabelKey: { type: 'string' },
         groupLabel: { type: 'string' },
         typeLabel: { type: 'string' },
       },

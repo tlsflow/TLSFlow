@@ -48,14 +48,19 @@ test('设备详情按标准 site_type 往返未知插件分类且不读取 Provi
     discoverySource: 'AGENT' as const,
   };
   await projector.project(projectionContext, discovery);
+  await database.query(
+    `update plugin_discovery_snapshots set payload='{}'::jsonb
+     where tenant_id=$1 and device_id=$2`,
+    [tenantId, host.id],
+  );
 
   const detail = await new PgDevicesRepository(database).get(tenantId, host.id);
 
   assert.deepEqual(detail?.sites.map((site) => site.kind), kinds);
-  assert.deepEqual(detail?.sites.map((site) => site.presentation), [
-    { groupKey: 'kubernetes.cluster', groupLabel: 'Cluster Main', typeLabel: 'Cluster Main' },
-    { groupKey: 'kubernetes.cluster', groupLabel: 'Cluster Main', typeLabel: 'Cluster Main' },
-  ]);
+  assert.deepEqual(detail?.sites.map((site) => site.frameworkType), ['kubernetes.cluster', 'kubernetes.cluster']);
+  assert.deepEqual(detail?.sites.map((site) => site.presentation), [undefined, undefined]);
+  assert.equal(detail?.frameworks[0]?.frameworkType, 'kubernetes.cluster');
+  assert.equal(detail?.frameworks[0]?.displayName, 'Cluster Main');
   assert.deepEqual(detail?.sites.map((site) => site.metadata), [
     { addresses: [], extension: { source: 'test.plugin' } },
     { addresses: [], extension: { source: 'test.plugin' } },

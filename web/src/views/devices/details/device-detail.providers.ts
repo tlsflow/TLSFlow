@@ -43,10 +43,10 @@ export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
 function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {
   const groups = new Map<string, { label: string; sites: DeviceSiteView[] }>()
   for (const site of context.sites) {
-    const groupKey = site.presentation?.groupKey || site.kind
+    const groupKey = site.presentation?.groupKey || site.frameworkType || site.kind
     const current = groups.get(groupKey)
     groups.set(groupKey, {
-      label: site.presentation?.groupLabel || presentationTypeLabel(groupKey),
+      label: site.presentation?.groupLabel || groupKey,
       sites: [...(current?.sites ?? []), site],
     })
   }
@@ -59,9 +59,4 @@ function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[
     isVisible: () => group.sites.length > 0,
     buildProps: () => ({ sites: group.sites }),
   }))
-}
-
-function presentationTypeLabel(value: string): string {
-  const segment = value.split('.').at(-1) ?? value
-  return segment.replace(/[-_]+/g, ' ').trim().toUpperCase()
 }

@@ -56,10 +56,11 @@ function readFramework(value: unknown): DeviceFrameworkView | undefined {
   const id = readString(record.id) || readString(record.stableKey)
   const name = readString(record.displayName) || readString(record.name)
   if (!id || !name) return undefined
+  const presentation = readRecord(record.presentation)
   return {
     id,
     name,
-    type: presentationTypeLabel(readString(record.frameworkType) || readString(record.type)) || undefined,
+    type: readString(presentation.typeLabel) || readString(record.frameworkType) || readString(record.type) || undefined,
     version: readString(record.version) || undefined,
     status: readString(record.status) || undefined,
     metadata: readRecord(record.metadata),
@@ -96,11 +97,14 @@ function readSite(value: unknown): DeviceSiteView | undefined {
   const id = readString(record.id)
   const siteAssetId = readString(record.siteAssetId)
   const kind = readString(record.kind)
+  const frameworkType = readString(record.frameworkType)
   const name = readString(record.name)
-  if (!id || !siteAssetId || !name || !DEVICE_SITE_KIND_PATTERN.test(kind)) return undefined
+  if (!id || !siteAssetId || !name || !DEVICE_SITE_KIND_PATTERN.test(kind) || !DEVICE_SITE_KIND_PATTERN.test(frameworkType)) return undefined
   const endpoint = readRecord(record.endpoint)
   const presentation = readRecord(record.presentation)
   const groupKey = readString(presentation.groupKey)
+  const groupLabelKey = readString(presentation.groupLabelKey)
+  const typeLabelKey = readString(presentation.typeLabelKey)
   const groupLabel = readString(presentation.groupLabel)
   const typeLabel = readString(presentation.typeLabel)
   return {
@@ -108,6 +112,7 @@ function readSite(value: unknown): DeviceSiteView | undefined {
     siteAssetId,
     managedTargetId: readString(record.managedTargetId) || undefined,
     kind: kind as DeviceSiteKind,
+    frameworkType,
     name,
     status: readString(record.status) || undefined,
     endpoint: Object.keys(endpoint).length ? {
@@ -117,15 +122,12 @@ function readSite(value: unknown): DeviceSiteView | undefined {
       protocol: readString(endpoint.protocol) || undefined,
     } : undefined,
     configPath: readString(record.configPath) || undefined,
-    presentation: groupKey && groupLabel && typeLabel ? { groupKey, groupLabel, typeLabel } : undefined,
+    presentation: groupKey && groupLabelKey && typeLabelKey
+      ? { groupKey, groupLabelKey, typeLabelKey, groupLabel: groupLabel || undefined, typeLabel: typeLabel || undefined }
+      : undefined,
     bindings: readList(record.bindings).map(readBinding).filter(isDefined),
     metadata: readRecord(record.metadata),
   }
-}
-
-function presentationTypeLabel(value: string): string {
-  const segment = value.split('.').at(-1) ?? ''
-  return segment.replace(/[-_]+/g, ' ').trim().toUpperCase()
 }
 
 function readBinding(value: unknown): DeviceSiteBindingView | undefined {

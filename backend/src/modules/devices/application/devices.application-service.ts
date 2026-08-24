@@ -13,6 +13,7 @@ import { PluginPackageResourcesService } from '../../plugins/application/plugin-
 import { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from '../../plugins/repository/plugin-bindings.repository.js';
 import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js';
+import type { DevicePresentationSchemaV1 } from '../../plugins/presentations/plugin-presentation.dto.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
@@ -25,6 +26,7 @@ import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { DeploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -66,8 +68,10 @@ export class DevicesApplicationService {
     if (plugin.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', '设备插件不存在', { deviceId });
     const capabilities = assignmentRows.rows.map((row) => row.capability_key);
     const presentation = ui.presentations.device;
+    const localizedResources = applyResourceLabels(device, presentation, ui.locale?.messages ?? {});
     return {
       ...device,
+      ...localizedResources,
       allowedActions: [...new Set([...device.allowedActions, ...capabilities])],
       capabilities,
       pluginUi: {
@@ -142,13 +146,16 @@ export class DevicesApplicationService {
       this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
       this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
     ]);
-    const [deviceAsset, workflowVersion, credentials] = await Promise.all([
+    const [deviceAsset, workflowVersion] = await Promise.all([
       new PgDeviceAssetsRepository(this.db).get(tenantId, device.extension.deviceAssetId),
       this.workflows.getVersion(workflow.workflowVersionId),
-      new RuntimeCredentialResolver(new CredentialsRepository(this.db)).resolveBindings(tenantId, binding.inputBindings.credentials),
     ]);
     if (!deviceAsset) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId: device.extension.deviceAssetId });
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
+    const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db)).resolveBindings(
+      tenantId,
+      binding.inputBindings.credentials,
+    );
     const bindingLayers = {
       deviceDefault: { pluginVersionId: assignment.pluginVersionId, inputBindings: binding.inputBindings },
     };
@@ -261,7 +268,8 @@ export class DevicesApplicationService {
     if (!form || !['MANAGED', 'BOTH'].includes(form.mode)) {
       throw new AppError('VALIDATION_FAILED', '设备插件缺少 Managed 设备表单', { pluginVersionId });
     }
-    const mapped = mapPluginDeviceForm(form, input.formValues ?? {});
+    const onboardingContract = new DeploymentInputContractLoader().fromPlugin(plugin, 'device.connection.test');
+    const mapped = mapPluginDeviceForm(form, input.formValues ?? {}, onboardingContract);
     const domain = new DeviceAssetsDomainService();
     const onboarding = await this.db.transaction(async (tx) => {
       const deviceRepository = new PgDeviceAssetsRepository(tx);
@@ -330,6 +338,38 @@ export class DevicesApplicationService {
   }
 }
 
+function applyResourceLabels(
+  device: ManagedDeviceDetailDto,
+  presentation: DevicePresentationSchemaV1 | undefined,
+  messages: Record<string, string>,
+): Pick<ManagedDeviceDetailDto, 'frameworks' | 'sites'> {
+  const frameworkLabels = new Map((presentation?.resourceLabels?.frameworks ?? []).map((item) => [item.frameworkType, item]));
+  const siteLabels = new Map((presentation?.resourceLabels?.sites ?? []).map((item) => [`${item.frameworkType}\u0000${item.siteType}`, item]));
+  return {
+    frameworks: device.frameworks.map((framework) => {
+      const frameworkType = optionalString(framework.frameworkType);
+      const label = frameworkType ? frameworkLabels.get(frameworkType) : undefined;
+      return label ? {
+        ...framework,
+        presentation: { typeLabelKey: label.labelKey, typeLabel: messages[label.labelKey] },
+      } : framework;
+    }),
+    sites: device.sites.map((site) => {
+      const label = siteLabels.get(`${site.frameworkType}\u0000${site.kind}`);
+      return label ? {
+        ...site,
+        presentation: {
+          groupKey: label.groupKey,
+          groupLabelKey: label.groupLabelKey,
+          typeLabelKey: label.typeLabelKey,
+          groupLabel: messages[label.groupLabelKey],
+          typeLabel: messages[label.typeLabelKey],
+        },
+      } : { ...site, presentation: undefined };
+    }),
+  };
+}
+
 function findWorkflowExtractedValue(
   steps: Array<{ extracted: Record<string, unknown>; children?: Array<{ extracted: Record<string, unknown>; children?: unknown[] }> }>,
   key: string,
@@ -365,39 +405,60 @@ interface MappedPluginDeviceForm {
   secrets: Record<string, string>;
 }
 
-function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, unknown>): MappedPluginDeviceForm {
-  const connections: Record<string, unknown> = {};
+function mapPluginDeviceForm(
+  form: PluginFormSchemaV1,
+  values: Record<string, unknown>,
+  contract: DeploymentInputContractV1,
+): MappedPluginDeviceForm {
   const variables: Record<string, unknown> = {};
-  const credentials: Record<string, { credentialId: string }> = {};
   const secrets: Record<string, string> = {};
   const standardValues = new Map<string, unknown>();
   for (const field of form.sections.flatMap((section) => section.fields)) {
     const value = values[field.key] ?? field.defaultValue;
     if (field.required && isEmpty(value)) throw new AppError('VALIDATION_FAILED', '插件表单必填字段不能为空', { field: field.key });
     if (value === undefined || value === null || value === '') continue;
-    if (field.type !== 'credential_ref' && field.type !== 'secret_ref') variables[field.key] = value;
-    if (field.type === 'credential_ref') {
-      if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', 'credentialId 必须是字符串', { field: field.key });
-      credentials[field.key] = { credentialId: value };
+    if (field.type === 'credential_ref' && typeof value !== 'string') {
+      throw new AppError('VALIDATION_FAILED', 'credentialId 必须是字符串', { field: field.key });
     }
-    if (!field.standardField) continue;
+    if (!field.standardField) {
+      if (contract.variables[field.key] && field.type !== 'credential_ref' && field.type !== 'secret_ref') variables[field.key] = value;
+      continue;
+    }
     standardValues.set(field.standardField, value);
     if (field.type === 'credential_ref') {
       continue;
     } else if (field.type === 'secret_ref') {
       if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', 'SecretRef 必须是字符串', { field: field.key });
       secrets[field.standardField] = value;
-    } else if (field.standardField.startsWith('connection.') || field.standardField.startsWith('tls.') || field.standardField.startsWith('authentication.')) {
-      connections[field.standardField] = value;
     }
   }
   const address = requiredString(standardValues.get('connection.address'), 'connection.address');
   const displayName = requiredString(standardValues.get('device.displayName'), 'device.displayName');
   const port = Number(standardValues.get('connection.port') ?? 443);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new AppError('VALIDATION_FAILED', '设备管理端口无效', { field: 'connection.port' });
-  variables.deviceHost = address;
-  variables.managementPort = port;
-  variables.tlsVerify = standardValues.get('tls.verifyPeer') !== false;
+  const connectionEntries = Object.entries(contract.connections);
+  if (connectionEntries.length !== 1) {
+    throw new AppError('VALIDATION_FAILED', 'Managed 设备接入契约必须声明唯一连接槽', { connectionSlots: connectionEntries.map(([slot]) => slot) });
+  }
+  const [connectionSlot, connectionDefinition] = connectionEntries[0]!;
+  const connection: {
+    host?: string;
+    port?: number;
+    tls?: { verifyPeer?: boolean; serverName?: string };
+  } = {};
+  if (connectionDefinition.host.bindingPolicy !== 'fixed') connection.host = address;
+  if (connectionDefinition.port.bindingPolicy !== 'fixed') connection.port = port;
+  if (connectionDefinition.tls) {
+    connection.tls = {};
+    if (connectionDefinition.tls.verifyPeer.bindingPolicy !== 'fixed') connection.tls.verifyPeer = standardValues.get('tls.verifyPeer') !== false;
+    const serverName = optionalString(standardValues.get('tls.serverName'));
+    if (serverName && connectionDefinition.tls.serverName?.bindingPolicy !== 'fixed') connection.tls.serverName = serverName;
+  }
+  const credentials: Record<string, { credentialId: string }> = {};
+  const credentialId = optionalString(standardValues.get('authentication.credentialId'));
+  const credentialSlot = connectionDefinition.credentialSlot
+    ?? (Object.keys(contract.credentials).length === 1 ? Object.keys(contract.credentials)[0] : undefined);
+  if (credentialId && credentialSlot) credentials[credentialSlot] = { credentialId };
   return {
     displayName,
     address,
@@ -406,7 +467,7 @@ function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, un
     tlsVerify: standardValues.get('tls.verifyPeer') !== false,
     gatewayId: optionalString(standardValues.get('connection.gatewayId')),
     caSecretRef: optionalString(standardValues.get('tls.caSecretRef')),
-    connections,
+    connections: { [connectionSlot]: connection },
     variables,
     credentials,
     secrets,

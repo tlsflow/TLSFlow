@@ -99,6 +99,7 @@ export interface ManagedDeviceSiteDto {
   siteAssetId: string;
   managedTargetId?: string;
   kind: ManagedDeviceSiteKind;
+  frameworkType: string;
   name: string;
   status?: string;
   endpoint?: {
@@ -110,8 +111,10 @@ export interface ManagedDeviceSiteDto {
   configPath?: string;
   presentation?: {
     groupKey: string;
-    groupLabel: string;
-    typeLabel: string;
+    groupLabelKey: string;
+    typeLabelKey: string;
+    groupLabel?: string;
+    typeLabel?: string;
   };
   bindings: ManagedDeviceSiteBindingDto[];
   metadata: Record<string, unknown>;
