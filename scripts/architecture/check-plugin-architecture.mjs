@@ -73,6 +73,12 @@ const csharpProductHandlerPattern = /\b(?:Iis|Nginx|Apache|Httpd|Tomcat|RabbitMq
 const ownerDriverKinds = new Set(['AGENT_NATIVE', 'AGENT_PLUGIN', 'DEVICE_PLUGIN']);
 const legacyApiPattern = /^\/api\/v1\/(?:providers(?:\/discovery-runs)?|provider-discovery-results|provider-discovery-result|plugins\/(?:packages|permissions\/approve|enable|disable|execute|executions|step-draft|permission-summary|capabilities))$/;
 const canonicalPluginIds = new Set([
+  'web.nginx.linux',
+  'web.nginx.windows',
+  'web.apache.linux',
+  'web.apache.windows',
+  'app.tomcat.linux',
+  'app.tomcat.windows',
   'web.nginx',
   'web.apache',
   'web.iis',
@@ -222,6 +228,13 @@ function isNativeCaRuntimePath(path) {
   const normalizedPath = normalizePath(path);
   return normalizedPath.startsWith('backend/src/modules/internal-ca/')
     || normalizedPath === 'backend/src/app.module.ts';
+}
+// Canonical Plugin ID 和证书输入合同是宿主边界的静态协议注册表，
+// 只描述可接受的身份/平台，不构造或选择具体执行实现。
+function isStaticPluginContractRegistryPath(path) {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath === 'backend/src/modules/plugins/canonical-plugin-id/canonical-plugin-id.registry.ts'
+    || normalizedPath === 'backend/src/modules/deployment-inputs/certificate-update/certificate-update.contract.ts';
 }
 function isRunnerExecutorLoaderPath(path) {
   return normalizePath(path) === 'backend/src/modules/plugins/runner/plugin-runner-executor.ts';
@@ -876,7 +889,9 @@ export function scanPluginArchitectureSource(path, source) {
   const sourceFile = ts.createSourceFile(normalizedPath, script, ts.ScriptTarget.Latest, true, kind);
   const findings = scanTextArchitectureRules(normalizedPath, source);
   const hostCodePath = isHostSemanticCodePath(normalizedPath);
-  const hostVendorDispatchPath = hostCodePath && !isNativeCaRuntimePath(normalizedPath);
+  const hostVendorDispatchPath = hostCodePath
+    && !isNativeCaRuntimePath(normalizedPath)
+    && !isStaticPluginContractRegistryPath(normalizedPath);
   const pluginCodePath = isBuiltinPluginPath(normalizedPath);
   const bindingScopePath = isProductionContractPath(normalizedPath) && !isTranslationResourcePath(normalizedPath);
   const moduleLoadAliases = collectModuleLoadAliases(sourceFile);

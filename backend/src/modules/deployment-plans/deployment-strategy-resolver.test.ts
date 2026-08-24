@@ -156,6 +156,7 @@ describe('DeploymentStrategyResolver', () => {
             type: 'WORKFLOW',
             workflow: {
               workflowId: 'workflow_1',
+              workflowVersionSelection: 'FIXED',
               workflowVersionId: 'wfver_1',
               runner: 'GATEWAY',
             },
@@ -181,6 +182,7 @@ describe('DeploymentStrategyResolver', () => {
           type: 'WORKFLOW',
           workflow: {
             workflowId: 'workflow_apache',
+            workflowVersionSelection: 'FIXED',
             workflowVersionId: 'wfver_apache_7',
             runner: 'CONTROL_PLANE',
             inputBindings: {
@@ -199,12 +201,50 @@ describe('DeploymentStrategyResolver', () => {
       certificateBinding: certificateBinding(),
     });
     const workflowRequest = resolved.payload.workflowRequest as Record<string, unknown>;
+    assert.equal(workflowRequest.standaloneStableKey, 'asset_1');
     assert.deepEqual(workflowRequest.inputBindings, {
       apiVersion: 'gcac.input-bindings/v1',
       connections: { targetSsh: { host: '10.255.0.127', port: 22, username: 'root' } },
       variables: { certificateFilePath: '/etc/gcac-test/certs/apache/apache-test.crt', deviceHost: '10.255.0.127' },
       credentials: { targetSsh: { credentialId: 'cred_ssh' } },
       artifacts: {},
+    });
+  });
+
+  it('Standalone 工作流执行请求复用资产元数据中的工作流目标', () => {
+    const resolver = new DeploymentStrategyResolver();
+    const resolved = resolver.resolve({
+      applicationAsset: serviceAsset({
+        metadata: {
+          workflowTarget: {
+            frameworkType: 'CUSTOM',
+            siteName: 'Synology DSM',
+            hostHeader: 'cloud.jacksonz.cn',
+            port: 5001,
+            protocol: 'HTTPS',
+          },
+        },
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: 'workflow_synology',
+            workflowVersionSelection: 'FIXED',
+            workflowVersionId: 'wfver_synology_14',
+            runner: 'CONTROL_PLANE',
+          },
+        },
+      }),
+    });
+
+    assert.deepEqual((resolved.payload.workflowRequest as Record<string, unknown>).target, {
+      frameworkType: 'CUSTOM',
+      siteName: 'Synology DSM',
+      bindingInformation: undefined,
+      hostHeader: 'cloud.jacksonz.cn',
+      port: 5001,
+      protocol: 'HTTPS',
+      verifyUrl: undefined,
+      sniName: undefined,
     });
   });
 });

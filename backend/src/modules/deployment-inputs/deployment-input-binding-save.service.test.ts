@@ -73,6 +73,37 @@ test('保存时清理历史资产覆盖层中的旧协议字段', () => {
   assert.equal(result.resolved.connections.management?.port, 8443);
 });
 
+test('历史资产覆盖层缺少 inputBindings 时按空绑定处理并返回校验问题', () => {
+  const result = service.validate({
+    pluginVersionId: 'version-1',
+    contract,
+    assetContext,
+    deviceDefault: { pluginVersionId: 'version-1', inputBindings: bindings({
+      connections: { management: { host: 'device.example.com', port: 443 } },
+      credentials: { management: { credentialId: 'credential-1' } },
+    }) },
+    currentAssetOverride: { pluginVersionId: 'version-1', inputBindings: undefined } as never,
+    submitted: emptyInputBindingsV1(),
+  });
+
+  assert.equal(result.saveable, false);
+  assert.ok(result.issues.some((issue) => issue.code === 'DEPLOYMENT_INPUT_REQUIRED'));
+  assert.deepEqual(result.assetOverride, emptyInputBindingsV1());
+});
+
+test('请求缺少 pluginVersionId 且没有当前覆盖层时不发生未定义解引用', () => {
+  const result = service.validate({
+    pluginVersionId: undefined as never,
+    contract,
+    assetContext,
+    submitted: emptyInputBindingsV1(),
+  });
+
+  assert.equal(result.saveable, false);
+  assert.ok(result.issues.some((issue) => issue.code === 'DEPLOYMENT_INPUT_REQUIRED'));
+  assert.deepEqual(result.assetOverride, emptyInputBindingsV1());
+});
+
 function bindings(overrides: Partial<ReturnType<typeof emptyInputBindingsV1>>): ReturnType<typeof emptyInputBindingsV1> {
   return { ...emptyInputBindingsV1(), ...overrides };
 }

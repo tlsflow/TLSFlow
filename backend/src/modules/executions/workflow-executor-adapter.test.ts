@@ -554,6 +554,58 @@ describe('WorkflowExecutorAdapter', () => {
     assert.equal(typeof workflowIdentity.workflowTemplateId, 'string');
   });
 
+  it('Standalone 历史工作流计划可从应用资产上下文取得资源锁', async () => {
+    const { workflows, versionId } = await createPublishedWorkflow();
+    let resourceKey: string | undefined;
+    const resourceLocks = {
+      acquire: async (input: { resourceKey: string }) => {
+        resourceKey = input.resourceKey;
+        return {
+          id: 'lock_standalone_test',
+          tenantId: 'tenant_1',
+          resourceKey: input.resourceKey,
+          mode: 'WRITE',
+          ownerRunId: 'run_workflow',
+          ownerStepId: 'step_workflow',
+          fencingToken: 1,
+          expiresAt: new Date(Date.now() + 300_000).toISOString(),
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+        } as never;
+      },
+      release: async () => undefined,
+    };
+    const recovery = {
+      begin: async () => ({ id: 'ledger_standalone_test', tenantId: 'tenant_1' } as never),
+      markStepCompleted: async () => undefined,
+      finish: async () => undefined,
+    };
+    const curlExecutor = new StubExecutor('CURL', () => ({
+      success: true,
+      detail: { response: { statusCode: 200, bodyJson: { fingerprint: 'test-fingerprint' } } },
+    }));
+    const sshExecutor = new StubExecutor('SSH', () => ({ success: true, detail: { stdout: 'ok' } }));
+    const adapter = new WorkflowExecutorAdapter({
+      workflows,
+      curlExecutor: curlExecutor as never,
+      sshExecutor: sshExecutor as never,
+      resourceLocks: resourceLocks as never,
+      recovery: recovery as never,
+    });
+    const step = workflowStep(versionId);
+    // 模拟旧部署计划：没有 standaloneStableKey，但仍保留统一部署输入快照。
+    step.inputSnapshot.workflowRequest = {
+      workflowVersionId: versionId,
+      pluginVersionId: 'uplgv_legacy_standalone',
+      capabilityKey: 'certificate.deploy',
+    };
+
+    const result = await adapter.executeStep({ step, runType: 'apply', dryRun: false });
+
+    assert.equal(result.success, true);
+    assert.equal(resourceKey, 'tenant:tenant_1:standalone:asset_workflow_adapter');
+  });
+
   it('dry-run 校验 checkpoint 计划但不要求或写入正式恢复账本', async () => {
     const { workflows, versionId } = await createPublishedCheckpointWorkflow();
     const adapter = new WorkflowExecutorAdapter({ workflows });

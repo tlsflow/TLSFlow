@@ -47,6 +47,45 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.deployment.targets[0]?.port, 443);
   });
 
+  it('缺少 SNI 时使用资产访问域名作为证书验证域名', () => {
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: {
+        ...applicationAsset(),
+        address: 'cloud.jacksonz.cn',
+        sniName: undefined,
+        verifyUrl: 'https://verify.example.com:5001/webapi/entry.cgi',
+      },
+    });
+
+    assert.equal(context.application.address, 'cloud.jacksonz.cn');
+    assert.equal(context.application.serverName, 'cloud.jacksonz.cn');
+    assert.equal(context.deployment.targets[0]?.serverName, 'cloud.jacksonz.cn');
+  });
+
+  it('显式 SNI 优先于资产访问域名', () => {
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: {
+        ...applicationAsset(),
+        verifyUrl: 'https://verify.example.com',
+      },
+    });
+
+    assert.equal(context.application.serverName, 'app.example.com');
+  });
+
+  it('兼容历史上将连接 IP 持久化为 SNI 的工作流目标', () => {
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: {
+        ...applicationAsset(),
+        address: 'cloud.jacksonz.cn',
+        sniName: '10.255.0.77',
+        verifyUrl: 'https://cloud.jacksonz.cn:5001/webapi/entry.cgi',
+      },
+    });
+
+    assert.equal(context.application.serverName, 'cloud.jacksonz.cn');
+  });
+
   it('兼容 PostgreSQL 返回的 Date 类型受管目标更新时间', () => {
     const topology = managedTargetContext();
     topology.managedTarget.metadata = {
@@ -77,6 +116,17 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(first.deployment.targets[0]?.name, '示例应用');
     assert.equal(first.deployment.certificateResourceName, second.deployment.certificateResourceName);
     assert.deepEqual(first, second);
+  });
+
+  it('无受管目标时优先使用工作流资产配置的目标名称', () => {
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: {
+        ...applicationAsset(),
+        metadata: { workflowTarget: { siteName: 'Synology DSM' } },
+      },
+    });
+
+    assert.equal(context.deployment.targets[0]?.name, 'Synology DSM');
   });
 
   it('受管目标缺失 metadata 时返回结构化合同错误', () => {

@@ -558,6 +558,9 @@ describe('WorkflowTemplates', () => {
     assert.equal(deployRow.currentVersionLabel, '1.2.6');
     const mergedVersions = await service.listVersions(deployRow.id);
     assert.deepEqual(mergedVersions.map((version) => version.content.metadata.version), ['1.2.6', '1.2.4']);
+    assert.equal(mergedVersions[0]?.pluginSource?.pluginVersionId, 'uplgv_duplicate_latest');
+    assert.equal(mergedVersions[0]?.pluginSource?.capabilityKey, 'certificate.deploy');
+    assert.equal(mergedVersions[0]?.pluginSource?.sourceWorkflowVersionId, duplicateLatestPluginWorkflow.version.id);
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {

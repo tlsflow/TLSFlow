@@ -8,6 +8,7 @@ import type { PluginWorkflowBindingRecord } from './dto/plugin-workflow-bindings
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from './repository/plugin-workflow-bindings.repository.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
+import { certificateUpdatePluginIds } from './canonical-plugin-id/canonical-plugin-id.registry.js';
 
 test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建模板', async () => {
   const versions = new Map<string, UnifiedPluginVersionRecord>();
@@ -71,6 +72,59 @@ test('插件 Workflow 内容变化且版本与 PluginVersion 同步时可发布'
   await publisher.publishPlugin(firstPlugin);
   const [published] = await publisher.publishPlugin(secondPlugin);
   assert.ok(published);
+});
+
+test('六个证书更新包允许独立发布 deploy 与 rollback Workflow', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  for (const pluginId of [
+    'web.nginx.linux',
+    'web.nginx.windows',
+    'web.apache.linux',
+    'web.apache.windows',
+    'app.tomcat.linux',
+    'app.tomcat.windows',
+  ]) {
+    const plugin = independentCertificatePluginRecord(pluginId);
+    const published = await publisher.publishPlugin(plugin);
+    assert.equal(published.length, 3, `${pluginId} 必须发布 deploy、verify、rollback 三条绑定`);
+    assert.notEqual(
+      published.find((item) => item.capabilityKey === 'certificate.deploy')?.workflowResourcePath,
+      published.find((item) => item.capabilityKey === 'certificate.rollback')?.workflowResourcePath,
+    );
+  }
+});
+
+test('普通旧 Workflow DSL 仍拒绝独立 deploy 与 rollback 资源', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const plugin = independentCertificatePluginRecord('fixture.plugin');
+
+  await assert.rejects(
+    () => publisher.publishPlugin(plugin),
+    /旧 Workflow DSL 插件的 certificate\.deploy 与 certificate\.rollback 必须指向同一资源/,
+  );
+});
+
+test('六个实际证书更新包都能完成三条 Workflow 发布', async () => {
+  const versions = new Map<string, UnifiedPluginVersionRecord>();
+  const pluginService = new UnifiedPluginsApplicationService(pluginRepository(versions));
+  const installed = await new BuiltinUnifiedPluginLoader().installAll(pluginService);
+  const certificatePlugins = installed.filter((plugin) => certificateUpdatePluginIds.includes(plugin.pluginId as (typeof certificateUpdatePluginIds)[number]));
+  assert.equal(certificatePlugins.length, certificateUpdatePluginIds.length);
+
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  for (const plugin of certificatePlugins) {
+    const published = await publisher.publishPlugin(plugin);
+    assert.deepEqual(
+      published.map((binding) => binding.capabilityKey).sort(),
+      ['certificate.deploy', 'certificate.rollback', 'certificate.verify'],
+    );
+  }
 });
 
 test('插件内部 WorkflowVersion 与 PluginVersion 不一致时拒绝发布', async () => {
@@ -147,6 +201,33 @@ test('插件发布遇到已存在的 Workflow 内容时复用现有版本', asyn
   assert.equal(binding?.workflowTemplateId, internal.template.id);
   assert.equal(binding?.workflowVersionId, publishedNext.id);
   assert.equal((await publisher.require(nextPlugin.id, 'certificate.deploy')).workflowVersionId, publishedNext.id);
+});
+
+test('历史绑定指向旧 DSL 版本时，插件发布会幂等修复绑定目标', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const oldPlugin = pluginRecord('historical-binding-seed', '1.0.13', '1.0.13');
+  const currentPlugin = pluginRecord('historical-binding', '1.0.14', '1.0.14');
+  const oldContent = JSON.parse(oldPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const internal = await workflows.createPluginTemplate({ content: oldContent }, { ownerType: 'SYSTEM', ownerId: 'SYSTEM' });
+  const oldVersion = await workflows.publishPluginVersion(internal.version.id);
+  bindings.set(`${currentPlugin.id}:certificate.deploy:certificate.deploy`, {
+    pluginVersionId: currentPlugin.id,
+    capabilityKey: 'certificate.deploy',
+    workflowKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: internal.template.id,
+    workflowVersionId: oldVersion.id,
+    workflowContentSha256: oldVersion.contentHash,
+    createdAt: new Date().toISOString(),
+  });
+
+  const [repaired] = await publisher.publishPlugin(currentPlugin);
+  assert.ok(repaired);
+  const repairedVersion = await workflows.getVersion(repaired!.workflowVersionId);
+  assert.equal(repairedVersion.content.metadata.version, '1.0.14');
+  assert.equal((await publisher.require(currentPlugin.id, 'certificate.deploy')).workflowVersionId, repaired!.workflowVersionId);
 });
 
 test('Workflow DSL 插件声明能力缺少绑定时拒绝发布', async () => {
@@ -248,4 +329,35 @@ function pluginRecord(id: string, pluginVersion: string, workflowVersion: string
     createdAt: '2026-07-27T00:00:00.000Z',
     updatedAt: '2026-07-27T00:00:00.000Z',
   };
+}
+
+function independentCertificatePluginRecord(pluginId: string): UnifiedPluginVersionRecord {
+  const plugin = pluginRecord(`independent:${pluginId}`, '1.0.0', '1.0.0');
+  const paths = {
+    'certificate.deploy': 'workflows/deploy.json',
+    'certificate.verify': 'workflows/verify.json',
+    'certificate.rollback': 'workflows/rollback.json',
+  } as const;
+  const content = plugin.resources['workflows/deploy.json']!;
+  plugin.pluginId = pluginId;
+  plugin.manifest.pluginId = pluginId;
+  plugin.manifest.capabilities = Object.keys(paths).map((key) => ({
+    key,
+    contractVersion: 'v1',
+    actionContractId: `${key}.v1`,
+    riskLevel: key === 'certificate.verify' ? 'LOW' : 'HIGH',
+    executionLocations: ['AGENT'],
+  })) as typeof plugin.manifest.capabilities;
+  plugin.manifest.resources.workflows = paths;
+  plugin.resources = {
+    'workflows/deploy.json': content,
+    'workflows/verify.json': content,
+    'workflows/rollback.json': content,
+  };
+  plugin.resourceSha256 = {
+    'workflows/deploy.json': 'sha256:deploy',
+    'workflows/verify.json': 'sha256:verify',
+    'workflows/rollback.json': 'sha256:rollback',
+  };
+  return plugin;
 }

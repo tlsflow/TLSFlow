@@ -40,6 +40,38 @@ describe('UnifiedDeploymentInputResolver', () => {
     assert.equal(resolved.executable, true);
   });
 
+  it('从标准部署目标上下文自动派生单目标名称', () => {
+    const request = requestFixture();
+    request.contract.variables.deploymentTarget = variable(
+      'string',
+      'runtime',
+      { kind: 'derived', resolver: 'deployment_target_name' },
+      'fixed',
+    );
+
+    const resolved = resolver.resolve(request);
+
+    assert.equal(resolved.variables.deploymentTarget, 'APP');
+    assert.equal(resolved.provenance['variables.deploymentTarget']?.source, 'derived');
+    assert.equal(resolved.executable, true);
+  });
+
+  it('兼容历史 DSM 的 deployment.target 路径并从 targets 首项自动填充', () => {
+    const request = requestFixture();
+    request.contract.variables.target = variable(
+      'string',
+      'runtime',
+      { kind: 'asset', path: 'deployment.target' },
+      'fixed',
+    );
+
+    const resolved = resolver.resolve(request);
+
+    assert.equal(resolved.variables.target, 'APP');
+    assert.equal(resolved.issues.some((item) => item.path === 'deployment.target'), false);
+    assert.equal(resolved.executable, true);
+  });
+
   it('fixed Source 被任何 Binding 覆盖时保留标准值并返回全部问题', () => {
     const request = requestFixture();
     request.effectiveBinding.inputBindings.variables = {

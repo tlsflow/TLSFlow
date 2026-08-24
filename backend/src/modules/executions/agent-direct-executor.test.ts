@@ -76,6 +76,7 @@ test('AgentExecutorAdapter 将 agent.plan.validate 送入同一 Agent v2 compile
   assert.equal(result.success, true);
   assert.equal(compilerActionType, 'agent.plan.validate');
   assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
+  assert.equal(enqueuedPayload?.mutating, false);
   assert.deepEqual(enqueuedPayload?.plan, materials.plan);
   assert.deepEqual(enqueuedPayload?.token, materials.token);
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
@@ -165,6 +166,7 @@ test('AgentExecutorAdapter 的 dry-run 将计划执行收敛为只读 plan.valid
   assert.equal(result.success, true);
   assert.equal(compilerActionType, 'agent.plan.validate');
   assert.equal(enqueuedPayload?.actionType, 'agent.plan.validate');
+  assert.equal(enqueuedPayload?.mutating, false);
 });
 
 test('AgentExecutorAdapter 缺少完整 Policy/Token 时失败关闭且不入队', async () => {

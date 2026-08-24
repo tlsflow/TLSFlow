@@ -83,6 +83,19 @@ test('宿主厂商映射表和 Action Map 必须被识别', () => {
   assert.equal(findings.every((finding) => finding.classification === 'PRODUCTION'), true);
 });
 
+test('静态 Canonical/证书输入合同注册表不属于执行分派', () => {
+  const canonicalFindings = scanPluginArchitectureSource(
+    'backend/src/modules/plugins/canonical-plugin-id/canonical-plugin-id.registry.ts',
+    "const certificateUpdateProfiles = { 'web.nginx.linux': { frameworkType: 'web.nginx' }, 'web.apache.windows': { frameworkType: 'web.apache' } };",
+  );
+  const contractFindings = scanPluginArchitectureSource(
+    'backend/src/modules/deployment-inputs/certificate-update/certificate-update.contract.ts',
+    "const pluginProfiles = { 'web.nginx.linux': { frameworkType: 'web.nginx' }, 'web.apache.windows': { frameworkType: 'web.apache' } };",
+  );
+  assert.equal(canonicalFindings.some((finding) => finding.rule === 'HOST_VENDOR_DISPATCH'), false);
+  assert.equal(contractFindings.some((finding) => finding.rule === 'HOST_VENDOR_DISPATCH'), false);
+});
+
 test('生产残留的已删除插件 Schema 和旧运行时必须显式失败', () => {
   const schemaFindings = scanPluginArchitectureSource(
     'backend/src/modules/plugins/index.ts',
