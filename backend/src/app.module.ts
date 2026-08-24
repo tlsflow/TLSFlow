@@ -55,6 +55,8 @@ import { PluginsController, getPluginsRouteContracts } from './modules/plugins/i
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { AgentDeploymentPluginsApplicationService } from './modules/plugins/application/agent-deployment-plugins.application-service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
+import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
+import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
 import {
@@ -156,6 +158,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginsRepository,
   );
   const pluginsService = new PluginsApplicationService(pluginsRepository);
+  const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);
@@ -291,7 +294,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
-  new PluginsController(pluginsService, agentPluginsService).register(app.router);
+  new PluginsController(pluginsService, agentPluginsService, unifiedPluginsService).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({

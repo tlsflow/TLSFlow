@@ -3,6 +3,8 @@ import { listRecords, postAction, type ApiBody, type BusinessListQuery } from '.
 const PLUGIN_PACKAGES_PATH = '/api/v1/plugins/packages'
 const PLUGIN_DISABLE_PATH = '/api/v1/plugins/disable'
 const PLUGIN_CATALOG_PATH = '/api/v1/plugin-catalog'
+const UNIFIED_PLUGIN_ENABLE_PATH = '/api/v1/plugin-versions/enable'
+const UNIFIED_PLUGIN_DISABLE_PATH = '/api/v1/plugin-versions/disable'
 const WORKFLOW_TEMPLATE_PLUGIN_ENABLE_PATH = '/api/v1/plugin-catalog/workflow-templates/enable'
 const WORKFLOW_TEMPLATE_PLUGIN_DISABLE_PATH = '/api/v1/plugin-catalog/workflow-templates/disable'
 const AGENT_PLUGIN_PACKAGES_PATH = '/api/v1/plugins/agent-packages'
@@ -23,6 +25,14 @@ export function disablePlugin(pluginId: string, payload: ApiBody = {}) {
 
 export function listPluginCatalog(query?: BusinessListQuery) {
   return listRecords(PLUGIN_CATALOG_PATH, query)
+}
+
+export function enableUnifiedPluginVersion(pluginVersionId: string) {
+  return postAction(UNIFIED_PLUGIN_ENABLE_PATH, { pluginVersionId }, 'unified_plugin_enable')
+}
+
+export function disableUnifiedPluginVersion(pluginVersionId: string) {
+  return postAction(UNIFIED_PLUGIN_DISABLE_PATH, { pluginVersionId }, 'unified_plugin_disable')
 }
 
 export function listAgentPluginPackages(query?: BusinessListQuery) {

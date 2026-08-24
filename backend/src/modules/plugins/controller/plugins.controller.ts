@@ -5,6 +5,8 @@ import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { PluginsApplicationService } from '../application/plugins.application-service.js';
 import { AgentDeploymentPluginsApplicationService } from '../application/agent-deployment-plugins.application-service.js';
+import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
+import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
 import type {
   PluginEnableInput,
   PluginExecutionRequest,
@@ -19,6 +21,7 @@ export class PluginsController {
   constructor(
     private readonly service = new PluginsApplicationService(),
     private readonly agentPlugins = new AgentDeploymentPluginsApplicationService(),
+    private readonly unifiedPlugins = new UnifiedPluginsApplicationService(),
   ) {}
 
   register(router: Router): void {
@@ -33,6 +36,13 @@ export class PluginsController {
     router.post('/api/v1/plugins/permission-summary', '生成插件权限摘要', tags, (request) => this.getPermissionSummary(request));
     router.post('/api/v1/plugins/capabilities', '输出插件 Capability 声明', tags, (request) => this.publishCapabilities(request));
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
+    router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
+    router.post('/api/v1/plugin-packages/import', '导入统一插件版本', tags, (request) => this.importUnifiedPluginVersion(request));
+    router.post('/api/v1/plugin-versions/approve-permissions', '审批统一插件权限', tags, (request) => this.approveUnifiedPluginPermissions(request));
+    router.post('/api/v1/plugin-versions/enable', '启用统一插件版本', tags, (request) => this.enableUnifiedPluginVersion(request));
+    router.post('/api/v1/plugin-versions/disable', '禁用统一插件版本', tags, (request) => this.disableUnifiedPluginVersion(request));
+    router.post('/api/v1/plugin-versions/retire', '退休统一插件版本', tags, (request) => this.retireUnifiedPluginVersion(request));
+    router.get('/api/v1/plugin-versions/upgrade-diff', '查询统一插件升级差异', tags, (request) => this.getUnifiedPluginUpgradeDiff(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
     router.post('/api/v1/plugin-catalog/workflow-templates/disable', '禁用 DSL 模板插件', tags, (request) => this.disableWorkflowTemplatePlugin(request));
     router.get('/api/v1/plugins/agent-packages', '查询 Agent 插件包', tags, (request) => this.listAgentPackages(request));
@@ -127,8 +137,61 @@ export class PluginsController {
   }
 
   private async listCatalog(request: HttpRequest) {
-    const items = await this.agentPlugins.listCatalog(tenantId(request));
+    const [legacyItems, unifiedItems] = await Promise.all([
+      this.agentPlugins.listCatalog(tenantId(request)),
+      this.unifiedPlugins.listCatalog(tenantId(request)),
+    ]);
+    const items = [...unifiedItems, ...legacyItems];
     return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private async listUnifiedPluginVersions(request: HttpRequest) {
+    const items = await this.unifiedPlugins.listVersions(tenantId(request));
+    return { items, page: 1, pageSize: items.length, total: items.length };
+  }
+
+  private async importUnifiedPluginVersion(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      manifest: { type: 'object', required: true },
+      resources: { type: 'object' },
+      packageContent: { type: 'string' },
+    });
+    return {
+      statusCode: 201,
+      body: await this.unifiedPlugins.importVersion(tenantId(request), body as unknown as ImportUnifiedPluginVersionInput),
+    };
+  }
+
+  private approveUnifiedPluginPermissions(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      pluginVersionId: { type: 'string', required: true },
+      approvedPermissions: { type: 'array', required: true },
+    });
+    return this.unifiedPlugins.approvePermissions(
+      String(body.pluginVersionId),
+      (body.approvedPermissions as unknown[]).map(String),
+    );
+  }
+
+  private enableUnifiedPluginVersion(request: HttpRequest) {
+    const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
+    return this.unifiedPlugins.enableVersion(String(body.pluginVersionId));
+  }
+
+  private disableUnifiedPluginVersion(request: HttpRequest) {
+    const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
+    return this.unifiedPlugins.disableVersion(String(body.pluginVersionId));
+  }
+
+  private retireUnifiedPluginVersion(request: HttpRequest) {
+    const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
+    return this.unifiedPlugins.retireVersion(String(body.pluginVersionId));
+  }
+
+  private getUnifiedPluginUpgradeDiff(request: HttpRequest) {
+    const fromVersionId = typeof request.query.fromVersionId === 'string' ? request.query.fromVersionId : '';
+    const toVersionId = typeof request.query.toVersionId === 'string' ? request.query.toVersionId : '';
+    return this.unifiedPlugins.getUpgradeDiff(fromVersionId, toVersionId);
   }
 
   private enableWorkflowTemplatePlugin(request: HttpRequest) {
@@ -247,6 +310,13 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugins/permission-summary', operationId: 'createPluginPermissionSummary', summary: '生成插件权限摘要', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugins/capabilities', operationId: 'publishPluginCapabilities', summary: '输出插件 Capability 声明', tags, responseSchema: { type: 'array', items: objectSchema() } },
     { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageResponseSchema },
+    { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageResponseSchema },
+    { method: 'POST', path: '/api/v1/plugin-packages/import', operationId: 'importUnifiedPluginVersion', summary: '导入统一插件版本', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/approve-permissions', operationId: 'approveUnifiedPluginPermissions', summary: '审批统一插件权限', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/enable', operationId: 'enableUnifiedPluginVersion', summary: '启用统一插件版本', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/disable', operationId: 'disableUnifiedPluginVersion', summary: '禁用统一插件版本', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/plugin-versions/retire', operationId: 'retireUnifiedPluginVersion', summary: '退休统一插件版本', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/plugin-versions/upgrade-diff', operationId: 'getUnifiedPluginUpgradeDiff', summary: '查询统一插件升级差异', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/disable', operationId: 'disableWorkflowTemplatePlugin', summary: '禁用 DSL 模板插件', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugins/agent-packages', operationId: 'listAgentPluginPackages', summary: '查询 Agent 插件包', tags, responseSchema: pageResponseSchema },

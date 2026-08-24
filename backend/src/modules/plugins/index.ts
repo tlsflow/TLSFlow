@@ -7,3 +7,7 @@ export * from './schema/plugins.schema.js';
 export * from './application/agent-deployment-plugins.application-service.js';
 export * from './dto/agent-deployment-plugins.dto.js';
 export * from './schema/agent-deployment-plugins.schema.js';
+export * from './dto/unified-plugins.dto.js';
+export * from './schema/unified-plugins.schema.js';
+export * from './repository/unified-plugins.repository.js';
+export * from './application/unified-plugins.application-service.js';

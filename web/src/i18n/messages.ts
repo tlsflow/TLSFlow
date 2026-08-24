@@ -932,7 +932,11 @@ const zhCN = {
       currentStatus: '当前状态',
       version: '版本',
       signatureStatus: '签名状态',
-      riskLevel: '风险等级'
+      riskLevel: '风险等级',
+      runtime: '运行时',
+      scope: '适用范围',
+      support: '支持等级',
+      capabilities: '能力'
     }
   },
   deploymentPlans: {
@@ -4070,7 +4074,11 @@ const enUS = {
       currentStatus: 'Current status',
       version: 'Version',
       signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      riskLevel: 'Risk level',
+      runtime: 'Runtime',
+      scope: 'Scope',
+      support: 'Support level',
+      capabilities: 'Capabilities'
     }
   },
   deploymentPlans: {

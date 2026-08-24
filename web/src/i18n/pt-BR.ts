@@ -757,7 +757,7 @@ export default {
       version: 'Versão',
       source: 'Origem', category: 'Categoria', steps: 'Etapas de execução', rollbackSteps: 'Etapas de rollback', updatedAt: 'Atualizado em', filePath: 'Caminho do modelo', logoUrl: 'URL do logo', platforms: 'Plataformas alvo', updateMethods: 'Métodos de atualização', maintainer: 'Mantenedor', homepage: 'Página do projeto', usage: 'Estado de uso', validationError: 'Erro de validação',
       signatureStatus: 'Status da assinatura',
-      riskLevel: 'Nível de risco'
+      riskLevel: 'Nível de risco', runtime: 'Runtime', scope: 'Escopo', support: 'Nível de suporte', capabilities: 'Capacidades'
     },
     aria: { filters: 'Filtros do mercado de plugins', list: 'Lista de plugins DSL', logo: 'Logo de {name}' },
     errors: { loadFailed: 'Falha ao carregar o mercado de plugins', createFailed: 'Falha ao criar o fluxo a partir do plugin' },
@@ -767,7 +767,7 @@ export default {
       plugin: 'Plugin de implantação', selectPlugin: 'Selecione um plugin de implantação', noCompatiblePlugin: 'Nenhum plugin habilitado corresponde à plataforma e ao framework atuais', compatiblePluginHint: 'Somente plugins habilitados compatíveis com a plataforma e o framework do ativo são exibidos.',
       secretRefPlaceholder: 'Informe um identificador SecretRef', artifactBinding: 'Artefato de certificado {name}', artifactBindingPlaceholder: 'Exemplo: value=fullchain,key=private', preview: 'Validar configuração', previewFailed: 'Falha ao validar a configuração do plugin do Agent',
       approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent',
-      types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', AGENT_DEPLOYMENT: 'Plugin de implantação do Agent' }
+      types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', AGENT_DEPLOYMENT: 'Plugin de implantação do Agent', UNIFIED_PLUGIN: 'Plugin de capacidade unificado' }
     },
     changeSummaries: { createWorkflow: 'Criar fluxo a partir do modelo do mercado de plugins' }
   },

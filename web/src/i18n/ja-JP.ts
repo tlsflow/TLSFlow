@@ -783,7 +783,7 @@ export default {
       version: 'バージョン',
       source: '提供元', category: 'カテゴリ', steps: '実行ステップ', rollbackSteps: 'ロールバックステップ', updatedAt: '更新日時', filePath: 'テンプレートパス', logoUrl: 'Logo URL', platforms: '対象プラットフォーム', updateMethods: '更新方法', maintainer: 'メンテナー', homepage: 'ホームページ', usage: '使用状態', validationError: '検証エラー',
       signatureStatus: '署名ステータス',
-      riskLevel: 'リスク等级'
+      riskLevel: 'リスク等级', runtime: 'ランタイム', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ'
     },
     aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },
     errors: { loadFailed: 'プラグインマーケットの読み込みに失敗しました', createFailed: 'プラグインからワークフローを作成できませんでした' },
@@ -793,7 +793,7 @@ export default {
       plugin: 'デプロイプラグイン', selectPlugin: 'デプロイプラグインを選択', noCompatiblePlugin: '現在のプラットフォームとフレームワークに一致する有効なプラグインがありません', compatiblePluginHint: '資産のプラットフォームとフレームワークに一致する有効なプラグインのみ表示します。',
       secretRefPlaceholder: 'SecretRef 識別子を入力', artifactBinding: '証明書成果物 {name}', artifactBindingPlaceholder: '例: value=fullchain,key=private', preview: 'プラグイン設定を検証', previewFailed: 'Agent プラグイン設定の検証に失敗しました',
       approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました',
-      types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', AGENT_DEPLOYMENT: 'Agent デプロイプラグイン' }
+      types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', AGENT_DEPLOYMENT: 'Agent デプロイプラグイン', UNIFIED_PLUGIN: '統合ケイパビリティプラグイン' }
     },
     changeSummaries: { createWorkflow: 'プラグインマーケットのテンプレートからワークフローを作成' }
   },

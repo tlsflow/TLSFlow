@@ -757,7 +757,7 @@ export default {
       version: '버전',
       source: '출처', category: '분류', steps: '실행 단계', rollbackSteps: '롤백 단계', updatedAt: '업데이트 시간', filePath: '템플릿 경로', logoUrl: 'Logo URL', platforms: '대상 플랫폼', updateMethods: '업데이트 방식', maintainer: '관리자', homepage: '프로젝트 홈페이지', usage: '사용 상태', validationError: '검증 오류',
       signatureStatus: '서명 상태',
-      riskLevel: '위험수준'
+      riskLevel: '위험수준', runtime: '런타임', scope: '적용 범위', support: '지원 수준', capabilities: '기능'
     },
     aria: { filters: '플러그인 마켓 필터', list: 'DSL 플러그인 목록', logo: '{name} Logo' },
     errors: { loadFailed: '플러그인 마켓을 불러오지 못했습니다', createFailed: '플러그인에서 워크플로를 만들지 못했습니다' },
@@ -767,7 +767,7 @@ export default {
       plugin: '배포 플러그인', selectPlugin: '배포 플러그인 선택', noCompatiblePlugin: '현재 플랫폼 및 프레임워크와 일치하는 활성 플러그인이 없습니다', compatiblePluginHint: '자산 플랫폼 및 프레임워크와 일치하는 활성 플러그인만 표시합니다.',
       secretRefPlaceholder: 'SecretRef 식별자 입력', artifactBinding: '인증서 산출물 {name}', artifactBindingPlaceholder: '예: value=fullchain,key=private', preview: '플러그인 설정 검증', previewFailed: 'Agent 플러그인 설정 검증에 실패했습니다',
       approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다',
-      types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', AGENT_DEPLOYMENT: 'Agent 배포 플러그인' }
+      types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', AGENT_DEPLOYMENT: 'Agent 배포 플러그인', UNIFIED_PLUGIN: '통합 기능 플러그인' }
     },
     changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
   },

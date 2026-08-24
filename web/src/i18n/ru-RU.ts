@@ -757,7 +757,7 @@ export default {
       version: 'Версия',
       source: 'Источник', category: 'Категория', steps: 'Шаги выполнения', rollbackSteps: 'Шаги отката', updatedAt: 'Обновлено', filePath: 'Путь шаблона', logoUrl: 'URL логотипа', platforms: 'Целевые платформы', updateMethods: 'Способы обновления', maintainer: 'Сопровождающий', homepage: 'Страница проекта', usage: 'Статус использования', validationError: 'Ошибка проверки',
       signatureStatus: 'Статус подписи',
-      riskLevel: 'Уровень риска'
+      riskLevel: 'Уровень риска', runtime: 'Среда выполнения', scope: 'Область применения', support: 'Уровень поддержки', capabilities: 'Возможности'
     },
     aria: { filters: 'Фильтры каталога плагинов', list: 'Список DSL-плагинов', logo: 'Логотип {name}' },
     errors: { loadFailed: 'Не удалось загрузить каталог плагинов', createFailed: 'Не удалось создать процесс из плагина' },
@@ -767,7 +767,7 @@ export default {
       plugin: 'Плагин развертывания', selectPlugin: 'Выберите плагин развертывания', noCompatiblePlugin: 'Нет включенного плагина для текущей платформы и фреймворка', compatiblePluginHint: 'Показываются только включенные плагины, совместимые с платформой и фреймворком ресурса.',
       secretRefPlaceholder: 'Введите идентификатор SecretRef', artifactBinding: 'Артефакт сертификата {name}', artifactBindingPlaceholder: 'Пример: value=fullchain,key=private', preview: 'Проверить настройки', previewFailed: 'Не удалось проверить настройки плагина Agent',
       approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent',
-      types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', AGENT_DEPLOYMENT: 'Плагин развертывания Agent' }
+      types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', AGENT_DEPLOYMENT: 'Плагин развертывания Agent', UNIFIED_PLUGIN: 'Унифицированный плагин возможностей' }
     },
     changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
   },

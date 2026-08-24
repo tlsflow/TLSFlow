@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import type { ApiRecord } from '@/api/modules/common'
-import { approveAgentPluginPermissions, disableAgentPluginPackage, disableWorkflowTemplatePlugin, enableAgentPluginPackage, enableWorkflowTemplatePlugin, listAgentPluginPackages, listPluginCatalog } from '@/api/modules/plugins.api'
+import { approveAgentPluginPermissions, disableAgentPluginPackage, disableUnifiedPluginVersion, disableWorkflowTemplatePlugin, enableAgentPluginPackage, enableUnifiedPluginVersion, enableWorkflowTemplatePlugin, listAgentPluginPackages, listPluginCatalog } from '@/api/modules/plugins.api'
 import { createWorkflowTemplateFromFile, listWorkflowFileTemplates, listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
 import { GcEmptyState, GcModal } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -11,7 +11,7 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 type PluginSource = 'builtin' | 'user'
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
-type PluginCatalogType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT'
+type PluginCatalogType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT' | 'UNIFIED_PLUGIN'
 
 interface PluginMetadata {
   name: string
@@ -43,6 +43,10 @@ interface PluginRecord {
   pluginPackageId?: string
   workflowFileTemplateId?: string
   status: string
+  runtime?: string
+  scope?: string
+  support?: string
+  capabilities: string[]
 }
 
 const { t } = useI18n()
@@ -153,12 +157,17 @@ function toPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>)
     catalogType: 'WORKFLOW_TEMPLATE',
     workflowFileTemplateId: readString(record.id),
     status: record.valid === true ? 'valid' : 'invalid',
+    capabilities: [],
   }
 }
 
 function toCatalogPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>, workflowFiles: ReadonlyMap<string, ApiRecord>): PluginRecord {
   const detailRef = readRecord(record.detailRef)
-  const catalogType = record.catalogType === 'AGENT_DEPLOYMENT' ? 'AGENT_DEPLOYMENT' : 'WORKFLOW_TEMPLATE'
+  const catalogType: PluginCatalogType = record.catalogType === 'AGENT_DEPLOYMENT'
+    ? 'AGENT_DEPLOYMENT'
+    : record.catalogType === 'UNIFIED_PLUGIN'
+      ? 'UNIFIED_PLUGIN'
+      : 'WORKFLOW_TEMPLATE'
   const workflowFileTemplateId = readOptionalString(detailRef.workflowFileTemplateId)
   if (catalogType === 'WORKFLOW_TEMPLATE' && workflowFileTemplateId) {
     const source = workflowFiles.get(workflowFileTemplateId)
@@ -192,6 +201,12 @@ function toCatalogPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<s
     pluginPackageId: readOptionalString(detailRef.pluginPackageId),
     workflowFileTemplateId,
     status: readString(record.status),
+    runtime: readOptionalString(record.runtime),
+    scope: readOptionalString(record.scope),
+    support: readOptionalString(record.support),
+    capabilities: Array.isArray(record.capabilities)
+      ? record.capabilities.map((item) => readString(readRecord(item).key)).filter(Boolean)
+      : [],
   }
 }
 
@@ -284,11 +299,12 @@ async function activateAgentPlugin(plugin: PluginRecord): Promise<void> {
 }
 
 async function enableCatalogPlugin(plugin: PluginRecord): Promise<void> {
-  if (!plugin.valid || plugin.status === 'enabled' || changingPluginId.value) return
+  if (!plugin.valid || plugin.status.toLowerCase() === 'enabled' || changingPluginId.value) return
   changingPluginId.value = plugin.id
   agentActionError.value = ''
   try {
     if (plugin.catalogType === 'AGENT_DEPLOYMENT') await activateAgentPlugin(plugin)
+    else if (plugin.catalogType === 'UNIFIED_PLUGIN') await enableUnifiedPluginVersion(plugin.id)
     else if (plugin.workflowFileTemplateId) await enableWorkflowTemplatePlugin(plugin.workflowFileTemplateId)
     detailOpen.value = false
     await loadPlugins()
@@ -300,11 +316,12 @@ async function enableCatalogPlugin(plugin: PluginRecord): Promise<void> {
 }
 
 async function disableCatalogPlugin(plugin: PluginRecord): Promise<void> {
-  if (plugin.status !== 'enabled' || changingPluginId.value) return
+  if (plugin.status.toLowerCase() !== 'enabled' || changingPluginId.value) return
   changingPluginId.value = plugin.id
   agentActionError.value = ''
   try {
     if (plugin.catalogType === 'AGENT_DEPLOYMENT' && plugin.pluginPackageId) await disableAgentPluginPackage(plugin.pluginPackageId)
+    else if (plugin.catalogType === 'UNIFIED_PLUGIN') await disableUnifiedPluginVersion(plugin.id)
     else if (plugin.workflowFileTemplateId) await disableWorkflowTemplatePlugin(plugin.workflowFileTemplateId)
     detailOpen.value = false
     await loadPlugins()
@@ -317,14 +334,14 @@ async function disableCatalogPlugin(plugin: PluginRecord): Promise<void> {
 
 function pluginStatusLabel(plugin: PluginRecord): string {
   if (!plugin.valid) return t('plugins.statuses.invalid')
-  if (plugin.status === 'pending_approval') return t('plugins.statuses.pendingApproval')
-  if (plugin.status !== 'enabled') return t('plugins.statuses.disabled')
+  if (plugin.status.toLowerCase() === 'pending_approval') return t('plugins.statuses.pendingApproval')
+  if (plugin.status.toLowerCase() !== 'enabled') return t('plugins.statuses.disabled')
   return plugin.used ? t('plugins.statuses.inUse') : t('plugins.statuses.enabled')
 }
 
 function pluginStatusClass(plugin: PluginRecord): string {
   if (!plugin.valid) return 'plugin-state--invalid'
-  if (plugin.status !== 'enabled') return 'plugin-state--disabled'
+  if (plugin.status.toLowerCase() !== 'enabled') return 'plugin-state--disabled'
   return plugin.used ? 'plugin-state--using' : 'plugin-state--available'
 }
 
@@ -410,7 +427,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
           <div class="plugin-card__actions">
             <button class="gc-button" type="button" @click="openDetail(plugin)">{{ t('plugins.actions.detail') }}</button>
             <button
-              v-if="plugin.status !== 'enabled'"
+              v-if="plugin.status.toLowerCase() !== 'enabled'"
               class="gc-button gc-button--primary"
               type="button"
               :disabled="!plugin.valid || Boolean(changingPluginId)"
@@ -419,7 +436,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
               {{ changingPluginId === plugin.id ? t('plugins.agentDeployment.activating') : t('plugins.actions.enable') }}
             </button>
             <button
-              v-if="plugin.catalogType === 'WORKFLOW_TEMPLATE' && plugin.status === 'enabled'"
+              v-if="plugin.catalogType === 'WORKFLOW_TEMPLATE' && plugin.status.toLowerCase() === 'enabled'"
               class="gc-button gc-button--primary"
               type="button"
               :disabled="Boolean(creatingPluginId) || Boolean(changingPluginId)"
@@ -428,7 +445,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
               {{ creatingPluginId === plugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.create') }}
             </button>
             <button
-              v-if="plugin.status === 'enabled'"
+              v-if="plugin.status.toLowerCase() === 'enabled'"
               class="gc-button"
               type="button"
               :disabled="Boolean(changingPluginId)"
@@ -482,6 +499,10 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
           <div><dt>{{ t('plugins.fields.usage') }}</dt><dd>{{ selectedPlugin.used ? t('plugins.statuses.inUse') : t('plugins.statuses.notInUse') }}</dd></div>
           <div><dt>{{ t('plugins.fields.currentStatus') }}</dt><dd>{{ pluginStatusLabel(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.platforms') }}</dt><dd>{{ selectedPlugin.metadata.platforms.join(', ') || '—' }}</dd></div>
+          <div><dt>{{ t('plugins.fields.runtime') }}</dt><dd>{{ selectedPlugin.runtime ?? '—' }}</dd></div>
+          <div><dt>{{ t('plugins.fields.scope') }}</dt><dd>{{ selectedPlugin.scope ?? '—' }}</dd></div>
+          <div><dt>{{ t('plugins.fields.support') }}</dt><dd>{{ selectedPlugin.support ?? '—' }}</dd></div>
+          <div class="plugin-detail__fact-wide"><dt>{{ t('plugins.fields.capabilities') }}</dt><dd>{{ selectedPlugin.capabilities.join(', ') || '—' }}</dd></div>
           <div><dt>{{ t('plugins.fields.updateMethods') }}</dt><dd>{{ selectedPlugin.metadata.updateMethods.map((method) => method.toUpperCase()).join(', ') || '—' }}</dd></div>
           <div><dt>{{ t('plugins.fields.maintainer') }}</dt><dd>{{ selectedPlugin.metadata.maintainer ?? '—' }}</dd></div>
           <div><dt>{{ t('plugins.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(selectedPlugin.updatedAt) }}</dd></div>
@@ -496,7 +517,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
 
       <template #actions>
         <button
-          v-if="selectedPlugin && selectedPlugin.catalogType === 'WORKFLOW_TEMPLATE' && selectedPlugin.status === 'enabled'"
+          v-if="selectedPlugin && selectedPlugin.catalogType === 'WORKFLOW_TEMPLATE' && selectedPlugin.status.toLowerCase() === 'enabled'"
           class="gc-button gc-button--primary"
           type="button"
           :disabled="!selectedPlugin.valid || Boolean(creatingPluginId)"
@@ -505,7 +526,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
           {{ creatingPluginId === selectedPlugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.createWorkflow') }}
         </button>
         <button
-          v-if="selectedPlugin && selectedPlugin.status !== 'enabled'"
+          v-if="selectedPlugin && selectedPlugin.status.toLowerCase() !== 'enabled'"
           class="gc-button gc-button--primary"
           type="button"
           :disabled="!selectedPlugin.valid || Boolean(changingPluginId)"
@@ -514,7 +535,7 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
           {{ changingPluginId === selectedPlugin.id ? t('plugins.agentDeployment.activating') : t('plugins.actions.enable') }}
         </button>
         <button
-          v-if="selectedPlugin && selectedPlugin.status === 'enabled'"
+          v-if="selectedPlugin && selectedPlugin.status.toLowerCase() === 'enabled'"
           class="gc-button"
           type="button"
           :disabled="Boolean(changingPluginId)"

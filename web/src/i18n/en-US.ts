@@ -816,7 +816,7 @@ export default {
       usage: 'Usage status',
       validationError: 'Validation error',
       signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Scope', support: 'Support level', capabilities: 'Capabilities'
     },
     aria: {
       filters: 'Plugin market filters',
@@ -833,7 +833,7 @@ export default {
       plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the asset platform and framework are shown.',
       secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
       approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin',
-      types: { WORKFLOW_TEMPLATE: 'Workflow template', AGENT_DEPLOYMENT: 'Agent deployment plugin' }
+      types: { WORKFLOW_TEMPLATE: 'Workflow template', AGENT_DEPLOYMENT: 'Agent deployment plugin', UNIFIED_PLUGIN: 'Unified capability plugin' }
     },
     changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
   },

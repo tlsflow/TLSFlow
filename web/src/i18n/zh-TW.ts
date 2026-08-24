@@ -782,7 +782,7 @@ export default {
       version: "版本",
       source: "來源", category: "分類", steps: "執行步驟", rollbackSteps: "復原步驟", updatedAt: "更新時間", filePath: "模板路徑", logoUrl: "Logo 位址", platforms: "面向平台", updateMethods: "更新方式", maintainer: "維護者", homepage: "專案首頁", usage: "使用狀態", validationError: "驗證錯誤",
       signatureStatus: "簽名狀態",
-      riskLevel: "風險等級"
+      riskLevel: "風險等級", runtime: "執行環境", scope: "適用範圍", support: "支援等級", capabilities: "能力"
     },
     aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },
     errors: { loadFailed: "外掛市場載入失敗", createFailed: "依外掛建立工作流程失敗" },
@@ -792,7 +792,7 @@ export default {
       plugin: '部署外掛', selectPlugin: '請選擇部署外掛', noCompatiblePlugin: '沒有符合目前平台與框架的已啟用外掛', compatiblePluginHint: '僅顯示與目前資產平台及框架相符的已啟用外掛。',
       secretRefPlaceholder: '輸入 SecretRef 識別碼', artifactBinding: '憑證產物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '驗證外掛設定', previewFailed: 'Agent 外掛設定驗證失敗',
       approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗',
-      types: { WORKFLOW_TEMPLATE: '工作流程範本', AGENT_DEPLOYMENT: 'Agent 部署外掛' }
+      types: { WORKFLOW_TEMPLATE: '工作流程範本', AGENT_DEPLOYMENT: 'Agent 部署外掛', UNIFIED_PLUGIN: '統一能力外掛' }
     },
     changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
   },

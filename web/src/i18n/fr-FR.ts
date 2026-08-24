@@ -791,7 +791,7 @@ export default {
       version: 'Version',
       source: 'Source', category: 'Catégorie', steps: 'Étapes d’exécution', rollbackSteps: 'Étapes de restauration', updatedAt: 'Mis à jour le', filePath: 'Chemin du modèle', logoUrl: 'URL du logo', platforms: 'Plateformes cibles', updateMethods: 'Méthodes de mise à jour', maintainer: 'Mainteneur', homepage: 'Page du projet', usage: 'État d’utilisation', validationError: 'Erreur de validation',
       signatureStatus: 'Signature status',
-      riskLevel: 'Risk level'
+      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Portée', support: 'Niveau de support', capabilities: 'Capacités'
     },
     aria: { filters: 'Plugin market filters', list: 'DSL plugin list', logo: '{name} logo' },
     errors: { loadFailed: 'Échec du chargement du marché des plugins', createFailed: 'Échec de la création du workflow depuis le plugin' },
@@ -801,7 +801,7 @@ export default {
       plugin: 'Plugin de déploiement', selectPlugin: 'Sélectionner un plugin de déploiement', noCompatiblePlugin: 'Aucun plugin activé ne correspond à la plateforme et au framework actuels', compatiblePluginHint: 'Seuls les plugins activés correspondant à la plateforme et au framework de l’actif sont affichés.',
       secretRefPlaceholder: 'Saisir un identifiant SecretRef', artifactBinding: 'Artefact de certificat {name}', artifactBindingPlaceholder: 'Exemple : value=fullchain,key=private', preview: 'Valider la configuration', previewFailed: 'Échec de validation de la configuration du plugin Agent',
       approveAndEnable: 'Approuver et activer', activating: 'Activation...', activateFailed: 'Échec de l’approbation ou de l’activation du plugin Agent',
-      types: { WORKFLOW_TEMPLATE: 'Modèle de workflow', AGENT_DEPLOYMENT: 'Plugin de déploiement Agent' }
+      types: { WORKFLOW_TEMPLATE: 'Modèle de workflow', AGENT_DEPLOYMENT: 'Plugin de déploiement Agent', UNIFIED_PLUGIN: 'Plugin de capacité unifié' }
     },
     changeSummaries: { createWorkflow: 'Créer un workflow depuis un modèle du marché' }
   },

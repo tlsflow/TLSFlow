@@ -1,0 +1,20 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "fixture.invalid.executable",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.fixture.invalid.name",
+  "publisher": "Fixture",
+  "runtime": "WORKFLOW_DSL",
+  "source": "USER",
+  "scope": "STANDALONE",
+  "trust": "UNSIGNED",
+  "support": "SELF_MANAGED",
+  "capabilities": [],
+  "permissions": [],
+  "resources": {
+    "workflows": {
+      "execute": "scripts/run.js"
+    }
+  }
+}
