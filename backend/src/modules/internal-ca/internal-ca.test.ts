@@ -201,6 +201,37 @@ test('内置 CA 根 CA 单层拓扑保持兼容并明确风险确认', async () 
   assert.equal(authorities[0].pathLengthConstraint, 0);
 });
 
+test('Provider 能力记录保留声明来源并在验证过期后回退', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-capability-records';
+  const provider = await service.createProvider(tenantId, {
+    name: '能力记录 Provider',
+    type: 'gcac_builtin',
+    deploymentMode: 'builtin',
+    runtimePlatform: 'embedded',
+    availabilityMode: 'single',
+  }, 'user-admin');
+  const created = (await service.listProviders(tenantId)).find((item) => item.id === provider.id);
+  assert.ok(created?.capabilityRecords);
+  assert.equal(created.capabilityRecords?.length, Object.keys(created.capabilities).length);
+  const signRecord = created.capabilityRecords?.find((item) => item.capabilityKey === 'signCsr');
+  assert.equal(signRecord?.state, 'declared');
+  assert.equal(signRecord?.source, 'adapter_declaration');
+
+  await service.getRepository().saveCapabilityRecord({
+    ...signRecord!,
+    state: 'verified',
+    source: 'integration_test',
+    expiresAt: '2026-07-22T00:00:00.000Z',
+    updatedAt: '2026-07-22T00:00:00.000Z',
+  });
+  const effective = await service.listCapabilityRecords(tenantId, 'provider', provider.id, new Date('2026-07-23T00:00:00.000Z'));
+  const expired = effective.find((item) => item.capabilityKey === 'signCsr');
+  assert.equal(expired?.state, 'declared');
+  assert.equal(expired?.source, 'expired_verification');
+  assert.equal(expired?.failureReason, 'capability_verification_expired');
+});
+
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-multi-root-ca';

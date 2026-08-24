@@ -11,6 +11,7 @@ import { CaProviderRegistry, createDefaultCaProviderRegistry, type CaIssuanceRes
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import type {
+  CaCapabilityRecordEntity,
   CaAvailabilityMode,
   CaDeploymentMode,
   CaProviderEntity,
@@ -140,7 +141,11 @@ export class InternalCaApplicationService {
   }
 
   async listProviders(tenantId: string): Promise<Array<Omit<CaProviderEntity, 'credentialSecretRef'>>> {
-    return (await this.repository.listProviders(tenantId)).map(sanitizeProvider);
+    const providers = await this.repository.listProviders(tenantId);
+    return Promise.all(providers.map(async (provider) => sanitizeProvider({
+      ...provider,
+      capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
+    })));
   }
 
   async createProvider(tenantId: string, input: CreateCaProviderInput, actorId: string, context?: RequestContext): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
@@ -164,6 +169,7 @@ export class InternalCaApplicationService {
     };
     assertProviderCombination(provider);
     await this.repository.saveProvider(provider);
+    await this.saveDeclaredCapabilities(provider);
     await this.audit('internal_ca.provider.created', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', context, {
       type: provider.type,
       deploymentMode: provider.deploymentMode,
@@ -228,7 +234,62 @@ export class InternalCaApplicationService {
 
   async testProvider(tenantId: string, providerId: string): Promise<{ reachable: boolean; capabilities: CaProviderEntity['capabilities']; detail?: string }> {
     const provider = await this.requireProvider(tenantId, providerId);
-    return this.providers.get(provider.type).validateConnection(provider);
+    const result = await this.providers.get(provider.type).validateConnection(provider);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+    await Promise.all(Object.entries(result.capabilities).map(([capabilityKey, available]) => this.repository.saveCapabilityRecord({
+      id: capabilityRecordId('provider', provider.id, capabilityKey),
+      tenantId,
+      ownerType: 'provider',
+      ownerId: provider.id,
+      capabilityKey: capabilityKey as keyof CaProviderEntity['capabilities'],
+      state: result.reachable && available ? 'discovered' : 'unavailable',
+      source: 'provider_connection_test',
+      evidence: { reachable: result.reachable, providerType: provider.type },
+      verifiedAt: now.toISOString(),
+      expiresAt,
+      failureReason: result.reachable && available ? undefined : result.detail ?? 'capability_not_available',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    })));
+    return result;
+  }
+
+  async listCapabilityRecords(
+    tenantId: string,
+    ownerType: CaCapabilityRecordEntity['ownerType'],
+    ownerId: string,
+    now = new Date(),
+  ): Promise<CaCapabilityRecordEntity[]> {
+    const records = await this.repository.listCapabilityRecords(tenantId, ownerType, ownerId);
+    return Promise.all(records.map(async (record) => {
+      if (!record.expiresAt || new Date(record.expiresAt).getTime() > now.getTime() || record.state === 'declared') return record;
+      const expired: CaCapabilityRecordEntity = {
+        ...record,
+        state: 'declared',
+        source: 'expired_verification',
+        failureReason: 'capability_verification_expired',
+        updatedAt: now.toISOString(),
+      };
+      return this.repository.saveCapabilityRecord(expired);
+    }));
+  }
+
+  private async saveDeclaredCapabilities(provider: CaProviderEntity): Promise<void> {
+    const now = new Date().toISOString();
+    await Promise.all(Object.entries(provider.capabilities).map(([capabilityKey, available]) => this.repository.saveCapabilityRecord({
+      id: capabilityRecordId('provider', provider.id, capabilityKey),
+      tenantId: provider.tenantId,
+      ownerType: 'provider',
+      ownerId: provider.id,
+      capabilityKey: capabilityKey as keyof CaProviderEntity['capabilities'],
+      state: available ? 'declared' : 'unavailable',
+      source: 'adapter_declaration',
+      evidence: { providerType: provider.type, declaredValue: available },
+      failureReason: available ? undefined : 'adapter_declares_unsupported',
+      createdAt: now,
+      updatedAt: now,
+    })));
   }
 
   previewAuthority(input: PreviewCaInput): CaRiskPreview {
@@ -1313,6 +1374,10 @@ function isTrustDomainUsable(status: CaTrustDomainStatus): boolean {
 
 function optionalText(value?: string): string | undefined {
   return value?.trim() || undefined;
+}
+
+function capabilityRecordId(ownerType: CaCapabilityRecordEntity['ownerType'], ownerId: string, capabilityKey: string): string {
+  return `cacap_${createHash('sha256').update(`${ownerType}:${ownerId}:${capabilityKey}`).digest('hex').slice(0, 24)}`;
 }
 
 function uniqueStrings(values: string[]): string[] {

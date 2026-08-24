@@ -284,6 +284,10 @@ function providerTypeLabel(type: unknown): string {
   return t(`internalCa.providerTypes.${key}`)
 }
 
+function capabilityCount(provider: InternalCaRecord, state: string): number {
+  return asRecords(provider.capabilityRecords).filter((record) => text(record.state) === state).length
+}
+
 async function prepareProvider() {
   if (providerPrepared.value || authorityCreationKind.value === 'intermediate') return
   actionPending.value = true
@@ -444,7 +448,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </div>
       </article>
       <article v-else class="gc-card ca-empty"><h2>{{ t('internalCa.messages.noRootAuthority') }}</h2><p>{{ t('internalCa.messages.noRootAuthorityDescription') }}</p><button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button></article>
-      <details class="gc-card provider-settings"><summary>{{ t('internalCa.sections.issuingBackends') }}</summary><div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small></article></div></details>
+      <details class="gc-card provider-settings"><summary>{{ t('internalCa.sections.issuingBackends') }}</summary><div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small></article></div></details>
     </template>
 
     <template v-else-if="activeTab === 'profiles'">

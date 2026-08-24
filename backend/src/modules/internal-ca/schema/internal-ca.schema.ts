@@ -25,6 +25,8 @@ export type KeyCustodyMode = typeof keyCustodyModes[number];
 export type KeyBackendType = typeof keyBackendTypes[number];
 export type KeyExportability = typeof keyExportabilities[number];
 export type CertificateRequestStatus = typeof certificateRequestStatuses[number];
+export type CaCapabilityOwnerType = 'provider' | 'node';
+export type CaCapabilityState = 'declared' | 'discovered' | 'verified' | 'unavailable';
 
 export interface CaProviderCapabilities {
   discoverHierarchy: boolean;
@@ -39,6 +41,22 @@ export interface CaProviderCapabilities {
   deviceLocalCsr: boolean;
   hardwareBackedKey: boolean;
   highAvailability: boolean;
+}
+
+export interface CaCapabilityRecordEntity {
+  id: string;
+  tenantId: string;
+  ownerType: CaCapabilityOwnerType;
+  ownerId: string;
+  capabilityKey: keyof CaProviderCapabilities;
+  state: CaCapabilityState;
+  source: string;
+  evidence: Record<string, unknown>;
+  verifiedAt?: string;
+  expiresAt?: string;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CaTrustDomainEntity {
@@ -67,6 +85,7 @@ export interface CaProviderEntity {
   endpoint?: string;
   credentialSecretRef?: string;
   capabilities: CaProviderCapabilities;
+  capabilityRecords?: CaCapabilityRecordEntity[];
   status: 'active' | 'disabled' | 'degraded';
   configuration: Record<string, unknown>;
   createdAt: string;

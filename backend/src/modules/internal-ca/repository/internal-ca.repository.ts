@@ -1,5 +1,6 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import type {
+  CaCapabilityRecordEntity,
   CaNodeEntity,
   CaNodeEnrollmentTokenEntity,
   CaNodeTaskEntity,
@@ -39,6 +40,25 @@ export class InternalCaRepository {
 
   listProviders(tenantId: string): Promise<CaProviderEntity[]> {
     return this.list('pg_ca_providers', tenantId);
+  }
+
+  saveCapabilityRecord(entity: CaCapabilityRecordEntity): Promise<CaCapabilityRecordEntity> {
+    return this.upsert('pg_ca_capability_records', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      owner_type: entity.ownerType,
+      owner_id: entity.ownerId,
+      capability_key: entity.capabilityKey,
+      state: entity.state,
+      source: entity.source,
+      evidence: entity.evidence,
+      verified_at: entity.verifiedAt ?? null,
+      expires_at: entity.expiresAt ?? null,
+      failure_reason: entity.failureReason ?? null,
+    });
+  }
+
+  listCapabilityRecords(tenantId: string, ownerType: CaCapabilityRecordEntity['ownerType'], ownerId: string): Promise<CaCapabilityRecordEntity[]> {
+    return this.list('pg_ca_capability_records', tenantId, { owner_type: ownerType, owner_id: ownerId });
   }
 
   saveTrustDomain(entity: CaTrustDomainEntity): Promise<CaTrustDomainEntity> {
@@ -408,7 +428,7 @@ export class InternalCaRepository {
   }
 }
 
-const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy']);
+const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence']);
 
 function profileVersionFromRow(row: Record<string, unknown>): CertificateProfileVersionEntity {
   return {
