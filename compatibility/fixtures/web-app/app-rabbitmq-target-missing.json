@@ -1,0 +1,48 @@
+{
+  "contractVersion": "gcac.agent-security/v1",
+  "factId": "fixture-app-rabbitmq-linux-target-missing",
+  "agentId": "agent-rabbit-linux",
+  "tenantId": "tenant-fixture",
+  "collectedAt": "2026-08-11T00:00:00.000Z",
+  "ttlSeconds": 3600,
+  "source": "linux",
+  "facts": [
+    {
+      "kind": "process",
+      "pid": 505,
+      "parentPid": 1,
+      "executablePath": "/usr/lib/rabbitmq/bin/rabbitmq-server",
+      "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "kind": "service",
+      "name": "rabbitmq-server",
+      "status": "running",
+      "executablePath": "/usr/lib/rabbitmq/bin/rabbitmq-server",
+      "startType": "automatic"
+    },
+    {
+      "kind": "listening_port",
+      "address": "0.0.0.0",
+      "port": 5671,
+      "protocol": "tcp",
+      "pid": 505
+    },
+    {
+      "kind": "file_content",
+      "path": "/etc/rabbitmq/rabbitmq.conf",
+      "contentBase64": "c2VydmVyX3NzbF9vcHRpb25z",
+      "bytesRead": 18,
+      "truncated": false,
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "file_stat",
+      "path": "/etc/rabbitmq/tls/server.pem",
+      "exists": false,
+      "sizeBytes": 0
+    }
+  ],
+  "digest": "c7a52bdef92820a4d02704af8c5d4138a9b9f7d744247e9f7b5fadd6661fc349",
+  "warnings": []
+}

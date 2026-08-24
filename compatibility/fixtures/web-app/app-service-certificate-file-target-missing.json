@@ -1,0 +1,31 @@
+{
+  "contractVersion": "gcac.agent-security/v1",
+  "factId": "fixture-app-service-certificate-file-windows-target-missing",
+  "agentId": "agent-service-cert-windows",
+  "tenantId": "tenant-fixture",
+  "collectedAt": "2026-08-11T00:00:00.000Z",
+  "ttlSeconds": 3600,
+  "source": "windows",
+  "facts": [
+    {
+      "kind": "service",
+      "name": "gcac-certificate-service",
+      "status": "running",
+      "startType": "automatic"
+    },
+    {
+      "kind": "listening_port",
+      "address": "127.0.0.1",
+      "port": 443,
+      "protocol": "tcp"
+    },
+    {
+      "kind": "file_stat",
+      "path": "C:/ProgramData/GCAC/certificates/service.pem",
+      "exists": false,
+      "sizeBytes": 0
+    }
+  ],
+  "digest": "20bbb0f2b0540bfaf91a410aa50f029ccc191fa2df6cb6e5cba21574bcb2eaf7",
+  "warnings": []
+}

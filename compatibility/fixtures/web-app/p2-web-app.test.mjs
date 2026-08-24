@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { PluginRunnerClient } from '../../../backend/dist/modules/plugins/runner/plugin-runner-client.js';
 
@@ -14,12 +13,12 @@ const pluginVersion = '1.0.0';
 const hashPattern = /^sha256:[a-f0-9]{64}$/;
 
 const packages = [
-  { directory: 'web-nginx', pluginId: 'web.nginx', profile: 'linux.agent_plan.pem', fixture: 'web-nginx-linux.json', targetPath: '/etc/nginx/tls/server.pem' },
-  { directory: 'web-apache', pluginId: 'web.apache', profile: 'windows.agent_plan.pem', fixture: 'web-apache-windows.json', targetPath: 'C:/Apache24/conf/certs/server.pem' },
-  { directory: 'app-tomcat', pluginId: 'app.tomcat', profile: 'linux.agent_plan.pkcs12', fixture: 'app-tomcat-linux.json', targetPath: '/opt/tomcat/conf/keystore.p12' },
-  { directory: 'app-java-keystore', pluginId: 'app.java-keystore', profile: 'cross-platform.agent_plan.pkcs12', fixture: 'app-java-keystore-linux.json', targetPath: '/opt/java-app/conf/keystore.p12' },
-  { directory: 'app-rabbitmq', pluginId: 'app.rabbitmq', profile: 'linux.agent_plan.pem', fixture: 'app-rabbitmq-linux.json', targetPath: '/etc/rabbitmq/tls/server.pem' },
-  { directory: 'app-service-certificate-file', pluginId: 'app.service-certificate-file', profile: 'windows.agent_plan.file', fixture: 'app-service-certificate-file-windows.json', targetPath: 'C:/ProgramData/GCAC/certificates/service.pem' },
+  { directory: 'web-nginx', pluginId: 'web.nginx', profile: 'linux.agent_plan.pem', fixture: 'web-nginx-linux.json', failureFixture: 'web-nginx-target-missing.json', targetPath: '/etc/nginx/tls/server.pem', allowedPath: '/etc/nginx', serviceName: 'nginx' },
+  { directory: 'web-apache', pluginId: 'web.apache', profile: 'windows.agent_plan.pem', fixture: 'web-apache-windows.json', failureFixture: 'web-apache-target-missing.json', targetPath: 'C:/Apache24/conf/certs/server.pem', allowedPath: 'C:/Apache24', serviceName: 'Apache2.4' },
+  { directory: 'app-tomcat', pluginId: 'app.tomcat', profile: 'linux.agent_plan.pkcs12', fixture: 'app-tomcat-linux.json', failureFixture: 'app-tomcat-target-missing.json', targetPath: '/opt/tomcat/conf/keystore.p12', allowedPath: '/opt/tomcat', serviceName: 'tomcat' },
+  { directory: 'app-java-keystore', pluginId: 'app.java-keystore', profile: 'cross-platform.agent_plan.pkcs12', fixture: 'app-java-keystore-linux.json', failureFixture: 'app-java-keystore-target-missing.json', targetPath: '/opt/java-app/conf/keystore.p12', allowedPath: '/opt/java-app' },
+  { directory: 'app-rabbitmq', pluginId: 'app.rabbitmq', profile: 'linux.agent_plan.pem', fixture: 'app-rabbitmq-linux.json', failureFixture: 'app-rabbitmq-target-missing.json', targetPath: '/etc/rabbitmq/tls/server.pem', allowedPath: '/etc/rabbitmq', serviceName: 'rabbitmq-server' },
+  { directory: 'app-service-certificate-file', pluginId: 'app.service-certificate-file', profile: 'windows.agent_plan.file', fixture: 'app-service-certificate-file-windows.json', failureFixture: 'app-service-certificate-file-target-missing.json', targetPath: 'C:/ProgramData/GCAC/certificates/service.pem', allowedPath: 'C:/ProgramData/GCAC', serviceName: 'gcac-certificate-service' },
 ];
 
 function sha256(value) {
@@ -84,11 +83,15 @@ function fixedEnvironment(pkg) {
   };
 }
 
+function packageKey(pkg) {
+  return basename(pkg.directory);
+}
+
 function operationIdempotency(executionId, executionStepId, operationId, factId) {
   return 'op-' + digest({ executionId, executionStepId, operationId, factId }).slice(0, 40);
 }
 
-function buildDiscoverPlan(pkg, fixture, binding) {
+function buildDiscoverPlan(pkg, fixture, binding, executionId, executionStepId) {
   const profileDocument = JSON.parse(readFileSync(resolve(pkg.directory, 'discovery/profiles.json'), 'utf8'));
   const profile = profileDocument.profiles.find((item) => item.id === pkg.profile);
   if (!profile) throw new Error('Fixture Profile 不存在：' + pkg.profile);
@@ -99,7 +102,7 @@ function buildDiscoverPlan(pkg, fixture, binding) {
       stage: 'prepare',
       input: {},
       dependsOn: [],
-      idempotencyKey: operationIdempotency('execution-web-nginx-discover', 'step-web-nginx-discover', 'collect-processes', fixture.factId),
+      idempotencyKey: operationIdempotency(executionId, executionStepId, 'collect-processes', fixture.factId),
       timeoutSeconds: 60,
     },
     {
@@ -108,7 +111,7 @@ function buildDiscoverPlan(pkg, fixture, binding) {
       stage: 'prepare',
       input: {},
       dependsOn: ['collect-processes'],
-      idempotencyKey: operationIdempotency('execution-web-nginx-discover', 'step-web-nginx-discover', 'collect-services', fixture.factId),
+      idempotencyKey: operationIdempotency(executionId, executionStepId, 'collect-services', fixture.factId),
       timeoutSeconds: 60,
     },
   ];
@@ -119,11 +122,11 @@ function buildDiscoverPlan(pkg, fixture, binding) {
     stage: 'verify',
     input: { path },
     dependsOn: ['collect-services'],
-    idempotencyKey: operationIdempotency('execution-web-nginx-discover', 'step-web-nginx-discover', 'read-fact-' + (index + 1), fixture.factId),
+    idempotencyKey: operationIdempotency(executionId, executionStepId, 'read-fact-' + (index + 1), fixture.factId),
     timeoutSeconds: 60,
   }));
-  const tokenId = 'token-web-nginx-discover';
-  const nonce = 'nonce-web-nginx-discover';
+  const tokenId = 'token-' + packageKey(pkg) + '-discover';
+  const nonce = 'nonce-' + packageKey(pkg) + '-discover';
   const planId = 'plan-' + digest({
     pluginId: pkg.pluginId,
     pluginVersionId: binding.pluginVersionId,
@@ -144,7 +147,7 @@ function buildDiscoverPlan(pkg, fixture, binding) {
     operations,
     planDigest: '',
     tokenId,
-    policyDecisionId: 'decision-web-nginx-discover',
+    policyDecisionId: 'decision-' + packageKey(pkg) + '-discover',
     nonce,
     expiresAt,
     writeEffect: false,
@@ -156,7 +159,7 @@ function buildDiscoverPlan(pkg, fixture, binding) {
 
 function buildSecurity(pkg, fixture, binding, planData) {
   const operationTypes = ['process.list', 'service.list', 'filesystem.read'];
-  const allowedPaths = pkg.targetPath.startsWith('/') ? ['/etc/nginx'] : ['C:/Apache24'];
+  const allowedPaths = [pkg.allowedPath];
   const token = {
     pluginId: pkg.pluginId,
     pluginVersionId: binding.pluginVersionId,
@@ -235,8 +238,10 @@ function buildSecurity(pkg, fixture, binding, planData) {
   };
 }
 
-function executionInput(pkg) {
-  const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'compatibility/fixtures/web-app', pkg.fixture), 'utf8'));
+function executionInput(pkg, fixtureName = pkg.fixture) {
+  const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'compatibility/fixtures/web-app', fixtureName), 'utf8'));
+  const executionId = 'execution-' + packageKey(pkg) + '-discover';
+  const executionStepId = 'step-' + packageKey(pkg) + '-discover';
   const binding = {
     apiVersion: bindingVersion,
     workflowVersionId: 'workflow.' + basename(pkg.directory) + '.application.discover.1.0.0',
@@ -253,14 +258,14 @@ function executionInput(pkg) {
     grantRefs: ['grant.agent.fact'],
     writeEffect: false,
   };
-  const planData = buildDiscoverPlan(pkg, fixture, binding);
+  const planData = buildDiscoverPlan(pkg, fixture, binding, executionId, executionStepId);
   binding.planDigest = planData.plan.planDigest;
   const input = {
     factEnvelope: fixture,
     profile: pkg.profile,
     target: {
       path: pkg.targetPath,
-      ...(pkg.pluginId === 'web.nginx' ? { serviceName: 'nginx' } : {}),
+      ...(pkg.serviceName ? { serviceName: pkg.serviceName } : {}),
       port: 443,
       displayName: pkg.pluginId,
     },
@@ -270,8 +275,7 @@ function executionInput(pkg) {
   return { fixture, binding, input };
 }
 
-function clientSpec(pkg) {
-  const environment = fixedEnvironment(pkg);
+function clientSpec(pkg, environment = fixedEnvironment(pkg)) {
   return {
     pluginVersionId: environment.GCAC_PLUGIN_VERSION_ID,
     pluginId: pkg.pluginId,
@@ -298,20 +302,6 @@ const loadedPackages = packages.map(readPackage);
 
 test('六个 Web/App runtime 只由真实 Runner 子进程加载并完成固定握手', async () => {
   for (const pkg of loadedPackages) {
-    const module = await import(pathToFileURL(pkg.runtimePath).href + '?batch=p2-web-app');
-    assert.equal(typeof module.createPluginRunnerExecutor, 'function');
-    const saved = { ...process.env };
-    Object.assign(process.env, fixedEnvironment(pkg));
-    const executor = module.createPluginRunnerExecutor();
-    for (const name of Object.keys(fixedEnvironment(pkg))) {
-      if (saved[name] === undefined) delete process.env[name];
-      else process.env[name] = saved[name];
-    }
-    assert.equal(executor.descriptor.pluginId, pkg.pluginId);
-    assert.equal(executor.descriptor.pluginVersion, pluginVersion);
-    assert.equal(executor.descriptor.packageHash, pkg.packageHash);
-    assert.equal(Object.keys(module).sort().join(','), 'createPluginRunnerExecutor');
-
     const client = new PluginRunnerClient(clientSpec(pkg));
     try {
       await client.start();
@@ -322,6 +312,65 @@ test('六个 Web/App runtime 只由真实 Runner 子进程加载并完成固定�
     }
   }
 });
+for (const pkg of loadedPackages) {
+  test(`${pkg.pluginId} 缺少固定摘要时真实 Runner 子进程失败关闭`, async () => {
+    const environment = fixedEnvironment(pkg);
+    delete environment.GCAC_PLUGIN_RESOURCE_HASH;
+    const client = new PluginRunnerClient(clientSpec(pkg, environment));
+    await assert.rejects(() => client.start(), (error) => {
+      assert.match(String(error), /Runner|PLUGIN_RUNNER/);
+      return true;
+    });
+    assert.equal(client.state, 'CRASHED');
+    await client.stop(true);
+  });
+
+  test(`${pkg.pluginId} 目标缺失 Fixture 在真实 Runner 中失败关闭且写操作进入 UNKNOWN`, async () => {
+    const execution = executionInput(pkg, pkg.failureFixture);
+    const client = new PluginRunnerClient(clientSpec(pkg));
+    try {
+      await client.start();
+      const failed = await client.execute({
+        tenantId: execution.fixture.tenantId,
+        executionId: 'execution-' + packageKey(pkg) + '-target-missing-read',
+        executionStepId: 'step-' + packageKey(pkg) + '-target-missing-read',
+        workflowVersionId: execution.binding.workflowVersionId,
+        planDigest: execution.binding.planDigest,
+        capability: 'application.discover',
+        input: execution.input,
+        grantRefs: execution.binding.grantRefs,
+        idempotencyKey: 'idempotency-' + packageKey(pkg) + '-target-missing-read',
+        deadlineAt: new Date(Date.now() + 5_000).toISOString(),
+        writeEffect: false,
+      });
+      assert.equal(failed.status, 'FAILED', JSON.stringify(failed));
+      assert.equal(failed.success, false);
+      assert.equal(failed.error.code, 'PLUGIN_CAPABILITY_EXECUTION_FAILED');
+      assert.match(failed.error.message, /目标路径必须来自 Agent 文件事实且存在/);
+
+      const unknown = await client.execute({
+        tenantId: execution.fixture.tenantId,
+        executionId: 'execution-' + packageKey(pkg) + '-target-missing-write',
+        executionStepId: 'step-' + packageKey(pkg) + '-target-missing-write',
+        workflowVersionId: execution.binding.workflowVersionId,
+        planDigest: execution.binding.planDigest,
+        capability: 'certificate.deploy',
+        input: execution.input,
+        grantRefs: execution.binding.grantRefs,
+        idempotencyKey: 'idempotency-' + packageKey(pkg) + '-target-missing-write',
+        deadlineAt: new Date(Date.now() + 5_000).toISOString(),
+        writeEffect: true,
+      });
+      assert.equal(unknown.status, 'UNKNOWN', JSON.stringify(unknown));
+      assert.equal(unknown.success, false);
+      assert.equal(unknown.error.code, 'PLUGIN_OPERATION_UNKNOWN_STATE');
+      assert.equal(unknown.error.mayBeUnknown, true);
+    } finally {
+      if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
+      else await client.stop(true);
+    }
+  });
+}
 
 test('web.nginx application.discover 通过真实 Runner 返回标准对象和授权计划结果', async () => {
   const pkg = loadedPackages.find((item) => item.pluginId === 'web.nginx');
@@ -345,7 +394,7 @@ test('web.nginx application.discover 通过真实 Runner 返回标准对象和�
       deadlineAt: new Date(Date.now() + 5_000).toISOString(),
       writeEffect: false,
     });
-    assert.equal(result.status, 'SUCCESS');
+    assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
     assert.equal(result.success, true);
     assert.equal(result.summary.pluginId, pkg.pluginId);
     assert.equal(result.summary.workflowVersion, pluginVersion);
@@ -356,34 +405,5 @@ test('web.nginx application.discover 通过真实 Runner 返回标准对象和�
   } finally {
     if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
     else await client.stop(true);
-  }
-});
-
-test('runtime 缺少主适配器四份固定绑定或安全材料时失败关闭', async () => {
-  const pkg = loadedPackages[0];
-  const module = await import(pathToFileURL(pkg.runtimePath).href + '?batch=p2-web-app-negative');
-  const saved = { ...process.env };
-  for (const name of Object.keys(fixedEnvironment(pkg))) delete process.env[name];
-  assert.throws(() => module.createPluginRunnerExecutor(), /缺少主适配器注入的固定 PluginVersion 摘要/);
-  Object.assign(process.env, fixedEnvironment(pkg));
-  const executor = module.createPluginRunnerExecutor();
-  await assert.rejects(executor.execute({
-    pluginVersionId: executor.descriptor.pluginVersionId,
-    pluginId: pkg.pluginId,
-    pluginVersion,
-    tenantId: 'tenant-fixture',
-    executionId: 'execution-negative',
-    executionStepId: 'step-negative',
-    capability: 'application.discover',
-    input: {},
-    grantRefs: ['grant.agent.fact'],
-    idempotencyKey: 'idempotency-negative',
-    deadlineAt: new Date(Date.now() + 5_000).toISOString(),
-    writeEffect: false,
-    signal: new AbortController().signal,
-  }, { call: async () => ({}) }), /插件 .*合同失败/);
-  for (const name of Object.keys(fixedEnvironment(pkg))) {
-    if (saved[name] === undefined) delete process.env[name];
-    else process.env[name] = saved[name];
   }
 });
