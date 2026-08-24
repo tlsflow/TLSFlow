@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PluginResourceLockService } from './application/plugin-resource-lock.service.js';
 
 async function fixture() {
   const db = new PgliteDatabase();
-  await db.exec(await readFile(join(process.cwd(), 'src/database/migrations/20260724000800_plugin_workflow_recovery.sql'), 'utf8'));
+  await runMigrations(db, 'src/database/migrations');
   let now = new Date('2026-07-24T00:00:00.000Z');
   return { service: new PluginResourceLockService(db, () => now), advance: (seconds: number) => { now = new Date(now.getTime() + seconds * 1000); } };
 }

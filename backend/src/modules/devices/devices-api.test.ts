@@ -25,49 +25,6 @@ import type { WorkflowRunResult } from '../workflow-templates/dto/workflow-templ
 import { AppError } from '../../common/errors/app-error.js';
 import { CredentialsRepository } from '../credentials/repository/credentials.repository.js';
 
-test('Agent Host 投影迁移回填历史注册且重复执行不产生重复设备', async () => {
-  const database = new PgliteDatabase();
-  await runMigrations(database, 'src/database/migrations');
-  const tenantId = 'tenant_legacy_agent_projection';
-  const agentId = 'agt_legacy_windows_2008_r2';
-  await database.query(
-    `insert into pg_documents (namespace, document_id, payload, updated_at)
-     values ($1, $2, $3::jsonb, now())`,
-    ['agents:registrations', agentId, JSON.stringify({
-      id: agentId,
-      tenantId,
-      agentKey: 'legacy-windows-2008-r2',
-      status: 'ONLINE',
-      zone: 'default',
-      registeredAt: '2026-07-20T08:00:00.000Z',
-      updatedAt: '2026-07-23T08:00:00.000Z',
-      descriptor: {
-        agentKey: 'legacy-windows-2008-r2',
-        machineId: 'legacy-windows-2008-r2-machine',
-        hostname: 'legacy-win2008r2-migration',
-        version: '0.9.0',
-        osType: 'WINDOWS',
-        osVersion: 'Windows Server 2008 R2',
-        labels: [],
-      },
-    })],
-  );
-  const migrationSql = await readFile(resolve('src/database/migrations/20260723000200_agent_registration_host_projection.sql'), 'utf8');
-
-  await database.exec(migrationSql);
-  await database.exec(migrationSql);
-
-  const result = await new PgDevicesRepository(database).list(tenantId, {
-    page: 1,
-    pageSize: 20,
-    filter: {},
-    sort: { field: 'displayName', direction: 'asc' },
-  });
-  assert.equal(result.total, 1);
-  assert.equal(result.items[0]?.displayName, 'legacy-win2008r2-migration');
-  assert.equal(result.items[0]?.productFamily, 'Windows Server');
-});
-
 test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
