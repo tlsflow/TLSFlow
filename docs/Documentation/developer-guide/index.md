@@ -16,7 +16,7 @@ codeRefs:
   - backend/src/modules/workflow-templates
   - backend/src/modules/deployment-inputs
 testRefs: []
-lastVerified: 2026-08-06
+lastVerified: 2026-08-07
 ---
 
 # 开发者手册
@@ -31,4 +31,4 @@ GCAC 扩展优先使用现有平台合同。新增厂商不能通过宿主增加
 4. 为发现、部署、验证和回滚补齐资源和测试。
 5. 记录实现状态，不能把模拟测试当成真实外部验收。
 
-继续阅读：[平台扩展基础](/developer-guide/platform)、[插件开发](/developer-guide/plugins/)、[工作流开发](/developer-guide/workflows/)。
+继续阅读：[平台扩展基础](/developer-guide/platform)、[自动化平台扩展与证书事件接入](/developer-guide/20260807-%E8%87%AA%E5%8A%A8%E5%8C%96%E5%B9%B3%E5%8F%B0%E6%89%A9%E5%B1%95%E4%B8%8E%E8%AF%81%E4%B9%A6%E4%BA%8B%E4%BB%B6%E6%8E%A5%E5%85%A5)、[插件开发](/developer-guide/plugins/)、[工作流开发](/developer-guide/workflows/)。
