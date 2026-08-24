@@ -155,7 +155,28 @@ export interface CertificateBindingUsageDto {
   host?: {
     id: string;
     hostname?: string;
+    displayName?: string;
+    agentId?: string;
     primaryIp?: string;
+    status: string;
+    deletedAt?: string;
+  };
+  siteAsset?: {
+    id: string;
+    siteName: string;
+    bindingInformation?: string;
+    hostHeader?: string;
+    port?: number;
+    protocol?: string;
+    agentId?: string;
+    status: string;
+    deletedAt?: string;
+  };
+  managedTarget?: {
+    id: string;
+    agentId: string;
+    targetKey: string;
+    bindingKey?: string;
     status: string;
     deletedAt?: string;
   };

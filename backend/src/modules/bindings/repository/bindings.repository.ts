@@ -15,7 +15,7 @@ export interface BindingsRepository {
   readonly moduleName: 'bindings';
   createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto>;
   listCertificateBindings(tenantId: string, query: PageQuery): Promise<PageResult<CertificateBindingDto>>;
-  findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): Promise<CertificateBindingUsageDto[]>;
+  findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string; domains?: string[] }): Promise<CertificateBindingUsageDto[]>;
   getCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto | undefined>;
   findCertificateBindingByIdentity(tenantId: string, input: CreateCertificateBindingDto): Promise<CertificateBindingDto | undefined>;
   updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): Promise<CertificateBindingDto>;
@@ -153,18 +153,23 @@ export class PgBindingsRepository implements BindingsRepository {
     return page(rows, query, bindingFilter);
   }
 
-  async findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }): Promise<CertificateBindingUsageDto[]> {
+  async findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string; domains?: string[] }): Promise<CertificateBindingUsageDto[]> {
     const fingerprint = query.fingerprint?.toLowerCase();
+    const domains = uniqueNormalizedDomains(query.domains ?? []);
     const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
     const bindings = rows.filter((binding) => {
       if (query.certificateVersionId && (binding.certificateVersionId === query.certificateVersionId || binding.targetCertificateVersionId === query.certificateVersionId || binding.localCertificateVersionId === query.certificateVersionId)) return true;
-      return fingerprint !== undefined && [binding.observedFingerprintSha256, binding.desiredFingerprintSha256, binding.targetFingerprintSha256, binding.localConfigFingerprint, binding.remoteEndpointFingerprint, binding.unmanagedCertificateFingerprint].includes(fingerprint);
+      if (fingerprint !== undefined && [binding.observedFingerprintSha256, binding.desiredFingerprintSha256, binding.targetFingerprintSha256, binding.localConfigFingerprint, binding.remoteEndpointFingerprint, binding.unmanagedCertificateFingerprint].includes(fingerprint)) return true;
+      if (domains.length > 0 && matchesBindingDomain(binding, domains)) return true;
+      return false;
     });
     const result: CertificateBindingUsageDto[] = [];
     for (const binding of bindings) {
       const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAssetIncludingDeleted(tenantId, binding.serviceAssetId) : undefined;
       const service = await this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
       const host = binding.hostId ? await this.assets.getHostIncludingDeleted(tenantId, binding.hostId) : undefined;
+      const siteAsset = binding.siteAssetId ? await this.assets.getSiteAssetIncludingDeleted(tenantId, binding.siteAssetId) : undefined;
+      const managedTarget = binding.managedTargetId ? await this.assets.getManagedTargetIncludingDeleted(tenantId, binding.managedTargetId) : undefined;
       result.push({
         binding,
         serviceAsset: serviceAsset === undefined
@@ -175,7 +180,38 @@ export class PgBindingsRepository implements BindingsRepository {
           : { id: service.id, displayName: service.displayName, providerType: service.providerType, status: service.status, deletedAt: service.deletedAt },
         host: host === undefined
           ? undefined
-          : { id: host.id, hostname: host.hostname ?? host.primaryIp ?? host.id, primaryIp: host.primaryIp, status: host.status, deletedAt: host.deletedAt },
+          : {
+            id: host.id,
+            hostname: host.hostname ?? host.primaryIp ?? host.id,
+            displayName: host.displayName,
+            agentId: host.agentId,
+            primaryIp: host.primaryIp,
+            status: host.status,
+            deletedAt: host.deletedAt,
+          },
+        siteAsset: siteAsset === undefined
+          ? undefined
+          : {
+            id: siteAsset.id,
+            siteName: siteAsset.siteName,
+            bindingInformation: siteAsset.bindingInformation,
+            hostHeader: siteAsset.hostHeader,
+            port: siteAsset.port,
+            protocol: siteAsset.protocol,
+            agentId: siteAsset.agentId,
+            status: siteAsset.status,
+            deletedAt: siteAsset.deletedAt,
+          },
+        managedTarget: managedTarget === undefined
+          ? undefined
+          : {
+            id: managedTarget.id,
+            agentId: managedTarget.agentId,
+            targetKey: managedTarget.targetKey,
+            bindingKey: managedTarget.bindingKey,
+            status: managedTarget.status,
+            deletedAt: managedTarget.deletedAt,
+          },
       });
     }
     return result;
@@ -372,6 +408,29 @@ export class PgBindingsRepository implements BindingsRepository {
       domain: input.domainName ?? input.domain,
     });
   }
+}
+
+function uniqueNormalizedDomains(domains: string[]): string[] {
+  return [...new Set(domains.map(normalizeDomainForUsage).filter(Boolean) as string[])]
+}
+
+function normalizeDomainForUsage(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase()
+  return normalized ? normalized : undefined
+}
+
+function matchesBindingDomain(binding: CertificateBindingDto, domains: string[]): boolean {
+  const bindingDomain = normalizeDomainForUsage(binding.domainName ?? binding.domain)
+  if (!bindingDomain) return false
+  return domains.some((domain) => domain === bindingDomain || wildcardMatchesDomain(domain, bindingDomain))
+}
+
+function wildcardMatchesDomain(certificateDomain: string, bindingDomain: string): boolean {
+  if (!certificateDomain.startsWith('*.')) return false
+  const suffix = certificateDomain.slice(1)
+  if (!bindingDomain.endsWith(suffix)) return false
+  const prefix = bindingDomain.slice(0, bindingDomain.length - suffix.length)
+  return prefix.length > 0 && !prefix.includes('.')
 }
 
 function normalizeBindingDomain(value: string | undefined): string {

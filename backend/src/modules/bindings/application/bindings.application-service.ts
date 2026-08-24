@@ -35,9 +35,9 @@ export class BindingsApplicationService {
     return this.repository;
   }
 
-  async findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string }) {
-    if (!query.certificateVersionId && !query.fingerprint) {
-      throw new AppError('VALIDATION_FAILED', 'certificateVersionId 或 fingerprint 至少提供一个', { fields: ['certificateVersionId', 'fingerprint'] });
+  async findCertificateBindingUsages(tenantId: string, query: { certificateVersionId?: string; fingerprint?: string; domains?: string[] }) {
+    if (!query.certificateVersionId && !query.fingerprint && !(query.domains && query.domains.length > 0)) {
+      throw new AppError('VALIDATION_FAILED', 'certificateVersionId、fingerprint 或 domains 至少提供一个', { fields: ['certificateVersionId', 'fingerprint', 'domains'] });
     }
     return this.repository.findCertificateBindingUsages(tenantId, query);
   }

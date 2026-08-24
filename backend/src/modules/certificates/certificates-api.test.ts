@@ -382,6 +382,96 @@ describe('证书资产 API', () => {
     assert.equal((deletedAsset.body as any).status, 'deleted');
   });
 
+  it('证书版本 usage 支持按域名匹配真实绑定，即使绑定未直接挂到 certificateVersionId', async () => {
+    const app = await createMigratedApp();
+    const tenantHeaders = { 'x-tenant-id': 'tenant_usage_domain_match', 'x-actor-id': 'user_usage_domain_match' };
+
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: tenantHeaders,
+      body: {
+        certificatePem: createWildcardJacksonzPemFixture().certificatePem,
+        privateKeyPem: createWildcardJacksonzPemFixture().privateKeyPem,
+      },
+    });
+    assert.equal(imported.statusCode, 201);
+    const versionId = (imported.body as any).version.id as string;
+
+    const host = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers: tenantHeaders,
+      body: { hostname: 'win-jacksonz-01', primaryIp: '10.0.0.20', osType: 'WINDOWS', agentId: 'agent-jacksonz-01' },
+    })).body as { id: string };
+
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers: tenantHeaders,
+      body: { hostId: host.id, displayName: 'IIS on jacksonz', providerType: 'IIS', configPath: 'IIS:\\Sites' },
+    })).body as { id: string };
+
+    const siteAsset = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/site-assets',
+      headers: tenantHeaders,
+      body: {
+        serviceInstanceId: service.id,
+        hostId: host.id,
+        agentId: 'agent-jacksonz-01',
+        providerType: 'IIS',
+        siteType: 'WEB_SITE',
+        siteName: 'Default Web Site',
+        siteKey: 'agent-jacksonz-01:iis:default web site:https/*:443:test.jacksonz.cn',
+        bindingInformation: 'https/*:443:test.jacksonz.cn',
+        hostHeader: 'test.jacksonz.cn',
+        port: 443,
+        protocol: 'HTTPS',
+        status: 'ACTIVE',
+      },
+    })).body as { id: string };
+
+    const binding = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers: tenantHeaders,
+      body: {
+        serviceInstanceId: service.id,
+        siteAssetId: siteAsset.id,
+        domainName: 'test.jacksonz.cn',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingType: 'WINDOWS_CERT_STORE',
+        storeLocation: 'LocalMachine',
+        storeName: 'My',
+        storeThumbprint: '95D9A57D301B626A02B7BEF5E5218D6EAE3A55CA',
+        verifyMethod: 'TLS_CONNECT',
+        status: 'DISCOVERED',
+      },
+    });
+    assert.equal(binding.statusCode, 201);
+
+    const usage = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/usage?id=${versionId}`,
+      headers: tenantHeaders,
+    });
+    assert.equal(usage.statusCode, 200);
+    const body = usage.body as {
+      usages: Array<{
+        binding?: { domainName?: string };
+        siteAsset?: { siteName?: string };
+        host?: { hostname?: string; agentId?: string };
+      }>;
+      blockedDeletion: boolean;
+    };
+    assert.equal(body.blockedDeletion, true);
+    assert.ok(body.usages.some((item) => item.binding?.domainName === 'test.jacksonz.cn'));
+    assert.ok(body.usages.some((item) => item.siteAsset?.siteName === 'Default Web Site'));
+    assert.ok(body.usages.some((item) => item.host?.agentId === 'agent-jacksonz-01'));
+  });
+
   it('OpenAPI 包含新增证书 API', async () => {
     const { app } = createAuthorizedApp('user_openapi');
     const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi') });
@@ -557,6 +647,12 @@ function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };
 }
 
+async function createMigratedApp() {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  return createApp({ db, corePersistence: { mode: 'memory' } });
+}
+
 function headers(actorId: string) {
   return { 'x-tenant-id': 'tenant_1', 'x-actor-id': actorId };
 }
@@ -624,4 +720,20 @@ function createJksFixture(): { jksBase64: string; password: string; alias: strin
     .map((match) => Buffer.from(match[0].replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, ''), 'base64'));
   const jks = generateJksKeystore({ alias, password, privateKeyPem: chain.privateKeyPem, certificateDers });
   return { jksBase64: jks.toString('base64'), password, alias };
+}
+
+function createWildcardJacksonzPemFixture(): { certificatePem: string; privateKeyPem: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-jacksonz-'));
+  try {
+    runOpenSsl(dir, 'genrsa', '-out', 'leaf.key', '2048');
+    runOpenSsl(dir, 'req', '-new', '-key', 'leaf.key', '-subj', '/CN=*.jacksonz.cn/O=GCAC', '-out', 'leaf.csr');
+    writeFileSync(join(dir, 'leaf.ext'), 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:*.jacksonz.cn,DNS:jacksonz.cn\n');
+    runOpenSsl(dir, 'x509', '-req', '-in', 'leaf.csr', '-signkey', 'leaf.key', '-out', 'leaf.pem', '-days', '365', '-sha256', '-extfile', 'leaf.ext');
+    return {
+      certificatePem: readFileSync(join(dir, 'leaf.pem'), 'utf8'),
+      privateKeyPem: readFileSync(join(dir, 'leaf.key'), 'utf8'),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

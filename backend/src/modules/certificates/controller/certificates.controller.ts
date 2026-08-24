@@ -136,9 +136,14 @@ export class CertificatesController {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
     const version = await this.services.certificates.getVersionDetail(readRequiredId(request));
+    const usageQuery = {
+      certificateVersionId: version.id,
+      fingerprintSha256: version.fingerprintSha256,
+      domains: collectCertificateDomains(version),
+    };
     return this.services.certificates.getUsage(
-      { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 },
-      await this.findUsages(request, { certificateVersionId: version.id, fingerprintSha256: version.fingerprintSha256 }),
+      usageQuery,
+      await this.findUsages(request, usageQuery),
     );
   }
 
@@ -338,18 +343,19 @@ export class CertificatesController {
     };
   }
 
-  private async findUsages(request: HttpRequest, query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string }): Promise<unknown[]> {
+  private async findUsages(request: HttpRequest, query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string; domains?: string[] }): Promise<unknown[]> {
     if (!this.services.bindings) return [];
     if (query.certificateAssetId) {
       const detail = await this.services.certificates.getAssetDetail(query.certificateAssetId);
       return detail.versions.flatMap((version) => this.services.bindings!.findCertificateBindingUsages(
         request.context.tenantId ?? '',
-        { certificateVersionId: version.id, fingerprint: version.fingerprintSha256 },
+        { certificateVersionId: version.id, fingerprint: version.fingerprintSha256, domains: collectCertificateDomains(version) },
       ));
     }
     return this.services.bindings.findCertificateBindingUsages(request.context.tenantId ?? '', {
       certificateVersionId: query.certificateVersionId,
       fingerprint: query.fingerprintSha256,
+      domains: query.domains,
     });
   }
 
@@ -387,6 +393,15 @@ export class CertificatesController {
       actor,
     };
   }
+}
+
+function collectCertificateDomains(version: { commonName?: string; sans?: string[]; asset?: { primaryDomain?: string } }): string[] {
+  const values = [
+    version.commonName,
+    ...(version.sans ?? []),
+    version.asset?.primaryDomain,
+  ];
+  return [...new Set(values.map((item) => String(item ?? '').trim().toLowerCase()).filter(Boolean))];
 }
 
 function readStringArray(value: unknown, field: string): string[] | undefined {
