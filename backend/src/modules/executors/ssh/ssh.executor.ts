@@ -294,7 +294,7 @@ function validateRequest(request: SSHExecutionRequest): void {
   for (const item of [...(request.sftp ?? []), ...(request.scp ?? [])]) {
     normalizePath(item.remotePath);
     normalizePath(item.localPath);
-    assertNoInlineSshSecret(item);
+    assertNoInlineSshSecret({ ...item, content: undefined });
   }
   for (const item of request.backup ?? []) {
     normalizePath(item.remotePath);

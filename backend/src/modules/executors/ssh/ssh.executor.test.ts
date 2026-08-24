@@ -34,7 +34,21 @@ describe('spec015 SSH 后端真实连接与命令执行', () => {
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_cred', connection: { host: 'h', username: 'u', credentialSecretRef: 'password=123' }, command: 'true' }), /SecretRef/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_hostkey', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current' }, command: 'true' }), /Host Key/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_cmd', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'rm -rf /' }), /危险/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_key_cmd', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'cat <<EOF\n-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----\nEOF' }), /敏感|Secret/);
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_path', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, sftp: [{ direction: 'upload', localPath: '../x', remotePath: '/tmp/x' }] }), /路径/);
+    const privateKeyTransfer = await executor.execute({
+      idempotencyKey: 'private_key_file_transfer_ok',
+      dryRun: true,
+      connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' },
+      sftp: [{
+        direction: 'upload',
+        localPath: 'virtual://workflow/key',
+        remotePath: '/tmp/key.pem',
+        content: '-----BEGIN PRIVATE KEY-----ok-----END PRIVATE KEY-----',
+      }],
+    });
+    assert.equal(privateKeyTransfer.success, true);
+    assert.deepEqual(privateKeyTransfer.plannedActions, ['hostkey:verified', 'sftp:upload:/tmp/key.pem']);
     await executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'true', allowMockExecution: true });
     await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_ssh_once', connection: { host: 'h', username: 'u', credentialSecretRef: 'secret://ssh/current', expectedHostKeyFingerprint: 'aabbccddeeff0011' }, command: 'true', allowMockExecution: true }), /幂等键/);
   });
