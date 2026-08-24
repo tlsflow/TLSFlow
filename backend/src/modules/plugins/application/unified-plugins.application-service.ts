@@ -20,6 +20,7 @@ import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
+import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
 
 export class UnifiedPluginsApplicationService {
@@ -47,6 +48,14 @@ export class UnifiedPluginsApplicationService {
     const resources = input.resources ?? {};
     assertUnifiedPluginResources(manifest, resources);
     const validatedResources = this.packageResources.validate(manifest, resources);
+    // 接入配方不能等到用户打开目录时才失败；导入即冻结所有资源、能力和 Locale 引用。
+    new ApplicationOnboardingRecipeLoader().loadOptional({
+      id: 'plugin-import-validation',
+      pluginId: manifest.pluginId,
+      version: manifest.version,
+      manifest,
+      resources,
+    });
     const manifestJson = stableJson(manifest);
     const manifestSha256 = sha256(manifestJson);
     const resourceSha256 = Object.fromEntries(Object.entries(resources).sort(([left], [right]) => left.localeCompare(right)).map(
@@ -225,6 +234,9 @@ export class UnifiedPluginsApplicationService {
     const approved = new Set(record.approvedPermissions);
     const missing = requiredApprovalPermissions(record.manifest).filter((permission) => !approved.has(permission));
     if (missing.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', '插件权限尚未完成审批', { missing });
+    // 启用前按目标状态预检；目录运行时仍只允许读取已启用版本。
+    // 不能直接传入 DISABLED 记录，否则带配方的插件永远无法完成 DISABLED -> ENABLED 转换。
+    new ApplicationOnboardingRecipeLoader().loadOptional({ ...record, status: 'ENABLED' });
     return this.repository.saveVersion({ ...record, status: 'ENABLED', updatedAt: new Date().toISOString() });
   }
 
@@ -453,6 +465,7 @@ const supportedExecutionResourceKeys = new Set([
   'forms',
   'presentations',
   'locales',
+  'onboarding',
   'discoveryMappings',
   'agentDiscoveryMappings',
 ]);

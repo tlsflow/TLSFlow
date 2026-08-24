@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { AppError } from '../../../common/errors/app-error.js';
 
-export const LINUX_AGENT_RELEASE_VERSION = '0.1.13' as const;
+export const LINUX_AGENT_RELEASE_VERSION = '0.1.14' as const;
 export const AGENT_RELEASE_SIGNING_KEY_ID = 'gcac-agent-release-v1' as const;
 
 export interface LinuxAgentArtifactReference {

@@ -36,7 +36,10 @@ const (
 	agentTokenVersion     = agentSecurityContract
 	policyDecisionVersion = agentSecurityContract
 	maxPlanOperations     = 100
-	maxPlanMessageBytes   = 1 << 20
+	// 控制面与受管主机的 NTP 收敛存在短暂偏差时，仍允许已签名的短期授权执行。
+	// 过期时间仍使用当前主机时间严格校验，超出该窗口的未来 Token 继续失败关闭。
+	maxAuthorizationClockSkew = time.Minute
+	maxPlanMessageBytes       = 1 << 20
 )
 
 type AgentCapabilityTokenV1 struct {
@@ -161,7 +164,9 @@ type agentV2Request struct {
 }
 
 func executeAgentV2(ctx context.Context, request map[string]any, agentID string) (bool, string, string, map[string]any) {
-	encoded, err := json.Marshal(request)
+	// 重新发现标记和操作者是控制面调度元数据，不属于签名 Agent v2 载荷。
+	// 只在进入严格合同前移除这两个已声明的外层字段，其他未知字段仍会失败关闭。
+	encoded, err := json.Marshal(agentV2ContractPayload(request))
 	if err != nil || len(encoded) > maxPlanMessageBytes {
 		return false, "AGENT_V2_MESSAGE_INVALID", "Agent v2 请求过大或无法编码", nil
 	}
@@ -256,20 +261,21 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	if err := verifySignedValue(decision.AuthorityKeyID, decision.Signature, decisionWithoutSignature(decision), "GCAC_POLICY_AUTHORITY_KEYSET_JSON"); err != nil {
 		return err
 	}
+	now := time.Now()
 	issuedAt, err := time.Parse(time.RFC3339Nano, token.IssuedAt)
-	if err != nil || time.Now().Before(issuedAt) {
+	if err != nil || issuedAtBeyondAuthorizationClockSkew(issuedAt, now) {
 		return errors.New("capability token issuedAt is invalid")
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, token.ExpiresAt)
-	if err != nil || !time.Now().Before(expiresAt) {
+	if err != nil || !now.Before(expiresAt) {
 		return errors.New("capability token is expired or invalid")
 	}
 	decisionIssuedAt, err := time.Parse(time.RFC3339Nano, decision.IssuedAt)
-	if err != nil || time.Now().Before(decisionIssuedAt) {
+	if err != nil || issuedAtBeyondAuthorizationClockSkew(decisionIssuedAt, now) {
 		return errors.New("policy authority decision issuedAt is invalid")
 	}
 	decisionExpiresAt, err := time.Parse(time.RFC3339Nano, decision.ValidUntil)
-	if err != nil || !time.Now().Before(decisionExpiresAt) || expiresAt.After(decisionExpiresAt) {
+	if err != nil || !now.Before(decisionExpiresAt) || expiresAt.After(decisionExpiresAt) {
 		return errors.New("policy authority decision is expired or less restrictive than token")
 	}
 	if revokedNonce(token.Nonce) {
@@ -279,6 +285,10 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 		return err
 	}
 	return nil
+}
+
+func issuedAtBeyondAuthorizationClockSkew(issuedAt, now time.Time) bool {
+	return issuedAt.After(now.Add(maxAuthorizationClockSkew))
 }
 
 func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, string, string, map[string]any) {

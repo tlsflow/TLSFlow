@@ -570,11 +570,9 @@ export class AssetsApplicationService {
     );
     return {
       mode: result.mode,
-      taskId: result.task.id,
-      taskIds: result.tasks.map((task) => task.id),
-      taskStatus: result.task.status,
+      requestId: result.requestId,
       capabilitySnapshotId: result.capabilitySnapshotId,
-      projection: result.projection,
+      detail: result.detail,
     };
   }
 

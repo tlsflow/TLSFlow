@@ -6,6 +6,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import {
   agentSecurityContractVersion,
   authorizeAgentPlan,
+  canonicalPluginIdPattern,
   maximumTokenLifetimeSeconds,
   signPolicyPayload,
   verifyPolicyPayload,
@@ -935,7 +936,7 @@ function validatePolicyRule(input: unknown, path: string): PolicyAuthorityPolicy
   exactRuntimeKeys(value, ['policyRef', 'policyVersion', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'actions', 'allowedPaths', 'allowedServices', 'artifactDigests'], path);
   const fields = ['policyRef', 'policyVersion', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability'] as const;
   for (const field of fields) if (typeof value[field] !== 'string' || !value[field].trim()) failClosed(`${path}.${field} 缺失`);
-  if (!/^(?:web|app|device|cloud|ca)\.[a-z0-9]+(?:\.[a-z0-9-]+)*$/.test(value.pluginId as string)) failClosed(`${path}.pluginId 不是 Canonical Plugin ID`);
+  if (!new RegExp(canonicalPluginIdPattern).test(value.pluginId as string)) failClosed(`${path}.pluginId 不是 Canonical Plugin ID`);
   for (const field of ['actions', 'allowedPaths', 'allowedServices', 'artifactDigests'] as const) {
     if (!Array.isArray(value[field]) || !value[field].every((item) => typeof item === 'string' && item.trim())) failClosed(`${path}.${field} 无效`);
   }

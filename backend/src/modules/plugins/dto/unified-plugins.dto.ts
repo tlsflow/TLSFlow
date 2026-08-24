@@ -34,6 +34,17 @@ export interface CredentialAcquireContract {
   output: CredentialOutputContract;
 }
 
+/**
+ * 插件接入配方的 Manifest 资源索引。
+ * 配方正文仍存放在插件包资源中，Manifest 只声明稳定的资源路径。
+ */
+export interface UnifiedPluginOnboardingResources {
+  /** 主接入配方。保留该字段以兼容已发布插件。 */
+  applicationAsset?: string;
+  /** 同一插件版本可声明多个相互独立的接入配方。 */
+  applicationAssets?: Record<string, string>;
+}
+
 export interface UnifiedPluginManifestV1 {
   apiVersion: 'gcac.plugin-manifest/v1';
   kind: 'GcacPlugin';
@@ -71,6 +82,7 @@ export interface UnifiedPluginManifestV1 {
     locales?: Record<string, string>;
     discoveryMappings?: Record<string, string>;
     agentDiscoveryMappings?: Record<string, string>;
+    onboarding?: UnifiedPluginOnboardingResources;
   };
 }
 

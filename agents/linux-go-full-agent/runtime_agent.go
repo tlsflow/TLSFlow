@@ -146,6 +146,15 @@ type agentTaskEnvelope struct {
 	Result          map[string]any `json:"result,omitempty"`
 }
 
+// directDiscoveryResponse 是管理端口唯一允许执行的直接操作返回值。
+// 重新发现没有写效果，但仍必须经过 Agent v2 的签名授权校验。
+type directDiscoveryResponse struct {
+	Success      bool           `json:"success"`
+	ErrorCode    string         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Detail       map[string]any `json:"detail,omitempty"`
+}
+
 type ackTaskRequest struct {
 	AgentID string `json:"agentId"`
 	TaskID  string `json:"taskId"`
@@ -187,6 +196,7 @@ type runtimeCounters struct {
 }
 
 type rescanState struct {
+	mu      sync.Mutex
 	Running bool
 }
 
@@ -244,29 +254,68 @@ type reportedCapability struct {
 	Evidence      map[string]any `json:"evidence,omitempty"`
 }
 
-// 管理监听只提供健康检查，不提供任务执行或任意命令入口。
-func startManagementServer(config *AgentConfig, identity runtimeIdentity) (*http.Server, string, error) {
+// 管理监听只提供健康检查和经过 Agent v2 授权的 Web 重新发现。
+// 计划执行、Gateway 转发和任意命令仍只能走异步任务队列。
+func startManagementServer(
+	config *AgentConfig,
+	identity runtimeIdentity,
+	executeDiscovery func(context.Context, map[string]any) directDiscoveryResponse,
+) (*http.Server, string, error) {
 	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
 	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		return nil, "", fmt.Errorf("管理 TCP 监听启动失败 %s: %w", listenAddress, err)
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || (request.URL.Path != "/api/v1/control/health" && request.URL.Path != "/healthz") {
-			writer.Header().Set("Allow", http.MethodGet)
-			http.Error(writer, "management endpoint only supports health checks", http.StatusNotFound)
-			return
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		hostname, _ := os.Hostname()
-		_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion, "hostname": hostname, "managementEndpoint": managementEndpointForIdentity(identity, config)})
-	})}
+	server := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      70 * time.Second,
+		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Method == http.MethodGet && (request.URL.Path == "/api/v1/control/health" || request.URL.Path == "/healthz") {
+				writer.Header().Set("Content-Type", "application/json")
+				hostname, _ := os.Hostname()
+				_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion, "hostname": hostname, "managementEndpoint": managementEndpointForIdentity(identity, config)})
+				return
+			}
+			if request.Method != http.MethodPost || request.URL.Path != "/api/v1/control/discovery" {
+				writer.Header().Set("Allow", "GET, POST")
+				http.Error(writer, "management endpoint only supports health checks and direct web discovery", http.StatusNotFound)
+				return
+			}
+			if executeDiscovery == nil {
+				writeDirectDiscoveryResponse(writer, http.StatusServiceUnavailable, directDiscoveryResponse{
+					ErrorCode: "AGENT_DIRECT_DISCOVERY_UNAVAILABLE", ErrorMessage: "Agent 运行时尚未完成注册",
+				})
+				return
+			}
+			defer request.Body.Close()
+			var payload map[string]any
+			decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+			if err := decoder.Decode(&payload); err != nil || payload == nil {
+				writeDirectDiscoveryResponse(writer, http.StatusBadRequest, directDiscoveryResponse{
+					ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: "直接重新发现请求不是有效 JSON",
+				})
+				return
+			}
+			result := executeDiscovery(request.Context(), payload)
+			status := http.StatusOK
+			if !result.Success {
+				status = http.StatusBadRequest
+			}
+			writeDirectDiscoveryResponse(writer, status, result)
+		}),
+	}
 	go func() {
 		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			fmt.Fprintf(os.Stderr, "[management] listener stopped: %v\n", serveErr)
 		}
 	}()
 	return server, managementEndpointForIdentity(identity, config), nil
+}
+
+func writeDirectDiscoveryResponse(writer http.ResponseWriter, status int, response directDiscoveryResponse) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(response)
 }
 
 func managementEndpointForIdentity(identity runtimeIdentity, config *AgentConfig) string {
@@ -326,17 +375,22 @@ func handleRun(args []string) error {
 	rescanEnabled := effectiveCapabilityRescanEnabled(config)
 
 	client := &http.Client{Timeout: 15 * time.Second}
-	managementServer, _, err := startManagementServer(config, identity)
-	if err != nil {
-		return err
-	}
-	defer managementServer.Shutdown(context.Background())
 	state, err := registerAgent(ctx, client, config, identity)
 	if err != nil {
 		return err
 	}
 	counters := &runtimeCounters{}
 	rescan := &rescanState{}
+	var directDiscoveryMu sync.Mutex
+	managementServer, _, err := startManagementServer(config, identity, func(requestCtx context.Context, payload map[string]any) directDiscoveryResponse {
+		directDiscoveryMu.Lock()
+		defer directDiscoveryMu.Unlock()
+		return executeDirectWebDiscovery(requestCtx, client, config, state, counters, rescan, payload)
+	})
+	if err != nil {
+		return err
+	}
+	defer managementServer.Shutdown(context.Background())
 	ledger := loadResultLedger(resolveResultLedgerPath(config))
 	statusPath := resolveAgentRuntimeStatusPath(config)
 	status := loadRuntimeStatusSnapshot(statusPath)
@@ -1188,13 +1242,53 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
-func runCapabilityRescan(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, _ *runtimeCounters, rescan *rescanState, trigger string, payload map[string]any) (map[string]any, error) {
-	if rescan != nil && rescan.Running {
-		return map[string]any{"trigger": trigger, "skipped": true}, errors.New("能力重扫正在执行中")
+// executeDirectWebDiscovery 是手动重新发现的唯一直连出口。
+// 该端点只能运行带签名授权的只读事实采集，绝不复用为通用任务执行入口。
+func executeDirectWebDiscovery(
+	ctx context.Context,
+	client *http.Client,
+	config *AgentConfig,
+	state *runtimeState,
+	counters *runtimeCounters,
+	rescan *rescanState,
+	payload map[string]any,
+) directDiscoveryResponse {
+	if client == nil || config == nil || state == nil || strings.TrimSpace(state.AgentID) == "" {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_UNAVAILABLE", ErrorMessage: "Agent 运行时尚未完成注册"}
 	}
+	wirePayload, action, schemaVersion, err := decodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: err.Error()}
+	}
+	if action != agentFactCollect || !boolFromMap(wirePayload, "refreshWebInventory") {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: "管理端点只接受 agent.fact.collect Web 库存刷新"}
+	}
+	registry := newLinuxActionRegistry(&linuxActionRuntime{client: client, config: config, state: state, counters: counters, rescan: rescan})
+	result := registry.Execute(ctx, coreRegistry.Request{TaskID: "direct:" + stringFromMap(wirePayload, "requestId"), ActionType: action, SchemaVersion: schemaVersion, Payload: wirePayload})
+	if !result.Success {
+		return directDiscoveryResponse{ErrorCode: firstNonEmpty(result.ErrorCode, "AGENT_DIRECT_DISCOVERY_DENIED"), ErrorMessage: firstNonEmpty(result.ErrorMessage, "Agent v2 授权校验失败")}
+	}
+	rescanDetail, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "direct", wirePayload)
+	if err != nil {
+		return directDiscoveryResponse{ErrorCode: "CAPABILITY_RESCAN_FAILED", ErrorMessage: fmt.Sprintf("Web 库存上报失败: %v", err), Detail: map[string]any{"capabilityRescan": rescanDetail}}
+	}
+	return directDiscoveryResponse{Success: true, Detail: map[string]any{"capabilityRescan": rescanDetail}}
+}
+
+func runCapabilityRescan(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, _ *runtimeCounters, rescan *rescanState, trigger string, payload map[string]any) (map[string]any, error) {
 	if rescan != nil {
+		rescan.mu.Lock()
+		if rescan.Running {
+			rescan.mu.Unlock()
+			return map[string]any{"trigger": trigger, "skipped": true}, errors.New("能力重扫正在执行中")
+		}
 		rescan.Running = true
-		defer func() { rescan.Running = false }()
+		rescan.mu.Unlock()
+		defer func() {
+			rescan.mu.Lock()
+			rescan.Running = false
+			rescan.mu.Unlock()
+		}()
 	}
 	startedAt := time.Now().Format(time.RFC3339)
 	capabilities := collectCapabilityReports()

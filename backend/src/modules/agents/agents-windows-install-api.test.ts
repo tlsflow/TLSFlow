@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createApp } from '../../app.module.js';
 import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -53,9 +56,52 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /no rules match\|没有规则匹配\|找不到规则/);
     assert.match(script, /GCAC Go Full Agent Management TCP 18930/);
     assert.match(script, /GCAC Agent Direct Control \(\*\)/);
+	assert.match(script, /authorizationMaterialPath/);
+	assert.match(script, /authorizationTrustKeySet/);
+	assert.match(script, /agent-trust-material\.json/);
+	assert.match(script, /Go Agent policy directory ACL configuration failed/);
+	assert.match(script, /S-1-5-18/);
     assert.ok(script.indexOf('Remove-GoAgentLegacyFirewallRules') < script.indexOf('Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930'));
     assert.ok(script.indexOf('foreach ($serviceName in $serviceNames) { Remove-GoAgentService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
+  });
+
+  it('Windows Go bootstrap 将安装固定的授权 KeySet 写入 manifest', async () => {
+    const authorityDirectory = mkdtempSync(join(tmpdir(), 'gcac-windows-go-authority-'));
+    const previous = process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR;
+    process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR = authorityDirectory;
+    try {
+      const app = await createTestApp();
+      const session = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/install-sessions/windows-go',
+        headers: requestHeaders('tenant_windows_go_trust_manifest', 'req_windows_go_trust_manifest', {
+          host: '127.0.0.1:3003',
+          origin: 'http://10.255.0.85:5172',
+        }),
+        body: { zone: 'default' },
+      });
+      assert.equal(session.statusCode, 201, JSON.stringify(session.body));
+      const token = new URL((session.body as InstallSessionResponse).bootstrapUrl).searchParams.get('token');
+      assert.ok(token);
+      const bootstrap = await app.inject({
+        method: 'GET',
+        path: `/agent-install.ps1?token=${encodeURIComponent(token)}`,
+        headers: requestHeaders('tenant_windows_go_trust_manifest', 'req_windows_go_trust_manifest_bootstrap', {
+          host: '127.0.0.1:3003',
+          origin: 'http://10.255.0.85:5172',
+        }),
+      });
+      assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
+      const manifest = readWindowsBootstrapManifest(String(bootstrap.body));
+      const keySet = manifest.authorizationTrustKeySet;
+      assert.ok(keySet && typeof keySet === 'object' && !Array.isArray(keySet));
+      assert.ok(Object.values(keySet).some((value) => typeof value === 'string' && value.length > 0));
+    } finally {
+      if (previous === undefined) delete process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR;
+      else process.env.GCAC_LOCAL_AGENT_AUTHORITY_DIR = previous;
+      rmSync(authorityDirectory, { recursive: true, force: true });
+    }
   });
 
   it('Windows Compatibility 安装会话返回专用 bootstrap，不调用 Go Agent register-once', async () => {
@@ -241,6 +287,12 @@ interface InstallSessionResponse {
   installCommand: string;
   serviceName: string;
   bundleUrl?: string;
+}
+
+function readWindowsBootstrapManifest(script: string): Record<string, unknown> {
+  const matched = script.match(/\$manifest = @'\r?\n([\s\S]*?)\r?\n'@ \| ConvertFrom-Json/);
+  assert.ok(matched?.[1], 'Windows bootstrap 必须包含 JSON manifest');
+  return JSON.parse(matched[1]) as Record<string, unknown>;
 }
 
 async function createTestApp() {

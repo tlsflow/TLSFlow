@@ -119,12 +119,35 @@ func TestV2FailsClosedWithoutIndependentTrustRoots(t *testing.T) {
 	}
 }
 
+func TestV2AllowsOnlyBoundedControlPlaneClockSkew(t *testing.T) {
+	now := time.Now().UTC()
+	if issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew), now) {
+		t.Fatal("授权时钟容差的边界判断不正确")
+	}
+	if !issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew+time.Nanosecond), now) {
+		t.Fatal("超过授权时钟容差的 Token 必须继续被拒绝")
+	}
+}
+
 func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
 	fixture := newLinuxV2TestFixture(t)
 	for _, runtimeAgentID := range []string{"", "agent-other"} {
 		if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, runtimeAgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
 			t.Fatalf("运行期 Agent ID 为空或不匹配时必须失败关闭: runtimeAgentID=%q success=%v code=%s", runtimeAgentID, success, code)
 		}
+	}
+}
+
+func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	fixture.Request["refreshWebInventory"] = true
+	fixture.Request["requestedBy"] = "user-1"
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("调度元数据必须在严格合同前剥离: success=%v code=%s", success, code)
+	}
+	fixture.Request["unexpected"] = true
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_MESSAGE_INVALID" {
+		t.Fatalf("未声明字段仍必须被严格合同拒绝: success=%v code=%s", success, code)
 	}
 }
 
@@ -423,6 +446,8 @@ func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
 func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	fixture := newLinuxV2TestFixture(t)
 	fixture.Request["action"] = agentFactCollect
+	fixture.Request["refreshWebInventory"] = true
+	fixture.Request["requestedBy"] = "user-1"
 	if success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("事实采集应成功: success=%v code=%s", success, code)
 	} else {

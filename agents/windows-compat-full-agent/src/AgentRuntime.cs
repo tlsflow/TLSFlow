@@ -27,6 +27,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private int taskPollFailures;
         private int recoveryFailures;
         private ManagementTcpServer managementServer;
+        private readonly object directDiscoverySync = new object();
 
         public AgentRuntime(AgentConfig config)
         {
@@ -45,7 +46,7 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 CapabilitySnapshot snapshot = capabilityCollector.Collect();
                 UpdateSelfCheck(snapshot);
-                managementServer = new ManagementTcpServer(config);
+                managementServer = new ManagementTcpServer(config, ExecuteDirectWebDiscovery);
                 managementServer.Start();
                 string agentId = identityStore.Load();
                 bool materialReady = !TextUtility.IsBlank(agentId) && PolicyMaterialBootstrap.Exists(config);
@@ -186,6 +187,84 @@ namespace GCAC.WindowsCompatibilityAgent
             }
             lastTaskResultAtUtc = DateTime.UtcNow;
             logger.Write(result.Success ? "info" : "error", "task.completed", "taskId=" + task.id + " success=" + result.Success);
+        }
+
+        // 管理端口的唯一直接执行出口。只允许带签名授权的只读 Web 事实采集，
+        // 不能把 Compatibility Agent 变成通用任务或命令执行服务。
+        private DirectDiscoveryResponse ExecuteDirectWebDiscovery(Dictionary<string, object> payload)
+        {
+            lock (directDiscoverySync)
+            {
+                if (TextUtility.IsBlank(activeAgentId))
+                    return DirectFailure("AGENT_DIRECT_DISCOVERY_UNAVAILABLE", "Agent 运行时尚未完成注册", null);
+                try
+                {
+                    AgentTask task = new AgentTask
+                    {
+                        id = "direct:" + DirectRequestId(payload),
+                        payload = payload == null ? new Dictionary<string, object>() : new Dictionary<string, object>(payload)
+                    };
+                    task = ControlPlaneClient.NormalizeTask(task);
+                    if (!string.Equals(task.action, AgentV2Actions.FactCollect, StringComparison.Ordinal) || !IsWebInventoryRefresh(task))
+                        return DirectFailure("AGENT_DIRECT_DISCOVERY_INVALID", "管理端点只接受 agent.fact.collect Web 库存刷新", null);
+
+                    ActionResult result = registry.Execute(task);
+                    if (!result.Success)
+                        return DirectFailure(
+                            TextUtility.IsBlank(result.ErrorCode) ? "AGENT_DIRECT_DISCOVERY_DENIED" : result.ErrorCode,
+                            TextUtility.IsBlank(result.ErrorMessage) ? "Agent v2 授权校验失败" : result.ErrorMessage,
+                            null);
+
+                    CapabilitySnapshot refreshed = capabilityCollector.Collect();
+                    client.ReportCapabilities(activeAgentId, refreshed);
+                    Dictionary<string, object> inventory = WebInventory(refreshed);
+                    Dictionary<string, object> detail = new Dictionary<string, object>
+                    {
+                        { "capabilityRescan", new Dictionary<string, object> { { "trigger", "direct" }, { "requestedBy", RequestedBy(task) }, { "success", true } } },
+                        { "webInventory", new Dictionary<string, object>
+                            {
+                                { "configFiles", CountInventory(inventory, "configFiles") },
+                                { "certificateFiles", CountInventory(inventory, "certificateFiles") },
+                                { "listeningPorts", CountInventory(inventory, "listeningPorts") }
+                            }
+                        }
+                    };
+                    logger.Write("info", "discovery.direct_completed", "agentId=" + activeAgentId);
+                    return new DirectDiscoveryResponse { success = true, detail = detail };
+                }
+                catch (Exception error)
+                {
+                    logger.Write("error", "discovery.direct_failed", error.Message);
+                    return DirectFailure("CAPABILITY_RESCAN_FAILED", "Web 库存上报失败: " + error.Message, null);
+                }
+            }
+        }
+
+        private static DirectDiscoveryResponse DirectFailure(string code, string message, Dictionary<string, object> detail)
+        {
+            return new DirectDiscoveryResponse { success = false, errorCode = code, errorMessage = message, detail = detail };
+        }
+
+        private static string DirectRequestId(Dictionary<string, object> payload)
+        {
+            object value;
+            return payload != null && payload.TryGetValue("requestId", out value) && value is string && !TextUtility.IsBlank((string)value)
+                ? (string)value : Guid.NewGuid().ToString("N");
+        }
+
+        private static Dictionary<string, object> WebInventory(CapabilitySnapshot snapshot)
+        {
+            object value;
+            return snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue("web.inventory", out value)
+                ? value as Dictionary<string, object> ?? new Dictionary<string, object>()
+                : new Dictionary<string, object>();
+        }
+
+        private static int CountInventory(Dictionary<string, object> inventory, string key)
+        {
+            object value;
+            ICollection collection = inventory != null && inventory.TryGetValue(key, out value) ? value as ICollection : null;
+            return collection == null ? 0 : collection.Count;
         }
 
         internal static bool IsWebInventoryRefresh(AgentTask task)

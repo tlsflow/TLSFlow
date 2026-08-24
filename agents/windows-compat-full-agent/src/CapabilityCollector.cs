@@ -99,7 +99,7 @@ namespace GCAC.WindowsCompatibilityAgent
             List<object> result = new List<object>();
             try
             {
-                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT LocalAddress, LocalPort, Protocol, State FROM Win32_NetTCPConnection WHERE State = 2"))
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT LocalAddress, LocalPort, Protocol, State, OwningProcess FROM Win32_NetTCPConnection WHERE State = 2"))
                 {
                     foreach (ManagementObject item in searcher.Get())
                     {
@@ -108,7 +108,8 @@ namespace GCAC.WindowsCompatibilityAgent
                             { "kind", "listening_port" },
                             { "address", Convert.ToString(item["LocalAddress"]) },
                             { "port", Convert.ToInt32(item["LocalPort"]) },
-                            { "protocol", "tcp" }
+                            { "protocol", "tcp" },
+                            { "pid", Convert.ToInt32(item["OwningProcess"]) }
                         });
                     }
                 }
@@ -141,7 +142,47 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 catch { }
             }
+            AddProcessAdjacentWebConfigFiles(result);
             return result.ToArray();
+        }
+
+        // 标准目录之外的安装必须通过进程镜像目录补充候选配置；这里只读取原始文本，
+        // IIS、Nginx、Apache、Tomcat 的语法识别仍由宿主插件完成。
+        private static void AddProcessAdjacentWebConfigFiles(List<object> result)
+        {
+            if (result == null || result.Count >= 256) return;
+            try
+            {
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE ExecutablePath IS NOT NULL"))
+                {
+                    foreach (ManagementObject item in searcher.Get())
+                    {
+                        string root = Path.GetDirectoryName(Convert.ToString(item["ExecutablePath"]));
+                        for (int level = 0; level < 3 && !TextUtility.IsBlank(root) && result.Count < 256; level++)
+                        {
+                            string[] candidates = new string[] { root, Path.Combine(root, "conf"), Path.Combine(root, "config"), Path.Combine(Path.Combine(root, ".."), "conf"), Path.Combine(Path.Combine(root, ".."), "config") };
+                            for (int candidateIndex = 0; candidateIndex < candidates.Length && result.Count < 256; candidateIndex++)
+                            {
+                                try
+                                {
+                                    string[] paths = Directory.GetFiles(candidates[candidateIndex], "*.*", SearchOption.AllDirectories);
+                                    for (int pathIndex = 0; pathIndex < paths.Length && result.Count < 256; pathIndex++)
+                                    {
+                                        string extension = Path.GetExtension(paths[pathIndex]).ToLowerInvariant();
+                                        if (extension != ".conf" && extension != ".xml" && extension != ".properties" && extension != ".config") continue;
+                                        AddWebConfigFile(result, paths[pathIndex]);
+                                    }
+                                }
+                                catch { }
+                            }
+                            string parent = Path.GetDirectoryName(root);
+                            if (TextUtility.IsBlank(parent) || string.Equals(parent, root, StringComparison.OrdinalIgnoreCase)) break;
+                            root = parent;
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         private static void AddWebConfigFile(List<object> result, string path)
@@ -235,9 +276,51 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 catch { }
             }
+            AddProcessAdjacentCertificateFiles(result);
             foreach (object item in ReadWindowsCertificateStore("My"))
                 if (result.Count < 512) result.Add(item);
             return result.ToArray();
+        }
+
+        private static void AddProcessAdjacentCertificateFiles(List<object> result)
+        {
+            if (result == null || result.Count >= 256) return;
+            try
+            {
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE ExecutablePath IS NOT NULL"))
+                {
+                    foreach (ManagementObject item in searcher.Get())
+                    {
+                        string root = Path.GetDirectoryName(Convert.ToString(item["ExecutablePath"]));
+                        for (int level = 0; level < 3 && !TextUtility.IsBlank(root) && result.Count < 256; level++)
+                        {
+                            string[] candidates = new string[] { root, Path.Combine(root, "conf"), Path.Combine(root, "config"), Path.Combine(Path.Combine(root, ".."), "conf"), Path.Combine(Path.Combine(root, ".."), "config") };
+                            for (int candidateIndex = 0; candidateIndex < candidates.Length && result.Count < 256; candidateIndex++)
+                            {
+                                try
+                                {
+                                    string[] paths = Directory.GetFiles(candidates[candidateIndex], "*.*", SearchOption.AllDirectories);
+                                    for (int pathIndex = 0; pathIndex < paths.Length && result.Count < 256; pathIndex++)
+                                    {
+                                        string extension = Path.GetExtension(paths[pathIndex]).ToLowerInvariant();
+                                        if (extension != ".pem" && extension != ".crt" && extension != ".cer" && extension != ".der") continue;
+                                        Dictionary<string, object> certificate = ReadCertificateSummary(paths[pathIndex]);
+                                        if (certificate == null) continue;
+                                        certificate["path"] = paths[pathIndex].Replace('\\', '/');
+                                        certificate["configuredPaths"] = new string[] { Path.GetFileName(paths[pathIndex]) };
+                                        result.Add(certificate);
+                                    }
+                                }
+                                catch { }
+                            }
+                            string parent = Path.GetDirectoryName(root);
+                            if (TextUtility.IsBlank(parent) || string.Equals(parent, root, StringComparison.OrdinalIgnoreCase)) break;
+                            root = parent;
+                        }
+                    }
+                }
+            }
+            catch { }
         }
 
         private static List<object> ReadWindowsCertificateStore(string storeName)

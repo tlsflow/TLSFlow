@@ -57,8 +57,16 @@
       "type": "object", "additionalProperties": false,
       "required": ["kind", "store", "subject", "thumbprint", "hasPrivateKey"],
       "properties": {
-        "kind": { "const": "certificate_store" }, "store": { "$ref": "#/$defs/id" }, "subject": { "$ref": "#/$defs/nonEmpty" },
-        "thumbprint": { "$ref": "#/$defs/nonEmpty" }, "notAfter": { "$ref": "#/$defs/dateTime" }, "hasPrivateKey": { "type": "boolean" }
+        "kind": { "const": "certificate_store" }, "path": { "$ref": "#/$defs/nonEmpty" }, "store": { "$ref": "#/$defs/id" }, "storeLocation": { "$ref": "#/$defs/id" }, "subject": { "$ref": "#/$defs/nonEmpty" },
+        "thumbprint": { "$ref": "#/$defs/nonEmpty" }, "sha256Fingerprint": { "$ref": "#/$defs/digest" }, "issuer": { "$ref": "#/$defs/nonEmpty" }, "notBefore": { "$ref": "#/$defs/dateTime" }, "notAfter": { "$ref": "#/$defs/dateTime" }, "hasPrivateKey": { "type": "boolean" }
+      }
+    },
+    "certificateFileFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "const": "certificate_file" }, "path": { "$ref": "#/$defs/absolutePath" }, "configuredPaths": { "$ref": "#/$defs/stringArray" },
+        "sha256Fingerprint": { "$ref": "#/$defs/digest" }, "thumbprint": { "$ref": "#/$defs/nonEmpty" }, "subject": { "$ref": "#/$defs/nonEmpty" }, "issuer": { "$ref": "#/$defs/nonEmpty" }, "notBefore": { "$ref": "#/$defs/dateTime" }, "notAfter": { "$ref": "#/$defs/dateTime" }
       }
     },
     "privilegeFact": {
@@ -68,7 +76,7 @@
     },
     "rawFact": { "oneOf": [
       { "$ref": "#/$defs/processFact" }, { "$ref": "#/$defs/serviceFact" }, { "$ref": "#/$defs/listeningPortFact" },
-      { "$ref": "#/$defs/fileStatFact" }, { "$ref": "#/$defs/fileContentFact" }, { "$ref": "#/$defs/certificateStoreFact" }, { "$ref": "#/$defs/privilegeFact" }
+      { "$ref": "#/$defs/fileStatFact" }, { "$ref": "#/$defs/fileContentFact" }, { "$ref": "#/$defs/certificateFileFact" }, { "$ref": "#/$defs/certificateStoreFact" }, { "$ref": "#/$defs/privilegeFact" }
     ] },
     "planOperation": {
       "type": "object", "additionalProperties": false,
@@ -103,17 +111,17 @@
     "agentPlan": {
       "type": "object", "additionalProperties": false,
       "required": ["planVersion", "planId", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "operations", "planDigest", "tokenId", "policyDecisionId", "nonce", "expiresAt", "writeEffect"],
-      "properties": { "planVersion": { "const": "gcac.agent-security/v1" }, "planId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "operations": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/planOperation" } }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "policyDecisionId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "writeEffect": { "type": "boolean" }, "approvalRef": { "$ref": "#/$defs/id" } }
+      "properties": { "planVersion": { "const": "gcac.agent-security/v1" }, "planId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "operations": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/planOperation" } }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "policyDecisionId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "writeEffect": { "type": "boolean" }, "approvalRef": { "$ref": "#/$defs/id" } }
     },
     "capabilityToken": {
       "type": "object", "additionalProperties": false,
       "required": ["tokenVersion", "tokenId", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "issuedAt", "expiresAt", "nonce", "planDigest", "authorityKeyId", "signature"],
-      "properties": { "tokenVersion": { "const": "gcac.agent-security/v1" }, "tokenId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "approvalRef": { "$ref": "#/$defs/id" }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "nonce": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" } }
+      "properties": { "tokenVersion": { "const": "gcac.agent-security/v1" }, "tokenId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "approvalRef": { "$ref": "#/$defs/id" }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "nonce": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" } }
     },
     "authorityDecision": {
       "type": "object", "additionalProperties": false,
       "required": ["decisionVersion", "decisionId", "allowed", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "planDigest", "tokenId", "nonce", "issuedAt", "validUntil", "authorityKeyId", "revocationRef", "signature"],
-      "properties": { "decisionVersion": { "const": "gcac.agent-security/v1" }, "decisionId": { "$ref": "#/$defs/id" }, "allowed": { "type": "boolean" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "approvalRef": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "validUntil": { "$ref": "#/$defs/dateTime" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "revocationRef": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" }, "reason": { "$ref": "#/$defs/nonEmpty" } }
+      "properties": { "decisionVersion": { "const": "gcac.agent-security/v1" }, "decisionId": { "$ref": "#/$defs/id" }, "allowed": { "type": "boolean" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "approvalRef": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "validUntil": { "$ref": "#/$defs/dateTime" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "revocationRef": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" }, "reason": { "$ref": "#/$defs/nonEmpty" } }
     },
     "executionReceipt": {
       "type": "object", "additionalProperties": false,

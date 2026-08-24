@@ -12,6 +12,11 @@ export const agentV2ContractTypes = [
   'agent.execution.receipt',
 ] as const;
 export type AgentV2ContractType = typeof agentV2ContractTypes[number];
+/**
+ * Canonical Plugin ID 的语法必须覆盖注册表里的连字符产品段，例如
+ * `app.java-keystore`、`app.service-certificate-file` 和 `ca.microsoft-adcs`。
+ */
+export const canonicalPluginIdPattern = '^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$';
 export const maximumFactTtlSeconds = 24 * 60 * 60;
 export const maximumFileContentBytes = 64 * 1024;
 export const maximumPlanOperations = 100;
@@ -36,7 +41,7 @@ export const allowedAgentOperationTypes = [
 
 export type AgentOperationType = typeof allowedAgentOperationTypes[number];
 export type AgentPlanStage = 'prepare' | 'execute' | 'verify' | 'compensate';
-export type AgentFactKind = 'process' | 'service' | 'listening_port' | 'file_stat' | 'file_content' | 'certificate_store' | 'privilege';
+export type AgentFactKind = 'process' | 'service' | 'listening_port' | 'file_stat' | 'file_content' | 'certificate_file' | 'certificate_store' | 'privilege';
 export type AgentSecurityStatus = 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED';
 
 export interface ProcessFactV1 {
@@ -86,11 +91,33 @@ export interface FileContentFactV1 {
 
 export interface CertificateStoreFactV1 {
   kind: 'certificate_store';
+  /** Windows 证书库 URI，仅定位公开证书条目，不含任何私钥材料。 */
+  path?: string;
   store: string;
+  storeLocation?: string;
   subject: string;
   thumbprint: string;
+  sha256Fingerprint?: string;
+  issuer?: string;
+  notBefore?: string;
   notAfter?: string;
   hasPrivateKey: boolean;
+}
+
+/**
+ * 磁盘证书的只读摘要。Agent 只能上报公开字段，禁止上传 PEM、DER、PFX、JKS
+ * 或私钥内容；配置解析器只需要路径和指纹完成绑定关联。
+ */
+export interface CertificateFileFactV1 {
+  kind: 'certificate_file';
+  path: string;
+  configuredPaths?: string[];
+  sha256Fingerprint?: string;
+  thumbprint?: string;
+  subject?: string;
+  issuer?: string;
+  notBefore?: string;
+  notAfter?: string;
 }
 
 export interface PrivilegeFactV1 {
@@ -100,7 +127,7 @@ export interface PrivilegeFactV1 {
   groups: string[];
 }
 
-export type AgentRawFactV1 = ProcessFactV1 | ServiceFactV1 | ListeningPortFactV1 | FileStatFactV1 | FileContentFactV1 | CertificateStoreFactV1 | PrivilegeFactV1;
+export type AgentRawFactV1 = ProcessFactV1 | ServiceFactV1 | ListeningPortFactV1 | FileStatFactV1 | FileContentFactV1 | CertificateFileFactV1 | CertificateStoreFactV1 | PrivilegeFactV1;
 
 export interface AgentFactEnvelopeV1 {
   contractVersion: typeof agentSecurityContractVersion;
@@ -293,7 +320,8 @@ export const agentSecuritySchemas: Record<string, JsonSchema> = {
   ListeningPortFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'address', 'port', 'protocol'], properties: { kind: { const: 'listening_port' }, address: { type: 'string', minLength: 1, maxLength: 128 }, port: { type: 'integer', minimum: 1, maximum: 65535 }, protocol: { enum: ['tcp', 'udp'] }, pid: positiveIntegerSchema() } },
   FileStatFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'path', 'exists', 'sizeBytes'], properties: { kind: { const: 'file_stat' }, path: absolutePathSchema(), exists: { type: 'boolean' }, sizeBytes: { type: 'integer', minimum: 0, maximum: 1024 * 1024 * 1024 }, sha256: digestSchema(), modifiedAt: dateTimeSchema(), mode: { type: 'string', maxLength: 32 } } },
   FileContentFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'path', 'contentBase64', 'bytesRead', 'truncated', 'sha256'], properties: { kind: { const: 'file_content' }, path: absolutePathSchema(), contentBase64: { type: 'string', maxLength: maximumFileContentBytes * 2 }, bytesRead: { type: 'integer', minimum: 0, maximum: maximumFileContentBytes }, truncated: { type: 'boolean' }, sha256: digestSchema() } },
-  CertificateStoreFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'store', 'subject', 'thumbprint', 'hasPrivateKey'], properties: { kind: { const: 'certificate_store' }, store: identifierSchema(), subject: nonEmptyStringSchema(), thumbprint: nonEmptyStringSchema(), notAfter: dateTimeSchema(), hasPrivateKey: { type: 'boolean' } } },
+  CertificateFileFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'path'], properties: { kind: { const: 'certificate_file' }, path: absolutePathSchema(), configuredPaths: stringArraySchema(), sha256Fingerprint: digestSchema(), thumbprint: nonEmptyStringSchema(), subject: nonEmptyStringSchema(), issuer: nonEmptyStringSchema(), notBefore: dateTimeSchema(), notAfter: dateTimeSchema() } },
+  CertificateStoreFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'store', 'subject', 'thumbprint', 'hasPrivateKey'], properties: { kind: { const: 'certificate_store' }, path: nonEmptyStringSchema(), store: identifierSchema(), storeLocation: identifierSchema(), subject: nonEmptyStringSchema(), thumbprint: nonEmptyStringSchema(), sha256Fingerprint: digestSchema(), issuer: nonEmptyStringSchema(), notBefore: dateTimeSchema(), notAfter: dateTimeSchema(), hasPrivateKey: { type: 'boolean' } } },
   PrivilegeFactV1: { type: 'object', additionalProperties: false, required: ['kind', 'principal', 'elevated', 'groups'], properties: { kind: { const: 'privilege' }, principal: nonEmptyStringSchema(), elevated: { type: 'boolean' }, groups: stringArraySchema() } },
   AgentPlanV1: { type: 'object', additionalProperties: false, required: ['planVersion', 'planId', 'agentId', 'tenantId', 'pluginId', 'pluginVersionId', 'capability', 'operations', 'planDigest', 'tokenId', 'policyDecisionId', 'nonce', 'expiresAt', 'writeEffect'], properties: { planVersion: { const: agentSecurityContractVersion }, planId: identifierSchema(), agentId: identifierSchema(), tenantId: identifierSchema(), pluginId: canonicalPluginIdSchema(), pluginVersionId: identifierSchema(), capability: identifierSchema(), operations: { type: 'array', minItems: 1, maxItems: maximumPlanOperations, items: { type: 'object' } }, planDigest: digestSchema(), tokenId: identifierSchema(), policyDecisionId: identifierSchema(), nonce: identifierSchema(), expiresAt: dateTimeSchema(), writeEffect: { type: 'boolean' }, approvalRef: identifierSchema() } },
   AgentPlanOperationV1: { type: 'object', additionalProperties: false, required: ['operationId', 'operationType', 'stage', 'input', 'dependsOn', 'idempotencyKey', 'timeoutSeconds'], properties: { operationId: identifierSchema(), operationType: { enum: [...allowedAgentOperationTypes] }, stage: { enum: ['prepare', 'execute', 'verify', 'compensate'] }, input: { type: 'object' }, dependsOn: stringArraySchema(), idempotencyKey: identifierSchema(), timeoutSeconds: { type: 'integer', minimum: 1, maximum: 3600 }, compensation: identifierSchema() } },
@@ -308,7 +336,7 @@ export const agentSecuritySchemas: Record<string, JsonSchema> = {
 };
 
 function identifierSchema(): JsonSchema { return { type: 'string', pattern: '^[A-Za-z0-9._:-]{1,256}$' }; }
-function canonicalPluginIdSchema(): JsonSchema { return { type: 'string', pattern: '^(?:web|app|device|cloud|ca)\.[a-z0-9]+(?:\.[a-z0-9-]+)*$' }; }
+function canonicalPluginIdSchema(): JsonSchema { return { type: 'string', pattern: canonicalPluginIdPattern }; }
 function nonEmptyStringSchema(): JsonSchema { return { type: 'string', minLength: 1, maxLength: 512 }; }
 function dateTimeSchema(): JsonSchema { return { type: 'string', format: 'date-time', maxLength: 64 }; }
 function positiveIntegerSchema(): JsonSchema { return { type: 'integer', minimum: 1, maximum: 2147483647 }; }
@@ -533,14 +561,37 @@ function unsignedPolicyPayload(value: unknown): unknown {
 }
 
 function validateFact(input: unknown, path: string): AgentRawFactV1 {
-  const value = record(input, path); const kind = enumValue(value.kind, ['process', 'service', 'listening_port', 'file_stat', 'file_content', 'certificate_store', 'privilege'], `${path}.kind`);
+  const value = record(input, path); const kind = enumValue(value.kind, ['process', 'service', 'listening_port', 'file_stat', 'file_content', 'certificate_file', 'certificate_store', 'privilege'], `${path}.kind`);
   rejectProductJudgement(value, path);
   if (kind === 'process') { exactKeys(value, ['kind', 'pid', 'parentPid', 'executablePath', 'executableSha256', 'commandLine', 'startedAt'], path); positiveInteger(value.pid, `${path}.pid`); if (value.parentPid !== undefined) positiveInteger(value.parentPid, `${path}.parentPid`); normalizeAbsolutePath(value.executablePath, `${path}.executablePath`); if (value.executableSha256 !== undefined) digest(value.executableSha256, `${path}.executableSha256`); if (value.commandLine !== undefined) sensitiveCommandLine(value.commandLine, `${path}.commandLine`); if (value.startedAt !== undefined) dateTime(value.startedAt, `${path}.startedAt`); return value as unknown as ProcessFactV1; }
   if (kind === 'service') { exactKeys(value, ['kind', 'name', 'status', 'executablePath', 'startType'], path); identifier(value.name, `${path}.name`); enumValue(value.status, ['running', 'stopped', 'paused', 'unknown'], `${path}.status`); if (value.executablePath !== undefined) normalizeAbsolutePath(value.executablePath, `${path}.executablePath`); if (value.startType !== undefined) enumValue(value.startType, ['automatic', 'manual', 'disabled', 'unknown'], `${path}.startType`); return value as unknown as ServiceFactV1; }
   if (kind === 'listening_port') { exactKeys(value, ['kind', 'address', 'port', 'protocol', 'pid'], path); nonEmptyString(value.address, `${path}.address`); integerRange(value.port, 1, 65535, `${path}.port`); enumValue(value.protocol, ['tcp', 'udp'], `${path}.protocol`); if (value.pid !== undefined) positiveInteger(value.pid, `${path}.pid`); return value as unknown as ListeningPortFactV1; }
   if (kind === 'file_stat') { exactKeys(value, ['kind', 'path', 'exists', 'sizeBytes', 'sha256', 'modifiedAt', 'mode'], path); normalizeAbsolutePath(value.path, `${path}.path`); if (typeof value.exists !== 'boolean') fail(`${path}.exists`, '必须是布尔值'); integerRange(value.sizeBytes, 0, 1024 * 1024 * 1024, `${path}.sizeBytes`); if (value.sha256 !== undefined) digest(value.sha256, `${path}.sha256`); if (value.modifiedAt !== undefined) dateTime(value.modifiedAt, `${path}.modifiedAt`); if (value.mode !== undefined) nonEmptyString(value.mode, `${path}.mode`); return value as unknown as FileStatFactV1; }
   if (kind === 'file_content') { exactKeys(value, ['kind', 'path', 'contentBase64', 'bytesRead', 'truncated', 'sha256'], path); normalizeAbsolutePath(value.path, `${path}.path`); const content = nonEmptyString(value.contentBase64, `${path}.contentBase64`); if (Buffer.byteLength(content, 'base64') > maximumFileContentBytes) fail(`${path}.contentBase64`, '文件内容超过最大读取量'); integerRange(value.bytesRead, 0, maximumFileContentBytes, `${path}.bytesRead`); if (typeof value.truncated !== 'boolean') fail(`${path}.truncated`, '必须是布尔值'); digest(value.sha256, `${path}.sha256`); return value as unknown as FileContentFactV1; }
-  if (kind === 'certificate_store') { exactKeys(value, ['kind', 'store', 'subject', 'thumbprint', 'notAfter', 'hasPrivateKey'], path); identifier(value.store, `${path}.store`); nonEmptyString(value.subject, `${path}.subject`); nonEmptyString(value.thumbprint, `${path}.thumbprint`); if (value.notAfter !== undefined) dateTime(value.notAfter, `${path}.notAfter`); if (typeof value.hasPrivateKey !== 'boolean') fail(`${path}.hasPrivateKey`, '必须是布尔值'); return value as unknown as CertificateStoreFactV1; }
+  if (kind === 'certificate_file') {
+    exactKeys(value, ['kind', 'path', 'configuredPaths', 'sha256Fingerprint', 'thumbprint', 'subject', 'issuer', 'notBefore', 'notAfter'], path);
+    normalizeAbsolutePath(value.path, `${path}.path`);
+    if (value.configuredPaths !== undefined) stringArray(value.configuredPaths, `${path}.configuredPaths`);
+    if (value.sha256Fingerprint !== undefined) digest(value.sha256Fingerprint, `${path}.sha256Fingerprint`);
+    if (value.thumbprint !== undefined) nonEmptyString(value.thumbprint, `${path}.thumbprint`);
+    if (value.sha256Fingerprint === undefined && value.thumbprint === undefined) fail(path, '证书文件事实至少需要一个公开指纹');
+    if (value.subject !== undefined) nonEmptyString(value.subject, `${path}.subject`);
+    if (value.issuer !== undefined) nonEmptyString(value.issuer, `${path}.issuer`);
+    if (value.notBefore !== undefined) dateTime(value.notBefore, `${path}.notBefore`);
+    if (value.notAfter !== undefined) dateTime(value.notAfter, `${path}.notAfter`);
+    return value as unknown as CertificateFileFactV1;
+  }
+  if (kind === 'certificate_store') {
+    exactKeys(value, ['kind', 'path', 'store', 'storeLocation', 'subject', 'thumbprint', 'sha256Fingerprint', 'issuer', 'notBefore', 'notAfter', 'hasPrivateKey'], path);
+    if (value.path !== undefined) nonEmptyString(value.path, `${path}.path`);
+    identifier(value.store, `${path}.store`); if (value.storeLocation !== undefined) identifier(value.storeLocation, `${path}.storeLocation`);
+    nonEmptyString(value.subject, `${path}.subject`); nonEmptyString(value.thumbprint, `${path}.thumbprint`);
+    if (value.sha256Fingerprint !== undefined) digest(value.sha256Fingerprint, `${path}.sha256Fingerprint`);
+    if (value.issuer !== undefined) nonEmptyString(value.issuer, `${path}.issuer`);
+    if (value.notBefore !== undefined) dateTime(value.notBefore, `${path}.notBefore`);
+    if (value.notAfter !== undefined) dateTime(value.notAfter, `${path}.notAfter`);
+    if (typeof value.hasPrivateKey !== 'boolean') fail(`${path}.hasPrivateKey`, '必须是布尔值'); return value as unknown as CertificateStoreFactV1;
+  }
   exactKeys(value, ['kind', 'principal', 'elevated', 'groups'], path); nonEmptyString(value.principal, `${path}.principal`); if (typeof value.elevated !== 'boolean') fail(`${path}.elevated`, '必须是布尔值'); return { ...value, groups: stringArray(value.groups, `${path}.groups`) } as unknown as PrivilegeFactV1;
 }
 
@@ -617,7 +668,13 @@ function record(value: unknown, path: string): Record<string, unknown> { if (!va
 function exactKeys(value: Record<string, unknown>, allowed: string[], path: string): void { const unknown = Object.keys(value).filter((key) => !allowed.includes(key)); if (unknown.length > 0) fail(path, '包含未知字段', { unknown }); }
 function exact(value: unknown, expected: unknown, path: string): void { if (value !== expected) fail(path, '固定值不匹配', { expected }); }
 function identifier(value: unknown, path: string): string { const result = nonEmptyString(value, path); if (!/^[A-Za-z0-9._:-]{1,256}$/.test(result)) fail(path, '标识符格式不合法'); return result; }
-function canonicalPluginId(value: unknown, path: string): string { const result = identifier(value, path); if (!/^(?:web|app|device|cloud|ca)\.[a-z0-9]+(?:\.[a-z0-9-]+)*$/.test(result)) fail(path, '必须是 Canonical Plugin ID'); return result; }
+function canonicalPluginId(value: unknown, path: string): string {
+  const result = identifier(value, path);
+  if (!new RegExp(canonicalPluginIdPattern).test(result)) {
+    fail(path, '必须是 Canonical Plugin ID', { actual: result });
+  }
+  return result;
+}
 function nonEmptyString(value: unknown, path: string): string { if (typeof value !== 'string' || value.trim() === '') fail(path, '必须是非空字符串'); return value; }
 function stringArray(value: unknown, path: string): string[] { if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '') || value.length > 200) fail(path, '必须是数量受限字符串数组'); return value as string[]; }
 function positiveInteger(value: unknown, path: string): void { integerRange(value, 1, 2147483647, path); }

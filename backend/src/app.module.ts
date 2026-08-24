@@ -163,6 +163,7 @@ import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate } fro
 import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
 import { GlobalSearchApplicationService } from './modules/global-search/application/global-search.application-service.js';
 import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules/global-search/controller/global-search.controller.js';
+import { ApplicationOnboardingController, ApplicationOnboardingService, ApplicationOnboardingSessionRepository, OnboardingCommitService, PublishedDirectWorkflowOnboardingAdapter, getApplicationOnboardingRouteContracts } from './modules/application-onboarding/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -409,6 +410,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     new PluginWorkflowVersionStore(appDb),
     (pluginId, version) => builtinPluginRegistry.getDeclaredWorkflowDeclarations(pluginId, version),
   );
+  const directWorkflowOnboarding = new PublishedDirectWorkflowOnboardingAdapter(
+    assetsService.getRepository(),
+    pluginWorkflowPublisher,
+  );
   const devicesService = new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
@@ -429,22 +434,21 @@ export function createApp(dependencies: AppDependencies = {}): App {
     unifiedPluginsService,
     agentPlanAuthorization,
   );
-  const discoveryTaskFactory = agentPlanAuthorization
+  const discoveryRequestFactory = agentPlanAuthorization
     ? createAgentDiscoveryTaskFactory({
-      repository: new PgAgentsRepository(appDb),
       plugins: unifiedPluginsService,
       policyAuthority: agentPlanAuthorization.policyAuthority,
     })
     : undefined;
-  agentsService.setDiscoveryTaskFactory(discoveryTaskFactory);
+  agentsService.setDiscoveryRequestFactory(discoveryRequestFactory);
   agentsService.setTrustMaterialIssuer(localAgentAuthorization?.trustMaterialIssuer);
-  if (discoveryTaskFactory) app.setResource('agentDiscoveryTaskFactory', discoveryTaskFactory);
+  if (discoveryRequestFactory) app.setResource('agentDiscoveryRequestFactory', discoveryRequestFactory);
   if (localAgentAuthorization) app.setResource('localAgentAuthorization', localAgentAuthorization);
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
-  app.setResource('workflowTemplatesService', workflowTemplatesService);
   app.setResource('builtinPluginRegistry', builtinPluginRegistry);
+  app.setResource('workflowTemplatesService', workflowTemplatesService);
   if (browserRuntimeClient && browserCredentialSessionService) {
     app.setResource('browserRuntimeClient', browserRuntimeClient);
     app.setResource('browserCredentialSessionService', browserCredentialSessionService);
@@ -566,6 +570,139 @@ export function createApp(dependencies: AppDependencies = {}): App {
     }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
+  const onboardingService = new ApplicationOnboardingService(
+    new ApplicationOnboardingSessionRepository(appDb),
+    unifiedPluginsService,
+    undefined,
+    {
+      onboardDevice: async (tenantId, _platformKey, pluginVersionId, values, actorId) => {
+        const formValues = { ...values };
+        const username = typeof formValues.username === 'string' ? formValues.username.trim() : '';
+        const password = typeof formValues.password === 'string' ? formValues.password : '';
+        delete formValues.username;
+        delete formValues.password;
+        if (username || password) {
+          if (!username || !password) {
+            throw new AppError('VALIDATION_FAILED', '新增设备时用户名和密码必须同时提供', { code: 'ONBOARDING_CREDENTIAL_REQUIRED' });
+          }
+          const address = typeof formValues.address === 'string' ? formValues.address.trim() : 'device';
+          const credential = await credentialsService.create(tenantId, actorId, {
+            name: `onboarding-${pluginVersionId}-${address}-${Date.now()}`,
+            kind: 'USERNAME_PASSWORD',
+            scopeType: 'plugin',
+            scopeId: pluginVersionId,
+            username,
+            secretValues: { password: { plainText: password, type: 'password' } },
+            metadata: { source: 'application-onboarding', pluginVersionId },
+          });
+          formValues.credential = credential.id;
+        }
+        const onboarded = await devicesService.onboard(tenantId, {
+          platformKey: 'plugin',
+          pluginVersionId,
+          formValues,
+        }, actorId, 'application-onboarding', 'http://localhost');
+        const device = (onboarded as { device?: { id?: string; hostId?: string }; deviceId?: string; assetId?: string }).device;
+        const deviceId = device?.hostId ?? (onboarded as { deviceId?: string }).deviceId;
+        if (!deviceId) throw new AppError('SYSTEM_INTERNAL_ERROR', '设备接入未返回设备 ID');
+        return { deviceId, assetId: device?.id ?? (onboarded as { assetId?: string }).assetId };
+      },
+      validateExistingDevice: async (tenantId, deviceId, _session, recipe) => {
+        const detail = await devicesService.get(tenantId, deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
+        if (detail.health === 'DISABLED' || detail.health === 'UNREACHABLE' || detail.health === 'UNKNOWN') {
+          throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '已有设备当前不可用，请先恢复设备健康状态', {
+            code: 'ONBOARDING_DEVICE_UNHEALTHY', deviceId, health: detail.health,
+          });
+        }
+        if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
+          await directWorkflowOnboarding.validateDevice(tenantId, deviceId, recipe);
+          return;
+        }
+        const expectedPluginId = recipe.pluginId;
+        const actualPluginId = detail.pluginUi?.pluginId;
+        if (detail.extension.type !== 'PLUGIN' || (expectedPluginId && actualPluginId !== expectedPluginId)) {
+          throw new AppError('VALIDATION_FAILED', '已有设备与所选平台不兼容', {
+            code: 'ONBOARDING_DEVICE_INCOMPATIBLE', deviceId, expectedPluginId, actualPluginId,
+          });
+        }
+        const required = [recipe.recipe.capabilities.connectionTest, recipe.recipe.capabilities.discovery];
+        const missing = required.filter((capability) => !detail.capabilities.includes(capability));
+        if (missing.length > 0) {
+          throw new AppError('CAPABILITY_MISSING', '已有设备缺少平台所需能力', { code: 'ONBOARDING_DEVICE_CAPABILITY_MISSING', deviceId, missing });
+        }
+      },
+      listExistingDevices: async (tenantId, _session, recipe) => {
+        const directWorkflowDeviceIds = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
+          ? await directWorkflowOnboarding.listCompatibleDeviceIds(tenantId, recipe)
+          : undefined;
+        const required = recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW'
+          ? []
+          : [recipe.recipe.capabilities.connectionTest, recipe.recipe.capabilities.discovery];
+        const page = await devicesService.list(tenantId, {
+          page: 1,
+          pageSize: 200,
+          filter: recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW' ? {} : { productFamily: recipe.pluginId },
+        });
+        return page.items.map((device) => {
+          const unavailable = device.health === 'DISABLED' || device.health === 'UNREACHABLE' || device.health === 'UNKNOWN';
+          const missing = required.filter((capability) => !device.capabilities.includes(capability));
+          const compatible = !directWorkflowDeviceIds || directWorkflowDeviceIds.has(device.id);
+          return {
+            deviceId: device.id,
+            displayName: device.displayName,
+            address: device.managementAddress,
+            health: device.health,
+            selectable: compatible && !unavailable && missing.length === 0,
+            reasonCode: !compatible ? 'PLATFORM_TARGET_MISSING' : unavailable ? 'DEVICE_UNHEALTHY' : missing.length > 0 ? 'CAPABILITY_MISSING' : undefined,
+          };
+        }).filter((device) => device.selectable);
+      },
+      supportsDirectWorkflow: (_platformKey, recipe) => directWorkflowOnboarding.supports(recipe),
+      testConnection: async (tenantId, session, recipe) => {
+        if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
+          await directWorkflowOnboarding.test(tenantId, session, recipe);
+          return;
+        }
+        if (session.deviceId) await devicesService.executeCapability(tenantId, session.deviceId, 'device.connection.test', session.actorId, 'application-onboarding');
+      },
+      discover: async (tenantId, session, recipe) => {
+        if (recipe.recipe.deploymentMode === 'DIRECT_WORKFLOW') {
+          return directWorkflowOnboarding.discover(tenantId, session, recipe);
+        }
+        if (!session.deviceId) return [];
+        const detail = await devicesService.get(tenantId, session.deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
+        return detail.sites.map((site) => ({
+          managedTargetId: site.managedTargetId ?? site.id,
+          targetType: site.kind,
+          displayName: site.name,
+          endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
+          configFingerprint: `${site.id}:${detail.overview.updatedAt}`,
+          selectable: Boolean(site.managedTargetId),
+          reasonCode: site.managedTargetId ? undefined : 'MANAGED_TARGET_MISSING',
+        }));
+      },
+      validateCertificate: async (tenantId, certificateId, certificateVersionId, _session, recipe) => {
+        const [asset, version] = await Promise.all([
+          certificateServices.certificates.getAssetDetail(certificateId, tenantId),
+          certificateServices.certificates.getVersionDetail(certificateVersionId, tenantId),
+        ]);
+        if (version.asset.id !== asset.id || version.certificateAssetId !== certificateId) {
+          throw new AppError('VALIDATION_FAILED', '证书资产与版本不匹配', { code: 'ONBOARDING_CERTIFICATE_VERSION_INVALID', certificateId, certificateVersionId });
+        }
+        if (asset.status !== 'active' || version.status !== 'active' || !version.deployable || version.activationState !== 'promoted') {
+          throw new AppError('VALIDATION_FAILED', '证书版本当前不可部署', { code: 'ONBOARDING_CERTIFICATE_VERSION_INVALID', certificateId, certificateVersionId, assetStatus: asset.status, versionStatus: version.status, deployable: version.deployable, activationState: version.activationState });
+        }
+        const accepted = new Set(recipe.recipe.certificate.acceptedFormats.map((format) => format.toUpperCase()));
+        const available = new Set(version.formats.map((format) => format.format.toUpperCase()));
+        if (![...accepted].some((format) => available.has(format))) {
+          throw new AppError('VALIDATION_FAILED', '证书版本没有匹配的平台格式制品', { code: 'ONBOARDING_CERTIFICATE_FORMAT_UNSUPPORTED', acceptedFormats: [...accepted], availableFormats: [...available] });
+        }
+      },
+    },
+    new OnboardingCommitService(assetsService, deploymentPlans.getApplicationService(), pluginWorkflowPublisher, directWorkflowOnboarding),
+  );
+  new ApplicationOnboardingController(onboardingService, security).register(app.router);
+  app.setResource('applicationOnboardingService', onboardingService);
   new SecurityController(security, new AuditPresentationService({
     deploymentPlans: deploymentPlans.getRepository(),
     assets: assetsService.getRepository(),
@@ -1015,9 +1152,9 @@ export async function createAppAsync(
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   if (!tasksService) throw new Error('任务控制面服务未完成应用装配');
   await tasksService.initialize();
-  const builtinPluginRegistry = app.getResource<BuiltinPluginRegistry>('builtinPluginRegistry');
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
+  const builtinPluginRegistry = app.getResource<BuiltinPluginRegistry>('builtinPluginRegistry');
   if (unifiedPlugins && pluginWorkflowPublisher) {
     await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, { registry: builtinPluginRegistry });
   }
@@ -1172,6 +1309,7 @@ export function getRouteContracts(
     ...getDeploymentPlanRouteContracts(),
     ...getExecutionRouteContracts(),
     ...getAssetsRouteContracts(),
+    ...getApplicationOnboardingRouteContracts(),
     ...getCloudAccountRouteContracts(),
     ...getDeploymentInputRouteContracts(),
     ...getDeviceAssetRouteContracts(),

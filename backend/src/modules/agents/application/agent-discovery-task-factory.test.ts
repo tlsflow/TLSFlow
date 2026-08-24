@@ -1,68 +1,71 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import { WINDOWS_WEB_DISCOVERY_PATHS } from '../agent-discovery-paths.js';
 import { createAgentDiscoveryTaskFactory } from './agent-discovery-task-factory.js';
 
-test('Web 重新发现只创建一条 Agent Core 库存任务，不回退 Plugin Runner', async () => {
+test('Web 重新发现只创建一条已授权的 Agent 直连请求，不回退 Plugin Runner 或任务队列', async () => {
   const payloads: Record<string, unknown>[] = [];
   const factory = createAgentDiscoveryTaskFactory({
-    repository: {
-      findTaskByIdempotencyKey: async () => undefined,
-      createTask: async (input: { payload: Record<string, unknown> }) => {
-        payloads.push(input.payload);
-        return { id: `task-${payloads.length}`, ...input };
-      },
-    },
     plugins: { listAccessibleVersions: async () => [plugin('web.apache'), plugin('web.nginx')] },
     policyAuthority: {
       assertReady: () => undefined,
-      issueAuthorization: async () => ({
-        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: ['/etc'], allowedServices: [], artifactDigests: [] },
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
         decision: { allowed: true },
       }),
     },
   } as never);
 
-  const tasks = await factory.createForAgent({
+  const request = await factory.createForAgent({
     tenantId: 'tenant-1',
-    agent: { id: 'agent-1', descriptor: { osType: 'linux' } },
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
     requestedBy: 'user-1',
     requestId: 'request-1',
   } as never);
 
-  assert.equal(tasks.length, 1);
+  const payload = request.payload;
+  payloads.push(payload);
+  assert.equal(request.requestId, 'request-1');
   assert.equal(payloads.length, 1);
-  const [payload] = payloads;
   assert.equal(payload?.actionType, 'agent.fact.collect');
-  assert.equal(payload?.pluginId, 'web.nginx');
+  assert.equal(payload?.pluginId, 'web.apache');
   assert.equal('pluginVersionId' in (payload ?? {}), false);
   assert.equal(payload?.refreshWebInventory, true);
   assert.equal(payload?.requestedBy, 'user-1');
   assert.equal('action' in (payload ?? {}), false);
   assert.equal('pluginFactBinding' in (payload ?? {}), false);
+  const discoverySpec = payload?.discoverySpec as { profiles?: Array<{ pluginId: string; processNames: string[] }> } | undefined;
+  assert.ok(discoverySpec?.profiles?.some((profile) => profile.pluginId === 'web.nginx' && profile.processNames.includes('nginx')));
+  assert.equal(payload?.planDigest, digest({
+    actionType: 'agent.fact.collect',
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+    pluginId: 'web.apache',
+    pluginVersionId: 'web.apache-version-1',
+    capability: 'application.discover',
+    paths: payload?.paths,
+    discoverySpec: payload?.discoverySpec,
+    refreshWebInventory: true,
+  }));
 });
 
 test('没有 Agent 发现授权锚点时失败关闭', async () => {
   const factory = createAgentDiscoveryTaskFactory({
-    repository: {},
     plugins: { listAccessibleVersions: async () => [] },
     policyAuthority: { assertReady: () => undefined, issueAuthorization: async () => undefined },
   } as never);
 
   await assert.rejects(
     () => factory.createForAgent({ tenantId: 'tenant-1', agent: { id: 'agent-1', descriptor: { osType: 'linux' } }, requestedBy: 'user-1', requestId: 'request-1' } as never),
-    /没有启用且支持 Agent 发现授权的 Web 插件版本/,
+    /没有启用且支持 Agent 发现授权的 Canonical 插件版本/,
   );
 });
 
 test('Windows Compatibility Agent 只请求固定 Windows Web 发现目录', async () => {
   let authorizationRequest: Record<string, unknown> | undefined;
   const factory = createAgentDiscoveryTaskFactory({
-    repository: {
-      findTaskByIdempotencyKey: async () => undefined,
-      createTask: async (input: Record<string, unknown>) => ({ id: 'task-windows', ...input }),
-    },
     plugins: { listAccessibleVersions: async () => [plugin('web.iis')] },
     policyAuthority: {
       assertReady: () => undefined,
@@ -84,11 +87,12 @@ test('Windows Compatibility Agent 只请求固定 Windows Web 发现目录', asy
   } as never);
 
   assert.deepEqual(authorizationRequest?.allowedPaths, WINDOWS_WEB_DISCOVERY_PATHS);
+  assert.ok((authorizationRequest?.allowedPaths as string[]).every((path) => !path.includes('/')));
+  assert.deepEqual(authorizationRequest?.allowedServices, []);
 });
 
 test('授权拒绝会保留 Policy Authority 的诊断原因', async () => {
   const factory = createAgentDiscoveryTaskFactory({
-    repository: {},
     plugins: { listAccessibleVersions: async () => [plugin('web.iis')] },
     policyAuthority: {
       assertReady: () => undefined,
@@ -105,9 +109,122 @@ test('授权拒绝会保留 Policy Authority 的诊断原因', async () => {
   );
 });
 
-function plugin(pluginId: string) {
+test('用户插件即使声明 Web 发现能力也不会进入单轮扫描 profile', async () => {
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: { listAccessibleVersions: async () => [
+      plugin('web.nginx', { source: 'USER', trust: 'UNSIGNED' }),
+      plugin('web.apache'),
+    ] },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  const request = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'user-1',
+    requestId: 'request-1',
+  } as never);
+
+  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
+  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['web.apache']);
+  assert.equal(request.payload.pluginId, 'web.apache');
+});
+
+test('新增官方内置发现插件不需要修改宿主产品白名单', async () => {
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: { listAccessibleVersions: async () => [plugin('app.java-keystore')] },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  const request = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'user-1',
+    requestId: 'request-custom',
+  } as never);
+
+  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
+  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['app.java-keystore']);
+  assert.equal(request.payload.pluginId, 'app.java-keystore');
+});
+
+test('非 Canonical 内置插件不能成为 Agent 发现授权锚点或扫描 profile', async () => {
+  const factory = createAgentDiscoveryTaskFactory({
+    plugins: { listAccessibleVersions: async () => [plugin('builtin.windows.iis.pfx'), plugin('web.iis')] },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: async (input: Record<string, unknown>) => ({
+        token: { actions: ['filesystem.read', 'process.list', 'service.list'], allowedPaths: input.allowedPaths, allowedServices: [], artifactDigests: [] },
+        decision: { allowed: true },
+      }),
+    },
+  } as never);
+
+  const request = await factory.createForAgent({
+    tenantId: 'tenant-1',
+    agent: { id: 'agent-1', descriptor: { osType: 'WINDOWS' } },
+    requestedBy: 'user-1',
+    requestId: 'request-canonical-only',
+  } as never);
+
+  const discoverySpec = request.payload.discoverySpec as { profiles?: Array<{ pluginId: string }> };
+  assert.deepEqual(discoverySpec.profiles?.map((profile) => profile.pluginId), ['web.iis']);
+  assert.equal(request.payload.pluginId, 'web.iis');
+});
+
+function plugin(pluginId: string, overrides: Partial<{ source: 'BUILTIN' | 'USER'; trust: 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED' }> = {}) {
+  const source = overrides.source ?? 'BUILTIN';
+  const trust = overrides.trust ?? 'OFFICIAL_SIGNED';
   return {
     id: `${pluginId}-version-1`, pluginId, version: '1.0.0', status: 'ENABLED',
-    manifest: { capabilities: [{ key: 'application.discover', executionLocations: ['AGENT'] }], permissions: [] },
+    source,
+    trust,
+    manifest: {
+      pluginId,
+      source,
+      trust,
+      capabilities: [{ key: 'application.discover', executionLocations: ['AGENT'] }],
+      permissions: [],
+      resources: { discoveryMappings: { profiles: 'discovery/profiles.json' } },
+    },
+    resources: {
+      'discovery/profiles.json': JSON.stringify({
+        profiles: [{
+          sources: ['windows'],
+          frameworkType: pluginId,
+          processExecutables: pluginId === 'web.nginx' ? ['nginx.exe', 'nginx'] : [`${pluginId}.exe`],
+          serviceNames: [pluginId],
+          configArgKeys: ['-c'],
+          rootArgKeys: ['-p'],
+          defaultConfigRelativePaths: ['conf/app.conf'],
+          configFileNames: ['app.conf'],
+          certificateFileExtensions: ['.pem'],
+          listeningPorts: [443],
+        }],
+      }),
+    },
   };
+}
+
+function digest(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`;
 }

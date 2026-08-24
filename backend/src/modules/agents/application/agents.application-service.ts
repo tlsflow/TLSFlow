@@ -10,7 +10,7 @@ import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
@@ -31,12 +31,12 @@ import type { ExecutionResultSyncService } from '../../executions/application/ex
 import type { ExecutionDetailStreamService } from '../../executions/application/execution-detail-stream.service.js';
 import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
-import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
-import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
 import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
-import type { AgentDiscoveryTaskFactory } from './agent-discovery-task-factory.js';
+import type { AgentDiscoveryRequestFactory } from './agent-discovery-task-factory.js';
+import { AgentDirectClient } from './agent-direct-client.js';
 
 export interface AgentTrustMaterialIssuer {
   issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown>;
@@ -129,7 +129,8 @@ interface AgentInstallSessionManifest {
   zone: string;
   bundleUrl?: string;
   bundleManifest?: ReturnType<typeof getLinuxAgentBundleManifest>;
-  artifacts?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
+	artifacts?: Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>;
+	authorizationTrustKeySet?: Record<string, string>;
 }
 
 const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatibility', AgentInstallArtifactMaterial>> = Object.freeze({
@@ -170,8 +171,9 @@ export class AgentsApplicationService {
     private readonly capabilityDiscoveryProjector?: AgentCapabilityDiscoveryProjector,
     private readonly tasks?: TaskEnqueuer,
     private readonly pluginFactPipeline?: PluginFactPipelineService,
-    private discoveryTaskFactory?: AgentDiscoveryTaskFactory,
+    private discoveryRequestFactory?: AgentDiscoveryRequestFactory,
     private trustMaterialIssuer?: AgentTrustMaterialIssuer,
+    private readonly directAgentClient = new AgentDirectClient(),
   ) {}
 
   getModuleMetadata() {
@@ -182,8 +184,8 @@ export class AgentsApplicationService {
     this.gatewayTaskResultSink = sink;
   }
 
-  setDiscoveryTaskFactory(factory?: AgentDiscoveryTaskFactory): void {
-    this.discoveryTaskFactory = factory;
+  setDiscoveryRequestFactory(factory?: AgentDiscoveryRequestFactory): void {
+    this.discoveryRequestFactory = factory;
   }
 
   setTrustMaterialIssuer(issuer?: AgentTrustMaterialIssuer): void {
@@ -527,37 +529,6 @@ export class AgentsApplicationService {
     });
   }
 
-  async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
-    await this.requireAgent(tenantId, input.agentId);
-    const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
-    if (existingQueuedTask) return existingQueuedTask;
-    const task = await this.enqueueTask(tenantId, {
-      agentId: input.agentId,
-      executionRunId: `agent_rescan:${input.agentId}`,
-      executionStepId: `capability_rescan:${input.agentId}`,
-      idempotencyKey: `agent.capability.rescan:${input.agentId}:${requestId}`,
-      payload: {
-        type: 'agent.capability.rescan',
-        requestedBy: input.requestedBy,
-        requestedAt: new Date().toISOString(),
-      },
-    }, requestId, 'management');
-    enqueueTaskBestEffort(this.tasks, {
-      tenantId,
-      taskType: 'AGENT_CAPABILITY_RESCAN',
-      requestedBy: input.requestedBy,
-      triggerSource: 'agents.capability-rescan',
-      idempotencyKey: `agent-capability-rescan:${task.id}`,
-      payload: { agentTaskId: task.id, agentId: input.agentId },
-      resourceRefs: [
-        { resourceType: 'agent', resourceId: input.agentId },
-        { resourceType: 'agentTask', resourceId: task.id },
-      ],
-    });
-    // 中文说明：统一任务模式下，控制面只负责入列；即使 Agent 支持直连，也不能在这里绕过任务审计直接执行。
-    return task;
-  }
-
   async probeManagementEndpoint(tenantId: string, agentId: string, timeoutMs?: number) {
     await this.requireAgent(tenantId, agentId);
     if (!this.liveness) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent TCP 探测服务未配置');
@@ -565,35 +536,28 @@ export class AgentsApplicationService {
   }
 
   async refreshStandardDiscovery(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{
-    mode: 'standard-capability' | 'queued';
-    task: AgentTaskEnvelope;
-    tasks: AgentTaskEnvelope[];
+    mode: 'direct';
+    requestId: string;
     capabilitySnapshotId?: string;
-    projection?: StandardDiscoveryProjectionSummary;
+    detail?: Record<string, unknown>;
   }> {
     if (!this.capabilityDiscoveryProjector) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent 标准发现投影器未配置');
     }
     const agent = await this.requireAgent(tenantId, agentId);
     await this.assertManagementEndpointReachable(tenantId, agentId);
-    if (!this.discoveryTaskFactory) {
-      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Web 发现任务工厂未配置，拒绝退回旧能力重扫路径');
+    if (!this.discoveryRequestFactory) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Web 发现直连请求工厂未配置，拒绝退回异步任务路径');
     }
-    const tasks = await this.discoveryTaskFactory.createForAgent({ tenantId, agent, requestedBy, requestId });
-    const task = tasks[0]!;
-    const failed = tasks.find((item) => item.status === 'failed' || item.status === 'rejected');
-    if (failed && tasks.every((item) => item.status === 'failed' || item.status === 'rejected')) {
-      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '所有 Web 发现任务均失败', {
-        agentId,
-        taskIds: tasks.map((item) => item.id),
-        failedTaskId: failed.id,
-      });
-    }
-    if (tasks.some((item) => !['succeeded', 'failed', 'rejected'].includes(item.status))) {
-      return { mode: 'queued', task, tasks };
-    }
-    const projection = mergeDiscoverySummaries(tasks.flatMap(readTaskProjectionSummaries));
-    return { mode: 'standard-capability', task, tasks, projection };
+    const directRequest = await this.discoveryRequestFactory.createForAgent({ tenantId, agent, requestedBy, requestId });
+    const response = await this.directAgentClient.refreshWebInventory(agent, directRequest);
+    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    return {
+      mode: 'direct',
+      requestId: directRequest.requestId,
+      capabilitySnapshotId: snapshot?.id,
+      detail: response.detail,
+    };
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
@@ -771,8 +735,7 @@ export class AgentsApplicationService {
         actorId: task.agentId,
       });
     }
-    if (success && (task.payload?.type === 'agent.capability.rescan'
-      || (task.payload?.actionType === 'agent.fact.collect' && task.payload?.refreshWebInventory === true))) {
+    if (success && task.payload?.actionType === 'agent.fact.collect' && task.payload?.refreshWebInventory === true) {
       await this.projectLatestCapabilitySnapshot(task.tenantId, task.agentId);
     }
     return updated;
@@ -1089,11 +1052,10 @@ export class AgentsApplicationService {
     return {
       ...this.baseInstallManifest(session, baseUrl),
       artifacts: await WINDOWS_ARTIFACT_LOADERS[session.platform](),
+      ...(session.platform === 'windows_go_service' && this.trustMaterialIssuer
+        ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() }
+        : {}),
     };
-  }
-
-  async buildWindowsGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): Promise<AgentInstallSessionManifest> {
-    return this.buildWindowsInstallManifest(session, baseUrl);
   }
 
   buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl): AgentInstallSessionManifest {
@@ -1565,11 +1527,6 @@ export class AgentsApplicationService {
     });
   }
 
-  private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
-    const tasks = await this.repository.listTasks(tenantId, agentId, ['queued', 'leased', 'acked']);
-    return tasks.find((task) => task.payload?.type === 'agent.capability.rescan');
-  }
-
   private async listRecentTaskRuntimeLogs(tenantId: string, agentId: string): Promise<AgentDetailProjection['recentTaskLogs']> {
     const tasks = await this.repository.listTasks(tenantId, agentId);
     const taskById = new Map(tasks.map((task) => [task.id, task] as const));
@@ -1846,33 +1803,6 @@ function serializePluginFactPipelineResult(result: PluginFactPipelineResult): Re
   };
 }
 
-function readTaskProjectionSummaries(task: AgentTaskEnvelope): StandardDiscoveryProjectionSummary[] {
-  const detail = readRecord(readRecord(task.result).detail);
-  const pipeline = readRecord(detail.pluginFactPipeline);
-  return Array.isArray(pipeline.projectionSummaries)
-    ? pipeline.projectionSummaries.filter(isProjectionSummary)
-    : [];
-}
-
-function isProjectionSummary(value: unknown): value is StandardDiscoveryProjectionSummary {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const item = value as Record<string, unknown>;
-  return ['serviceInstances', 'sites', 'managedTargets', 'certificates', 'certificateBindings', 'stale', 'conflicts']
-    .every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]));
-}
-
-function mergeDiscoverySummaries(summaries: StandardDiscoveryProjectionSummary[]): StandardDiscoveryProjectionSummary {
-  return summaries.reduce((total, current) => ({
-    serviceInstances: total.serviceInstances + current.serviceInstances,
-    sites: total.sites + current.sites,
-    managedTargets: total.managedTargets + current.managedTargets,
-    certificates: total.certificates + current.certificates,
-    certificateBindings: total.certificateBindings + current.certificateBindings,
-    stale: total.stale + current.stale,
-    conflicts: total.conflicts + current.conflicts,
-  }), { serviceInstances: 0, sites: 0, managedTargets: 0, certificates: 0, certificateBindings: 0, stale: 0, conflicts: 0 });
-}
-
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {
   const actionType = readStringValue(payload?.actionType);
   return actionType && agentV2ContractTypes.includes(actionType as AgentV2ContractType)
@@ -1883,7 +1813,6 @@ export function resolveAgentTaskActionType(payload: Record<string, unknown> | un
 function assertSupportedAgentTaskPayload(payload: Record<string, unknown>): void {
   const actionType = readStringValue(payload.actionType);
   const taskType = readStringValue(payload.type);
-  if (taskType === 'agent.capability.rescan' && !actionType) return;
   if (taskType) {
     throw new AppError('VALIDATION_FAILED', 'Agent task 动作未注册，拒绝进入执行路径', { actionType: taskType });
   }

@@ -1,17 +1,26 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createServer } from 'node:net';
+import { createServer } from 'node:http';
 import test from 'node:test';
 
 import { createApp } from '../../app.module.js';
 import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
+import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import { StandardDeviceDiscoveryProjector } from '../plugins/discovery/standard-device-discovery.projector.js';
 import { createSecurityServices } from '../security/security.controller.js';
 
-test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准链', async () => {
-  const server = createServer((socket) => socket.end());
+test('旧 Agent 发现写入退役，刷新通过管理端点直接进入 capability snapshot 标准链', async () => {
+  const server = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/api/v1/control/discovery') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ success: true, detail: { capabilityRescan: { trigger: 'direct' } } }));
+      return;
+    }
+    response.writeHead(404, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ success: false }));
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.ok(address && typeof address === 'object');
@@ -31,6 +40,14 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
   });
   const tenantId = 'tenant-standard-agent-refresh';
   const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
+  const agentsService = app.getResource<AgentsApplicationService>('agentsService');
+  assert.ok(agentsService);
+  agentsService.setDiscoveryRequestFactory({
+    createForAgent: async ({ requestId }) => ({
+      requestId,
+      payload: { actionType: 'agent.fact.collect', refreshWebInventory: true, requestId },
+    }),
+  });
   const headers = testAuthHeaders('user_admin', tenantId, {
     'x-request-id': 'request-standard-agent-refresh',
   });
@@ -90,9 +107,8 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
       requestId: 'request-standard-agent-refresh-explicit',
     },
   });
-  assert.equal(refreshed.statusCode, 201, JSON.stringify(refreshed.body));
-  assert.equal((refreshed.body as { mode: string }).mode, 'queued');
-  assert.equal((refreshed.body as { taskStatus: string }).taskStatus, 'queued');
+  assert.equal(refreshed.statusCode, 200, JSON.stringify(refreshed.body));
+  assert.equal((refreshed.body as { mode: string }).mode, 'direct');
 
   const tasks = await app.inject({
     method: 'GET',
@@ -100,7 +116,7 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
     headers,
   });
   assert.equal(tasks.statusCode, 200);
-  assert.match(JSON.stringify(tasks.body), /agent\.capability\.rescan/);
+  assert.doesNotMatch(JSON.stringify(tasks.body), /agent\.capability\.rescan/);
 
   const openapi = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers });
   assert.equal(openapi.statusCode, 200);

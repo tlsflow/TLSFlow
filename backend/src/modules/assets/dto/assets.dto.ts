@@ -705,11 +705,10 @@ export interface RefreshAssetsFromAgentDto {
 }
 
 export interface RefreshAssetsFromAgentResultDto {
-  mode: 'standard-capability' | 'queued';
-  taskId: string;
-  taskIds?: string[];
-  taskStatus: 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
+  mode: 'direct';
+  requestId: string;
   capabilitySnapshotId?: string;
+  detail?: Record<string, unknown>;
   projection?: {
     serviceInstances: number;
     sites: number;

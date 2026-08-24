@@ -56,7 +56,7 @@
       "required": ["agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "planDigest", "lifetimeSeconds"],
       "properties": {
         "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" },
-        "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" },
+        "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$" },
         "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" },
         "allowedPaths": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/path" } },
         "allowedServices": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/nonEmpty" } },

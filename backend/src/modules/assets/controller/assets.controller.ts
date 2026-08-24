@@ -731,8 +731,8 @@ export class AssetsController {
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
     return this.service.refreshAssetsFromAgent(tenantId(request), body as unknown as RefreshAssetsFromAgentDto, subject.id).then((result) => {
-      this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.capabilitySnapshotId ?? result.taskId, undefined, result);
-      return { statusCode: 201, body: result };
+      this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.capabilitySnapshotId ?? result.requestId, undefined, result);
+      return { statusCode: 200, body: result };
     });
   }
 

@@ -771,7 +771,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private static string RequiredPluginId(Dictionary<string, object> value, string key)
         {
             string text = RequiredString(value, key);
-            if (!Regex.IsMatch(text, "^(web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$")) Reject("AGENT_V2_REQUEST_INVALID", "字段 " + key + " 不是 Canonical Plugin ID");
+            if (!Regex.IsMatch(text, "^(web|app|device|cloud|ca)\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)*$")) Reject("AGENT_V2_REQUEST_INVALID", "字段 " + key + " 不是 Canonical Plugin ID");
             return text;
         }
 

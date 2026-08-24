@@ -36,35 +36,6 @@ test('统一任务适配器覆盖所有默认注册类型，未接入类型也�
   for (const definition of defaultDefinitions) assert.equal(keys.has(definition.executorKey), true, definition.executorKey);
 });
 
-test('Agent 能力重扫在外部 Agent 未回报时延后，不伪造成功', async () => {
-  const registry = createTaskExecutorRegistry({
-    agents: {
-      getRepository: () => ({
-        getTask: async () => ({
-          id: 'agent-task-1',
-          tenantId: 'tenant-task-adapter',
-          agentId: 'agent-1',
-          executionRunId: 'agent-rescan:agent-1',
-          executionStepId: 'capability-rescan:agent-1',
-          idempotencyKey: 'agent-rescan-1',
-          payload: { type: 'agent.capability.rescan' },
-          status: 'queued',
-          createdAt: '2026-08-06T00:00:00.000Z',
-          updatedAt: '2026-08-06T00:00:00.000Z',
-          requestId: 'request-1',
-        }),
-      } as never),
-    },
-  });
-  const result = await registry.get('agent.capability-rescan')(
-    task('AGENT_CAPABILITY_RESCAN', { agentTaskId: 'agent-task-1' }),
-    attempt,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.defer, true);
-  assert.equal(result.errorCode, 'AGENT_CAPABILITY_RESCAN_PENDING');
-});
-
 test('宿主 ACME 签发和续签执行器恢复，独立 Challenge 与 Provider 执行器保持退役', () => {
   const registry = createTaskExecutorRegistry({
     acme: {

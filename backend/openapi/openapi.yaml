@@ -362,6 +362,222 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/tenants/architecture:
+    get:
+      operationId: "getTenantArchitecture"
+      summary: "查询租户架构聚合"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "mode"
+                  - "currentTenantId"
+                  - "contextVersion"
+                  - "roots"
+                properties:
+                  mode:
+                    type: "string"
+                    enum:
+                      - "single"
+                      - "hierarchical"
+                  currentTenantId:
+                    type: "string"
+                  contextVersion:
+                    type: "string"
+                  managementScope:
+                    type: "object"
+                    required:
+                      - "type"
+                    properties:
+                      type:
+                        type: "string"
+                        enum:
+                          - "SELF"
+                          - "SUBTREE"
+                          - "EXPLICIT"
+                          - "SYSTEM"
+                      rootTenantId:
+                        type: "string"
+                      tenantIds:
+                        type: "array"
+                        items:
+                          type: "string"
+                    additionalProperties: false
+                  roots:
+                    type: "array"
+                    items:
+                      type: "object"
+                      required:
+                        - "id"
+                        - "name"
+                        - "code"
+                        - "type"
+                        - "status"
+                        - "current"
+                        - "administrators"
+                        - "children"
+                      properties:
+                        id:
+                          type: "string"
+                        name:
+                          type: "string"
+                        code:
+                          type: "string"
+                        type:
+                          type: "string"
+                          enum:
+                            - "GROUP"
+                            - "COMPANY"
+                        parentId:
+                          type: "string"
+                        status:
+                          type: "string"
+                          enum:
+                            - "ACTIVE"
+                            - "SUSPENDED"
+                        current:
+                          type: "boolean"
+                        administrators:
+                          type: "array"
+                          items:
+                            type: "object"
+                            required:
+                              - "membershipId"
+                              - "subjectType"
+                              - "subjectId"
+                              - "displayName"
+                              - "membershipType"
+                              - "status"
+                              - "effectiveFrom"
+                            properties:
+                              membershipId:
+                                type: "string"
+                              subjectType:
+                                type: "string"
+                                enum:
+                                  - "user"
+                                  - "group"
+                                  - "external_group"
+                              subjectId:
+                                type: "string"
+                              displayName:
+                                type: "string"
+                              username:
+                                type: "string"
+                              membershipType:
+                                type: "string"
+                                enum:
+                                  - "owner"
+                                  - "admin"
+                              status:
+                                type: "string"
+                                enum:
+                                  - "ACTIVE"
+                              effectiveFrom:
+                                type: "string"
+                                format: "date-time"
+                              effectiveUntil:
+                                type: "string"
+                                format: "date-time"
+                            additionalProperties: false
+                        administratorsTruncated:
+                          type: "boolean"
+                        children:
+                          type: "array"
+                          items:
+                            type: "object"
+                            required:
+                              - "id"
+                              - "name"
+                              - "code"
+                              - "type"
+                              - "status"
+                              - "current"
+                              - "administrators"
+                              - "children"
+                            properties:
+                              id:
+                                type: "string"
+                              name:
+                                type: "string"
+                              code:
+                                type: "string"
+                              type:
+                                type: "string"
+                                enum:
+                                  - "COMPANY"
+                              parentId:
+                                type: "string"
+                              status:
+                                type: "string"
+                                enum:
+                                  - "ACTIVE"
+                                  - "SUSPENDED"
+                              current:
+                                type: "boolean"
+                              administrators:
+                                type: "array"
+                                items:
+                                  type: "object"
+                                  required:
+                                    - "membershipId"
+                                    - "subjectType"
+                                    - "subjectId"
+                                    - "displayName"
+                                    - "membershipType"
+                                    - "status"
+                                    - "effectiveFrom"
+                                  properties:
+                                    membershipId:
+                                      type: "string"
+                                    subjectType:
+                                      type: "string"
+                                      enum:
+                                        - "user"
+                                        - "group"
+                                        - "external_group"
+                                    subjectId:
+                                      type: "string"
+                                    displayName:
+                                      type: "string"
+                                    username:
+                                      type: "string"
+                                    membershipType:
+                                      type: "string"
+                                      enum:
+                                        - "owner"
+                                        - "admin"
+                                    status:
+                                      type: "string"
+                                      enum:
+                                        - "ACTIVE"
+                                    effectiveFrom:
+                                      type: "string"
+                                      format: "date-time"
+                                    effectiveUntil:
+                                      type: "string"
+                                      format: "date-time"
+                                  additionalProperties: false
+                              administratorsTruncated:
+                                type: "boolean"
+                              children:
+                                type: "array"
+                                maxItems: 0
+                            additionalProperties: false
+                      additionalProperties: false
+                additionalProperties: false
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/tenants:
     post:
       operationId: "createTenant"
@@ -1174,6 +1390,104 @@ paths:
     post:
       operationId: "getSecurityObjectCapabilities"
       summary: "批量查询对象级能力"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/security/business-permission-domains:
+    get:
+      operationId: "listBusinessPermissionDefinitions"
+      summary: "查询业务权限注册表"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/security/business-permission-grants:
+    get:
+      operationId: "listBusinessPermissionGrants"
+      summary: "查询业务权限授权"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createBusinessPermissionGrant"
+      summary: "创建业务权限授权"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    delete:
+      operationId: "revokeBusinessPermissionGrant"
+      summary: "撤销业务权限授权"
+      tags:
+        - "Security"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/security/business-permission-capabilities:
+    post:
+      operationId: "resolveBusinessPermissionCapabilities"
+      summary: "解析业务权限能力"
       tags:
         - "Security"
       responses:
@@ -2881,6 +3195,248 @@ paths:
       summary: "解决资产冲突"
       tags:
         - "Assets"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/platforms:
+    get:
+      operationId: "listApplicationOnboardingPlatforms"
+      summary: "查询应用接入平台"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions:
+    post:
+      operationId: "createApplicationOnboardingSession"
+      summary: "创建应用接入会话"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id:
+    get:
+      operationId: "getApplicationOnboardingSession"
+      summary: "查询应用接入会话"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/devices:
+    get:
+      operationId: "listApplicationOnboardingDevices"
+      summary: "查询可选择接入设备"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/resource-selection:
+    post:
+      operationId: "selectApplicationOnboardingResource"
+      summary: "选择接入设备来源"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/test:
+    post:
+      operationId: "testApplicationOnboardingConnection"
+      summary: "测试接入设备连接"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/discover:
+    post:
+      operationId: "discoverApplicationOnboardingTargets"
+      summary: "扫描接入站点"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/targets:
+    get:
+      operationId: "listApplicationOnboardingTargets"
+      summary: "查询业务化站点"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/target-selection:
+    post:
+      operationId: "selectApplicationOnboardingTarget"
+      summary: "选择业务化站点"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/certificate-selection:
+    post:
+      operationId: "selectApplicationOnboardingCertificate"
+      summary: "选择证书版本"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/complete:
+    post:
+      operationId: "completeApplicationOnboardingSession"
+      summary: "完成应用接入"
+      tags:
+        - "ApplicationOnboarding"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/application-onboarding/sessions/:id/cancel:
+    post:
+      operationId: "cancelApplicationOnboardingSession"
+      summary: "取消应用接入"
+      tags:
+        - "ApplicationOnboarding"
       responses:
         200:
           description: "成功"
@@ -6373,8 +6929,8 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
   /api/v1/agents/:agentId/rescan:
     post:
-      operationId: "enqueueAgentCapabilityRescanTask"
-      summary: "创建 Agent 手动能力重扫任务"
+      operationId: "refreshAgentDiscovery"
+      summary: "通过管理端点直接执行 Agent 手动能力重扫"
       tags:
         - "Agents"
       responses:
@@ -12571,6 +13127,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/dashboard/resources:
+    get:
+      operationId: "getDashboardResources"
+      summary: "查询仪表盘主机资源"
+      tags:
+        - "Dashboard"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/monitors/targets:
     get:
       operationId: "listMonitorTargets"
@@ -13968,4 +14544,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-13T13:55:22.073Z"
+x-generatedAt: "2026-08-14T08:32:41.518Z"

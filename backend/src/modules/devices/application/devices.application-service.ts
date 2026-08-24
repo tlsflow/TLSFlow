@@ -257,7 +257,7 @@ export class DevicesApplicationService {
     if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
     const pluginVersionId = required(input.pluginVersionId, 'pluginVersionId');
     const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
-    if (plugin.tenantId !== tenantId || plugin.status !== 'ENABLED') {
+    if ((plugin.source !== 'BUILTIN' && plugin.tenantId !== tenantId) || plugin.status !== 'ENABLED') {
       throw new AppError('RESOURCE_NOT_FOUND', '可用插件版本不存在', { pluginVersionId });
     }
     if (plugin.runtime !== 'WORKFLOW_DSL' || !['MANAGED', 'BOTH'].includes(plugin.scope)) {

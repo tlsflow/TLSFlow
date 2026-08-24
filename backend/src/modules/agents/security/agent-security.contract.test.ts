@@ -42,7 +42,7 @@ const diskSchema = readJson(schemaPath) as JsonSchema & { $defs: Record<string, 
 
 const schemaNames: Record<string, string> = {
   AgentFactEnvelopeV1: 'agentFactEnvelope', ProcessFactV1: 'processFact', ServiceFactV1: 'serviceFact', ListeningPortFactV1: 'listeningPortFact',
-  FileStatFactV1: 'fileStatFact', FileContentFactV1: 'fileContentFact', CertificateStoreFactV1: 'certificateStoreFact', PrivilegeFactV1: 'privilegeFact',
+  FileStatFactV1: 'fileStatFact', FileContentFactV1: 'fileContentFact', CertificateFileFactV1: 'certificateFileFact', CertificateStoreFactV1: 'certificateStoreFact', PrivilegeFactV1: 'privilegeFact',
   AgentPlanOperationV1: 'planOperation', AgentPlanV1: 'agentPlan', AgentCapabilityTokenV1: 'capabilityToken', PolicyAuthorityDecisionV1: 'authorityDecision',
   AgentExecutionReceiptV1: 'executionReceipt', AgentLocalPolicyV1: 'localPolicy', PolicyAuthorityKeySetV1: 'keySet', TokenRevocationRecordV1: 'tokenRevocation', DecisionRevocationRecordV1: 'decisionRevocation', NonceConsumptionRecordV1: 'nonceConsumption',
 };
@@ -54,6 +54,7 @@ const validators: Record<string, (value: unknown) => unknown> = {
   ListeningPortFactV1: validateAgentRawFact,
   FileStatFactV1: validateAgentRawFact,
   FileContentFactV1: validateAgentRawFact,
+  CertificateFileFactV1: validateAgentRawFact,
   CertificateStoreFactV1: validateAgentRawFact,
   PrivilegeFactV1: validateAgentRawFact,
   AgentPlanOperationV1: validateAgentPlanOperation,
@@ -82,6 +83,19 @@ test('Agent 安全合同的 TypeScript Schema、JSON Schema 和正例 Fixture �
 
 test('Agent v2 长期合同严格收敛为四个动作', () => {
   assert.deepEqual(agentV2ContractTypes, ['agent.fact.collect', 'agent.plan.validate', 'agent.plan.execute', 'agent.execution.receipt']);
+});
+
+test('Canonical Plugin ID 支持注册表中的连字符 ID', () => {
+  for (const pluginId of ['app.java-keystore', 'app.service-certificate-file', 'device.synology-dsm', 'ca.microsoft-adcs']) {
+    const token = structuredClone(validFixture.contracts.AgentCapabilityTokenV1) as Record<string, unknown>;
+    token.pluginId = pluginId;
+    assert.doesNotThrow(() => validateAgentCapabilityToken(token), pluginId);
+    assert.equal(
+      validateJsonSchema(token, { $defs: diskSchema.$defs, $ref: '#/$defs/capabilityToken' }).valid,
+      true,
+      pluginId,
+    );
+  }
 });
 
 test('计划内容被篡改时摘要绑定失败关闭', () => {

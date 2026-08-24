@@ -80,8 +80,47 @@ internal static class Tests
         Run("发现能力按实际只读动作校验本地策略", DiscoveryRequestScopesUseOperationPermissions);
         Run("请求动作超出本地策略必须拒绝", RequestScopesRejectLocalActionExpansion);
         Run("Receipt 支持并校验成功失败未知取消四种状态", ReceiptStatusesAreValidated);
+        Run("Canonical Plugin ID 接受注册表中的连字符 ID", CanonicalPluginIdAcceptsHyphen);
         Console.WriteLine("tests=" + executedTests + " failures=" + failures);
         return failures == 0 ? 0 : 1;
+    }
+
+    private static void CanonicalPluginIdAcceptsHyphen()
+    {
+        MethodInfo method = typeof(AgentV2Security).GetMethod("RequiredPluginId", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert(method != null, "Canonical Plugin ID 校验方法不存在");
+        string[] valid = new string[]
+        {
+            "app.java-keystore",
+            "app.service-certificate-file",
+            "device.synology-dsm",
+            "ca.microsoft-adcs"
+        };
+        foreach (string pluginId in valid)
+        {
+            Dictionary<string, object> input = new Dictionary<string, object>();
+            input["pluginId"] = pluginId;
+            try
+            {
+                object result = method.Invoke(null, new object[] { input, "pluginId" });
+                Assert(Convert.ToString(result) == pluginId, "连字符 Canonical Plugin ID 被错误规范化：" + pluginId);
+            }
+            catch (TargetInvocationException error)
+            {
+                throw new InvalidOperationException("连字符 Canonical Plugin ID 被拒绝：" + pluginId, error.InnerException);
+            }
+        }
+
+        Dictionary<string, object> invalid = new Dictionary<string, object>();
+        invalid["pluginId"] = "legacy.java-keystore";
+        try
+        {
+            method.Invoke(null, new object[] { invalid, "pluginId" });
+            throw new InvalidOperationException("非 Canonical Plugin ID 未被拒绝");
+        }
+        catch (TargetInvocationException)
+        {
+        }
     }
 
     private static void RegistryRequiresCanonicalAction()

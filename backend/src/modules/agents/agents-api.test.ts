@@ -39,48 +39,6 @@ describe('Agent direct control api', () => {
     assert.deepEqual((await agentsService.pullTasks(tenantId, agent.id)).map((item) => item.id), [task.id]);
   });
 
-  it('非直连 Agent 能力重扫进入现有任务队列且重复请求复用活动任务', async () => {
-    const server = createServer((socket) => socket.end());
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    assert.ok(address && typeof address === 'object');
-    const database = new PgliteDatabase();
-    await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database });
-    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
-    const registered = await agentsService.register('tenant_agent_queued_rescan', {
-      agentKey: 'queued-rescan-agent',
-      machineId: 'queued-rescan-machine',
-      hostname: 'queued-rescan-host',
-      version: '1.0.0',
-      osType: 'windows',
-      arch: 'amd64',
-      managementEndpoint: `http://127.0.0.1:${address.port}`,
-    }, 'request_register_queued_rescan');
-    await agentsService.heartbeat('tenant_agent_queued_rescan', {
-      agentId: registered.id,
-      version: '1.0.0',
-      status: 'ONLINE',
-      managementEndpoint: `http://127.0.0.1:${address.port}`,
-      taskSummary: { running: 0, queued: 0 },
-    }, 'request_heartbeat_queued_rescan');
-
-    const first = await agentsService.enqueueCapabilityRescanTask('tenant_agent_queued_rescan', {
-      agentId: registered.id,
-      requestedBy: 'user-1',
-    }, 'request_queued_rescan_1');
-    const repeated = await agentsService.enqueueCapabilityRescanTask('tenant_agent_queued_rescan', {
-      agentId: registered.id,
-      requestedBy: 'user-1',
-    }, 'request_queued_rescan_2');
-
-    assert.equal(first.status, 'queued');
-    assert.equal(first.payload.type, 'agent.capability.rescan');
-    assert.equal(repeated.id, first.id);
-    assert.deepEqual((await agentsService.pullTasks('tenant_agent_queued_rescan', registered.id)).map((task) => task.id), [first.id]);
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  });
-
   it('Agent 轮询与控制面重复确认竞态时，重复 ack 返回已有 lease 而不是失败', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');

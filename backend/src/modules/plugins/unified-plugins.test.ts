@@ -68,6 +68,24 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   );
 });
 
+test('统一插件在导入阶段拒绝无效接入配方，并接受完整的声明式配方', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  const base = workflowPluginInput();
+  await assert.rejects(() => service.importVersion('tenant-1', {
+    ...base,
+    manifest: {
+      ...base.manifest,
+      resources: { ...base.manifest.resources, onboarding: { applicationAsset: 'onboarding/application-asset.json' } },
+    },
+    resources: { ...base.resources, 'onboarding/application-asset.json': '{}' },
+  }), /接入配方无效/);
+
+  const imported = await service.importVersion('tenant-1', onboardingPluginInput());
+  assert.equal(imported.pluginId, 'test.device.workflow');
+  const approved = await service.approvePermissions(imported.id, ['network.http']);
+  assert.equal((await service.enableVersion(approved.id)).status, 'ENABLED');
+});
+
 test('Trusted JS 插件 Manifest 必须失败关闭', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   await assert.rejects(
@@ -310,6 +328,47 @@ function workflowPluginInput() {
     },
     resources: { 'workflows/deploy.json': '{}' },
     packageContent: 'package',
+  };
+}
+
+function onboardingPluginInput() {
+  const base = workflowPluginInput();
+  return {
+    ...base,
+    packageContent: 'valid-onboarding-package',
+    manifest: {
+      ...base.manifest,
+      defaultLocale: 'zh-CN',
+      capabilities: [
+        ...(base.manifest.capabilities as unknown[]),
+        {
+          key: 'application.discover', contractVersion: 'v1', actionContractId: 'application.discover.v1',
+          riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'],
+        },
+      ],
+      resources: {
+        ...base.manifest.resources,
+        workflows: {
+          ...base.manifest.resources.workflows,
+          'application.discover': 'workflows/discover.json',
+        },
+        locales: { 'zh-CN': 'locales/zh-CN.json' },
+        onboarding: { applicationAsset: 'onboarding/application-asset.json' },
+      },
+    },
+    resources: {
+      ...base.resources,
+      'workflows/discover.json': '{}',
+      'locales/zh-CN.json': JSON.stringify({ 'plugin.test.device.name': '测试设备' }),
+      'onboarding/application-asset.json': JSON.stringify({
+        protocol: 'gcac.application-onboarding/v1', platformKey: 'test.direct', displayNameKey: 'plugin.test.device.name', supportStatus: 'SUPPORTED',
+        deploymentMode: 'DIRECT_WORKFLOW', deviceSelection: 'NONE', forms: {},
+        capabilities: { connectionTest: 'application.discover', discovery: 'application.discover', workflowExecution: 'certificate.deploy' },
+        targetProjection: { targetType: 'tls.binding', displayFields: ['displayName'], identityFields: ['managedTargetId', 'configFingerprint'], selectableWhen: 'always' },
+        certificate: { acceptedFormats: ['PEM'], requiredArtifacts: ['leaf', 'privateKey'], defaultVersion: 'LATEST_VALID' },
+        commit: { executionSource: 'WORKFLOW', inputContract: 'certificate.deploy.v1' },
+      }),
+    },
   };
 }
 

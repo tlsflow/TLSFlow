@@ -24,3 +24,11 @@ func decodeQueuedAgentV2Payload(payload map[string]any) (map[string]any, string,
 	wirePayload["action"] = action
 	return wirePayload, action, nil
 }
+
+// agentV2ContractPayload 保留 Agent v2 的严格合同，同时隔离控制面调度元数据。
+func agentV2ContractPayload(payload map[string]any) map[string]any {
+	contractPayload := cloneMap(payload)
+	delete(contractPayload, "refreshWebInventory")
+	delete(contractPayload, "requestedBy")
+	return contractPayload
+}

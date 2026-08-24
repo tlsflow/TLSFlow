@@ -17,6 +17,7 @@
     "ListeningPortFactV1": { "kind": "listening_port", "address": "127.0.0.1", "port": 9443, "protocol": "tcp", "pid": 101 },
     "FileStatFactV1": { "kind": "file_stat", "path": "/var/lib/gcac/config.json", "exists": true, "sizeBytes": 128, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
     "FileContentFactV1": { "kind": "file_content", "path": "/var/lib/gcac/config.json", "contentBase64": "aGk=", "bytesRead": 2, "truncated": false, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "CertificateFileFactV1": { "kind": "certificate_file", "path": "/etc/nginx/certs/example.pem", "sha256Fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "thumbprint": "AA11", "subject": "CN=example.test" },
     "CertificateStoreFactV1": { "kind": "certificate_store", "store": "local-machine", "subject": "CN=example.test", "thumbprint": "AA11", "hasPrivateKey": false },
     "PrivilegeFactV1": { "kind": "privilege", "principal": "gcac-agent", "elevated": false, "groups": ["gcac-agent"] },
     "AgentPlanOperationV1": { "operationId": "op-1", "operationType": "filesystem.read", "stage": "prepare", "input": { "path": "/var/lib/gcac/config.json" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 },

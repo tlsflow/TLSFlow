@@ -120,42 +120,6 @@ export function createTaskExecutorRegistry(
 
   registry.register('agent.update', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'update'));
 
-  registry.register('agent.capability-rescan', dependencyExecutor('Agent 能力重扫', dependencies.agents, async (task) => {
-    const agentTaskId = optionalPayloadString(task, 'agentTaskId');
-    if (agentTaskId) {
-      const agentTask = await dependencies.agents!.getRepository().getTask(task.tenantId, agentTaskId);
-      if (!agentTask) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 能力重扫任务不存在', { agentTaskId });
-      if (agentTask.status === 'succeeded') {
-        return { success: true, detail: { agentTaskId, status: agentTask.status, projection: 'agent-capability-snapshot' } };
-      }
-      if (agentTask.status === 'failed' || agentTask.status === 'rejected') {
-        return {
-          success: false,
-          errorCode: String(agentTask.result?.errorCode ?? 'AGENT_CAPABILITY_RESCAN_FAILED'),
-          errorMessage: String(agentTask.result?.errorMessage ?? 'Agent 能力重扫失败'),
-          detail: { agentTaskId, status: agentTask.status },
-        };
-      }
-      return {
-        success: false,
-        defer: true,
-        errorCode: 'AGENT_CAPABILITY_RESCAN_PENDING',
-        errorMessage: '等待 Agent 返回能力重扫结果',
-        detail: { agentTaskId, status: agentTask.status },
-      };
-    }
-
-    const nodeTaskId = optionalPayloadString(task, 'nodeTaskId');
-    if (nodeTaskId && dependencies.internalCa) {
-      return executeCaNodeTask(task, dependencies.internalCa, nodeTaskId);
-    }
-    return {
-      success: false,
-      errorCode: 'AGENT_CAPABILITY_RESCAN_PAYLOAD_INVALID',
-      errorMessage: 'Agent 能力重扫任务缺少 agentTaskId',
-    };
-  }));
-
   registry.register('ca.node-task', dependencyExecutor('CA Node 任务', dependencies.internalCa, async (task) => {
     const nodeTaskId = requiredPayloadString(task, 'nodeTaskId');
     return executeCaNodeTask(task, dependencies.internalCa!, nodeTaskId);

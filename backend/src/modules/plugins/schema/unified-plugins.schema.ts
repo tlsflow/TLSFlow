@@ -79,6 +79,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       locales: readStringMap(resources.locales),
       discoveryMappings: readStringMap(resources.discoveryMappings),
       agentDiscoveryMappings: readStringMap(resources.agentDiscoveryMappings),
+      ...(resources.onboarding === undefined ? {} : { onboarding: validateOnboardingResources(resources.onboarding) }),
     },
   };
 }
@@ -174,16 +175,49 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings'];
+  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
   assertKnownKeys(resources, new Set(resourceKeys), 'resources');
   if (resources.runtimeEntrypoint !== undefined) {
     const runtimeEntrypoint = readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint');
     if (runtimeEntrypoint !== 'runtime/index.js') fail('resources.runtimeEntrypoint', 'Runner 入口必须固定为 runtime/index.js');
   }
   for (const key of resourceKeys) {
-    if (key === 'runtimeEntrypoint') continue;
+    if (key === 'runtimeEntrypoint' || key === 'onboarding') continue;
     readStringMap(resources[key], `resources.${key}`);
   }
+  if (resources.onboarding !== undefined) {
+    validateOnboardingResources(resources.onboarding);
+  }
+}
+
+function validateOnboardingResources(input: unknown): NonNullable<UnifiedPluginManifestV1['resources']['onboarding']> {
+  const onboarding = requireRecord(input, 'resources.onboarding');
+  assertKnownKeys(onboarding, new Set(['applicationAsset', 'applicationAssets']), 'resources.onboarding');
+  const result: NonNullable<UnifiedPluginManifestV1['resources']['onboarding']> = {};
+  const paths = new Set<string>();
+  if (onboarding.applicationAsset !== undefined) {
+    result.applicationAsset = validateOnboardingResourcePath(onboarding.applicationAsset, 'resources.onboarding.applicationAsset');
+    paths.add(result.applicationAsset);
+  }
+  if (onboarding.applicationAssets !== undefined) {
+    const resources = readStringMap(onboarding.applicationAssets, 'resources.onboarding.applicationAssets');
+    if (Object.keys(resources).length === 0) fail('resources.onboarding.applicationAssets', '至少声明一个接入配方资源');
+    result.applicationAssets = Object.fromEntries(Object.entries(resources).map(([key, path]) => {
+      const normalized = validateOnboardingResourcePath(path, `resources.onboarding.applicationAssets.${key}`);
+      if (paths.has(normalized)) fail(`resources.onboarding.applicationAssets.${key}`, '接入配方资源路径不能重复');
+      paths.add(normalized);
+      return [key, normalized];
+    }));
+  }
+  if (paths.size === 0) fail('resources.onboarding', '必须声明至少一个接入配方资源');
+  return result;
+}
+
+function validateOnboardingResourcePath(input: unknown, path: string): string {
+  const resourcePath = readResourcePath(input, path);
+  if (resourcePath.includes('://')) fail(path, '接入配方资源不能使用 URL');
+  if (!resourcePath.toLowerCase().endsWith('.json')) fail(path, '接入配方必须是 JSON 资源');
+  return resourcePath;
 }
 
 function readCompatibility(input: unknown): UnifiedPluginManifestV1['compatibility'] {
@@ -216,14 +250,14 @@ function readResourcePath(input: unknown, path: string): string {
 
 function collectDeclaredResourcePaths(manifest: UnifiedPluginManifestV1): string[] {
   const paths: string[] = [];
-  for (const [key, value] of Object.entries(manifest.resources)) {
-    if (!value) continue;
-    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') {
       paths.push(value);
-      continue;
+      return;
     }
-    if (typeof value === 'object') paths.push(...Object.values(value));
-  }
+    if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  Object.values(manifest.resources).forEach(collect);
   return [...new Set(paths)];
 }
 

@@ -158,12 +158,35 @@ func TestV2FailsClosedWithoutIndependentTrustRoots(t *testing.T) {
 	}
 }
 
+func TestV2AllowsOnlyBoundedControlPlaneClockSkew(t *testing.T) {
+	now := time.Now().UTC()
+	if issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew), now) {
+		t.Fatal("授权时钟容差的边界判断不正确")
+	}
+	if !issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew+time.Nanosecond), now) {
+		t.Fatal("超过授权时钟容差的 Token 必须继续被拒绝")
+	}
+}
+
 func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	for _, runtimeAgentID := range []string{"", "agent-other"} {
 		if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, runtimeAgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
 			t.Fatalf("运行期 Agent ID 为空或不匹配时必须失败关闭: runtimeAgentID=%q success=%v code=%s", runtimeAgentID, success, code)
 		}
+	}
+}
+
+func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["refreshWebInventory"] = true
+	fixture.Request["requestedBy"] = "user-1"
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("调度元数据必须在严格合同前剥离: success=%v code=%s", success, code)
+	}
+	fixture.Request["unexpected"] = true
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_MESSAGE_INVALID" {
+		t.Fatalf("未声明字段仍必须被严格合同拒绝: success=%v code=%s", success, code)
 	}
 }
 
@@ -439,6 +462,8 @@ func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
 func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	fixture.Request["action"] = agentFactCollect
+	fixture.Request["refreshWebInventory"] = true
+	fixture.Request["requestedBy"] = "user-1"
 	if success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("事实采集应成功: success=%v code=%s", success, code)
 	} else {
@@ -460,5 +485,69 @@ func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
 	fixture.Request["paths"] = []string{filepath.Join(fixture.Root, "outside", "secret")}
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
 		t.Fatalf("事实范围越权必须失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestParseCertificateStoreOutputKeepsEachWindowsCertificate(t *testing.T) {
+	output := `================ Certificate 0 ================
+Subject: CN=one.example.test
+Cert Hash(sha1): 11 22 33 44 55 66 77 88 99 00 AA BB CC DD EE FF 00 11 22 33
+================ Certificate 1 ================
+Subject: CN=two.example.test
+Cert Hash(sha1): AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD`
+	records := parseCertificateStoreOutput(output, "My")
+	if len(records) != 2 {
+		t.Fatalf("证书库输出应保留两个证书记录: %#v", records)
+	}
+	if records[0]["thumbprint"] != "11223344556677889900AABBCCDDEEFF00112233" || records[1]["thumbprint"] != "AABBCCDDEEFF00112233445566778899AABBCCDD" {
+		t.Fatalf("证书库 Thumbprint 解析错误: %#v", records)
+	}
+}
+
+func TestParseCertificateStoreOutputSupportsLocalizedCertutilLabels(t *testing.T) {
+	output := `================ Certificate 0 ================
+主题: CN=portal.example.test
+证书哈希(sha1): 00 11 22 33 44 55 66 77 88 99 AA BB CC DD EE FF 00 11 22 33
+证书哈希(sha256): AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA AA`
+	records := parseCertificateStoreOutput(output, "My")
+	if len(records) != 1 {
+		t.Fatalf("本地化 certutil 输出应保留证书记录: %#v", records)
+	}
+	if records[0]["thumbprint"] != "00112233445566778899AABBCCDDEEFF00112233" {
+		t.Fatalf("本地化 certutil Thumbprint 解析错误: %#v", records)
+	}
+	if records[0]["sha256Fingerprint"] != strings.Repeat("AA", 32) {
+		t.Fatalf("本地化 certutil SHA-256 解析错误: %#v", records)
+	}
+}
+
+func TestParseWindowsListeningPortsKeepsPIDFromNetstatO(t *testing.T) {
+	output := []byte(`
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:443            0.0.0.0:0              LISTENING       4321
+  TCP    [::]:8443              [::]:0                 LISTENING       9876
+`)
+	ports := parseWindowsListeningPorts(output)
+	if len(ports) != 2 || intFromMap(ports[0], "pid") != 4321 || intFromMap(ports[1], "pid") != 9876 {
+		t.Fatalf("netstat -o PID 解析错误: %#v", ports)
+	}
+}
+
+func TestParseWindowsSSLCertificateBindings(t *testing.T) {
+	output := `
+IP:port                      : 0.0.0.0:443
+Certificate Hash              : 11 22 33 44 55 66 77 88 99 00 AA BB CC DD EE FF 00 11 22 33
+Certificate Store Name        : MY
+
+Hostname:port                : portal.example.test:443
+Certificate Hash              : AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD
+Certificate Store Name        : MY
+`
+	bindings := parseWindowsSSLCertificateBindings(output)
+	if len(bindings) != 2 {
+		t.Fatalf("HTTP.sys SSL 绑定数量错误: %#v", bindings)
+	}
+	if bindings[0]["thumbprint"] != "11223344556677889900AABBCCDDEEFF00112233" || bindings[1]["address"] != "portal.example.test" {
+		t.Fatalf("HTTP.sys SSL 绑定解析错误: %#v", bindings)
 	}
 }

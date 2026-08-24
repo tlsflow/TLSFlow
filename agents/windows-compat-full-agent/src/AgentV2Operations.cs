@@ -25,14 +25,22 @@ namespace GCAC.WindowsCompatibilityAgent
             facts.Add(new Dictionary<string, object> { { "kind", "process" }, { "pid", Process.GetCurrentProcess().Id }, { "executablePath", string.IsNullOrEmpty(executable) ? "C:\\Windows\\System32\\svchost.exe" : executable } });
             WindowsIdentity identity = WindowsIdentity.GetCurrent();
             facts.Add(new Dictionary<string, object> { { "kind", "privilege" }, { "principal", identity == null ? "unknown" : identity.Name }, { "elevated", IsAdministrator() }, { "groups", new string[0] } });
+            // IIS Binding 只保存 Windows 证书库 Thumbprint；没有证书库摘要，宿主无法把
+            // applicationHost.config 的 HTTPS 绑定关联到证书资产。这里只回传公开元数据，
+            // 不读取证书私钥或原始 PFX 内容。
+            foreach (Dictionary<string, object> certificate in ReadLocalMachineCertificateStoreFacts("My"))
+                facts.Add(certificate);
             string[] paths = ReadRequestedPaths(task == null ? null : task.payload);
             for (int index = 0; index < paths.Length; index++)
             {
                 if (!AgentV2Security.IsPathWithin(paths[index], authorization.Token.allowedPaths) || !AgentV2Security.IsPathWithin(paths[index], authorization.Decision.allowedPaths)) throw new AgentV2SecurityException("AGENT_V2_AUTHORIZATION_DENIED", "事实路径超出授权范围");
                 if (Directory.Exists(paths[index]))
                 {
-                    foreach (string candidate in EnumerateWebConfigFiles(paths[index])) facts.Add(ReadFileFact(candidate));
+                    foreach (string candidate in EnumerateWebConfigFiles(paths[index]))
+                        facts.Add(IsCertificatePath(candidate) ? ReadCertificateFact(candidate) : ReadFileFact(candidate));
                 }
+                else if (IsCertificatePath(paths[index])) facts.Add(ReadCertificateFact(paths[index]));
+                else if (IsWebConfigPath(paths[index])) facts.Add(ReadFileFact(paths[index]));
                 else facts.Add(FileStat(paths[index]));
             }
             Dictionary<string, object> envelope = new Dictionary<string, object>
@@ -183,7 +191,7 @@ namespace GCAC.WindowsCompatibilityAgent
 
         private static IEnumerable<string> EnumerateWebConfigFiles(string root)
         {
-            string[] extensions = new string[] { ".conf", ".xml", ".properties", ".config" };
+            string[] extensions = new string[] { ".conf", ".xml", ".properties", ".config", ".pem", ".crt", ".cer", ".der" };
             string[] files;
             try { files = Directory.GetFiles(root, "*.*", SearchOption.AllDirectories); } catch { yield break; }
             int count = 0;
@@ -206,6 +214,104 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             Dictionary<string, object> result = ReadFile(path);
             return (Dictionary<string, object>)result["fact"];
+        }
+
+        private static bool IsCertificatePath(string path)
+        {
+            string extension = Path.GetExtension(path ?? string.Empty);
+            return string.Equals(extension, ".pem", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".crt", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".cer", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".der", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsWebConfigPath(string path)
+        {
+            string extension = Path.GetExtension(path ?? string.Empty);
+            return string.Equals(extension, ".conf", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".properties", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(extension, ".config", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, object> ReadCertificateFact(string path)
+        {
+            try
+            {
+                byte[] raw = File.ReadAllBytes(path);
+                string text = Encoding.ASCII.GetString(raw);
+                System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(text, "-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", System.Text.RegularExpressions.RegexOptions.Singleline);
+                if (match.Success) raw = Convert.FromBase64String(System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, @"\s+", string.Empty));
+                X509Certificate2 certificate = new X509Certificate2(raw);
+                byte[] digest;
+                using (SHA256 sha = SHA256.Create()) digest = sha.ComputeHash(certificate.RawData);
+                Dictionary<string, object> result = new Dictionary<string, object>
+                {
+                    { "kind", "certificate_file" },
+                    { "path", AgentV2Security.NormalizePath(path) },
+                    { "configuredPaths", new string[] { Path.GetFileName(path) } },
+                    { "sha256Fingerprint", Hex(digest) },
+                    { "thumbprint", NormalizeHex(certificate.Thumbprint) },
+                    { "subject", certificate.Subject },
+                    { "issuer", certificate.Issuer },
+                    { "notBefore", certificate.NotBefore.ToUniversalTime().ToString("o") },
+                    { "notAfter", certificate.NotAfter.ToUniversalTime().ToString("o") },
+                };
+                certificate.Reset();
+                return result;
+            }
+            // 无法解析的证书文件仍按标准 file_stat 事实返回，确保严格 Fact
+            // 合同始终具备 sizeBytes，且不会把私钥或原始内容带出 Agent。
+            catch { return FileStat(path); }
+        }
+
+        private static string NormalizeHex(string value)
+        {
+            if (TextUtility.IsBlank(value)) return string.Empty;
+            StringBuilder result = new StringBuilder();
+            foreach (char character in value)
+                if ((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) result.Append(character);
+            return result.ToString().ToUpperInvariant();
+        }
+
+        private static List<Dictionary<string, object>> ReadLocalMachineCertificateStoreFacts(string storeName)
+        {
+            List<Dictionary<string, object>> result = new List<Dictionary<string, object>>();
+            if (TextUtility.IsBlank(storeName)) return result;
+            try
+            {
+                X509Store store = new X509Store(storeName, StoreLocation.LocalMachine);
+                try
+                {
+                    store.Open(OpenFlags.OpenExistingOnly | OpenFlags.ReadOnly);
+                    foreach (X509Certificate2 certificate in store.Certificates)
+                    {
+                        if (result.Count >= 256) break;
+                        string thumbprint = NormalizeHex(certificate.Thumbprint);
+                        if (TextUtility.IsBlank(thumbprint)) continue;
+                        byte[] digest;
+                        using (SHA256 sha = SHA256.Create()) digest = sha.ComputeHash(certificate.RawData);
+                        result.Add(new Dictionary<string, object>
+                        {
+                            { "kind", "certificate_store" },
+                            { "path", "windows-certstore://LocalMachine/" + storeName + "/" + thumbprint },
+                            { "store", storeName },
+                            { "storeLocation", "LocalMachine" },
+                            { "thumbprint", thumbprint },
+                            { "sha256Fingerprint", Hex(digest) },
+                            { "subject", certificate.Subject },
+                            { "issuer", certificate.Issuer },
+                            { "notBefore", certificate.NotBefore.ToUniversalTime().ToString("o") },
+                            { "notAfter", certificate.NotAfter.ToUniversalTime().ToString("o") },
+                            { "hasPrivateKey", certificate.HasPrivateKey }
+                        });
+                        certificate.Reset();
+                    }
+                }
+                finally { store.Close(); }
+            }
+            catch { }
+            return result;
         }
 
         private static void AtomicReplace(Dictionary<string, object> input)

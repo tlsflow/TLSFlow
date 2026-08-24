@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +37,9 @@ const (
 	agentTokenVersion     = agentSecurityContract
 	policyDecisionVersion = agentSecurityContract
 	maxPlanOperations     = 100
+	// 控制面与受管主机的 NTP 收敛存在短暂偏差时，仍允许已签名的短期授权执行。
+	// 过期时间仍使用当前主机时间严格校验，超出该窗口的未来 Token 继续失败关闭。
+	maxAuthorizationClockSkew = time.Minute
 )
 
 type AgentCapabilityTokenV1 struct {
@@ -153,12 +159,99 @@ type agentV2Request struct {
 	PlanDigest      string                    `json:"planDigest"`
 	Token           AgentCapabilityTokenV1    `json:"token"`
 	PolicyDecision  PolicyAuthorityDecisionV1 `json:"policyDecision"`
+	DiscoverySpec   agentDiscoverySpecV1      `json:"discoverySpec,omitempty"`
 	Plan            agentPlanV2               `json:"plan"`
 	Receipt         *AgentExecutionReceiptV1  `json:"receipt,omitempty"`
 }
 
+type agentDiscoverySpecV1 struct {
+	SpecVersion string                    `json:"specVersion,omitempty"`
+	Source      string                    `json:"source,omitempty"`
+	Profiles    []agentDiscoveryProfileV1 `json:"profiles,omitempty"`
+}
+
+type agentDiscoveryProfileV1 struct {
+	PluginID                   string   `json:"pluginId,omitempty"`
+	FrameworkType              string   `json:"frameworkType,omitempty"`
+	ProcessNames               []string `json:"processNames,omitempty"`
+	ServiceNames               []string `json:"serviceNames,omitempty"`
+	CommandLineContains        []string `json:"commandLineContains,omitempty"`
+	ConfigArgKeys              []string `json:"configArgKeys,omitempty"`
+	RootArgKeys                []string `json:"rootArgKeys,omitempty"`
+	ConfigPathHints            []string `json:"configPathHints,omitempty"`
+	TargetPathHints            []string `json:"targetPathHints,omitempty"`
+	DefaultConfigRelativePaths []string `json:"defaultConfigRelativePaths,omitempty"`
+	ConfigFileNames            []string `json:"configFileNames,omitempty"`
+	CertificateFileExtensions  []string `json:"certificateFileExtensions,omitempty"`
+	ListeningPorts             []int    `json:"listeningPorts,omitempty"`
+}
+
+func validateAgentWebDiscoveryPlanDigest(request map[string]any) error {
+	if !boolFromMap(request, "refreshWebInventory") {
+		return nil
+	}
+	if _, exists := request["discoverySpec"]; !exists {
+		return errors.New("Web 发现请求缺少 discoverySpec")
+	}
+	spec := agentDiscoverySpecFromValue(request["discoverySpec"])
+	if spec.SpecVersion != "gcac.agent-web-discovery/v1" || spec.Source != "declarative-plugin-metadata" {
+		return errors.New("Web 发现 discoverySpec 版本或来源无效")
+	}
+	paths, err := stringArray(request["paths"])
+	if err != nil {
+		return errors.New("Web 发现 paths 不是合法字符串数组")
+	}
+	expected := map[string]any{
+		"actionType":          firstNonEmpty(stringFromMap(request, "actionType"), stringFromMap(request, "action")),
+		"agentId":             stringFromMap(request, "agentId"),
+		"tenantId":            stringFromMap(request, "tenantId"),
+		"pluginId":            stringFromMap(request, "pluginId"),
+		"pluginVersionId":     firstNonEmpty(stringFromMap(request, "pluginVersionId"), stringFromMap(request, "pluginVersion")),
+		"capability":          stringFromMap(request, "capability"),
+		"paths":               paths,
+		"discoverySpec":       discoverySpecDigestValue(spec),
+		"refreshWebInventory": true,
+	}
+	expectedDigest := sha256Bytes(canonicalJSON(expected))
+	if !strings.EqualFold(expectedDigest, stringFromMap(request, "planDigest")) {
+		return errors.New("Web 发现 discoverySpec 未绑定到签名 planDigest")
+	}
+	return nil
+}
+
+func discoverySpecDigestValue(spec agentDiscoverySpecV1) map[string]any {
+	profiles := make([]map[string]any, 0, len(spec.Profiles))
+	for _, profile := range spec.Profiles {
+		profiles = append(profiles, map[string]any{
+			"pluginId":                   profile.PluginID,
+			"frameworkType":              profile.FrameworkType,
+			"processNames":               profile.ProcessNames,
+			"serviceNames":               profile.ServiceNames,
+			"commandLineContains":        profile.CommandLineContains,
+			"configArgKeys":              profile.ConfigArgKeys,
+			"rootArgKeys":                profile.RootArgKeys,
+			"configPathHints":            profile.ConfigPathHints,
+			"targetPathHints":            profile.TargetPathHints,
+			"defaultConfigRelativePaths": profile.DefaultConfigRelativePaths,
+			"configFileNames":            profile.ConfigFileNames,
+			"certificateFileExtensions":  profile.CertificateFileExtensions,
+			"listeningPorts":             profile.ListeningPorts,
+		})
+	}
+	return map[string]any{
+		"specVersion": spec.SpecVersion,
+		"source":      spec.Source,
+		"profiles":    profiles,
+	}
+}
+
 func executeAgentV2(ctx context.Context, request map[string]any, agentID string) (bool, string, string, map[string]any) {
-	encoded, err := json.Marshal(request)
+	// 重新发现标记和操作者是控制面调度元数据，不属于签名 Agent v2 载荷。
+	// 只在进入严格合同前移除这两个已声明的外层字段，其他未知字段仍会失败关闭。
+	if err := validateAgentWebDiscoveryPlanDigest(request); err != nil {
+		return false, "AGENT_V2_AUTHORIZATION_DENIED", err.Error(), nil
+	}
+	encoded, err := json.Marshal(agentV2ContractPayload(request))
 	if err != nil || len(encoded) > 1<<20 {
 		return false, "AGENT_V2_MESSAGE_INVALID", "Agent v2 请求无效或超长", nil
 	}
@@ -253,20 +346,21 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	if err := verifySignedValue(decision.AuthorityKeyID, decision.Signature, decisionWithoutSignature(decision), "GCAC_POLICY_AUTHORITY_KEYSET_JSON"); err != nil {
 		return err
 	}
+	now := time.Now()
 	issuedAt, err := time.Parse(time.RFC3339Nano, token.IssuedAt)
-	if err != nil || time.Now().Before(issuedAt) {
+	if err != nil || issuedAtBeyondAuthorizationClockSkew(issuedAt, now) {
 		return errors.New("capability token issuedAt is invalid")
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, token.ExpiresAt)
-	if err != nil || !time.Now().Before(expiresAt) {
+	if err != nil || !now.Before(expiresAt) {
 		return errors.New("capability token is expired or invalid")
 	}
 	decisionIssuedAt, err := time.Parse(time.RFC3339Nano, decision.IssuedAt)
-	if err != nil || time.Now().Before(decisionIssuedAt) {
+	if err != nil || issuedAtBeyondAuthorizationClockSkew(decisionIssuedAt, now) {
 		return errors.New("policy authority decision issuedAt is invalid")
 	}
 	decisionExpiresAt, err := time.Parse(time.RFC3339Nano, decision.ValidUntil)
-	if err != nil || !time.Now().Before(decisionExpiresAt) || expiresAt.After(decisionExpiresAt) {
+	if err != nil || !now.Before(decisionExpiresAt) || expiresAt.After(decisionExpiresAt) {
 		return errors.New("policy authority decision is expired or less restrictive than token")
 	}
 	if revokedNonce(token.Nonce) {
@@ -278,18 +372,31 @@ func validateCapabilityToken(token AgentCapabilityTokenV1, decision PolicyAuthor
 	return nil
 }
 
+func issuedAtBeyondAuthorizationClockSkew(issuedAt, now time.Time) bool {
+	return issuedAt.After(now.Add(maxAuthorizationClockSkew))
+}
+
 func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, string, string, map[string]any) {
 	collectedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	facts := make([]map[string]any, 0, 16)
 	warnings := make([]string, 0)
-	facts = append(facts, collectWindowsProcesses(ctx)...)
-	facts = append(facts, collectWindowsServices(ctx, request.Services)...)
-	facts = append(facts, collectWindowsFiles(request.Paths)...)
+	discoverySpec := sanitizeAgentDiscoverySpec(request.DiscoverySpec)
 	ports := collectWindowsListeningPorts(ctx)
+	processes := collectWindowsProcesses(ctx, ports)
+	discoveryServices := collectWindowsDiscoveryServices(ctx, discoverySpec)
+	facts = append(facts, processes...)
+	facts = append(facts, collectWindowsServices(ctx, request.Services)...)
+	facts = append(facts, discoveryServices...)
+	requestedFiles := collectWindowsFiles(request.Paths)
+	discoveryFiles := collectWindowsDiscoveryFiles(ctx, discoverySpec, processes, discoveryServices)
+	facts = append(facts, requestedFiles...)
+	facts = append(facts, discoveryFiles...)
+	facts = append(facts, collectWindowsCertificateFactsFromConfigFacts(discoverySpec, append(append([]map[string]any{}, requestedFiles...), discoveryFiles...))...)
 	if len(ports) == 0 {
 		warnings = append(warnings, "未发现可读取的监听端口")
 	}
 	facts = append(facts, ports...)
+	facts = append(facts, collectWindowsSSLCertificateBindings(ctx)...)
 	facts = append(facts, collectWindowsPermissions())
 	facts = append(facts, collectWindowsCertificateStores(ctx)...)
 	envelope := map[string]any{
@@ -311,16 +418,192 @@ func collectAgentFacts(ctx context.Context, request agentV2Request) (bool, strin
 	return true, "", "", map[string]any{"factEnvelope": envelope}
 }
 
-func collectWindowsProcesses(_ context.Context) []map[string]any {
+func sanitizeAgentDiscoverySpec(spec agentDiscoverySpecV1) agentDiscoverySpecV1 {
+	if spec.SpecVersion != "" && spec.SpecVersion != "gcac.agent-web-discovery/v1" {
+		return agentDiscoverySpecV1{}
+	}
+	result := agentDiscoverySpecV1{SpecVersion: "gcac.agent-web-discovery/v1", Source: "declarative-plugin-metadata"}
+	for _, profile := range spec.Profiles {
+		if len(result.Profiles) >= 16 {
+			break
+		}
+		normalized := agentDiscoveryProfileV1{
+			PluginID:                   sanitizeDiscoveryIdentifier(profile.PluginID),
+			FrameworkType:              sanitizeDiscoveryIdentifier(profile.FrameworkType),
+			ProcessNames:               sanitizeDiscoveryStrings(profile.ProcessNames, 32, validDiscoveryName),
+			ServiceNames:               sanitizeDiscoveryStrings(profile.ServiceNames, 32, validDiscoveryName),
+			CommandLineContains:        sanitizeDiscoveryStrings(profile.CommandLineContains, 16, validDiscoveryNeedle),
+			ConfigArgKeys:              sanitizeDiscoveryStrings(profile.ConfigArgKeys, 16, validDiscoveryArgKey),
+			RootArgKeys:                sanitizeDiscoveryStrings(profile.RootArgKeys, 16, validDiscoveryArgKey),
+			ConfigPathHints:            sanitizeDiscoveryStrings(profile.ConfigPathHints, 32, filepath.IsAbs),
+			TargetPathHints:            sanitizeDiscoveryStrings(profile.TargetPathHints, 32, filepath.IsAbs),
+			DefaultConfigRelativePaths: sanitizeDiscoveryStrings(profile.DefaultConfigRelativePaths, 16, validRelativeDiscoveryPath),
+			ConfigFileNames:            sanitizeDiscoveryStrings(profile.ConfigFileNames, 32, validDiscoveryFileName),
+			CertificateFileExtensions:  sanitizeDiscoveryStrings(profile.CertificateFileExtensions, 16, validDiscoveryExtension),
+			ListeningPorts:             sanitizeDiscoveryPorts(profile.ListeningPorts, 32),
+		}
+		if normalized.PluginID == "" || normalized.FrameworkType == "" {
+			continue
+		}
+		result.Profiles = append(result.Profiles, normalized)
+	}
+	return result
+}
+
+func agentDiscoverySpecFromValue(value any) agentDiscoverySpecV1 {
+	if spec, ok := value.(agentDiscoverySpecV1); ok {
+		return sanitizeAgentDiscoverySpec(spec)
+	}
+	if value == nil {
+		return agentDiscoverySpecV1{}
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil || len(encoded) > 256*1024 {
+		return agentDiscoverySpecV1{}
+	}
+	var spec agentDiscoverySpecV1
+	if err := json.Unmarshal(encoded, &spec); err != nil {
+		return agentDiscoverySpecV1{}
+	}
+	return sanitizeAgentDiscoverySpec(spec)
+}
+
+func sanitizeDiscoveryIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) == 0 || len(value) > 128 {
+		return ""
+	}
+	for _, current := range value {
+		if (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9') || current == '.' || current == '_' || current == '-' || current == ':' {
+			continue
+		}
+		return ""
+	}
+	return value
+}
+
+func sanitizeDiscoveryStrings(values []string, limit int, valid func(string) bool) []string {
+	result := make([]string, 0, minInt(len(values), limit))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if len(result) >= limit {
+			break
+		}
+		value = strings.TrimSpace(value)
+		if !valid(value) {
+			continue
+		}
+		key := strings.ToLower(filepath.ToSlash(value))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func sanitizeDiscoveryPorts(values []int, limit int) []int {
+	result := make([]int, 0, minInt(len(values), limit))
+	seen := map[int]struct{}{}
+	for _, port := range values {
+		if len(result) >= limit {
+			break
+		}
+		if port <= 0 || port > 65535 {
+			continue
+		}
+		if _, exists := seen[port]; exists {
+			continue
+		}
+		seen[port] = struct{}{}
+		result = append(result, port)
+	}
+	sort.Ints(result)
+	return result
+}
+
+func validDiscoveryName(value string) bool {
+	if value == "" || len(value) > 128 || strings.ContainsAny(value, `/\`) {
+		return false
+	}
+	for _, current := range value {
+		if (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9') || current == '.' || current == '_' || current == '-' || current == '*' || current == ':' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validDiscoveryNeedle(value string) bool {
+	return value != "" && len(value) <= 128 && !strings.ContainsAny(value, "\x00\r\n;&|<>")
+}
+
+func validDiscoveryArgKey(value string) bool {
+	return value != "" && len(value) <= 64 && strings.HasPrefix(value, "-") && !strings.ContainsAny(value, "\x00\r\n;&|<>")
+}
+
+func validRelativeDiscoveryPath(value string) bool {
+	if value == "" || len(value) > 260 || filepath.IsAbs(value) {
+		return false
+	}
+	normalized := filepath.ToSlash(filepath.Clean(value))
+	return normalized != "." && !strings.HasPrefix(normalized, "../") && normalized != ".."
+}
+
+func validDiscoveryFileName(value string) bool {
+	return value != "" && len(value) <= 128 && !strings.ContainsAny(value, `/\`+"\x00\r\n") && (strings.HasPrefix(value, "*.") || !strings.Contains(value, "*"))
+}
+
+func validDiscoveryExtension(value string) bool {
+	if value == "" || len(value) > 32 || !strings.HasPrefix(value, ".") {
+		return false
+	}
+	for _, current := range value[1:] {
+		if (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || (current >= '0' && current <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func collectWindowsProcesses(ctx context.Context, snapshots ...[]map[string]any) []map[string]any {
 	executablePath, err := os.Executable()
-	if err != nil || !filepath.IsAbs(executablePath) {
-		return []map[string]any{}
+	result := make([]map[string]any, 0, 16)
+	seen := map[uint32]struct{}{}
+	appendProcess := func(pid uint32, path string) {
+		if pid == 0 || path == "" || !filepath.IsAbs(path) {
+			return
+		}
+		if _, exists := seen[pid]; exists {
+			return
+		}
+		seen[pid] = struct{}{}
+		process := map[string]any{"kind": "process", "pid": pid, "executablePath": filepath.ToSlash(path)}
+		if digest, digestErr := sha256FileDigest(path); digestErr == nil {
+			process["executableSha256"] = digest
+		}
+		result = append(result, process)
 	}
-	process := map[string]any{"kind": "process", "pid": os.Getpid(), "executablePath": executablePath}
-	if digest, err := sha256FileDigest(executablePath); err == nil {
-		process["executableSha256"] = digest
+	if err == nil {
+		appendProcess(uint32(os.Getpid()), executablePath)
 	}
-	return []map[string]any{process}
+	ports := []map[string]any(nil)
+	if len(snapshots) > 0 {
+		ports = snapshots[0]
+	} else {
+		ports = collectWindowsListeningPorts(ctx)
+	}
+	for _, port := range ports {
+		pid := uint32(intFromMap(port, "pid"))
+		if pid == 0 {
+			continue
+		}
+		appendProcess(pid, windowsProcessExecutablePath(pid))
+	}
+	return result
 }
 
 func collectWindowsServices(ctx context.Context, names []string) []map[string]any {
@@ -352,10 +635,602 @@ func collectWindowsServices(ctx context.Context, names []string) []map[string]an
 	return services
 }
 
+func collectWindowsDiscoveryServices(ctx context.Context, spec agentDiscoverySpecV1) []map[string]any {
+	if len(spec.Profiles) == 0 {
+		return []map[string]any{}
+	}
+	command := exec.CommandContext(ctx, windowsSystemControlPath, "query", "type=", "service", "state=", "all")
+	command.Dir = windowsSystem32Directory
+	command.Env = fixedWindowsEnvironment()
+	output, err := command.Output()
+	if err != nil {
+		return []map[string]any{}
+	}
+	services := parseWindowsScQueryServices(string(output))
+	result := make([]map[string]any, 0, len(services))
+	seen := map[string]struct{}{}
+	for _, service := range services {
+		name := strings.TrimSpace(stringFromMap(service, "name"))
+		if name == "" {
+			continue
+		}
+		pathName := windowsServiceImagePath(ctx, name)
+		if pathName != "" {
+			service["pathName"] = pathName
+			service["executablePath"] = windowsExecutableFromCommandLine(pathName)
+		}
+		if !matchesDiscoveryService(service, spec) {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		item := map[string]any{"kind": "service", "name": name, "status": strings.ToLower(strings.TrimSpace(stringFromMap(service, "status")))}
+		for _, field := range []string{"displayName", "executablePath", "pathName"} {
+			if value := strings.TrimSpace(stringFromMap(service, field)); value != "" {
+				item[field] = value
+			}
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func parseWindowsScQueryServices(output string) []map[string]any {
+	services := make([]map[string]any, 0, 64)
+	current := map[string]any{}
+	flush := func() {
+		if strings.TrimSpace(stringFromMap(current, "name")) != "" {
+			services = append(services, current)
+		}
+		current = map[string]any{}
+	}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "service_name:") {
+			flush()
+			current["name"] = strings.TrimSpace(trimmed[len("SERVICE_NAME:"):])
+			continue
+		}
+		if strings.HasPrefix(lower, "display_name:") {
+			current["displayName"] = strings.TrimSpace(trimmed[len("DISPLAY_NAME:"):])
+			continue
+		}
+		if strings.HasPrefix(lower, "state") {
+			parts := strings.Fields(trimmed)
+			if len(parts) > 0 {
+				status := strings.ToLower(parts[len(parts)-1])
+				if status == "running" || status == "stopped" || status == "paused" {
+					current["status"] = status
+				}
+			}
+		}
+	}
+	flush()
+	return services
+}
+
+func matchesDiscoveryService(service map[string]any, spec agentDiscoverySpecV1) bool {
+	haystack := strings.ToLower(strings.Join([]string{
+		stringFromMap(service, "name"),
+		stringFromMap(service, "displayName"),
+		stringFromMap(service, "pathName"),
+		filepath.Base(stringFromMap(service, "executablePath")),
+	}, " "))
+	if strings.TrimSpace(haystack) == "" {
+		return false
+	}
+	for _, profile := range spec.Profiles {
+		for _, name := range append(append([]string{}, profile.ServiceNames...), profile.ProcessNames...) {
+			name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), ".exe"))
+			if name == "" {
+				continue
+			}
+			if strings.Contains(haystack, name) {
+				return true
+			}
+		}
+		for _, needle := range profile.CommandLineContains {
+			if strings.Contains(haystack, strings.ToLower(needle)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func collectWindowsDiscoveryFiles(ctx context.Context, spec agentDiscoverySpecV1, processes []map[string]any, services []map[string]any) []map[string]any {
+	if len(spec.Profiles) == 0 {
+		return []map[string]any{}
+	}
+	candidates := windowsDiscoveryCandidatePaths(ctx, spec, processes, services)
+	files := make([]map[string]any, 0, len(candidates)*2)
+	seen := map[string]struct{}{}
+	appendFile := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" || !filepath.IsAbs(path) {
+			return
+		}
+		key := strings.ToLower(filepath.Clean(path))
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		if isWindowsDiscoveryCertificatePath(spec, path) {
+			if certificate := collectWindowsCertificateFact(path); certificate != nil {
+				files = append(files, certificate)
+			}
+			return
+		}
+		files = append(files, collectWindowsFile(path))
+		if content := collectWindowsFileContent(path); content != nil {
+			files = append(files, content)
+		}
+	}
+	for _, path := range candidates {
+		appendFile(path)
+		if len(files) >= 512 {
+			break
+		}
+	}
+	return files
+}
+
+func windowsDiscoveryCandidatePaths(ctx context.Context, spec agentDiscoverySpecV1, processes []map[string]any, services []map[string]any) []string {
+	result := make([]string, 0, 64)
+	seen := map[string]struct{}{}
+	appendPath := func(path string) {
+		path = strings.Trim(strings.TrimSpace(path), "\"'")
+		if path == "" || !filepath.IsAbs(path) {
+			return
+		}
+		path = filepath.Clean(path)
+		key := strings.ToLower(path)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		result = append(result, path)
+	}
+	for _, profile := range spec.Profiles {
+		for _, path := range append(append([]string{}, profile.ConfigPathHints...), profile.TargetPathHints...) {
+			appendPath(path)
+		}
+	}
+	for _, process := range processes {
+		executable := stringFromMap(process, "executablePath")
+		commandLine := ""
+		if pid := uint32(intFromMap(process, "pid")); pid > 0 {
+			commandLine = windowsProcessCommandLine(ctx, pid)
+		}
+		for _, path := range windowsDiscoveryPathsFromExecutableAndCommandLine(spec, executable, commandLine) {
+			appendPath(path)
+		}
+	}
+	for _, service := range services {
+		commandLine := stringFromMap(service, "pathName")
+		if extra := windowsServiceDiscoveryArguments(ctx, stringFromMap(service, "name")); extra != "" {
+			commandLine = strings.TrimSpace(commandLine + " " + extra)
+		}
+		for _, path := range windowsDiscoveryPathsFromExecutableAndCommandLine(spec, stringFromMap(service, "executablePath"), commandLine) {
+			appendPath(path)
+		}
+	}
+	return result
+}
+
+func windowsDiscoveryPathsFromExecutableAndCommandLine(spec agentDiscoverySpecV1, executablePath, commandLine string) []string {
+	result := make([]string, 0, 16)
+	tokens := parseWindowsCommandLine(commandLine)
+	executableDir := ""
+	if strings.TrimSpace(executablePath) != "" {
+		executableDir = filepath.Dir(strings.Trim(strings.TrimSpace(executablePath), "\"'"))
+	}
+	appendResolved := func(base, value string) {
+		value = strings.Trim(strings.TrimSpace(value), "\"'")
+		if value == "" {
+			return
+		}
+		if filepath.IsAbs(value) {
+			result = append(result, filepath.Clean(value))
+			return
+		}
+		if base != "" {
+			result = append(result, filepath.Clean(filepath.Join(base, value)))
+		}
+	}
+	for _, profile := range spec.Profiles {
+		if !matchesDiscoveryProcess(executablePath, commandLine, profile) {
+			continue
+		}
+		roots := make([]string, 0, 8)
+		for _, key := range profile.RootArgKeys {
+			if value := windowsArgumentValue(tokens, key); value != "" {
+				root := resolveWindowsCandidatePath(executableDir, value)
+				if root != "" {
+					roots = append(roots, root)
+				}
+			}
+		}
+		configBase := executableDir
+		if len(roots) > 0 {
+			configBase = roots[0]
+		}
+		for _, key := range profile.ConfigArgKeys {
+			if value := windowsArgumentValue(tokens, key); value != "" {
+				appendResolved(configBase, value)
+			}
+		}
+		if executableDir != "" {
+			roots = append(roots, executableDir, filepath.Dir(executableDir))
+		}
+		for _, root := range roots {
+			for _, relative := range profile.DefaultConfigRelativePaths {
+				appendResolved(root, relative)
+			}
+		}
+		for _, token := range tokens {
+			if path := windowsDrivePathFromToken(token); path != "" {
+				appendResolved(executableDir, path)
+			}
+		}
+	}
+	return result
+}
+
+func matchesDiscoveryProcess(executablePath, commandLine string, profile agentDiscoveryProfileV1) bool {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(executablePath), ".exe"))
+	haystack := strings.ToLower(commandLine)
+	for _, name := range profile.ProcessNames {
+		expected := strings.ToLower(strings.TrimSuffix(filepath.Base(name), ".exe"))
+		if expected != "" && (base == expected || strings.Contains(base, expected)) {
+			return true
+		}
+	}
+	for _, needle := range profile.CommandLineContains {
+		if strings.Contains(haystack, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveWindowsCandidatePath(base, value string) string {
+	value = strings.Trim(strings.TrimSpace(value), "\"'")
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	if base == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(base, value))
+}
+
+func windowsArgumentValue(tokens []string, key string) string {
+	for index, token := range tokens {
+		token = strings.TrimSpace(token)
+		if token == key && index+1 < len(tokens) {
+			return strings.Trim(tokens[index+1], "\"'")
+		}
+		if strings.HasPrefix(token, key+"=") {
+			return strings.Trim(strings.TrimPrefix(token, key+"="), "\"'")
+		}
+		if strings.HasPrefix(token, key) && len(token) > len(key) && !strings.HasPrefix(key, "-D") {
+			return strings.Trim(token[len(key):], "\"'")
+		}
+	}
+	return ""
+}
+
+func isWindowsDiscoveryCertificatePath(spec agentDiscoverySpecV1, path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == "" {
+		return false
+	}
+	for _, profile := range spec.Profiles {
+		for _, allowed := range profile.CertificateFileExtensions {
+			if ext == strings.ToLower(allowed) {
+				return true
+			}
+		}
+	}
+	return ext == ".pem" || ext == ".crt" || ext == ".cer" || ext == ".der"
+}
+
+func collectWindowsCertificateFactsFromConfigFacts(spec agentDiscoverySpecV1, facts []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, 16)
+	seen := map[string]struct{}{}
+	for _, fact := range facts {
+		if stringFromMap(fact, "kind") != "file_content" {
+			continue
+		}
+		path := stringFromMap(fact, "path")
+		encoded := stringFromMap(fact, "contentBase64")
+		if path == "" || encoded == "" {
+			continue
+		}
+		contentBytes, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			continue
+		}
+		content, ok := decodeWindowsConfigText(contentBytes)
+		if !ok {
+			continue
+		}
+		for _, certificatePath := range windowsCertificateReferencesFromConfigContent(spec, path, content) {
+			key := strings.ToLower(filepath.Clean(certificatePath))
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			if certificate := collectWindowsCertificateFact(certificatePath); certificate != nil {
+				files = append(files, certificate)
+			}
+			if len(files) >= 128 {
+				return files
+			}
+		}
+	}
+	return files
+}
+
+func windowsCertificateReferencesFromConfigContent(spec agentDiscoverySpecV1, configPath string, content string) []string {
+	allowedExtensions := windowsDiscoveryCertificateExtensions(spec)
+	tokens := configReferenceTokens(content)
+	paths := make([]string, 0, 16)
+	seen := map[string]struct{}{}
+	appendPath := func(path string) {
+		path = strings.Trim(strings.TrimSpace(path), "\"'`;,)")
+		if path == "" || strings.Contains(path, "\x00") {
+			return
+		}
+		if !hasAllowedCertificateExtension(path, allowedExtensions) {
+			return
+		}
+		for _, candidate := range resolveWindowsConfigReferencePaths(configPath, path) {
+			if !filepath.IsAbs(candidate) || !isWindowsDiscoveryCertificatePath(spec, candidate) {
+				continue
+			}
+			key := strings.ToLower(filepath.Clean(candidate))
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			paths = append(paths, filepath.Clean(candidate))
+			if len(paths) >= 128 {
+				return
+			}
+		}
+	}
+	for _, token := range tokens {
+		appendPath(token)
+		if len(paths) >= 128 {
+			break
+		}
+	}
+	return paths
+}
+
+func configReferenceTokens(content string) []string {
+	tokens := make([]string, 0, 32)
+	var builder strings.Builder
+	inQuote := byte(0)
+	flush := func() {
+		value := strings.TrimSpace(builder.String())
+		if value != "" {
+			tokens = append(tokens, value)
+		}
+		builder.Reset()
+	}
+	for index := 0; index < len(content); index++ {
+		current := content[index]
+		if inQuote != 0 {
+			if current == inQuote {
+				flush()
+				inQuote = 0
+				continue
+			}
+			builder.WriteByte(current)
+			continue
+		}
+		if current == '"' || current == '\'' {
+			flush()
+			inQuote = current
+			continue
+		}
+		if current <= ' ' || strings.ContainsRune("<>=;{},", rune(current)) {
+			flush()
+			continue
+		}
+		builder.WriteByte(current)
+	}
+	flush()
+	return tokens
+}
+
+func resolveWindowsConfigReferencePaths(configPath, reference string) []string {
+	reference = strings.Trim(strings.TrimSpace(reference), "\"'`;,)")
+	if reference == "" {
+		return nil
+	}
+	if filepath.IsAbs(reference) {
+		return []string{filepath.Clean(reference)}
+	}
+	configDir := filepath.Dir(configPath)
+	parentDir := filepath.Dir(configDir)
+	candidates := []string{}
+	if configDir != "" && configDir != "." {
+		candidates = append(candidates, filepath.Join(configDir, reference))
+	}
+	if parentDir != "" && parentDir != "." && !strings.EqualFold(parentDir, configDir) {
+		candidates = append(candidates, filepath.Join(parentDir, reference))
+	}
+	return candidates
+}
+
+func windowsDiscoveryCertificateExtensions(spec agentDiscoverySpecV1) []string {
+	values := []string{".pem", ".crt", ".cer", ".der", ".pfx", ".p12", ".jks", ".keystore"}
+	for _, profile := range spec.Profiles {
+		values = append(values, profile.CertificateFileExtensions...)
+	}
+	return sanitizeDiscoveryStrings(values, 32, validDiscoveryExtension)
+}
+
+func hasAllowedCertificateExtension(path string, extensions []string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	for _, extension := range extensions {
+		if strings.HasSuffix(lower, strings.ToLower(extension)) {
+			return true
+		}
+	}
+	return false
+}
+
+func windowsServiceDiscoveryArguments(ctx context.Context, serviceName string) string {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" || !validWindowsServiceName(serviceName) {
+		return ""
+	}
+	values := make([]string, 0, 8)
+	for _, key := range []string{
+		`HKLM\SYSTEM\CurrentControlSet\Services\` + serviceName + `\Parameters`,
+		`HKLM\SYSTEM\CurrentControlSet\Services\` + serviceName + `\Parameters\Java`,
+		`HKLM\SYSTEM\CurrentControlSet\Services\` + serviceName + `\Parameters\Start`,
+	} {
+		command := exec.CommandContext(ctx, windowsSystem32Directory+`\reg.exe`, "query", key)
+		command.Dir = windowsSystem32Directory
+		command.Env = fixedWindowsEnvironment()
+		output, err := command.Output()
+		if err != nil {
+			continue
+		}
+		values = append(values, parseWindowsRegistryDiscoveryArguments(string(output))...)
+	}
+	return strings.Join(values, " ")
+}
+
+func windowsServiceImagePath(ctx context.Context, serviceName string) string {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" || !validWindowsServiceName(serviceName) {
+		return ""
+	}
+	return redactWindowsDiscoverySecretArguments(windowsRegistryValue(ctx, `HKLM\SYSTEM\CurrentControlSet\Services\`+serviceName, "ImagePath"))
+}
+
+func windowsRegistryValue(ctx context.Context, key string, valueName string) string {
+	command := exec.CommandContext(ctx, windowsSystem32Directory+`\reg.exe`, "query", key, "/v", valueName)
+	command.Dir = windowsSystem32Directory
+	command.Env = fixedWindowsEnvironment()
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		fields := strings.Fields(trimmed)
+		if len(fields) < 3 || !strings.EqualFold(fields[0], valueName) || !strings.HasPrefix(strings.ToUpper(fields[1]), "REG_") {
+			continue
+		}
+		typeIndex := strings.Index(trimmed, fields[1])
+		if typeIndex < 0 {
+			continue
+		}
+		return strings.TrimSpace(trimmed[typeIndex+len(fields[1]):])
+	}
+	return ""
+}
+
+func windowsExecutableFromCommandLine(commandLine string) string {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return ""
+	}
+	lower := strings.ToLower(commandLine)
+	if index := strings.Index(lower, ".exe"); index >= 0 {
+		candidate := strings.Trim(commandLine[:index+len(".exe")], "\"'")
+		if filepath.IsAbs(candidate) {
+			return filepath.Clean(candidate)
+		}
+	}
+	tokens := parseWindowsCommandLine(commandLine)
+	if len(tokens) == 0 {
+		return ""
+	}
+	candidate := strings.Trim(tokens[0], "\"'")
+	if filepath.IsAbs(candidate) {
+		return filepath.Clean(candidate)
+	}
+	return ""
+}
+
+func parseWindowsRegistryDiscoveryArguments(output string) []string {
+	allowed := map[string]struct{}{
+		"configargs":    {},
+		"options":       {},
+		"jvmoptions":    {},
+		"javaoptions":   {},
+		"appparameters": {},
+		"parameters":    {},
+		"workingpath":   {},
+	}
+	values := make([]string, 0, 8)
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(strings.ToUpper(line), "HKEY_") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		if _, ok := allowed[strings.ToLower(fields[0])]; !ok || !strings.HasPrefix(strings.ToUpper(fields[1]), "REG_") {
+			continue
+		}
+		typeIndex := strings.Index(line, fields[1])
+		if typeIndex < 0 {
+			continue
+		}
+		value := strings.TrimSpace(line[typeIndex+len(fields[1]):])
+		value = strings.ReplaceAll(value, `\0`, " ")
+		value = redactWindowsDiscoverySecretArguments(value)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func redactWindowsDiscoverySecretArguments(value string) string {
+	tokens := parseWindowsCommandLine(value)
+	for index, token := range tokens {
+		lower := strings.ToLower(token)
+		if strings.Contains(lower, "password") || strings.Contains(lower, "passwd") || strings.Contains(lower, "secret") || strings.Contains(lower, "token") {
+			if strings.Contains(token, "=") {
+				prefix := token[:strings.Index(token, "=")+1]
+				tokens[index] = prefix + "<redacted>"
+			} else {
+				tokens[index] = "<redacted>"
+			}
+		}
+	}
+	return strings.Join(tokens, " ")
+}
+
 func collectWindowsFiles(paths []string) []map[string]any {
 	files := make([]map[string]any, 0, len(paths))
 	for _, path := range paths {
 		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			files = append(files, collectWindowsFile(path))
 			_ = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
 				if walkErr != nil || entry == nil {
 					return nil
@@ -366,21 +1241,68 @@ func collectWindowsFiles(paths []string) []map[string]any {
 					}
 					return nil
 				}
-				ext := strings.ToLower(filepath.Ext(candidate))
-				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
-					return nil
-				}
 				if len(files) >= 512 {
 					return filepath.SkipDir
 				}
+				ext := strings.ToLower(filepath.Ext(candidate))
+				if ext == ".pem" || ext == ".crt" || ext == ".cer" || ext == ".der" {
+					if certificate := collectWindowsCertificateFact(candidate); certificate != nil {
+						files = append(files, certificate)
+					}
+					return nil
+				}
+				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
+					return nil
+				}
 				files = append(files, collectWindowsFile(candidate))
+				if content := collectWindowsFileContent(candidate); content != nil {
+					files = append(files, content)
+				}
 				return nil
 			})
 			continue
 		}
+		if certificateExt := strings.ToLower(filepath.Ext(path)); certificateExt == ".pem" || certificateExt == ".crt" || certificateExt == ".cer" || certificateExt == ".der" {
+			if certificate := collectWindowsCertificateFact(path); certificate != nil {
+				files = append(files, certificate)
+			}
+			continue
+		}
 		files = append(files, collectWindowsFile(path))
+		if content := collectWindowsFileContent(path); content != nil {
+			files = append(files, content)
+		}
 	}
 	return files
+}
+
+func collectWindowsCertificateFact(path string) map[string]any {
+	content, err := os.ReadFile(path)
+	if err != nil || len(content) == 0 || len(content) > 512*1024 {
+		return nil
+	}
+	der := content
+	if block, _ := pem.Decode(content); block != nil {
+		der = block.Bytes
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil
+	}
+	sha256Fingerprint := sha256.Sum256(certificate.Raw)
+	sha1Fingerprint := sha1.Sum(certificate.Raw)
+	// Windows binding 使用 SHA-1 Thumbprint；这里只保留摘要，不上传证书材料。
+	return map[string]any{
+		"kind":              "certificate_file",
+		"path":              path,
+		"configuredPaths":   []string{filepath.Base(path)},
+		"sha256Fingerprint": hex.EncodeToString(sha256Fingerprint[:]),
+		"thumbprint":        hex.EncodeToString(sha1Fingerprint[:]),
+		"subject":           certificate.Subject.String(),
+		"issuer":            certificate.Issuer.String(),
+		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
+		"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339),
+	}
 }
 
 func collectWindowsFile(path string) map[string]any {
@@ -397,24 +1319,29 @@ func collectWindowsFile(path string) map[string]any {
 		if digest, digestErr := sha256FileDigest(path); digestErr == nil {
 			item["sha256"] = digest
 		}
-		if content, readErr := os.ReadFile(path); readErr == nil {
-			// IIS applicationHost.config 和大型站点配置可能超过 64 KiB；保持在 256 KiB 单文件受控上限内，避免截断 XML 导致宿主无法解析。
-			const maximumFileContentBytes = 256 * 1024
-			truncated := len(content) > maximumFileContentBytes
-			if truncated {
-				content = content[:maximumFileContentBytes]
-			}
-			item = map[string]any{
-				"kind":          "file_content",
-				"path":          path,
-				"contentBase64": base64.StdEncoding.EncodeToString(content),
-				"bytesRead":     len(content),
-				"truncated":     truncated,
-				"sha256":        sha256Bytes(content),
-			}
-		}
 	}
 	return item
+}
+
+func collectWindowsFileContent(path string) map[string]any {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	// 大型配置保持在 256 KiB 单文件受控上限内，避免截断 XML 导致宿主无法解析。
+	const maximumFileContentBytes = 256 * 1024
+	truncated := len(content) > maximumFileContentBytes
+	if truncated {
+		content = content[:maximumFileContentBytes]
+	}
+	return map[string]any{
+		"kind":          "file_content",
+		"path":          path,
+		"contentBase64": base64.StdEncoding.EncodeToString(content),
+		"bytesRead":     len(content),
+		"truncated":     truncated,
+		"sha256":        sha256Bytes(content),
+	}
 }
 
 func sha256Bytes(value []byte) string {
@@ -423,18 +1350,22 @@ func sha256Bytes(value []byte) string {
 }
 
 func collectWindowsListeningPorts(ctx context.Context) []map[string]any {
-	command := exec.CommandContext(ctx, windowsSystem32Directory+`\netstat.exe`, "-an", "-p", "TCP")
+	command := exec.CommandContext(ctx, windowsSystem32Directory+`\netstat.exe`, "-ano", "-p", "TCP")
 	command.Dir = windowsSystem32Directory
 	command.Env = fixedWindowsEnvironment()
 	output, err := command.Output()
 	if err != nil {
 		return []map[string]any{}
 	}
+	return parseWindowsListeningPorts(output)
+}
+
+func parseWindowsListeningPorts(output []byte) []map[string]any {
 	ports := make([]map[string]any, 0, 128)
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 4 || !strings.EqualFold(fields[len(fields)-1], "LISTENING") {
+		if len(fields) < 5 || !strings.EqualFold(fields[len(fields)-2], "LISTENING") {
 			continue
 		}
 		endpoint := fields[1]
@@ -450,12 +1381,109 @@ func collectWindowsListeningPorts(ctx context.Context) []map[string]any {
 		if address == "" {
 			address = "unknown"
 		}
-		ports = append(ports, map[string]any{"kind": "listening_port", "address": address, "port": port, "protocol": "tcp"})
+		item := map[string]any{"kind": "listening_port", "address": address, "port": port, "protocol": "tcp"}
+		if pid, parseErr := strconv.Atoi(fields[len(fields)-1]); parseErr == nil && pid > 0 {
+			item["pid"] = pid
+		}
+		ports = append(ports, item)
 		if len(ports) >= 1000 {
 			break
 		}
 	}
 	return ports
+}
+
+// HTTP.sys 的 HTTPS 证书绑定不可靠地保存在服务配置文件中，
+// 通过 netsh 读取是 Windows 上不依赖具体 Web 产品的通用来源。
+func collectWindowsSSLCertificateBindings(ctx context.Context) []map[string]any {
+	command := exec.CommandContext(ctx, windowsSystem32Directory+`\netsh.exe`, "http", "show", "sslcert")
+	command.Dir = windowsSystem32Directory
+	command.Env = fixedWindowsEnvironment()
+	output, err := command.Output()
+	if err != nil {
+		return []map[string]any{}
+	}
+	return parseWindowsSSLCertificateBindings(string(output))
+}
+
+func parseWindowsSSLCertificateBindings(output string) []map[string]any {
+	bindings := make([]map[string]any, 0, 16)
+	current := map[string]any{}
+	flush := func() {
+		address := strings.TrimSpace(stringFromMap(current, "address"))
+		port := intFromMap(current, "port")
+		thumbprint := normalizeCertificateHex(stringFromMap(current, "thumbprint"))
+		if address == "" || port <= 0 || port > 65535 || len(thumbprint) < 8 {
+			current = map[string]any{}
+			return
+		}
+		current["kind"] = "ssl_certificate_binding"
+		current["address"] = address
+		current["port"] = port
+		current["thumbprint"] = thumbprint
+		current["protocol"] = "https"
+		bindings = append(bindings, current)
+		current = map[string]any{}
+	}
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			flush()
+			continue
+		}
+		if value := netshValue(line, "IP:port", "IP 地址和端口", "Hostname:port", "主机名和端口"); value != "" {
+			if stringFromMap(current, "address") != "" {
+				flush()
+			}
+			address, port := splitWindowsEndpoint(value)
+			if address != "" && port > 0 {
+				current["address"] = address
+				current["port"] = port
+			}
+			continue
+		}
+		if value := netshValue(line, "Certificate Hash", "证书哈希", "证书哈希值"); value != "" {
+			current["thumbprint"] = value
+			continue
+		}
+		if value := netshValue(line, "Certificate Store Name", "证书存储区名称"); value != "" {
+			current["store"] = value
+		}
+	}
+	flush()
+	return bindings
+}
+
+func netshValue(line string, labels ...string) string {
+	for _, label := range labels {
+		index := strings.Index(strings.ToLower(line), strings.ToLower(label))
+		if index < 0 {
+			continue
+		}
+		value := line[index+len(label):]
+		if colon := strings.IndexAny(value, ":："); colon >= 0 {
+			return strings.TrimSpace(value[colon+1:])
+		}
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func splitWindowsEndpoint(value string) (string, int) {
+	value = strings.TrimSpace(value)
+	separator := strings.LastIndexByte(value, ':')
+	if separator < 0 {
+		return "", 0
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(value[separator+1:]))
+	if err != nil {
+		return "", 0
+	}
+	address := strings.Trim(strings.TrimSpace(value[:separator]), "[]")
+	if address == "" {
+		address = "*"
+	}
+	return address, port
 }
 
 func collectWindowsPermissions() map[string]any {
@@ -492,12 +1520,7 @@ func parseCertificateStoreOutput(output, store string) []map[string]any {
 	result := make([]map[string]any, 0, 8)
 	current := map[string]any{}
 	flush := func() {
-		thumbprint := strings.Map(func(r rune) rune {
-			if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
-				return r
-			}
-			return -1
-		}, stringFromMap(current, "thumbprint"))
+		thumbprint := normalizeCertificateHex(stringFromMap(current, "thumbprint"))
 		if len(thumbprint) < 8 {
 			current = map[string]any{}
 			return
@@ -506,6 +1529,11 @@ func parseCertificateStoreOutput(output, store string) []map[string]any {
 		current["store"] = store
 		current["storeLocation"] = "LocalMachine"
 		current["thumbprint"] = strings.ToUpper(thumbprint)
+		if fingerprint := normalizeCertificateHex(stringFromMap(current, "sha256Fingerprint")); len(fingerprint) == 64 {
+			current["sha256Fingerprint"] = fingerprint
+		} else {
+			delete(current, "sha256Fingerprint")
+		}
 		current["path"] = "windows-certstore://LocalMachine/" + store + "/" + strings.ToUpper(thumbprint)
 		if current["subject"] == nil {
 			current["subject"] = "unavailable"
@@ -530,13 +1558,24 @@ func parseCertificateStoreOutput(output, store string) []map[string]any {
 			{key: "thumbprint", label: "Cert Hash(sha1):"},
 			{key: "sha256Fingerprint", label: "Cert Hash(sha256):"},
 		} {
-			if value := certificateutilField(trimmed, field.label); value != "" {
+			// 只解析当前行。旧实现从完整输出中取第一个匹配值，
+			// 导致证书库中每一条记录都复用了第一张证书的 Thumbprint。
+			if value := certificateutilLineField(trimmed, field.label); value != "" {
 				current[field.key] = value
 			}
 		}
 	}
 	flush()
 	return result
+}
+
+func normalizeCertificateHex(value string) string {
+	return strings.ToUpper(strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			return r
+		}
+		return -1
+	}, value))
 }
 
 func windowsTokenIsElevated() bool {
@@ -547,11 +1586,44 @@ func windowsTokenIsElevated() bool {
 	return err == nil && strings.Contains(string(output), "S-1-5-32-544") && strings.Contains(strings.ToLower(string(output)), "enabled")
 }
 
-func certificateutilField(output, field string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if index := strings.Index(line, field); index >= 0 {
-			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line[index+len(field):]), ":"))
+func certificateutilLineField(line, field string) string {
+	labels := []string{field}
+	switch strings.ToLower(field) {
+	case "subject:":
+		labels = append(labels, "主题:", "主题：")
+	case "issuer:":
+		labels = append(labels, "颁发者:", "颁发者：", "签发者:", "签发者：")
+	case "notbefore:":
+		labels = append(labels, "起始日期:", "起始日期：", "NotBefore：")
+	case "notafter:":
+		labels = append(labels, "截止日期:", "截止日期：", "NotAfter：")
+	}
+	lowerLine := strings.ToLower(line)
+	for _, label := range labels {
+		index := strings.Index(lowerLine, strings.ToLower(label))
+		if index < 0 {
+			continue
 		}
+		value := line[index+len(label):]
+		return strings.TrimSpace(strings.TrimLeft(value, ":： \t"))
+	}
+	// certutil 的字段前缀会随 Windows 系统语言变化，但 SHA-1/SHA-256 标记
+	// 保持不变。仅为指纹字段使用不依赖本地化文本的后备匹配。
+	lowerField := strings.ToLower(field)
+	for _, marker := range []string{"(sha1)", "(sha256)"} {
+		if !strings.Contains(lowerField, marker) {
+			continue
+		}
+		markerIndex := strings.Index(lowerLine, marker)
+		if markerIndex < 0 {
+			return ""
+		}
+		tail := line[markerIndex+len(marker):]
+		colon := strings.IndexAny(tail, ":：")
+		if colon >= 0 {
+			return strings.TrimSpace(tail[colon+1:])
+		}
+		return ""
 	}
 	return ""
 }
@@ -1084,7 +2156,7 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if keyID == "" || signature == "" {
 		return unavailableAgentAuthorizationMaterial("signature and authorityKeyId are required")
 	}
-	raw := strings.TrimSpace(os.Getenv(envName))
+	raw := strings.TrimSpace(agentAuthorizationKeySet(envName))
 	if raw == "" {
 		return unavailableAgentAuthorizationMaterial("trusted policy key set is unavailable; fail closed")
 	}
@@ -1100,11 +2172,48 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {
 		return unavailableAgentAuthorizationMaterial("trusted policy key is invalid")
 	}
-	signed, err := base64.StdEncoding.DecodeString(signature)
+	signed, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil {
+		signed, err = base64.StdEncoding.DecodeString(signature)
+	}
 	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalJSON(value), signed) {
 		return errors.New("signature verification failed")
 	}
 	return nil
+}
+
+func agentAuthorizationKeySet(envName string) string {
+	if material := currentAgentTrustMaterial(); material != nil {
+		var keySet map[string]string
+		switch envName {
+		case "GCAC_AGENT_CAPABILITY_KEYSET_JSON":
+			keySet = material.CapabilityKeySet
+		case "GCAC_POLICY_AUTHORITY_KEYSET_JSON":
+			keySet = material.PolicyAuthorityKeySet
+		}
+		if len(keySet) > 0 {
+			if encoded, err := json.Marshal(keySet); err == nil {
+				return string(encoded)
+			}
+		}
+	}
+	return os.Getenv(envName)
+}
+
+func agentAuthorizationLocalPolicy() string {
+	if material := currentAgentTrustMaterial(); material != nil {
+		paths := make([]string, 0, len(material.LocalPolicy.PathRules))
+		for _, rule := range material.LocalPolicy.PathRules {
+			paths = append(paths, rule.Prefix)
+		}
+		if encoded, err := json.Marshal(map[string]any{
+			"allowedPaths":    paths,
+			"allowedServices": material.LocalPolicy.ServiceRules,
+		}); err == nil {
+			return string(encoded)
+		}
+	}
+	return os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON")
 }
 func tokenWithoutSignature(value AgentCapabilityTokenV1) map[string]any {
 	value.Signature = ""
@@ -1280,7 +2389,7 @@ func revokedNonce(nonce string) bool {
 	return false
 }
 func validateLocalPolicy(paths, services []string) error {
-	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON"))
+	raw := strings.TrimSpace(agentAuthorizationLocalPolicy())
 	if raw == "" {
 		return unavailableAgentAuthorizationMaterial("local agent policy is unavailable; fail closed")
 	}
@@ -1305,7 +2414,7 @@ func validateLocalPolicy(paths, services []string) error {
 }
 
 func validateAgentPlanLocalPolicy(plan agentPlanV2) error {
-	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON"))
+	raw := strings.TrimSpace(agentAuthorizationLocalPolicy())
 	if raw == "" {
 		return unavailableAgentAuthorizationMaterial("local agent policy is unavailable; fail closed")
 	}

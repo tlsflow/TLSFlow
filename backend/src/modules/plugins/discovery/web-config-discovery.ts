@@ -73,10 +73,11 @@ type Parser = (content: string, fallbackAddress?: string) => WebConfigDiscoveryR
 
 function parserFor(path: string, content: string): Parser | undefined {
   const normalized = path.replaceAll('\\', '/').toLowerCase();
+  const basename = normalized.split('/').at(-1) ?? normalized;
   if (normalized.endsWith('/inetsrv/config/applicationhost.config') || /<configuration>\s*<configsections\b|<sites>\s*<site\b/i.test(content)) return parseIis;
-  if (normalized.endsWith('/nginx.conf') || normalized.includes('/nginx/') || normalized.includes('nginx\\')) return parseNginx;
-  if (normalized.endsWith('/httpd.conf') || normalized.endsWith('/apache2.conf') || normalized.includes('/sites-enabled/') || normalized.includes('/conf-enabled/')) return parseApache;
-  if (normalized.endsWith('/server.xml') && (normalized.includes('tomcat') || normalized.includes('catalina'))) return parseTomcat;
+  if (basename === 'nginx.conf' || normalized.includes('/nginx/') || normalized.includes('/nginx-')) return parseNginx;
+  if (basename === 'httpd.conf' || basename === 'apache2.conf' || basename.startsWith('httpd-') || normalized.includes('/apache') || normalized.includes('/sites-enabled/') || normalized.includes('/conf-enabled/')) return parseApache;
+  if (basename === 'server.xml' && (normalized.includes('tomcat') || normalized.includes('catalina'))) return parseTomcat;
   if (/\bserver\s*\{|\bserver_name\s+/i.test(content)) return parseNginx;
   if (/<VirtualHost\b|\bSSLCertificateFile\s+/i.test(content)) return parseApache;
   if (/<Connector\b|<Context\b|<Host\b/i.test(content)) return parseTomcat;
@@ -130,14 +131,18 @@ function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscove
   for (const block of blocks) {
     const body = block.replace(/^server\s*\{/, '').replace(/\}\s*$/, '');
     const names = words(body, /server_name\s+([^;]+);/i).flatMap((value) => value.split(/\s+/)).filter(Boolean);
-    const listens = words(body, /listen\s+([^;]+);/gi);
+    const listens = directiveValues(body, /listen\s+([^;]+);/gi);
     const certificate = match(body, /ssl_certificate\s+([^;]+);/i);
     const certificateKey = match(body, /ssl_certificate_key\s+([^;]+);/i);
-    const listen = listens[0] ?? '80';
-    const port = parsePort(listen) ?? 80;
-    const protocol = /ssl|443/.test(listen.toLowerCase()) ? 'HTTPS' : 'HTTP';
     const siteNames = names.length ? names : [fallbackAddress ?? 'default'];
-    sites.push({ frameworkType: 'web.nginx', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}) }] } });
+    const listenerValues = listens.length ? listens : ['80'];
+    const listeners = listenerValues.map((listen) => {
+      const port = parsePort(listen) ?? 80;
+      const protocol = /ssl|443/.test(listen.toLowerCase()) ? 'HTTPS' : 'HTTP';
+      return { port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}) };
+    });
+    const preferred = listeners.find((listener) => listener.protocol === 'HTTPS') ?? listeners[0]!;
+    sites.push({ frameworkType: 'web.nginx', name: siteNames[0], addresses: siteNames, port: preferred.port, protocol: preferred.protocol, metadata: { listeners } });
   }
   return { frameworks: [{ frameworkType: 'web.nginx', displayName: 'Nginx' }], sites };
 }
@@ -148,15 +153,40 @@ function parseApache(content: string, fallbackAddress?: string): WebConfigDiscov
   for (const block of blocks) {
     const header = match(block, /<VirtualHost\s+([^>]+)>/i) ?? '*:80';
     const names = words(block, /ServerName\s+([^\s#]+)|ServerAlias\s+([^\s#]+)/gi);
-    const port = parsePort(header) ?? 80;
-    const protocol = /443|ssl/i.test(header) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP';
     const certificate = match(block, /SSLCertificateFile\s+([^\s#]+)/i);
     const certificateKey = match(block, /SSLCertificateKeyFile\s+([^\s#]+)/i);
     const certificateChain = match(block, /SSLCertificateChainFile\s+([^\s#]+)/i);
     const siteNames = names.length ? names : [fallbackAddress ?? header];
-    sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}), ...(certificateChain ? { certificateChainPath: certificateChain } : {}) }] } });
+    const endpoints = header.split(/\s+/).filter(Boolean);
+    const listeners = (endpoints.length ? endpoints : ['*:80']).map((endpoint) => {
+      const port = parsePort(endpoint) ?? 80;
+      const protocol = /443|ssl/i.test(endpoint) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP';
+      return { port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}), ...(certificateChain ? { certificateChainPath: certificateChain } : {}) };
+    });
+    const preferred = listeners.find((listener) => listener.protocol === 'HTTPS') ?? listeners[0]!;
+    sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port: preferred.port, protocol: preferred.protocol, metadata: { listeners } });
   }
+  // 没有 VirtualHost 时，httpd.conf 仍可能通过 Listen/ServerName 提供一个可管理站点。
+  if (sites.length === 0) sites.push(parseApacheFallback(content, fallbackAddress));
   return { frameworks: [{ frameworkType: 'web.apache', displayName: 'Apache' }], sites };
+}
+
+function parseApacheFallback(content: string, fallbackAddress?: string): Record<string, unknown> {
+  const names = words(content, /ServerName\s+([^\s#]+)|ServerAlias\s+([^\s#]+)/gi);
+  const siteNames = names.length ? names : [fallbackAddress ?? 'localhost'];
+  const endpoints = directiveValues(content, /Listen\s+([^\n#]+)/gi)
+    .map((value) => value.split(/\s+/)[0] ?? '')
+    .filter(Boolean);
+  const certificate = match(content, /SSLCertificateFile\s+([^\s#]+)/i);
+  const certificateKey = match(content, /SSLCertificateKeyFile\s+([^\s#]+)/i);
+  const certificateChain = match(content, /SSLCertificateChainFile\s+([^\s#]+)/i);
+  const listeners = (endpoints.length ? endpoints : ['80']).map((endpoint) => {
+    const port = parsePort(endpoint) ?? 80;
+    const protocol = /443|ssl/i.test(endpoint) || /SSLEngine\s+on/i.test(content) ? 'HTTPS' : 'HTTP';
+    return { port, protocol, ...(certificate ? { certificatePath: certificate } : {}), ...(certificateKey ? { certificateKeyPath: certificateKey } : {}), ...(certificateChain ? { certificateChainPath: certificateChain } : {}) };
+  });
+  const preferred = listeners.find((listener) => listener.protocol === 'HTTPS') ?? listeners[0]!;
+  return { frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port: preferred.port, protocol: preferred.protocol, metadata: { listeners } };
 }
 
 function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
@@ -169,20 +199,19 @@ function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscov
     const attrs = attributes(connector[1] ?? '');
     const connectorBody = connector[2] ?? '';
     const port = Number(attrs.port ?? 8080);
+    const certificateAttributes = [...connectorBody.matchAll(/<Certificate\b([^>]*?)(?:\/>|>)/gi)]
+      .map((item) => attributes(item[1] ?? '')).find(Boolean) ?? {};
     const certificatePath = attrs.certificateKeystoreFile
       ?? attrs.keystoreFile
       ?? attrs.certificateFile
-      ?? [...connectorBody.matchAll(/<Certificate\b([^>]*?)(?:\/>|>)/gi)]
-        .map((item) => {
-          const certificateAttrs = attributes(item[1] ?? '');
-          return certificateAttrs.certificateKeystoreFile ?? certificateAttrs.certificateFile;
-        })
-        .find(Boolean);
+      ?? certificateAttributes.certificateKeystoreFile
+      ?? certificateAttributes.keystoreFile
+      ?? certificateAttributes.certificateFile;
     const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' || Boolean(certificatePath) ? 'HTTPS' : 'HTTP';
     const hosts = [...activeContent.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
     const names = hosts.length ? hosts : [fallbackAddress ?? 'localhost'];
-    const certificateKeyPath = attrs.certificateKeyFile;
-    const certificateChainPath = attrs.certificateChainFile;
+    const certificateKeyPath = attrs.certificateKeyFile ?? certificateAttributes.certificateKeyFile;
+    const certificateChainPath = attrs.certificateChainFile ?? certificateAttributes.certificateChainFile;
     for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: certificatePath, listeners: [{ port, protocol, ...(certificatePath ? { certificatePath } : {}), ...(certificateKeyPath ? { certificateKeyPath } : {}), ...(certificateChainPath ? { certificateChainPath } : {}) }] } });
   }
   const contexts = [...activeContent.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
@@ -199,6 +228,13 @@ function words(value: string, pattern: RegExp): string[] {
   return [...value.matchAll(global)].flatMap((item) => item.slice(1).filter((part): part is string => Boolean(part))).flatMap((item) => item.trim().split(/\s+/));
 }
 
+function directiveValues(value: string, pattern: RegExp): string[] {
+  const global = pattern.flags.includes('g') ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+  return [...value.matchAll(global)]
+    .map((item) => item[1]?.trim())
+    .filter((item): item is string => Boolean(item));
+}
+
 function match(value: string, pattern: RegExp): string | undefined {
   return pattern.exec(value)?.[1]?.trim();
 }
@@ -209,8 +245,19 @@ function parsePort(value: string): number | undefined {
 }
 
 function normalizeThumbprint(value: string | undefined): string | undefined {
-  const normalized = value?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
-  return normalized && normalized.length >= 8 ? normalized : undefined;
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  const compact = raw.replace(/\s+/g, '');
+  if (/^[A-Fa-f0-9]+$/.test(compact) && compact.length >= 8 && compact.length % 2 === 0) return compact.toUpperCase();
+  // IIS applicationHost.config 在部分版本中把 SHA-1 Binding Hash 写成 Base64。
+  // 这里只接受解码后长度为 SHA-1 的 20 字节，避免把普通文本误当指纹。
+  try {
+    const decoded = Buffer.from(raw, 'base64');
+    if (decoded.length === 20) return decoded.toString('hex').toUpperCase();
+  } catch {
+    // 非 Base64 内容按无证书指纹处理，站点本身仍保留。
+  }
+  return undefined;
 }
 
 function text(value: unknown): string | undefined {

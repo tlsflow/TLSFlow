@@ -203,6 +203,94 @@ test('IIS binding Thumbprint 可关联 Windows 证书库事实', async () => {
   assert.equal(projected.certificates[0]?.subject, 'CN=portal.example.test');
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
   assert.equal(projected.certificateBindings[0]?.metadata?.certificateThumbprint, 'A1B2C3D4E5F60708');
+  assert.deepEqual(projected.certificateBindings[0]?.metadata?.observedCertificate, {
+    subject: 'CN=portal.example.test',
+    issuer: 'CN=GCAC Test CA',
+    notAfter: '2027-08-01T00:00:00.000Z',
+    thumbprint: 'A1B2C3D4E5F60708',
+  });
+});
+
+test('HTTP.sys SSL 绑定事实可补回没有 certificateHash 的 IIS 配置', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: '<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" /></bindings></site></sites></system.applicationHost></configuration>' }],
+      sslCertificateBindings: [{ address: '0.0.0.0', port: 443, protocol: 'https', thumbprint: 'A1B2C3D4E5F60708', store: 'MY' }],
+      certificateFiles: [{ path: 'windows-certstore://LocalMachine/My/A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', subject: 'CN=portal.example.test', store: 'My', storeLocation: 'LocalMachine' }],
+    },
+  }]));
+  const projected = fixture.projected() as {
+    certificateBindings: Array<{ certificateStableKey: string; metadata?: Record<string, unknown> }>;
+  };
+  assert.equal(projected.certificateBindings.length, 1);
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+  assert.equal(projected.certificateBindings[0]?.metadata?.certificateThumbprint, 'A1B2C3D4E5F60708');
+});
+
+test('IIS 证书库暂不可读时仍保留 Thumbprint 绑定，而不是丢失站点关系', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      sites: [{ name: 'Portal', frameworkType: 'web.iis', addresses: ['portal.example.test'], port: 443, protocol: 'HTTPS', metadata: { listeners: [{ port: 443, protocol: 'HTTPS', certificateThumbprint: 'A1B2C3D4E5F60708' }] } }],
+    },
+  }]));
+  const projected = fixture.projected() as { certificates: Array<{ stableKey: string }>; certificateBindings: Array<{ certificateStableKey: string }> };
+  assert.deepEqual(projected.certificates, [{ stableKey: 'CERT:SHA1:A1B2C3D4E5F60708', metadata: { name: 'A1B2C3D4E5F60708', thumbprint: 'A1B2C3D4E5F60708', source: 'iis-binding' } }]);
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, 'CERT:SHA1:A1B2C3D4E5F60708');
+});
+
+test('非 IIS 配置引用证书路径但证书摘要暂不可读时仍保留绑定路径', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: 'F:/runtime/Tomcat/conf/server.xml', content: '<Connector port="8443" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="conf/localhost-rsa.p12" /></SSLHostConfig></Connector><Host name="tomcat.example.test" />' }],
+      certificateFiles: [],
+    },
+  }]));
+  const projected = fixture.projected() as {
+    certificates: Array<{ stableKey: string; metadata?: Record<string, unknown> }>;
+    certificateBindings: Array<{ certificateStableKey: string; metadata?: { certificatePath?: string } }>;
+  };
+  assert.equal(projected.certificates.length, 1);
+  assert.match(projected.certificates[0]?.stableKey ?? '', /^CERT:PATH:/);
+  assert.deepEqual(projected.certificates[0]?.metadata, { path: 'conf/localhost-rsa.p12', name: 'localhost-rsa.p12', source: 'configured-certificate-path' });
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, projected.certificates[0]?.stableKey);
+  assert.equal(projected.certificateBindings[0]?.metadata?.certificatePath, 'conf/localhost-rsa.p12');
+});
+
+test('Windows 原始库存可同时投影 IIS、Nginx、Apache、Tomcat 及其证书绑定', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [
+        { path: 'C:/Windows/System32/inetsrv/config/applicationHost.config', content: `<configuration><system.applicationHost><sites><site name="IIS Portal"><bindings><binding protocol="https" bindingInformation="*:443:iis.example.test" certificateHash="00112233445566778899AABBCCDDEEFF00112233" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>` },
+        { path: 'D:/services/nginx/conf/nginx.conf', content: `server { listen 8443 ssl; server_name nginx.example.test; ssl_certificate D:/services/nginx/conf/nginx.crt; }` },
+        { path: 'E:/apps/Apache2.4/conf/extra/httpd-vhosts.conf', content: `<VirtualHost *:9443>\nServerName apache.example.test\nSSLEngine on\nSSLCertificateFile E:/apps/Apache2.4/conf/apache.crt\n</VirtualHost>` },
+        { path: 'F:/runtime/Tomcat/conf/server.xml', content: `<Server><Service><Connector port="10443" scheme="https"><SSLHostConfig><Certificate certificateFile="F:/runtime/Tomcat/conf/tomcat.crt" /></SSLHostConfig></Connector></Service><Host name="tomcat.example.test" /></Server>` },
+      ],
+      certificateFiles: [
+        { path: 'windows-certstore://LocalMachine/My/00112233445566778899AABBCCDDEEFF00112233', thumbprint: '00112233445566778899AABBCCDDEEFF00112233', store: 'My', storeLocation: 'LocalMachine', subject: 'CN=iis.example.test' },
+        { path: 'D:/services/nginx/conf/nginx.crt', sha256Fingerprint: 'a'.repeat(64), subject: 'CN=nginx.example.test' },
+        { path: 'E:/apps/Apache2.4/conf/apache.crt', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=apache.example.test' },
+        { path: 'F:/runtime/Tomcat/conf/tomcat.crt', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=tomcat.example.test' },
+      ],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    frameworks: Array<{ frameworkType: string }>;
+    sites: Array<{ displayName: string }>;
+    certificateBindings: Array<{ certificateStableKey: string }>;
+  };
+  assert.deepEqual(projected.frameworks.map((item) => item.frameworkType), ['web.iis', 'web.nginx', 'web.apache', 'app.tomcat']);
+  assert.deepEqual(projected.sites.map((item) => item.displayName), ['IIS Portal', 'nginx.example.test', 'apache.example.test', 'tomcat.example.test']);
+  assert.deepEqual(projected.certificateBindings.map((item) => item.certificateStableKey), [
+    'CERT:SHA1:00112233445566778899AABBCCDDEEFF00112233',
+    `CERT:${'A'.repeat(64)}`,
+    `CERT:${'B'.repeat(64)}`,
+    `CERT:${'C'.repeat(64)}`,
+  ]);
 });
 
 test('Tomcat 的相对 keystore 配置路径可关联 Agent 读取到的绝对路径证书', async () => {

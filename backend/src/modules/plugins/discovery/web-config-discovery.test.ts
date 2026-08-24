@@ -8,6 +8,15 @@ test('Web 配置事实解析出 Nginx 全部 server', () => {
   assert.deepEqual(result.sites.map((site) => site.name), ['a.example.test', 'secure.example.test']);
   assert.deepEqual(result.sites[0]?.addresses, ['a.example.test', 'b.example.test']);
   assert.equal(result.sites[1]?.protocol, 'HTTPS');
+  assert.deepEqual((result.sites[1]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: '/etc/cert.pem' }]);
+});
+
+test('Nginx 一个 server 的多个 listen 都保留为监听事实', () => {
+  const result = discoverWebConfigs([{ path: 'C:/nginx/conf/nginx.conf', content: `server { listen 80; listen 443 ssl; server_name app.example.test; }` }]);
+  assert.deepEqual((result.sites[0]?.metadata as { listeners?: unknown[] }).listeners, [
+    { port: 80, protocol: 'HTTP' },
+    { port: 443, protocol: 'HTTPS' },
+  ]);
 });
 
 test('Web 配置事实解析出 Apache VirtualHost 和 Tomcat Connector/Context', () => {
@@ -20,6 +29,24 @@ test('Web 配置事实解析出 Apache VirtualHost 和 Tomcat Connector/Context'
   assert.equal(tomcat.frameworks[0]?.frameworkType, 'app.tomcat');
   assert.equal(tomcat.sites.some((site) => site.name === 'app.example.test'), true);
   assert.equal(tomcat.sites.some((site) => site.name === '/shop'), true);
+});
+
+test('Apache 无 VirtualHost 时仍识别 Listen 和证书配置', () => {
+  const result = discoverWebConfigs([{ path: 'C:/Apache24/conf/httpd.conf', content: `Listen 443\nServerName app.example.test\nSSLEngine on\nSSLCertificateFile conf/app.crt\nSSLCertificateKeyFile conf/app.key` }]);
+  assert.equal(result.sites[0]?.name, 'app.example.test');
+  assert.equal(result.sites[0]?.protocol, 'HTTPS');
+  assert.deepEqual((result.sites[0]?.metadata as { listeners?: unknown[] }).listeners, [{ port: 443, protocol: 'HTTPS', certificatePath: 'conf/app.crt', certificateKeyPath: 'conf/app.key' }]);
+});
+
+test('Windows 自定义安装目录按配置文件名和内容识别 Apache', () => {
+  const result = discoverWebConfigs([{
+    path: 'D:/services/Apache2.4/conf/extra/httpd-vhosts.conf',
+    content: `Listen 9443\nServerName custom.example.test\nSSLEngine on\nSSLCertificateFile D:/services/Apache2.4/conf/site.crt`,
+  }]);
+  assert.equal(result.frameworks[0]?.frameworkType, 'web.apache');
+  assert.equal(result.sites[0]?.name, 'custom.example.test');
+  assert.equal(result.sites[0]?.port, 9443);
+  assert.equal(result.sites[0]?.protocol, 'HTTPS');
 });
 
 test('Web 配置事实解析 IIS applicationHost.config 的站点和 HTTPS 绑定', () => {
@@ -52,6 +79,17 @@ test('IIS HTTPS binding 保留 Windows 证书库 Thumbprint 和存储区', () =>
     certificateThumbprint: 'A1B2C3D4E5F60708',
     certificateStoreName: 'My',
   });
+});
+
+test('IIS applicationHost.config 的 Base64 certificateHash 转为 SHA-1 Thumbprint', () => {
+  const hash = Buffer.from('00112233445566778899AABBCCDDEEFF00112233', 'hex').toString('base64');
+  const result = discoverWebConfigs([{
+    path: 'C:/Windows/System32/inetsrv/config/applicationHost.config',
+    content: `<configuration><system.applicationHost><sites><site name="Portal"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" certificateHash="${hash}" certificateStoreName="My" /></bindings></site></sites></system.applicationHost></configuration>`,
+  }]);
+  const listeners = (result.sites[0]?.metadata as { listeners?: Array<Record<string, unknown>> })?.listeners ?? [];
+  assert.equal(listeners[0]?.certificateThumbprint, '00112233445566778899AABBCCDDEEFF00112233');
+  assert.equal(listeners[0]?.certificateStoreName, 'My');
 });
 
 test('Web 配置事实把 Tomcat Connector 和 SSLHostConfig keystore 作为 HTTPS 证书路径', () => {

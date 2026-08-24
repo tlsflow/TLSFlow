@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -10,10 +12,15 @@ import (
 	"time"
 )
 
-func TestManagementServerExposesOnlyHealthEndpoints(t *testing.T) {
+func TestManagementServerExposesHealthAndDirectDiscoveryOnly(t *testing.T) {
 	port := freeTCPPort(t)
 	config := &AgentConfig{ManagementListenAddress: "127.0.0.1", ManagementPort: port}
-	server, _, err := startManagementServer(config, runtimeIdentity{PrimaryIPAddress: "127.0.0.1"})
+	server, _, err := startManagementServer(config, runtimeIdentity{PrimaryIPAddress: "127.0.0.1"}, func(_ context.Context, payload map[string]any) directDiscoveryResponse {
+		if payload["actionType"] != agentFactCollect {
+			return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID"}
+		}
+		return directDiscoveryResponse{Success: true, Detail: map[string]any{"accepted": true}}
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +45,23 @@ func TestManagementServerExposesOnlyHealthEndpoints(t *testing.T) {
 	}
 	if health.StatusCode != http.StatusOK || len(body) == 0 {
 		t.Fatalf("健康端点响应异常 status=%d body=%s", health.StatusCode, body)
+	}
+
+	discovery, err := client.Post(
+		fmt.Sprintf("http://127.0.0.1:%d/api/v1/control/discovery", port),
+		"application/json",
+		bytes.NewBufferString(`{"actionType":"agent.fact.collect","refreshWebInventory":true}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer discovery.Body.Close()
+	var directResult directDiscoveryResponse
+	if err := json.NewDecoder(discovery.Body).Decode(&directResult); err != nil {
+		t.Fatal(err)
+	}
+	if discovery.StatusCode != http.StatusOK || !directResult.Success {
+		t.Fatalf("直接重新发现响应异常 status=%d result=%+v", discovery.StatusCode, directResult)
 	}
 
 	response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/control/exec", port))

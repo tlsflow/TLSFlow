@@ -9,13 +9,13 @@ export const LINUX_WEB_DISCOVERY_PATHS = Object.freeze([
 ]);
 
 export const WINDOWS_WEB_DISCOVERY_PATHS = Object.freeze([
-  'C:/Windows/System32/inetsrv/config/applicationHost.config',
-  'C:/nginx',
-  'C:/Apache24',
-  'C:/Tomcat',
-  'C:/ProgramData',
-  'C:/Program Files',
-  'C:/Program Files (x86)',
+  'C:\\Windows\\System32\\inetsrv\\config\\applicationHost.config',
+  'C:\\nginx',
+  'C:\\Apache24',
+  'C:\\Tomcat',
+  'C:\\ProgramData',
+  'C:\\Program Files',
+  'C:\\Program Files (x86)',
 ]);
 
 export function selectWebDiscoveryPaths(osType: string): readonly string[] {
@@ -35,5 +35,5 @@ export function isAllowedWebDiscoveryPathSet(paths: readonly string[]): boolean 
 
 function isAllowedWindowsWebDiscoveryPath(path: string): boolean {
   const normalized = path.replaceAll('\\', '/').toLowerCase();
-  return WINDOWS_WEB_DISCOVERY_PATHS.some((allowed) => allowed.toLowerCase() === normalized);
+  return WINDOWS_WEB_DISCOVERY_PATHS.some((allowed) => allowed.replaceAll('\\', '/').toLowerCase() === normalized);
 }

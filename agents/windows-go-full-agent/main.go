@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -32,36 +35,46 @@ import (
 	"unsafe"
 )
 
+//go:embed config/agent.config.template.json
+var defaultAgentConfigTemplate []byte
+
 const (
-	agentVersion          = "0.1.9"
-	defaultConfigPath     = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
-	defaultMetadata       = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
-	defaultTaskPoll       = 60
-	defaultHealthPoll     = 30
-	defaultOfflineTTL     = 180
-	defaultManagementPort = 18930
+	agentVersion                  = "0.1.17"
+	defaultConfigPath             = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
+	defaultMetadata               = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
+	defaultTaskPoll               = 60
+	defaultHealthPoll             = 30
+	defaultOfflineTTL             = 180
+	defaultManagementPort         = 18930
+	directWebDiscoveryTimeout     = 90 * time.Second
+	windowsDiscoveryScanTimeout   = 75 * time.Second
+	windowsDiscoveryVisitLimit    = 5000
+	windowsDiscoveryReadFileLimit = 256
 )
 
 type AgentConfig struct {
-	SchemaVersion              string `json:"schemaVersion"`
-	TenantID                   string `json:"tenantId"`
-	AgentKey                   string `json:"agentKey"`
-	EnrollmentToken            string `json:"enrollmentToken"`
-	Role                       string `json:"role"`
-	GatewayEnabled             bool   `json:"gatewayEnabled"`
-	Zone                       string `json:"zone"`
-	ControlPlane               string `json:"controlPlaneUrl"`
-	Heartbeat                  int    `json:"heartbeatIntervalSeconds"`
-	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
-	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
-	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
-	ManagementListenAddress    string `json:"managementListenAddress"`
-	ManagementPort             int    `json:"managementPort"`
+	SchemaVersion              string            `json:"schemaVersion"`
+	TenantID                   string            `json:"tenantId"`
+	AgentKey                   string            `json:"agentKey"`
+	EnrollmentToken            string            `json:"enrollmentToken"`
+	Role                       string            `json:"role"`
+	GatewayEnabled             bool              `json:"gatewayEnabled"`
+	Zone                       string            `json:"zone"`
+	ControlPlane               string            `json:"controlPlaneUrl"`
+	Heartbeat                  int               `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int               `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int               `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int               `json:"offlineTimeoutSeconds"`
+	ManagementListenAddress    string            `json:"managementListenAddress"`
+	ManagementPort             int               `json:"managementPort"`
+	AuthorizationMaterialPath  string            `json:"authorizationMaterialPath"`
+	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
 	Paths                      struct {
 		Windows struct {
-			ConfigPath string `json:"configPath"`
-			DataDir    string `json:"dataDir"`
-			LogDir     string `json:"logDir"`
+			ConfigPath     string   `json:"configPath"`
+			DataDir        string   `json:"dataDir"`
+			LogDir         string   `json:"logDir"`
+			InventoryPaths []string `json:"inventoryPaths"`
 		} `json:"windows"`
 	} `json:"paths"`
 	Service struct {
@@ -131,8 +144,41 @@ type registerRequest struct {
 }
 
 type registerResponse struct {
-	ID string `json:"id"`
+	ID            string                  `json:"id"`
+	TrustMaterial *agentTrustMaterialWire `json:"trustMaterial,omitempty"`
 }
+
+// 控制面只下发公钥和已签名的本地策略，私钥始终留在 Policy Authority。
+type agentTrustMaterialWire struct {
+	MaterialVersion           string               `json:"materialVersion"`
+	IssuedAt                  string               `json:"issuedAt"`
+	ValidUntil                string               `json:"validUntil"`
+	CapabilityKeySet          map[string]string    `json:"capabilityKeySet"`
+	PolicyAuthorityKeySet     map[string]string    `json:"policyAuthorityKeySet"`
+	LocalPolicy               agentLocalPolicyWire `json:"localPolicy"`
+	LocalPolicyAuthorityKeyID string               `json:"localPolicyAuthorityKeyId"`
+	LocalPolicySignature      string               `json:"localPolicySignature"`
+}
+
+type agentLocalPolicyWire struct {
+	PolicyVersion   string   `json:"policyVersion"`
+	AgentID         string   `json:"agentId"`
+	AuthorityKeyIDs []string `json:"authorityKeyIds"`
+	AllowedActions  []string `json:"allowedActions"`
+	PathRules       []struct {
+		Prefix     string   `json:"prefix"`
+		Operations []string `json:"operations"`
+	} `json:"pathRules"`
+	ServiceRules []string `json:"serviceRules"`
+	CommandRules []any    `json:"commandRules"`
+	Disabled     bool     `json:"disabled"`
+	UpdatedAt    string   `json:"updatedAt"`
+}
+
+var agentTrustMaterialState = struct {
+	mu       sync.RWMutex
+	material *agentTrustMaterialWire
+}{}
 
 type heartbeatRequest struct {
 	AgentID            string                  `json:"agentId"`
@@ -201,6 +247,56 @@ type agentTaskEnvelope struct {
 	UpdatedAt       string                 `json:"updatedAt,omitempty"`
 	CreatedAt       string                 `json:"createdAt,omitempty"`
 	Raw             map[string]interface{} `json:"-"`
+}
+
+// directDiscoveryResponse 是管理端口唯一允许执行的直接操作返回值。
+// 重新发现没有写效果，但仍必须经过 Agent v2 的签名授权校验。
+type directDiscoveryResponse struct {
+	Success      bool           `json:"success"`
+	ErrorCode    string         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Detail       map[string]any `json:"detail,omitempty"`
+}
+
+type directDiscoveryController struct {
+	mu     sync.Mutex
+	active bool
+	last   directDiscoveryResponse
+	lastAt time.Time
+}
+
+func (controller *directDiscoveryController) execute(ctx context.Context, run func(context.Context) directDiscoveryResponse) directDiscoveryResponse {
+	controller.mu.Lock()
+	if controller.active {
+		if controller.lastAt.After(time.Now().Add(-5 * time.Minute)) && controller.last.Success {
+			result := controller.last
+			result.Detail = cloneMap(result.Detail)
+			if result.Detail == nil {
+				result.Detail = map[string]any{}
+			}
+			result.Detail["reusedCompletedAt"] = controller.lastAt.UTC().Format(time.RFC3339Nano)
+			result.Detail["scanState"] = "running_reused_last_success"
+			controller.mu.Unlock()
+			return result
+		}
+		controller.mu.Unlock()
+		return directDiscoveryResponse{
+			ErrorCode:    "AGENT_DIRECT_DISCOVERY_IN_PROGRESS",
+			ErrorMessage: "Agent Web 重新扫描正在进行中，请稍后查看最新发现结果",
+		}
+	}
+	controller.active = true
+	controller.mu.Unlock()
+
+	result := run(ctx)
+	controller.mu.Lock()
+	controller.active = false
+	if result.Success {
+		controller.last = result
+		controller.lastAt = time.Now()
+	}
+	controller.mu.Unlock()
+	return result
 }
 
 type ackTaskRequest struct {
@@ -479,6 +575,9 @@ func handleRegisterOnce(args []string) error {
 	if err := ensureConfigDirectories(config); err != nil {
 		return err
 	}
+	if err := loadPersistedAgentTrustMaterial(config); err != nil {
+		return err
+	}
 	if strings.TrimSpace(config.ControlPlane) == "" {
 		return errors.New("controlPlaneUrl 不能为空，Windows Go Agent 无法接入控制面")
 	}
@@ -584,6 +683,9 @@ func runForeground(ctx context.Context, configPath string) error {
 	if err := ensureConfigDirectories(config); err != nil {
 		return err
 	}
+	if err := loadPersistedAgentTrustMaterial(config); err != nil {
+		return err
+	}
 
 	heartbeat := effectiveHeartbeatSeconds(config)
 	taskPollSeconds := effectiveTaskPollSeconds(config)
@@ -601,17 +703,22 @@ func runForeground(ctx context.Context, configPath string) error {
 	}
 
 	identity := collectRuntimeIdentity(config.ControlPlane)
-	managementServer, _, err := startManagementServer(config, identity)
-	if err != nil {
-		return err
-	}
-	defer managementServer.Shutdown(context.Background())
 	client := &http.Client{Timeout: 20 * time.Second}
-	registration, err := registerAgent(ctx, client, config, identity)
+	registration, err := registerAgentWithRetry(ctx, client, config, identity, logger)
 	if err != nil {
 		return err
 	}
 	logger.Info("agent registered agentId=%s hostname=%s", registration.AgentID, registration.Hostname)
+	directDiscovery := &directDiscoveryController{}
+	managementServer, _, err := startManagementServer(config, identity, func(requestCtx context.Context, payload map[string]any) directDiscoveryResponse {
+		return directDiscovery.execute(requestCtx, func(scanCtx context.Context) directDiscoveryResponse {
+			return executeDirectWebDiscovery(scanCtx, client, config, registration, payload, logger)
+		})
+	})
+	if err != nil {
+		return err
+	}
+	defer managementServer.Shutdown(context.Background())
 
 	deps, err := loadRuntimeDependencies(config)
 	if err != nil {
@@ -629,20 +736,6 @@ func runForeground(ctx context.Context, configPath string) error {
 	status.StoppedAt = ""
 	status.ServiceName = config.Service.Name
 	status.AgentID = registration.AgentID
-	if err := reportCapabilities(ctx, client, config, registration, identity); err != nil {
-		logger.Warn("capability report failed: %v", err)
-		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
-			AgentID:   registration.AgentID,
-			Category:  "capability_report",
-			Level:     "error",
-			Summary:   "initial capability report failed",
-			Detail:    map[string]any{"error": err.Error(), "phase": "startup"},
-			EmittedAt: time.Now().Format(time.RFC3339),
-		})
-	} else {
-		logger.Info("capability report ok agentId=%s", registration.AgentID)
-	}
-
 	counters := &runtimeCounters{}
 	heartbeatTicker := time.NewTicker(time.Duration(heartbeat) * time.Second)
 	defer heartbeatTicker.Stop()
@@ -650,6 +743,7 @@ func runForeground(ctx context.Context, configPath string) error {
 	defer taskTicker.Stop()
 	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
 	defer healthTicker.Stop()
+	startCapabilityReportWorker(ctx, client, config, registration, identity, maxInt(taskPollSeconds, 60), logger)
 
 	if err := postHeartbeat(ctx, client, config, registration, counters, &status); err != nil {
 		logger.Warn("first heartbeat failed: %v", err)
@@ -757,6 +851,89 @@ func runForeground(ctx context.Context, configPath string) error {
 	}
 }
 
+func startCapabilityReportWorker(
+	ctx context.Context,
+	client *http.Client,
+	config *AgentConfig,
+	registration *runtimeRegistration,
+	identity runtimeIdentity,
+	intervalSeconds int,
+	logger *runtimeLogger,
+) {
+	go func() {
+		runCapabilityReport := func(phase string) {
+			requestCtx, cancel := context.WithTimeout(ctx, directWebDiscoveryTimeout)
+			defer cancel()
+			if err := reportCapabilitiesWithScanLog(requestCtx, client, config, registration, identity, logger); err != nil {
+				logger.Warn("%s capability report failed: %v", phase, err)
+				_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+					AgentID:   registration.AgentID,
+					Category:  "capability_report",
+					Level:     "error",
+					Summary:   phase + " capability report failed",
+					Detail:    map[string]any{"error": err.Error(), "phase": phase},
+					EmittedAt: time.Now().Format(time.RFC3339),
+				})
+				return
+			}
+			logger.Info("%s capability report ok agentId=%s", phase, registration.AgentID)
+		}
+
+		runCapabilityReport("initial")
+		ticker := time.NewTicker(time.Duration(maxInt(intervalSeconds, 60)) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runCapabilityReport("periodic")
+			}
+		}
+	}()
+}
+
+func registerAgentWithRetry(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity, logger *runtimeLogger) (*runtimeRegistration, error) {
+	for attempt := 0; ; attempt++ {
+		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		registration, err := registerAgent(requestCtx, client, config, identity)
+		cancel()
+		if err == nil {
+			return registration, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if logger != nil {
+			logger.Warn("agent registration failed attempt=%d: %v; retrying", attempt+1, err)
+		}
+		delay := time.Duration(5*(1<<minInt(attempt, 3))) * time.Second
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
 func loadConfig(path string) (*AgentConfig, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -795,6 +972,186 @@ func ensureDirWritable(path string) error {
 	}
 	_ = os.Remove(testPath)
 	return nil
+}
+
+func resolveAgentTrustMaterialPath(config *AgentConfig) string {
+	if configured := strings.TrimSpace(config.AuthorizationMaterialPath); configured != "" {
+		return configured
+	}
+	dataDir := strings.TrimSpace(config.Paths.Windows.DataDir)
+	if dataDir == "" {
+		return `C:\ProgramData\GCAC\FullAgentGo\data\policy\agent-trust-material.json`
+	}
+	return filepath.Join(dataDir, "policy", "agent-trust-material.json")
+}
+
+func persistAgentTrustMaterial(config *AgentConfig, agentID string, material *agentTrustMaterialWire) error {
+	if material == nil {
+		return errors.New("控制面未返回 Agent 授权材料")
+	}
+	if err := validateAgentTrustMaterial(config, agentID, material); err != nil {
+		return err
+	}
+	path := resolveAgentTrustMaterialPath(config)
+	if !filepath.IsAbs(path) {
+		return errors.New("Agent 授权材料路径必须是绝对路径")
+	}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return fmt.Errorf("编码 Agent 授权材料失败: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("创建 Agent 授权材料目录失败: %w", err)
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
+		return fmt.Errorf("写入 Agent 授权材料临时文件失败: %w", err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("替换 Agent 授权材料失败: %w", err)
+	}
+	return loadPersistedAgentTrustMaterial(config)
+}
+
+func loadPersistedAgentTrustMaterial(config *AgentConfig) error {
+	path := resolveAgentTrustMaterialPath(config)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 首次注册由控制面下发材料；已有材料则必须在启动时重新验签。
+			return nil
+		}
+		return fmt.Errorf("读取 Agent 授权材料失败: %w", err)
+	}
+	var material agentTrustMaterialWire
+	if err := json.Unmarshal(content, &material); err != nil {
+		return fmt.Errorf("解析 Agent 授权材料失败: %w", err)
+	}
+	if err := validateAgentTrustMaterial(config, material.LocalPolicy.AgentID, &material); err != nil {
+		return err
+	}
+	setAgentTrustMaterial(&material)
+	return nil
+}
+
+func setAgentTrustMaterial(material *agentTrustMaterialWire) {
+	agentTrustMaterialState.mu.Lock()
+	defer agentTrustMaterialState.mu.Unlock()
+	if material == nil {
+		agentTrustMaterialState.material = nil
+		return
+	}
+	cloned := *material
+	cloned.CapabilityKeySet = cloneStringMap(material.CapabilityKeySet)
+	cloned.PolicyAuthorityKeySet = cloneStringMap(material.PolicyAuthorityKeySet)
+	agentTrustMaterialState.material = &cloned
+}
+
+func currentAgentTrustMaterial() *agentTrustMaterialWire {
+	agentTrustMaterialState.mu.RLock()
+	defer agentTrustMaterialState.mu.RUnlock()
+	if agentTrustMaterialState.material == nil {
+		return nil
+	}
+	cloned := *agentTrustMaterialState.material
+	cloned.CapabilityKeySet = cloneStringMap(agentTrustMaterialState.material.CapabilityKeySet)
+	cloned.PolicyAuthorityKeySet = cloneStringMap(agentTrustMaterialState.material.PolicyAuthorityKeySet)
+	return &cloned
+}
+
+func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *agentTrustMaterialWire) error {
+	if material == nil || material.MaterialVersion != "gcac.agent-trust-material/v1" ||
+		strings.TrimSpace(agentID) == "" ||
+		material.LocalPolicy.AgentID != agentID ||
+		material.LocalPolicy.PolicyVersion != agentSecurityContract ||
+		material.LocalPolicyAuthorityKeyID == "" ||
+		material.LocalPolicySignature == "" ||
+		len(material.CapabilityKeySet) == 0 ||
+		len(material.PolicyAuthorityKeySet) == 0 {
+		return errors.New("Agent 授权材料缺失必要字段")
+	}
+	issuedAt, issuedErr := time.Parse(time.RFC3339Nano, material.IssuedAt)
+	validUntil, validErr := time.Parse(time.RFC3339Nano, material.ValidUntil)
+	if issuedErr != nil || validErr != nil || !validUntil.After(issuedAt) || !time.Now().Before(validUntil) {
+		return errors.New("Agent 授权材料已过期或时间窗无效")
+	}
+	if !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
+		return errors.New("Agent 本地策略未信任签发 Key")
+	}
+	trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
+	if !ok || strings.TrimSpace(trustedKey) == "" {
+		return errors.New("Agent 安装配置未固定本地策略签发 Key")
+	}
+	if err := verifyTrustMaterialSignature(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
+		return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+	}
+	if !sameStringMap(material.CapabilityKeySet, config.AuthorizationTrustKeySet) ||
+		!sameStringMap(material.PolicyAuthorityKeySet, config.AuthorizationTrustKeySet) {
+		return errors.New("Agent 授权材料 KeySet 与安装信任根不匹配")
+	}
+	return nil
+}
+
+func verifyTrustMaterialSignature(keyID, signature string, value any, keySet map[string]string) error {
+	encodedKey, ok := keySet[keyID]
+	if !ok {
+		return errors.New("本地策略签发 Key 未配置")
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(encodedKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("本地策略签发 Key 无效")
+	}
+	signed, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil {
+		signed, err = base64.StdEncoding.DecodeString(signature)
+	}
+	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalJSON(value), signed) {
+		return errors.New("signature verification failed")
+	}
+	return nil
+}
+
+func localPolicyWithoutSignature(policy agentLocalPolicyWire) map[string]any {
+	// Node 控制面按对象键的字典序规范化 JSON；结构体字段顺序会导致跨语言签名不一致。
+	pathRules := make([]map[string]any, 0, len(policy.PathRules))
+	for _, rule := range policy.PathRules {
+		pathRules = append(pathRules, map[string]any{
+			"operations": rule.Operations,
+			"prefix":     rule.Prefix,
+		})
+	}
+	return map[string]any{
+		"policyVersion":   policy.PolicyVersion,
+		"agentId":         policy.AgentID,
+		"authorityKeyIds": policy.AuthorityKeyIDs,
+		"allowedActions":  policy.AllowedActions,
+		"pathRules":       pathRules,
+		"serviceRules":    policy.ServiceRules,
+		"commandRules":    policy.CommandRules,
+		"disabled":        policy.Disabled,
+		"updatedAt":       policy.UpdatedAt,
+	}
+}
+
+func sameStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	cloned := make(map[string]string, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func resolveRuntimeStatusPath(config *AgentConfig) string {
@@ -1040,26 +1397,83 @@ func managementEndpointForIdentity(identity runtimeIdentity, config *AgentConfig
 	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config))))
 }
 
-func startManagementServer(config *AgentConfig, identity runtimeIdentity) (*http.Server, string, error) {
+func startManagementServer(
+	config *AgentConfig,
+	identity runtimeIdentity,
+	executeDiscovery func(context.Context, map[string]any) directDiscoveryResponse,
+) (*http.Server, string, error) {
 	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
 	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		return nil, "", fmt.Errorf("管理 TCP 监听启动失败 %s: %w", listenAddress, err)
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || (request.URL.Path != "/api/v1/control/health" && request.URL.Path != "/healthz") {
-			http.Error(writer, "management endpoint only supports health checks", http.StatusNotFound)
-			return
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion})
-	})}
+	server := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      directWebDiscoveryTimeout,
+		Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.Method == http.MethodGet && (request.URL.Path == "/api/v1/control/health" || request.URL.Path == "/healthz") {
+				writer.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion})
+				return
+			}
+			if request.Method != http.MethodPost || request.URL.Path != "/api/v1/control/discovery" {
+				writer.Header().Set("Allow", "GET, POST")
+				http.Error(writer, "management endpoint only supports health checks and direct web discovery", http.StatusNotFound)
+				return
+			}
+			if executeDiscovery == nil {
+				writeDirectDiscoveryResponse(writer, http.StatusServiceUnavailable, directDiscoveryResponse{
+					ErrorCode: "AGENT_DIRECT_DISCOVERY_UNAVAILABLE", ErrorMessage: "Agent 运行时尚未完成注册",
+				})
+				return
+			}
+			defer request.Body.Close()
+			var payload map[string]any
+			decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 1<<20))
+			if err := decoder.Decode(&payload); err != nil || payload == nil {
+				writeDirectDiscoveryResponse(writer, http.StatusBadRequest, directDiscoveryResponse{
+					ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: "直接重新发现请求不是有效 JSON",
+				})
+				return
+			}
+			requestCtx, cancel := context.WithTimeout(request.Context(), directWebDiscoveryTimeout)
+			defer cancel()
+			result := executeDiscovery(requestCtx, payload)
+			if requestCtx.Err() == context.DeadlineExceeded && !result.Success && result.ErrorCode == "" {
+				result = directDiscoveryResponse{
+					ErrorCode:    "AGENT_DIRECT_DISCOVERY_TIMEOUT",
+					ErrorMessage: "Agent Web 重新扫描超过 90 秒，已取消本次请求",
+				}
+			}
+			writeDirectDiscoveryResponse(writer, directDiscoveryHTTPStatus(result), result)
+		}),
+	}
 	go func() { _ = server.Serve(listener) }()
 	host := strings.TrimSpace(identity.PrimaryIPAddress)
 	if host == "" {
 		host = "127.0.0.1"
 	}
 	return server, fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config)))), nil
+}
+
+func writeDirectDiscoveryResponse(writer http.ResponseWriter, status int, response directDiscoveryResponse) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(response)
+}
+
+func directDiscoveryHTTPStatus(response directDiscoveryResponse) int {
+	if response.Success {
+		return http.StatusOK
+	}
+	switch response.ErrorCode {
+	case "AGENT_DIRECT_DISCOVERY_IN_PROGRESS":
+		return http.StatusConflict
+	case "AGENT_DIRECT_DISCOVERY_TIMEOUT":
+		return http.StatusGatewayTimeout
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func runWindowsService(name string, program *serviceProgram) error {
@@ -1251,17 +1665,16 @@ func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 }
 
 func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
-	return collectCapabilityReportsWithInventory(identity, nil)
+	return collectCapabilityReportsWithConfiguredInventory(identity, nil, nil)
 }
 
 func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory map[string]any) []reportedCapability {
+	return collectCapabilityReportsWithConfiguredInventory(identity, nil, inventory)
+}
+
+func collectCapabilityReportsWithConfiguredInventory(identity runtimeIdentity, config *AgentConfig, inventory map[string]any) []reportedCapability {
 	if inventory == nil {
-		inventory = map[string]any{
-			"processExecutables": collectWindowsWebProcessExecutables(context.Background()),
-			"listeningPorts":     collectWindowsListeningPorts(context.Background()),
-			"configFiles":        collectWindowsWebConfigFiles(),
-			"certificateFiles":   collectWindowsCertificateFiles(),
-		}
+		inventory = collectWindowsWebInventory(context.Background(), config)
 	}
 	return []reportedCapability{
 		{
@@ -1285,16 +1698,228 @@ func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory m
 	}
 }
 
-// 只读取受控目录中的原始配置；控制面会再次校验并完成最终资产投影。
-func collectWindowsWebConfigFiles() []map[string]any {
+func collectWindowsWebInventory(ctx context.Context, config *AgentConfig, discoverySpecs ...agentDiscoverySpecV1) map[string]any {
+	return collectWindowsWebInventoryWithLogger(ctx, config, nil, discoverySpecs...)
+}
+
+// 周期库存只做受控事实刷新。完整产品语法解析由宿主插件完成，Agent 不再扫全局目录。
+func collectWindowsWebInventoryWithLogger(ctx context.Context, config *AgentConfig, logger *runtimeLogger, discoverySpecs ...agentDiscoverySpecV1) map[string]any {
+	started := time.Now()
+	scanCtx, cancel := context.WithTimeout(ctx, windowsDiscoveryScanTimeout)
+	defer cancel()
+	budget := newWindowsDiscoveryBudget(scanCtx, windowsDiscoveryVisitLimit)
+	phaseDurations := map[string]int64{}
+	timed := func(phase string, run func()) {
+		phaseStarted := time.Now()
+		run()
+		phaseDurations[phase] = time.Since(phaseStarted).Milliseconds()
+	}
+
+	discoverySpec := agentDiscoverySpecV1{}
+	if len(discoverySpecs) > 0 {
+		discoverySpec = sanitizeAgentDiscoverySpec(discoverySpecs[0])
+	}
+	roots := configuredWindowsInventoryRoots(config)
+	listeningPorts := []map[string]any{}
+	processFacts := []map[string]any{}
+	serviceFacts := []map[string]any{}
+	configFiles := []map[string]any{}
+	certificateFiles := []map[string]any{}
+	sslBindings := []map[string]any{}
+
+	timed("ports", func() {
+		listeningPorts = collectWindowsListeningPorts(scanCtx)
+	})
+	timed("processes", func() {
+		processFacts = collectWindowsProcesses(scanCtx, listeningPorts)
+	})
+	timed("services", func() {
+		serviceFacts = collectWindowsDiscoveryServices(scanCtx, discoverySpec)
+	})
+	timed("config", func() {
+		configFiles = collectWindowsWebConfigFiles(scanCtx, budget, roots)
+		configFiles = append(configFiles, collectWindowsProcessConfigFiles(scanCtx, budget, processFacts)...)
+		configFiles = append(configFiles, collectWindowsDiscoveryConfigFiles(scanCtx, discoverySpec, processFacts, serviceFacts)...)
+	})
+	timed("certificates", func() {
+		certificateFiles = collectWindowsCertificateFiles(scanCtx, budget, roots)
+		certificateFiles = append(certificateFiles, collectWindowsProcessCertificateFiles(scanCtx, budget, processFacts)...)
+		certificateFiles = append(certificateFiles, collectWindowsDiscoveryCertificateFiles(scanCtx, discoverySpec, processFacts, serviceFacts)...)
+		certificateFiles = append(certificateFiles, collectWindowsCertificateFilesFromConfigFiles(discoverySpec, configFiles)...)
+		sslBindings = collectWindowsSSLCertificateBindings(scanCtx)
+	})
+	if logger != nil {
+		logger.Info(
+			"web inventory scan completed totalMs=%d portsMs=%d processesMs=%d servicesMs=%d configMs=%d certificatesMs=%d roots=%d visited=%d stopped=%t stopReason=%s processes=%d services=%d configFiles=%d certificateFiles=%d sslBindings=%d",
+			time.Since(started).Milliseconds(),
+			phaseDurations["ports"],
+			phaseDurations["processes"],
+			phaseDurations["services"],
+			phaseDurations["config"],
+			phaseDurations["certificates"],
+			len(roots),
+			budget.visitedCount(),
+			budget.stopped(),
+			budget.stopReason(),
+			len(processFacts),
+			len(serviceFacts),
+			len(configFiles),
+			len(certificateFiles),
+			len(sslBindings),
+		)
+	}
+	return map[string]any{
+		"processes":              processFacts,
+		"processExecutables":     processExecutablePaths(processFacts),
+		"services":               serviceFacts,
+		"listeningPorts":         listeningPorts,
+		"sslCertificateBindings": sslBindings,
+		"configFiles":            configFiles,
+		"certificateFiles":       certificateFiles,
+	}
+}
+
+func configuredWindowsInventoryRoots(config *AgentConfig) []string {
+	paths := []string{}
+	if config != nil {
+		paths = append(paths, config.Paths.Windows.InventoryPaths...)
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" || isBlockedWindowsInventoryRoot(path) {
+			continue
+		}
+		key := strings.ToLower(filepath.Clean(path))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, path)
+	}
+	return result
+}
+
+func isBlockedWindowsInventoryRoot(path string) bool {
+	normalized := strings.TrimRight(strings.ToLower(filepath.Clean(path)), `\/`)
+	blocked := []string{
+		`c:\programdata`,
+		`c:\program files`,
+		`c:\program files (x86)`,
+		`c:\windows`,
+		`c:\`,
+	}
+	for _, item := range blocked {
+		if normalized == strings.TrimRight(strings.ToLower(filepath.Clean(item)), `\/`) {
+			return true
+		}
+	}
+	return false
+}
+
+type windowsDiscoveryBudget struct {
+	ctx        context.Context
+	maxVisits int
+	mu         sync.Mutex
+	visits     int
+	stop       bool
+	reason     string
+}
+
+func newWindowsDiscoveryBudget(ctx context.Context, maxVisits int) *windowsDiscoveryBudget {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if maxVisits <= 0 {
+		maxVisits = windowsDiscoveryVisitLimit
+	}
+	return &windowsDiscoveryBudget{ctx: ctx, maxVisits: maxVisits}
+}
+
+func (budget *windowsDiscoveryBudget) visit() error {
+	if budget == nil {
+		return nil
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if err := budget.ctx.Err(); err != nil {
+		budget.stop = true
+		if budget.reason == "" {
+			if errors.Is(err, context.DeadlineExceeded) {
+				budget.reason = "扫描超过期限"
+			} else {
+				budget.reason = "请求已取消"
+			}
+		}
+		return err
+	}
+	if budget.visits >= budget.maxVisits {
+		budget.stop = true
+		if budget.reason == "" {
+			budget.reason = "扫描访问条目超过上限"
+		}
+		return filepath.SkipAll
+	}
+	budget.visits++
+	return nil
+}
+
+func (budget *windowsDiscoveryBudget) stopped() bool {
+	if budget == nil {
+		return false
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if err := budget.ctx.Err(); err != nil {
+		budget.stop = true
+		if budget.reason == "" {
+			if errors.Is(err, context.DeadlineExceeded) {
+				budget.reason = "扫描超过期限"
+			} else {
+				budget.reason = "请求已取消"
+			}
+		}
+	}
+	return budget.stop
+}
+
+func (budget *windowsDiscoveryBudget) stopReason() string {
+	if budget == nil {
+		return ""
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return budget.reason
+}
+
+func (budget *windowsDiscoveryBudget) visitedCount() int {
+	if budget == nil {
+		return 0
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return budget.visits
+}
+
+func discoveryBudgetStopped(ctx context.Context, budget *windowsDiscoveryBudget) bool {
+	if ctx != nil && ctx.Err() != nil {
+		if budget != nil {
+			_ = budget.visit()
+		}
+		return true
+	}
+	return budget != nil && budget.stopped()
+}
+
+// 只读取配置声明的受控目录中的原始配置；控制面会再次校验并完成最终资产投影。
+func collectWindowsWebConfigFiles(ctx context.Context, budget *windowsDiscoveryBudget, roots []string) []map[string]any {
 	files := make([]map[string]any, 0, 128)
 	seen := make(map[string]struct{})
-	roots := []string{
-		`C:\Windows\System32\inetsrv\config\applicationHost.config`,
-		`C:\nginx`, `C:\Apache24`, `C:\Tomcat`,
-		`C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`,
-	}
 	for _, root := range roots {
+		if discoveryBudgetStopped(ctx, budget) {
+			break
+		}
 		if _, exists := seen[strings.ToLower(root)]; exists {
 			continue
 		}
@@ -1306,8 +1931,13 @@ func collectWindowsWebConfigFiles() []map[string]any {
 			continue
 		}
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if len(files) >= 256 {
+			if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
 				return filepath.SkipAll
+			}
+			if budget != nil {
+				if err := budget.visit(); err != nil {
+					return filepath.SkipAll
+				}
 			}
 			if walkErr != nil || entry == nil || entry.IsDir() {
 				return nil
@@ -1325,11 +1955,333 @@ func collectWindowsWebConfigFiles() []map[string]any {
 			}
 			return nil
 		})
-		if len(files) >= 256 {
+		if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
 			break
 		}
 	}
 	return files
+}
+
+// 从监听端口关联到进程镜像后，只在镜像目录附近读取有限数量的配置文件。
+// 这里不解析产品语法，也不按端口号猜测框架；宿主插件仍是唯一解析入口。
+func collectWindowsProcessConfigFiles(ctx context.Context, budget *windowsDiscoveryBudget, processFacts []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, 64)
+	seen := make(map[string]struct{})
+	for _, process := range processFacts {
+		if discoveryBudgetStopped(ctx, budget) {
+			break
+		}
+		for _, root := range windowsProcessDiscoveryRoots(ctx, process) {
+			for depth := 0; depth < 3 && root != ""; depth++ {
+				for _, candidateRoot := range []string{root, filepath.Join(root, "conf"), filepath.Join(root, "config"), filepath.Join(root, "..", "conf"), filepath.Join(root, "..", "config")} {
+					if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
+						return files
+					}
+					info, err := os.Stat(candidateRoot)
+					if err != nil || !info.IsDir() {
+						continue
+					}
+					_ = filepath.WalkDir(candidateRoot, func(candidate string, entry os.DirEntry, walkErr error) error {
+						if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
+							return filepath.SkipAll
+						}
+						if budget != nil {
+							if err := budget.visit(); err != nil {
+								return filepath.SkipAll
+							}
+						}
+						if walkErr != nil || entry == nil {
+							return nil
+						}
+						if entry.IsDir() {
+							if strings.Count(strings.TrimPrefix(candidate, candidateRoot), string(os.PathSeparator)) > 2 {
+								return filepath.SkipDir
+							}
+							return nil
+						}
+						ext := strings.ToLower(filepath.Ext(candidate))
+						if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
+							return nil
+						}
+						key := strings.ToLower(filepath.Clean(candidate))
+						if _, exists := seen[key]; exists {
+							return nil
+						}
+						if item := collectWebConfigFile(candidate); item != nil {
+							seen[key] = struct{}{}
+							files = append(files, item)
+						}
+						return nil
+					})
+				}
+				parent := filepath.Dir(root)
+				if strings.EqualFold(parent, root) {
+					break
+				}
+				root = parent
+			}
+		}
+	}
+	return files
+}
+
+func collectWindowsProcessCertificateFiles(ctx context.Context, budget *windowsDiscoveryBudget, processFacts []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, 64)
+	seen := make(map[string]struct{})
+	for _, process := range processFacts {
+		if discoveryBudgetStopped(ctx, budget) {
+			break
+		}
+		for _, root := range windowsProcessDiscoveryRoots(ctx, process) {
+			for depth := 0; depth < 3 && root != ""; depth++ {
+				for _, candidateRoot := range []string{root, filepath.Join(root, "conf"), filepath.Join(root, "config"), filepath.Join(root, "..", "conf"), filepath.Join(root, "..", "config")} {
+					if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
+						return files
+					}
+					info, err := os.Stat(candidateRoot)
+					if err != nil || !info.IsDir() {
+						continue
+					}
+					_ = filepath.WalkDir(candidateRoot, func(candidate string, entry os.DirEntry, walkErr error) error {
+						if len(files) >= 128 || discoveryBudgetStopped(ctx, budget) {
+							return filepath.SkipAll
+						}
+						if budget != nil {
+							if err := budget.visit(); err != nil {
+								return filepath.SkipAll
+							}
+						}
+						if walkErr != nil || entry == nil {
+							return nil
+						}
+						if entry.IsDir() {
+							if strings.Count(strings.TrimPrefix(candidate, candidateRoot), string(os.PathSeparator)) > 2 {
+								return filepath.SkipDir
+							}
+							return nil
+						}
+						ext := strings.ToLower(filepath.Ext(candidate))
+						if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".der" {
+							return nil
+						}
+						key := strings.ToLower(filepath.Clean(candidate))
+						if _, exists := seen[key]; exists {
+							return nil
+						}
+						if item := collectWindowsCertificateFile(candidate); item != nil {
+							seen[key] = struct{}{}
+							files = append(files, item)
+						}
+						return nil
+					})
+				}
+				parent := filepath.Dir(root)
+				if strings.EqualFold(parent, root) {
+					break
+				}
+				root = parent
+			}
+		}
+	}
+	return files
+}
+
+func collectWindowsDiscoveryConfigFiles(ctx context.Context, spec agentDiscoverySpecV1, processFacts []map[string]any, serviceFacts []map[string]any) []map[string]any {
+	if len(spec.Profiles) == 0 {
+		return []map[string]any{}
+	}
+	files := make([]map[string]any, 0, 32)
+	seen := make(map[string]struct{})
+	for _, path := range windowsDiscoveryCandidatePaths(ctx, spec, processFacts, serviceFacts) {
+		if len(files) >= 128 {
+			break
+		}
+		if !isWindowsDiscoveryConfigPath(spec, path) {
+			continue
+		}
+		key := strings.ToLower(filepath.Clean(path))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		if item := collectWebConfigFile(path); item != nil {
+			seen[key] = struct{}{}
+			files = append(files, item)
+		}
+	}
+	return files
+}
+
+func collectWindowsDiscoveryCertificateFiles(ctx context.Context, spec agentDiscoverySpecV1, processFacts []map[string]any, serviceFacts []map[string]any) []map[string]any {
+	if len(spec.Profiles) == 0 {
+		return []map[string]any{}
+	}
+	files := make([]map[string]any, 0, 32)
+	seen := make(map[string]struct{})
+	for _, path := range windowsDiscoveryCandidatePaths(ctx, spec, processFacts, serviceFacts) {
+		if len(files) >= 128 {
+			break
+		}
+		if !isWindowsDiscoveryCertificatePath(spec, path) {
+			continue
+		}
+		key := strings.ToLower(filepath.Clean(path))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		if item := collectWindowsCertificateFile(path); item != nil {
+			seen[key] = struct{}{}
+			files = append(files, item)
+		}
+	}
+	return files
+}
+
+func collectWindowsCertificateFilesFromConfigFiles(spec agentDiscoverySpecV1, configFiles []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, 16)
+	seen := map[string]struct{}{}
+	for _, file := range configFiles {
+		configPath := stringFromMap(file, "path")
+		content := stringFromMap(file, "content")
+		if configPath == "" || content == "" {
+			continue
+		}
+		for _, certificatePath := range windowsCertificateReferencesFromConfigContent(spec, configPath, content) {
+			key := strings.ToLower(filepath.Clean(certificatePath))
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			if item := collectWindowsCertificateFile(certificatePath); item != nil {
+				files = append(files, item)
+			}
+			if len(files) >= 128 {
+				return files
+			}
+		}
+	}
+	return files
+}
+
+func isWindowsDiscoveryConfigPath(spec agentDiscoverySpecV1, path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".conf" || ext == ".xml" || ext == ".properties" || ext == ".config" {
+		return true
+	}
+	name := strings.ToLower(filepath.Base(path))
+	for _, profile := range spec.Profiles {
+		for _, allowed := range profile.ConfigFileNames {
+			allowed = strings.ToLower(allowed)
+			if strings.HasPrefix(allowed, "*.") && strings.HasSuffix(name, strings.TrimPrefix(allowed, "*")) {
+				return true
+			}
+			if name == allowed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func windowsProcessDiscoveryRoots(ctx context.Context, process map[string]any) []string {
+	roots := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	appendRoot := func(value string) {
+		value = strings.Trim(strings.TrimSpace(value), "\"")
+		if value == "" {
+			return
+		}
+		if !filepath.IsAbs(value) {
+			return
+		}
+		if info, err := os.Stat(value); err == nil && info.IsDir() {
+			value = filepath.Clean(value)
+		} else {
+			value = filepath.Dir(value)
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		roots = append(roots, value)
+	}
+	appendRoot(filepath.Dir(stringFromMap(process, "executablePath")))
+	pid := uint32(intFromMap(process, "pid"))
+	if pid == 0 {
+		return roots
+	}
+	commandLine := windowsProcessCommandLine(ctx, pid)
+	for _, token := range parseWindowsCommandLine(commandLine) {
+		if path := windowsDrivePathFromToken(token); path != "" {
+			appendRoot(path)
+		}
+	}
+	return roots
+}
+
+func windowsDrivePathFromToken(token string) string {
+	for index := 0; index+2 < len(token); index++ {
+		letter := token[index]
+		if ((letter >= 'A' && letter <= 'Z') || (letter >= 'a' && letter <= 'z')) && token[index+1] == ':' && (token[index+2] == '\\' || token[index+2] == '/') {
+			return strings.Trim(token[index:], "\"'")
+		}
+	}
+	return ""
+}
+
+// 按 Windows 命令行规则保留带空格的参数；这里只在本地提取路径，
+// 不把完整命令行写入事实快照，避免把密码或 Token 带回控制面。
+func parseWindowsCommandLine(commandLine string) []string {
+	result := make([]string, 0, 8)
+	var builder strings.Builder
+	inQuotes := false
+	started := false
+	flush := func() {
+		if !started {
+			return
+		}
+		result = append(result, builder.String())
+		builder.Reset()
+		started = false
+	}
+	for index := 0; index < len(commandLine); {
+		current := commandLine[index]
+		if current == '"' {
+			inQuotes = !inQuotes
+			started = true
+			index++
+			continue
+		}
+		if (current == ' ' || current == '\t' || current == '\r' || current == '\n') && !inQuotes {
+			flush()
+			index++
+			continue
+		}
+		builder.WriteByte(current)
+		started = true
+		index++
+	}
+	flush()
+	return result
+}
+
+func processExecutablePaths(processFacts []map[string]any) []string {
+	paths := make([]string, 0, len(processFacts))
+	seen := make(map[string]struct{})
+	for _, process := range processFacts {
+		path := filepath.ToSlash(stringFromMap(process, "executablePath"))
+		if path == "" {
+			continue
+		}
+		key := strings.ToLower(path)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func collectWebConfigFile(path string) map[string]any {
@@ -1349,14 +2301,21 @@ func collectWebConfigFile(path string) map[string]any {
 }
 
 // 仅回传公开证书摘要，不回传 PEM、私钥或 PKCS#12 原文。
-func collectWindowsCertificateFiles() []map[string]any {
+func collectWindowsCertificateFiles(ctx context.Context, budget *windowsDiscoveryBudget, roots []string) []map[string]any {
 	files := make([]map[string]any, 0, 64)
 	seen := make(map[string]struct{})
-	roots := []string{`C:\nginx`, `C:\Apache24`, `C:\Tomcat`, `C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`}
 	for _, root := range roots {
+		if discoveryBudgetStopped(ctx, budget) {
+			break
+		}
 		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if len(files) >= 256 {
+			if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
 				return filepath.SkipAll
+			}
+			if budget != nil {
+				if err := budget.visit(); err != nil {
+					return filepath.SkipAll
+				}
 			}
 			if walkErr != nil || entry == nil || entry.IsDir() {
 				return nil
@@ -1375,8 +2334,15 @@ func collectWindowsCertificateFiles() []map[string]any {
 			}
 			return nil
 		})
-		if len(files) >= 256 {
+		if len(files) >= windowsDiscoveryReadFileLimit || discoveryBudgetStopped(ctx, budget) {
 			break
+		}
+	}
+	// Windows 证书库绑定使用 Thumbprint，而不是磁盘证书文件。
+	// 周期库存也必须携带 LocalMachine\My 摘要，以建立证书关联。
+	for _, fact := range collectWindowsCertificateStores(ctx) {
+		if certificate := certificateFileFromFact(fact); certificate != nil {
+			files = append(files, certificate)
 		}
 	}
 	return files
@@ -1396,10 +2362,12 @@ func collectWindowsCertificateFile(path string) map[string]any {
 		return nil
 	}
 	fingerprint := sha256.Sum256(certificate.Raw)
+	thumbprint := sha1.Sum(certificate.Raw)
 	return map[string]any{
 		"path":              filepath.ToSlash(path),
 		"configuredPaths":   []string{filepath.Base(path)},
 		"sha256Fingerprint": hex.EncodeToString(fingerprint[:]),
+		"thumbprint":        hex.EncodeToString(thumbprint[:]),
 		"subject":           certificate.Subject.String(),
 		"issuer":            certificate.Issuer.String(),
 		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
@@ -1552,6 +2520,11 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	if strings.TrimSpace(response.ID) == "" {
 		return nil, errors.New("注册 Agent 失败: 控制面未返回有效 agentId")
 	}
+	if response.TrustMaterial != nil {
+		if err := persistAgentTrustMaterial(config, response.ID, response.TrustMaterial); err != nil {
+			return nil, fmt.Errorf("保存 Agent 授权材料失败: %w", err)
+		}
+	}
 
 	return &runtimeRegistration{
 		AgentID:  response.ID,
@@ -1584,10 +2557,18 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 	return reportCapabilitiesWithInventory(ctx, client, config, registration, identity, nil)
 }
 
+func reportCapabilitiesWithScanLog(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, logger *runtimeLogger) error {
+	var inventory map[string]any
+	if !isPureGatewayRole(config) {
+		inventory = collectWindowsWebInventoryWithLogger(ctx, config, logger)
+	}
+	return reportCapabilitiesWithInventory(ctx, client, config, registration, identity, inventory)
+}
+
 func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity, inventory map[string]any) error {
 	capabilities := []reportedCapability{}
 	if !isPureGatewayRole(config) {
-		capabilities = collectCapabilityReportsWithInventory(identity, inventory)
+		capabilities = collectCapabilityReportsWithConfiguredInventory(identity, config, inventory)
 	}
 	request := capabilityReportRequest{
 		AgentID:            registration.AgentID,
@@ -1608,10 +2589,67 @@ func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, c
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
 }
 
+// executeDirectWebDiscovery 是手动重新发现的唯一直连出口。
+// 它只接收带签名的 agent.fact.collect，禁止把管理端口变成通用任务执行通道。
+func executeDirectWebDiscovery(
+	ctx context.Context,
+	client *http.Client,
+	config *AgentConfig,
+	registration *runtimeRegistration,
+	payload map[string]any,
+	logger *runtimeLogger,
+) directDiscoveryResponse {
+	if client == nil || config == nil || registration == nil || strings.TrimSpace(registration.AgentID) == "" {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_UNAVAILABLE", ErrorMessage: "Agent 运行时尚未完成注册"}
+	}
+	wirePayload, action, err := decodeQueuedAgentV2Payload(payload)
+	if err != nil {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: err.Error()}
+	}
+	if action != agentFactCollect || !boolFromMap(wirePayload, "refreshWebInventory") {
+		return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_INVALID", ErrorMessage: "管理端点只接受 agent.fact.collect Web 库存刷新"}
+	}
+	started := time.Now()
+	if logger != nil {
+		logger.Info("direct web discovery started requestId=%s", stringFromMap(wirePayload, "requestId"))
+	}
+	success, errorCode, errorMessage, detail := executeAgentV2(ctx, wirePayload, registration.AgentID)
+	if !success {
+		if ctx.Err() == context.DeadlineExceeded {
+			return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_TIMEOUT", ErrorMessage: "Agent Web 重新扫描超过 90 秒，已取消本次请求"}
+		}
+		return directDiscoveryResponse{ErrorCode: firstNonEmpty(errorCode, "AGENT_DIRECT_DISCOVERY_DENIED"), ErrorMessage: firstNonEmpty(errorMessage, "Agent v2 授权校验失败")}
+	}
+	factEnvelope := mapFromMap(detail, "factEnvelope")
+	if factEnvelope == nil {
+		return directDiscoveryResponse{ErrorCode: "AGENT_FACT_COLLECTION_FAILED", ErrorMessage: "Agent v2 未返回 factEnvelope，不能生成 Web 库存"}
+	}
+	logDiscoveryDiagnostics(logger, "direct", stringFromMap(wirePayload, "requestId"), started, factEnvelope)
+	// agent.fact.collect 已经完成本轮进程、端口、服务、配置和证书采集。
+	// 直接把同一份事实转换成 web.inventory，避免再次扫描造成快照漂移。
+	inventory := webInventoryFromFactEnvelope(factEnvelope)
+	if err := reportCapabilitiesWithInventory(ctx, client, config, registration, collectRuntimeIdentity(config.ControlPlane), inventory); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_TIMEOUT", ErrorMessage: "Agent Web 重新扫描超过 90 秒，已取消本次请求"}
+		}
+		return directDiscoveryResponse{ErrorCode: "CAPABILITY_RESCAN_FAILED", ErrorMessage: fmt.Sprintf("Web 库存上报失败: %v", err)}
+	}
+	if logger != nil {
+		logger.Info("direct web discovery completed requestId=%s totalMs=%d", stringFromMap(wirePayload, "requestId"), time.Since(started).Milliseconds())
+	}
+	return directDiscoveryResponse{
+		Success: true,
+		Detail: map[string]any{
+			"capabilityRescan": map[string]any{"trigger": "direct", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": true},
+			"webInventory":     map[string]any{"configFiles": lenOfAny(inventory["configFiles"]), "certificateFiles": lenOfAny(inventory["certificateFiles"]), "listeningPorts": lenOfAny(inventory["listeningPorts"])},
+		},
+	}
+}
+
 // webInventoryFromFactEnvelope 将事实采集结果转换为宿主可消费的通用 Web 库存。
 // Agent 只搬运原始配置、监听和证书元数据；框架语法解析由宿主插件完成。
 func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
-	inventory := map[string]any{"processExecutables": []string{}, "listeningPorts": []map[string]any{}, "configFiles": []map[string]any{}, "certificateFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
+	inventory := map[string]any{"processes": []map[string]any{}, "processExecutables": []string{}, "services": []map[string]any{}, "listeningPorts": []map[string]any{}, "sslCertificateBindings": []map[string]any{}, "configFiles": []map[string]any{}, "certificateFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
 	if envelope == nil {
 		return inventory
 	}
@@ -1619,15 +2657,39 @@ func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
 	for _, fact := range facts {
 		switch stringFromMap(fact, "kind") {
 		case "process":
+			inventory["processes"] = append(inventory["processes"].([]map[string]any), fact)
 			if executable := stringFromMap(fact, "executablePath"); executable != "" {
 				inventory["processExecutables"] = append(inventory["processExecutables"].([]string), executable)
 			}
 			continue
+		case "service":
+			inventory["services"] = append(inventory["services"].([]map[string]any), fact)
+			continue
 		case "listening_port":
-			inventory["listeningPorts"] = append(inventory["listeningPorts"].([]map[string]any), map[string]any{
+			port := map[string]any{
 				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": stringFromMap(fact, "protocol"),
-			})
+			}
+			if pid := intFromMap(fact, "pid"); pid > 0 {
+				port["pid"] = pid
+			}
+			inventory["listeningPorts"] = append(inventory["listeningPorts"].([]map[string]any), port)
+		case "ssl_certificate_binding":
+			binding := map[string]any{
+				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": "https",
+				"thumbprint": normalizeCertificateHex(stringFromMap(fact, "thumbprint")),
+			}
+			for _, key := range []string{"store", "hostname"} {
+				if value := stringFromMap(fact, key); value != "" {
+					binding[key] = value
+				}
+			}
+			inventory["sslCertificateBindings"] = append(inventory["sslCertificateBindings"].([]map[string]any), binding)
 		case "certificate_store":
+			if certificate := certificateFileFromFact(fact); certificate != nil {
+				inventory["certificateFiles"] = append(inventory["certificateFiles"].([]map[string]any), certificate)
+			}
+			continue
+		case "certificate_file":
 			if certificate := certificateFileFromFact(fact); certificate != nil {
 				inventory["certificateFiles"] = append(inventory["certificateFiles"].([]map[string]any), certificate)
 			}
@@ -1983,7 +3045,11 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 		if !result.Success {
 			return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 		}
-		inventory := webInventoryFromFactEnvelope(mapFromMap(result.Detail, "factEnvelope"))
+		factEnvelope := mapFromMap(result.Detail, "factEnvelope")
+		if factEnvelope == nil {
+			return false, "AGENT_FACT_COLLECTION_FAILED", "Agent v2 未返回 factEnvelope，不能生成 Web 库存", result.Detail
+		}
+		inventory := webInventoryFromFactEnvelope(factEnvelope)
 		if err := reportCapabilitiesWithInventory(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane), inventory); err != nil {
 			detail := cloneMap(result.Detail)
 			detail["capabilityRescan"] = map[string]any{"trigger": "manual", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": false, "error": err.Error()}

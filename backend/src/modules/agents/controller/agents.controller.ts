@@ -21,7 +21,6 @@ import type {
   DeleteAgentInput,
   DisableAgentInput,
   EnableAgentInput,
-  EnqueueAgentCapabilityRescanInput,
   EnqueueAgentTaskInput,
   PublishAgentVersionInput,
   RegisterAgentInput,
@@ -51,7 +50,7 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks', '查询 Agent 任务队列', tags, (request) => this.listTaskQueue(request));
     router.get('/api/v1/agents/tasks/log-cursor', '查询 Agent 日志 ack cursor', tags, (request) => this.getLogCursor(request));
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
-    router.post('/api/v1/agents/:agentId/rescan', '创建 Agent 手动能力重扫任务', tags, (request) => this.enqueueCapabilityRescan(request));
+    router.post('/api/v1/agents/:agentId/rescan', '通过管理端点直接执行 Agent 手动能力重扫', tags, (request) => this.refreshDiscovery(request));
     router.post('/api/v1/agents/:agentId/management-probe', '立即探测 Agent TCP 管理端口', tags, (request) => this.probeManagementEndpoint(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-materials', '创建固定版本 Agent 安装材料', tags, (request) => this.createAgentInstallMaterials(request));
@@ -388,14 +387,11 @@ export class AgentsController {
     return { statusCode: 201, body: this.service.enqueueTask(tenantId(request), body as unknown as EnqueueAgentTaskInput, requestId(request)) };
   }
 
-  private enqueueCapabilityRescan(request: HttpRequest) {
+  private refreshDiscovery(request: HttpRequest) {
     const agentId = readPathParam(request, 'agentId');
     return {
-      statusCode: 201,
-      body: this.service.enqueueCapabilityRescanTask(tenantId(request), {
-        agentId,
-        requestedBy: actorId(request),
-      } as EnqueueAgentCapabilityRescanInput, requestId(request)),
+      statusCode: 200,
+      body: this.service.refreshStandardDiscovery(tenantId(request), agentId, actorId(request), requestId(request)),
     };
   }
 
@@ -518,7 +514,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/tasks', operationId: 'listAgentTaskQueue', summary: '查询 Agent 任务队列', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/tasks/log-cursor', operationId: 'getAgentTaskLogCursor', summary: '查询 Agent 日志 ack cursor', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
-    { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'enqueueAgentCapabilityRescanTask', summary: '创建 Agent 手动能力重扫任务', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'refreshAgentDiscovery', summary: '通过管理端点直接执行 Agent 手动能力重扫', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/:agentId/management-probe', operationId: 'probeAgentManagementEndpoint', summary: '立即探测 Agent TCP 管理端口', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
     {
@@ -967,6 +963,8 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '}',
     'Configure-GoAgentFirewall -ProgramPath $agentTarget -Port 18930',
     "$configPath = Join-Path $manifest.configDir 'agent.config.json'",
+    "$policyDir = Join-Path ([string]$manifest.dataDir) 'policy'",
+    '$authorizationTrustKeySet = if ($null -eq $manifest.authorizationTrustKeySet) { @{} } else { $manifest.authorizationTrustKeySet }',
     '$config = [ordered]@{',
     "  schemaVersion = 'full-agent.go.windows.config.v1'",
     '  tenantId = [string]$manifest.tenantId',
@@ -982,10 +980,14 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
     '  offlineTimeoutSeconds = 180',
     '  managementListenAddress = "0.0.0.0"',
     '  managementPort = 18930',
+    '  authorizationMaterialPath = [string](Join-Path $policyDir "agent-trust-material.json")',
+    '  authorizationTrustKeySet = $authorizationTrustKeySet',
     '  paths = @{ windows = @{ configPath = [string]$configPath; dataDir = [string]$manifest.dataDir; logDir = [string]$manifest.logDir } }',
     '  service = @{ name = [string]$manifest.serviceName; displayName = [string]$manifest.displayName }',
     '}',
-    'New-Item -ItemType Directory -Force -Path $manifest.configDir, $manifest.dataDir, $manifest.logDir | Out-Null',
+    'New-Item -ItemType Directory -Force -Path $manifest.configDir, $manifest.dataDir, $manifest.logDir, $policyDir | Out-Null',
+    '& icacls.exe $policyDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)(F)" "*S-1-5-32-544:(OI)(CI)(F)" | Out-Null',
+    'if ($LASTEXITCODE -ne 0) { throw "Go Agent policy directory ACL configuration failed: $policyDir" }',
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
     "$agentSource = Join-Path $root 'gcac-agent.exe'",
     'New-Item -ItemType Directory -Force -Path $manifest.installRoot | Out-Null',

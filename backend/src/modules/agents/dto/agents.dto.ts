@@ -71,11 +71,6 @@ export interface EnqueueAgentTaskInput {
   payload?: Record<string, unknown>;
 }
 
-export interface EnqueueAgentCapabilityRescanInput {
-  agentId: string;
-  requestedBy: string;
-}
-
 export interface AckAgentTaskInput {
   agentId: string;
   taskId: string;
