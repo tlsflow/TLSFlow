@@ -19,6 +19,18 @@ describe('API Client 契约', () => {
     await expect(client.get('/health')).resolves.toMatchObject({ requestId: 'req_1', data: { ok: true } })
   })
 
+  it('兼容后端裸 JSON 成功响应并自动包成 data', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ token: 'token_1', user: { id: 'user_admin' } }), {
+      status: 200,
+      headers: { 'X-Request-Id': 'req_login' }
+    })))
+    const client = new ApiClient({ baseUrl: 'https://api.example.test' })
+    await expect(client.post('/v1/auth/login', { username: 'admin', password: 'admin12345' })).resolves.toMatchObject({
+      requestId: 'req_login',
+      data: { token: 'token_1', user: { id: 'user_admin' } }
+    })
+  })
+
   it('请求会携带 actor 和 tenant 上下文头', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { ok: true }, requestId: 'req_ctx', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 200 })))
     const client = new ApiClient({

@@ -15,6 +15,20 @@ describe('权限 Store', () => {
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard'])
   })
 
+  it('管理员通配权限可以看到全部顶部菜单', () => {
+    const store = usePermissionStore()
+    store.setPermissions(['*'])
+    expect(store.hasPermission('security.identity_source.write')).toBe(true)
+    expect(store.visibleMenuItems.map((item) => item.path)).toEqual([
+      '/dashboard',
+      '/certificates',
+      '/assets',
+      '/deployment-plans',
+      '/monitors',
+      '/settings'
+    ])
+  })
+
   it('通过 Provider 加载权限', async () => {
     setPermissionProvider({
       async loadPermissions() {
@@ -28,4 +42,3 @@ describe('权限 Store', () => {
     expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/certificates'])
   })
 })
-

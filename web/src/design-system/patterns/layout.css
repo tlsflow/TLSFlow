@@ -113,6 +113,23 @@
   font-weight: 600;
 }
 
+.gc-shell__logout {
+  border: 1px solid var(--gc-color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface);
+  cursor: pointer;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 850;
+}
+
+.gc-shell__logout:hover {
+  color: var(--gc-color-primary);
+  border-color: #bfdbfe;
+  background: var(--gc-color-primary-soft);
+}
+
 .gc-shell__content {
   width: min(100%, 1520px);
   margin: 0 auto;

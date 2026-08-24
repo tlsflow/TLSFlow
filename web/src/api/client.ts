@@ -112,32 +112,39 @@ export class ApiClient {
 
   private async parseResponse<T>(response: Response, fallbackRequestId: string): Promise<ApiResult<T>> {
     const text = await response.text()
-    const parsed = text ? (JSON.parse(text) as Partial<ApiResult<T>>) : {}
+    const parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {}
     const requestId = parsed.requestId ?? response.headers.get('X-Request-Id') ?? fallbackRequestId
     const timestamp = parsed.timestamp ?? new Date().toISOString()
 
     if (!response.ok) {
-      throw new ApiClientError(parsed.message ?? '请求失败', {
-        errorCode: parsed.errorCode ?? `HTTP_${response.status}`,
-        requestId,
+      throw new ApiClientError(typeof parsed.message === 'string' ? parsed.message : '请求失败', {
+        errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : `HTTP_${response.status}`,
+        requestId: String(requestId),
         status: response.status
       })
     }
 
+    const hasWrappedData = Object.prototype.hasOwnProperty.call(parsed, 'data')
     return {
-      ...parsed,
-      requestId,
-      timestamp
+      ...(hasWrappedData ? parsed : { data: parsed as T }),
+      requestId: String(requestId),
+      timestamp: String(timestamp)
     } as ApiResult<T>
   }
 }
 
 let apiRequestContextProvider: (() => ApiRequestContext | null) | undefined
+let apiTokenProvider: (() => string | null) | undefined
 
 export function setApiRequestContextProvider(provider: (() => ApiRequestContext | null) | undefined): void {
   apiRequestContextProvider = provider
 }
 
+export function setApiTokenProvider(provider: (() => string | null) | undefined): void {
+  apiTokenProvider = provider
+}
+
 export const apiClient = new ApiClient({
+  getToken: () => apiTokenProvider?.() ?? null,
   getRequestContext: () => apiRequestContextProvider?.() ?? null
 })

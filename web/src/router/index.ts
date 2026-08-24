@@ -11,6 +11,24 @@ export const router = createRouter({
     { path: '/', redirect: '/dashboard' },
     {
       path: '/',
+      component: BlankLayout,
+      children: [
+        {
+          path: '/login',
+          name: 'login',
+          component: () => import('@/views/auth/LoginView.vue'),
+          meta: {
+            title: '登录',
+            module: 'auth',
+            requiresAuth: false,
+            hiddenInMenu: true,
+            breadcrumb: ['登录']
+          }
+        }
+      ]
+    },
+    {
+      path: '/',
       component: ShellLayout,
       children: [...coreRoutes, ...businessRoutes]
     },

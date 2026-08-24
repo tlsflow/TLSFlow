@@ -9,7 +9,7 @@ interface PermissionState {
 }
 
 function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>): boolean {
-  return !item.permission || permissionSet.has(item.permission)
+  return permissionSet.has('*') || !item.permission || permissionSet.has(item.permission)
 }
 
 function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | null {
@@ -47,7 +47,7 @@ export const usePermissionStore = defineStore('permission', {
       this.loadedAt = new Date().toISOString()
     },
     hasPermission(permission: string): boolean {
-      return this.permissions.includes(permission)
+      return this.permissions.includes('*') || this.permissions.includes(permission)
     }
   }
 })

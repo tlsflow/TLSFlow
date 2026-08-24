@@ -182,4 +182,80 @@ export const businessRoutes: GcRouteRecord[] = [
       keepAlive: true
     }
   }
+  ,
+  {
+    path: '/settings/users',
+    name: 'settings.users',
+    component: () => import('@/views/settings/UsersView.vue'),
+    meta: {
+      title: '用户管理',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.user.read',
+      resourceType: 'user',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '用户管理'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/roles',
+    name: 'settings.roles',
+    component: () => import('@/views/settings/RolesView.vue'),
+    meta: {
+      title: '角色管理',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.role.read',
+      resourceType: 'role',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '角色管理'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/permissions',
+    name: 'settings.permissions',
+    component: () => import('@/views/settings/PermissionPoliciesView.vue'),
+    meta: {
+      title: '权限策略',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.permission.read',
+      resourceType: 'permissionPolicy',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '权限策略'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/identity-sources',
+    name: 'settings.identitySources',
+    component: () => import('@/views/settings/IdentitySourcesView.vue'),
+    meta: {
+      title: '身份源',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.identity_source.read',
+      resourceType: 'identitySource',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '身份源'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/settings/group-role-mappings',
+    name: 'settings.groupRoleMappings',
+    component: () => import('@/views/settings/GroupRoleMappingsView.vue'),
+    meta: {
+      title: '组角色映射',
+      module: 'settings',
+      requiresAuth: true,
+      permission: 'security.identity_source.read',
+      resourceType: 'externalGroupRoleMapping',
+      riskLevel: 'medium',
+      breadcrumb: ['系统设置', '组角色映射'],
+      keepAlive: true
+    }
+  }
 ]

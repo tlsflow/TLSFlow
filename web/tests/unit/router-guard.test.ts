@@ -4,14 +4,14 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { registerRouterGuards } from '@/router/guards'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
-import { resetAuthProvider, setAuthProvider } from '@/providers/auth.provider'
-import { resetPermissionProvider, setPermissionProvider } from '@/providers/permission.provider'
+import { resetAuthProviderToMock, setAuthProvider } from '@/providers/auth.provider'
+import { resetPermissionProviderToMock, setPermissionProvider } from '@/providers/permission.provider'
 
 describe('路由权限守卫', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    resetAuthProvider()
-    resetPermissionProvider()
+    resetAuthProviderToMock()
+    resetPermissionProviderToMock()
   })
 
   it('无权限访问受保护路由时跳转 403', async () => {
@@ -19,6 +19,7 @@ describe('路由权限守卫', () => {
       history: createWebHistory(),
       routes: [
         { path: '/secret', name: 'secret', component: { template: '<div />' }, meta: { title: '秘密', module: 'test', requiresAuth: true, permission: 'secret.read' } },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
         { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } }
       ]
     })
@@ -46,13 +47,18 @@ describe('路由权限守卫', () => {
           token: 'provider-token',
           user: {
             id: 'provider-user',
+            username: 'provider',
             displayName: 'Provider 用户',
             tenantId: 'default',
             tenantName: '默认租户',
             roles: []
           }
         }
-      }
+      },
+      async login() {
+        throw new Error('本测试不覆盖登录')
+      },
+      async logout() {}
     })
     setPermissionProvider({
       async loadPermissions() {
@@ -64,6 +70,7 @@ describe('路由权限守卫', () => {
       history: createWebHistory(),
       routes: [
         { path: '/secret', name: 'secret', component: { template: '<div />' }, meta: { title: '秘密', module: 'test', requiresAuth: true, permission: 'secret.read' } },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
         { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } }
       ]
     })

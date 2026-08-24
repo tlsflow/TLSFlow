@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import App from './app.vue'
 import { router } from './router'
 import { permissionDirective } from './directives/permission.directive'
-import { setApiRequestContextProvider } from './api/client'
+import { setApiRequestContextProvider, setApiTokenProvider } from './api/client'
 import { useAuthStore } from './stores/auth.store'
 import { useTenantStore } from './stores/tenant.store'
 import './design-system/tokens/index.css'
@@ -25,5 +25,7 @@ setApiRequestContextProvider(() => {
     tenantId: authStore.user?.tenantId ?? tenantStore.currentTenantId ?? null
   }
 })
+
+setApiTokenProvider(() => useAuthStore(pinia).token)
 
 app.mount('#app')

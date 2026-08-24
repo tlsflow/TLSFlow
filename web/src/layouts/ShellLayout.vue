@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, RouterLink, RouterView } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const permissionStore = usePermissionStore()
 
@@ -33,6 +35,11 @@ function iconPath(icon?: string): string {
     settings: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8 3.5a7.8 7.8 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a8 8 0 0 0-1.7-1L15.5 3h-4l-.3 2.6a8 8 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.8 7.8 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.3 2.6h4l.3-2.6a8 8 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z'
   }
   return paths[icon ?? ''] ?? paths.dashboard
+}
+
+async function logout() {
+  await authStore.logout()
+  await router.push({ name: 'login' })
 }
 </script>
 
@@ -65,6 +72,7 @@ function iconPath(icon?: string): string {
         <span class="gc-shell__user-avatar" aria-hidden="true">{{ (authStore.user?.displayName ?? 'U').slice(0, 1) }}</span>
         <span class="gc-shell__user-name">{{ authStore.user?.displayName ?? '未登录用户' }}</span>
         <span class="gc-shell__tenant">{{ authStore.user?.tenantName ?? '默认租户' }}</span>
+        <button class="gc-shell__logout" type="button" @click="logout">退出</button>
       </div>
     </header>
 

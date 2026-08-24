@@ -18,6 +18,10 @@ export function registerRouterGuards(router: Router): void {
       await authStore.bootstrapSession()
     }
 
+    if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+
     if (to.meta.requiresAuth && !permissionStore.isLoaded) {
       await permissionStore.loadPermissions()
     }
