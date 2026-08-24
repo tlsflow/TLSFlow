@@ -10,7 +10,7 @@ describe('版本信息页面', () => {
 
     expect(wrapper.text()).toContain('版本信息')
     expect(wrapper.text()).toContain('当前版本')
-    expect(wrapper.text()).toContain('0.1.0')
+    expect(wrapper.text()).toContain('1.0.0')
     expect(wrapper.text()).toContain(productBrand.name)
     expect(wrapper.findAll('button')).toHaveLength(0)
   })

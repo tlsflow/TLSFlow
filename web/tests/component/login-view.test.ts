@@ -63,7 +63,7 @@ describe('LoginView', () => {
     const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
 
     expect(wrapper.text()).toContain('登录控制台')
-    expect(wrapper.text()).toContain('版本 0.1.0')
+    expect(wrapper.text()).toContain('版本 1.0.0')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 

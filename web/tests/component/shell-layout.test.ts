@@ -175,7 +175,7 @@ describe('ShellLayout', () => {
 
     expect(wrapper.find('.gc-workbench__sidebar-footer .gc-workbench__settings-item').exists()).toBe(true)
     expect(wrapper.find('.gc-workbench__sidebar-meta .gc-workbench__sidebar-toggle').exists()).toBe(true)
-    expect(wrapper.find('.gc-workbench__version').text()).toContain('版本 0.1.0')
+    expect(wrapper.find('.gc-workbench__version').text()).toContain('版本 1.0.0')
     expect(wrapper.find('.gc-workbench__sidebar-footer .gc-workbench__view-mode').exists()).toBe(false)
 
     await wrapper.get('.gc-shell__user-button').trigger('click')
