@@ -52,8 +52,7 @@ export function createBuiltinDeploymentDriverRegistry(): DeploymentDriverRegistr
   return new DeploymentDriverRegistry()
     .register(new BasicDeploymentDriver('AGENT_NATIVE', 'AGENT', ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'WINDOWS_CERT_STORE']))
     .register(new BasicDeploymentDriver('AGENT_PLUGIN', 'AGENT'))
-    .register(new NetscalerDeploymentDriver())
-    .register(new BasicDeploymentDriver('DEVICE_PLUGIN', 'GATEWAY'));
+    .register(new DevicePluginDeploymentDriver());
 }
 
 class BasicDeploymentDriver implements DeploymentDriver {
@@ -84,30 +83,28 @@ class BasicDeploymentDriver implements DeploymentDriver {
   }
 }
 
-class NetscalerDeploymentDriver extends BasicDeploymentDriver {
-  constructor() {
-    super('DEVICE_PROVIDER', 'CONTROL_PLANE', ['DEVICE_TEMPLATE']);
+class DevicePluginDeploymentDriver implements DeploymentDriver {
+  readonly kind = 'DEVICE_PLUGIN' as const;
+  readonly executionLocation = 'CONTROL_PLANE' as const;
+
+  supports(context: ResolvedManagedTargetContext): boolean {
+    return context.deviceAsset?.pluginBindingId !== undefined && context.executionLocation === this.executionLocation;
   }
 
-  override precheck(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [step('PRECHECK', 'CURL', 'netscaler.nitro.precheck', context)];
+  precheck(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
+    return [step('PRECHECK', 'WORKFLOW', 'managed_target.precheck', context)];
   }
 
-  override buildDeployment(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [
-      step('BACKUP', 'CURL', 'netscaler.binding.backup', context),
-      step('DEPLOY', 'CURL', 'netscaler.certificate.deploy', context),
-      step('VERIFY', 'CURL', 'netscaler.binding.verify', context),
-    ];
+  buildDeployment(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
+    return [step('DEPLOY', 'WORKFLOW', 'managed_target.deploy', context)];
   }
 
-  override buildRollback(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
-    return [step('ROLLBACK', 'CURL', 'netscaler.binding.restore', context)];
+  buildRollback(context: ResolvedManagedTargetContext): DeploymentDriverStepDraft[] {
+    return [step('ROLLBACK', 'WORKFLOW', 'managed_target.rollback', context)];
   }
 
-  override requiredSecrets(context: ResolvedManagedTargetContext): DeploymentDriverSecretRequirement[] {
-    const secretRef = context.deviceAsset?.credentialId;
-    return secretRef ? [{ purpose: 'netscaler.nitro.authenticate', secretRef, visibleAt: context.executionLocation }] : [];
+  requiredSecrets(_context: ResolvedManagedTargetContext): DeploymentDriverSecretRequirement[] {
+    return [];
   }
 }
 

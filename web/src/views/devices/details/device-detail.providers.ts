@@ -1,4 +1,3 @@
-import DeviceCertificatesTab from './tabs/DeviceCertificatesTab.vue'
 import DeviceLogsTab from './tabs/DeviceLogsTab.vue'
 import DeviceOverviewTab from './tabs/DeviceOverviewTab.vue'
 import DeviceSitesTab from './tabs/DeviceSitesTab.vue'
@@ -37,17 +36,4 @@ export const deviceDetailTabRegistry = new DeviceDetailTabRegistry([{
     siteTab('lb', 'devices.unifiedDetail.tabs.lb', 400, 'LB'),
     siteTab('vpn', 'devices.unifiedDetail.tabs.vpn', 410, 'VPN'),
   ],
-}, {
-  key: 'adc-certificates',
-  supports: context => readExtensionType(context) === 'CITRIX_ADC',
-  getTabs: () => [{
-    key: 'certificates', labelKey: 'devices.unifiedDetail.tabs.certificates', order: 200, component: DeviceCertificatesTab,
-    isVisible: context => context.certificates.length > 0,
-    buildProps: context => ({ certificates: context.certificates }),
-  }],
 }])
-
-function readExtensionType(context: DeviceDetailContext): string {
-  const extension = context.detail.extension
-  return extension && typeof extension === 'object' && !Array.isArray(extension) ? String((extension as Record<string, unknown>).type ?? '') : ''
-}

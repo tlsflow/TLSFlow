@@ -48,7 +48,9 @@ export class DeploymentStrategyResolver {
     }
     const context = input.managedTargetContext;
     const driver = this.drivers.resolve(context);
-    const executorType = context.executionLocation === 'AGENT' ? 'AGENT' : 'CURL';
+    const executorType = context.executionLocation === 'AGENT'
+      ? 'AGENT'
+      : driver.kind === 'DEVICE_PLUGIN' ? 'WORKFLOW' : 'CURL';
     const gatewayRoute = context.executionLocation === 'GATEWAY'
       ? { gatewayId: context.deviceAsset?.gatewayId, adapter: 'curl' as const, delegatedTargetId: managedTargetId }
       : undefined;

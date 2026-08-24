@@ -18,12 +18,12 @@ test('Spec033 Resolver 从目标 ID 解析 Agent 完整上下文', async () => {
   assert.equal(result.host.id, 'host_1');
 });
 
-test('Spec033 Resolver 从目标 ID 解析 NetScaler 设备上下文', async () => {
-  const deviceTarget = { ...target, agentId: undefined, deviceAssetId: 'device_1', providerType: 'DEVICE_TEMPLATE', frameworkType: 'DEVICE_TEMPLATE' } as ManagedTargetDto;
+test('Spec033 Resolver 从目标 ID 解析统一插件设备上下文', async () => {
+  const deviceTarget = { ...target, agentId: undefined, deviceAssetId: 'device_1', providerType: 'PLUGIN:version_1', frameworkType: 'PLUGIN:version_1' } as ManagedTargetDto;
   const deviceHost = { ...host, agentId: undefined, osType: 'NETWORK_DEVICE', managementMode: 'AGENTLESS' } as HostDto;
   const resolver = new ManagedTargetContextResolver(assetsPort(deviceTarget, deviceHost), { getRegistration: async () => undefined }, { get: async () => device() });
   const result = await resolver.resolve('tenant_1', 'target_1');
-  assert.equal(result.driverKind, 'DEVICE_PROVIDER');
+  assert.equal(result.driverKind, 'DEVICE_PLUGIN');
   assert.equal(result.executionLocation, 'CONTROL_PLANE');
   assert.equal(result.deviceAsset?.id, 'device_1');
 });
@@ -52,5 +52,5 @@ function agent(): AgentRegistration {
 }
 
 function device(): DeviceAssetDto {
-  return { id: 'device_1', tenantId: 'tenant_1', hostId: 'host_1', displayName: 'ADC', managementAddress: '10.0.0.1', managementPort: 443, deviceFamily: 'NETSCALER_ADC', credentialId: 'secret', authMode: 'AUTO', tlsVerify: true, supportTier: 'SUPPORTED', capabilityProfile: {}, createdAt: now, updatedAt: now, version: 1 };
+  return { id: 'device_1', tenantId: 'tenant_1', hostId: 'host_1', displayName: 'Plugin Device', managementAddress: '10.0.0.1', managementPort: 443, deviceFamily: 'vendor.product', pluginVersionId: 'version_1', pluginBindingId: 'binding_1', credentialId: 'secret', authMode: 'AUTO', tlsVerify: true, supportTier: 'SUPPORTED', capabilityProfile: {}, createdAt: now, updatedAt: now, version: 1 };
 }

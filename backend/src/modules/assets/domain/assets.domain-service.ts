@@ -437,6 +437,10 @@ function normalizePorts(values: Array<number | Record<string, unknown>>): Array<
 }
 
 function readEnum<T extends string>(value: string, allowed: readonly T[], field: string): T {
+  if (field === 'providerType' || field === 'frameworkType') {
+    const normalized = value.trim();
+    if (normalized) return normalized as T;
+  }
   if (!allowed.includes(value as T)) {
     throw new AppError('VALIDATION_FAILED', '枚举值不合法', { field, allowedValues: allowed });
   }

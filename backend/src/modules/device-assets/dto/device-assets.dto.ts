@@ -17,6 +17,8 @@ export interface DeviceAssetDto {
   tlsVerify: boolean;
   caSecretId?: string;
   gatewayId?: string;
+  pluginVersionId?: string;
+  pluginBindingId?: string;
   productName?: string;
   softwareVersion?: string;
   softwareBuild?: string;

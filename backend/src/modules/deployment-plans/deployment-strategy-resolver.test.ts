@@ -45,7 +45,7 @@ describe('DeploymentStrategyResolver', () => {
     assert.equal(resolved.payload.executionLocation, 'AGENT');
   });
 
-  it('NetScaler 受管目标快照包含备份、部署、验证、回滚和秘密引用', () => {
+  it('统一设备插件受管目标快照使用 Workflow 驱动且不依赖厂商驱动', () => {
     const resolver = new DeploymentStrategyResolver();
     const resolved = resolver.resolve({
       applicationAsset: serviceAsset({
@@ -54,11 +54,11 @@ describe('DeploymentStrategyResolver', () => {
           managedTarget: { managedTargetId: 'target_1', certificateFormatId: 'format_1' },
         },
       }),
-      bindingTarget: bindingTarget({ providerType: 'DEVICE_TEMPLATE', frameworkType: 'DEVICE_TEMPLATE' }),
+      bindingTarget: bindingTarget({ providerType: 'PLUGIN:uplgv_plugin_test', frameworkType: 'PLUGIN_FRAMEWORK' }),
       certificateBinding: certificateBinding(),
       managedTargetContext: managedTargetContext({
-        providerType: 'DEVICE_TEMPLATE',
-        driverKind: 'DEVICE_PROVIDER',
+        providerType: 'PLUGIN:uplgv_plugin_test',
+        driverKind: 'DEVICE_PLUGIN',
         executionLocation: 'CONTROL_PLANE',
         agent: undefined,
         deviceAsset: {
@@ -68,12 +68,14 @@ describe('DeploymentStrategyResolver', () => {
           displayName: 'ADC 13.1',
           managementAddress: '10.255.0.49',
           managementPort: 80,
-          deviceFamily: 'NETSCALER_ADC',
+          deviceFamily: 'generic.device-plugin',
           credentialId: 'secret_nitro',
           authMode: 'SESSION',
           tlsVerify: false,
           supportTier: 'SUPPORTED',
           capabilityProfile: {},
+          pluginBindingId: 'binding_plugin_test',
+          pluginVersionId: 'uplgv_plugin_test',
           createdAt: '2026-07-03T00:00:00.000Z',
           updatedAt: '2026-07-03T00:00:00.000Z',
           version: 1,
@@ -81,21 +83,13 @@ describe('DeploymentStrategyResolver', () => {
       }),
     });
 
-    assert.equal(resolved.executorType, 'CURL');
+    assert.equal(resolved.executorType, 'WORKFLOW');
     assert.deepEqual(
       (resolved.payload.deploymentSteps as Array<{ stage: string; operation: string }>).map((step) => [step.stage, step.operation]),
-      [
-        ['BACKUP', 'netscaler.binding.backup'],
-        ['DEPLOY', 'netscaler.certificate.deploy'],
-        ['VERIFY', 'netscaler.binding.verify'],
-      ],
+      [['DEPLOY', 'managed_target.deploy']],
     );
-    assert.equal((resolved.payload.rollbackSteps as Array<{ operation: string }>)[0]?.operation, 'netscaler.binding.restore');
-    assert.deepEqual(resolved.payload.requiredSecrets, [{
-      purpose: 'netscaler.nitro.authenticate',
-      secretRef: 'secret_nitro',
-      visibleAt: 'CONTROL_PLANE',
-    }]);
+    assert.equal((resolved.payload.rollbackSteps as Array<{ operation: string }>)[0]?.operation, 'managed_target.rollback');
+    assert.deepEqual(resolved.payload.requiredSecrets, []);
   });
 
   it('MANAGED_TARGET 缺少可信上下文时失败关闭', () => {

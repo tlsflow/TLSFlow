@@ -61,7 +61,7 @@ export class DeviceAssetsApplicationService {
 
   private async runDiscovery(tenantId: string, deviceAssetId: string, actorId: string): Promise<DeviceConnectionTestResult> {
     if (!this.connectionTester) {
-      throw new AppError('CAPABILITY_MISSING', 'NetScaler NITRO 连接测试尚未注册', { code: 'NETSCALER_CAPABILITY_MISSING' });
+      throw new AppError('CAPABILITY_MISSING', '设备连接与发现必须通过统一插件能力执行', { code: 'DEVICE_PLUGIN_CAPABILITY_REQUIRED' });
     }
     return this.connectionTester.test(await this.get(tenantId, deviceAssetId), actorId);
   }

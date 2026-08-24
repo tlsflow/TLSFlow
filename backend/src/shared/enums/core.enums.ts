@@ -36,7 +36,7 @@ export const CapabilitySuggestionTypes = ['use_full_agent', 'use_legacy_agent', 
 export type CapabilitySuggestionType = (typeof CapabilitySuggestionTypes)[number];
 
 export const ProviderTypes = ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'WINDOWS_CERT_STORE', 'CUSTOM', 'DEVICE_TEMPLATE'] as const;
-export type ProviderType = (typeof ProviderTypes)[number];
+export type ProviderType = string;
 
 export const BindingTypes = ['FILE_PATH', 'WINDOWS_CERT_STORE', 'KEYSTORE', 'DEVICE_API', 'CUSTOM'] as const;
 export type BindingType = (typeof BindingTypes)[number];

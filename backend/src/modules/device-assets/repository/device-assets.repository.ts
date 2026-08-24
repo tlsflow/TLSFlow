@@ -303,6 +303,8 @@ interface DeviceAssetRow extends Record<string, unknown> {
   tls_verify: boolean;
   ca_secret_id: string | null;
   gateway_id: string | null;
+  plugin_version_id: string | null;
+  plugin_binding_id: string | null;
   product_name: string | null;
   software_version: string | null;
   software_build: string | null;
@@ -338,6 +340,8 @@ function toDto(row: DeviceAssetRow): DeviceAssetDto {
     tlsVerify: Boolean(row.tls_verify),
     caSecretId: row.ca_secret_id ?? undefined,
     gatewayId: row.gateway_id ?? undefined,
+    pluginVersionId: row.plugin_version_id ?? undefined,
+    pluginBindingId: row.plugin_binding_id ?? undefined,
     productName: row.product_name ?? undefined,
     softwareVersion: row.software_version ?? undefined,
     softwareBuild: row.software_build ?? undefined,

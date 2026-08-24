@@ -3,7 +3,7 @@ import type { AgentRegistration } from '../../agents/schema/agents.schema.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
 import type { HostDto, ManagedTargetDto, ServiceAssetDto, ServiceInstanceDto, SiteAssetDto } from '../dto/assets.dto.js';
 
-export type DeploymentDriverKind = 'AGENT_NATIVE' | 'AGENT_PLUGIN' | 'DEVICE_PROVIDER' | 'DEVICE_PLUGIN';
+export type DeploymentDriverKind = 'AGENT_NATIVE' | 'AGENT_PLUGIN' | 'DEVICE_PLUGIN';
 export type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
 export interface ResolvedManagedTargetContext {
@@ -77,7 +77,7 @@ export class ManagedTargetContextResolver {
       deviceAsset,
       ...related,
       providerType: managedTarget.providerType,
-      driverKind: 'DEVICE_PROVIDER',
+      driverKind: 'DEVICE_PLUGIN',
       executionLocation: deviceAsset.gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
     };
   }
