@@ -1840,12 +1840,12 @@ export class AgentsApplicationService {
     await this.ensureLocalGoFullReleases(tenantId);
     const [detailData, liveness, managementLiveness] = await Promise.all([this.repository.getDetailData(tenantId, agentId, options), this.liveness?.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']), this.liveness?.project(tenantId, 'AGENT', agentId, ['MANAGEMENT_TCP'])]);
     if (!detailData) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 不存在', { agentId });
-    const { agent, capabilitySnapshot, latestHeartbeat, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans } = detailData;
+    const { agent, capabilitySnapshot, latestHeartbeat, tasks, taskCounts, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans } = detailData;
     const capabilities = {
       agentId: agent.id,
       declarations: capabilitySnapshot ? this.domain.toCapabilityDeclarations(agent, capabilitySnapshot) : [],
     };
-    const taskQueue = { agentId: agent.id, counts: countTasks(tasks), tasks };
+    const taskQueue = { agentId: agent.id, counts: taskCounts ?? countTasks(tasks), tasks };
     const upgradeSuggestion = buildUpgradeSuggestion(agent, releases, upgradePlans);
     const health = this.toHealthProjection(agent, latestHeartbeat, liveness);
     if (liveness?.livenessStatus === 'OFFLINE') {

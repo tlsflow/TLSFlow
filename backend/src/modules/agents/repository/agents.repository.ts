@@ -110,6 +110,8 @@ export interface AgentDetailData {
   capabilitySnapshot?: AgentCapabilitySnapshot;
   latestHeartbeat?: AgentHeartbeat;
   tasks: AgentTaskEnvelope[];
+  /** 任务列表只取最近窗口；计数必须来自未截断的聚合结果。 */
+  taskCounts?: Record<AgentTaskEnvelope['status'], number>;
   recentErrors: AgentTaskLogEntry[];
   runtimeLogs: AgentRuntimeLogEntry[];
   recentTaskLogs: AgentTaskLogEntry[];
@@ -714,7 +716,7 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async getDetailData(tenantId: string, agentId: string, options: { includeLogs?: boolean } = {}): Promise<AgentDetailData | undefined> {
     const includeLogs = options.includeLogs !== false;
-    const [registration, snapshots, heartbeats, tasks, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans] = await Promise.all([
+    const [registration, snapshots, heartbeats, tasks, taskCounts, recentErrors, runtimeLogs, recentTaskLogs, releases, upgradePlans] = await Promise.all([
       this.db.query<DocumentRow<AgentRegistration>>(
         `select document_id, payload from pg_documents
           where namespace='agents:registrations' and document_id=$1 and payload->>'tenantId'=$2`,
@@ -733,9 +735,22 @@ export class PgAgentsRepository implements AgentsRepository {
         [tenantId, agentId],
       ),
       this.db.query<DocumentRow<AgentTaskEnvelope>>(
-        `select document_id, payload from pg_documents
-          where namespace='agents:tasks' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+        `select document_id, payload
+           from (
+             select document_id, payload
+               from pg_documents
+              where namespace='agents:tasks' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+              order by payload->>'createdAt' desc
+              limit 50
+           ) recent_tasks
           order by payload->>'createdAt' asc`,
+        [tenantId, agentId],
+      ),
+      this.db.query<{ status: AgentTaskEnvelope['status']; count: string }>(
+        `select payload->>'status' as status, count(*)::text as count
+           from pg_documents
+          where namespace='agents:tasks' and payload->>'tenantId'=$1 and payload->>'agentId'=$2
+          group by payload->>'status'`,
         [tenantId, agentId],
       ),
       includeLogs ? this.db.query<DocumentRow<AgentTaskLogEntry>>(
@@ -770,6 +785,10 @@ export class PgAgentsRepository implements AgentsRepository {
       capabilitySnapshot: documentEntity(snapshots.rows[0]),
       latestHeartbeat: documentEntity(heartbeats.rows[0]),
       tasks: tasks.rows.map(documentEntity).filter(isDefined),
+      taskCounts: taskCounts.rows.reduce<Record<AgentTaskEnvelope['status'], number>>((counts, row) => {
+        if (row.status in counts) counts[row.status] = Number(row.count);
+        return counts;
+      }, { queued: 0, leased: 0, acked: 0, succeeded: 0, failed: 0, rejected: 0 }),
       recentErrors: recentErrors.rows.map(documentEntity).filter(isDefined),
       runtimeLogs: runtimeLogs.rows.map(documentEntity).filter(isDefined),
       recentTaskLogs: recentTaskLogs.rows.map(documentEntity).filter(isDefined),
