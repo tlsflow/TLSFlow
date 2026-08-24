@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
+import { fileURLToPath } from 'node:url';
 import { AppError } from '../../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
@@ -15,6 +17,8 @@ import type {
   WorkflowDslV1,
   WorkflowExtractor,
   WorkflowMockStepOutput,
+  WorkflowProgressReporter,
+  WorkflowProgressStep,
   WorkflowRenderedStep,
   WorkflowExecutorDispatcher,
   WorkflowRunResult,
@@ -218,8 +222,9 @@ export class WorkflowTemplatesDomainService {
     return published ? clone(published) : undefined;
   }
 
-  async preview(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
-    return this.testRun({ ...input, mode: 'render_only' });
+  async preview(input: WorkflowRuntimeInput, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
+    await this.ready;
+    return this.executeRuntime({ ...input, mode: 'render_only' }, undefined, reporter);
   }
 
   async testRun(input: WorkflowRuntimeInput): Promise<WorkflowRunResult> {
@@ -227,9 +232,9 @@ export class WorkflowTemplatesDomainService {
     return this.executeRuntime(input);
   }
 
-  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher): Promise<WorkflowRunResult> {
+  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
     await this.ready;
-    return this.executeRuntime(input, dispatcher);
+    return this.executeRuntime(input, dispatcher, reporter);
   }
 
   async testStep(input: WorkflowStepRuntimeInput): Promise<WorkflowSingleStepRunResult> {
@@ -259,21 +264,53 @@ export class WorkflowTemplatesDomainService {
     };
   }
 
-  private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher): Promise<WorkflowRunResult> {
+  private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
     const context = resolveRuntimeContext(version.content, input);
     const runId = `wfrun_${randomUUID()}`;
+    const orderedSteps = orderStepsByStage(version.content.steps);
     const renderedSteps: WorkflowRenderedStep[] = [];
     const stepResults: WorkflowStepRunResult[] = [];
     const rollbackResults: WorkflowStepRunResult[] = [];
     const logs: string[] = [];
+    const progressSteps: WorkflowProgressStep[] = orderedSteps.map((step) => ({
+      name: step.name,
+      type: step.type,
+      stage: step.stage,
+      status: 'queued',
+      attempts: 0,
+      assertions: [],
+      logs: [],
+    }));
     let failed = false;
 
-    for (const step of orderStepsByStage(version.content.steps)) {
+    await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, 'running');
+
+    for (const [stepIndex, step] of orderedSteps.entries()) {
+      const startedAt = new Date().toISOString();
+      progressSteps[stepIndex] = { ...progressSteps[stepIndex]!, status: 'running', startedAt, attempts: 1 };
+      await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, 'running', step.name);
       const result = await this.runStep(step, context, input, false, runId, dispatcher);
+      const finishedAt = new Date().toISOString();
+      result.result.startedAt = startedAt;
+      result.result.finishedAt = finishedAt;
       renderedSteps.push(result.rendered);
       stepResults.push(result.result);
       logs.push(...result.result.logs);
+      progressSteps[stepIndex] = {
+        name: result.result.name,
+        type: result.result.type,
+        stage: result.result.stage,
+        status: result.result.status,
+        startedAt,
+        finishedAt,
+        attempts: result.result.attempts,
+        errorCode: result.result.errorCode,
+        errorMessage: result.result.errorMessage,
+        assertions: result.result.assertions,
+        logs: result.result.logs,
+      };
+      await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, result.result.status === 'failed' ? 'failed' : 'running');
       if (result.result.status === 'failed') {
         failed = true;
         break;
@@ -289,11 +326,13 @@ export class WorkflowTemplatesDomainService {
       }
     }
 
+    const status = failed ? (rollbackResults.length ? 'rolled_back' : 'failed') : 'success';
+    await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, status);
     return {
       id: runId,
       mode: input.mode,
       plannedOnly: input.mode === 'render_only',
-      status: failed ? (rollbackResults.length ? 'rolled_back' : 'failed') : 'success',
+      status,
       renderedSteps,
       stepResults,
       rollbackResults,
@@ -463,6 +502,29 @@ export class WorkflowTemplatesDomainService {
   }
 }
 
+async function reportWorkflowProgress(
+  reporter: WorkflowProgressReporter | undefined,
+  runId: string,
+  input: WorkflowRuntimeInput,
+  steps: WorkflowProgressStep[],
+  logs: string[],
+  status: 'running' | 'success' | 'failed' | 'rolled_back',
+  activeStep?: string,
+): Promise<void> {
+  if (!reporter) return;
+  await reporter({
+    id: runId,
+    mode: input.mode,
+    status,
+    totalSteps: steps.length,
+    completedSteps: steps.filter((step) => ['success', 'failed', 'skipped'].includes(step.status)).length,
+    ...(activeStep ? { activeStep } : {}),
+    steps: clone(steps),
+    logs: [...logs],
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput | WorkflowStepRuntimeInput): RuntimeContext {
   const values: Record<string, unknown> = {};
   const secretPaths = new Set<string>();
@@ -524,7 +586,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       responsePolicy: {
         successStatusCodes: step.request.successStatusCodes,
         failOnNon2xx: step.request.failOnNon2xx,
-        assertions: (step.assert ?? []).filter((item) => item.type === 'statusCode').map((item) => ({ type: 'status', equals: item.equals })),
+        assertions: adaptHttpResponseAssertions(step.assert ?? [], context.values, mode === 'render_only'),
       },
       extractors: normalizeExtractors(step.extract).flatMap((extractor) => {
         if (extractor.type === 'statusCode') return { name: extractor.name, source: 'status', required: !extractor.optional, secret: extractor.sensitive };
@@ -606,6 +668,26 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
   }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
+}
+
+function adaptHttpResponseAssertions(assertions: WorkflowAssertion[], values: Record<string, unknown>, keepMissing: boolean): Array<
+  | { type: 'status'; equals: number }
+  | { type: 'header_exists'; name: string }
+  | { type: 'body_contains'; text: string }
+> {
+  const adapted: Array<
+    | { type: 'status'; equals: number }
+    | { type: 'header_exists'; name: string }
+    | { type: 'body_contains'; text: string }
+  > = [];
+  for (const assertion of assertions) {
+    if (assertion.type === 'statusCode') adapted.push({ type: 'status', equals: assertion.equals });
+    if (assertion.type === 'contains') adapted.push({ type: 'body_contains', text: renderString(assertion.value, values, keepMissing) });
+    if (assertion.type === 'header' && assertion.exists === true && assertion.equals === undefined) {
+      adapted.push({ type: 'header_exists', name: assertion.name });
+    }
+  }
+  return adapted;
 }
 
 function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, context: RuntimeContext): Record<string, unknown> {
@@ -695,9 +777,7 @@ function readTransformOutputs(step: WorkflowTransformStep, output: WorkflowMockS
 
 async function evaluateJsonata(expression: string, input: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
   return await new Promise<unknown>((resolve, reject) => {
-    const worker = new Worker(new URL('./jsonata-transform.worker.js', import.meta.url), {
-      workerData: { expression, input },
-    });
+    const worker = createJsonataWorker({ expression, input });
     let settled = false;
     const finish = (callback: () => void): void => {
       if (settled) return;
@@ -722,6 +802,29 @@ async function evaluateJsonata(expression: string, input: Record<string, unknown
     worker.once('exit', (code) => {
       if (code !== 0) finish(() => reject(new AppError('VALIDATION_FAILED', 'JSONata 转换执行失败', { code })));
     });
+  });
+}
+
+function createJsonataWorker(workerData: { expression: string; input: Record<string, unknown> }): Worker {
+  const compiledWorkerUrl = new URL('./jsonata-transform.worker.js', import.meta.url);
+  if (existsSync(fileURLToPath(compiledWorkerUrl))) {
+    return new Worker(compiledWorkerUrl, { workerData });
+  }
+
+  const sourceWorkerUrl = new URL('./jsonata-transform.worker.ts', import.meta.url);
+  const bootstrap = `
+    const { workerData } = require('node:worker_threads');
+    import('tsx/esm/api')
+      .then(({ tsImport }) => tsImport(workerData.sourceWorkerUrl, { parentURL: workerData.parentURL }))
+      .catch((error) => { throw error; });
+  `;
+  return new Worker(bootstrap, {
+    eval: true,
+    workerData: {
+      ...workerData,
+      sourceWorkerUrl: sourceWorkerUrl.href,
+      parentURL: import.meta.url,
+    },
   });
 }
 

@@ -688,6 +688,22 @@ export class ExecutionsApplicationService {
         step: runningStep,
         runType: run.type,
         dryRun: Boolean(runningStep.inputSnapshot.dryRun),
+        reportProgress: async (detail) => {
+          const latest = await this.repository.getStepOrThrow(runningStep.id, tenantId);
+          if (latest.status !== 'RUNNING') return;
+          const updated = await this.repository.updateStep(runningStep.id, {
+            inputSnapshot: {
+              ...latest.inputSnapshot,
+              resultDetail: {
+                ...(readRecord(latest.inputSnapshot.resultDetail) ?? {}),
+                ...detail,
+              },
+            },
+            updatedAt: new Date().toISOString(),
+            updatedBy: actorId,
+          });
+          this.detailStream?.publishStep(updated);
+        },
       });
     } catch (error) {
       result = error instanceof AppError

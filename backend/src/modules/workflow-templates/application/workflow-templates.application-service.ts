@@ -9,6 +9,7 @@ import type {
   WorkflowRuntimeInput,
   WorkflowStepRuntimeInput,
   WorkflowExecutorDispatcher,
+  WorkflowProgressReporter,
   WorkflowFileTemplate,
   WorkflowTemplate,
   WorkflowTemplateVersion,
@@ -84,8 +85,8 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.getRuntimePublishedVersion(templateId);
   }
 
-  async preview(input: WorkflowRuntimeInput) {
-    return this.domain.preview(input);
+  async preview(input: WorkflowRuntimeInput, reporter?: WorkflowProgressReporter) {
+    return this.domain.preview(input, reporter);
   }
 
   async testRun(input: WorkflowRuntimeInput) {
@@ -99,7 +100,7 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.testStep(input);
   }
 
-  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher) {
-    return this.domain.runWithDispatcher(input, dispatcher);
+  async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter) {
+    return this.domain.runWithDispatcher(input, dispatcher, reporter);
   }
 }

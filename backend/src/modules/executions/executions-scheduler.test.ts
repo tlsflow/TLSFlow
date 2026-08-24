@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
+import { ExecutionDetailStreamService } from './application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './application/execution-result-sync.service.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './application/executors.js';
 import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAdapter, WorkflowExecutorAdapter } from './application/executors.js';
@@ -69,6 +70,71 @@ class TrackingExecutor implements Executor {
 }
 
 describe('ExecutionsApplicationService 调度与恢复', () => {
+  it('执行器进度会先持久化到运行中步骤，再通过 SSE 逐次发布', async () => {
+    const detailStream = new ExecutionDetailStreamService();
+    const service = new ExecutionsApplicationService({
+      deploymentPlansRepository: new DeploymentPlansRepository(),
+      detailStream,
+    });
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_realtime_progress',
+      targetIds: ['target_realtime'],
+      concurrencyLimit: 1,
+    });
+    const stepEvents: Array<{ status: string; inputSnapshot: Record<string, unknown> }> = [];
+    const unsubscribe = detailStream.subscribe(created.run.id, (event) => {
+      if (event.type === 'step') {
+        stepEvents.push({
+          status: event.step.status,
+          inputSnapshot: structuredClone(event.step.inputSnapshot),
+        });
+      }
+    });
+    let checkedPersistedProgress = false;
+    const executor = new TrackingExecutor(async (input) => {
+      if (!checkedPersistedProgress) {
+        await input.reportProgress?.({
+          workflowProgress: {
+            status: 'running',
+            totalSteps: 2,
+            completedSteps: 0,
+            steps: [
+              { name: 'login', status: 'running' },
+              { name: 'install', status: 'queued' },
+            ],
+          },
+        });
+        const persisted = await service.getStep(input.step.id, 'tenant_1');
+        assert.equal(persisted.status, 'RUNNING');
+        assert.equal(persisted.inputSnapshot.resultDetail.workflowProgress.steps[0].status, 'running');
+        checkedPersistedProgress = true;
+      }
+      return { success: true, detail: { completed: true } };
+    });
+
+    try {
+      const result = await service.runDispatchedExecution(
+        created.run.id,
+        'tester',
+        'tenant_1',
+        ExecutorRegistry.forTests([executor]),
+      );
+      assert.equal(result.success, true, JSON.stringify(result));
+    } finally {
+      unsubscribe();
+    }
+
+    assert.equal(checkedPersistedProgress, true);
+    const progressEventIndex = stepEvents.findIndex((event) => {
+      const resultDetail = event.inputSnapshot.resultDetail as Record<string, unknown> | undefined;
+      return resultDetail?.workflowProgress !== undefined;
+    });
+    const successEventIndex = stepEvents.findIndex((event) => event.status === 'SUCCESS');
+    assert.notEqual(progressEventIndex, -1);
+    assert.notEqual(successEventIndex, -1);
+    assert.equal(progressEventIndex < successEventIndex, true);
+  });
+
   it('GatewayRouteExecutor 默认只下发 Gateway Agent 路由任务，不在控制面本地伪执行', async () => {
     const agents = new AgentsApplicationService();
     const gateway = await agents.register('tenant_1', {

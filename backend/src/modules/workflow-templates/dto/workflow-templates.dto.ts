@@ -337,6 +337,8 @@ export interface WorkflowStepRunResult {
   type: WorkflowStepType;
   stage?: WorkflowStage;
   status: 'success' | 'failed' | 'skipped';
+  startedAt?: string;
+  finishedAt?: string;
   errorCode?: string;
   errorMessage?: string;
   attempts: number;
@@ -356,6 +358,34 @@ export interface WorkflowRunResult {
   rollbackResults: WorkflowStepRunResult[];
   logs: string[];
 }
+
+export interface WorkflowProgressStep {
+  name: string;
+  type: WorkflowStepType;
+  stage?: WorkflowStage;
+  status: 'queued' | 'running' | 'success' | 'failed' | 'skipped';
+  startedAt?: string;
+  finishedAt?: string;
+  attempts: number;
+  errorCode?: string;
+  errorMessage?: string;
+  assertions: Array<{ type: string; passed: boolean; message: string }>;
+  logs: string[];
+}
+
+export interface WorkflowRunProgress {
+  id: string;
+  mode: WorkflowTestRunMode;
+  status: 'running' | 'success' | 'failed' | 'rolled_back';
+  totalSteps: number;
+  completedSteps: number;
+  activeStep?: string;
+  steps: WorkflowProgressStep[];
+  logs: string[];
+  updatedAt: string;
+}
+
+export type WorkflowProgressReporter = (progress: WorkflowRunProgress) => Promise<void> | void;
 
 export interface WorkflowSingleStepRunResult {
   id: string;

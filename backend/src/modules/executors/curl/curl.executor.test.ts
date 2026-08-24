@@ -32,6 +32,41 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     assert.equal(failed.assertions.some((item) => item.passed === false), true);
   });
 
+  it('工作流执行保留内部原始响应，同时公共结果继续脱敏', async () => {
+    const executor = new CurlExecutor();
+    const runtimeToken = 'runtime-synology-token';
+    const execution = await executor.executeForWorkflow({
+      idempotencyKey: 'idem_curl_workflow_runtime_response',
+      template: { url: 'https://example.com/login', method: 'POST' },
+      extractors: [{ name: 'synoToken', source: 'json', path: '$.data.synotoken', required: true, secret: true }],
+      mockResponse: {
+        statusCode: 200,
+        body: { success: true, data: { synotoken: runtimeToken } },
+      },
+    });
+
+    assert.deepEqual(execution.result.bodyJson, { success: true, data: { synotoken: '[REDACTED]' } });
+    assert.deepEqual(execution.result.extracted, { synoToken: '[SECRET_CAPTURED]' });
+    assert.equal((execution.runtimeResponse?.bodyJson as { data?: { synotoken?: string } })?.data?.synotoken, runtimeToken);
+    assert.doesNotMatch(JSON.stringify(execution.result), new RegExp(runtimeToken));
+  });
+
+  it('响应策略失败时不让缺失的必需提取器覆盖主错误', async () => {
+    const executor = new CurlExecutor();
+    const failed = await executor.execute({
+      idempotencyKey: 'idem_curl_policy_failure_before_required_extractor',
+      template: { url: 'https://example.com/api', method: 'GET' },
+      responsePolicy: { assertions: [{ type: 'body_contains', text: '"success":true' }] },
+      extractors: [{ name: 'certificates', source: 'json', path: '$.data.certificates', required: true }],
+      mockResponse: { statusCode: 200, body: { success: false, error: { code: 119 } } },
+    });
+
+    assert.equal(failed.success, false);
+    assert.equal(failed.errorCode, 'HTTP_NON_SUCCESS_STATUS');
+    assert.deepEqual(failed.extracted, {});
+    assert.equal(failed.assertions.some((item) => item.passed === false), true);
+  });
+
   it('拒绝非法协议、明文敏感字段和重复幂等键', async () => {
     const executor = new CurlExecutor();
     await assert.rejects(() => executor.execute({ idempotencyKey: 'bad_proto', template: { url: 'file:///etc/passwd' } }), /只允许/);

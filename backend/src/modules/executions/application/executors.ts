@@ -7,11 +7,11 @@ import { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js
 import { LegacyTaskDispatcher } from '../../legacy-agents/legacy-task-dispatcher.js';
 import { LegacyTaskTranslator } from '../../legacy-agents/legacy-task-translator.js';
 import type { LegacyAgentProfile, UnifiedLegacyStep } from '../../legacy-agents/legacy-agent.types.js';
-import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor } from '../../executors/index.js';
+import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowExecutorDispatchResult, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 
@@ -19,6 +19,7 @@ export interface StepExecutionInput {
   step: ExecutionStepEntity;
   runType: string;
   dryRun: boolean;
+  reportProgress?: (detail: Record<string, unknown>) => Promise<void> | void;
 }
 
 export interface StepExecutionResult {
@@ -239,9 +240,20 @@ export class WorkflowExecutorAdapter implements Executor {
       certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
     };
     try {
+      const reportWorkflowProgress = async (workflowProgress: WorkflowRunProgress) => {
+        await input.reportProgress?.({
+          mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
+          stepType: input.step.stepType,
+          workflowProgress,
+        });
+      };
       const workflowRun = input.dryRun
-        ? await this.workflows.preview(runtimeInput)
-        : await this.workflows.runWithDispatcher(runtimeInput, async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt));
+        ? await this.workflows.preview(runtimeInput, reportWorkflowProgress)
+        : await this.workflows.runWithDispatcher(
+            runtimeInput,
+            async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt),
+            reportWorkflowProgress,
+          );
       const dryRunChecks = input.dryRun ? buildWorkflowDryRunChecks(workflowRun) : undefined;
       const detail = {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
@@ -277,9 +289,23 @@ export class WorkflowExecutorAdapter implements Executor {
     const plan = readRecord(renderedPlan);
     const executor = stringFromSnapshot(plan?.executor);
     if (executor === '017.CURL_HTTP') {
+      const childStep = workflowChildStep(input.step, `workflow-curl-${workflowStepName}-${attempt}`, {
+        curlRequest: toWorkflowCurlRequest(plan, input.step, workflowStepName, attempt),
+      });
+      if (typeof this.curlExecutor.executeForWorkflow === 'function') {
+        const request = childStep.inputSnapshot.curlRequest as CurlExecutionRequest | undefined;
+        if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
+        const execution = await this.curlExecutor.executeForWorkflow(request, false, {
+          runId: childStep.executionRunId,
+          stepId: childStep.id,
+          tenantId: childStep.tenantId,
+          actorId: 'curl-executor',
+        });
+        return curlWorkflowOutput(execution.result, execution.runtimeResponse);
+      }
       const result = await this.curlExecutor.executeStep({
         ...input,
-        step: workflowChildStep(input.step, `workflow-curl-${workflowStepName}-${attempt}`, { curlRequest: toWorkflowCurlRequest(plan, input.step, workflowStepName, attempt) }),
+        step: childStep,
         dryRun: false,
       });
       return curlWorkflowOutput(result);
@@ -541,7 +567,7 @@ function buildWorkflowDryRunChecks(workflowRun: WorkflowRunResult): DryRunCheck[
       status,
       detail: step.skipped
         ? `节点被条件跳过：${step.reason ?? 'condition_not_matched'}`
-        : `已渲染 ${stageLabel(step.stage)} 阶段的 ${step.type.toUpperCase()} 节点，dry-run 不会执行真实变更。`,
+        : buildWorkflowDryRunCheckDetail(step, preview),
       evidence: {
         workflowRunId: workflowRun.id,
         plannedOnly: workflowRun.plannedOnly,
@@ -560,6 +586,46 @@ function buildWorkflowDryRunChecks(workflowRun: WorkflowRunResult): DryRunCheck[
     detail: '工作流 dry-run 已完成，但没有渲染出可检查的节点。',
     evidence: { workflowRunId: workflowRun.id, plannedOnly: workflowRun.plannedOnly, status: workflowRun.status },
   }];
+}
+
+function buildWorkflowDryRunCheckDetail(
+  step: WorkflowRunResult['renderedSteps'][number],
+  preview: Record<string, unknown> | undefined,
+): string {
+  const stage = stageLabel(step.stage);
+  const executor = stringFromSnapshot(preview?.executor);
+  if (executor === '017.CURL_HTTP') {
+    const curlRequest = readRecord(preview?.curlRequest);
+    const template = readRecord(curlRequest?.template);
+    const responsePolicy = readRecord(curlRequest?.responsePolicy);
+    const method = stringFromSnapshot(template?.method) ?? 'HTTP';
+    const url = stringFromSnapshot(template?.url) ?? '未解析地址';
+    const assertionCount = Array.isArray(responsePolicy?.assertions) ? responsePolicy.assertions.length : 0;
+    const extractorCount = Array.isArray(curlRequest?.extractors) ? curlRequest.extractors.length : 0;
+    return `${stage}阶段请求已解析：${method} ${url}；响应策略包含 ${assertionCount} 项断言、${extractorCount} 项变量提取，未发送真实请求。`;
+  }
+  if (executor === '015.SSH') {
+    const connection = readRecord(preview?.connection) ?? readRecord(readRecord(preview?.sshRequest)?.connection);
+    const host = stringFromSnapshot(connection?.host) ?? '未解析主机';
+    const protocol = stringFromSnapshot(preview?.protocol);
+    return protocol
+      ? `${stage}阶段 ${protocol.toUpperCase()} 文件传输计划已解析，目标 ${host}；未建立真实 SSH 连接或写入文件。`
+      : `${stage}阶段 SSH 执行计划已解析，目标 ${host}；连接参数和命令结构有效，未建立真实 SSH 连接。`;
+  }
+  if (executor === 'workflow.transform') {
+    const outputNames = readStringArray(preview?.outputNames);
+    return `${stage}阶段数据转换已通过结构校验，将生成 ${outputNames.length} 个上下文变量；dry-run 不执行实际转换。`;
+  }
+  if (executor === 'workflow.condition') {
+    return `${stage}阶段条件表达式已解析，当前预检结果为${preview?.passed === true ? '满足' : '不满足'}。`;
+  }
+  if (executor === 'workflow.wait') {
+    return `${stage}阶段等待节点配置有效；dry-run 不执行实际等待。`;
+  }
+  if (executor === 'workflow.manual') {
+    return `${stage}阶段人工操作说明已解析；正式执行前仍需人工确认。`;
+  }
+  return `${stage}阶段的 ${step.type.toUpperCase()} 节点已完成变量和执行计划校验，dry-run 不执行真实变更。`;
 }
 
 function summarizeDryRunChecks(checks: readonly DryRunCheck[]): Record<DryRunCheckStatus, number> {
@@ -746,7 +812,22 @@ function toWorkflowCurlRequest(plan: Record<string, unknown> | undefined, parent
   };
 }
 
-function curlWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatchResult {
+function curlWorkflowOutput(result: StepExecutionResult): WorkflowExecutorDispatchResult;
+function curlWorkflowOutput(result: CurlExecutionResult, runtimeResponse?: HttpResponse): WorkflowExecutorDispatchResult;
+function curlWorkflowOutput(result: StepExecutionResult | CurlExecutionResult, runtimeResponse?: HttpResponse): WorkflowExecutorDispatchResult {
+  if ('rendered' in result) {
+    return {
+      success: result.success,
+      statusCode: runtimeResponse?.statusCode ?? result.statusCode ?? (result.success ? 200 : 500),
+      headers: runtimeResponse?.headers ?? result.headers,
+      body: runtimeResponse?.bodyJson ?? runtimeResponse?.body ?? runtimeResponse?.bodyText ?? result.bodyJson ?? result.bodyText,
+      stdout: runtimeResponse?.bodyText ?? (runtimeResponse?.bodyJson === undefined ? result.bodyText : JSON.stringify(runtimeResponse.bodyJson)),
+      logs: ['curl:runner:control_plane', ...result.logs],
+      raw: result,
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+    };
+  }
   const detail = readRecord(result.detail);
   const response = readRecord(detail?.response) ?? detail;
   return {

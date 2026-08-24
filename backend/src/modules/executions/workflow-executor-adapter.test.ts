@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { CurlExecutor } from '../executors/curl/curl.executor.js';
+import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
@@ -41,6 +43,41 @@ function workflowFixture(): WorkflowDslV1 {
           command: 'reload cert {{remoteFingerprint}}',
         },
         assert: [{ type: 'contains', value: 'ok' }],
+      },
+    ],
+  };
+}
+
+function sensitiveHttpChainWorkflowFixture(): WorkflowDslV1 {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'workflow-sensitive-http-chain-test' },
+    variables: {
+      deviceHost: { type: 'string', required: true },
+    },
+    steps: [
+      {
+        name: 'login',
+        type: 'http',
+        request: {
+          method: 'POST',
+          url: 'https://{{deviceHost}}/login',
+        },
+        extract: [{ name: 'sessionToken', type: 'jsonPath', path: '$.data.synotoken', sensitive: true }],
+        assert: [{ type: 'contains', value: '"success":true' }],
+      },
+      {
+        name: 'listCertificates',
+        type: 'http',
+        request: {
+          method: 'GET',
+          url: 'https://{{deviceHost}}/certificates',
+          query: { SynoToken: '{{sessionToken}}' },
+          headers: { 'X-SYNO-TOKEN': '{{sessionToken}}' },
+        },
+        extract: [{ name: 'certificates', type: 'jsonPath', path: '$.data.certificates' }],
+        assert: [{ type: 'contains', value: '"success":true' }],
       },
     ],
   };
@@ -196,6 +233,13 @@ async function createPublishedWorkflow(): Promise<{ workflows: WorkflowTemplates
   return { workflows, versionId: published.id };
 }
 
+async function createPublishedSensitiveHttpChainWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
+  const workflows = new WorkflowTemplatesApplicationService();
+  const created = await workflows.createTemplate({ content: sensitiveHttpChainWorkflowFixture(), changeSummary: 'sensitive-http-chain-test' });
+  const published = await workflows.publishVersion(created.version.id);
+  return { workflows, versionId: published.id };
+}
+
 async function createPublishedFileTransferWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
   const workflows = new WorkflowTemplatesApplicationService();
   const created = await workflows.createTemplate({ content: fileTransferWorkflowFixture(), changeSummary: 'file-transfer-test' });
@@ -272,13 +316,100 @@ describe('WorkflowExecutorAdapter', () => {
     const curlExecutor = new StubExecutor('CURL', () => ({ success: true }));
     const sshExecutor = new StubExecutor('SSH', () => ({ success: true }));
     const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor: curlExecutor as never, sshExecutor: sshExecutor as never });
+    const progressDetails: Record<string, unknown>[] = [];
 
-    const result = await adapter.executeStep({ step: workflowStep(versionId), runType: 'dry_run', dryRun: true });
+    const result = await adapter.executeStep({
+      step: workflowStep(versionId),
+      runType: 'dry_run',
+      dryRun: true,
+      reportProgress: async (detail) => {
+        progressDetails.push(detail);
+      },
+    });
 
     assert.equal(result.success, true);
     assert.equal(result.detail?.mode, 'workflow_plan');
     assert.equal(curlExecutor.calls.length, 0);
     assert.equal(sshExecutor.calls.length, 0);
+    assert.equal(progressDetails.length > 2, true);
+    assert.equal(progressDetails.every((detail) => detail.mode === 'workflow_plan'), true);
+    const progressSnapshots = progressDetails.map((detail) => detail.workflowProgress as {
+      status: string;
+      steps: Array<{ status: string }>;
+    });
+    assert.equal(progressSnapshots.some((progress) => progress.steps.some((step) => step.status === 'running')), true);
+    assert.equal(progressSnapshots.at(-1)?.status, 'success');
+    const dryRunChecks = result.detail?.dryRunChecks as Array<{ detail?: string }>;
+    assert.equal(dryRunChecks.length > 0, true);
+    assert.equal(dryRunChecks.some((check) => /响应策略包含|SSH 执行计划已解析/.test(check.detail ?? '')), true);
+  });
+
+  it('apply 在 HTTP 节点之间传递真实敏感变量，但结果中只保留脱敏值', async () => {
+    const { workflows, versionId } = await createPublishedSensitiveHttpChainWorkflow();
+    const runtimeToken = 'synology-runtime-token-value';
+    const requests: CurlHttpClientRequest[] = [];
+    const curlExecutor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          requests.push(request);
+          if (requests.length === 1) {
+            return { statusCode: 200, body: { success: true, data: { synotoken: runtimeToken } } };
+          }
+          return { statusCode: 200, body: { success: true, data: { certificates: [] } } };
+        },
+      },
+    });
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor });
+    const progressDetails: Record<string, unknown>[] = [];
+
+    const result = await adapter.executeStep({
+      step: workflowStep(versionId),
+      runType: 'apply',
+      dryRun: false,
+      reportProgress: async (detail) => {
+        progressDetails.push(detail);
+      },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(requests.length, 2);
+    assert.equal(new URL(requests[1]!.url).searchParams.get('SynoToken'), runtimeToken);
+    assert.equal(requests[1]!.headers['X-SYNO-TOKEN'], runtimeToken);
+    assert.doesNotMatch(JSON.stringify(result.detail), new RegExp(runtimeToken));
+    assert.equal(progressDetails.length, 6);
+    assert.equal(progressDetails.every((detail) => detail.mode === 'workflow_runner'), true);
+    const progressSnapshots = progressDetails.map((detail) => detail.workflowProgress as {
+      status: string;
+      steps: Array<{ status: string }>;
+    });
+    assert.deepEqual(progressSnapshots[1]!.steps.map((step) => step.status), ['running', 'queued']);
+    assert.deepEqual(progressSnapshots[3]!.steps.map((step) => step.status), ['success', 'running']);
+    assert.equal(progressSnapshots.at(-1)?.status, 'success');
+    assert.doesNotMatch(JSON.stringify(progressDetails), new RegExp(runtimeToken));
+    const workflowRun = result.detail?.workflowRun as { stepResults?: Array<{ extracted?: Record<string, unknown> }> };
+    assert.deepEqual(workflowRun.stepResults?.[0]?.extracted, { sessionToken: '[REDACTED]' });
+  });
+
+  it('HTTP 业务断言失败时保留策略错误，不被必需 extractor 覆盖', async () => {
+    const { workflows, versionId } = await createPublishedSensitiveHttpChainWorkflow();
+    const curlExecutor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          if (new URL(request.url).pathname === '/login') {
+            return { statusCode: 200, body: { success: true, data: { synotoken: 'runtime-token' } } };
+          }
+          return { statusCode: 200, headers: { 'x-request-error': 'unauth' }, body: { success: false, error: { code: 119 } } };
+        },
+      },
+    });
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor });
+
+    const result = await adapter.executeStep({ step: workflowStep(versionId), runType: 'apply', dryRun: false });
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, 'HTTP_NON_SUCCESS_STATUS');
+    assert.match(result.errorMessage ?? '', /listCertificates/);
+    assert.doesNotMatch(result.errorMessage ?? '', /提取变量失败|extractor/);
   });
 
   it('apply 通过工作流运行时按 HTTP 和 SSH 节点分发真实执行器', async () => {

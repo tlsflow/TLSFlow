@@ -12,7 +12,7 @@ import { createWorkflowStepDispatcher } from './application/workflow-step-dispat
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
 import { WorkflowTemplateFileLibrary } from './domain/workflow-template-file-library.js';
-import type { WorkflowDslV1, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
+import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 
 function templateFixture(): WorkflowDslV1 {
@@ -466,6 +466,7 @@ describe('WorkflowTemplates', () => {
     };
     const { version } = await service.createTemplate({ content });
     let renderedSshCommand = '';
+    const progressSnapshots: WorkflowRunProgress[] = [];
     const run = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
@@ -493,13 +494,30 @@ describe('WorkflowTemplates', () => {
         };
       }
       return { success: true, body: { success: true } };
+    }, async (progress) => {
+      progressSnapshots.push(progress);
     });
     const visible = JSON.stringify(run);
+    const visibleProgress = JSON.stringify(progressSnapshots);
 
     assert.equal(run.status, 'success');
     assert.equal(renderedSshCommand, 'echo runtime-token-secret runtime-token-secret runtime-token-secret');
     assert.equal(run.stepResults[0]!.extracted.accessToken, '[REDACTED]');
+    assert.equal(progressSnapshots.length, 6);
+    assert.deepEqual(progressSnapshots[0]!.steps.map((step) => step.status), ['queued', 'queued']);
+    assert.deepEqual(progressSnapshots[1]!.steps.map((step) => step.status), ['running', 'queued']);
+    assert.deepEqual(progressSnapshots[2]!.steps.map((step) => step.status), ['success', 'queued']);
+    assert.deepEqual(progressSnapshots[3]!.steps.map((step) => step.status), ['success', 'running']);
+    assert.deepEqual(progressSnapshots[4]!.steps.map((step) => step.status), ['success', 'success']);
+    assert.equal(progressSnapshots[5]!.status, 'success');
+    assert.equal(progressSnapshots[5]!.completedSteps, 2);
+    assert.equal(progressSnapshots[5]!.totalSteps, 2);
+    assert.ok(progressSnapshots[2]!.steps[0]!.startedAt);
+    assert.ok(progressSnapshots[2]!.steps[0]!.finishedAt);
+    assert.ok(progressSnapshots[4]!.steps[1]!.startedAt);
+    assert.ok(progressSnapshots[4]!.steps[1]!.finishedAt);
     assert.doesNotMatch(visible, /runtime-token-secret/);
+    assert.doesNotMatch(visibleProgress, /runtime-token-secret/);
     assert.match(visible, /\[REDACTED\]/);
   });
 

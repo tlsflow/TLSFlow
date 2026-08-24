@@ -116,6 +116,11 @@ export interface CurlExecutionResult {
   logs: string[];
 }
 
+export interface CurlWorkflowExecutionResult {
+  result: CurlExecutionResult;
+  runtimeResponse?: HttpResponse;
+}
+
 type Primitive = string | number | boolean;
 
 interface PreparedRequest {
@@ -177,6 +182,14 @@ export class CurlExecutor implements Executor {
   }
 
   async execute(request: CurlExecutionRequest, forceDryRun = false, context: CurlSecretResolverContext = {}): Promise<CurlExecutionResult> {
+    return (await this.executeWithRuntimeResponse(request, forceDryRun, context)).result;
+  }
+
+  async executeForWorkflow(request: CurlExecutionRequest, forceDryRun = false, context: CurlSecretResolverContext = {}): Promise<CurlWorkflowExecutionResult> {
+    return this.executeWithRuntimeResponse(request, forceDryRun, context);
+  }
+
+  private async executeWithRuntimeResponse(request: CurlExecutionRequest, forceDryRun: boolean, context: CurlSecretResolverContext): Promise<CurlWorkflowExecutionResult> {
     validateRequest(request);
     if (this.executed.has(request.idempotencyKey)) {
       throw new AppError('IDEMPOTENCY_CONFLICT', 'CURL 请求幂等键已执行', { idempotencyKey: request.idempotencyKey });
@@ -184,7 +197,7 @@ export class CurlExecutor implements Executor {
 
     const dryRun = forceDryRun || request.dryRun === true;
     const prepared = await prepareRequest(request, this.options.secretResolver, context);
-    if (dryRun) return baseResult(prepared.rendered, ['request:dry_run'], 0);
+    if (dryRun) return { result: baseResult(prepared.rendered, ['request:dry_run'], 0) };
 
     this.executed.add(request.idempotencyKey);
     const retryPolicy = normalizeRetryPolicy(request.retryPolicy, prepared.method);
@@ -199,8 +212,11 @@ export class CurlExecutor implements Executor {
       const logs = [`request:${prepared.method}:${maskText(prepared.url, prepared.redactionValues)}:attempt:${attempt}:elapsedMs:${elapsedMs}`];
 
       if (outcome.response) {
-        last = buildResponseResult(request, prepared, outcome.response, attempt, logs);
-        if (last.success || attempt === retryPolicy.maxAttempts || !shouldRetryResult(last, retryPolicy)) return last;
+        const runtimeResponse = normalizeResponse(outcome.response);
+        last = buildResponseResult(request, prepared, runtimeResponse, attempt, logs);
+        if (last.success || attempt === retryPolicy.maxAttempts || !shouldRetryResult(last, retryPolicy)) {
+          return { result: last, runtimeResponse };
+        }
       } else {
         last = {
           ...baseResult(prepared.rendered, logs, attempt),
@@ -209,13 +225,13 @@ export class CurlExecutor implements Executor {
           errorCode: outcome.errorCode,
           errorMessage: outcome.errorMessage,
         };
-        if (attempt === retryPolicy.maxAttempts || !outcome.retryable || !retryPolicy.retryOnNetworkError) return last;
+        if (attempt === retryPolicy.maxAttempts || !outcome.retryable || !retryPolicy.retryOnNetworkError) return { result: last };
       }
 
       await waitBeforeRetry(attempt, retryPolicy);
     }
 
-    return last ?? baseResult(prepared.rendered, ['request:not_started'], 0);
+    return { result: last ?? baseResult(prepared.rendered, ['request:not_started'], 0) };
   }
 
   getRequiredCapabilities(): string[] {
@@ -542,15 +558,17 @@ function buildResponseResult(request: CurlExecutionRequest, prepared: PreparedRe
   }
   const successCodes = request.responsePolicy?.successStatusCodes ?? (request.responsePolicy?.failOnNon2xx === false ? [normalized.statusCode] : defaultSuccessCodes);
   const assertions = evaluateAssertions(normalized, request.responsePolicy?.assertions ?? []);
-  const extracted = runExtractors(normalized, request.extractors ?? []);
   const success = successCodes.includes(normalized.statusCode) && assertions.every((item) => item.passed);
+  const extracted = runExtractors(normalized, request.extractors ?? [], success);
+  const responseRedactionValues = collectSensitiveExtractorValues(normalized, request.extractors ?? []);
+  const redactionValues = [...prepared.redactionValues, ...responseRedactionValues];
   return {
     success,
     rendered: prepared.rendered,
     statusCode: normalized.statusCode,
-    headers: maskHeaders(normalized.headers ?? {}),
-    bodyText: maskText(normalized.bodyText ?? '', prepared.redactionValues),
-    bodyJson: maskUnknown(normalized.bodyJson, prepared.redactionValues),
+    headers: maskHeaders(normalized.headers ?? {}, redactionValues),
+    bodyText: maskText(normalized.bodyText ?? '', redactionValues),
+    bodyJson: maskUnknown(normalized.bodyJson, redactionValues),
     responseBytes,
     attempts,
     retryable: shouldRetryStatus(normalized.statusCode, normalizeRetryPolicy(request.retryPolicy, prepared.method)),
@@ -609,22 +627,38 @@ function evaluateAssertions(response: HttpResponse, assertions: HttpAssertion[])
   return assertions.map((assertion) => {
     if (assertion.type === 'status') return { type: assertion.type, passed: response.statusCode === assertion.equals, message: `status=${response.statusCode}` };
     if (assertion.type === 'header_exists') return { type: assertion.type, passed: getHeader(response.headers, assertion.name) !== undefined, message: `header=${assertion.name}` };
-    return { type: assertion.type, passed: String(response.bodyText ?? response.body ?? '').includes(assertion.text), message: 'body contains' };
+    const actual = String(response.bodyText ?? response.body ?? '');
+    return { type: assertion.type, passed: actual.includes(assertion.text) || actual.toLowerCase().includes(assertion.text.toLowerCase()), message: 'body contains' };
   });
 }
 
-function runExtractors(response: HttpResponse, extractors: HttpExtractor[]): Record<string, unknown> {
+function runExtractors(response: HttpResponse, extractors: HttpExtractor[], enforceRequired = true): Record<string, unknown> {
   const output: Record<string, unknown> = {};
   for (const extractor of extractors) {
-    let value: unknown;
-    if (extractor.source === 'status') value = response.statusCode;
-    if (extractor.source === 'header') value = getHeader(response.headers, extractor.header ?? extractor.path ?? '');
-    if (extractor.source === 'json' || (extractor.source === 'body' && extractor.path)) value = readJsonPath(response.bodyJson ?? response.body, extractor.path ?? '');
-    if (extractor.pattern) value = String(response.bodyText ?? response.body ?? '').match(new RegExp(extractor.pattern))?.[1];
-    if ((value === undefined || value === null) && extractor.required) throw buildRequiredExtractorError(extractor, response);
+    const value = readExtractorValue(response, extractor);
+    if ((value === undefined || value === null) && extractor.required && enforceRequired) throw buildRequiredExtractorError(extractor, response);
     if (value !== undefined && value !== null) output[extractor.name] = extractor.secret ? '[SECRET_CAPTURED]' : value;
   }
   return output;
+}
+
+function collectSensitiveExtractorValues(response: HttpResponse, extractors: HttpExtractor[]): string[] {
+  return extractors
+    .filter((extractor) => extractor.secret)
+    .map((extractor) => readExtractorValue(response, extractor))
+    .filter((value): value is string | number | boolean => ['string', 'number', 'boolean'].includes(typeof value))
+    .map(String)
+    .filter(Boolean);
+}
+
+function readExtractorValue(response: HttpResponse, extractor: HttpExtractor): unknown {
+  if (extractor.source === 'status') return response.statusCode;
+  if (extractor.source === 'header') return getHeader(response.headers, extractor.header ?? extractor.path ?? '');
+  if (extractor.source === 'json' || (extractor.source === 'body' && extractor.path)) {
+    return readJsonPath(response.bodyJson ?? response.body, extractor.path ?? '');
+  }
+  if (extractor.pattern) return String(response.bodyText ?? response.body ?? '').match(new RegExp(extractor.pattern))?.[1];
+  return undefined;
 }
 
 function buildRequiredExtractorError(extractor: HttpExtractor, response: HttpResponse): AppError {
@@ -749,8 +783,8 @@ function getHeader(headers: Record<string, string> | undefined, name: string): s
   return Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === lower)?.[1];
 }
 
-function maskHeaders(headers: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, isSensitiveKey(key) ? '[REDACTED]' : value]));
+function maskHeaders(headers: Record<string, string>, redactionValues: string[]): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, isSensitiveKey(key) ? '[REDACTED]' : maskText(value, redactionValues)]));
 }
 
 function maskUnknown(value: unknown, redactionValues: string[]): unknown {
