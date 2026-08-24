@@ -21,7 +21,7 @@ func TestDecodeWindowsConfigTextRejectsRawNulBytes(t *testing.T) {
 	}
 }
 
-func TestWebInventoryFromFactEnvelopeConvertsConfigFacts(t *testing.T) {
+func TestWebInventoryFromFactEnvelopeConvertsGenericFacts(t *testing.T) {
 	iis := `<configuration><system.applicationHost><sites><site name="Default Web Site"><bindings><binding protocol="https" bindingInformation="*:443:portal.example.test" /></bindings></site></sites></system.applicationHost></configuration>`
 	inventory := webInventoryFromFactEnvelope(map[string]any{"facts": []map[string]any{{
 		"kind": "file_content", "path": `C:\Windows\System32\inetsrv\config\applicationHost.config`,
@@ -29,15 +29,20 @@ func TestWebInventoryFromFactEnvelopeConvertsConfigFacts(t *testing.T) {
 	}, {
 		"kind": "listening_port", "address": "0.0.0.0", "port": 443, "protocol": "tcp",
 	}}})
-	frameworks := inventory["frameworks"].([]map[string]any)
-	sites := inventory["sites"].([]map[string]any)
-	if len(frameworks) != 1 || frameworks[0]["frameworkType"] != "web.iis" {
-		t.Fatalf("IIS 事实未转换为框架: %#v", frameworks)
-	}
-	if len(sites) != 1 || sites[0]["name"] != "Default Web Site" || sites[0]["protocol"] != "HTTPS" {
-		t.Fatalf("IIS 事实未转换为站点: %#v", sites)
-	}
 	if len(inventory["configFiles"].([]map[string]any)) != 1 || len(inventory["listeningPorts"].([]map[string]any)) != 1 {
 		t.Fatalf("事实中的配置或监听端口未保留: %#v", inventory)
+	}
+	if len(inventory["frameworks"].([]map[string]any)) != 0 || len(inventory["sites"].([]map[string]any)) != 0 {
+		t.Fatalf("Agent Core 不应硬编码产品解析: %#v", inventory)
+	}
+}
+
+func TestWebInventoryFromFactEnvelopeConvertsWindowsCertificateStoreFacts(t *testing.T) {
+	inventory := webInventoryFromFactEnvelope(map[string]any{"facts": []map[string]any{{
+		"kind": "certificate_store", "store": "My", "storeLocation": "LocalMachine", "thumbprint": "a1 b2 c3 d4 e5 f6 07 08", "subject": "CN=portal.example.test",
+	}}})
+	certificates := inventory["certificateFiles"].([]map[string]any)
+	if len(certificates) != 1 || certificates[0]["thumbprint"] != "A1B2C3D4E5F60708" {
+		t.Fatalf("Windows 证书库事实未转换为通用证书文件: %#v", certificates)
 	}
 }

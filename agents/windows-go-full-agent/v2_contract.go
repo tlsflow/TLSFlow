@@ -467,25 +467,76 @@ func collectWindowsPermissions() map[string]any {
 }
 
 func collectWindowsCertificateStores(ctx context.Context) []map[string]any {
-	stores := make([]map[string]any, 0, 2)
+	stores := make([]map[string]any, 0, 16)
 	for _, name := range []string{"My", "Root"} {
-		item := map[string]any{"kind": "certificate_store", "store": name, "subject": "unavailable", "thumbprint": "unavailable", "hasPrivateKey": false}
 		command := exec.CommandContext(ctx, windowsSystem32Directory+`\certutil.exe`, "-store", name)
 		command.Dir = windowsSystem32Directory
 		command.Env = fixedWindowsEnvironment()
 		output, err := command.Output()
-		if err == nil {
-			text := string(output)
-			if subject := certificateutilField(text, "Subject:"); subject != "" {
-				item["subject"] = subject
-			}
-			if thumbprint := certificateutilField(text, "Cert Hash(sha1):"); thumbprint != "" {
-				item["thumbprint"] = strings.ReplaceAll(thumbprint, " ", "")
-			}
+		if err != nil {
+			stores = append(stores, map[string]any{"kind": "certificate_store", "store": name, "storeLocation": "LocalMachine", "subject": "unavailable", "thumbprint": "unavailable", "hasPrivateKey": false})
+			continue
 		}
-		stores = append(stores, item)
+		records := parseCertificateStoreOutput(string(output), name)
+		if len(records) == 0 {
+			stores = append(stores, map[string]any{"kind": "certificate_store", "store": name, "storeLocation": "LocalMachine", "subject": "unavailable", "thumbprint": "unavailable", "hasPrivateKey": false})
+			continue
+		}
+		stores = append(stores, records...)
 	}
 	return stores
+}
+
+func parseCertificateStoreOutput(output, store string) []map[string]any {
+	lines := strings.Split(output, "\n")
+	result := make([]map[string]any, 0, 8)
+	current := map[string]any{}
+	flush := func() {
+		thumbprint := strings.Map(func(r rune) rune {
+			if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+				return r
+			}
+			return -1
+		}, stringFromMap(current, "thumbprint"))
+		if len(thumbprint) < 8 {
+			current = map[string]any{}
+			return
+		}
+		current["kind"] = "certificate_store"
+		current["store"] = store
+		current["storeLocation"] = "LocalMachine"
+		current["thumbprint"] = strings.ToUpper(thumbprint)
+		current["path"] = "windows-certstore://LocalMachine/" + store + "/" + strings.ToUpper(thumbprint)
+		if current["subject"] == nil {
+			current["subject"] = "unavailable"
+		}
+		if current["hasPrivateKey"] == nil {
+			current["hasPrivateKey"] = false
+		}
+		result = append(result, current)
+		current = map[string]any{}
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "Certificate ") && strings.Contains(trimmed, "====") {
+			flush()
+			continue
+		}
+		for _, field := range []struct{ key, label string }{
+			{key: "subject", label: "Subject:"},
+			{key: "issuer", label: "Issuer:"},
+			{key: "notBefore", label: "NotBefore:"},
+			{key: "notAfter", label: "NotAfter:"},
+			{key: "thumbprint", label: "Cert Hash(sha1):"},
+			{key: "sha256Fingerprint", label: "Cert Hash(sha256):"},
+		} {
+			if value := certificateutilField(trimmed, field.label); value != "" {
+				current[field.key] = value
+			}
+		}
+	}
+	flush()
+	return result
 }
 
 func windowsTokenIsElevated() bool {

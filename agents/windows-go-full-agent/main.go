@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,7 +22,6 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -1259,6 +1260,7 @@ func collectCapabilityReportsWithInventory(identity runtimeIdentity, inventory m
 			"processExecutables": collectWindowsWebProcessExecutables(context.Background()),
 			"listeningPorts":     collectWindowsListeningPorts(context.Background()),
 			"configFiles":        collectWindowsWebConfigFiles(),
+			"certificateFiles":   collectWindowsCertificateFiles(),
 		}
 	}
 	return []reportedCapability{
@@ -1344,6 +1346,65 @@ func collectWebConfigFile(path string) map[string]any {
 		return nil
 	}
 	return map[string]any{"path": filepath.ToSlash(path), "content": text}
+}
+
+// 仅回传公开证书摘要，不回传 PEM、私钥或 PKCS#12 原文。
+func collectWindowsCertificateFiles() []map[string]any {
+	files := make([]map[string]any, 0, 64)
+	seen := make(map[string]struct{})
+	roots := []string{`C:\nginx`, `C:\Apache24`, `C:\Tomcat`, `C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`}
+	for _, root := range roots {
+		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if len(files) >= 256 {
+				return filepath.SkipAll
+			}
+			if walkErr != nil || entry == nil || entry.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".pem" && ext != ".crt" && ext != ".cer" && ext != ".der" {
+				return nil
+			}
+			key := strings.ToLower(filepath.Clean(path))
+			if _, exists := seen[key]; exists {
+				return nil
+			}
+			seen[key] = struct{}{}
+			if item := collectWindowsCertificateFile(path); item != nil {
+				files = append(files, item)
+			}
+			return nil
+		})
+		if len(files) >= 256 {
+			break
+		}
+	}
+	return files
+}
+
+func collectWindowsCertificateFile(path string) map[string]any {
+	content, err := os.ReadFile(path)
+	if err != nil || len(content) == 0 || len(content) > 512*1024 {
+		return nil
+	}
+	der := content
+	if block, _ := pem.Decode(content); block != nil {
+		der = block.Bytes
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil
+	}
+	fingerprint := sha256.Sum256(certificate.Raw)
+	return map[string]any{
+		"path":              filepath.ToSlash(path),
+		"configuredPaths":   []string{filepath.Base(path)},
+		"sha256Fingerprint": hex.EncodeToString(fingerprint[:]),
+		"subject":           certificate.Subject.String(),
+		"issuer":            certificate.Issuer.String(),
+		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
+		"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339),
+	}
 }
 
 // Windows 配置文件常见 UTF-8、UTF-16 LE 和 UTF-16 BE 三种编码。UTF-16 原始字节不能直接转 string，否则会把 NUL 上报到 JSONB。
@@ -1547,27 +1608,12 @@ func reportCapabilitiesWithInventory(ctx context.Context, client *http.Client, c
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
 }
 
-// webInventoryFromFactEnvelope 将事实采集的受控文件内容转换为宿主可消费的通用 Web 库存。
-// 这里仅做稳定、无副作用的文本识别；具体资产投影仍由控制面完成。
+// webInventoryFromFactEnvelope 将事实采集结果转换为宿主可消费的通用 Web 库存。
+// Agent 只搬运原始配置、监听和证书元数据；框架语法解析由宿主插件完成。
 func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
-	inventory := map[string]any{"processExecutables": []string{}, "listeningPorts": []map[string]any{}, "configFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
+	inventory := map[string]any{"processExecutables": []string{}, "listeningPorts": []map[string]any{}, "configFiles": []map[string]any{}, "certificateFiles": []map[string]any{}, "frameworks": []map[string]any{}, "sites": []map[string]any{}}
 	if envelope == nil {
 		return inventory
-	}
-	frameworks := inventory["frameworks"].([]map[string]any)
-	sites := inventory["sites"].([]map[string]any)
-	seenFramework := map[string]bool{}
-	addFramework := func(kind, name string) {
-		if !seenFramework[kind] {
-			frameworks = append(frameworks, map[string]any{"frameworkType": kind, "displayName": name})
-			seenFramework[kind] = true
-		}
-	}
-	addSite := func(kind, name, protocol string, port int, addresses []string, metadata map[string]any) {
-		if name == "" {
-			return
-		}
-		sites = append(sites, map[string]any{"frameworkType": kind, "name": name, "addresses": addresses, "port": port, "protocol": protocol, "metadata": metadata})
 	}
 	facts := factMaps(envelope["facts"])
 	for _, fact := range facts {
@@ -1581,6 +1627,11 @@ func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
 			inventory["listeningPorts"] = append(inventory["listeningPorts"].([]map[string]any), map[string]any{
 				"address": stringFromMap(fact, "address"), "port": intFromMap(fact, "port"), "protocol": stringFromMap(fact, "protocol"),
 			})
+		case "certificate_store":
+			if certificate := certificateFileFromFact(fact); certificate != nil {
+				inventory["certificateFiles"] = append(inventory["certificateFiles"].([]map[string]any), certificate)
+			}
+			continue
 		case "file_content":
 			// 受控配置文本继续向控制面提供原始证据，控制面可据此进行完整解析。
 		default:
@@ -1600,96 +1651,31 @@ func webInventoryFromFactEnvelope(envelope map[string]any) map[string]any {
 			continue
 		}
 		inventory["configFiles"] = append(inventory["configFiles"].([]map[string]any), map[string]any{"path": filepath.ToSlash(path), "content": content})
-		lower := strings.ToLower(filepath.ToSlash(path))
-		switch {
-		case strings.HasSuffix(lower, "/applicationhost.config") || strings.Contains(content, "<system.applicationhost"):
-			addFramework("web.iis", "IIS")
-			for _, match := range regexp.MustCompile(`(?is)<site\b[^>]*\bname=["']([^"']+)["'][^>]*>(.*?)</site>`).FindAllStringSubmatch(content, -1) {
-				name := match[1]
-				body := match[2]
-				port, protocol, host := iisBinding(body)
-				addresses := []string{}
-				if host != "" {
-					addresses = append(addresses, host)
-				}
-				addSite("web.iis", name, protocol, port, addresses, map[string]any{"sourcePath": path})
-			}
-		case strings.Contains(lower, "nginx") || strings.Contains(content, "server_name"):
-			addFramework("web.nginx", "Nginx")
-			for _, match := range regexp.MustCompile(`(?is)server\s*\{(.*?)\}`).FindAllStringSubmatch(content, -1) {
-				names := regexp.MustCompile(`(?i)server_name\s+([^;]+);`).FindStringSubmatch(match[1])
-				name := "default"
-				if len(names) > 1 {
-					name = strings.Fields(names[1])[0]
-				}
-				port := 80
-				protocol := "HTTP"
-				if strings.Contains(match[1], "443") || strings.Contains(strings.ToLower(match[1]), "ssl") {
-					port = 443
-					protocol = "HTTPS"
-				}
-				addresses := []string{}
-				if len(names) > 1 {
-					addresses = strings.Fields(names[1])
-				}
-				addSite("web.nginx", name, protocol, port, addresses, map[string]any{"sourcePath": path})
-			}
-		case strings.Contains(lower, "apache") || strings.Contains(content, "<VirtualHost"):
-			addFramework("web.apache", "Apache")
-			for _, match := range regexp.MustCompile(`(?is)<VirtualHost\s+([^>]+)>(.*?)</VirtualHost>`).FindAllStringSubmatch(content, -1) {
-				name := "localhost"
-				if nameMatch := regexp.MustCompile(`(?i)(?:ServerName|ServerAlias)\s+([^\s#]+)`).FindStringSubmatch(match[2]); len(nameMatch) > 1 {
-					name = strings.TrimSpace(nameMatch[1])
-				}
-				port := 80
-				if strings.Contains(match[1], "443") {
-					port = 443
-				}
-				protocol := "HTTP"
-				if port == 443 || strings.Contains(strings.ToLower(match[2]), "sslengine on") {
-					protocol = "HTTPS"
-				}
-				addSite("web.apache", name, protocol, port, []string{name}, map[string]any{"sourcePath": path})
-			}
-		case strings.HasSuffix(lower, "/server.xml") || strings.Contains(lower, "tomcat"):
-			addFramework("app.tomcat", "Tomcat")
-			for _, match := range regexp.MustCompile(`(?is)<Connector\b([^>]*)/?>`).FindAllStringSubmatch(content, -1) {
-				port := 8080
-				if p := regexp.MustCompile(`(?i)port=["'](\d+)["']`).FindStringSubmatch(match[1]); len(p) > 1 {
-					fmt.Sscanf(p[1], "%d", &port)
-				}
-				protocol := "HTTP"
-				if strings.Contains(strings.ToLower(match[1]), "ssl") || strings.Contains(strings.ToLower(match[1]), "https") || port == 8443 {
-					protocol = "HTTPS"
-				}
-				addSite("app.tomcat", "localhost", protocol, port, []string{"localhost"}, map[string]any{"sourcePath": path})
-			}
-		}
 	}
-	inventory["frameworks"] = frameworks
-	inventory["sites"] = sites
 	return inventory
 }
 
-func iisBinding(body string) (int, string, string) {
-	match := regexp.MustCompile(`(?i)bindingInformation=["']([^"']+)["']`).FindStringSubmatch(body)
-	if len(match) < 2 {
-		return 80, "HTTP", ""
+func certificateFileFromFact(fact map[string]any) map[string]any {
+	thumbprint := strings.ToUpper(strings.Map(func(r rune) rune {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			return r
+		}
+		return -1
+	}, stringFromMap(fact, "thumbprint")))
+	if len(thumbprint) < 8 {
+		return nil
 	}
-	parts := strings.Split(match[1], ":")
-	port := 80
-	if len(parts) > 1 {
-		fmt.Sscanf(parts[1], "%d", &port)
+	path := stringFromMap(fact, "path")
+	if path == "" {
+		path = "windows-certstore://LocalMachine/" + stringFromMap(fact, "store") + "/" + thumbprint
 	}
-	protocol := "HTTP"
-	if regexp.MustCompile(`(?i)protocol\s*=\s*["']https["']`).MatchString(body) || port == 443 {
-		protocol = "HTTPS"
+	item := map[string]any{"path": filepath.ToSlash(path), "thumbprint": thumbprint, "store": stringFromMap(fact, "store"), "storeLocation": stringFromMap(fact, "storeLocation")}
+	for _, key := range []string{"sha256Fingerprint", "subject", "issuer", "notBefore", "notAfter", "hasPrivateKey"} {
+		if value := fact[key]; value != nil && value != "" {
+			item[key] = value
+		}
 	}
-	host := ""
-	if len(parts) > 2 {
-		host = strings.TrimSpace(strings.Join(parts[2:], ":"))
-	}
-	return port, protocol, host
+	return item
 }
 
 func lenOfAny(value any) int {
