@@ -3436,10 +3436,10 @@ export default {
       description: 'によりキャンバスドラフト管理 CURL/SSH/SFTP ワークフローバージョン、公開ステータスと変更記録。',
       pluginSources: {
         createTitle: 'プラグインから作成', applyTitle: 'プラグインからドラフト作成', description: '有効なプラグインの証明書デプロイまたはロールバックワークフローのみ表示します。',
-        createAction: 'ワークフローを作成', applyAction: 'ドラフトを作成', currentTarget: '現在のワークフロー：{name}', namePlaceholder: 'ワークフロー名を入力', loading: 'プラグインソースを読み込み中...', empty: '利用可能なプラグインソースがありません。', version: 'プラグインバージョン', provenance: 'プラグイン由来',
+        createAction: 'ワークフローを作成', applyAction: 'ドラフトを作成', currentTarget: '現在のワークフロー：{name}', namePlaceholder: 'ワークフロー名を入力', loading: 'プラグインソースを読み込み中...', empty: '利用可能なプラグインソースがありません。', version: 'プラグインバージョン', versionSource: 'バージョンソース：{plugin} / {version} / {capability}',
         capabilities: { deploy: '証明書デプロイ', rollback: '証明書ロールバック' }, errors: { loadFailed: 'プラグインソースの読み込みに失敗しました', nameRequired: 'ワークフロー名を入力してください', missingApplyTarget: '対象ワークフローがありません', actionFailed: 'プラグインワークフローのコピーに失敗しました' }
       },
-      origins: { legacy: '旧ワークフロー', user: 'ユーザーワークフロー', plugin_internal: 'プラグイン内部ワークフロー', plugin_derived: 'プラグイン派生ワークフロー' },
+      origins: { user: 'カスタム', plugin_internal: 'プラグイン内蔵' },
       actions: {
         addVersion: '追加バージョン',
         applyTemplate: '適用テンプレート',

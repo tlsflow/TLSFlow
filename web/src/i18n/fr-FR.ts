@@ -3480,10 +3480,10 @@ export default {
       description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
       pluginSources: {
         createTitle: 'Créer depuis un plugin', applyTitle: 'Créer un brouillon depuis un plugin', description: 'Seuls les workflows de déploiement ou de restauration de certificats des plugins activés sont proposés.',
-        createAction: 'Créer le workflow', applyAction: 'Créer le brouillon', currentTarget: 'Workflow actuel : {name}', namePlaceholder: 'Nom du workflow', loading: 'Chargement des sources plugin...', empty: 'Aucune source plugin disponible.', version: 'Version du plugin', provenance: 'Origine plugin',
+        createAction: 'Créer le workflow', applyAction: 'Créer le brouillon', currentTarget: 'Workflow actuel : {name}', namePlaceholder: 'Nom du workflow', loading: 'Chargement des sources plugin...', empty: 'Aucune source plugin disponible.', version: 'Version du plugin', versionSource: 'Source de version : {plugin} / {version} / {capability}',
         capabilities: { deploy: 'Déploiement du certificat', rollback: 'Restauration du certificat' }, errors: { loadFailed: 'Échec du chargement des sources plugin', nameRequired: 'Saisissez un nom de workflow', missingApplyTarget: 'Le workflow cible est absent', actionFailed: 'Échec de la copie du workflow plugin' }
       },
-      origins: { legacy: 'Workflow historique', user: 'Workflow utilisateur', plugin_internal: 'Workflow interne du plugin', plugin_derived: 'Workflow dérivé du plugin' },
+      origins: { user: 'Personnalisé', plugin_internal: 'Intégré au plugin' },
       actions: {
         addVersion: 'Add version',
         applyTemplate: 'Apply template',

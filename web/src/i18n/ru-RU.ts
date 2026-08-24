@@ -3410,10 +3410,10 @@ export default {
       description: 'Управление версиями CURL/SSH/SFTP рабочих процессов, статусом публикации и историей изменений по черновикам canvas.',
       pluginSources: {
         createTitle: 'Создать из плагина', applyTitle: 'Создать черновик из плагина', description: 'Показаны только процессы развертывания или отката сертификатов из включенных плагинов.',
-        createAction: 'Создать процесс', applyAction: 'Создать черновик', currentTarget: 'Текущий процесс: {name}', namePlaceholder: 'Введите имя процесса', loading: 'Загрузка источников плагина...', empty: 'Нет доступных источников плагина.', version: 'Версия плагина', provenance: 'Источник плагина',
+        createAction: 'Создать процесс', applyAction: 'Создать черновик', currentTarget: 'Текущий процесс: {name}', namePlaceholder: 'Введите имя процесса', loading: 'Загрузка источников плагина...', empty: 'Нет доступных источников плагина.', version: 'Версия плагина', versionSource: 'Источник версии: {plugin} / {version} / {capability}',
         capabilities: { deploy: 'Развертывание сертификата', rollback: 'Откат сертификата' }, errors: { loadFailed: 'Не удалось загрузить источники плагина', nameRequired: 'Введите имя процесса', missingApplyTarget: 'Целевой процесс отсутствует', actionFailed: 'Не удалось скопировать процесс плагина' }
       },
-      origins: { legacy: 'Устаревший процесс', user: 'Пользовательский процесс', plugin_internal: 'Внутренний процесс плагина', plugin_derived: 'Процесс, производный от плагина' },
+      origins: { user: 'Пользовательский', plugin_internal: 'Встроенный в плагин' },
       actions: {
         addVersion: 'Добавить версию',
         applyTemplate: 'Применить шаблон',

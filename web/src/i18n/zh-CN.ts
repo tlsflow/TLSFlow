@@ -3547,11 +3547,11 @@ export default {
         loading: '正在加载插件工作流来源...',
         empty: '没有可用的插件工作流来源。',
         version: '插件版本',
-        provenance: '插件派生来源',
+        versionSource: '版本来源：{plugin} / {version} / {capability}',
         capabilities: { deploy: '证书部署', rollback: '证书回滚' },
         errors: { loadFailed: '加载插件工作流来源失败', nameRequired: '请输入工作流名称', missingApplyTarget: '缺少要生成草稿的工作流', actionFailed: '插件工作流复制失败' }
       },
-      origins: { legacy: '历史工作流', user: '用户工作流', plugin_internal: '插件内部工作流', plugin_derived: '插件派生工作流' },
+      origins: { user: '自定义', plugin_internal: '插件内置' },
       actions: {
         addVersion: '新增版本',
         applyTemplate: '套用模板',

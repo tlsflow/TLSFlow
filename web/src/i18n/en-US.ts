@@ -3513,10 +3513,10 @@ export default {
       description: 'Manage CURL/SSH/SFTP workflow versions, publishing status, and change history from canvas drafts.',
       pluginSources: {
         createTitle: 'Create from plugin', applyTitle: 'Create draft from plugin', description: 'Only certificate deployment or rollback workflows from enabled plugins are listed. The copied workflow is user-owned and editable.',
-        createAction: 'Create workflow', applyAction: 'Create draft', currentTarget: 'Current workflow: {name}', namePlaceholder: 'Enter workflow name', loading: 'Loading plugin workflow sources...', empty: 'No plugin workflow source is available.', version: 'Plugin version', provenance: 'Plugin provenance',
+        createAction: 'Create workflow', applyAction: 'Create draft', currentTarget: 'Current workflow: {name}', namePlaceholder: 'Enter workflow name', loading: 'Loading plugin workflow sources...', empty: 'No plugin workflow source is available.', version: 'Plugin version', versionSource: 'Version source: {plugin} / {version} / {capability}',
         capabilities: { deploy: 'Certificate deployment', rollback: 'Certificate rollback' }, errors: { loadFailed: 'Failed to load plugin workflow sources', nameRequired: 'Enter a workflow name', missingApplyTarget: 'The target workflow is missing', actionFailed: 'Failed to copy the plugin workflow' }
       },
-      origins: { legacy: 'Legacy workflow', user: 'User workflow', plugin_internal: 'Plugin internal workflow', plugin_derived: 'Plugin-derived workflow' },
+      origins: { user: 'Custom', plugin_internal: 'Plugin built-in' },
       actions: {
         addVersion: 'Add version',
         applyTemplate: 'Apply template',

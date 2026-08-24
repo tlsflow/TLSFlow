@@ -3410,10 +3410,10 @@ export default {
       description: 'Gerencie versões de fluxos CURL/SSH/SFTP, status de publicação e histórico de alterações a partir dos rascunhos do canvas.',
       pluginSources: {
         createTitle: 'Criar a partir do plugin', applyTitle: 'Criar rascunho do plugin', description: 'Lista apenas fluxos de implantação ou reversão de certificados de plugins habilitados.',
-        createAction: 'Criar fluxo', applyAction: 'Criar rascunho', currentTarget: 'Fluxo atual: {name}', namePlaceholder: 'Nome do fluxo', loading: 'Carregando fontes de plugin...', empty: 'Nenhuma fonte de plugin disponível.', version: 'Versão do plugin', provenance: 'Origem do plugin',
+        createAction: 'Criar fluxo', applyAction: 'Criar rascunho', currentTarget: 'Fluxo atual: {name}', namePlaceholder: 'Nome do fluxo', loading: 'Carregando fontes de plugin...', empty: 'Nenhuma fonte de plugin disponível.', version: 'Versão do plugin', versionSource: 'Origem da versão: {plugin} / {version} / {capability}',
         capabilities: { deploy: 'Implantação de certificado', rollback: 'Reversão de certificado' }, errors: { loadFailed: 'Falha ao carregar fontes de plugin', nameRequired: 'Informe um nome de fluxo', missingApplyTarget: 'O fluxo de destino está ausente', actionFailed: 'Falha ao copiar o fluxo do plugin' }
       },
-      origins: { legacy: 'Fluxo legado', user: 'Fluxo do usuário', plugin_internal: 'Fluxo interno do plugin', plugin_derived: 'Fluxo derivado do plugin' },
+      origins: { user: 'Personalizado', plugin_internal: 'Integrado ao plugin' },
       actions: {
         addVersion: 'Adicionar versão',
         applyTemplate: 'Aplicar modelo',
