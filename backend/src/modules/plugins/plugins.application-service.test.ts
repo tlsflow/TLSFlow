@@ -29,15 +29,15 @@ describe('spec024 插件管理与安全沙箱 mock-safe 闭环', () => {
     const manifest = createManifest();
     const content = 'package';
 
-    assert.throws(
+    await assert.rejects(
       () => service.uploadPackage({ manifest: { ...manifest, actions: [] }, packageContent: content }),
       (error: any) => error.errorCode === 'VALIDATION_FAILED',
     );
-    assert.throws(
+    await assert.rejects(
       () => service.uploadPackage({ manifest, packageContent: content, expectedHash: 'sha256:bad' }),
       (error: any) => error.errorCode === 'VALIDATION_FAILED',
     );
-    assert.throws(
+    await assert.rejects(
       () => service.uploadPackage({ manifest, packageContent: content, signature: 'bad-signature' }),
       (error: any) => error.errorCode === 'PLUGIN_SIGNATURE_INVALID',
     );

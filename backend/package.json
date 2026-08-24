@@ -14,6 +14,7 @@
     "check:compatibility-migration": "node ../scripts/migrate-compatibility-profile-v1.mjs --check",
     "generate:compatibility": "node ../scripts/generate-compatibility-catalog.mjs",
     "check:compatibility-docs": "node ../scripts/generate-compatibility-catalog.mjs --check",
+    "check:plugin-vendor-neutrality": "node ../scripts/check-plugin-vendor-neutrality.mjs",
     "migrate": "tsx src/database/migrate.ts",
     "migrate:prod": "node dist/database/migrate.js",
     "dev": "tsx watch src/main.ts",
