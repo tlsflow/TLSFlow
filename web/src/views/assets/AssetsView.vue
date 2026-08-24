@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { listExecutionStepsByRunId, listExecutionsByPlanId, rollbackExecution } from '@/api/modules/executions.api'
@@ -110,6 +110,7 @@ interface WorkflowTargetInfo {
 }
 
 const { t, locale } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -147,6 +148,7 @@ const assetOverviewFilters = reactive({
   status: '',
 })
 const detailModalOpen = ref(false)
+let openedDetailRouteKey = ''
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
 const detailTabs = computed(() => [
   { value: 'overview', label: t('assets.detail.tabs.overview') },
@@ -2219,6 +2221,33 @@ watch(isUserViewMode, (enabled) => {
   }
   void loadAssetOverviewPage(1)
 }, { immediate: true })
+
+watch(
+  () => [
+    route.query.detailModal,
+    route.query.assetId,
+    isUserViewMode.value,
+    assetOverviewItems.value.length,
+    userAssetItems.value.length,
+  ],
+  () => {
+    if (route.query.detailModal !== '1') return
+    const assetId = typeof route.query.assetId === 'string' ? route.query.assetId : ''
+    if (!assetId) return
+    const routeKey = `${isUserViewMode.value ? 'user' : 'professional'}:${assetId}`
+    if (openedDetailRouteKey === routeKey) return
+    const asset = isUserViewMode.value
+      ? userAssetItems.value.find((item) => String(item.id ?? '') === assetId)
+      : assetOverviewItems.value.find((item) => String(item.id ?? '') === assetId)
+    if (!asset) return
+    openedDetailRouteKey = routeKey
+    const row = isUserViewMode.value
+      ? userAssetRow(asset)
+      : assetOverviewCardRow(toAssetOverviewCard(asset))
+    void openDetailModal(row)
+  },
+  { immediate: true },
+)
 
 watch([isUserViewMode, deviceItems, certificateFormatItems], () => {
   selectUserModeDefaults()

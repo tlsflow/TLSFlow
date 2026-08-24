@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import type { PluginVersionRecord } from '@/api/generated/schemas'
 import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, listUnifiedPluginVersions, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
@@ -20,6 +21,7 @@ interface PluginChip {
 }
 
 const { t, te, locale } = useI18n()
+const route = useRoute()
 const loading = ref(false)
 const loadError = ref('')
 const plugins = ref<PluginRecord[]>([])
@@ -89,8 +91,13 @@ const pagedPlugins = computed(() => {
 const builtinCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'builtin').length)
 const userCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'user').length)
 
-onMounted(() => {
-  void loadPlugins()
+onMounted(async () => {
+  await loadPlugins()
+  const pluginVersionId = typeof route.query.pluginVersionId === 'string' ? route.query.pluginVersionId : ''
+  if (route.query.detailModal === '1' && pluginVersionId) {
+    const plugin = plugins.value.find((item) => item.pluginVersionId === pluginVersionId || item.id === pluginVersionId)
+    if (plugin) await openDetail(plugin)
+  }
 })
 
 watch(locale, () => {

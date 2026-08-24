@@ -324,6 +324,10 @@ watch(
 
 onMounted(async () => {
   await Promise.all([loadAssets(), loadGuideContext()])
+  const assetId = typeof route.query.assetId === 'string' ? route.query.assetId : ''
+  if (route.query.versionsModal === '1' && assetId && assets.value.some((item) => readId(item) === assetId)) {
+    openVersionsDialog(assetId)
+  }
 })
 
 function readId(record: ApiRecord) {

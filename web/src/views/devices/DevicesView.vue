@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '@/api/modules/devices.api'
@@ -10,6 +11,7 @@ import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 
 const { t } = useI18n()
+const route = useRoute()
 const filters = ref<Record<string, string>>({})
 const onboardingOpen = ref(false)
 const reloadKey = ref(0)
@@ -18,6 +20,13 @@ const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | nu
 async function openDetail(row: ViewRow) {
   await deviceDetailModal.value?.open(row.id)
 }
+
+onMounted(() => {
+  const deviceId = typeof route.query.deviceId === 'string' ? route.query.deviceId : ''
+  if (route.query.detailModal === '1' && deviceId) {
+    void deviceDetailModal.value?.open(deviceId)
+  }
+})
 
 async function deleteDevice(row: ViewRow) {
   const response = await getManagedDevice(row.id)
