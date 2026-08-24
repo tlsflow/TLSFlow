@@ -1,6 +1,7 @@
 import type { AgentCapabilitySnapshot, AgentTaskEnvelope, AgentTaskLogEntry } from '../agents/schema/agents.schema.js';
 
 export type LocalTaskStatus = 'received' | 'recovering' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'rejected';
+export type ProviderPermission = 'file.read' | 'file.write' | 'process.exec' | 'service.control' | 'secret.read' | 'backup.write';
 
 export interface FullAgentConfig {
   tenantId: string;
@@ -56,7 +57,7 @@ export interface StepExecutionResultLike {
   executionStepId: string;
   taskId: string;
   success: boolean;
-  status: 'succeeded' | 'failed' | 'timeout' | 'dry_run';
+  status: 'succeeded' | 'failed' | 'timeout' | 'dry_run' | 'rejected';
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -103,4 +104,155 @@ export interface FullAgentRunOnceResult {
   execution?: StepExecutionResultLike;
   submittedResult?: AgentTaskEnvelope;
   logs: AgentTaskLogEntry[];
+}
+
+export interface ProviderDescriptor {
+  name: string;
+  version: string;
+  actions: string[];
+  requiredCapabilities: string[];
+  permissions: ProviderPermission[];
+}
+
+export interface ProviderResultLike {
+  success: boolean;
+  status?: StepExecutionResultLike['status'];
+  stdout?: string;
+  stderr?: string;
+  detail?: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface ProviderContext {
+  task: AgentTaskEnvelope;
+  action: string;
+  dryRun: boolean;
+  tempDir: string;
+  capabilities: DetectedCapabilities;
+  secrets: SecretSession;
+  backup: BackupManager;
+  verify: VerifyManager;
+  rollback: RollbackManager;
+  executor: MockLocalExecutorContract;
+  log(level: AgentTaskLogEntry['level'], message: string, detail?: Record<string, unknown>): void;
+}
+
+export interface ProviderRuntimeInput {
+  task: AgentTaskEnvelope;
+  dryRun?: boolean;
+  capabilities: DetectedCapabilities;
+  timeoutMs?: number;
+}
+
+export interface ProviderRuntimeLog {
+  level: AgentTaskLogEntry['level'];
+  message: string;
+  detail?: Record<string, unknown>;
+}
+
+export interface ProviderRuntimeExecution {
+  result: StepExecutionResultLike;
+  logs: ProviderRuntimeLog[];
+}
+
+export interface MockProvider {
+  descriptor: ProviderDescriptor;
+  execute(context: ProviderContext): ProviderResultLike;
+}
+
+export interface SecretSession {
+  put(ref: string, value: string): void;
+  get(ref: string): string | undefined;
+  cleanup(): SecretCleanupReport;
+  snapshot(): Record<string, string>;
+}
+
+export interface SecretCleanupReport {
+  cachedSecretCount: number;
+  tempPlaintextCount: number;
+  cleaned: boolean;
+}
+
+export interface MockLocalExecutorContract {
+  execute(input: MockExecutionInput): StepExecutionResultLike;
+}
+
+export interface BackupManifest {
+  backupId: string;
+  taskId: string;
+  createdAt: string;
+  items: Array<{
+    kind: 'file' | 'config' | 'binding' | 'keystore';
+    target: string;
+    digest: string;
+  }>;
+  rollbackActions: Array<{
+    type: 'restore_mock_artifact';
+    target: string;
+    digest: string;
+  }>;
+  checksum: string;
+}
+
+export interface BackupResult {
+  success: boolean;
+  manifest?: BackupManifest;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface VerifyReport {
+  success: boolean;
+  checkedAt: string;
+  checks: Array<{
+    name: string;
+    success: boolean;
+    detail?: Record<string, unknown>;
+  }>;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface RollbackResult {
+  status: 'rolled_back' | 'manual_intervention_required' | 'skipped';
+  success: boolean;
+  rolledBackAt: string;
+  restoredTargets: string[];
+  verify?: VerifyReport;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface UpgradePlanLike {
+  planId: string;
+  targetVersion: string;
+  packageSha256: string;
+  signature: string;
+  rollbackVersion: string;
+  maintenanceWindowOpen?: boolean;
+  simulate?: 'success' | 'hash_mismatch' | 'signature_invalid' | 'startup_failure';
+}
+
+export interface UpgradeResult {
+  status: 'succeeded' | 'rejected' | 'rolled_back';
+  currentVersion: string;
+  targetVersion: string;
+  rollbackVersion?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  detail: Record<string, unknown>;
+}
+
+export interface BackupManager {
+  createManifest(task: AgentTaskEnvelope, targets: string[]): BackupResult;
+  verifyManifest(manifest: BackupManifest): boolean;
+}
+
+export interface VerifyManager {
+  verify(input: { taskId: string; simulate?: unknown; expectedFingerprint?: string }): VerifyReport;
+}
+
+export interface RollbackManager {
+  rollback(manifest: BackupManifest | undefined, verifyAfterRollback?: boolean): RollbackResult;
 }
