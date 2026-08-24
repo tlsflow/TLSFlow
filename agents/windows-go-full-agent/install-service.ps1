@@ -190,90 +190,19 @@ function Remove-GoServiceByInstallRoot {
   }
 }
 
-function Remove-LegacyPowerShellAgentIfExists {
-  [CmdletBinding()]
-  param()
-
-  $legacyMetadataPath = "C:\ProgramData\GCAC\FullAgent\service.install.json"
-  $legacyNssmExe = "C:\Program Files\GCAC\FullAgentPS\vendor\nssm\win64\nssm.exe"
-  $legacyInstallRoot = "c:\program files\gcac\fullagentps"
-  $candidateNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-
-  [void]$candidateNames.Add("gcac-full-agent-ps")
-
-  if (Test-Path -LiteralPath $legacyMetadataPath) {
-    try {
-      $metadata = Get-Content -LiteralPath $legacyMetadataPath -Raw | ConvertFrom-Json
-      if (-not [string]::IsNullOrWhiteSpace([string]$metadata.ServiceName)) {
-        [void]$candidateNames.Add([string]$metadata.ServiceName)
-      }
-      if (-not [string]::IsNullOrWhiteSpace([string]$metadata.NssmExe)) {
-        $legacyNssmExe = [string]$metadata.NssmExe
-      }
-      if (-not [string]::IsNullOrWhiteSpace([string]$metadata.InstallRoot)) {
-        $legacyInstallRoot = ([string]$metadata.InstallRoot).ToLowerInvariant()
-      }
-    } catch {
-      Write-Host "Legacy metadata parse failed, fallback to service scan."
-    }
-  }
-
-  try {
-    $legacyServices = Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object {
-      $path = [string]$_.PathName
-      $display = [string]$_.DisplayName
-      $name = [string]$_.Name
-      $pathLower = $path.ToLowerInvariant()
-      $displayLike = $display -like "*PowerShell Full Agent*"
-      $nameLike = $name -like "gcac-full-agent-ps*"
-      $pathLike = $pathLower.Contains("start-gcacfullagent.ps1") -or $pathLower.Contains($legacyInstallRoot) -or $pathLower.Contains("gcac\\fullagent\\agent.config.json")
-      $displayLike -or $nameLike -or $pathLike
-    }
-    foreach ($legacyService in $legacyServices) {
-      if (-not [string]::IsNullOrWhiteSpace([string]$legacyService.Name)) {
-        [void]$candidateNames.Add([string]$legacyService.Name)
-      }
-    }
-  } catch {
-    $fallbackServices = Get-Service -ErrorAction SilentlyContinue | Where-Object {
-      $_.Name -like "gcac-full-agent-ps*" -or $_.DisplayName -like "*PowerShell Full Agent*"
-    }
-    foreach ($legacyService in $fallbackServices) {
-      [void]$candidateNames.Add([string]$legacyService.Name)
-    }
-  }
-
-  $removed = $false
-  foreach ($legacyServiceName in $candidateNames) {
-    if (Remove-ServiceByName -Name $legacyServiceName -NssmExe $legacyNssmExe) {
-      $removed = $true
-    }
-  }
-
-  if ($removed) {
-    Write-Host "Legacy PowerShell agent cleanup completed."
-  }
-}
-
 $sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $binarySource = Join-Path $sourceRoot "gcac-agent.exe"
-$legacyBinarySource = Join-Path $sourceRoot "windows-go-full-agent.exe"
 $configTemplate = Join-Path $sourceRoot "config\agent.config.template.json"
 $metadataPath = Join-Path (Split-Path -Parent $ConfigDir) "service.install.json"
 
 if (-not (Test-Path -LiteralPath $binarySource)) {
-  if (Test-Path -LiteralPath $legacyBinarySource) {
-    $binarySource = $legacyBinarySource
-  } else {
-    throw "Go agent binary not found: $binarySource"
-  }
+  throw "Go agent binary not found: $binarySource"
 }
 
 if (-not (Test-Path -LiteralPath $configTemplate)) {
   throw "Agent config template not found: $configTemplate"
 }
 
-Remove-LegacyPowerShellAgentIfExists
 Remove-GoServiceByInstallRoot -TargetInstallRoot $InstallRoot
 
 New-Item -ItemType Directory -Force -Path $InstallRoot, $ConfigDir, $DataDir, $LogDir | Out-Null

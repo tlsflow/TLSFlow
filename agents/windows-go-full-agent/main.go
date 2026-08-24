@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -291,48 +290,8 @@ type runtimeStatusSnapshot struct {
 type directControlServer struct {
 	state   *directControlState
 	server  *http.Server
+	actions *directControlActionStore
 	started bool
-}
-
-type directDiscoveryRequest struct {
-	ProviderTypes   []string `json:"providerTypes"`
-	Scope           string   `json:"scope,omitempty"`
-	IncludeBindings bool     `json:"includeBindings"`
-	RequestID       string   `json:"requestId,omitempty"`
-}
-
-type directActionExecuteRequest struct {
-	ActionType string         `json:"actionType"`
-	Inputs     map[string]any `json:"inputs"`
-	RequestID  string         `json:"requestId,omitempty"`
-}
-
-type directActionStartRequest struct {
-	ActionType string         `json:"actionType"`
-	Inputs     map[string]any `json:"inputs"`
-	RequestID  string         `json:"requestId,omitempty"`
-}
-
-type directActionStatusSnapshot struct {
-	ActionID     string         `json:"actionId"`
-	ActionType   string         `json:"actionType"`
-	RequestID    string         `json:"requestId,omitempty"`
-	Status       string         `json:"status"`
-	StartedAt    string         `json:"startedAt"`
-	FinishedAt   string         `json:"finishedAt,omitempty"`
-	Success      bool           `json:"success"`
-	ErrorCode    string         `json:"errorCode,omitempty"`
-	ErrorMessage string         `json:"errorMessage,omitempty"`
-	Detail       map[string]any `json:"detail,omitempty"`
-}
-
-type directActionStatusStore struct {
-	mu      sync.Mutex
-	actions map[string]directActionStatusSnapshot
-}
-
-var globalDirectActionStatusStore = &directActionStatusStore{
-	actions: map[string]directActionStatusSnapshot{},
 }
 
 type NetworkInterfaceInfo struct {
@@ -435,8 +394,6 @@ func runCLI(args []string) error {
 		return handleInspect()
 	case "inspect-adapter":
 		return handleInspectAdapter()
-	case "inspect-iis":
-		return handleInspectIIS()
 	case "self-check":
 		return handleSelfCheck(args[1:])
 	case "health":
@@ -471,10 +428,6 @@ func handleInspect() error {
 
 func handleInspectAdapter() error {
 	return writeJSON(collectWindowsAdapterSnapshot(newRuntimeLogger("")))
-}
-
-func handleInspectIIS() error {
-	return writeJSON(debugInspectWindowsIIS())
 }
 
 func handleSelfCheck(args []string) error {
@@ -678,10 +631,6 @@ func runForeground(ctx context.Context, configPath string) error {
 	status.ServiceName = config.Service.Name
 	status.AgentID = registration.AgentID
 	status.DirectControl = newDirectControlState(config)
-
-	if firewallErr := syncWindowsDirectControlFirewallRule(config, logger); firewallErr != nil {
-		logger.Warn("direct control firewall rule sync failed: %v", firewallErr)
-	}
 
 	directServer, directErr := startDirectControlServer(config, registration, &status)
 	if directErr != nil {
@@ -1107,161 +1056,12 @@ func effectiveDirectControlAdvertiseHost(config *AgentConfig) string {
 	return effectiveDirectControlListenHost(config)
 }
 
-func directControlFirewallRuleName(config *AgentConfig) string {
-	serviceName := strings.TrimSpace(config.Service.Name)
-	if serviceName == "" {
-		serviceName = "gcac-agent"
-	}
-	return fmt.Sprintf("GCAC Agent Direct Control (%s)", serviceName)
-}
-
-func syncWindowsDirectControlFirewallRule(config *AgentConfig, logger *runtimeLogger) error {
-	ruleName := directControlFirewallRuleName(config)
-	if !shouldExposeDirectControlBeyondLoopback(config) {
-		if err := removeWindowsFirewallRule(ruleName); err != nil {
-			return err
-		}
-		logger.Info("direct control firewall rule not required host=%s port=%d", effectiveDirectControlListenHost(config), effectiveDirectControlListenPort(config))
-		return nil
-	}
-
-	executablePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("读取当前可执行文件路径失败: %w", err)
-	}
-	if err := ensureWindowsFirewallRule(ruleName, executablePath, effectiveDirectControlListenPort(config), firewallLocalAddressForHost(effectiveDirectControlListenHost(config))); err != nil {
-		return err
-	}
-	logger.Info("direct control firewall rule ensured rule=%s host=%s port=%d", ruleName, effectiveDirectControlListenHost(config), effectiveDirectControlListenPort(config))
-	return nil
-}
-
-func shouldExposeDirectControlBeyondLoopback(config *AgentConfig) bool {
-	if !config.DirectControlEnabled {
-		return false
-	}
-	return !isLoopbackListenHost(effectiveDirectControlListenHost(config))
-}
-
-func isLoopbackListenHost(host string) bool {
-	normalized := normalizeListenHost(host)
-	if normalized == "" {
-		return true
-	}
-	if strings.EqualFold(normalized, "localhost") {
-		return true
-	}
-	if ip := net.ParseIP(normalized); ip != nil {
-		return ip.IsLoopback()
-	}
-	return false
-}
-
-func firewallLocalAddressForHost(host string) string {
-	normalized := normalizeListenHost(host)
-	switch {
-	case normalized == "":
-		return ""
-	case strings.EqualFold(normalized, "localhost"):
-		return ""
-	case normalized == "0.0.0.0":
-		return ""
-	case normalized == "::":
-		return ""
-	case normalized == "*":
-		return ""
-	}
-	if ip := net.ParseIP(normalized); ip != nil {
-		if ip.IsLoopback() {
-			return ""
-		}
-		return normalized
-	}
-	return ""
-}
-
-func normalizeListenHost(host string) string {
-	normalized := strings.TrimSpace(host)
-	normalized = strings.TrimPrefix(normalized, "[")
-	normalized = strings.TrimSuffix(normalized, "]")
-	return normalized
-}
-
-func ensureWindowsFirewallRule(ruleName string, programPath string, port int, localAddress string) error {
-	script := `
-$ruleName = $env:GCAC_FIREWALL_RULE_NAME
-$programPath = $env:GCAC_FIREWALL_PROGRAM
-$portValue = [int]$env:GCAC_FIREWALL_PORT
-$localAddress = $env:GCAC_FIREWALL_LOCAL_ADDRESS
-
-Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue | Out-Null
-
-$params = @{
-  DisplayName = $ruleName
-  Direction = 'Inbound'
-  Action = 'Allow'
-  Enabled = 'True'
-  Profile = 'Any'
-  Protocol = 'TCP'
-  LocalPort = $portValue
-  Program = $programPath
-}
-
-if (-not [string]::IsNullOrWhiteSpace($localAddress)) {
-  $params.LocalAddress = $localAddress
-}
-
-New-NetFirewallRule @params | Out-Null
-`
-	_, err := runWindowsPowerShellScript(script, map[string]string{
-		"GCAC_FIREWALL_RULE_NAME":     ruleName,
-		"GCAC_FIREWALL_PROGRAM":       programPath,
-		"GCAC_FIREWALL_PORT":          fmt.Sprintf("%d", port),
-		"GCAC_FIREWALL_LOCAL_ADDRESS": localAddress,
-	})
-	if err != nil {
-		return fmt.Errorf("写入 Windows 防火墙规则失败: %w", err)
-	}
-	return nil
-}
-
-func removeWindowsFirewallRule(ruleName string) error {
-	script := `
-$ruleName = $env:GCAC_FIREWALL_RULE_NAME
-Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue | Out-Null
-`
-	_, err := runWindowsPowerShellScript(script, map[string]string{
-		"GCAC_FIREWALL_RULE_NAME": ruleName,
-	})
-	if err != nil {
-		return fmt.Errorf("删除 Windows 防火墙规则失败: %w", err)
-	}
-	return nil
-}
-
-func runWindowsPowerShellScript(script string, env map[string]string) (string, error) {
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
-	cmd.Env = os.Environ()
-	for key, value := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
-	output, err := cmd.CombinedOutput()
-	trimmed := strings.TrimSpace(string(output))
-	if err != nil {
-		if trimmed == "" {
-			return "", err
-		}
-		return trimmed, fmt.Errorf("%w: %s", err, trimmed)
-	}
-	return trimmed, nil
-}
-
 func newDirectControlState(config *AgentConfig) *directControlState {
 	state := &directControlState{
 		Enabled:          config.DirectControlEnabled,
 		Reachable:        false,
 		ProtocolVersion:  "v1",
-		SupportedActions: append([]string{"health", "discovery.run"}, windowsActionHandlers.PublishedActionTypes(true)...),
+		SupportedActions: []string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt},
 	}
 	if config.DirectControlEnabled {
 		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
@@ -1277,6 +1077,10 @@ func startDirectControlServer(config *AgentConfig, registration *runtimeRegistra
 	port := effectiveDirectControlListenPort(config)
 	state := newDirectControlState(config)
 	mux := http.NewServeMux()
+	actions := newDirectControlActionStore()
+	registerDirectControlActionRoutes(mux, actions, func(ctx context.Context, request map[string]any, _ string) (bool, string, string, map[string]any) {
+		return executeAgentV2(ctx, request, registration.AgentID)
+	})
 	mux.HandleFunc("/api/v1/control/health", func(w http.ResponseWriter, _ *http.Request) {
 		payload := map[string]any{
 			"success":         true,
@@ -1292,61 +1096,6 @@ func startDirectControlServer(config *AgentConfig, registration *runtimeRegistra
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(payload)
-	})
-	mux.HandleFunc("/api/v1/control/discovery/run", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directDiscoveryRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		payload := buildDirectDiscoveryPayloadWindows(collectRuntimeIdentity(config.ControlPlane), request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-	mux.HandleFunc("/api/v1/control/actions/execute", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directActionExecuteRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		response, statusCode := executeDirectControlAction(config, registration, request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
-	})
-	mux.HandleFunc("/api/v1/control/actions/start", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var request directActionStartRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		response, statusCode := startDirectControlAction(config, registration, request)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
-	})
-	mux.HandleFunc("/api/v1/control/actions/status", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		actionID := strings.TrimSpace(r.URL.Query().Get("actionId"))
-		response, statusCode := readDirectControlActionStatus(actionID)
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(response)
 	})
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", host, port),
@@ -1365,7 +1114,7 @@ func startDirectControlServer(config *AgentConfig, registration *runtimeRegistra
 			state.LastDirectError = serveErr.Error()
 		}
 	}()
-	return &directControlServer{state: state, server: server, started: true}, nil
+	return &directControlServer{state: state, server: server, actions: actions, started: true}, nil
 }
 
 func (s *directControlServer) snapshot() *directControlState {
@@ -1381,347 +1130,10 @@ func (s *directControlServer) shutdown(ctx context.Context) {
 	if s == nil || s.server == nil || !s.started {
 		return
 	}
+	if s.actions != nil {
+		s.actions.close()
+	}
 	_ = s.server.Shutdown(ctx)
-}
-
-func executeDirectControlAction(config *AgentConfig, registration *runtimeRegistration, request directActionExecuteRequest) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	payload := map[string]any{}
-	for key, value := range request.Inputs {
-		payload[key] = value
-	}
-	payload["type"] = actionType
-	resolved, resolveErr := windowsActionHandlers.Resolve(payload)
-	if resolveErr != nil || !resolved.Handler.Descriptor().DirectControl {
-		message := fmt.Sprintf("unsupported direct action: %s", actionType)
-		if resolveErr != nil {
-			message = resolveErr.Error()
-		}
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": message,
-		}, http.StatusBadRequest
-	}
-
-	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
-	execution := &taskExecutionContext{
-		ctx:    context.Background(),
-		client: &http.Client{Timeout: 20 * time.Second},
-		config: config,
-		logger: newRuntimeLogger(filepath.Join(config.Paths.Windows.LogDir, "agent.log")),
-		deps: &runtimeDependencies{
-			taskLedger: &localTaskLedger{
-				filePath:         filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-tasks.json"),
-				tasks:            map[string]localTaskRecord{},
-				idempotencyIndex: map[string]string{},
-			},
-			recoveryLedger: &recoveryLedger{
-				filePath: filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-recovery.json"),
-				entries:  map[string]recoveryLedgerEntry{},
-			},
-		},
-		registration: registration,
-		task: agentTaskEnvelope{
-			ID:              taskID,
-			ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
-			ExecutionStepID: fmt.Sprintf("direct_step_%d", time.Now().UnixNano()),
-			Payload:         payload,
-		},
-		leaseID:     fmt.Sprintf("direct_lease_%d", time.Now().UnixNano()),
-		logSequence: 1,
-	}
-
-	success, errorCode, errorMessage, detail := executeTask(execution)
-	statusCode := http.StatusOK
-	if !success {
-		statusCode = http.StatusBadRequest
-	}
-	return map[string]any{
-		"success":      success,
-		"errorCode":    errorCode,
-		"errorMessage": errorMessage,
-		"detail":       detail,
-		"taskId":       taskID,
-		"requestId":    request.RequestID,
-		"actionType":   resolved.RequestedType,
-	}, statusCode
-}
-
-func startDirectControlAction(config *AgentConfig, registration *runtimeRegistration, request directActionStartRequest) (map[string]any, int) {
-	actionType := strings.TrimSpace(request.ActionType)
-	payload := map[string]any{}
-	for key, value := range request.Inputs {
-		payload[key] = value
-	}
-	payload["type"] = actionType
-	resolved, resolveErr := windowsActionHandlers.Resolve(payload)
-	if resolveErr != nil || !resolved.Handler.Descriptor().DirectControl {
-		message := fmt.Sprintf("unsupported direct action: %s", actionType)
-		if resolveErr != nil {
-			message = resolveErr.Error()
-		}
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_UNSUPPORTED",
-			"errorMessage": message,
-		}, http.StatusBadRequest
-	}
-
-	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
-	startedAt := time.Now().Format(time.RFC3339)
-	globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-		ActionID:   actionID,
-		ActionType: resolved.RequestedType,
-		RequestID:  request.RequestID,
-		Status:     "running",
-		StartedAt:  startedAt,
-	})
-
-	go func() {
-		execution := &taskExecutionContext{
-			ctx:    context.Background(),
-			client: &http.Client{Timeout: 20 * time.Second},
-			config: config,
-			logger: newRuntimeLogger(filepath.Join(config.Paths.Windows.LogDir, "agent.log")),
-			deps: &runtimeDependencies{
-				taskLedger: &localTaskLedger{
-					filePath:         filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-tasks.json"),
-					tasks:            map[string]localTaskRecord{},
-					idempotencyIndex: map[string]string{},
-				},
-				recoveryLedger: &recoveryLedger{
-					filePath: filepath.Join(config.Paths.Windows.DataDir, "ledger", "direct-control-recovery.json"),
-					entries:  map[string]recoveryLedgerEntry{},
-				},
-			},
-			registration: registration,
-			task: agentTaskEnvelope{
-				ID:              actionID,
-				ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
-				ExecutionStepID: fmt.Sprintf("direct_step_%d", time.Now().UnixNano()),
-				Payload:         payload,
-			},
-			leaseID:     fmt.Sprintf("direct_lease_%d", time.Now().UnixNano()),
-			logSequence: 1,
-		}
-		success, errorCode, errorMessage, detail := executeTask(execution)
-		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
-			ActionID:     actionID,
-			ActionType:   resolved.RequestedType,
-			RequestID:    request.RequestID,
-			Status:       "completed",
-			StartedAt:    startedAt,
-			FinishedAt:   time.Now().Format(time.RFC3339),
-			Success:      success,
-			ErrorCode:    errorCode,
-			ErrorMessage: errorMessage,
-			Detail:       detail,
-		})
-	}()
-
-	return map[string]any{
-		"success":    true,
-		"accepted":   true,
-		"actionId":   actionID,
-		"requestId":  request.RequestID,
-		"actionType": resolved.RequestedType,
-		"status":     "running",
-	}, http.StatusAccepted
-}
-
-func readDirectControlActionStatus(actionID string) (map[string]any, int) {
-	if strings.TrimSpace(actionID) == "" {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "ACTION_ID_REQUIRED",
-			"errorMessage": "actionId is required",
-		}, http.StatusBadRequest
-	}
-	snapshot, ok := globalDirectActionStatusStore.get(actionID)
-	if !ok {
-		return map[string]any{
-			"success":      false,
-			"errorCode":    "DIRECT_ACTION_NOT_FOUND",
-			"errorMessage": fmt.Sprintf("direct action not found: %s", actionID),
-		}, http.StatusNotFound
-	}
-	return map[string]any{
-		"success":      snapshot.Success,
-		"actionId":     snapshot.ActionID,
-		"actionType":   snapshot.ActionType,
-		"requestId":    snapshot.RequestID,
-		"status":       snapshot.Status,
-		"startedAt":    snapshot.StartedAt,
-		"finishedAt":   snapshot.FinishedAt,
-		"errorCode":    snapshot.ErrorCode,
-		"errorMessage": snapshot.ErrorMessage,
-		"detail":       snapshot.Detail,
-	}, http.StatusOK
-}
-
-func (s *directActionStatusStore) upsert(snapshot directActionStatusSnapshot) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.actions[snapshot.ActionID] = snapshot
-}
-
-func (s *directActionStatusStore) get(actionID string) (directActionStatusSnapshot, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	snapshot, ok := s.actions[actionID]
-	return snapshot, ok
-}
-
-func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request directDiscoveryRequest) map[string]any {
-	hostName, _ := os.Hostname()
-	primaryIP := strings.TrimSpace(identity.PrimaryIPAddress)
-	hosts := []map[string]any{
-		{
-			"hostname":        hostName,
-			"primaryIp":       primaryIP,
-			"ipAddresses":     []string{primaryIP},
-			"osType":          "WINDOWS",
-			"osName":          readWindowsOSValue(identity, "ProductName"),
-			"osVersion":       readWindowsOSValue(identity, "Version"),
-			"arch":            runtime.GOARCH,
-			"agentId":         "",
-			"discoverySource": "AGENT",
-			"managementMode":  "AGENT",
-			"status":          "ACTIVE",
-		},
-	}
-	services := make([]map[string]any, 0, 1)
-	serviceAssets := make([]map[string]any, 0)
-	siteAssets := make([]map[string]any, 0)
-	bindings := make([]map[string]any, 0)
-	payload := map[string]any{
-		"services":      services,
-		"serviceAssets": serviceAssets,
-		"siteAssets":    siteAssets,
-		"bindings":      bindings,
-		"warnings":      make([]map[string]any, 0),
-	}
-
-	if identity.AdapterSnapshot.IIS != nil && identity.AdapterSnapshot.IIS.Installed {
-		services = append(services, map[string]any{
-			"hostname":        hostName,
-			"providerType":    "IIS",
-			"serviceName":     "iis",
-			"displayName":     "iis",
-			"configPath":      `IIS:\Sites`,
-			"discoverySource": "AGENT",
-			"status":          "ACTIVE",
-			"rawFacts":        identity.AdapterSnapshot.IIS,
-		})
-		for _, site := range identity.AdapterSnapshot.IIS.Sites {
-			for _, binding := range site.Bindings {
-				protocol := strings.ToUpper(strings.TrimSpace(binding.Protocol))
-				if protocol != "HTTPS" && protocol != "HTTP" {
-					continue
-				}
-				hostHeader := strings.TrimSpace(binding.HostHeader)
-				if binding.Port <= 0 {
-					continue
-				}
-				address := hostHeader
-				if address == "" {
-					address = strings.TrimSpace(binding.IPAddress)
-				}
-				if address == "" || address == "*" || address == "0.0.0.0" || address == "::" {
-					address = primaryIP
-				}
-				if address == "" {
-					address = hostName
-				}
-				serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, binding.Port, protocol))
-				siteKey := strings.ToLower(fmt.Sprintf("%s:iis:%s:%s", hostName, site.Name, binding.BindingInformation))
-				serviceAssets = append(serviceAssets, map[string]any{
-					"serviceAssetRef": serviceAssetRef,
-					"hostname":        hostName,
-					"providerType":    "IIS",
-					"serviceName":     "iis",
-					"address":         address,
-					"port":            binding.Port,
-					"protocol":        protocol,
-					"sniName":         hostHeader,
-					"displayName":     site.Name,
-				})
-				siteAssets = append(siteAssets, map[string]any{
-					"siteAssetRef":       "site-asset:" + siteKey,
-					"serviceAssetRef":    serviceAssetRef,
-					"hostname":           hostName,
-					"providerType":       "IIS",
-					"serviceName":        "iis",
-					"siteType":           "WEB_SITE",
-					"siteName":           site.Name,
-					"siteKey":            siteKey,
-					"bindingInformation": binding.BindingInformation,
-					"hostHeader":         hostHeader,
-					"listenIp":           binding.IPAddress,
-					"port":               binding.Port,
-					"protocol":           protocol,
-					"configPath":         `IIS:\Sites`,
-				})
-				if request.IncludeBindings {
-					observedFingerprint := ""
-					if binding.Certificate != nil {
-						observedFingerprint = strings.TrimSpace(binding.Certificate.FingerprintSHA256)
-					}
-					bindings = append(bindings, map[string]any{
-						"siteAssetRef":              "site-asset:" + siteKey,
-						"serviceAssetRef":           serviceAssetRef,
-						"hostname":                  hostName,
-						"providerType":              "IIS",
-						"serviceName":               "iis",
-						"domainName":                hostHeader,
-						"port":                      binding.Port,
-						"protocol":                  protocol,
-						"bindingType":               "WINDOWS_CERT_STORE",
-						"storeLocation":             "LocalMachine",
-						"storeName":                 binding.CertificateStoreName,
-						"storeThumbprint":           binding.CertificateThumbprint,
-						"observedFingerprintSha256": observedFingerprint,
-						"verifyMethod":              "TLS_CONNECT",
-						"metadata": map[string]any{
-							"certificateSubject": binding.CertificateSubject(),
-							"certificateIssuer":  binding.CertificateIssuer(),
-						},
-					})
-				}
-			}
-		}
-	}
-	payload["services"] = services
-	payload["serviceAssets"] = serviceAssets
-	payload["siteAssets"] = siteAssets
-	payload["bindings"] = bindings
-	appendWindowsRuntimeDiscovery(payload, hostName, identity.AdapterSnapshot.NGINX, "NGINX", "nginx", request.IncludeBindings)
-	appendWindowsRuntimeDiscovery(payload, hostName, identity.AdapterSnapshot.Apache, "APACHE", "apache", request.IncludeBindings)
-	if identity.AdapterSnapshot.Tomcat != nil {
-		appendWindowsTomcatDiscovery(payload, hostName, identity.AdapterSnapshot.Tomcat, request.IncludeBindings)
-	}
-
-	payload["collectedAt"] = time.Now().Format(time.RFC3339)
-	payload["source"] = "agent_direct"
-	payload["platform"] = "windows"
-	payload["requestId"] = request.RequestID
-	payload["hosts"] = hosts
-	return payload
-}
-
-func readWindowsOSValue(identity runtimeIdentity, key string) string {
-	if identity.AdapterSnapshot.OS == nil {
-		return ""
-	}
-	switch key {
-	case "ProductName":
-		return identity.AdapterSnapshot.OS.ProductName
-	case "Version":
-		return identity.AdapterSnapshot.OS.Version
-	default:
-		return ""
-	}
 }
 
 func runWindowsService(name string, program *serviceProgram) error {
@@ -1870,8 +1282,7 @@ func isInteractiveSession() bool {
 
 func collectRuntimeState(controlPlaneURL string) RuntimeState {
 	state := collectRuntimeStateBase(controlPlaneURL)
-	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
-	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
+	state.WindowsVersion = runtime.GOOS
 	return state
 }
 
@@ -1903,7 +1314,7 @@ func collectRuntimeStateBase(controlPlaneURL string) RuntimeState {
 func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 	state := collectRuntimeStateBase(controlPlaneURL)
 	adapterSnapshot := collectWindowsAdapterSnapshot(newRuntimeLogger(""))
-	state.WindowsVersion = formatWindowsSystemVersion(adapterSnapshot.OS)
+	state.WindowsVersion = runtime.GOOS
 	return runtimeIdentity{
 		MachineID:         state.MachineID,
 		PrimaryIPAddress:  state.PrimaryIPAddress,
@@ -1913,29 +1324,22 @@ func collectRuntimeIdentity(controlPlaneURL string) runtimeIdentity {
 	}
 }
 
-func formatWindowsSystemVersion(detail *windowsOSDetail) string {
-	if detail == nil {
-		return ""
+func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
+	return []reportedCapability{
+		{
+			CapabilityKey: "windows.os.detail",
+			Value: map[string]any{
+				"goos": runtime.GOOS, "goarch": runtime.GOARCH, "osVersion": identity.WindowsVersion,
+				"machineId": identity.MachineID, "primaryIp": identity.PrimaryIPAddress,
+				"runtime": "go", "hostType": "windows-service", "agentModel": "full-agent",
+			},
+			Confidence: 0.98, Evidence: map[string]any{"source": "runtime-inspection"},
+		},
+		{
+			CapabilityKey: "windows.network.adapters", Value: identity.NetworkInterfaces,
+			Confidence: 0.92, Evidence: map[string]any{"source": "runtime-inspection"},
+		},
 	}
-	productName := strings.TrimSpace(detail.ProductName)
-	displayVersion := strings.TrimSpace(detail.DisplayVersion)
-	build := strings.TrimSpace(detail.BuildRevision)
-	if build == "" {
-		build = strings.TrimSpace(detail.CurrentBuild)
-	}
-	if productName != "" && displayVersion != "" {
-		return productName + " " + displayVersion
-	}
-	if productName != "" && build != "" {
-		return productName + " (Build " + build + ")"
-	}
-	if productName != "" {
-		return productName
-	}
-	if displayVersion != "" {
-		return displayVersion
-	}
-	return build
 }
 
 func detectPreferredSourceIP(controlPlaneURL string) string {
@@ -2026,15 +1430,8 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 
 	var response registerResponse
 	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); err != nil {
-		if strings.TrimSpace(request.EnrollmentToken) != "" && strings.Contains(err.Error(), "AUTH_FORBIDDEN") {
-			request.EnrollmentToken = ""
-			if retryErr := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); retryErr == nil {
-				goto registered
-			}
-		}
 		return nil, fmt.Errorf("注册 Agent 失败: %w", err)
 	}
-registered:
 	if strings.TrimSpace(response.ID) == "" {
 		return nil, errors.New("注册 Agent 失败: 控制面未返回有效 agentId")
 	}
@@ -2088,135 +1485,6 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 		}
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
-}
-
-func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
-	capabilities := []reportedCapability{
-		{
-			CapabilityKey: "windows.os.detail",
-			Value: map[string]any{
-				"goos":       runtime.GOOS,
-				"goarch":     runtime.GOARCH,
-				"osVersion":  identity.WindowsVersion,
-				"machineId":  identity.MachineID,
-				"primaryIp":  identity.PrimaryIPAddress,
-				"runtime":    "go",
-				"hostType":   "windows-service",
-				"agentModel": "full-agent",
-			},
-			Confidence: 0.98,
-			Evidence: map[string]any{
-				"source": "runtime-inspection",
-			},
-		},
-		{
-			CapabilityKey: "windows.network.adapters",
-			Value:         identity.NetworkInterfaces,
-			Confidence:    0.92,
-			Evidence: map[string]any{
-				"source": "runtime-inspection",
-			},
-		},
-	}
-	if identity.AdapterSnapshot.OS != nil {
-		capabilities[0] = reportedCapability{
-			CapabilityKey: "windows.os.detail",
-			Value: map[string]any{
-				"goos":           runtime.GOOS,
-				"goarch":         runtime.GOARCH,
-				"osVersion":      identity.AdapterSnapshot.OS.Version,
-				"machineId":      identity.MachineID,
-				"primaryIp":      identity.PrimaryIPAddress,
-				"runtime":        "go",
-				"hostType":       "windows-service",
-				"agentModel":     "full-agent",
-				"ProductName":    identity.AdapterSnapshot.OS.ProductName,
-				"DisplayVersion": identity.AdapterSnapshot.OS.DisplayVersion,
-				"ReleaseId":      identity.AdapterSnapshot.OS.ReleaseID,
-				"CurrentBuild":   identity.AdapterSnapshot.OS.CurrentBuild,
-				"BuildRevision":  identity.AdapterSnapshot.OS.BuildRevision,
-				"Version":        identity.AdapterSnapshot.OS.Version,
-			},
-			Confidence: 1,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		}
-	}
-	if identity.AdapterSnapshot.PowerShell.Available {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.powershell.available",
-			Value: map[string]any{
-				"available": true,
-				"path":      identity.AdapterSnapshot.PowerShell.Path,
-			},
-			Confidence: 1,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-	}
-	if len(identity.AdapterSnapshot.CertStore.LocalMachineMy) > 0 {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.certstore.localmachine.my",
-			Value:         identity.AdapterSnapshot.CertStore.LocalMachineMy,
-			Confidence:    0.95,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-	}
-	if identity.AdapterSnapshot.IIS != nil {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.iis.detail",
-			Value:         identity.AdapterSnapshot.IIS,
-			Confidence:    0.95,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-		if len(identity.AdapterSnapshot.IIS.Sites) > 0 {
-			capabilities = append(capabilities, reportedCapability{
-				CapabilityKey: "windows.iis.sites",
-				Value:         identity.AdapterSnapshot.IIS.Sites,
-				Confidence:    0.95,
-				Evidence: map[string]any{
-					"source": "adapter-exec",
-				},
-			})
-		}
-	}
-	if identity.AdapterSnapshot.NGINX != nil {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.nginx.detail",
-			Value:         identity.AdapterSnapshot.NGINX,
-			Confidence:    0.9,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-	}
-	if identity.AdapterSnapshot.Apache != nil {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.apache.detail",
-			Value:         identity.AdapterSnapshot.Apache,
-			Confidence:    0.9,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-	}
-	if identity.AdapterSnapshot.Tomcat != nil {
-		capabilities = append(capabilities, reportedCapability{
-			CapabilityKey: "windows.tomcat.detail",
-			Value:         identity.AdapterSnapshot.Tomcat,
-			Confidence:    0.88,
-			Evidence: map[string]any{
-				"source": "adapter-exec",
-			},
-		})
-	}
-	return capabilities
 }
 
 func loadRuntimeDependencies(config *AgentConfig) (*runtimeDependencies, error) {
@@ -2527,11 +1795,11 @@ func isGatewayEnabled(config *AgentConfig) bool {
 }
 
 func gatewayRouteChannels() []string {
-	return []string{"probe.tcp", "probe.http", "probe.agent", "forward.agent_task", "forward.direct_control"}
+	return []string{"probe.tcp", "probe.http", "probe.agent", "forward.agent_task"}
 }
 
 func gatewayCapabilityKeys() []string {
-	return []string{"gateway.probe.tcp", "gateway.probe.http", "gateway.probe.agent", "gateway.forward.agent_task", "gateway.forward.direct_control"}
+	return []string{"gateway.probe.tcp", "gateway.probe.http", "gateway.probe.agent", "gateway.forward.agent_task"}
 }
 
 func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
@@ -2543,7 +1811,10 @@ func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
 
 func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
 	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
-	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" && taskType != "gateway.forward.direct_control" {
+	if taskType == "gateway.forward.direct_control" {
+		return false, "GATEWAY_FORWARD_DIRECT_CONTROL_DISABLED", "旧 Direct Control Action 路径已移除，必须提交 Agent v2 计划", map[string]any{"taskId": task.ID, "type": taskType}, true
+	}
+	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" {
 		return false, "", "", nil, false
 	}
 	if !isGatewayEnabled(config) {
@@ -2562,8 +1833,6 @@ func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentC
 		return executeGatewayProbe(ctx, client, config, task, gatewayTask, gatewayPayload)
 	case "gateway.forward.agent_task":
 		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, false)
-	case "gateway.forward.direct_control":
-		return forwardGatewayDirectControl(ctx, client, config, task, gatewayTask, gatewayPayload)
 	default:
 		return false, "GATEWAY_TASK_UNSUPPORTED", "不支持的 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
 	}
@@ -2746,27 +2015,6 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 	return true, "", "", detail, true
 }
 
-func forwardGatewayDirectControl(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
-	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
-	directURL := firstNonEmpty(stringFromMap(gatewayPayload, "directControlUrl"), stringFromMap(targetPayload, "directControlUrl"))
-	if directURL == "" {
-		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, true)
-	}
-	actionType := firstNonEmpty(stringFromMap(gatewayPayload, "actionType"), stringFromMap(targetPayload, "actionType"))
-	inputs := mapFromMap(gatewayPayload, "inputs")
-	if inputs == nil {
-		inputs = mapFromMap(targetPayload, "inputs")
-	}
-	requestBody := map[string]any{"actionType": actionType, "inputs": inputs, "requestId": "gateway-" + task.ID}
-	var response map[string]any
-	err := doDirectControlJSON(ctx, directURL, "/api/v1/control/actions/execute", requestBody, &response)
-	detail := map[string]any{"mode": "gateway.forward.direct_control", "directControlUrl": directURL, "response": response}
-	if err != nil {
-		return false, "GATEWAY_FORWARD_DIRECT_CONTROL_FAILED", err.Error(), detail, true
-	}
-	return true, "", "", detail, true
-}
-
 func recordGatewayReachability(ctx context.Context, client *http.Client, config *AgentConfig, gatewayTask map[string]any, detail map[string]any, status string) {
 	gatewayID := firstNonEmpty(stringFromMap(gatewayTask, "gatewayId"), stringFromMap(gatewayTask, "id"))
 	targetID := firstNonEmpty(stringFromMap(gatewayTask, "delegatedTargetId"), stringFromMap(mapFromMap(gatewayTask, "target"), "id"))
@@ -2793,8 +2041,6 @@ func gatewayRouteChannel(gatewayTask map[string]any, gatewayPayload map[string]a
 		return "probe.tls"
 	case "agent", "probe.agent":
 		return "probe.agent"
-	case "forward.direct_control", "gateway.forward.direct_control", "direct_control":
-		return "forward.direct_control"
 	case "forward.agent_task", "gateway.forward.agent_task", "agent_task":
 		return "forward.agent_task"
 	default:
@@ -2833,35 +2079,6 @@ func gatewayProbeInput(gatewayPayload map[string]any) map[string]any {
 
 func gatewayProbeURL(gatewayPayload map[string]any) string {
 	return firstNonEmpty(stringFromMap(gatewayPayload, "url"), stringFromMap(gatewayPayload, "verifyUrl"))
-}
-
-func doDirectControlJSON(ctx context.Context, baseURL string, endpointPath string, payload any, target any) error {
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+endpointPath, bytes.NewReader(encoded))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
-	}
-	if target != nil && len(bytes.TrimSpace(body)) > 0 {
-		return json.Unmarshal(body, target)
-	}
-	return nil
 }
 
 func mustGetTaskRecord(ledger *localTaskLedger, taskID string) localTaskRecord {
@@ -3020,28 +2237,8 @@ func scoreWindowsInterface(item NetworkInterfaceInfo) int {
 }
 
 func detectWindowsDefaultRouteInterfaces() map[string]struct{} {
-	results := make(map[string]struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", `
-$rows = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.InterfaceAlias) } |
-  Select-Object -ExpandProperty InterfaceAlias -Unique
-if ($null -eq $rows) { return }
-$rows | ForEach-Object { [string]$_ }
-`)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return results
-	}
-	for _, line := range strings.Split(string(output), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		results[name] = struct{}{}
-	}
-	return results
+	// Agent Core 不启动平台命令；默认路由事实由通用网络事实采集器补充。
+	return map[string]struct{}{}
 }
 
 func interfaceHasDefaultRoute(defaultRouteInterfaces map[string]struct{}, name string) bool {

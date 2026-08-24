@@ -1,7 +1,7 @@
 {
   "schemaVersion": "full-agent.go.windows.config.v1",
   "tenantId": "CHANGE_ME_TENANT_ID",
-  "agentKey": "wingo.mid.change-me",
+  "agentKey": "",
   "role": "full_agent",
   "gatewayEnabled": false,
   "zone": "default",
