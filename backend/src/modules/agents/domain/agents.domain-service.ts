@@ -40,8 +40,9 @@ export class AgentsDomainService {
     requestId: string,
     controlPlaneUrl: string,
   ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
+    const role = normalizeInstallRole(input.role);
     const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
-      allowedRoles: ['full_agent'],
+      allowedRoles: [role],
       allowedZones: [input.zone?.trim() || 'default'],
       maxUses: 1,
       ttlSeconds: 1800,
@@ -50,8 +51,8 @@ export class AgentsDomainService {
     const bootstrapToken = createInstallBootstrapToken();
     const now = new Date();
     const id = newId('aginst');
-    const serviceName = normalizeServiceName(input.serviceName ?? `gcac-windows-go-agent-${id.slice(-6)}`);
-    const displayName = normalizeOptionalDisplayName(input.displayName) ?? 'GCAC Windows Go Full Agent';
+    const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? `gcac-gateway-agent-${id.slice(-6)}` : `gcac-windows-go-agent-${id.slice(-6)}`));
+    const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Windows Gateway Agent' : 'GCAC Windows Go Full Agent');
     const installRoot = normalizeWindowsPath(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsGoAgent', 'installRoot');
     const configDir = normalizeWindowsPath(input.configDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\config', 'configDir');
     const dataDir = normalizeWindowsPath(input.dataDir ?? 'C:\\ProgramData\\GCAC\\FullAgentGo\\data', 'dataDir');
@@ -62,6 +63,7 @@ export class AgentsDomainService {
       id,
       tenantId,
       platform: 'windows_powershell_service',
+      role,
       bootstrapToken,
       bootstrapTokenHash: sha256Hex(bootstrapToken),
       bootstrapTokenPreview: bootstrapToken,
@@ -88,8 +90,9 @@ export class AgentsDomainService {
     requestId: string,
     controlPlaneUrl: string,
   ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
+    const role = normalizeInstallRole(input.role);
     const enrollmentTokenRecord = this.createEnrollmentToken(tenantId, {
-      allowedRoles: ['full_agent'],
+      allowedRoles: [role],
       allowedZones: [input.zone?.trim() || 'default'],
       maxUses: 1,
       ttlSeconds: 1800,
@@ -98,8 +101,8 @@ export class AgentsDomainService {
     const bootstrapToken = createInstallBootstrapToken();
     const now = new Date();
     const id = newId('aginst');
-    const serviceName = normalizeServiceName(input.serviceName ?? 'gcac-linux-agent');
-    const displayName = normalizeOptionalDisplayName(input.displayName) ?? 'GCAC Linux Go Full Agent';
+    const serviceName = normalizeServiceName(input.serviceName ?? (role === 'gateway' ? 'gcac-linux-gateway-agent' : 'gcac-linux-agent'));
+    const displayName = normalizeOptionalDisplayName(input.displayName) ?? (role === 'gateway' ? 'GCAC Linux Gateway Agent' : 'GCAC Linux Go Full Agent');
     const installRoot = normalizeUnixPath(input.installRoot ?? '/opt/gcac/linux-agent', 'installRoot');
     const configDir = normalizeUnixPath(input.configDir ?? '/etc/gcac/linux-agent', 'configDir');
     const dataDir = normalizeUnixPath(input.dataDir ?? '/var/lib/gcac/linux-agent', 'dataDir');
@@ -110,6 +113,7 @@ export class AgentsDomainService {
       id,
       tenantId,
       platform: 'linux_go_systemd',
+      role,
       bootstrapToken,
       bootstrapTokenHash: sha256Hex(bootstrapToken),
       bootstrapTokenPreview: bootstrapToken,
@@ -151,9 +155,10 @@ export class AgentsDomainService {
 
   normalizeGatewayOnRegister(input: RegisterAgentInput, existing?: AgentGatewayExtension): AgentGatewayExtension | undefined {
     const role = normalizeOptionalKey(input.role ?? '');
-    if (role !== 'gateway' && !existing) return undefined;
+    const gatewaySignal = role === 'gateway' || hasGatewaySignal(input) || Boolean(existing);
+    if (!gatewaySignal) return undefined;
     const zoneIds = normalizeZoneIds(input.zoneIds ?? (input.zone ? [input.zone] : existing?.zoneIds ?? []));
-    if (role === 'gateway' && zoneIds.length === 0) {
+    if ((role === 'gateway' || hasGatewaySignal(input)) && zoneIds.length === 0) {
       throw new AppError('VALIDATION_FAILED', 'Gateway Agent 注册必须提供 zone 或 zoneIds');
     }
     return this.normalizeGatewayExtension({
@@ -470,8 +475,8 @@ export class AgentsDomainService {
     const successRate = normalizeRate(input.successRate ?? input.existing?.successRate ?? 1, 'successRate');
     return {
       zoneIds: input.zoneIds.length ? input.zoneIds : input.existing?.zoneIds ?? [],
-      adapters: normalizeList(input.adapters ?? input.existing?.adapters ?? []),
-      capabilities: normalizeList(input.capabilities ?? input.existing?.capabilities ?? []),
+      adapters: normalizeGatewayRouteChannels(input.adapters ?? input.existing?.adapters ?? defaultGatewayRouteChannels()),
+      capabilities: normalizeList(input.capabilities ?? input.existing?.capabilities ?? defaultGatewayCapabilities()),
       resourceLimits: sanitizeUnknown(input.resourceLimits ?? input.existing?.resourceLimits ?? {}) as Record<string, unknown>,
       currentLoad,
       maxConcurrentTasks,
@@ -481,6 +486,26 @@ export class AgentsDomainService {
       capabilitySetId: input.existing?.capabilitySetId,
     };
   }
+}
+
+function defaultGatewayRouteChannels(): string[] {
+  return ['probe.tcp', 'probe.http', 'probe.agent', 'forward.agent_task', 'forward.direct_control'];
+}
+
+function defaultGatewayCapabilities(): string[] {
+  return ['gateway.probe.tcp', 'gateway.probe.http', 'gateway.probe.agent', 'gateway.forward.agent_task', 'gateway.forward.direct_control'];
+}
+
+function normalizeGatewayRouteChannels(values: string[]): string[] {
+  return normalizeList(values.map((value) => {
+    const normalized = normalizeOptionalKey(value);
+    if (['http', 'https', 'curl', 'probe.http'].includes(normalized)) return 'probe.http';
+    if (['tcp', 'tls', 'probe.tcp'].includes(normalized)) return 'probe.tcp';
+    if (['agent', 'probe.agent'].includes(normalized)) return 'probe.agent';
+    if (['agent_task', 'forward.agent_task', 'gateway.forward.agent_task'].includes(normalized)) return 'forward.agent_task';
+    if (['direct_control', 'forward.direct_control', 'gateway.forward.direct_control'].includes(normalized)) return 'forward.direct_control';
+    return normalized;
+  }));
 }
 
 function hashToken(token: string): string {
@@ -495,6 +520,20 @@ function normalizeList(values: string[]): string[] {
 
 function normalizeZoneIds(values: string[]): string[] {
   return normalizeList(values);
+}
+
+function normalizeInstallRole(value: CreateLinuxGoInstallSessionInput['role'] | CreateWindowsPowerShellInstallSessionInput['role']): 'full_agent' | 'gateway' {
+  const normalized = normalizeOptionalKey(value ?? 'full_agent');
+  if (normalized === 'gateway') return 'gateway';
+  if (normalized === 'full_agent') return 'full_agent';
+  throw new AppError('VALIDATION_FAILED', '安装会话 role 只能是 full_agent 或 gateway', { role: value });
+}
+
+function hasGatewaySignal(input: RegisterAgentInput): boolean {
+  const adapters = normalizeList(input.adapters ?? []);
+  const capabilities = normalizeList(input.capabilities ?? []);
+  return adapters.some((item) => item.startsWith('probe.') || item.startsWith('forward.'))
+    || capabilities.some((item) => item.startsWith('gateway.'));
 }
 
 function normalizeOptionalKey(value: string): string {
@@ -560,7 +599,7 @@ function normalizeKey(value: string, field: string): string {
 
 function normalizeCapabilityKey(value: string, field: string): string {
   const normalized = normalizeRequired(value, field).toLowerCase();
-  if (!/^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/.test(normalized)) {
+  if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(normalized)) {
     throw new AppError('VALIDATION_FAILED', '能力键格式不合法', { field, value });
   }
   return normalized;

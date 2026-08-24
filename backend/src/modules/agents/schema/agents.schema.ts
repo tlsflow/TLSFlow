@@ -286,6 +286,7 @@ export interface AgentInstallSession {
   id: string;
   tenantId: string;
   platform: AgentInstallSessionPlatform;
+  role: 'full_agent' | 'gateway';
   bootstrapTokenHash: string;
   bootstrapTokenPreview: string;
   enrollmentToken: string;

@@ -192,6 +192,7 @@ export interface DeleteAgentInput {
 
 export interface CreateWindowsPowerShellInstallSessionInput {
   zone?: string;
+  role?: 'full_agent' | 'gateway';
   serviceName?: string;
   displayName?: string;
   installRoot?: string;
@@ -203,6 +204,7 @@ export interface CreateWindowsPowerShellInstallSessionInput {
 
 export interface CreateLinuxGoInstallSessionInput {
   zone?: string;
+  role?: 'full_agent' | 'gateway';
   agentKey?: string;
   serviceName?: string;
   displayName?: string;
@@ -210,6 +212,14 @@ export interface CreateLinuxGoInstallSessionInput {
   configDir?: string;
   dataDir?: string;
   logDir?: string;
+}
+
+export interface CreateGatewayEnableSessionInput {
+  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  agentId?: string;
+  zone?: string;
+  serviceName?: string;
+  configPath?: string;
 }
 
 export interface EnrollmentTokenDto extends EnrollmentToken {
@@ -292,6 +302,7 @@ export interface AgentUpgradeSuggestionProjection {
 export interface AgentInstallSessionBootstrapProjection {
   sessionId: string;
   platform: 'windows_powershell_service' | 'linux_go_systemd';
+  role: 'full_agent' | 'gateway';
   expiresAt: string;
   bootstrapUrl: string;
   installCommand: string;
@@ -308,6 +319,16 @@ export interface AgentInstallSessionBootstrapProjection {
   zone: string;
   enrollmentTokenPreview: string;
   bundleUrl?: string;
+}
+
+export interface GatewayEnableSessionProjection {
+  platform: 'windows_powershell_service' | 'linux_go_systemd';
+  agentId?: string;
+  zone: string;
+  serviceName: string;
+  configPath: string;
+  enableUrl: string;
+  enableCommand: string;
 }
 
 export interface AgentDetailProjection {

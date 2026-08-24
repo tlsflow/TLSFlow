@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import { AgentDirectClient } from './agent-direct-client.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateGatewayEnableSessionInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, GatewayEnableSessionProjection, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
@@ -641,6 +642,7 @@ export class AgentsApplicationService {
       id: session.id,
       tenantId: session.tenantId,
       platform: session.platform,
+      role: session.role,
       bootstrapTokenHash: session.bootstrapTokenHash,
       bootstrapTokenPreview: session.bootstrapTokenPreview,
       enrollmentToken: session.enrollmentToken,
@@ -664,6 +666,7 @@ export class AgentsApplicationService {
     return {
       sessionId: session.id,
       platform: 'windows_powershell_service',
+      role: session.role,
       expiresAt: session.expiresAt,
       bootstrapUrl,
       installCommand: `irm ${baseUrl}/agent-install.ps1?token=${token} | iex`,
@@ -689,6 +692,7 @@ export class AgentsApplicationService {
       id: session.id,
       tenantId: session.tenantId,
       platform: session.platform,
+      role: session.role,
       bootstrapTokenHash: session.bootstrapTokenHash,
       bootstrapTokenPreview: session.bootstrapTokenPreview,
       enrollmentToken: session.enrollmentToken,
@@ -713,6 +717,7 @@ export class AgentsApplicationService {
     return {
       sessionId: session.id,
       platform: 'linux_go_systemd',
+      role: session.role,
       expiresAt: session.expiresAt,
       bootstrapUrl,
       bundleUrl,
@@ -728,6 +733,41 @@ export class AgentsApplicationService {
       tenantId: session.tenantId,
       zone: session.zone,
       enrollmentTokenPreview: `${session.enrollmentToken.slice(0, 12)}...${session.enrollmentToken.slice(-6)}`,
+    };
+  }
+
+  async createGatewayEnableSession(tenantId: string, input: CreateGatewayEnableSessionInput, _requestId: string, baseUrl: string): Promise<GatewayEnableSessionProjection> {
+    if (input.agentId) {
+      await this.requireAgent(tenantId, input.agentId);
+    }
+    const platform = input.platform;
+    if (platform !== 'windows_powershell_service' && platform !== 'linux_go_systemd') {
+      throw new AppError('VALIDATION_FAILED', 'platform 只能是 windows_powershell_service 或 linux_go_systemd', { platform });
+    }
+    const zone = normalizeCommandValue(input.zone ?? 'default', 'zone');
+    const serviceName = normalizeCommandValue(input.serviceName ?? (platform === 'windows_powershell_service' ? 'gcac-agent' : 'gcac-linux-agent'), 'serviceName');
+    const configPath = input.configPath?.trim()
+      || (platform === 'windows_powershell_service'
+        ? 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json'
+        : '/etc/gcac/linux-agent/agent.config.json');
+    const query = new URLSearchParams({
+      zone,
+      serviceName,
+      configPath,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+    });
+    const pathSuffix = platform === 'windows_powershell_service' ? '/agent-enable-gateway.ps1' : '/agent-enable-gateway';
+    const enableUrl = `${baseUrl}${pathSuffix}?${query.toString()}`;
+    return {
+      platform,
+      agentId: input.agentId,
+      zone,
+      serviceName,
+      configPath,
+      enableUrl,
+      enableCommand: platform === 'windows_powershell_service'
+        ? `irm '${enableUrl}' | iex`
+        : `curl -fsSL '${enableUrl}' | sudo bash`,
     };
   }
 
@@ -759,6 +799,8 @@ export class AgentsApplicationService {
     return {
       sessionId: session.id,
       platform: session.platform,
+      role: session.role ?? 'full_agent',
+      gatewayEnabled: session.role === 'gateway',
       tenantId: session.tenantId,
       serviceName: session.serviceName,
       displayName: session.displayName,
@@ -779,6 +821,8 @@ export class AgentsApplicationService {
     return {
       sessionId: session.id,
       platform: session.platform,
+      role: session.role ?? 'full_agent',
+      gatewayEnabled: session.role === 'gateway',
       serviceName: session.serviceName,
       displayName: session.displayName,
       installRoot: session.installRoot,
@@ -833,7 +877,7 @@ export class AgentsApplicationService {
         lastRequestId: `offline_evaluator:${now.getTime()}`,
       });
       transitioned += 1;
-      void this.syncGatewayRegistry(agent.tenantId, updated);
+      this.syncGatewayRegistryInBackground(agent.tenantId, updated);
     }
 
     return {
@@ -966,7 +1010,7 @@ export class AgentsApplicationService {
   }
 
   private async syncGatewayRegistry(tenantId: string, agent: AgentRegistration): Promise<void> {
-    if (!this.gateways || agent.role !== 'gateway' || !agent.gateway) return;
+    if (!this.gateways || !agent.gateway) return;
     const gateway = await this.gateways.findGatewayByAgentId(tenantId, agent.id);
     if (agent.gateway.zoneIds.length === 0) return;
     if (gateway) {
@@ -999,6 +1043,16 @@ export class AgentsApplicationService {
       currentLoad: agent.gateway.currentLoad,
       maxConcurrentTasks: agent.gateway.maxConcurrentTasks,
       successRate: agent.gateway.successRate,
+    });
+  }
+
+  private syncGatewayRegistryInBackground(tenantId: string, agent: AgentRegistration): void {
+    void this.syncGatewayRegistry(tenantId, agent).catch((cause: unknown) => {
+      structuredLogger.error('GatewayRegistry 后台同步失败', {
+        tenantId,
+        agentId: agent.id,
+        error: cause instanceof Error ? cause.message : String(cause),
+      }, { module: 'agents', resourceType: 'agent', resourceId: agent.id });
     });
   }
 
@@ -1190,6 +1244,13 @@ async function walkWindowsGoAgentArtifacts(currentDir: string, relativeDir = '')
 
 function stripUtf8Bom(value: string): string {
   return value.replace(/^\uFEFF/u, '');
+}
+
+function normalizeCommandValue(value: string, field: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
+  if (/[\r\n\0]/u.test(normalized)) throw new AppError('VALIDATION_FAILED', `${field} 不能包含换行或空字符`, { field });
+  return normalized;
 }
 
 function resolveWindowsGoAgentRoot(): string {

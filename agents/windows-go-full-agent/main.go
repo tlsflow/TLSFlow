@@ -40,6 +40,9 @@ type AgentConfig struct {
 	SchemaVersion              string `json:"schemaVersion"`
 	TenantID                   string `json:"tenantId"`
 	AgentKey                   string `json:"agentKey"`
+	EnrollmentToken            string `json:"enrollmentToken"`
+	Role                       string `json:"role"`
+	GatewayEnabled             bool   `json:"gatewayEnabled"`
 	Zone                       string `json:"zone"`
 	ControlPlane               string `json:"controlPlaneUrl"`
 	Heartbeat                  int    `json:"heartbeatIntervalSeconds"`
@@ -105,18 +108,21 @@ type runtimeRegistration struct {
 }
 
 type registerRequest struct {
-	AgentKey     string   `json:"agentKey"`
-	MachineID    string   `json:"machineId,omitempty"`
-	Hostname     string   `json:"hostname"`
-	Version      string   `json:"version"`
-	OSType       string   `json:"osType"`
-	Arch         string   `json:"arch,omitempty"`
-	IPAddress    string   `json:"ipAddress,omitempty"`
-	OSVersion    string   `json:"osVersion,omitempty"`
-	Labels       []string `json:"labels,omitempty"`
-	Role         string   `json:"role,omitempty"`
-	Zone         string   `json:"zone,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	AgentKey        string   `json:"agentKey"`
+	MachineID       string   `json:"machineId,omitempty"`
+	Hostname        string   `json:"hostname"`
+	Version         string   `json:"version"`
+	OSType          string   `json:"osType"`
+	Arch            string   `json:"arch,omitempty"`
+	IPAddress       string   `json:"ipAddress,omitempty"`
+	OSVersion       string   `json:"osVersion,omitempty"`
+	Labels          []string `json:"labels,omitempty"`
+	EnrollmentToken string   `json:"enrollmentToken,omitempty"`
+	Role            string   `json:"role,omitempty"`
+	Zone            string   `json:"zone,omitempty"`
+	ZoneIDs         []string `json:"zoneIds,omitempty"`
+	Adapters        []string `json:"adapters,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
@@ -126,6 +132,8 @@ type registerResponse struct {
 type heartbeatRequest struct {
 	AgentID       string                  `json:"agentId"`
 	Version       string                  `json:"version"`
+	Adapters      []string                `json:"adapters,omitempty"`
+	Capabilities  []string                `json:"capabilities,omitempty"`
 	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
 	DirectControl *directControlState     `json:"directControl,omitempty"`
 	TaskSummary   struct {
@@ -171,6 +179,7 @@ type capabilityReportRequest struct {
 	AgentID            string               `json:"agentId"`
 	CompatibilityLevel string               `json:"compatibilityLevel,omitempty"`
 	Capabilities       []reportedCapability `json:"capabilities"`
+	Adapters           []string             `json:"adapters,omitempty"`
 }
 
 type reportedCapability struct {
@@ -232,6 +241,14 @@ type submitResultRequest struct {
 	ErrorCode    string         `json:"errorCode,omitempty"`
 	ErrorMessage string         `json:"errorMessage,omitempty"`
 	Detail       map[string]any `json:"detail,omitempty"`
+}
+
+type enqueueAgentTaskRequest struct {
+	AgentID         string         `json:"agentId"`
+	ExecutionRunID  string         `json:"executionRunId"`
+	ExecutionStepID string         `json:"executionStepId"`
+	IdempotencyKey  string         `json:"idempotencyKey"`
+	Payload         map[string]any `json:"payload,omitempty"`
 }
 
 type runtimeCounters struct {
@@ -1935,17 +1952,18 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 
 	request := registerRequest{
-		AgentKey:  config.AgentKey,
-		MachineID: identity.MachineID,
-		Hostname:  hostname,
-		Version:   agentVersion,
-		OSType:    "windows",
-		Arch:      runtime.GOARCH,
-		IPAddress: identity.PrimaryIPAddress,
-		OSVersion: identity.WindowsVersion,
-		Labels:    []string{"windows-go", "windows-service"},
-		Role:      "full_agent",
-		Zone:      strings.TrimSpace(config.Zone),
+		AgentKey:        config.AgentKey,
+		MachineID:       identity.MachineID,
+		Hostname:        hostname,
+		Version:         agentVersion,
+		OSType:          "windows",
+		Arch:            runtime.GOARCH,
+		IPAddress:       identity.PrimaryIPAddress,
+		OSVersion:       identity.WindowsVersion,
+		Labels:          []string{"windows-go", "windows-service"},
+		EnrollmentToken: strings.TrimSpace(config.EnrollmentToken),
+		Role:            effectiveAgentRole(config),
+		Zone:            strings.TrimSpace(config.Zone),
 		Capabilities: []string{
 			"agent.full.online",
 			"agent.task.receive",
@@ -1955,11 +1973,23 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	if config.DirectControlEnabled {
 		request.Capabilities = append(request.Capabilities, "agent.direct_control.health")
 	}
+	if isGatewayEnabled(config) {
+		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
+		request.Adapters = gatewayRouteChannels()
+		request.Capabilities = append(request.Capabilities, gatewayCapabilityKeys()...)
+	}
 
 	var response registerResponse
 	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); err != nil {
+		if strings.TrimSpace(request.EnrollmentToken) != "" && strings.Contains(err.Error(), "AUTH_FORBIDDEN") {
+			request.EnrollmentToken = ""
+			if retryErr := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/register", request, &response); retryErr == nil {
+				goto registered
+			}
+		}
 		return nil, fmt.Errorf("注册 Agent 失败: %w", err)
 	}
+registered:
 	if strings.TrimSpace(response.ID) == "" {
 		return nil, errors.New("注册 Agent 失败: 控制面未返回有效 agentId")
 	}
@@ -1976,6 +2006,10 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 		AgentID: registration.AgentID,
 		Version: registration.Version,
 	}
+	if isGatewayEnabled(config) {
+		request.Adapters = gatewayRouteChannels()
+		request.Capabilities = gatewayCapabilityKeys()
+	}
 	request.TaskSummary.Running = counters.Running
 	request.TaskSummary.Queued = counters.Queued
 	request.TaskSummary.Succeeded = counters.Succeeded
@@ -1988,10 +2022,25 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, identity runtimeIdentity) error {
+	capabilities := []reportedCapability{}
+	if !isPureGatewayRole(config) {
+		capabilities = collectCapabilityReports(identity)
+	}
 	request := capabilityReportRequest{
 		AgentID:            registration.AgentID,
 		CompatibilityLevel: "modern",
-		Capabilities:       collectCapabilityReports(identity),
+		Capabilities:       capabilities,
+		Adapters:           gatewayAdaptersIfNeeded(config),
+	}
+	if isGatewayEnabled(config) {
+		for _, capability := range gatewayCapabilityKeys() {
+			request.Capabilities = append(request.Capabilities, reportedCapability{
+				CapabilityKey: capability,
+				Value:         true,
+				Confidence:    0.95,
+				Evidence:      map[string]any{"source": "gateway-role"},
+			})
+		}
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
 }
@@ -2349,6 +2398,9 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	if success, code, message, detail, handled := executeGatewayTask(execution.ctx, execution.client, execution.config, task, payload); handled {
+		return success, code, message, detail
+	}
 	if isWindowsIISDeploymentTask(task) {
 		return runWindowsIISDeployment(execution)
 	}
@@ -2450,6 +2502,310 @@ func newLeaseID(taskID string) string {
 	return fmt.Sprintf("lease_%s_%d", strings.ReplaceAll(taskID, "-", "_"), time.Now().UnixNano())
 }
 
+func effectiveAgentRole(config *AgentConfig) string {
+	role := strings.ToLower(strings.TrimSpace(config.Role))
+	if role == "gateway" {
+		return "gateway"
+	}
+	return "full_agent"
+}
+
+func isPureGatewayRole(config *AgentConfig) bool {
+	return effectiveAgentRole(config) == "gateway"
+}
+
+func isGatewayEnabled(config *AgentConfig) bool {
+	return isPureGatewayRole(config) || config.GatewayEnabled
+}
+
+func gatewayRouteChannels() []string {
+	return []string{"probe.tcp", "probe.http", "probe.agent", "forward.agent_task", "forward.direct_control"}
+}
+
+func gatewayCapabilityKeys() []string {
+	return []string{"gateway.probe.tcp", "gateway.probe.http", "gateway.probe.agent", "gateway.forward.agent_task", "gateway.forward.direct_control"}
+}
+
+func gatewayAdaptersIfNeeded(config *AgentConfig) []string {
+	if !isGatewayEnabled(config) {
+		return nil
+	}
+	return gatewayRouteChannels()
+}
+
+func executeGatewayTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, payload map[string]any) (bool, string, string, map[string]any, bool) {
+	taskType := strings.TrimSpace(stringFromMap(payload, "type"))
+	if taskType != "gateway.probe" && taskType != "gateway.forward.agent_task" && taskType != "gateway.forward.direct_control" {
+		return false, "", "", nil, false
+	}
+	if !isGatewayEnabled(config) {
+		return false, "GATEWAY_ROLE_REQUIRED", "当前 Agent 未以 gateway 角色运行，拒绝处理 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
+	}
+	gatewayTask := mapFromMap(payload, "gatewayTask")
+	gatewayPayload := mapFromMap(gatewayTask, "payload")
+	if gatewayPayload == nil {
+		gatewayPayload = payload
+	}
+	if err := validateForwardingGrant(gatewayTask, taskType); err != nil {
+		return false, "GATEWAY_FORWARDING_GRANT_DENIED", err.Error(), map[string]any{"taskId": task.ID, "type": taskType, "mode": "gateway.forwarding_grant.denied"}, true
+	}
+	switch taskType {
+	case "gateway.probe":
+		return executeGatewayProbe(ctx, client, config, task, gatewayTask, gatewayPayload)
+	case "gateway.forward.agent_task":
+		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, false)
+	case "gateway.forward.direct_control":
+		return forwardGatewayDirectControl(ctx, client, config, task, gatewayTask, gatewayPayload)
+	default:
+		return false, "GATEWAY_TASK_UNSUPPORTED", "不支持的 Gateway 路由任务", map[string]any{"taskId": task.ID, "type": taskType}, true
+	}
+}
+
+func validateForwardingGrant(gatewayTask map[string]any, taskType string) error {
+	grant := mapFromMap(gatewayTask, "forwardingGrant")
+	if grant == nil {
+		return errors.New("Gateway 转发缺少 ForwardingGrant")
+	}
+	if stringFromMap(grant, "status") != "active" {
+		return fmt.Errorf("ForwardingGrant 不可用: %s", stringFromMap(grant, "status"))
+	}
+	expiresAt := stringFromMap(grant, "expiresAt")
+	if expiresAt == "" {
+		return errors.New("ForwardingGrant 缺少 expiresAt")
+	}
+	parsed, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return fmt.Errorf("ForwardingGrant expiresAt 不合法: %w", err)
+	}
+	if !time.Now().Before(parsed) {
+		return errors.New("ForwardingGrant 已过期")
+	}
+	if intFromMap(grant, "remainingUses") <= 0 {
+		return errors.New("ForwardingGrant 使用次数已耗尽")
+	}
+	if stringFromMap(grant, "gatewayId") != stringFromMap(gatewayTask, "gatewayId") {
+		return errors.New("ForwardingGrant gatewayId 不匹配")
+	}
+	if stringFromMap(grant, "delegatedTargetId") != stringFromMap(gatewayTask, "delegatedTargetId") {
+		return errors.New("ForwardingGrant delegatedTargetId 不匹配")
+	}
+	if stringFromMap(grant, "taskType") != taskType {
+		return errors.New("ForwardingGrant taskType 不匹配")
+	}
+	if stringFromMap(grant, "routeChannel") != stringFromMap(gatewayTask, "adapter") {
+		return errors.New("ForwardingGrant routeChannel 不匹配")
+	}
+	return nil
+}
+
+func executeGatewayProbe(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
+	channel := gatewayRouteChannel(gatewayTask, gatewayPayload)
+	start := time.Now()
+	var success bool
+	var detail map[string]any
+	var err error
+	if channel == "probe.http" {
+		success, detail, err = probeHTTPReachability(ctx, gatewayPayload)
+	} else {
+		success, detail, err = probeTCPReachability(ctx, gatewayTask, gatewayPayload)
+	}
+	detail["mode"] = "gateway.probe"
+	detail["routeChannel"] = channel
+	detail["taskId"] = task.ID
+	detail["durationMs"] = time.Since(start).Milliseconds()
+	if err != nil {
+		recordGatewayReachability(ctx, client, config, gatewayTask, detail, "unreachable")
+		return false, "GATEWAY_PROBE_FAILED", err.Error(), detail, true
+	}
+	recordGatewayReachability(ctx, client, config, gatewayTask, detail, "reachable")
+	return success, "", "", detail, true
+}
+
+func probeTCPReachability(ctx context.Context, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, map[string]any, error) {
+	host, port := gatewayProbeHostPort(gatewayTask, gatewayPayload)
+	if host == "" || port <= 0 {
+		return false, map[string]any{"host": host, "port": port}, errors.New("gateway.probe 缺少 host/port")
+	}
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	if err != nil {
+		return false, map[string]any{"host": host, "port": port}, err
+	}
+	_ = conn.Close()
+	return true, map[string]any{"host": host, "port": port}, nil
+}
+
+func probeHTTPReachability(ctx context.Context, gatewayPayload map[string]any) (bool, map[string]any, error) {
+	targetURL := gatewayProbeURL(gatewayPayload)
+	if targetURL == "" {
+		return false, map[string]any{}, errors.New("gateway.probe HTTP 缺少 url/verifyUrl")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
+	if err != nil {
+		return false, map[string]any{"url": targetURL}, err
+	}
+	response, err := (&http.Client{Timeout: 8 * time.Second}).Do(request)
+	if err != nil {
+		request.Method = http.MethodGet
+		response, err = (&http.Client{Timeout: 8 * time.Second}).Do(request)
+	}
+	if err != nil {
+		return false, map[string]any{"url": targetURL}, err
+	}
+	defer response.Body.Close()
+	return response.StatusCode < 500, map[string]any{"url": targetURL, "statusCode": response.StatusCode}, nil
+}
+
+func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any, directControl bool) (bool, string, string, map[string]any, bool) {
+	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
+	if targetPayload == nil {
+		targetPayload = mapFromMap(gatewayTask, "payload")
+	}
+	targetAgentID := firstNonEmpty(
+		stringFromMap(gatewayPayload, "targetAgentId"),
+		stringFromMap(gatewayPayload, "delegatedAgentId"),
+		stringFromMap(targetPayload, "agentId"),
+		stringFromMap(targetPayload, "executionTargetId"),
+		stringFromMap(gatewayTask, "delegatedTargetId"),
+	)
+	if targetAgentID == "" {
+		return false, "GATEWAY_FORWARD_TARGET_AGENT_REQUIRED", "Gateway 转发缺少目标 agentId", map[string]any{"taskId": task.ID, "mode": "gateway.forward"}, true
+	}
+	if targetPayload == nil {
+		targetPayload = map[string]any{}
+	}
+	forwardPayload := map[string]any{}
+	for key, value := range targetPayload {
+		forwardPayload[key] = value
+	}
+	forwardPayload["gatewayForwarded"] = true
+	forwardPayload["gatewayTaskId"] = stringFromMap(gatewayTask, "id")
+	var response agentTaskEnvelope
+	err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks", enqueueAgentTaskRequest{
+		AgentID:         targetAgentID,
+		ExecutionRunID:  firstNonEmpty(stringFromMap(gatewayTask, "executionRunId"), task.ExecutionRunID),
+		ExecutionStepID: firstNonEmpty(stringFromMap(gatewayTask, "stepId"), task.ExecutionStepID),
+		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
+		Payload:         forwardPayload,
+	}, &response)
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "directControl": directControl}
+	if err != nil {
+		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
+	}
+	return true, "", "", detail, true
+}
+
+func forwardGatewayDirectControl(ctx context.Context, client *http.Client, config *AgentConfig, task agentTaskEnvelope, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, string, string, map[string]any, bool) {
+	targetPayload := mapFromMap(gatewayPayload, "targetPayload")
+	directURL := firstNonEmpty(stringFromMap(gatewayPayload, "directControlUrl"), stringFromMap(targetPayload, "directControlUrl"))
+	if directURL == "" {
+		return forwardGatewayAgentTask(ctx, client, config, task, gatewayTask, gatewayPayload, true)
+	}
+	actionType := firstNonEmpty(stringFromMap(gatewayPayload, "actionType"), stringFromMap(targetPayload, "actionType"))
+	inputs := mapFromMap(gatewayPayload, "inputs")
+	if inputs == nil {
+		inputs = mapFromMap(targetPayload, "inputs")
+	}
+	requestBody := map[string]any{"actionType": actionType, "inputs": inputs, "requestId": "gateway-" + task.ID}
+	var response map[string]any
+	err := doDirectControlJSON(ctx, directURL, "/api/v1/control/actions/execute", requestBody, &response)
+	detail := map[string]any{"mode": "gateway.forward.direct_control", "directControlUrl": directURL, "response": response}
+	if err != nil {
+		return false, "GATEWAY_FORWARD_DIRECT_CONTROL_FAILED", err.Error(), detail, true
+	}
+	return true, "", "", detail, true
+}
+
+func recordGatewayReachability(ctx context.Context, client *http.Client, config *AgentConfig, gatewayTask map[string]any, detail map[string]any, status string) {
+	gatewayID := firstNonEmpty(stringFromMap(gatewayTask, "gatewayId"), stringFromMap(gatewayTask, "id"))
+	targetID := firstNonEmpty(stringFromMap(gatewayTask, "delegatedTargetId"), stringFromMap(mapFromMap(gatewayTask, "target"), "id"))
+	if gatewayID == "" || targetID == "" {
+		return
+	}
+	_ = doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/gateways/probe", map[string]any{
+		"gatewayId":  gatewayID,
+		"targetId":   targetID,
+		"protocol":   detail["routeChannel"],
+		"port":       detail["port"],
+		"status":     status,
+		"latencyMs":  detail["durationMs"],
+		"ttlSeconds": 300,
+	}, nil)
+}
+
+func gatewayRouteChannel(gatewayTask map[string]any, gatewayPayload map[string]any) string {
+	channel := strings.ToLower(firstNonEmpty(stringFromMap(gatewayTask, "adapter"), stringFromMap(gatewayPayload, "routeChannel")))
+	switch channel {
+	case "http", "https", "curl", "probe.http":
+		return "probe.http"
+	case "agent", "probe.agent":
+		return "probe.agent"
+	case "forward.direct_control", "gateway.forward.direct_control", "direct_control":
+		return "forward.direct_control"
+	case "forward.agent_task", "gateway.forward.agent_task", "agent_task":
+		return "forward.agent_task"
+	default:
+		return "probe.tcp"
+	}
+}
+
+func gatewayProbeHostPort(gatewayTask map[string]any, gatewayPayload map[string]any) (string, int) {
+	target := mapFromMap(gatewayTask, "target")
+	host := firstNonEmpty(stringFromMap(gatewayPayload, "host"), stringFromMap(gatewayPayload, "verifyHost"), stringFromMap(target, "host"))
+	port := intFromMap(gatewayPayload, "port")
+	if port == 0 {
+		port = intFromMap(gatewayPayload, "verifyPort")
+	}
+	if port == 0 {
+		port = intFromMap(target, "port")
+	}
+	if host == "" {
+		if parsed, err := url.Parse(gatewayProbeURL(gatewayPayload)); err == nil {
+			host = parsed.Hostname()
+			if parsed.Port() != "" {
+				fmt.Sscanf(parsed.Port(), "%d", &port)
+			}
+		}
+	}
+	if port == 0 {
+		port = 443
+	}
+	return host, port
+}
+
+func gatewayProbeURL(gatewayPayload map[string]any) string {
+	return firstNonEmpty(stringFromMap(gatewayPayload, "url"), stringFromMap(gatewayPayload, "verifyUrl"))
+}
+
+func doDirectControlJSON(ctx context.Context, baseURL string, endpointPath string, payload any, target any) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+endpointPath, bytes.NewReader(encoded))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if target != nil && len(bytes.TrimSpace(body)) > 0 {
+		return json.Unmarshal(body, target)
+	}
+	return nil
+}
+
 func mustGetTaskRecord(ledger *localTaskLedger, taskID string) localTaskRecord {
 	record, ok := ledger.get(taskID)
 	if !ok {
@@ -2477,12 +2833,41 @@ func stringFromMap(input map[string]any, key string) string {
 }
 
 func mapFromMap(input map[string]any, key string) map[string]any {
+	if input == nil {
+		return nil
+	}
 	value, ok := input[key]
 	if !ok {
 		return nil
 	}
 	typed, _ := value.(map[string]any)
 	return typed
+}
+
+func intFromMap(input map[string]any, key string) int {
+	if input == nil {
+		return 0
+	}
+	switch value := input[key].(type) {
+	case int:
+		return value
+	case float64:
+		return int(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return int(parsed)
+	default:
+		return 0
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func collectNetworkInterfaces() ([]NetworkInterfaceInfo, string) {
