@@ -2,8 +2,12 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { createPluginRunnerHostApiHandler, type PluginRunnerHostApiDependencies } from './plugin-runner-host-api.handler.js';
+import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestCompleteResult, type HostApiRequestOutcome, type PluginRunnerHostApiRequestStore, type HostApiRequestClaimResult, type HostApiRequestExpireResult } from './host-api.request-gate.js';
 import type { PluginRunnerHostCallContext } from './plugin-runner-client.js';
+import { getHostApiMethod } from './protocol/host-api.registry.js';
+import type { PluginRunnerError } from './protocol/protocol.types.js';
 
 const planDigest = 'b'.repeat(64);
 const allActions = ['artifact.read', 'secret.resolve', 'execution.progress', 'execution.checkpoint', 'execution.cancel', 'resource.lock', 'audit.append'];
@@ -21,6 +25,10 @@ test('Host API 的九个已登记方法均走绑定 Grant、持久化端口和�
 
   const progress = await handler({ ...context('execution.progress', ['execution.progress']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 3, stage: 'prepare', summary: '已准备' } });
   assert.deepEqual(progress, { ok: true, data: { accepted: true, sequence: 3, stage: 'prepare' } });
+  await assert.rejects(
+    handler({ ...context('execution.progress', ['execution.progress']), input: { executionId: 'run-1', executionStepId: 'step-1', sequence: 3, stage: 'other', summary: '同序号不同内容' } }),
+    /幂等键|摘要/,
+  );
 
   const payload = { snapshot: 'v1' };
   const digest = sha256(payload);
@@ -72,6 +80,100 @@ test('Host API 对错步骤、未绑定 Grant、权限不足、checkpoint 越权
   assert.equal(fixture.audits.some((event) => event.result === 'denied'), true);
 });
 
+test('生产 Host API 未装配持久化消费门禁时失败关闭，不使用内存 fallback', async () => {
+  const fixture = createFixture();
+  const handler = createPluginRunnerHostApiHandler({ ...fixture.dependencies, requestGate: undefined });
+  await assert.rejects(
+    handler({ ...context('artifact.grant.read', ['artifact.read']), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } }),
+    /持久化幂等消费门禁/,
+  );
+});
+
+test('Host API 已完成请求只重放结果，不重复消费宿主能力', async () => {
+  const fixture = createFixture();
+  let reads = 0;
+  fixture.dependencies.artifacts.get = async (artifactRef: string) => {
+    reads += 1;
+    return { tenantId: 'tenant-1', artifactRef, content: Buffer.from('artifact-data'), contentType: 'application/octet-stream', sha256: 'c'.repeat(64), createdBy: 'fixture', createdAt: '2026-08-10T00:00:00.000Z' };
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const request = { ...context('artifact.grant.read', ['artifact.read']), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } };
+  await handler(request);
+  await handler(request);
+  assert.equal(reads, 1);
+});
+
+test('生产 Host API 请求账本跨 Store 实例恢复，不重复获得消费权', async () => {
+  const db = new PgliteDatabase();
+  try {
+    const definition = getHostApiMethod('artifact.grant.read');
+    const input = { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' };
+    const base = context(definition.method, ['artifact.read']);
+    const binding = {
+      ...base,
+      input,
+      pluginVersion: '1.0.0',
+      hostPermissions: base.hostPermissions,
+    };
+    const firstGate = new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(db));
+    const restartedGate = new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(db));
+    const admission = firstGate.createAdmission(binding, definition);
+    assert.deepEqual(await firstGate.claim(admission), { status: 'ACQUIRED' });
+    assert.deepEqual(await restartedGate.claim(admission), { status: 'IN_FLIGHT' });
+    assert.equal(await firstGate.complete(admission, { ok: true, output: { contentBase64: 'persisted' } }), 'COMMITTED');
+    assert.deepEqual(await restartedGate.claim(admission), { status: 'COMPLETED', outcome: { ok: true, output: { contentBase64: 'persisted' } } });
+  } finally {
+    await db.close();
+  }
+});
+
+test('Host API 超时后迟到结果不能提交，重放只能收敛为 UNKNOWN', async () => {
+  const fixture = createFixture();
+  fixture.dependencies.artifacts.get = async (artifactRef: string) => {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 30));
+    return { tenantId: 'tenant-1', artifactRef, content: Buffer.from('late'), contentType: 'application/octet-stream', sha256: 'c'.repeat(64), createdBy: 'fixture', createdAt: '2026-08-10T00:00:00.000Z' };
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const request = { ...context('artifact.grant.read', ['artifact.read']), timeoutMs: 5, deadlineAt: new Date(Date.now() + 500).toISOString(), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } };
+  await assert.rejects(handler(request), /超时|UNKNOWN/);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 40));
+  await assert.rejects(handler(request), /UNKNOWN|已过期/);
+});
+
+test('Host API 消费权内的确定性拒绝会落终态，不遗留 IN_FLIGHT', async () => {
+  const fixture = createFixture();
+  fixture.checkpoint.ledgerId = 'other-ledger';
+  let reads = 0;
+  fixture.dependencies.workflowRecovery.getCheckpoint = async () => {
+    reads += 1;
+    return {
+      id: 'checkpoint-1', tenantId: 'tenant-1', ledgerId: 'other-ledger', checkpointName: 'checkpoint-1',
+      workflowStepName: 'step-1', capture: { snapshot: 'v1' }, captureHash: sha256({ snapshot: 'v1' }),
+      requiredForRollback: false, createdAt: '2026-08-10T00:00:00.000Z',
+    };
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const request = { ...context('execution.checkpoint.load', ['execution.checkpoint']), input: { checkpointRef: 'checkpoint-1' } };
+  await assert.rejects(handler(request), /不属于当前/);
+  await assert.rejects(handler(request), /已记录失败结果|禁止重新执行/);
+  assert.equal(reads, 1);
+});
+
+test('Host API 拒绝已过期截止时间，不创建消费记录', async () => {
+  const fixture = createFixture();
+  let reads = 0;
+  fixture.dependencies.artifacts.get = async () => {
+    reads += 1;
+    return undefined;
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  await assert.rejects(
+    handler({ ...context('artifact.grant.read', ['artifact.read']), deadlineAt: new Date(Date.now() - 1).toISOString(), input: { grantId: 'grant-1', artifactRef: 'artifact://artifact-1' } }),
+    /已过期|UNKNOWN/,
+  );
+  assert.equal(reads, 0);
+});
+
 test('Plugin Runner Grant 缺少完整身份绑定或字段不一致时拒绝创建和校验', async () => {
   const { ExecutionGrantService } = await import('../../executions/execution-grant.service.js');
   const service = new ExecutionGrantService();
@@ -97,6 +199,7 @@ function createFixture() {
   const locks = { acquires: [] as Array<Record<string, unknown>>, releases: [] as Array<Record<string, unknown>> };
   const checkpoint = { ledgerId: 'ledger-1' };
   const dependencies: PluginRunnerHostApiDependencies = {
+    requestGate: new PluginRunnerHostApiRequestGate(new TestHostApiRequestStore()),
     security: {
       grants: {
         validate: async (input: Record<string, unknown>) => {
@@ -145,9 +248,13 @@ function createFixture() {
 
 function context(method: string, hostPermissions: string[], grantRefs = ['grant-1']): PluginRunnerHostCallContext {
   return {
+    requestId: `host-call:${method}`,
     method,
     input: {},
     grantRefs,
+    timeoutMs: 10_000,
+    idempotencyKey: `idem:${method}`,
+    deadlineAt: new Date(Date.now() + 10_000).toISOString(),
     tenantId: 'tenant-1',
     executionId: 'run-1',
     executionStepId: 'step-1',
@@ -159,6 +266,41 @@ function context(method: string, hostPermissions: string[], grantRefs = ['grant-
     planDigest,
     hostPermissions,
   };
+}
+
+class TestHostApiRequestStore implements PluginRunnerHostApiRequestStore {
+  private readonly records = new Map<string, { fingerprint: string; status: 'IN_FLIGHT' | 'COMPLETED' | 'UNKNOWN'; outcome?: HostApiRequestOutcome }>();
+
+  async claim(admission: HostApiRequestAdmission): Promise<HostApiRequestClaimResult> {
+    if (Date.parse(admission.expiresAt) <= Date.now()) return { status: 'EXPIRED' };
+    const existing = this.records.get(admission.key);
+    if (!existing) {
+      this.records.set(admission.key, { fingerprint: admission.requestFingerprint, status: 'IN_FLIGHT' });
+      return { status: 'ACQUIRED' };
+    }
+    if (existing.fingerprint !== admission.requestFingerprint) return { status: 'CONFLICT' };
+    if (existing.status === 'COMPLETED') return { status: 'COMPLETED', outcome: existing.outcome! };
+    if (existing.status === 'UNKNOWN') return { status: 'UNKNOWN', ...(existing.outcome ? { outcome: existing.outcome } : {}) };
+    return { status: 'IN_FLIGHT' };
+  }
+
+  async complete(admission: HostApiRequestAdmission, outcome: HostApiRequestOutcome): Promise<HostApiRequestCompleteResult> {
+    const existing = this.records.get(admission.key);
+    if (!existing || existing.fingerprint !== admission.requestFingerprint) return 'CONFLICT';
+    if (existing.status !== 'IN_FLIGHT') return 'LATE';
+    existing.status = 'COMPLETED';
+    existing.outcome = outcome;
+    return 'COMMITTED';
+  }
+
+  async expire(admission: HostApiRequestAdmission, error: PluginRunnerError): Promise<HostApiRequestExpireResult> {
+    const existing = this.records.get(admission.key);
+    if (!existing || existing.fingerprint !== admission.requestFingerprint) return 'CONFLICT';
+    if (existing.status !== 'IN_FLIGHT') return 'ALREADY_TERMINAL';
+    existing.status = 'UNKNOWN';
+    existing.outcome = { ok: false, error };
+    return 'EXPIRED';
+  }
 }
 
 function sha256(value: unknown): string {

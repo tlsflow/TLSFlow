@@ -136,6 +136,8 @@ export interface PluginRunnerHostCall extends PluginRunnerMessageBase {
   method: string;
   input: Record<string, unknown>;
   grantRefs: string[];
+  idempotencyKey: string;
+  deadlineAt: string;
   timeoutMs: number;
 }
 

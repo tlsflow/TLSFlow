@@ -136,7 +136,7 @@ function runnerKey(pluginVersionId: string, tenantId: string): string {
 }
 
 function immutableCopy(spec: PluginRunnerLaunchSpec): PluginRunnerLaunchSpec {
-  return { ...spec, args: [...spec.args], environment: { ...(spec.environment ?? {}) }, hostPermissions: [...(spec.hostPermissions ?? [])] };
+  return { ...spec, args: [...spec.args], environment: { ...(spec.environment ?? {}) }, capabilities: [...spec.capabilities], hostPermissions: [...(spec.hostPermissions ?? [])] };
 }
 
 function assertImmutableSpec(left: PluginRunnerLaunchSpec, right: PluginRunnerLaunchSpec): void {

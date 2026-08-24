@@ -44,18 +44,20 @@ export interface PluginRunnerLaunchSpec {
   shutdownGraceMs?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
-  capabilities?: readonly string[];
+  capabilities: readonly string[];
   hostPermissions?: readonly string[];
-  packageHash?: string;
-  resourceHash?: string;
-  manifestHash?: string;
+  packageHash: string;
+  resourceHash: string;
+  manifestHash: string;
   hostApiHandler?: PluginRunnerHostApiHandler;
 }
 
 export interface PluginRunnerHostCallContext {
+  requestId: string;
   method: string;
   input: Record<string, unknown>;
   grantRefs: readonly string[];
+  timeoutMs: number;
   tenantId: string;
   executionId: string;
   executionStepId: string;
@@ -63,6 +65,8 @@ export interface PluginRunnerHostCallContext {
   pluginId: string;
   pluginVersion: string;
   capability: string;
+  idempotencyKey: string;
+  deadlineAt: string;
   workflowVersionId: string;
   planDigest: string;
   hostPermissions: readonly string[];
@@ -500,9 +504,11 @@ export class PluginRunnerClient {
         if (!activeExecution) throw new AppError('PLUGIN_RUNNER_PROTOCOL_VIOLATION', 'Host API 调用没有活动执行');
         if (message.capability !== activeExecution.capability) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', 'Host API capability 与当前执行不匹配');
         const output = await this.spec.hostApiHandler({
+          requestId: message.requestId,
           method: message.method,
           input: message.input,
           grantRefs: message.grantRefs,
+          timeoutMs,
           tenantId: message.tenantId,
           executionId: message.executionId,
           executionStepId: message.executionStepId,
@@ -510,6 +516,8 @@ export class PluginRunnerClient {
           pluginId: this.spec.pluginId,
           pluginVersion: this.spec.pluginVersion,
           capability: message.capability,
+          idempotencyKey: message.idempotencyKey,
+          deadlineAt: message.deadlineAt,
           workflowVersionId: activeExecution.workflowVersionId,
           planDigest: activeExecution.planDigest,
           hostPermissions: this.spec.hostPermissions ?? [],

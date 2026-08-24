@@ -136,8 +136,10 @@ const messageSchemas: Record<PluginRunnerMessageType, JsonSchema> = {
     ] },
     input: record,
     grantRefs,
+    idempotencyKey: identifier,
+    deadlineAt: dateTime,
     timeoutMs: { type: 'integer', minimum: 1, maximum: 120000 },
-  }, ['pluginVersionId', 'tenantId', 'executionId', 'executionStepId', 'capability', 'method', 'input', 'grantRefs', 'timeoutMs']),
+  }, ['pluginVersionId', 'tenantId', 'executionId', 'executionStepId', 'capability', 'method', 'input', 'grantRefs', 'idempotencyKey', 'deadlineAt', 'timeoutMs']),
   host_result: messageSchema('host_result', {
     pluginVersionId: identifier,
     tenantId: identifier,

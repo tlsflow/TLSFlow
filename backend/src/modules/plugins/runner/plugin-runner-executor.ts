@@ -81,7 +81,8 @@ export async function loadPluginRunnerExecutor(modulePath: string): Promise<Plug
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  const candidate = loaded.default ?? loaded.createPluginRunnerExecutor ?? loaded.executor;
+  // 生产 Runner 只接受固定工厂导出，禁止通过旧别名或默认导出静默切换执行器。
+  const candidate = loaded.createPluginRunnerExecutor;
   if (typeof candidate !== 'function') {
     throw new AppError('PLUGIN_RUNNER_START_FAILED', 'Runner 执行器模块没有导出固定执行器工厂');
   }

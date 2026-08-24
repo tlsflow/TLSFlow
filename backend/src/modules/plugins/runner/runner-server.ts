@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { newId } from '../../../shared/id.js';
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateHostApiResult } from './protocol/host-api.registry.js';
 import { pluginRunnerLimits } from './protocol/protocol.constants.js';
@@ -25,6 +26,7 @@ import { redactRunnerLog } from './runner-log.js';
 const decoder = new JsonLinesDecoder();
 const executorModulePath = readArgument('--executor-module');
 const hostCalls = new Map<string, { resolve: (message: PluginRunnerHostResult) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+const expiredHostRequestIds = new Set<string>();
 let executor: PluginRunnerExecutor | undefined;
 let binding: RunnerBinding | undefined;
 let activeExecution: ActiveExecution | undefined;
@@ -109,6 +111,7 @@ async function handleExecute(message: PluginRunnerExecute): Promise<void> {
   if (shuttingDown || draining) failClosed(new Error('Runner 正在关闭，不接受新的执行请求'));
   if (activeExecution) failClosed(new Error('Runner 同时存在多个执行请求'));
   if (!executor || !binding) failClosed(new Error('Runner 执行器未装配'));
+  assertExecutionDeadline(message.deadlineAt);
   if (!executor.descriptor.capabilities.includes(message.capability)) {
     failClosed(new Error('执行请求的 Capability 未绑定到固定 PluginVersion'));
   }
@@ -240,6 +243,8 @@ function createHostApi(message: PluginRunnerExecute): PluginRunnerExecutorHostAp
         method,
         input,
         grantRefs: [...grantRefs],
+        idempotencyKey: deriveHostApiIdempotencyKey(message, method, input),
+        deadlineAt: new Date(Math.min(Date.parse(message.deadlineAt), Date.now() + Math.min(timeoutMs, definition.timeoutMs))).toISOString(),
         timeoutMs: Math.min(timeoutMs, definition.timeoutMs),
       };
       const result = await requestHost(hostCall, Math.min(timeoutMs, definition.timeoutMs));
@@ -253,6 +258,7 @@ function requestHost(message: PluginRunnerHostCall, timeoutMs: number): Promise<
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       hostCalls.delete(message.requestId);
+      rememberExpiredRequestId(message.requestId);
       reject(new Error('Host API 调用超时'));
     }, timeoutMs);
     hostCalls.set(message.requestId, { resolve, reject, timer });
@@ -268,7 +274,10 @@ function requestHost(message: PluginRunnerHostCall, timeoutMs: number): Promise<
 
 function resolveHostCall(message: PluginRunnerHostResult): void {
   const pending = hostCalls.get(message.requestId);
-  if (!pending) failClosed(new Error('Host API 返回了未知 requestId'));
+  if (!pending) {
+    if (expiredHostRequestIds.has(message.requestId)) return;
+    failClosed(new Error('Host API 返回了未知 requestId'));
+  }
   assertBindingMessage(message);
   if (!activeExecution || message.executionId !== activeExecution.message.executionId || message.executionStepId !== activeExecution.message.executionStepId) {
     failClosed(new Error('Host API 返回了错误执行上下文'));
@@ -392,6 +401,30 @@ function readArgument(name: string): string | undefined {
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
+function deriveHostApiIdempotencyKey(message: PluginRunnerExecute, method: string, input: Record<string, unknown>): string {
+  return `host-${createHash('sha256').update(`${message.idempotencyKey}\u0000${method}\u0000${stableStringify(input)}`).digest('hex')}`;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function rememberExpiredRequestId(requestId: string): void {
+  expiredHostRequestIds.add(requestId);
+  while (expiredHostRequestIds.size > pluginRunnerLimits.maxExpiredRequestIds) {
+    const oldest = expiredHostRequestIds.values().next().value as string | undefined;
+    if (oldest === undefined) return;
+    expiredHostRequestIds.delete(oldest);
+  }
+}
+
+function assertExecutionDeadline(deadlineAt: string): void {
+  const deadline = Date.parse(deadlineAt);
+  if (!Number.isFinite(deadline) || deadline <= Date.now()) failClosed(new Error('Runner 执行截止时间已到期'));
 }
 
 interface RunnerBinding {

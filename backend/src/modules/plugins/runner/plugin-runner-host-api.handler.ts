@@ -8,6 +8,7 @@ import type { ExecutionsRepository } from '../../executions/repository/execution
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { AgentTaskLogEntry } from '../../agents/schema/agents.schema.js';
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, type HostApiMethodDefinition } from './protocol/host-api.registry.js';
+import { PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestBinding, type HostApiRequestOutcome } from './host-api.request-gate.js';
 import type { PluginRunnerHostApiHandler, PluginRunnerHostCallContext } from './plugin-runner-client.js';
 
 export interface PluginRunnerHostApiDependencies {
@@ -17,6 +18,8 @@ export interface PluginRunnerHostApiDependencies {
   workflowRecovery: Pick<WorkflowRecoveryLedgerService, 'begin' | 'recordCheckpoint' | 'get' | 'getCheckpoint'>;
   executionDetails: Pick<ExecutionDetailStreamService, 'publishLog'>;
   executions: Pick<ExecutionsRepository, 'getRunOrThrow' | 'getStepOrThrow'>;
+  /** 生产必须注入数据库支持的原子消费账本；缺失时所有 Host API 请求失败关闭。 */
+  requestGate?: PluginRunnerHostApiRequestGate;
 }
 
 /**
@@ -27,20 +30,147 @@ export function createPluginRunnerHostApiHandler(dependencies: PluginRunnerHostA
   return async (context) => {
     const definition = getHostApiMethod(context.method);
     let input = context.input;
+    let admission: HostApiRequestAdmission | undefined;
+    let dispatchPromise: Promise<Record<string, unknown>> | undefined;
     try {
+      if (!dependencies.requestGate) {
+        throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 未装配持久化幂等消费门禁，生产请求已失败关闭');
+      }
       input = validateHostApiRequest(context.method, context.input);
       assertContextBinding(context);
       assertHostApiGrant(context.method, context.hostPermissions, context.grantRefs);
       const grants = await validateBoundGrants(dependencies, context, definition);
       assertInputGrantBinding(context, input);
-      const output = await dispatchHostApiCall(dependencies, context, definition, input, grants);
+      admission = dependencies.requestGate.createAdmission(toRequestBinding(context, input), definition);
+      const claimed = await dependencies.requestGate.claim(admission);
+      if (claimed.status === 'COMPLETED') {
+        return replayOutcome(claimed.outcome);
+      }
+      if (claimed.status === 'UNKNOWN') {
+        throw unknownHostApiError('Host API 请求已经收敛为 UNKNOWN，禁止重新执行', { method: context.method });
+      }
+      if (claimed.status === 'IN_FLIGHT') {
+        throw unknownHostApiError('Host API 请求仍在消费中，禁止并发重放', { method: context.method });
+      }
+      if (claimed.status === 'CONFLICT') {
+        throw new AppError('IDEMPOTENCY_CONFLICT', 'Host API 幂等键对应了不同请求摘要', { method: context.method });
+      }
+      if (claimed.status === 'EXPIRED') {
+        throw unknownHostApiError('Host API 请求已过期，禁止执行', { method: context.method });
+      }
+
+      dispatchPromise = dispatchHostApiCall(dependencies, context, definition, input, grants);
+      const remainingMs = Date.parse(context.deadlineAt) - Date.now();
+      const output = await withTimeout(dispatchPromise, Math.min(context.timeoutMs, definition.timeoutMs, Math.max(1, remainingMs)));
+      const completion = await dependencies.requestGate.complete(admission, { ok: true, output });
+      if (completion !== 'COMMITTED') {
+        throw unknownHostApiError('Host API 结果到达时请求已经过期，结果已丢弃', { method: context.method });
+      }
       await writeHostCallAudit(dependencies, context, definition, input, 'success');
       return output;
     } catch (error) {
+      if (admission && dispatchPromise && isHostApiTimeout(error)) {
+        const unknown = unknownHostApiError('Host API 超时，结果必须通过恢复账本确认', { method: context.method });
+        const unknownResult = hostApiErrorPayload(unknown, definition);
+        await dependencies.requestGate!.expire(admission, unknownResult);
+        observeLateHostApiResult(dependencies, context, definition, input, admission, dispatchPromise);
+        error = unknown;
+      } else if (admission && dispatchPromise && isAcquiredFailure(error)) {
+        const outcome = { ok: false, error: hostApiErrorPayload(error, definition) } satisfies HostApiRequestOutcome;
+        const completion = await dependencies.requestGate!.complete(admission, outcome);
+        if (completion !== 'COMMITTED') {
+          error = unknownHostApiError('Host API 失败结果到达时请求已经过期，结果已收敛为 UNKNOWN', { method: context.method });
+        }
+      }
       await writeHostCallAudit(dependencies, context, definition, input, error instanceof AppError && error.errorCode === 'PLUGIN_HOST_CALL_DENIED' ? 'denied' : 'failure', error);
       throw error;
     }
   };
+}
+
+function toRequestBinding(context: PluginRunnerHostCallContext, input: Record<string, unknown>): HostApiRequestBinding {
+  return {
+    requestId: context.requestId,
+    method: context.method,
+    input,
+    timeoutMs: context.timeoutMs,
+    idempotencyKey: context.idempotencyKey,
+    deadlineAt: context.deadlineAt,
+    tenantId: context.tenantId,
+    executionId: context.executionId,
+    executionStepId: context.executionStepId,
+    pluginVersionId: context.pluginVersionId,
+    pluginId: context.pluginId,
+    pluginVersion: context.pluginVersion,
+    capability: context.capability,
+    grantRefs: context.grantRefs,
+    workflowVersionId: context.workflowVersionId,
+    planDigest: context.planDigest,
+    hostPermissions: context.hostPermissions,
+  };
+}
+
+function replayOutcome(outcome: HostApiRequestOutcome): Record<string, unknown> {
+  if (outcome.ok) return outcome.output ?? {};
+  const error = outcome.error;
+  throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API 已记录失败结果，禁止重新执行', { code: error?.code, replayed: true });
+}
+
+function unknownHostApiError(message: string, details: Record<string, unknown>): AppError {
+  return new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', message, details);
+}
+
+function hostApiErrorPayload(error: unknown, definition: HostApiMethodDefinition) {
+  return {
+    code: error instanceof AppError ? error.errorCode : 'PLUGIN_HOST_CALL_DENIED',
+    message: (error instanceof Error ? error.message : String(error)).slice(0, 512),
+    retryable: definition.retryable,
+    mayBeUnknown: !definition.readOnly || error instanceof AppError && error.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE',
+    secretRedacted: true as const,
+  };
+}
+
+function isHostApiTimeout(error: unknown): boolean {
+  return error instanceof HostApiTimeout;
+}
+
+function isAcquiredFailure(error: unknown): boolean {
+  // 消费权一旦取得，任何确定性失败都必须写入终态；否则记录会永久停在 IN_FLIGHT。
+  return !(error instanceof AppError && ['IDEMPOTENCY_CONFLICT', 'PLUGIN_OPERATION_UNKNOWN_STATE'].includes(error.errorCode));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => { timer = setTimeout(() => reject(new HostApiTimeout()), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+class HostApiTimeout extends Error {}
+
+function observeLateHostApiResult(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  definition: HostApiMethodDefinition,
+  input: Record<string, unknown>,
+  admission: HostApiRequestAdmission,
+  dispatchPromise: Promise<Record<string, unknown>>,
+): void {
+  void dispatchPromise.then(
+    async (output) => {
+      const result = await dependencies.requestGate!.complete(admission, { ok: true, output });
+      if (result === 'LATE') await writeHostCallAudit(dependencies, context, definition, input, 'failure', new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', 'Host API 迟到成功结果已丢弃'));
+    },
+    async (error: unknown) => {
+      const result = await dependencies.requestGate!.complete(admission, { ok: false, error: hostApiErrorPayload(error, definition) });
+      if (result === 'LATE') await writeHostCallAudit(dependencies, context, definition, input, 'failure', new AppError('PLUGIN_OPERATION_UNKNOWN_STATE', 'Host API 迟到失败结果已丢弃'));
+    },
+  ).catch(() => undefined);
 }
 
 async function validateBoundGrants(
@@ -282,9 +412,12 @@ async function beginRecoveryLedger(dependencies: PluginRunnerHostApiDependencies
 }
 
 function assertContextBinding(context: PluginRunnerHostCallContext): void {
-  if (!context.tenantId || !context.executionId || !context.executionStepId || !context.workflowVersionId || !context.pluginVersionId || !context.pluginId || !context.capability) {
+  if (!context.requestId || !context.idempotencyKey || !context.deadlineAt || !context.tenantId || !context.executionId || !context.executionStepId || !context.workflowVersionId || !context.pluginVersionId || !context.pluginId || !context.capability) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 缺少固定执行绑定');
   }
+  if (!Number.isInteger(context.timeoutMs) || context.timeoutMs < 1) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 缺少有效超时预算');
+  const deadline = Date.parse(context.deadlineAt);
+  if (!Number.isFinite(deadline) || deadline <= Date.now()) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API 截止时间无效或已过期');
   if (!/^[a-f0-9]{64}$/.test(context.planDigest)) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Runner Host API planDigest 无效');
 }
 
