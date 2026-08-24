@@ -19,6 +19,7 @@ export class ApplicationAssetExecutionService {
       const assets = new PgAssetsRepository(tx);
       const asset = await assets.getServiceAsset(tenantId, applicationAssetId);
       if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId });
+      const approvalRequired = asset.deploymentStrategy?.approvalRequired === true;
       if (input.expectedAssetVersion !== undefined && asset.version !== input.expectedAssetVersion) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', 'ApplicationAsset 版本冲突', { expectedVersion: input.expectedAssetVersion, actualVersion: asset.version });
       }
@@ -35,7 +36,7 @@ export class ApplicationAssetExecutionService {
       }
       if (currentBinding && isSameWorkflowExecutionBinding(currentBinding, bindingInput)) {
         const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
-          deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowExecutionBindingId: currentBinding.id } },
+          deploymentStrategy: { type: 'WORKFLOW', approvalRequired, workflow: { workflowExecutionBindingId: currentBinding.id } },
         });
         return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: currentBinding };
       }
@@ -46,7 +47,7 @@ export class ApplicationAssetExecutionService {
         ? await bindings.update(tenantId, bindingId, { ...bindingInput, expectedVersion: expectedVersion ?? 0 })
         : await bindings.create(bindingInput);
       const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
-        deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowExecutionBindingId: binding.id } },
+        deploymentStrategy: { type: 'WORKFLOW', approvalRequired, workflow: { workflowExecutionBindingId: binding.id } },
       });
       return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: binding };
     });

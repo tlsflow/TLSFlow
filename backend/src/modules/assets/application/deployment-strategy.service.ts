@@ -12,7 +12,7 @@ import {
   type InputBindingsV1,
 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 
-const deploymentStrategyKeys = new Set(['type', 'managedTarget', 'workflow', 'compatibilityMode', 'updatedAt', 'updatedBy']);
+const deploymentStrategyKeys = new Set(['type', 'approvalRequired', 'managedTarget', 'workflow', 'compatibilityMode', 'updatedAt', 'updatedBy']);
 const managedTargetStrategyKeys = new Set(['managedTargetId', 'certificateFormatId', 'executionMode', 'workflowExecutionBindingId']);
 const workflowStrategyKeys = new Set([
   'workflowExecutionBindingId',
@@ -56,6 +56,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (executionMode === 'WORKFLOW_OVERRIDE' && !workflowExecutionBindingId) throw strategyError('WORKFLOW_OVERRIDE 模式必须引用 WorkflowExecutionBinding');
     return {
       type: 'MANAGED_TARGET',
+      approvalRequired: input.approvalRequired === true,
       managedTarget: { managedTargetId, ...(certificateFormatId ? { certificateFormatId } : {}), executionMode, ...(workflowExecutionBindingId ? { workflowExecutionBindingId } : {}) },
       compatibilityMode: 'UNIFIED',
       updatedAt: now,
@@ -71,6 +72,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (workflowExecutionBindingId) {
       return {
         type: 'WORKFLOW',
+        approvalRequired: input.approvalRequired === true,
         workflow: { workflowExecutionBindingId },
         compatibilityMode: 'UNIFIED',
         updatedAt: now,
@@ -86,6 +88,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId, Boolean(pluginBindingId));
     return {
       type: 'WORKFLOW',
+      approvalRequired: input.approvalRequired === true,
       workflow: {
         pluginBindingId,
         pluginVersionId: optionalNonEmpty(workflow.pluginVersionId),

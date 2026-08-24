@@ -115,6 +115,7 @@ export class ManagedTargetPluginQueryService {
       this.assertTargetCapability(context, input.value.capabilityKey ?? 'certificate.deploy');
       const applicationAsset = await services.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
       if (!applicationAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
+      const approvalRequired = applicationAsset.deploymentStrategy?.approvalRequired === true;
 
       const certificateFormatId = input.value.certificateFormatId !== undefined
         ? input.value.certificateFormatId
@@ -158,7 +159,7 @@ export class ManagedTargetPluginQueryService {
           : await services.workflowBindings.create(createInput);
         await services.bindings.disableOwnerAssignment(input.tenantId, { ownerType: 'APPLICATION_ASSET', ownerId: input.applicationAssetId, capabilityKey });
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
-          deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode, workflowExecutionBindingId: binding.id } },
+          deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode, workflowExecutionBindingId: binding.id } },
         });
         return { target, executionMode, workflowExecutionBinding: binding, effectiveCapability: undefined };
       }
@@ -236,7 +237,7 @@ export class ManagedTargetPluginQueryService {
           compatibility,
         });
         await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
-          deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
+          deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
         });
         return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
       }
@@ -299,7 +300,7 @@ export class ManagedTargetPluginQueryService {
         compatibility,
       });
       await services.assets.updateServiceAsset(input.tenantId, input.applicationAssetId, {
-        deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
+        deploymentStrategy: { type: 'MANAGED_TARGET', approvalRequired, managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
       });
       return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
     });

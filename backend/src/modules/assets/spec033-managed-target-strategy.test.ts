@@ -32,7 +32,17 @@ test('Spec033 新 MANAGED_TARGET 策略只要求目标 ID', () => {
     managedTargetId: 'target_spec033_strategy',
     executionMode: 'PLUGIN',
   });
+  assert.equal(strategy.approvalRequired, false);
   assert.equal(strategy.compatibilityMode, 'UNIFIED');
+});
+
+test('应用资产策略保留显式审批配置', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    approvalRequired: true,
+    managedTarget: { managedTargetId: 'target_spec033_strategy' },
+  }, context);
+  assert.equal(strategy.approvalRequired, true);
 });
 
 test('Spec033 MANAGED_TARGET 策略保留证书产物配置', () => {
@@ -74,6 +84,7 @@ test('Spec033 应用资产保存后可回读 ManagedTarget 证书产物配置', 
     discoverySource: 'MANUAL',
     deploymentStrategy: {
       type: 'MANAGED_TARGET',
+      approvalRequired: true,
       managedTarget: {
         managedTargetId: 'target_spec033_strategy_persist',
         certificateFormatId: 'format_spec033_strategy_persist',
@@ -82,8 +93,10 @@ test('Spec033 应用资产保存后可回读 ManagedTarget 证书产物配置', 
   });
 
   assert.equal(created.deploymentStrategy?.managedTarget?.certificateFormatId, 'format_spec033_strategy_persist');
+  assert.equal(created.deploymentStrategy?.approvalRequired, true);
   const detail = await service.getServiceAssetDetail('tenant_spec033_strategy_persist', created.id);
   assert.equal(detail?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format_spec033_strategy_persist');
+  assert.equal(detail?.deploymentStrategy?.approvalRequired, true);
 });
 
 test('Spec033.4 ManagedTarget 策略不保存 PluginBinding', () => {

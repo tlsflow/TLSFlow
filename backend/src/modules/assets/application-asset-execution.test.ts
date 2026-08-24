@@ -53,11 +53,12 @@ async function seedFixedWorkflowChain(db: PgliteDatabase, tenantId: string, opti
 
 test('非受管资产只保存 WorkflowExecutionBinding 且拒绝插件 Assignment', async () => {
   const db=new PgliteDatabase(); await runMigrations(db,'src/database/migrations'); const tenantId='tenant-standalone-workflow'; const assets=new PgAssetsRepository(db);
-  const asset=await assets.createServiceAsset(tenantId,{address:'standalone.example.com',port:443,protocol:'HTTPS',discoverySource:'MANUAL'});
+  const asset=await assets.createServiceAsset(tenantId,{address:'standalone.example.com',port:443,protocol:'HTTPS',discoverySource:'MANUAL',deploymentStrategy:{type:'WORKFLOW',approvalRequired:true}});
   const chain = await seedFixedWorkflowChain(db, tenantId);
   const service=new ApplicationAssetExecutionService(db);
   const saved=await service.saveStandaloneWorkflowExecution(tenantId,asset.id,{workflowExecution:{...chain,tenantId,workflowVersionSelection:'FIXED',runner:'CONTROL_PLANE',inputBindings:workflowInputBindings}});
   assert.equal(saved.asset.deploymentStrategy?.type,'WORKFLOW'); assert.equal(saved.asset.deploymentStrategy?.workflow?.workflowExecutionBindingId,saved.workflowExecutionBinding.id);
+  assert.equal(saved.asset.deploymentStrategy?.approvalRequired, true);
   assert.equal(saved.workflowExecutionBinding.pluginVersionId, chain.pluginVersionId);
   assert.equal(saved.workflowExecutionBinding.capabilityKey, chain.capabilityKey);
   assert.equal(Number((await db.query<{count:string|number}>(`select count(*) from unified_plugin_bindings where tenant_id=$1`,[tenantId])).rows[0]?.count),0);

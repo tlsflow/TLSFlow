@@ -74,6 +74,8 @@ export interface WorkflowDeploymentStrategyDto {
 
 export interface DeploymentStrategyDto {
   type: DeploymentStrategyType;
+  /** 应用资产级审批开关；true 表示该应用的证书部署必须审批。 */
+  approvalRequired?: boolean;
   managedTarget?: ManagedTargetDeploymentStrategyDto;
   workflow?: WorkflowDeploymentStrategyDto;
   compatibilityMode?: DeploymentStrategyCompatibilityMode;
