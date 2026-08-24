@@ -384,7 +384,7 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async listServiceAssets(tenantId: string, query: PageQuery): Promise<PageResult<ServiceAssetDto>> {
-    const rows = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toServiceAsset);
+    const rows = (await this.db.query<ServiceAssetRow>(`select * from pg_service_assets where tenant_id = $1 and deleted_at is null and asset_kind <> 'DEVICE'`, [tenantId])).rows.map(toServiceAsset);
     const enriched = await Promise.all(rows.map((row) => this.attachTargetBindingSummary(tenantId, row)));
     return page(enriched, query, serviceAssetFilter);
   }

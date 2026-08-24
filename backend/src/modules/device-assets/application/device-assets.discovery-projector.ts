@@ -79,8 +79,113 @@ export class DeviceAssetsDiscoveryProjector {
             item.priority ?? null, JSON.stringify(item.rawSummary), discoveredAt],
         );
       }
+      await projectUnifiedAssets(tx, tenantId, deviceAssetId, discovery, certificateIds, discoveredAt);
     });
     return { virtualServers: discovery.virtualServers.length, certificates: discovery.certificates.length, bindings: discovery.bindings.length, discoveredAt };
+  }
+}
+
+async function projectUnifiedAssets(
+  db: DatabasePort,
+  tenantId: string,
+  deviceAssetId: string,
+  discovery: NetscalerDiscoveryResult,
+  certificateIds: Map<string, string>,
+  discoveredAt: string,
+): Promise<void> {
+  const device = (await db.query<{ host_id: string; display_name: string; address: string }>(`
+    select da.host_id, coalesce(sa.display_name, sa.address) as display_name, sa.address
+    from pg_device_assets da
+    join pg_service_assets sa on sa.id = da.service_asset_id and sa.tenant_id = da.tenant_id
+    where da.tenant_id = $1 and da.service_asset_id = $2
+  `, [tenantId, deviceAssetId])).rows[0];
+  if (!device?.host_id) return;
+  const serviceInstanceId = stableId('svi', deviceAssetId, 'NETSCALER_ADC');
+  await db.query(`
+    insert into pg_service_instances (
+      id, tenant_id, host_id, provider_type, service_name, display_name, version_text, ports,
+      discovery_source, last_discovered_at, status, raw_facts, created_at, updated_at, version
+    ) values ($1,$2,$3,'DEVICE_TEMPLATE','netscaler-adc',$4,$5,'[]'::jsonb,'PROVIDER',$6,'ACTIVE',$7::jsonb,$6,$6,1)
+    on conflict (id) do update set display_name=excluded.display_name, version_text=excluded.version_text,
+      last_discovered_at=excluded.last_discovered_at, status='ACTIVE', raw_facts=excluded.raw_facts,
+      deleted_at=null, updated_at=excluded.updated_at, version=pg_service_instances.version+1
+  `, [serviceInstanceId, tenantId, device.host_id, device.display_name, discovery.device.softwareVersion, discoveredAt, JSON.stringify(discovery.device.rawSummary)]);
+
+  await db.query(`update pg_managed_targets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_asset_id=$3 and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
+  await db.query(`update pg_site_assets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and metadata->>'deviceAssetId'=$3 and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
+  await db.query(`update pg_service_assets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and metadata->>'deviceAssetId'=$3 and asset_kind='APPLICATION' and deleted_at is null`, [discoveredAt, tenantId, deviceAssetId]);
+
+  for (const virtualServer of discovery.virtualServers) {
+    const identity = `${virtualServer.type}:${virtualServer.name}`;
+    const serviceAssetId = stableId('sat', deviceAssetId, identity);
+    const siteAssetId = stableId('sia', deviceAssetId, identity);
+    const managedTargetId = stableId('mgt', deviceAssetId, identity);
+    const applicationTargetId = stableId('aat', deviceAssetId, identity);
+    const address = virtualServer.sniNames[0] ?? `${virtualServer.type.toLowerCase()}-${virtualServer.name.toLowerCase()}.${deviceAssetId}.managed`;
+    const port = virtualServer.port ?? 443;
+    const protocol = normalizeProtocol(virtualServer.protocol);
+    const metadata = JSON.stringify({ deviceAssetId, virtualServerType: virtualServer.type, virtualServerName: virtualServer.name });
+    await db.query(`
+      insert into pg_service_assets (
+        id, tenant_id, address, address_type, port, protocol, sni_name, display_name, service_instance_id,
+        host_id, discovery_source, last_discovered_at, status, tags, metadata, asset_kind, created_at, updated_at, version
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PROVIDER',$11,'ACTIVE','[]'::jsonb,$12::jsonb,'APPLICATION',$11,$11,1)
+      on conflict (id) do update set address=excluded.address, port=excluded.port, protocol=excluded.protocol,
+        sni_name=excluded.sni_name, display_name=excluded.display_name, last_discovered_at=excluded.last_discovered_at,
+        status='ACTIVE', metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at,
+        version=pg_service_assets.version+1
+    `, [serviceAssetId, tenantId, address.toLowerCase(), inferAddressType(address), port, protocol, virtualServer.sniNames[0] ?? null,
+      `${virtualServer.type} ${virtualServer.name}`, serviceInstanceId, device.host_id, discoveredAt, metadata]);
+    await db.query(`
+      insert into pg_site_assets (
+        id, tenant_id, service_instance_id, service_asset_id, host_id, agent_id, provider_type, site_type,
+        site_name, site_key, binding_information, host_header, listen_ip, port, protocol, runtime_status,
+        discovery_source, last_discovered_at, status, metadata, created_at, updated_at, version
+      ) values ($1,$2,$3,$4,$5,null,'DEVICE_TEMPLATE','CUSTOM',$6,$7,$8,$9,$10,$11,$12,$13,'PROVIDER',$14,'ACTIVE',$15::jsonb,$14,$14,1)
+      on conflict (id) do update set service_asset_id=excluded.service_asset_id, binding_information=excluded.binding_information,
+        host_header=excluded.host_header, listen_ip=excluded.listen_ip, port=excluded.port, protocol=excluded.protocol,
+        runtime_status=excluded.runtime_status, last_discovered_at=excluded.last_discovered_at, status='ACTIVE',
+        metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_site_assets.version+1
+    `, [siteAssetId, tenantId, serviceInstanceId, serviceAssetId, device.host_id, virtualServer.name, identity,
+      `${virtualServer.address ?? '*'}:${port}`, virtualServer.sniNames[0] ?? null, virtualServer.address ?? null, port, protocol,
+      virtualServer.state ?? null, discoveredAt, metadata]);
+    await db.query(`
+      insert into pg_managed_targets (
+        id, tenant_id, agent_id, device_asset_id, host_id, service_instance_id, service_asset_id, site_asset_id,
+        provider_type, framework_type, target_type, target_key, binding_key, capability_profile, deployment_mode,
+        last_seen_at, status, metadata, created_at, updated_at, version
+      ) values ($1,$2,null,$3,$4,$5,$6,$7,'DEVICE_TEMPLATE','DEVICE_TEMPLATE','SITE_BINDING',$8,$9,$10::jsonb,'NITRO',$11,'ACTIVE',$12::jsonb,$11,$11,1)
+      on conflict (id) do update set service_asset_id=excluded.service_asset_id, site_asset_id=excluded.site_asset_id,
+        capability_profile=excluded.capability_profile, last_seen_at=excluded.last_seen_at, status='ACTIVE',
+        metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_managed_targets.version+1
+    `, [managedTargetId, tenantId, deviceAssetId, device.host_id, serviceInstanceId, serviceAssetId, siteAssetId, identity, identity,
+      JSON.stringify(discovery.capabilityProfile), discoveredAt, metadata]);
+    await db.query(`
+      insert into pg_application_asset_targets (
+        id, tenant_id, application_asset_id, agent_id, device_asset_id, site_asset_id, managed_target_id,
+        provider_type, framework_type, target_type, target_key, binding_key, status, metadata, created_at, updated_at, version
+      ) values ($1,$2,$3,null,$4,$5,$6,'DEVICE_TEMPLATE','DEVICE_TEMPLATE','SITE_BINDING',$7,$7,'ACTIVE',$8::jsonb,$9,$9,1)
+      on conflict (id) do update set site_asset_id=excluded.site_asset_id, managed_target_id=excluded.managed_target_id,
+        status='ACTIVE', metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at,
+        version=pg_application_asset_targets.version+1
+    `, [applicationTargetId, tenantId, serviceAssetId, deviceAssetId, siteAssetId, managedTargetId, identity, metadata, discoveredAt]);
+
+    for (const binding of discovery.bindings.filter((item) => item.virtualServerType === virtualServer.type && item.virtualServerName === virtualServer.name)) {
+      const certificateResourceId = certificateIds.get(binding.certKeyName);
+      const certificateBindingId = stableId('cbd', deviceAssetId, identity, binding.certKeyName, binding.sniCertificate ? 'SNI' : 'DEFAULT');
+      await db.query(`
+        insert into pg_certificate_bindings (
+          id, tenant_id, service_instance_id, host_id, service_asset_id, site_asset_id, managed_target_id,
+          domain_name, port, protocol, binding_key, binding_type, discovery_source, verify_method,
+          drift_status, status, metadata, created_at, updated_at, version
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'CUSTOM','PROVIDER','CUSTOM','UNKNOWN','ACTIVE',$12::jsonb,$13,$13,1)
+        on conflict (id) do update set domain_name=excluded.domain_name, port=excluded.port, protocol=excluded.protocol,
+          binding_key=excluded.binding_key, status='ACTIVE', metadata=excluded.metadata, deleted_at=null,
+          updated_at=excluded.updated_at, version=pg_certificate_bindings.version+1
+      `, [certificateBindingId, tenantId, serviceInstanceId, device.host_id, serviceAssetId, siteAssetId, managedTargetId,
+        virtualServer.sniNames[0] ?? virtualServer.address ?? null, port, protocol,
+        `${identity}:${binding.certKeyName}`, JSON.stringify({ ...binding.rawSummary, deviceAssetId, certificateResourceId }), discoveredAt]);
+    }
   }
 }
 
@@ -109,4 +214,17 @@ function timestamp(value: string | undefined): string | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function normalizeProtocol(value: string | undefined): 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' {
+  const protocol = value?.toUpperCase();
+  if (protocol === 'HTTP') return 'HTTP';
+  if (protocol === 'SSL' || protocol === 'HTTPS') return 'HTTPS';
+  return 'TLS';
+}
+
+function inferAddressType(address: string): 'IPV4' | 'IPV6' | 'DNS' {
+  if (address.includes(':')) return 'IPV6';
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) return 'IPV4';
+  return 'DNS';
 }
