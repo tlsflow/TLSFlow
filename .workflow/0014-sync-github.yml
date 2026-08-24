@@ -1,0 +1,20 @@
+version: '1.0'
+name: gcac-sync-github
+displayName: GCAC 将已审核公开版本同步到 GitHub
+
+# 该文件会进入 Gitee 公开仓库，禁止写入任何真实地址、Token 或私钥。
+# 不配置 push、PR 或定时触发，只允许发布负责人在 Gitee Go 页面手动执行。
+stages:
+  - stage:
+      name: sync_github
+      displayName: 同步已审核公开版本到 GitHub
+      strategy: fast
+      trigger: manual
+      steps:
+        - step: shell@agent
+          name: sync_github
+          displayName: 检查并推送 GitHub
+          hostGroupID: gitee-go
+          script: |
+            set -eu
+            node scripts/public-release/sync-github.mjs
