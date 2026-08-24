@@ -6,6 +6,7 @@ export const CREDENTIAL_KINDS = [
   'BEARER_TOKEN',
   'API_KEY',
   'CLIENT_CERTIFICATE',
+  'DNS_PROVIDER',
 ] as const;
 
 export type CredentialKind = typeof CREDENTIAL_KINDS[number];
@@ -34,4 +35,3 @@ export interface CredentialProfileEntity {
   createdAt: string;
   updatedAt: string;
 }
-

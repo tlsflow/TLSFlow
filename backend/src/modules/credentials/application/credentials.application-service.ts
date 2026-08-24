@@ -29,7 +29,7 @@ export class CredentialsApplicationService {
       if (filters.status && item.status !== filters.status) return false;
       if (search && !`${item.name} ${item.username ?? ''}`.toLowerCase().includes(search)) return false;
       return true;
-    });
+    }).map(({ secretSlots: _secretSlots, createdBy: _createdBy, ...summary }) => summary);
   }
 
   async get(tenantId: string, credentialId: string) {

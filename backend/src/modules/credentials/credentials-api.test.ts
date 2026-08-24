@@ -94,6 +94,39 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   assert.deepEqual(deleted.body, { id: credential.id, deleted: true });
 });
 
+test('全局凭据 API 支持创建 DNS Provider 配置', async () => {
+  const { app, database } = await createTestApp();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-dns', 'x-actor-id': 'user-dns' },
+    body: {
+      name: 'Cloudflare DNS',
+      kind: 'DNS_PROVIDER',
+      scopeType: 'global',
+      metadata: { providerId: 'cloudflare' },
+      secretValues: {
+        config: {
+          plainText: 'dns_cloudflare_api_token = test-token',
+          type: 'password',
+        },
+      },
+    },
+  });
+
+  assert.equal(created.statusCode, 201);
+  const credential = created.body as Record<string, unknown>;
+  assert.equal(credential.kind, 'DNS_PROVIDER');
+  assert.match(String((credential.secretSlots as Record<string, string>).config), /^secret:\/\/password\//);
+  assert.equal(JSON.stringify(credential).includes('test-token'), false);
+
+  const stored = await database.query<{ kind: string }>(
+    'select kind from credential_profiles where id = $1',
+    [credential.id],
+  );
+  assert.equal(stored.rows[0]?.kind, 'DNS_PROVIDER');
+});
+
 test('全局凭据 API 强制租户隔离和乐观锁', async () => {
   const { app } = await createTestApp();
   const created = await app.inject({

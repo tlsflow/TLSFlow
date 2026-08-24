@@ -46,7 +46,7 @@ const selected = ref<CredentialProfileDetail | null>(null)
 const usage = ref<CredentialUsage | null>(null)
 const form = ref<CredentialFormState>(emptyForm())
 
-const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE']
+const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER']
 const scopes: CredentialProfileSummary['scopeType'][] = ['global', 'team', 'zone', 'host', 'plugin']
 const isEditing = computed(() => editorMode.value === 'edit')
 const requiresUsername = computed(() => requiresUsernameFor(form.value.kind))
@@ -104,7 +104,15 @@ function editForm(detail: CredentialProfileDetail): CredentialFormState {
 function buildSecretValues(kind: CredentialKind, primary: string, secondary: string): Record<string, CredentialSecretValueInput> {
   const values: Record<string, CredentialSecretValueInput> = {}
   if (primary) {
-    const slot = kind === 'USERNAME_PASSWORD' ? 'password' : kind === 'SSH_KEY' ? 'privateKey' : kind === 'CLIENT_CERTIFICATE' ? 'certificate' : 'token'
+    const slot = kind === 'USERNAME_PASSWORD'
+      ? 'password'
+      : kind === 'SSH_KEY'
+        ? 'privateKey'
+        : kind === 'CLIENT_CERTIFICATE'
+          ? 'certificate'
+          : kind === 'DNS_PROVIDER'
+            ? 'config'
+            : 'token'
     values[slot] = { plainText: primary }
   }
   if (kind === 'CLIENT_CERTIFICATE' && secondary) values.privateKey = { plainText: secondary }
@@ -341,7 +349,12 @@ onMounted(load)
         <section class="credentials-editor__section credentials-editor__section--secret">
           <header><h3>{{ t('credentials.form.secretTitle') }}</h3><p v-if="!isEditing">{{ t('credentials.form.secretCreateDescription') }}</p></header>
           <div class="credentials-editor__grid">
-            <GcSecretInput v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
+            <label v-if="form.kind === 'DNS_PROVIDER'" class="credentials-dns-config gc-form-field">
+              <span>{{ t('credentials.secretLabels.DNS_PROVIDER') }}</span>
+              <textarea v-model="form.primarySecret" rows="8" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" autocomplete="off" />
+              <small>{{ t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted') }}</small>
+            </label>
+            <GcSecretInput v-else v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
             <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
           </div>
         </section>
@@ -443,6 +456,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .credentials-select select { appearance: none; padding-right: var(--gc-space-8); cursor: pointer; }
 .credentials-select select:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .credentials-select svg { position: absolute; top: 50%; right: var(--gc-space-3); width: var(--gc-space-4); height: var(--gc-space-4); transform: translateY(-50%); fill: none; stroke: var(--gc-color-text-muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.credentials-dns-config { display: grid; gap: var(--gc-space-2); }
+.credentials-dns-config span { color: var(--gc-color-text); }
+.credentials-dns-config textarea { width: 100%; min-height: var(--gc-control-height-xl); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-field); padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text); font-family: var(--gc-font-family); resize: vertical; }
+.credentials-dns-config textarea:focus { border-color: var(--gc-color-focus); background: var(--gc-color-surface-solid); box-shadow: var(--gc-shadow-focus); outline: none; }
+.credentials-dns-config small { color: var(--gc-color-text-muted); }
 .credentials-editor :deep(.credentials-secret-field input) { width: 100%; height: var(--gc-control-height-md); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-field); padding: 0 var(--gc-space-3); color: var(--gc-color-text); outline: none; box-shadow: inset 0 var(--gc-space-hairline) var(--gc-space-hairline) var(--gc-color-border-subtle); }
 .credentials-editor :deep(.credentials-secret-field input:focus) { border-color: var(--gc-color-focus); background: var(--gc-color-surface-solid); box-shadow: var(--gc-shadow-focus); }
 .usage-summary { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-md); background: var(--gc-color-warning-bg); color: var(--gc-color-warning); }

@@ -34,6 +34,9 @@ const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
     privateKey: { required: true, allowedTypes: ['private_key', 'certificate_private_key'] },
     passphrase: { required: false, allowedTypes: ['password'] },
   },
+  DNS_PROVIDER: {
+    config: { required: true, allowedTypes: ['password'] },
+  },
 };
 
 export function getCredentialSlotRules(kind: CredentialKind): Record<string, CredentialSlotRule> {
