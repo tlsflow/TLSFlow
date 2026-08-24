@@ -203,6 +203,7 @@ export class AcmeCertificateService {
       policyId: policy.id,
       promotionStatus: 'not_required',
       attemptCount: 0,
+      taskGeneration: 0,
       policySnapshot: {
         providerId: policy.providerId,
         accountId: policy.accountId,

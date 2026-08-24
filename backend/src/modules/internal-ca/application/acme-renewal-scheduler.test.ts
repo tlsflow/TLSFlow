@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AcmeRenewalScheduler } from './acme-renewal-scheduler.js';
+import { AcmeRenewalScheduler, renewalTaskIdempotencyKey, renewalTaskPayload } from './acme-renewal-scheduler.js';
 
 const tenantId = 'tenant-acme-renewal';
 const assetId = 'certasset-acme-renewal';
@@ -247,4 +247,183 @@ test('首次任务已完成但资产没有当前版本时，手动续签会创�
   assert.equal(job.certificateRequestId, requestId);
   assert.equal(job.renewalWindowKey, `manual-initial:${assetId}:${fixedNow.toISOString()}`);
   assert.equal(saved.length, 1);
+});
+
+test('活动 RenewalJob 缺少活动统一任务时会被补偿入队', async () => {
+  const activeJob = {
+    id: 'acmerenew-active-without-task',
+    tenantId,
+    certificateVersionId: 'cert-version-active',
+    sourceCertificateVersionId: 'cert-version-active',
+    renewalWindowKey: 'manual:cert-version-active:2026-08-13T10:00:00.000Z',
+    status: 'scheduled',
+    policyId: policy().id,
+    promotionStatus: 'not_required',
+    attemptCount: 0,
+    scheduledAt: fixedNow.toISOString(),
+    createdAt: fixedNow.toISOString(),
+    updatedAt: fixedNow.toISOString(),
+  } as const;
+  const enqueued: unknown[] = [];
+  let activeLookupCalls = 0;
+  const scheduler = new AcmeRenewalScheduler({
+    listActivePolicies: async () => [{ ...policy(), updatedAt: fixedNow.toISOString() }],
+    getRenewalJobByWindow: async () => undefined,
+    getActiveRenewalJobBySourceVersion: async () => activeJob,
+  } as never, {
+    getAsset: async () => ({ ...asset(), currentVersionId: activeJob.certificateVersionId }),
+    getVersion: async () => ({ id: activeJob.certificateVersionId, notAfter: '2026-12-01T00:00:00.000Z', activationState: 'promoted' }),
+  } as never, undefined, undefined, {
+    findActiveByIdempotency: async () => {
+      activeLookupCalls += 1;
+      return undefined;
+    },
+    enqueue: async (input: unknown) => {
+      enqueued.push(input);
+      return {};
+    },
+  } as never);
+
+  const jobs = await scheduler.runOnce(10, fixedNow);
+
+  assert.deepEqual(jobs, []);
+  assert.equal(activeLookupCalls, 1);
+  assert.deepEqual(enqueued, [{
+    tenantId,
+    taskType: 'ACME_CERTIFICATE_RENEWAL',
+    triggerSource: 'acme.renewal.scheduler',
+    idempotencyKey: `acme-renewal:${activeJob.id}`,
+    payload: { renewalJobId: activeJob.id },
+    resourceRefs: [
+      { resourceType: 'acmeRenewalJob', resourceId: activeJob.id },
+      { resourceType: 'certificateVersion', resourceId: activeJob.certificateVersionId },
+    ],
+  }]);
+});
+
+test('活动统一任务存在时补偿扫描不会重复入队', async () => {
+  const activeJob = {
+    id: 'acmerenew-active-with-task',
+    tenantId,
+    certificateVersionId: 'cert-version-active',
+    sourceCertificateVersionId: 'cert-version-active',
+    renewalWindowKey: 'manual:cert-version-active:2026-08-13T10:00:00.000Z',
+    status: 'retry_waiting',
+    policyId: policy().id,
+    promotionStatus: 'not_required',
+    attemptCount: 1,
+    scheduledAt: fixedNow.toISOString(),
+    createdAt: fixedNow.toISOString(),
+    updatedAt: fixedNow.toISOString(),
+  } as const;
+  let enqueueCalls = 0;
+  const scheduler = new AcmeRenewalScheduler({
+    listActivePolicies: async () => [{ ...policy(), updatedAt: fixedNow.toISOString() }],
+    getRenewalJobByWindow: async () => undefined,
+    getActiveRenewalJobBySourceVersion: async () => activeJob,
+  } as never, {
+    getAsset: async () => ({ ...asset(), currentVersionId: activeJob.certificateVersionId }),
+    getVersion: async () => ({ id: activeJob.certificateVersionId, notAfter: '2026-12-01T00:00:00.000Z', activationState: 'promoted' }),
+  } as never, undefined, undefined, {
+    findActiveByIdempotency: async () => ({ id: 'task-active' }),
+    enqueue: async () => {
+      enqueueCalls += 1;
+      return {};
+    },
+  } as never);
+
+  await scheduler.runOnce(10, fixedNow);
+
+  assert.equal(enqueueCalls, 0);
+});
+
+test('活动 Job 关联失败 TaskRun 时补偿扫描原子重置旧任务而不复用创建请求', async () => {
+  const activeJob = {
+    id: 'acmerenew-active-with-failed-task',
+    tenantId,
+    certificateVersionId: 'cert-version-active',
+    sourceCertificateVersionId: 'cert-version-active',
+    renewalWindowKey: 'manual:cert-version-active:2026-08-13T10:00:00.000Z',
+    status: 'scheduled',
+    policyId: policy().id,
+    promotionStatus: 'not_required',
+    attemptCount: 0,
+    scheduledAt: fixedNow.toISOString(),
+    createdAt: fixedNow.toISOString(),
+    updatedAt: fixedNow.toISOString(),
+  } as const;
+  let retryCalls = 0;
+  let enqueueCalls = 0;
+  const scheduler = new AcmeRenewalScheduler({
+    listActivePolicies: async () => [{ ...policy(), updatedAt: fixedNow.toISOString() }],
+    getRenewalJobByWindow: async () => undefined,
+    getActiveRenewalJobBySourceVersion: async () => activeJob,
+  } as never, {
+    getAsset: async () => ({ ...asset(), currentVersionId: activeJob.certificateVersionId }),
+    getVersion: async () => ({ id: activeJob.certificateVersionId, notAfter: '2026-12-01T00:00:00.000Z', activationState: 'promoted' }),
+  } as never, undefined, undefined, {
+    findByIdempotencyKey: async () => ({ id: 'task-failed', status: 'FAILED' }),
+    retry: async () => {
+      retryCalls += 1;
+      return {};
+    },
+    enqueue: async () => {
+      enqueueCalls += 1;
+      return {};
+    },
+  } as never);
+
+  await scheduler.runOnce(10, fixedNow);
+
+  assert.equal(retryCalls, 1);
+  assert.equal(enqueueCalls, 0);
+});
+
+test('策略扫描用稳定游标继续读取第二页，后页到期策略不会被前页饿死', async () => {
+  const firstPage = [
+    { ...policy(), id: 'policy-page-1', certificateAssetId: 'asset-page-1', updatedAt: '2026-08-13T10:00:00.000Z' },
+    { ...policy(), id: 'policy-page-2', certificateAssetId: 'asset-page-2', updatedAt: '2026-08-13T10:01:00.000Z' },
+  ];
+  const secondPage = [{
+    ...policy(),
+    id: 'policy-page-3',
+    certificateAssetId: 'asset-page-3',
+    updatedAt: '2026-08-13T10:02:00.000Z',
+  }];
+  const cursors: unknown[] = [];
+  const saved: unknown[] = [];
+  const scheduler = new AcmeRenewalScheduler({
+    listActivePolicies: async (_limit: number, cursor?: unknown) => {
+      cursors.push(cursor);
+      return cursor ? secondPage : firstPage;
+    },
+    getRenewalJobByWindow: async () => undefined,
+    getActiveRenewalJobBySourceVersion: async () => undefined,
+    saveRenewalJob: async (job: unknown) => {
+      saved.push(job);
+      return job;
+    },
+  } as never, {
+    getAsset: async (assetId: string) => ({ ...asset(), id: assetId, currentVersionId: `version-${assetId}` }),
+    getVersion: async (versionId: string) => ({
+      id: versionId,
+      notAfter: versionId === 'version-asset-page-3' ? '2026-08-14T00:00:00.000Z' : '2026-12-01T00:00:00.000Z',
+      activationState: 'promoted',
+    }),
+  } as never);
+
+  const jobs = await scheduler.runOnce(2, fixedNow);
+
+  assert.equal(saved.length, 1);
+  assert.equal(jobs.length, 1);
+  assert.deepEqual(cursors, [undefined, { updatedAt: firstPage[1]!.updatedAt, id: firstPage[1]!.id }]);
+});
+
+test('人工重试代次使用新的统一任务幂等键，存量代次 0 保持兼容', () => {
+  assert.equal(renewalTaskIdempotencyKey({ id: 'job-1', taskGeneration: undefined }), 'acme-renewal:job-1');
+  assert.equal(renewalTaskIdempotencyKey({ id: 'job-1', taskGeneration: 0 }), 'acme-renewal:job-1');
+  assert.equal(renewalTaskIdempotencyKey({ id: 'job-1', taskGeneration: 1 }), 'acme-renewal:job-1:1');
+  assert.equal(renewalTaskIdempotencyKey({ id: 'job-1', taskGeneration: 2 }), 'acme-renewal:job-1:2');
+  assert.deepEqual(renewalTaskPayload({ id: 'job-1', taskGeneration: 0 }), { renewalJobId: 'job-1' });
+  assert.deepEqual(renewalTaskPayload({ id: 'job-1', taskGeneration: 1 }), { renewalJobId: 'job-1', taskGeneration: 1 });
 });

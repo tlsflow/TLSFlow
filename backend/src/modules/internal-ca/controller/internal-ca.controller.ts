@@ -24,7 +24,7 @@ import type { AcmeAccountService } from '../application/acme-account.service.js'
 import type { AcmeCertificateService } from '../application/acme-certificate.service.js';
 import type { AcmeOrderService } from '../application/acme-order.service.js';
 import type { AcmeRenewalPolicyService } from '../application/acme-renewal-policy.service.js';
-import type { AcmeRenewalScheduler } from '../application/acme-renewal-scheduler.js';
+import { renewalTaskIdempotencyKey, renewalTaskPayload, type AcmeRenewalScheduler } from '../application/acme-renewal-scheduler.js';
 import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import { listAcmeDnsProviders } from '../providers/acme-dns-provider.registry.js';
@@ -473,8 +473,8 @@ export class InternalCaController {
       taskType: 'ACME_CERTIFICATE_RENEWAL',
       requestedBy: actor,
       triggerSource: 'acme.certificate.manual-renewal',
-      idempotencyKey: `acme-renewal:${job.id}`,
-      payload: { renewalJobId: job.id },
+      idempotencyKey: renewalTaskIdempotencyKey(job),
+      payload: renewalTaskPayload(job),
       resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }, { resourceType: 'certificateAsset', resourceId: assetId }],
     });
     return { statusCode: 202, body: job };
@@ -532,8 +532,8 @@ export class InternalCaController {
       taskType: 'ACME_CERTIFICATE_RENEWAL',
       requestedBy: actorId(request),
       triggerSource: 'acme.certificate.retry',
-      idempotencyKey: `acme-renewal:${job.id}`,
-      payload: { renewalJobId: job.id },
+      idempotencyKey: renewalTaskIdempotencyKey(job),
+      payload: renewalTaskPayload(job),
       resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
     });
     return job;

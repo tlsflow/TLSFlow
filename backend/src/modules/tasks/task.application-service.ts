@@ -133,6 +133,18 @@ export class TasksApplicationService {
     return task;
   }
 
+  /** 中文说明：调度补偿只关心仍可执行的同一幂等代次，终态任务不应阻止领域状态诊断。 */
+  async findActiveByIdempotency(tenantId: string, taskType: string, idempotencyKey: string): Promise<TaskRun | undefined> {
+    await this.initialize();
+    return this.repository.findActiveByIdempotency(tenantId, taskType, idempotencyKey);
+  }
+
+  /** 中文说明：补偿扫描先确认同一幂等代次是否已有历史 TaskRun。 */
+  async findByIdempotencyKey(tenantId: string, taskType: string, idempotencyKey: string): Promise<TaskRun | undefined> {
+    await this.initialize();
+    return this.repository.findByIdempotencyKey(tenantId, taskType, idempotencyKey);
+  }
+
   async list(query: TaskQuery): Promise<TaskPage> {
     return this.repository.list(query);
   }

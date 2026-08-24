@@ -9,6 +9,11 @@ import type {
   AcmeRenewalPolicyEntity,
 } from '../schema/acme.schema.js';
 
+export interface AcmePolicyCursor {
+  updatedAt: string;
+  id: string;
+}
+
 export class AcmeRepository {
   constructor(private readonly db: DatabasePort) {}
 
@@ -268,13 +273,21 @@ export class AcmeRepository {
     return result.rows.map(policyFromRow);
   }
 
-  async listActivePolicies(limit = 100): Promise<AcmeRenewalPolicyEntity[]> {
+  async listActivePolicies(limit = 100, cursor?: AcmePolicyCursor): Promise<AcmeRenewalPolicyEntity[]> {
+    const pageSize = Math.max(1, Math.floor(limit));
+    const params: unknown[] = [pageSize];
+    let cursorSql = '';
+    if (cursor) {
+      params.push(cursor.updatedAt, cursor.id);
+      cursorSql = 'and (updated_at, id) > ($2::timestamptz, $3)';
+    }
     const result = await this.db.query<Record<string, unknown>>(
       `select * from pg_acme_renewal_policies
        where enabled = true and status = 'active'
-       order by updated_at asc
+       ${cursorSql}
+       order by updated_at asc, id asc
        limit $1`,
-      [Math.max(1, Math.floor(limit))],
+      params,
     );
     return result.rows.map(policyFromRow);
   }
@@ -368,6 +381,18 @@ export class AcmeRepository {
            lease_expires_at = null,
            failure_code = null,
            failure_message = null,
+           payload = jsonb_set(
+             coalesce(payload, '{}'::jsonb),
+             '{taskGeneration}',
+             to_jsonb(
+               case
+                 when coalesce(payload->>'taskGeneration', '') ~ '^[0-9]+$'
+                   then (payload->>'taskGeneration')::integer + 1
+                 else 1
+               end
+             ),
+             true
+           ),
            updated_at = $3::timestamptz
        where tenant_id = $1 and id = $2
          and status in ('failed', 'retry_waiting', 'rollback_required')
@@ -580,6 +605,7 @@ function renewalJobFromRow(row: Record<string, unknown>): AcmeRenewalJobEntity {
     failureCode: optionalString(row.failure_code),
     failureMessage: optionalString(row.failure_message),
     policySnapshot: row.policy_snapshot ? object(row.policy_snapshot) : undefined,
+    taskGeneration: nonNegativeInteger(payload.taskGeneration),
     scheduledAt: iso(row.scheduled_at),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -612,6 +638,11 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalIso(value: unknown): string | undefined {
   return value === null || value === undefined ? undefined : iso(value);
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function iso(value: unknown): string {

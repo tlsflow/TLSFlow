@@ -130,6 +130,17 @@ export class TaskRepository {
     return result.rows[0] ? mapTaskRun(result.rows[0]) : undefined;
   }
 
+  /** 中文说明：补偿判断必须能区分“没有任务”和“已有终态任务”，避免重复创建同一幂等代次。 */
+  async findByIdempotencyKey(tenantId: string, taskType: string, idempotencyKey: string): Promise<TaskRun | undefined> {
+    const result = await this.db.query<TaskRunRow>(
+      `select * from task_runs
+        where tenant_id = $1 and task_type = $2 and idempotency_key = $3
+        order by created_at desc limit 1`,
+      [tenantId, taskType, idempotencyKey],
+    );
+    return result.rows[0] ? mapTaskRun(result.rows[0]) : undefined;
+  }
+
   async findByIdempotency(
     tenantId: string,
     taskType: string,

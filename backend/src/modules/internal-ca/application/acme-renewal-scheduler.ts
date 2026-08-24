@@ -1,12 +1,13 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import { newId } from '../../../shared/id.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { InternalCaApplicationService } from './internal-ca.application-service.js';
-import type { AcmeRepository } from '../repository/acme.repository.js';
+import type { AcmePolicyCursor, AcmeRepository } from '../repository/acme.repository.js';
 import type { AcmeRenewalJobEntity, AcmeRenewalPolicyEntity } from '../schema/acme.schema.js';
 import type { CertificateRequestEntity } from '../schema/internal-ca.schema.js';
-import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import { enqueueTaskBestEffort, isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class AcmeRenewalScheduler {
   constructor(
@@ -19,59 +20,101 @@ export class AcmeRenewalScheduler {
 
   async runOnce(limit = 50, now = new Date()): Promise<AcmeRenewalJobEntity[]> {
     const created: AcmeRenewalJobEntity[] = [];
-    for (const policy of await this.repository.listActivePolicies(limit)) {
-      if (created.length >= limit) break;
-      const currentVersionId = await this.resolveCurrentVersionId(policy);
-      if (!currentVersionId) {
-        const initialJob = await this.scheduleMissingInitialIssuance(policy, now);
-        if (initialJob) {
-          created.push(initialJob);
-          this.enqueueRenewalTask(initialJob);
+    const budget = Math.max(1, Math.floor(limit));
+    let scheduledCount = 0;
+    const pageSize = budget;
+    let cursor: AcmePolicyCursor | undefined;
+    for (;;) {
+      const policies = await this.repository.listActivePolicies(pageSize, cursor);
+      if (policies.length === 0) break;
+      for (const policy of policies) {
+        const currentVersionId = await this.resolveCurrentVersionId(policy);
+        if (!currentVersionId) {
+          const initialWindowKey = `initial:${policy.certificateAssetId}`;
+          const existingInitial = policy.certificateAssetId
+            ? await this.repository.getRenewalJobByWindow(policy.tenantId, undefined, initialWindowKey)
+            : undefined;
+          if (existingInitial && isExecutableRenewalJob(existingInitial)) {
+            await this.ensureRenewalTask(existingInitial);
+            continue;
+          }
+          if (!existingInitial && scheduledCount >= budget) continue;
+          const initialJob = await this.scheduleMissingInitialIssuance(policy, now);
+          if (initialJob) {
+            if (!existingInitial || existingInitial.id !== initialJob.id) {
+              created.push(initialJob);
+              scheduledCount += 1;
+            }
+            await this.ensureRenewalTask(initialJob);
+          }
+          continue;
         }
-        continue;
-      }
-      const version = await this.certificates.getVersion(currentVersionId, policy.tenantId);
-      if (!version || (version.activationState ?? 'promoted') !== 'promoted') continue;
-      if (Date.parse(version.notAfter) - now.getTime() > policy.renewalWindowDays * 86_400_000) continue;
+        const version = await this.certificates.getVersion(currentVersionId, policy.tenantId);
+        if (!version || (version.activationState ?? 'promoted') !== 'promoted') continue;
 
-      const renewalWindowKey = `${version.notAfter.slice(0, 10)}:policy-${policy.version}`;
-      const existing = await this.repository.getRenewalJobByWindow(policy.tenantId, version.id, renewalWindowKey);
-      if (existing) continue;
-      const timestamp = now.toISOString();
-      const job: AcmeRenewalJobEntity = {
-        id: newId('acmerenew'),
-        tenantId: policy.tenantId,
-        certificateVersionId: version.id,
-        sourceCertificateVersionId: version.id,
-        renewalWindowKey,
-        status: 'scheduled',
-        policyId: policy.id,
-        promotionStatus: 'not_required',
-        attemptCount: 0,
-        policySnapshot: {
-          providerId: policy.providerId,
-          accountId: policy.accountId,
-          challengeType: policy.challengeType,
-          rotateKeyOnRenewal: policy.rotateKeyOnRenewal,
-          maxAttempts: policy.maxAttempts,
-          backoffSeconds: policy.backoffSeconds,
-          renewalWindowDays: policy.renewalWindowDays,
-        },
-        scheduledAt: timestamp,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      try {
-        const saved = await this.repository.saveRenewalJob(job);
-        created.push(saved);
-        this.enqueueRenewalTask(saved);
-      } catch {
-        const raced = await this.repository.getRenewalJobByWindow(policy.tenantId, version.id, renewalWindowKey);
-        if (raced) {
-          created.push(raced);
-          this.enqueueRenewalTask(raced);
+        const renewalWindowKey = `${version.notAfter.slice(0, 10)}:policy-${policy.version}`;
+        const existing = await this.repository.getRenewalJobByWindow(policy.tenantId, version.id, renewalWindowKey);
+        if (existing && isExecutableRenewalJob(existing)) {
+          await this.ensureRenewalTask(existing);
+          continue;
+        }
+        if (existing) continue;
+
+        // 手动续签使用不同的窗口键；先按源版本查活动 Job，避免自动扫描重复创建，
+        // 同时把活动 Job 缺失任务的情况纳入补偿扫描。
+        const activeBySource = typeof this.repository.getActiveRenewalJobBySourceVersion === 'function'
+          ? await this.repository.getActiveRenewalJobBySourceVersion(policy.tenantId, version.id)
+          : undefined;
+        if (activeBySource) {
+          await this.ensureRenewalTask(activeBySource);
+          continue;
+        }
+        if (Date.parse(version.notAfter) - now.getTime() > policy.renewalWindowDays * 86_400_000) continue;
+        if (scheduledCount >= budget) continue;
+
+        const timestamp = now.toISOString();
+        const job: AcmeRenewalJobEntity = {
+          id: newId('acmerenew'),
+          tenantId: policy.tenantId,
+          certificateVersionId: version.id,
+          sourceCertificateVersionId: version.id,
+          renewalWindowKey,
+          status: 'scheduled',
+          policyId: policy.id,
+          promotionStatus: 'not_required',
+          attemptCount: 0,
+          taskGeneration: 0,
+          policySnapshot: {
+            providerId: policy.providerId,
+            accountId: policy.accountId,
+            challengeType: policy.challengeType,
+            rotateKeyOnRenewal: policy.rotateKeyOnRenewal,
+            maxAttempts: policy.maxAttempts,
+            backoffSeconds: policy.backoffSeconds,
+            renewalWindowDays: policy.renewalWindowDays,
+          },
+          scheduledAt: timestamp,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        try {
+          const saved = await this.repository.saveRenewalJob(job);
+          created.push(saved);
+          scheduledCount += 1;
+          await this.ensureRenewalTask(saved);
+        } catch {
+          const raced = await this.repository.getRenewalJobByWindow(policy.tenantId, version.id, renewalWindowKey);
+          if (raced) {
+            created.push(raced);
+            await this.ensureRenewalTask(raced);
+          }
         }
       }
+      if (policies.length < pageSize) break;
+      const last = policies[policies.length - 1]!;
+      const nextCursor: AcmePolicyCursor = { updatedAt: last.updatedAt, id: last.id };
+      if (cursor?.updatedAt === nextCursor.updatedAt && cursor.id === nextCursor.id) break;
+      cursor = nextCursor;
     }
     return created;
   }
@@ -138,6 +181,7 @@ export class AcmeRenewalScheduler {
       policyId: policy.id,
       promotionStatus: 'not_required',
       attemptCount: 0,
+      taskGeneration: 0,
       policySnapshot: {
         providerId: policy.providerId,
         accountId: policy.accountId,
@@ -230,6 +274,7 @@ export class AcmeRenewalScheduler {
       policyId: policy.id,
       promotionStatus: 'not_required',
       attemptCount: 0,
+      taskGeneration: 0,
       policySnapshot: {
         providerId: policy.providerId,
         accountId: policy.accountId,
@@ -264,19 +309,77 @@ export class AcmeRenewalScheduler {
       ?? binding?.localCertificateVersionId;
   }
 
-  private enqueueRenewalTask(job: AcmeRenewalJobEntity): void {
-    enqueueTaskBestEffort(this.tasks, {
+  private async ensureRenewalTask(job: AcmeRenewalJobEntity): Promise<void> {
+    if (!this.tasks || !isUnifiedTaskWorkerEnabled()) return;
+    const idempotencyKey = renewalTaskIdempotencyKey(job);
+    try {
+      const existing = this.tasks.findByIdempotencyKey
+        ? await this.tasks.findByIdempotencyKey(job.tenantId, 'ACME_CERTIFICATE_RENEWAL', idempotencyKey)
+        : await this.tasks.findActiveByIdempotency?.(job.tenantId, 'ACME_CERTIFICATE_RENEWAL', idempotencyKey);
+      if (existing) {
+        if (existing.status === 'FAILED' && this.tasks.retry) {
+          try {
+            await this.tasks.retry(job.tenantId, existing.id);
+            return;
+          } catch (error: unknown) {
+            structuredLogger.warn('ACME 续签关联失败任务原子重置失败', {
+              renewalJobId: job.id,
+              taskId: existing.id,
+              error: error instanceof Error ? error.message : String(error),
+            }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
+          }
+        }
+        if (isTerminalTask(existing.status)) {
+          structuredLogger.warn('ACME 续签 Job 仍活动但统一任务已进入终态', {
+            renewalJobId: job.id,
+            taskId: existing.id,
+            taskStatus: existing.status,
+          }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
+        }
+        return;
+      }
+    } catch (error: unknown) {
+      // 查询失败时仍继续尝试入队；幂等唯一键负责收敛并发补偿。
+      structuredLogger.warn('ACME 续签任务补偿查询失败', {
+        renewalJobId: job.id,
+        tenantId: job.tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'acme-renewal-scheduler', resourceType: 'acmeRenewalJob', resourceId: job.id });
+    }
+    await enqueueTaskBestEffort(this.tasks, {
       tenantId: job.tenantId,
       taskType: 'ACME_CERTIFICATE_RENEWAL',
       triggerSource: 'acme.renewal.scheduler',
-      idempotencyKey: `acme-renewal:${job.id}`,
-      payload: { renewalJobId: job.id },
+      idempotencyKey,
+      payload: renewalTaskPayload(job),
       resourceRefs: [
         { resourceType: 'acmeRenewalJob', resourceId: job.id },
         ...(job.certificateVersionId ? [{ resourceType: 'certificateVersion', resourceId: job.certificateVersionId }] : []),
       ],
     });
   }
+}
+
+function isExecutableRenewalJob(job: AcmeRenewalJobEntity): boolean {
+  return !['completed', 'failed', 'rollback_required', 'cancelled', 'issued_waiting_for_installation'].includes(job.status);
+}
+
+function isTerminalTask(status: string): boolean {
+  return ['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(status);
+}
+
+/** 中文说明：代次 0 沿用历史幂等键，避免升级后为存量 Job 重复创建 TaskRun。 */
+export function renewalTaskIdempotencyKey(job: Pick<AcmeRenewalJobEntity, 'id' | 'taskGeneration'>): string {
+  const generation = Number.isInteger(job.taskGeneration) ? Math.max(0, job.taskGeneration ?? 0) : 0;
+  return generation > 0 ? `acme-renewal:${job.id}:${generation}` : `acme-renewal:${job.id}`;
+}
+
+/** 中文说明：代次 0 不改变历史任务请求体；只有人工重试的新代次才写入载荷。 */
+export function renewalTaskPayload(job: Pick<AcmeRenewalJobEntity, 'id' | 'taskGeneration'>): Record<string, unknown> {
+  const generation = Number.isInteger(job.taskGeneration) ? Math.max(0, job.taskGeneration ?? 0) : 0;
+  return generation > 0
+    ? { renewalJobId: job.id, taskGeneration: generation }
+    : { renewalJobId: job.id };
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
