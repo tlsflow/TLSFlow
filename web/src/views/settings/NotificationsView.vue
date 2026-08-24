@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcModal, GcSecretInput, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcModal, GcPageToolbar, GcSecretInput, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { createSecret } from '@/api/modules/security.api'
 import { usePermissionStore } from '@/stores/permission.store'
@@ -413,7 +413,18 @@ onMounted(refresh)
 <template>
   <section class="notifications-page">
     <p v-if="errorMessage" class="notifications-page__error" role="alert">{{ errorMessage }}</p>
-    <GcTabs v-model="activeTab" :tabs="tabs" />
+    <GcPageToolbar>
+      <template #actions>
+        <button class="notifications-page__button notifications-page__button--secondary" type="button" :disabled="loading" @click="refresh">{{ t('common.refresh') }}</button>
+        <button v-if="activeTab === 'channels'" class="notifications-page__button" type="button" @click="openDialog('channel')">{{ t('notifications.actions.createChannel') }}</button>
+        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
+        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
+        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('silence')">{{ t('notifications.actions.createSilence') }}</button>
+      </template>
+      <template #tabs>
+        <GcTabs v-model="activeTab" :tabs="tabs" />
+      </template>
+    </GcPageToolbar>
 
     <section v-if="activeTab === 'channels'" class="notifications-page__section">
       <form class="gc-card notifications-page__settings" @submit.prevent="saveNotificationSettings">
@@ -435,10 +446,6 @@ onMounted(refresh)
         <div>
           <h2>{{ t('notifications.sections.channels') }}</h2>
           <p>{{ t('notifications.summary.recordCount', { count: channels.length }) }}</p>
-        </div>
-        <div class="notifications-page__toolbar-actions">
-          <button class="notifications-page__button notifications-page__button--secondary" type="button" :disabled="loading" @click="refresh">{{ t('common.refresh') }}</button>
-          <button class="notifications-page__button" type="button" @click="openDialog('channel')">{{ t('notifications.actions.createChannel') }}</button>
         </div>
       </header>
       <div v-if="channels.length" class="notifications-page__list">
@@ -464,7 +471,6 @@ onMounted(refresh)
           <h2>{{ t('notifications.sections.deliveries') }}</h2>
           <p>{{ t('notifications.summary.recordCount', { count: deliveries.length }) }}</p>
         </div>
-        <button class="notifications-page__button notifications-page__button--secondary" type="button" :disabled="loading" @click="refresh">{{ t('common.refresh') }}</button>
       </header>
       <div v-if="deliveries.length" class="notifications-page__list">
         <article v-for="delivery in deliveries" :key="delivery.id" class="gc-card notifications-page__item">
@@ -486,7 +492,6 @@ onMounted(refresh)
       <section class="notifications-page__section">
         <header class="notifications-page__toolbar">
           <div><h2>{{ t('notifications.summary.routes') }}</h2><p>{{ t('notifications.summary.recordCount', { count: routes.length }) }}</p></div>
-          <button class="notifications-page__button" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
         </header>
         <div v-if="routes.length" class="notifications-page__list">
           <article v-for="route in routes" :key="route.id" class="gc-card notifications-page__item">
@@ -504,7 +509,6 @@ onMounted(refresh)
       <section class="notifications-page__section">
         <header class="notifications-page__toolbar">
           <div><h2>{{ t('notifications.summary.templates') }}</h2><p>{{ t('notifications.summary.recordCount', { count: templates.length }) }}</p></div>
-          <button class="notifications-page__button" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
         </header>
         <div v-if="templates.length" class="notifications-page__list">
           <article v-for="template in templates" :key="template.id" class="gc-card notifications-page__item">
@@ -521,7 +525,6 @@ onMounted(refresh)
       <section class="notifications-page__section">
         <header class="notifications-page__toolbar">
           <div><h2>{{ t('notifications.summary.silences') }}</h2><p>{{ t('notifications.summary.recordCount', { count: silences.length }) }}</p></div>
-          <button class="notifications-page__button" type="button" @click="openDialog('silence')">{{ t('notifications.actions.createSilence') }}</button>
         </header>
         <div v-if="silences.length" class="notifications-page__list">
           <article v-for="silence in silences" :key="silence.id" class="gc-card notifications-page__item">
@@ -630,7 +633,7 @@ onMounted(refresh)
 .notifications-page__toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
 .notifications-page__toolbar h2, .notifications-page__toolbar p, .notifications-page__item h3, .notifications-page__item p { margin: 0; }
 .notifications-page__toolbar p, .notifications-page__item p, .notifications-page__item dt, .notifications-page__form-hint { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
-.notifications-page__toolbar-actions, .notifications-page__status, .notifications-page__actions { display: flex; gap: var(--gc-space-2); flex-wrap: wrap; }
+.notifications-page__status, .notifications-page__actions { display: flex; gap: var(--gc-space-2); flex-wrap: wrap; }
 .notifications-page__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-5); }
 .notifications-page__item dl { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); margin: 0; }
 .notifications-page__item dl div { display: grid; gap: var(--gc-space-1); }

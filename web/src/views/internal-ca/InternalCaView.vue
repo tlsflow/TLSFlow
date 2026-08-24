@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { GcConfirmAction, GcDataTable, GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcConfirmAction, GcDataTable, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag, GcTabs } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -499,14 +499,19 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
 <template>
   <section class="internal-ca-page">
-    <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')">
+    <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')" />
+    <GcPageToolbar class="internal-ca-page__toolbar">
       <template #actions>
         <button v-if="activeTab === 'trustDomains'" class="gc-button gc-button--primary" type="button" @click="openTrustDomainModal">{{ t('internalCa.actions.addTrustDomain') }}</button>
+        <button v-if="activeTab === 'authorities'" class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button>
+        <button v-if="activeTab === 'operations'" class="gc-button gc-button--primary" type="button" @click="runAction(() => internalCaApi.scanRenewals(), 'internalCa.messages.renewalScanned')">{{ t('internalCa.actions.scanRenewals') }}</button>
         <button class="gc-button" type="button" :disabled="loading" @click="loadAll">{{ t('internalCa.actions.refresh') }}</button>
       </template>
-    </GcPageHeader>
+      <template #tabs>
+        <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('internalCa.aria.tabs')" />
+      </template>
+    </GcPageToolbar>
     <div v-if="error" class="notice notice--danger">{{ error }}</div>
-    <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('internalCa.aria.tabs')" />
 
     <template v-if="activeTab === 'trustDomains'">
       <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense>
@@ -530,7 +535,6 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
     <template v-else-if="activeTab === 'authorities'">
       <div class="authority-toolbar">
         <div><h2>{{ t('internalCa.sections.authorityOverview') }}</h2><p>{{ t('internalCa.sections.authorityOverviewDescription') }}</p></div>
-        <button class="gc-button gc-button--primary" type="button" @click="openAuthorityWizard('root')">{{ t('internalCa.actions.addAuthority') }}</button>
       </div>
       <div v-if="rootAuthorities.length" class="root-ca-grid">
         <button v-for="root in rootAuthorities" :key="text(root.id)" type="button" class="root-ca-card gc-card" :class="{ 'is-selected': text(root.id) === text(selectedRoot?.id) }" @click="selectRoot(root)">
@@ -573,7 +577,6 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
     <template v-else-if="activeTab === 'operations'">
       <div class="metrics"><article class="gc-card metric"><span>{{ t('internalCa.metrics.nodes') }}</span><strong>{{ nodes.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.renewals') }}</span><strong>{{ renewals.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.revocations') }}</span><strong>{{ revocations.length }}</strong></article><article class="gc-card metric"><span>{{ t('internalCa.metrics.trust') }}</span><strong>{{ trustDistributions.length }}</strong></article></div>
-      <button class="gc-button gc-button--primary" @click="runAction(() => internalCaApi.scanRenewals(), 'internalCa.messages.renewalScanned')">{{ t('internalCa.actions.scanRenewals') }}</button>
       <div class="content-grid"><form class="gc-card form-card" @submit.prevent="createRevocation"><h2>{{ t('internalCa.sections.revocation') }}</h2><label>{{ t('internalCa.fields.certificateVersionId') }}<input v-model="revocationDraft.certificateVersionId" required /></label><label>{{ t('internalCa.fields.reason') }}<input v-model="revocationDraft.reason" required /></label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createRevocation') }}</button></form><form class="gc-card form-card" @submit.prevent="createTrustDistribution"><h2>{{ t('internalCa.sections.trust') }}</h2><label>{{ t('internalCa.fields.authority') }}<select v-model="trustDraft.caId"><option v-for="item in authorities" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label><label>{{ t('internalCa.fields.targetIds') }}<input v-model="trustDraft.targetIds" /></label><label>{{ t('internalCa.fields.platform') }}<select v-model="trustDraft.platform"><option value="windows">windows</option><option value="linux">linux</option></select></label><button class="gc-button gc-button--primary">{{ t('internalCa.actions.createTrust') }}</button></form></div>
       <div class="record-grid"><article v-for="item in revocations" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.certificateVersionId) }}</strong><GcStatusTag :status="text(item.status)" /></div><small>{{ localTime(item.updatedAt) }}</small><button v-if="text(item.status) === 'pending_approval' && text(item.approvalId)" class="gc-button" @click="approveRevocation(item)">{{ t('internalCa.actions.approve') }}</button></article><article v-for="item in trustDistributions" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.caId) }}</strong><GcStatusTag :status="text(item.status)" /></div><small>{{ localTime(item.updatedAt) }}</small><button v-if="text(item.status) === 'pending_approval' && text(item.approvalId)" class="gc-button" @click="approveTrustDistribution(item)">{{ t('internalCa.actions.approve') }}</button></article></div>
     </template>

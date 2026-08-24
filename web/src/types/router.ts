@@ -8,6 +8,7 @@ export interface GcRouteMeta {
   readonly module: string
   readonly requiresAuth?: boolean
   readonly permission?: string
+  readonly permissions?: readonly string[]
   readonly allowInferredPermission?: boolean
   readonly resourceType?: string
   readonly riskLevel?: RiskLevel

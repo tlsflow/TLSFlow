@@ -432,7 +432,6 @@ interface RootGroup {
           >
             <div class="trust-roots-modal__item-main">
               <strong>{{ rootGroupName(root) }}</strong>
-              <code>{{ root.fingerprintSha256 || t('certificates.trustRoots.summary.rootFingerprintUnavailable') }}</code>
               <span>
                 {{ t('certificates.trustRoots.summary.relatedAssetCount', { count: rootAssetCount(root) }) }}
               </span>
@@ -484,10 +483,6 @@ interface RootGroup {
 
             <section class="trust-roots-modal__card">
               <dl class="trust-roots-modal__grid">
-                <div>
-                  <dt>{{ t('certificates.trustRoots.fields.fingerprintSha256') }}</dt>
-                  <dd><code>{{ selectedRootGroup.fingerprintSha256 || t('certificates.trustRoots.summary.rootFingerprintUnavailable') }}</code></dd>
-                </div>
                 <div v-if="selectedRootDetail">
                   <dt>{{ t('certificates.trustRoots.fields.serialNumber') }}</dt>
                   <dd>{{ readString(selectedRootDetail, ['serialNumber']) }}</dd>
@@ -569,7 +564,6 @@ interface RootGroup {
                     <li v-for="item in group.versions" :key="readString(item.version, ['id'])" class="trust-roots-modal__version-item">
                       <div class="trust-roots-modal__version-main">
                         <strong>{{ readString(item.version, ['commonName', 'certificateName', 'fingerprintSha256']) }}</strong>
-                        <code>{{ readString(item.version, ['fingerprintSha256']) }}</code>
                         <span>{{ t(`certificates.trustRoots.rootStatus.${readString(item.relation, ['rootStatus'], 'missing')}`) }}</span>
                       </div>
                       <GcStatusTag
@@ -769,7 +763,7 @@ interface RootGroup {
 
 .trust-roots-modal__detail-body {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
@@ -784,8 +778,8 @@ interface RootGroup {
 
 .trust-roots-modal__card {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--gc-color-border-soft);
   border-radius: 16px;
   background: var(--gc-color-surface-soft);
@@ -794,23 +788,25 @@ interface RootGroup {
 .trust-roots-modal__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
   margin: 0;
 }
 
 .trust-roots-modal__grid div {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .trust-roots-modal__grid dt {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .trust-roots-modal__grid dd {
   margin: 0;
   color: var(--gc-color-text);
+  font-size: 13px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -834,7 +830,7 @@ interface RootGroup {
 
 .trust-roots-modal__asset-card {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   padding: 12px;
   border: 1px solid var(--gc-color-border-subtle);
   border-radius: 14px;
@@ -859,14 +855,22 @@ interface RootGroup {
 .trust-roots-modal__asset-title strong,
 .trust-roots-modal__version-main strong {
   color: var(--gc-color-text);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
+  line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.trust-roots-modal__detail .trust-roots-modal__asset-title p,
+.trust-roots-modal__detail .trust-roots-modal__version-main span,
+.trust-roots-modal__detail .trust-roots-modal__record-main span {
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .trust-roots-modal__asset-count {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -877,12 +881,12 @@ interface RootGroup {
 }
 
 .trust-roots-modal__toggle-button {
-  padding: 6px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--gc-color-border-soft);
   border-radius: 999px;
   background: var(--gc-color-surface-soft);
   color: var(--gc-color-text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   transition: border-color .16s ease, background .16s ease;
 }
@@ -895,23 +899,25 @@ interface RootGroup {
 .trust-roots-modal__asset-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   margin: 0;
 }
 
 .trust-roots-modal__asset-meta div {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .trust-roots-modal__asset-meta dt {
   color: var(--gc-color-text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .trust-roots-modal__asset-meta dd {
   margin: 0;
   color: var(--gc-color-text);
+  font-size: 13px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -922,7 +928,7 @@ interface RootGroup {
 }
 
 .trust-roots-modal__version-item {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--gc-color-border-subtle);
   border-radius: 12px;
   background: var(--gc-color-surface-soft);
@@ -938,10 +944,15 @@ interface RootGroup {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--gc-color-border-subtle);
   border-radius: 12px;
   background: var(--gc-color-surface-panel);
+}
+
+.trust-roots-modal__detail .trust-roots-modal__record-main strong {
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .trust-roots-modal__record-main span {

@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<{
   initialCertificateId?: string | null
   initialPlan?: DeploymentWizardInitialPlan | null
   dryRunChecks?: readonly ApiRecord[]
+  simple?: boolean
 }>(), {
   loading: false,
   dryRunRequestId: '',
@@ -29,6 +30,7 @@ const props = withDefaults(defineProps<{
   initialCertificateId: null,
   initialPlan: null,
   dryRunChecks: () => [],
+  simple: false,
 })
 
 const emit = defineEmits<{
@@ -432,7 +434,7 @@ function normalizeDomainKey(value: string): string {
         </header>
 
         <div class="gc-deployment-wizard__field-grid">
-          <label class="gc-form-field">
+          <label v-if="!simple" class="gc-form-field">
             <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
             <select v-model="selectedCertificateId" :disabled="loading">
               <option v-for="item in certificateAssetOptions" :key="readString(item, ['id', 'certificateId'])" :value="readString(item, ['id', 'certificateId'])">
@@ -456,7 +458,7 @@ function normalizeDomainKey(value: string): string {
         </div>
 
         <div class="gc-deployment-wizard__summary-grid">
-          <div class="gc-deployment-wizard__summary-item">
+          <div v-if="!simple" class="gc-deployment-wizard__summary-item">
             <span>{{ t('designSystem.deploymentWizard.fields.certificateAsset') }}</span>
             <strong>{{ readString(selectedCertificate, ['primaryDomain', 'name', 'commonName'], t('designSystem.deploymentWizard.fallback.unselected')) }}</strong>
           </div>
@@ -478,7 +480,7 @@ function normalizeDomainKey(value: string): string {
         </header>
 
         <div class="gc-deployment-wizard__field-grid">
-          <label class="gc-form-field gc-deployment-wizard__field-span-2">
+          <label v-if="!simple" class="gc-form-field gc-deployment-wizard__field-span-2">
             <span>{{ t('designSystem.deploymentWizard.fields.keyword') }}</span>
             <input v-model.trim="targetKeyword" type="text" :disabled="loading || targets.length === 0" :placeholder="t('designSystem.deploymentWizard.placeholders.targetKeyword')" />
           </label>
@@ -499,7 +501,7 @@ function normalizeDomainKey(value: string): string {
               <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
               <span>{{ readString(selectedTarget, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
             </div>
-          <dl class="gc-deployment-wizard__target-meta">
+          <dl v-if="!simple" class="gc-deployment-wizard__target-meta">
             <div v-if="readString(selectedTarget, ['siteName'])">
               <dt>{{ t('designSystem.deploymentWizard.fields.site') }}</dt>
               <dd>{{ readString(selectedTarget, ['siteName']) }}</dd>
@@ -548,19 +550,19 @@ function normalizeDomainKey(value: string): string {
 
         <p class="gc-deployment-wizard__preview-text">{{ previewSummary }}</p>
 
-        <div class="gc-deployment-wizard__feedback-inline" :class="`is-${readinessTone}`">
+        <div v-if="!simple" class="gc-deployment-wizard__feedback-inline" :class="`is-${readinessTone}`">
           <strong>{{ t('designSystem.deploymentWizard.status.current') }}</strong>
           <p>{{ latestStatusText }}</p>
         </div>
 
-        <div v-if="hasDryRunChecks" class="gc-deployment-wizard__check-summary">
+        <div v-if="!simple && hasDryRunChecks" class="gc-deployment-wizard__check-summary">
           <span class="gc-deployment-wizard__check-pill is-passed">{{ t('designSystem.deploymentWizard.checks.passed', { count: dryRunCheckSummary.passed }) }}</span>
           <span class="gc-deployment-wizard__check-pill is-warning">{{ t('designSystem.deploymentWizard.checks.warning', { count: dryRunCheckSummary.warning }) }}</span>
           <span class="gc-deployment-wizard__check-pill is-failed">{{ t('designSystem.deploymentWizard.checks.failed', { count: dryRunCheckSummary.failed }) }}</span>
           <span class="gc-deployment-wizard__check-pill is-unknown">{{ t('designSystem.deploymentWizard.checks.unknown', { count: dryRunCheckSummary.unknown }) }}</span>
         </div>
 
-        <ul v-if="hasDryRunChecks" class="gc-deployment-wizard__check-list">
+        <ul v-if="!simple && hasDryRunChecks" class="gc-deployment-wizard__check-list">
           <li v-for="item in dryRunChecks" :key="String(item.key ?? item.label ?? item.id)" class="gc-deployment-wizard__check-item">
             <div class="gc-deployment-wizard__check-head">
               <strong>{{ String(item.label ?? item.key ?? t('designSystem.deploymentWizard.checks.unnamed')) }}</strong>
@@ -581,8 +583,10 @@ function normalizeDomainKey(value: string): string {
         <button class="gc-button" type="button" :disabled="loading" @click="emit('cancel')">{{ t('designSystem.deploymentWizard.actions.cancel') }}</button>
         <button v-if="currentStep < 3" class="gc-button gc-button--primary" type="button" :disabled="!canGoNext || loading" @click="goNext">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
         <template v-else>
-          <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">{{ t('designSystem.deploymentWizard.actions.dryRun') }}</button>
-          <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('save', buildPlan())">{{ t('designSystem.deploymentWizard.actions.save') }}</button>
+          <button class="gc-button gc-button--primary" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">
+            {{ simple ? t('deploymentPlans.userView.prepareAction') : t('designSystem.deploymentWizard.actions.dryRun') }}
+          </button>
+          <button v-if="!simple" class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('save', buildPlan())">{{ t('designSystem.deploymentWizard.actions.save') }}</button>
         </template>
       </div>
     </footer>

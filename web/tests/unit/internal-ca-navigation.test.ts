@@ -13,10 +13,10 @@ import { businessRoutes } from '@/router/modules/business'
 describe('内部 CA 导航与国际化', () => {
   it('注册受权限保护的路由和菜单', () => {
     const route = businessRoutes.find((item) => item.path === '/internal-ca')
-    expect(route?.meta?.permission).toBe('certificate.asset.read')
+    expect(route?.meta?.permission).toBe('ca.operations.read')
     expect(mainMenuItems.some((item) => item.children?.some((child) => child.path === '/internal-ca'))).toBe(true)
     const operationsRoute = businessRoutes.find((item) => item.path === '/ca-operations')
-    expect(operationsRoute?.meta?.permission).toBe('certificate.asset.read')
+    expect(operationsRoute?.meta?.permission).toBe('ca.operations.read')
     expect(mainMenuItems.some((item) => item.children?.some((child) => child.path === '/ca-operations'))).toBe(true)
   })
 

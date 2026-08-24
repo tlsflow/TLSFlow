@@ -52,12 +52,24 @@ const overview = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTooltip = ref<DashboardStatusBlock | null>(null)
+let activeLoad: Promise<void> | null = null
 
 const visibleQuickActions = computed(() =>
   (overview.value?.quickActions ?? []).filter((action) => permissionStore.hasPermission(action.permission)),
 )
 
 async function loadOverview() {
+  if (activeLoad) return activeLoad
+  const request = loadOverviewOnce()
+  activeLoad = request
+  try {
+    await request
+  } finally {
+    if (activeLoad === request) activeLoad = null
+  }
+}
+
+async function loadOverviewOnce() {
   loading.value = true
   try {
     const result = await getDashboardOverview()

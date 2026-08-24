@@ -19,18 +19,22 @@ describe('App 偏好 Store', () => {
     preferenceApi.getCurrentUserPreferences.mockReset()
     preferenceApi.updateCurrentUserPreferences.mockReset()
     delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.viewMode
     document.documentElement.style.colorScheme = ''
   })
 
   it('初始化时使用本地缓存兜底并应用主题和语言', () => {
     localStorage.setItem('gcac.app.preferences', JSON.stringify({ theme: 'dark', locale: 'ko-KR', version: 1 }))
+    localStorage.setItem('gcac.app.view-mode', 'user')
 
     const store = useAppStore()
     store.initializePreferences()
 
     expect(store.theme).toBe('dark')
     expect(store.locale).toBe('ko-KR')
+    expect(store.viewMode).toBe('user')
     expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.dataset.viewMode).toBe('user')
     expect(document.documentElement.lang).toBe('ko-KR')
   })
 
@@ -72,5 +76,16 @@ describe('App 偏好 Store', () => {
 
     expect(store.locale).toBe('ja-JP')
     expect(store.preferenceError).toBe('backend down')
+  })
+
+  it('切换全局视图只写入本地缓存，不调用后端偏好接口', () => {
+    const store = useAppStore()
+
+    store.setViewMode('user')
+
+    expect(store.viewMode).toBe('user')
+    expect(document.documentElement.dataset.viewMode).toBe('user')
+    expect(localStorage.getItem('gcac.app.view-mode')).toBe('user')
+    expect(preferenceApi.updateCurrentUserPreferences).not.toHaveBeenCalled()
   })
 })

@@ -36,22 +36,41 @@ const authStore = useAuthStore()
 const permissionStore = usePermissionStore()
 const { t } = useI18n()
 
-const breadcrumbs = computed(() => {
-  const keys = route.meta.breadcrumbKeys
-  if (Array.isArray(keys) && keys.length > 0) return keys.map((key) => t(key))
+const USER_MODE_MENU_ITEMS: readonly MenuItem[] = [
+  {
+    titleKey: 'viewMode.steps.certificates',
+    path: '/certificates',
+    module: 'certificate',
+    permission: 'certificate.asset.read',
+    icon: 'shield',
+  },
+  {
+    titleKey: 'viewMode.steps.applications',
+    path: '/assets',
+    module: 'asset',
+    permission: 'service_asset.read',
+    icon: 'server',
+  },
+  {
+    titleKey: 'viewMode.steps.deployments',
+    path: '/deployment-plans',
+    module: 'certificate-deployment',
+    permission: 'deployment.plan.read',
+    icon: 'bolt',
+  },
+]
 
-  const value = route.meta.breadcrumb
-  if (Array.isArray(value) && value.length > 0) return value
-
-  const titleKey = route.meta.titleKey
-  return [typeof titleKey === 'string' ? t(titleKey) : String(route.meta.title ?? t('app.defaultBreadcrumb'))]
-})
-
-const navItems = computed(() => permissionStore.visibleMenuItems)
+const isUserViewMode = computed(() => appStore.viewMode === 'user')
+const userModeMenuItems = computed(() => USER_MODE_MENU_ITEMS.filter((item) => (
+  !item.permission || permissionStore.hasPermission(item.permission)
+)))
+const navItems = computed(() => isUserViewMode.value ? userModeMenuItems.value : permissionStore.visibleMenuItems)
 const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemActive(item)) ?? null)
-const activeChildren = computed(() => activeTopItem.value?.children ?? [])
+const activeChildren = computed(() => isUserViewMode.value ? [] : (activeTopItem.value?.children ?? []))
+const brandTarget = computed(() => isUserViewMode.value ? '/certificates' : '/dashboard')
 const lockContentScroll = computed(() => route.path === '/certificates')
 const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
+const showHeroBar = computed(() => activeChildren.value.length > 0 || showDashboardRefresh.value)
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
 const TASK_ENTRY_REFRESH_INTERVAL_MS = 15_000
 const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
@@ -100,6 +119,22 @@ function isMenuItemActive(item: MenuItem): boolean {
 
 function menuTitle(item: MenuItem): string {
   return item.titleKey ? t(item.titleKey) : (item.title ?? item.path)
+}
+
+function isUserModePath(path: string): boolean {
+  return USER_MODE_MENU_ITEMS.some((item) => item.path === path)
+}
+
+function firstUserModePath(): string {
+  return userModeMenuItems.value[0]?.path ?? '/certificates'
+}
+
+function switchViewMode(mode: 'user' | 'professional'): void {
+  if (appStore.viewMode === mode) return
+  appStore.setViewMode(mode)
+  if (mode === 'user' && !isUserModePath(route.path)) {
+    void router.push(firstUserModePath())
+  }
 }
 
 function iconPath(icon?: string): string {
@@ -211,6 +246,15 @@ async function submitPasswordChange() {
 watch(passwordDialogOpen, (opened) => {
   if (!opened) resetPasswordForm()
 })
+
+watch(
+  [() => appStore.viewMode, () => route.path, userModeMenuItems],
+  ([mode, path]) => {
+    if (mode !== 'user' || isUserModePath(String(path))) return
+    void router.replace(firstUserModePath())
+  },
+  { immediate: true },
+)
 
 watch(showTaskEntry, (visible) => {
   if (visible) {
@@ -348,7 +392,7 @@ async function refreshTaskEntryCount(): Promise<void> {
 <template>
   <div class="gc-shell">
     <header class="gc-shell__topbar">
-      <RouterLink class="gc-shell__brand" to="/dashboard" :aria-label="t('shell.backDashboard')">
+      <RouterLink class="gc-shell__brand" :to="brandTarget" :aria-label="t('shell.backDashboard')">
         <span class="gc-shell__brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z" /></svg>
         </span>
@@ -369,6 +413,27 @@ async function refreshTaskEntryCount(): Promise<void> {
           <span>{{ menuTitle(item) }}</span>
         </RouterLink>
       </nav>
+
+      <div class="gc-shell__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
+        <button
+          class="gc-shell__view-mode-button"
+          :class="{ 'gc-shell__view-mode-button--active': isUserViewMode }"
+          type="button"
+          :aria-pressed="isUserViewMode"
+          @click="switchViewMode('user')"
+        >
+          {{ t('viewMode.user') }}
+        </button>
+        <button
+          class="gc-shell__view-mode-button"
+          :class="{ 'gc-shell__view-mode-button--active': !isUserViewMode }"
+          type="button"
+          :aria-pressed="!isUserViewMode"
+          @click="switchViewMode('professional')"
+        >
+          {{ t('viewMode.professional') }}
+        </button>
+      </div>
 
       <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
         <button
@@ -484,30 +549,9 @@ async function refreshTaskEntryCount(): Promise<void> {
     </header>
 
     <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
-      <section class="gc-shell__hero" :aria-label="t('shell.currentLocation')">
-        <div>
-          <p class="gc-shell__eyebrow">{{ t('app.platform') }}</p>
-          <div class="gc-shell__breadcrumbs" :aria-label="t('shell.breadcrumb')">
-            <span v-for="(item, index) in breadcrumbs" :key="`${item}-${index}`">
-              <span v-if="index > 0" class="gc-shell__breadcrumb-separator">/</span>
-              {{ item }}
-            </span>
-          </div>
-        </div>
-        <div class="gc-shell__hero-actions">
-          <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
-            <RouterLink
-              v-for="child in activeChildren"
-              :key="child.path"
-              class="gc-shell__submenu-item"
-              :class="{ 'gc-shell__submenu-item--active': isMenuItemActive(child) }"
-              :to="child.path"
-            >
-              {{ menuTitle(child) }}
-            </RouterLink>
-          </nav>
+      <section v-if="showHeroBar" class="gc-shell__hero" :aria-label="t('shell.currentLocation')">
+        <div v-if="showDashboardRefresh" class="gc-shell__hero-actions">
           <button
-            v-if="showDashboardRefresh"
             class="gc-button gc-button--primary"
             type="button"
             @click="refreshDashboard"
@@ -516,6 +560,17 @@ async function refreshTaskEntryCount(): Promise<void> {
             {{ t('common.refresh') }}
           </button>
         </div>
+        <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
+          <RouterLink
+            v-for="child in activeChildren"
+            :key="child.path"
+            class="gc-shell__submenu-item"
+            :class="{ 'gc-shell__submenu-item--active': isMenuItemActive(child) }"
+            :to="child.path"
+          >
+            {{ menuTitle(child) }}
+          </RouterLink>
+        </nav>
       </section>
 
       <RouterView />

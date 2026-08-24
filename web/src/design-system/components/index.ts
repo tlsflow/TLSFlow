@@ -1,4 +1,5 @@
 export { default as GcPageHeader } from './GcPageHeader.vue'
+export { default as GcPageToolbar } from './GcPageToolbar.vue'
 export { default as GcDataTable } from './GcDataTable.vue'
 export { default as GcStatusTag } from './GcStatusTag.vue'
 export { default as GcRiskBadge } from './GcRiskBadge.vue'

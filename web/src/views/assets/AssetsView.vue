@@ -13,7 +13,8 @@ import { getPluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
-import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import { DeploymentInputForm, GcCompatiblePluginSelector, GcEffectiveCapabilityCard, GcEmptyState, GcExecutionModeSelector, GcManagedTargetSelector, GcModal, GcPermissionButton, GcStatusTag, GcTabs, GcWorkflowExecutionForm, type DeploymentArtifactOption, type DeploymentInputBindingsV1, type DeploymentInputProjectionV1 } from '@/design-system/components'
+import { useAppStore } from '@/stores/app.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { useTenantStore } from '@/stores/tenant.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
@@ -89,9 +90,13 @@ interface WorkflowTargetInfo {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, locale } = useI18n()
+const appStore = useAppStore()
 const authStore = useAuthStore()
 const tenantStore = useTenantStore()
 const selectedServiceAsset = ref<ViewRow | null>(null)
+const userAssetItems = ref<ApiRecord[]>([])
+const userAssetsLoading = ref(false)
+const userAssetsError = ref('')
 const detailModalOpen = ref(false)
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
 const detailTabs = computed(() => [
@@ -379,6 +384,8 @@ const publishedWorkflowVersionItems = computed<ApiRecord[]>(() => {
     .map((item): ApiRecord => ({ ...item, displayVersion: workflowDslVersion(item) || String(item.id ?? '') }))
 })
 
+const isUserViewMode = computed(() => appStore.viewMode === 'user')
+
 const latestPublishedWorkflowVersion = computed(() => {
   const currentVersionId = String(selectedWorkflowTemplate.value?.currentVersionId ?? '')
   const current = publishedWorkflowVersionItems.value.find((item) =>
@@ -598,11 +605,16 @@ async function openDetailModal(row: ViewRow) {
 
 async function openCreateDialog() {
   resetDraft()
+  if (isUserViewMode.value) {
+    assetDraft.managementMode = 'MANAGED_TARGET'
+    assetDraft.managedExecutionMode = 'PLUGIN'
+  }
   assetWizardStep.value = 1
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
   await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  selectUserModeDefaults()
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -1161,6 +1173,7 @@ async function submitCreate() {
       createDialogOpen.value = false
       editingServiceAssetId.value = ''
       await pageRef.value?.reload()
+      await loadUserAssets()
       return
     }
     const result = await createServiceAsset({
@@ -1178,6 +1191,7 @@ async function submitCreate() {
     createRequestId.value = result.requestId
     createDialogOpen.value = false
     await pageRef.value?.reload()
+    await loadUserAssets()
   } catch (cause) {
     if (cause instanceof ApiClientError) {
       createError.value = cause.message
@@ -1292,6 +1306,50 @@ function resetDraft() {
   credentialProfileError.value = ''
   certificateFormatError.value = ''
   deploymentInputBindings.value = createInputBindingsV1()
+}
+
+function selectUserModeDefaults() {
+  if (!isUserViewMode.value) return
+  if (!assetDraft.deviceId && deviceItems.value.length === 1) {
+    assetDraft.deviceId = String(deviceItems.value[0]?.id ?? '')
+  }
+  if (!assetDraft.agentCertificateFormatId && certificateFormatItems.value.length === 1) {
+    assetDraft.agentCertificateFormatId = String(certificateFormatItems.value[0]?.id ?? '')
+  }
+}
+
+async function loadUserAssets() {
+  if (!isUserViewMode.value) return
+  userAssetsLoading.value = true
+  userAssetsError.value = ''
+  try {
+    const result = await loadAssetsWithDisplayNames()
+    userAssetItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    userAssetsError.value = cause instanceof Error ? cause.message : t('assets.userView.loadFailed')
+  } finally {
+    userAssetsLoading.value = false
+  }
+}
+
+function userAssetName(asset: ApiRecord) {
+  return String(asset.displayName ?? asset.address ?? asset.domainName ?? asset.id ?? t('assets.empty.notSet'))
+}
+
+function userAssetAddress(asset: ApiRecord) {
+  const protocol = String(asset.protocol ?? 'HTTPS').toLowerCase()
+  const address = String(asset.address ?? asset.domainName ?? '')
+  const port = String(asset.port ?? '')
+  return address ? `${protocol}://${address}${port ? `:${port}` : ''}` : t('assets.empty.notSet')
+}
+
+function userAssetTarget(asset: ApiRecord) {
+  return String(
+    readNested(asset, ['targetBinding', 'siteName'])
+    ?? readNested(asset, ['siteDisplayName'])
+    ?? readNested(asset, ['targetBinding', 'managedTargetLabel'])
+    ?? t('assets.userView.targetPending'),
+  )
 }
 
 function splitCsv(value: string): string[] {
@@ -1703,6 +1761,14 @@ watch(
   },
 )
 
+watch(isUserViewMode, (enabled) => {
+  if (enabled) void loadUserAssets()
+}, { immediate: true })
+
+watch([isUserViewMode, deviceItems, certificateFormatItems], () => {
+  selectUserModeDefaults()
+}, { deep: true })
+
 watch(
   () => [
     assetDraft.pluginOverrideVersionId,
@@ -1879,7 +1945,71 @@ function managedTargetLabel(target: ApiRecord): string {
 
 <template>
   <section class="asset-page">
-    <BusinessResourcePage ref="pageRef" :config="config" />
+    <template v-if="isUserViewMode">
+      <section class="gc-card asset-user-view__hero">
+        <div>
+          <span>{{ t('assets.userView.stepLabel') }}</span>
+          <h2>{{ t('assets.userView.title') }}</h2>
+          <p>{{ t('assets.userView.description') }}</p>
+        </div>
+        <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
+          {{ t('assets.userView.addAction') }}
+        </GcPermissionButton>
+      </section>
+
+      <section class="asset-user-view__content">
+        <header class="asset-user-view__section-head">
+          <div>
+            <h3>{{ t('assets.userView.listTitle') }}</h3>
+            <p>{{ t('assets.userView.listDescription') }}</p>
+          </div>
+          <RouterLink class="gc-button gc-button--primary" to="/deployment-plans">
+            {{ t('assets.userView.continueToDeployment') }}
+          </RouterLink>
+        </header>
+
+        <GcEmptyState
+          v-if="userAssetsError"
+          :title="t('assets.userView.loadFailed')"
+          :description="userAssetsError"
+        >
+          <button class="gc-button" type="button" @click="loadUserAssets">{{ t('businessPage.retry') }}</button>
+        </GcEmptyState>
+        <div v-else-if="userAssetsLoading" class="asset-user-view__state">{{ t('common.loading') }}</div>
+        <GcEmptyState
+          v-else-if="userAssetItems.length === 0"
+          :title="t('assets.userView.emptyTitle')"
+          :description="t('assets.userView.emptyDescription')"
+        >
+          <GcPermissionButton permission="service_asset.manage" @click="openCreateDialog">
+            {{ t('assets.userView.addAction') }}
+          </GcPermissionButton>
+        </GcEmptyState>
+        <div v-else class="asset-user-view__grid">
+          <article v-for="asset in userAssetItems" :key="String(asset.id)" class="gc-card asset-user-view__card">
+            <header>
+              <div>
+                <h3>{{ userAssetName(asset) }}</h3>
+                <p>{{ userAssetAddress(asset) }}</p>
+              </div>
+              <GcStatusTag :status="String(asset.status ?? 'ACTIVE')" />
+            </header>
+            <dl>
+              <div>
+                <dt>{{ t('assets.userView.deploymentLocation') }}</dt>
+                <dd>{{ userAssetTarget(asset) }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('assets.fields.platform') }}</dt>
+                <dd>{{ String(asset.platform ?? t('assets.empty.notSet')) }}</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <BusinessResourcePage v-else ref="pageRef" :config="config" />
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -2066,7 +2196,96 @@ function managedTargetLabel(target: ApiRecord): string {
       size="xxl"
       width="980px"
     >
-      <section class="asset-form asset-wizard">
+      <section v-if="isUserViewMode" class="asset-form asset-user-form gc-native-select-surface">
+        <header class="asset-user-form__header">
+          <div>
+            <span>{{ t('assets.userView.form.eyebrow') }}</span>
+            <h3>{{ isEditMode ? t('assets.form.editTitle') : t('assets.userView.form.title') }}</h3>
+            <p>{{ t('assets.userView.form.description') }}</p>
+          </div>
+        </header>
+
+        <div class="asset-form__grid">
+          <label class="asset-form__field">
+            <span>{{ t('assets.fields.domain') }} <strong>*</strong></span>
+            <input v-model="assetDraft.address" :placeholder="t('assets.userView.form.addressPlaceholder')" autocomplete="off" />
+          </label>
+          <label class="asset-form__field">
+            <span>{{ t('assets.fields.displayName') }}</span>
+            <input v-model="assetDraft.displayName" :placeholder="t('assets.form.placeholders.displayName')" autocomplete="off" />
+          </label>
+          <label class="asset-form__field">
+            <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
+            <input v-model="assetDraft.port" inputmode="numeric" :placeholder="t('assets.userView.form.portPlaceholder')" autocomplete="off" />
+          </label>
+          <label class="asset-form__field">
+            <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
+            <select v-model="assetDraft.protocol">
+              <option value="HTTPS">HTTPS</option>
+              <option value="TLS">TLS</option>
+              <option value="STARTTLS">STARTTLS</option>
+            </select>
+          </label>
+          <label class="asset-form__field asset-form__field--wide">
+            <span>{{ t('assets.fields.platform') }} <strong>*</strong></span>
+            <select v-model="assetDraft.platform">
+              <option v-for="option in assetPlatformOptions" :key="option.value" :value="option.value">
+                {{ t(option.labelKey) }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <section class="asset-user-form__location">
+          <header>
+            <h4>{{ t('assets.userView.form.locationTitle') }}</h4>
+            <p>{{ t('assets.userView.form.locationDescription') }}</p>
+          </header>
+          <GcManagedTargetSelector
+            v-model:device-id="assetDraft.deviceId"
+            v-model:framework-instance-id="assetDraft.frameworkInstanceId"
+            v-model:site-id="assetDraft.siteAssetId"
+            v-model:managed-target-id="assetDraft.managedTargetId"
+            :devices="deviceItems"
+            :frameworks="serviceInstanceItems"
+            :sites="filteredSiteItems"
+            :managed-targets="managedTargetItems"
+            :device-loading="deviceListLoading"
+            :framework-loading="serviceInstanceListLoading"
+            :site-loading="siteListLoading"
+            :managed-target-loading="managedTargetListLoading"
+            :labels="{ device: t('assets.userView.form.device'), framework: t('assets.userView.form.service'), site: t('assets.userView.form.site'), managedTarget: t('assets.userView.form.target') }"
+            :placeholders="{ select: t('assets.select.generic'), loading: t('common.loading'), rediscovery: t('assets.errors.managedTargetRediscoveryRequired') }"
+          />
+          <label class="asset-form__field">
+            <span>{{ t('assets.userView.form.certificateFormat') }} <strong>*</strong></span>
+            <select v-model="assetDraft.agentCertificateFormatId" :disabled="certificateFormatLoading">
+              <option value="">{{ certificateFormatLoading ? t('assets.loading.certificateFormats') : t('assets.select.certificateFormat') }}</option>
+              <option v-for="format in agentCertificateFormatOptions" :key="String(format.id)" :value="String(format.id)">
+                {{ workflowCertificateFormatLabel(format) }}
+              </option>
+            </select>
+          </label>
+        </section>
+
+        <section v-if="pluginProjectionVersionId" class="asset-user-form__inputs">
+          <p v-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+          <DeploymentInputForm
+            v-else-if="workflowBindingProjection"
+            v-model="deploymentInputBindings"
+            :projection="workflowBindingProjection"
+            :credential-options="deploymentCredentialOptions"
+            :artifact-options="deploymentArtifactOptions"
+            :loading="workflowProjectionLoading"
+          />
+        </section>
+
+        <p v-if="siteListError" class="asset-form__error">{{ siteListError }}</p>
+        <p v-if="certificateFormatError" class="asset-form__error">{{ certificateFormatError }}</p>
+        <p v-if="createError" class="asset-form__error">{{ createError }}</p>
+      </section>
+
+      <section v-else class="asset-form asset-wizard">
         <div class="asset-wizard__progress">
           <div class="asset-wizard__progress-bar">
             <span class="asset-wizard__progress-fill" :style="{ width: assetWizardProgress }"></span>
@@ -2445,9 +2664,9 @@ function managedTargetLabel(target: ApiRecord): string {
       </section>
       <template #actions>
         <button class="gc-button" type="button" :disabled="createLoading" @click="closeCreateDialog">{{ t('designSystem.deploymentWizard.actions.cancel') }}</button>
-        <button class="gc-button" type="button" :disabled="createLoading || !canGoPreviousAssetStep" @click="goPreviousAssetStep">{{ t('designSystem.deploymentWizard.actions.previous') }}</button>
-        <button v-if="assetWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="createLoading || !canGoNextAssetStep" @click="goNextAssetStep">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
-        <button v-else class="gc-button gc-button--danger" type="button" :disabled="createDisabled" @click="submitCreate">
+        <button v-if="!isUserViewMode" class="gc-button" type="button" :disabled="createLoading || !canGoPreviousAssetStep" @click="goPreviousAssetStep">{{ t('designSystem.deploymentWizard.actions.previous') }}</button>
+        <button v-if="!isUserViewMode && assetWizardStep < 3" class="gc-button gc-button--primary" type="button" :disabled="createLoading || !canGoNextAssetStep" @click="goNextAssetStep">{{ t('designSystem.deploymentWizard.actions.next') }}</button>
+        <button v-else-if="isUserViewMode || assetWizardStep >= 3" class="gc-button gc-button--primary" type="button" :disabled="createDisabled" @click="submitCreate">
           {{ createLoading ? (isEditMode ? t('assets.actions.saving') : t('assets.actions.creating')) : (isEditMode ? t('assets.actions.saveChanges') : t('assets.actions.confirmCreate')) }}
         </button>
       </template>
@@ -2459,6 +2678,146 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.asset-user-view__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gc-space-4);
+  align-items: center;
+  padding: var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background: linear-gradient(145deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
+}
+
+.asset-user-view__hero div,
+.asset-user-view__section-head div,
+.asset-user-form__header div,
+.asset-user-form__location,
+.asset-user-form__location header {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.asset-user-view__hero span,
+.asset-user-form__header span {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.asset-user-view__hero h2,
+.asset-user-view__hero p,
+.asset-user-view__section-head h3,
+.asset-user-view__section-head p,
+.asset-user-view__card h3,
+.asset-user-view__card p,
+.asset-user-form__header h3,
+.asset-user-form__header p,
+.asset-user-form__location h4,
+.asset-user-form__location p {
+  margin: 0;
+}
+
+.asset-user-view__hero h2,
+.asset-user-form__header h3 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xl);
+}
+
+.asset-user-view__hero p,
+.asset-user-view__section-head p,
+.asset-user-view__card p,
+.asset-user-form__header p,
+.asset-user-form__location p {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.asset-user-view__content,
+.asset-user-form {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.asset-user-view__section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+}
+
+.asset-user-view__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--gc-space-10) * 6), 1fr));
+  gap: var(--gc-space-3);
+}
+
+.asset-user-view__card {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-solid);
+}
+
+.asset-user-view__card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.asset-user-view__card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+}
+
+.asset-user-view__card dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+}
+
+.asset-user-view__card dd {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.asset-user-view__state {
+  padding: var(--gc-space-6);
+  color: var(--gc-color-text-muted);
+  text-align: center;
+}
+
+.asset-user-form {
+  padding: var(--gc-space-2);
+}
+
+.asset-user-form__location {
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-hover);
+}
+
+.asset-user-form__location h4 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+}
+
+.asset-user-form__inputs {
+  display: grid;
+  gap: var(--gc-space-3);
 }
 
 .asset-detail-modal {
@@ -3052,6 +3411,15 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 @media (max-width: 860px) {
+  .asset-user-view__hero,
+  .asset-user-view__card dl {
+    grid-template-columns: 1fr;
+  }
+  .asset-user-view__section-head,
+  .asset-user-view__card header {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .asset-form__grid,
   .workflow-target-form__grid,
   .asset-wizard__steps,

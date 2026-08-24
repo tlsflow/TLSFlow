@@ -3,17 +3,23 @@ import { getCurrentUserPreferences, updateCurrentUserPreferences } from '@/api/m
 import { i18n, setI18nLocale, type SupportedLocale } from '@/i18n'
 import {
   applyThemeToDocument,
+  applyViewModeToDocument,
   defaultPreferences,
+  defaultViewMode,
   normalizePreferences,
   readCachedPreferences,
+  readCachedViewMode,
   writeCachedPreferences,
+  writeCachedViewMode,
   type AppPreferences,
+  type AppViewMode,
   type ThemeMode
 } from '@/preferences/app-preferences'
 
 interface AppState {
   theme: ThemeMode
   locale: SupportedLocale
+  viewMode: AppViewMode
   globalLoading: boolean
   preferenceSyncing: boolean
   preferenceError: string | null
@@ -23,6 +29,7 @@ export const useAppStore = defineStore('app', {
   state: (): AppState => ({
     theme: defaultPreferences.theme,
     locale: defaultPreferences.locale,
+    viewMode: defaultViewMode,
     globalLoading: false,
     preferenceSyncing: false,
     preferenceError: null
@@ -33,6 +40,7 @@ export const useAppStore = defineStore('app', {
   actions: {
     initializePreferences(): void {
       this.applyPreferences(readCachedPreferences(), { cache: false })
+      this.setViewMode(readCachedViewMode())
     },
     async loadPreferencesFromBackend(): Promise<void> {
       try {
@@ -48,6 +56,11 @@ export const useAppStore = defineStore('app', {
     },
     async setLocale(locale: SupportedLocale): Promise<void> {
       await this.updatePreferences({ ...this.preferences, locale })
+    },
+    setViewMode(viewMode: AppViewMode): void {
+      this.viewMode = viewMode
+      applyViewModeToDocument(viewMode)
+      writeCachedViewMode(viewMode)
     },
     setGlobalLoading(loading: boolean): void {
       this.globalLoading = loading

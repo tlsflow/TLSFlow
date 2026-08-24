@@ -19,7 +19,7 @@ import {
   updateUser,
   type ExternalUserLookupResponse,
 } from '@/api/modules/security.api'
-import { GcConfirmAction, GcModal } from '@/design-system/components'
+import { GcConfirmAction, GcModal, GcPageToolbar, GcTabs } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
@@ -127,6 +127,10 @@ const identitySourceOptions = computed(() =>
 )
 
 const selectedCount = computed(() => selectedUserIds.value.length)
+const directoryTabs = computed(() => [
+  { value: 'users', label: t('settings.users.tabs.users') },
+  { value: 'groups', label: t('settings.users.tabs.groups') },
+])
 const activeListSummary = computed(() => {
   if (activeDirectoryTab.value === 'groups') return t('settings.users.summary.groups', { count: groupItems.value.length })
   return t('settings.users.summary.users', { total: userItems.value.length, selected: selectedCount.value })
@@ -388,8 +392,8 @@ onMounted(async () => {
 
 <template>
   <section class="users-view">
-    <header class="users-view__header">
-      <div class="users-view__header-actions">
+    <GcPageToolbar>
+      <template #actions>
         <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
         <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
         <GcConfirmAction
@@ -401,8 +405,11 @@ onMounted(async () => {
           @confirm="removeUsers(selectedUserIds)"
         />
         <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
-      </div>
-    </header>
+      </template>
+      <template #tabs>
+        <GcTabs v-model="activeDirectoryTab" :tabs="directoryTabs" :aria-label="t('settings.users.aria.principalType')" />
+      </template>
+    </GcPageToolbar>
 
     <p v-if="pageError" class="users-view__error">{{ pageError }}</p>
 
@@ -410,22 +417,6 @@ onMounted(async () => {
       <div class="users-view__table-head">
         <div class="users-view__table-title">
           <strong>{{ t('settings.users.title') }}</strong>
-          <div class="users-view__tabs" :aria-label="t('settings.users.aria.principalType')">
-            <button
-              type="button"
-              :class="{ 'users-view__tab--active': activeDirectoryTab === 'users' }"
-              @click="activeDirectoryTab = 'users'"
-            >
-              {{ t('settings.users.tabs.users') }}
-            </button>
-            <button
-              type="button"
-              :class="{ 'users-view__tab--active': activeDirectoryTab === 'groups' }"
-              @click="activeDirectoryTab = 'groups'"
-            >
-              {{ t('settings.users.tabs.groups') }}
-            </button>
-          </div>
         </div>
         <span>{{ activeListSummary }}</span>
       </div>
@@ -709,8 +700,6 @@ onMounted(async () => {
 
 <style scoped>
 .users-view { display: grid; gap: var(--gc-space-5); }
-.users-view__header { display: flex; justify-content: flex-end; gap: var(--gc-space-4); align-items: center; }
-.users-view__header-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 .users-view__checkbox-col { width: 48px; text-align: center; }
 
 .users-view__table-card { overflow: hidden; padding: 0; }
@@ -718,31 +707,6 @@ onMounted(async () => {
 .users-view__table-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); }
 .users-view__table-head strong { font-size: 14px; }
 .users-view__table-head span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 700; }
-.users-view__tabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--gc-color-border);
-  border-radius: 10px;
-  background: var(--gc-color-surface-muted);
-}
-.users-view__tabs button {
-  min-width: 56px;
-  min-height: 28px;
-  border: 0;
-  border-radius: 7px;
-  padding: 0 10px;
-  color: var(--gc-color-text-muted);
-  background: transparent;
-  font-size: 12px;
-  font-weight: 850;
-  cursor: pointer;
-}
-.users-view__tab--active {
-  color: var(--gc-color-text) !important;
-  background: var(--gc-color-surface-solid) !important;
-  box-shadow: var(--gc-shadow-sm);
-}
 .users-view__table-scroll { overflow-x: auto; }
 .users-view__table { width: 100%; border-collapse: collapse; min-width: 1260px; }
 .users-view__table--groups { min-width: 980px; }
@@ -817,8 +781,6 @@ onMounted(async () => {
 .users-view__error { margin: 0; border: 1px solid var(--gc-color-danger-border); border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
 
 @media (max-width: 860px) {
-  .users-view__header { justify-content: stretch; }
-  .users-view__header-actions { width: 100%; }
   .users-view__table-head { align-items: flex-start; flex-direction: column; }
   .users-view__mode-switch,
   .users-view__profile-preview,

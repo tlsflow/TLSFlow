@@ -9,6 +9,7 @@ export interface UsePollingOptions {
 export function usePolling(task: () => Promise<void> | void, options: UsePollingOptions) {
   const isPolling = ref(false)
   let timer: ReturnType<typeof setInterval> | null = null
+  let taskRunning = false
 
   const stop = () => {
     if (timer) {
@@ -19,11 +20,18 @@ export function usePolling(task: () => Promise<void> | void, options: UsePolling
   }
 
   const tick = async () => {
+    // 中文说明：避免慢请求尚未完成时，定时器再次发起同一个请求。
+    if (taskRunning) return
     if (options.stopWhen?.()) {
       stop()
       return
     }
-    await task()
+    taskRunning = true
+    try {
+      await task()
+    } finally {
+      taskRunning = false
+    }
   }
 
   const start = async () => {

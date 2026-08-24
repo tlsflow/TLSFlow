@@ -18,14 +18,16 @@ import {
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { listMonitorCertificateObservations, probeMonitorServiceAsset } from '@/api/modules/monitors.api'
-import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
+import { GcConfirmAction, GcDeploymentWizard, GcDryRunResultModal, GcEmptyState, GcExecutionProgressPanel, GcModal, GcPermissionButton, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { dispatchGlobalTaskRefresh, subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
-import { createDeploymentPlansPageConfig } from './deployment-plan.config'
+import { useAppStore } from '@/stores/app.store'
+import { usePermissionStore } from '@/stores/permission.store'
+import { createDeploymentPlansPageConfig, createDeploymentPlanUiActions, type DeploymentPlanUiAction } from './deployment-plan.config'
 import { enrichDeploymentPlanRecord, resolveApplicationAssetIdForPlan } from './deployment-plan-update-state'
 
 type RelatedRecordKind = 'dry-run' | 'certificate-update'
@@ -63,6 +65,13 @@ interface ExecutionTaskFlight {
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t, te } = useI18n()
+const appStore = useAppStore()
+const permissionStore = usePermissionStore()
+const isUserViewMode = computed(() => appStore.viewMode === 'user')
+const userPlanItems = ref<ApiRecord[]>([])
+const userPlansLoading = ref(false)
+const userPlansError = ref('')
+const userPlanActions = computed(() => createDeploymentPlanUiActions(t))
 const createDialogOpen = ref(false)
 const loading = ref(false)
 const editingPlanId = ref('')
@@ -272,6 +281,10 @@ onMounted(() => {
   disposeTaskRealtime = subscribeTaskRealtime(handleDeploymentTaskRealtime)
 })
 
+watch(isUserViewMode, (enabled) => {
+  if (enabled) void loadUserPlans()
+}, { immediate: true })
+
 onUnmounted(() => {
   clearUnknownStateProbeRetry()
   clearDeploymentPlanRealtimeReload()
@@ -384,6 +397,69 @@ async function openDetailDialog(row: ViewRow) {
   detailExecutionLoadedPlanId.value = ''
   detailExecutionRow.value = null
   await loadDeploymentInputSnapshots(row)
+}
+
+async function loadUserPlans() {
+  if (!isUserViewMode.value) return
+  userPlansLoading.value = true
+  userPlansError.value = ''
+  try {
+    const result = await loadDeploymentPlansPage()
+    userPlanItems.value = result.data?.items ?? []
+  } catch (cause) {
+    userPlansError.value = toErrorMessage(cause, t('deploymentPlans.userView.loadFailed'))
+  } finally {
+    userPlansLoading.value = false
+  }
+}
+
+function userPlanRow(plan: ApiRecord): ViewRow {
+  return {
+    id: readString(plan, ['id', 'planId']),
+    name: readString(plan, ['name', 'displayName'], t('deploymentPlans.userView.unnamedPlan')),
+    status: readString(plan, ['status', 'state'], 'DRAFT'),
+    risk: normalizeRisk(readString(plan, ['risk', 'riskLevel'], 'HIGH')),
+    raw: plan,
+  }
+}
+
+function recommendedUserPlanAction(plan: ApiRecord): DeploymentPlanUiAction | null {
+  const status = readString(plan, ['status', 'state'], 'DRAFT')
+  const actionKey = status === 'DRY_RUN_PASSED'
+    ? 'submit'
+    : ['APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'].includes(status)
+      ? 'execute'
+      : ['DRAFT', 'DRY_RUN_FAILED'].includes(status)
+        ? 'dry-run'
+        : null
+  if (!actionKey) return null
+  return userPlanActions.value.find((action) => action.key === actionKey) ?? null
+}
+
+function userPlanActionDisabledReason(plan: ApiRecord) {
+  const action = recommendedUserPlanAction(plan)
+  return action?.disabledReason?.(userPlanRow(plan)) ?? ''
+}
+
+async function runUserPlanAction(plan: ApiRecord) {
+  const action = recommendedUserPlanAction(plan)
+  if (!action) return
+  const row = userPlanRow(plan)
+  try {
+    const result = await runPlanAction(action.label, row, () => action.run(row))
+    await handleActionFeedback(action.label, row, result)
+    await loadUserPlans()
+  } catch (cause) {
+    handleActionError(action.label, row, cause)
+  }
+}
+
+function userPlanCertificate(plan: ApiRecord) {
+  return readString(plan, ['certificateName', 'certificateDomain', 'targetCertificate.primaryDomain', 'certificate.primaryDomain'], t('deploymentPlans.userView.pendingCertificate'))
+}
+
+function userPlanApplication(plan: ApiRecord) {
+  return readString(plan, ['applicationAssetName', 'targetName', 'targets.0.name', 'targets.0.applicationAssetName'], t('deploymentPlans.userView.pendingApplication'))
 }
 
 async function ensureRelatedRecordsLoaded(row: ViewRow): Promise<void> {
@@ -532,6 +608,7 @@ async function handleSave(plan: DeploymentWizardPlan) {
       const updated = await updateDeploymentPlanDraft(editingPlanId.value, plan)
       infoMessage.value = t('deploymentPlans.feedback.savedWithPlanId', { planId: String(updated.data?.id ?? editingPlanId.value) })
       await pageRef.value?.reload()
+      await loadUserPlans()
       closeCreateDialog(true)
       return
     }
@@ -539,6 +616,7 @@ async function handleSave(plan: DeploymentWizardPlan) {
     infoMessage.value = t('deploymentPlans.feedback.savedWithPlanId', { planId })
     editingPlanId.value = planId
     await pageRef.value?.reload()
+    await loadUserPlans()
     closeCreateDialog(true)
   } catch (cause) {
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.saveFailed'))
@@ -651,6 +729,7 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     infoMessage.value = runId
       ? t('deploymentPlans.feedback.dryRunStartedWithRunId', { runId })
       : t('deploymentPlans.feedback.dryRunStartedMissingRunId')
+    await loadUserPlans()
   } catch (cause) {
     executionStarting.value = false
     dryRunRunRow.value = null
@@ -827,6 +906,8 @@ function handleActionError(actionLabel: string, row: ViewRow | null, cause: unkn
     infoMessage.value = ''
     dryRunChecks.value = []
     dryRunRunRow.value = null
+    latestExecutionMode.value = 'dry-run'
+    dryRunResultModalOpen.value = true
     dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
     return
   }
@@ -1429,7 +1510,77 @@ async function fetchAllPages(
 <template>
   <section class="deployment-plans-page">
     <p v-if="approvalFeedback" class="deployment-plans-page__info deployment-plans-page__approval-feedback">{{ approvalFeedback }}</p>
-    <BusinessResourcePage ref="pageRef" :config="pageConfig" />
+    <template v-if="isUserViewMode">
+      <section class="gc-card deployment-user-view__hero">
+        <div>
+          <span>{{ t('deploymentPlans.userView.stepLabel') }}</span>
+          <h2>{{ t('deploymentPlans.userView.title') }}</h2>
+          <p>{{ t('deploymentPlans.userView.description') }}</p>
+        </div>
+        <GcPermissionButton permission="deployment.plan.write" @click="openCreateDialog">
+          {{ t('deploymentPlans.userView.createAction') }}
+        </GcPermissionButton>
+      </section>
+
+      <section class="deployment-user-view__content">
+        <header>
+          <h3>{{ t('deploymentPlans.userView.listTitle') }}</h3>
+          <p>{{ t('deploymentPlans.userView.listDescription') }}</p>
+        </header>
+        <GcEmptyState
+          v-if="userPlansError"
+          :title="t('deploymentPlans.userView.loadFailed')"
+          :description="userPlansError"
+        >
+          <button class="gc-button" type="button" @click="loadUserPlans">{{ t('businessPage.retry') }}</button>
+        </GcEmptyState>
+        <div v-else-if="userPlansLoading" class="deployment-user-view__state">{{ t('common.loading') }}</div>
+        <GcEmptyState
+          v-else-if="userPlanItems.length === 0"
+          :title="t('deploymentPlans.userView.emptyTitle')"
+          :description="t('deploymentPlans.userView.emptyDescription')"
+        >
+          <GcPermissionButton permission="deployment.plan.write" @click="openCreateDialog">
+            {{ t('deploymentPlans.userView.createAction') }}
+          </GcPermissionButton>
+        </GcEmptyState>
+        <div v-else class="deployment-user-view__grid">
+          <article v-for="plan in userPlanItems" :key="readString(plan, ['id', 'planId'])" class="gc-card deployment-user-view__card">
+            <header class="deployment-user-view__card-head">
+              <div>
+                <h3>{{ readString(plan, ['name', 'displayName'], t('deploymentPlans.userView.unnamedPlan')) }}</h3>
+                <p>{{ userPlanCertificate(plan) }} → {{ userPlanApplication(plan) }}</p>
+              </div>
+              <GcStatusTag :status="readString(plan, ['status', 'state'], 'DRAFT')" />
+            </header>
+            <p class="deployment-user-view__hint">{{ t('deploymentPlans.userView.nextActionHint') }}</p>
+            <div class="deployment-user-view__actions">
+              <GcConfirmAction
+                v-if="recommendedUserPlanAction(plan)?.confirmText && permissionStore.hasPermission(recommendedUserPlanAction(plan)?.permission ?? '')"
+                :action-name="recommendedUserPlanAction(plan)?.label ?? ''"
+                :risk-text="recommendedUserPlanAction(plan)?.riskText"
+                :confirm-text="recommendedUserPlanAction(plan)?.confirmText"
+                :danger="recommendedUserPlanAction(plan)?.danger"
+                :disabled="Boolean(userPlanActionDisabledReason(plan))"
+                :disabled-reason="userPlanActionDisabledReason(plan)"
+                @confirm="runUserPlanAction(plan)"
+              />
+              <GcPermissionButton
+                v-else-if="recommendedUserPlanAction(plan)"
+                :permission="recommendedUserPlanAction(plan)?.permission ?? 'deployment.plan.read'"
+                :disabled="Boolean(userPlanActionDisabledReason(plan))"
+                @click="runUserPlanAction(plan)"
+              >
+                {{ recommendedUserPlanAction(plan)?.label }}
+              </GcPermissionButton>
+              <span v-else class="deployment-user-view__waiting">{{ t('deploymentPlans.userView.waiting') }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <BusinessResourcePage v-else ref="pageRef" :config="pageConfig" />
 
     <GcModal
       v-model:open="createDialogOpen"
@@ -1451,6 +1602,7 @@ async function fetchAllPages(
         :submit-request-id="submitRequestId"
         :approval-hint="approvalHint"
         :dry-run-checks="dryRunChecks"
+        :simple="isUserViewMode"
         @save="handleSave"
         @dry-run="handleDryRun"
         @cancel="closeCreateDialog"
@@ -1718,6 +1870,105 @@ async function fetchAllPages(
 .deployment-plans-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.deployment-user-view__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gc-space-4);
+  align-items: center;
+  padding: var(--gc-space-5);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-lg);
+  background: linear-gradient(145deg, var(--gc-color-surface-hover), var(--gc-color-surface-solid));
+}
+
+.deployment-user-view__hero div,
+.deployment-user-view__content,
+.deployment-user-view__content > header,
+.deployment-user-view__card,
+.deployment-user-view__card-head div {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.deployment-user-view__hero span {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.deployment-user-view__hero h2,
+.deployment-user-view__hero p,
+.deployment-user-view__content h3,
+.deployment-user-view__content p,
+.deployment-user-view__card h3,
+.deployment-user-view__card p {
+  margin: 0;
+}
+
+.deployment-user-view__hero h2 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xl);
+}
+
+.deployment-user-view__hero p,
+.deployment-user-view__content > header p,
+.deployment-user-view__card-head p,
+.deployment-user-view__hint {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  line-height: var(--gc-line-height-relaxed);
+}
+
+.deployment-user-view__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--gc-space-10) * 6), 1fr));
+  gap: var(--gc-space-3);
+}
+
+.deployment-user-view__card {
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-solid);
+}
+
+.deployment-user-view__card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.deployment-user-view__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--gc-space-2);
+}
+
+.deployment-user-view__waiting,
+.deployment-user-view__state {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.deployment-user-view__state {
+  padding: var(--gc-space-6);
+  text-align: center;
+}
+
+@media (max-width: 53.75rem) {
+  .deployment-user-view__hero {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-user-view__card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .deployment-plans-page__dry-run-required {
