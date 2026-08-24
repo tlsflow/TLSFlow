@@ -91,6 +91,7 @@ export class WorkflowTemplatesDomainService {
       id: `wftpl_${randomUUID()}`,
       name: content.metadata.name,
       origin,
+      provenance: input.provenance,
       status: 'draft',
       createdAt: now,
       updatedAt: now,
@@ -107,6 +108,7 @@ export class WorkflowTemplatesDomainService {
   async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
+    assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const name = String(input.name ?? '').trim();
     if (!name) throw new AppError('VALIDATION_FAILED', '工作流名称不能为空', { field: 'name' });
@@ -132,6 +134,7 @@ export class WorkflowTemplatesDomainService {
   async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
+    assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
@@ -140,6 +143,7 @@ export class WorkflowTemplatesDomainService {
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
+    assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const list = this.versions.get(template.id) ?? [];
@@ -180,9 +184,10 @@ export class WorkflowTemplatesDomainService {
     );
   }
 
-  async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
+  async publishVersion(versionId: string, allowInternal = false): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const { template, version } = await this.findVersion(versionId);
+    if (!allowInternal) assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
     const list = this.versions.get(template.id) ?? [];
@@ -199,6 +204,7 @@ export class WorkflowTemplatesDomainService {
   async updateVersionNote(input: UpdateWorkflowTemplateVersionNoteInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const { template, version } = await this.findVersion(input.versionId);
+    assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     if (version.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'version is disabled');
     const note = input.changeSummary?.trim();
@@ -210,6 +216,7 @@ export class WorkflowTemplatesDomainService {
   async disableTemplate(templateId: string): Promise<WorkflowTemplate> {
     await this.ready;
     const template = await this.getTemplateOrThrow(templateId);
+    assertUserEditable(template);
     template.status = 'disabled';
     template.updatedAt = new Date().toISOString();
     this.templates.set(template.id, template);
@@ -445,6 +452,15 @@ export class WorkflowTemplatesDomainService {
       }
     }
     throw new AppError('SYSTEM_INTERNAL_ERROR', 'retry execution failed unexpectedly');
+  }
+
+  async createDraftFromPluginCapability(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    assertUserEditable(template);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const content = workflowTemplatesSchemaRegistry.validate(input.content);
+    return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: false, enforcePluginVersionIncrement: false });
   }
 
   private async runForeachStep(
@@ -1552,6 +1568,12 @@ function compareSemanticVersions(left: string, right: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertUserEditable(template: WorkflowTemplate): void {
+  if (template.origin === 'plugin_internal') {
+    throw new AppError('WORKFLOW_INTERNAL_READ_ONLY', '插件内部工作流为只读资源', { templateId: template.id });
+  }
 }
 
 function summarizeValueShape(value: unknown, depth = 0): unknown {

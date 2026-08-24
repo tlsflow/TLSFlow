@@ -18,6 +18,7 @@ import { createSecurityServices, getSecurityRouteContracts, SecurityController, 
 import { CredentialsApplicationService, CredentialsController, CredentialsRepository } from './modules/credentials/index.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
+import { ApplicationAssetExecutionService } from './modules/assets/application/application-asset-execution.service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
@@ -74,7 +75,7 @@ import { ManagedTargetContextResolver } from './modules/assets/application/manag
 import { LivenessApplicationService } from './modules/liveness/index.js';
 import { PluginCertificateResultService } from './modules/plugins/results/plugin-certificate-result.service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
-import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
+import { PluginWorkflowSourceService, WorkflowExecutionBindingsRepository, WorkflowExecutionBindingsService, WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
 import {
   buildCorePersistenceErrorMessage,
   collectMissingCorePersistence,
@@ -328,7 +329,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator);
   app.setResource('automationScheduler', automationScheduler);
-  new AssetsController(security, assetsService).register(app.router);
+  new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
 
@@ -387,7 +388,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     new PluginPromotionService(appDb),
     new ManagedTargetPluginQueryService(appDb),
   ).register(app.router);
-  new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
+  new WorkflowTemplatesController(
+    workflowTemplatesService,
+    security,
+    new PluginWorkflowSourceService(unifiedPluginsService, new PluginWorkflowBindingsRepository(appDb), workflowTemplatesService),
+    new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
+  ).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService.getRepository(),

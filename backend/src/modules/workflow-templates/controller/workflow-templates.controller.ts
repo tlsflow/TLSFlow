@@ -5,10 +5,11 @@ import { applyAuthorizationFilter } from '../../../common/pagination/pagination.
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { WorkflowTemplatesApplicationService } from '../application/workflow-templates.application-service.js';
+import { PluginWorkflowSourceService } from '../application/plugin-workflow-source.service.js';
+import { WorkflowExecutionBindingsService } from '../application/workflow-execution-bindings.service.js';
 import type {
-  ApplyWorkflowTemplateFromFileInput,
-  CreateWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
+  CreateWorkflowFromPluginInput,
   RenameWorkflowTemplateInput,
   UpdateWorkflowTemplateInput,
   UpdateWorkflowTemplateVersionNoteInput,
@@ -19,23 +20,32 @@ import type {
 const tag = ['WorkflowTemplates'];
 
 export class WorkflowTemplatesController {
-  constructor(private readonly service = new WorkflowTemplatesApplicationService(), private readonly security?: SecurityServices) {}
+  constructor(
+    private readonly service = new WorkflowTemplatesApplicationService(),
+    private readonly security?: SecurityServices,
+    private readonly pluginSources?: PluginWorkflowSourceService,
+    private readonly executionBindings?: WorkflowExecutionBindingsService,
+  ) {}
 
   register(router: Router): void {
     router.get('/api/v1/workflows', '列出工作流', tag, async (request) => this.listWorkflows(request));
-    router.post('/api/v1/workflows', '创建工作流草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createWorkflow(request.body as CreateWorkflowTemplateInput) }));
+    router.get('/api/v1/workflow-sources/plugins', '列出插件工作流来源', tag, async (request) => ({ statusCode: 200, body: { items: await this.requirePluginSources().list(tenantId(request)) } }));
+    router.get('/api/v1/workflow-execution-bindings/:bindingId', '读取工作流执行绑定', tag, async (request) => {
+      const bindingId = request.path.match(/^\/api\/v1\/workflow-execution-bindings\/([^/]+)$/)?.[1];
+      if (!bindingId) throw new Error('工作流执行绑定路径无效');
+      return { statusCode: 200, body: await this.requireExecutionBindings().get(tenantId(request), decodeURIComponent(bindingId)) };
+    });
+    router.post('/api/v1/workflows/from-plugin', '从插件能力创建工作流', tag, async (request) => ({ statusCode: 201, body: await this.requirePluginSources().createWorkflow(tenantId(request), request.body as CreateWorkflowFromPluginInput) }));
+    router.post('/api/v1/workflows/:workflowId/drafts/from-plugin', '从插件能力生成工作流草稿', tag, async (request) => {
+      const workflowId = request.path.match(/^\/api\/v1\/workflows\/([^/]+)\/drafts\/from-plugin$/)?.[1];
+      if (!workflowId) throw new Error('工作流插件派生路径无效');
+      return { statusCode: 201, body: await this.requirePluginSources().createDraft(tenantId(request), { ...(request.body as CreateWorkflowFromPluginInput), templateId: decodeURIComponent(workflowId) }) };
+    });
     router.get('/api/v1/workflow-templates', '列出工作流模板', tag, async (request) => this.listTemplates(request));
-    router.post('/api/v1/workflow-templates', '创建工作流模板草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplate(request.body as CreateWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-templates/rename', '修改工作流名称', tag, async (request) => ({ statusCode: 200, body: await this.service.renameTemplate(request.body as RenameWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-templates/canvas/compile', '后端编译工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.compileCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/canvas/validate', '后端校验工作流画布', tag, async (request) => ({ statusCode: 200, body: this.service.validateCanvas(request.body) }));
     router.post('/api/v1/workflow-templates/delete', '删除工作流模板', tag, async (request) => ({ statusCode: 200, body: await this.service.disableTemplate(String((request.body as { id?: string }).id ?? '')) }));
-    router.get('/api/v1/workflow-file-templates', '扫描内置与用户导入工作流文件模板', tag, async (request) => ({
-      statusCode: 200,
-      body: { items: await this.service.listFileTemplates({ tenantId: tenantId(request), enabledOnly: request.query.enabledOnly === 'true' }) },
-    }));
-    router.post('/api/v1/workflow-file-templates/create', '基于工作流文件模板创建草稿', tag, async (request) => ({ statusCode: 201, body: await this.service.createTemplateFromFile(request.body as CreateWorkflowTemplateFromFileInput, tenantId(request)) }));
-    router.post('/api/v1/workflow-file-templates/apply', '用工作流文件模板覆盖现有草稿', tag, async (request) => ({ statusCode: 200, body: await this.service.applyFileTemplateToTemplate(request.body as ApplyWorkflowTemplateFromFileInput, tenantId(request)) }));
     router.get('/api/v1/workflow-template-versions', '列出模板版本', tag, async (request) => this.listVersions(request));
     router.post('/api/v1/workflow-template-versions', '创建不可变模板版本', tag, async (request) => ({ statusCode: 201, body: await this.service.createDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
     router.post('/api/v1/workflow-template-versions/draft', '更新当前草稿版本', tag, async (request) => ({ statusCode: 200, body: await this.service.updateCurrentDraftVersion(request.body as UpdateWorkflowTemplateInput) }));
@@ -44,6 +54,16 @@ export class WorkflowTemplatesController {
     router.post('/api/v1/workflow-template-runs/preview', '渲染模板预览', tag, async (request) => ({ statusCode: 200, body: await this.service.preview(request.body as WorkflowRuntimeInput) }));
     router.post('/api/v1/workflow-template-runs/test', '执行模板测试运行计划', tag, async (request) => ({ statusCode: 200, body: await this.service.testRun(request.body as WorkflowRuntimeInput) }));
     router.post('/api/v1/workflow-template-runs/test-step', '执行单节点测试运行', tag, async (request) => ({ statusCode: 200, body: await this.service.testStep(request.body as WorkflowStepRuntimeInput) }));
+  }
+
+  private requirePluginSources(): PluginWorkflowSourceService {
+    if (!this.pluginSources) throw new Error('PluginWorkflowSourceService 未接入');
+    return this.pluginSources;
+  }
+
+  private requireExecutionBindings(): WorkflowExecutionBindingsService {
+    if (!this.executionBindings) throw new Error('WorkflowExecutionBindingsService 未接入');
+    return this.executionBindings;
   }
 
   getApplicationService(): WorkflowTemplatesApplicationService {
@@ -88,16 +108,15 @@ export function getWorkflowTemplateRouteContracts(): RouteContract[] {
   const objectSchema = { type: 'object', additionalProperties: true };
   return [
     { method: 'GET', path: '/api/v1/workflows', operationId: 'listWorkflows', summary: '列出工作流', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflows', operationId: 'createWorkflow', summary: '创建工作流草稿', tags: tag, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/workflow-sources/plugins', operationId: 'listPluginWorkflowSources', summary: '列出插件工作流来源', tags: tag, responseSchema: objectSchema },
+    { method: 'GET', path: '/api/v1/workflow-execution-bindings/:bindingId', operationId: 'getWorkflowExecutionBinding', summary: '读取工作流执行绑定', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/from-plugin', operationId: 'createWorkflowFromPlugin', summary: '从插件能力创建工作流', tags: tag, responseSchema: objectSchema },
+    { method: 'POST', path: '/api/v1/workflows/:workflowId/drafts/from-plugin', operationId: 'createWorkflowDraftFromPlugin', summary: '从插件能力生成工作流草稿', tags: tag, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/workflow-templates', operationId: 'listWorkflowTemplates', summary: '列出工作流模板', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-templates', operationId: 'createWorkflowTemplate', summary: '创建工作流模板草稿', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/rename', operationId: 'renameWorkflowTemplate', summary: '修改工作流名称', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/compile', operationId: 'compileWorkflowCanvas', summary: '后端编译工作流画布', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/canvas/validate', operationId: 'validateWorkflowCanvas', summary: '后端校验工作流画布', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-templates/delete', operationId: 'deleteWorkflowTemplate', summary: '删除工作流模板', tags: tag, responseSchema: objectSchema },
-    { method: 'GET', path: '/api/v1/workflow-file-templates', operationId: 'listWorkflowFileTemplates', summary: '扫描内置与用户导入工作流文件模板', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-file-templates/create', operationId: 'createWorkflowTemplateFromFile', summary: '基于工作流文件模板创建草稿', tags: tag, responseSchema: objectSchema },
-    { method: 'POST', path: '/api/v1/workflow-file-templates/apply', operationId: 'applyWorkflowTemplateFromFile', summary: '用工作流文件模板覆盖现有草稿', tags: tag, responseSchema: objectSchema },
     { method: 'GET', path: '/api/v1/workflow-template-versions', operationId: 'listWorkflowTemplateVersions', summary: '列出模板版本', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-versions', operationId: 'createWorkflowTemplateVersion', summary: '创建不可变模板版本', tags: tag, responseSchema: objectSchema },
     { method: 'POST', path: '/api/v1/workflow-template-versions/draft', operationId: 'updateCurrentWorkflowTemplateDraftVersion', summary: '更新当前草稿版本', tags: tag, responseSchema: objectSchema },

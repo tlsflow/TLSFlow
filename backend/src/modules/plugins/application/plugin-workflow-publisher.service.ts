@@ -69,7 +69,7 @@ export class PluginWorkflowPublisherService {
     const changeSummary = `由插件 ${record.pluginId}@${record.version} 发布`;
     if (!previous) {
       const created = await this.workflows.createPluginTemplate({ content, changeSummary });
-      const published = await this.workflows.publishVersion(created.version.id);
+      const published = await this.workflows.publishPluginVersion(created.version.id);
       return { templateId: created.template.id, versionId: published.id };
     }
     const draft = await this.workflows.createDraftVersion({
@@ -77,7 +77,7 @@ export class PluginWorkflowPublisherService {
       content,
       changeSummary,
     });
-    const published = await this.workflows.publishVersion(draft.id);
+    const published = await this.workflows.publishPluginVersion(draft.id);
     return { templateId: previous.workflowTemplateId, versionId: published.id };
   }
 }

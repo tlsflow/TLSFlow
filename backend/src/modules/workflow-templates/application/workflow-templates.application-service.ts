@@ -45,7 +45,11 @@ export class WorkflowTemplatesApplicationService {
   }
 
   async createPluginTemplate(input: CreateWorkflowTemplateInput) {
-    return this.domain.createTemplate(input, 'plugin');
+    return this.domain.createTemplate(input, 'plugin_internal');
+  }
+
+  async createPluginDerivedWorkflow(input: CreateWorkflowTemplateInput) {
+    return this.domain.createTemplate(input, 'plugin_derived');
   }
 
   async renameTemplate(input: RenameWorkflowTemplateInput): Promise<WorkflowTemplate> {
@@ -80,6 +84,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.createDraftVersion(input);
   }
 
+  async createDraftFromPluginCapability(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    return this.domain.createDraftFromPluginCapability(input);
+  }
+
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     return this.domain.updateCurrentDraftVersion(input);
   }
@@ -98,6 +106,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.publishVersion(versionId);
   }
 
+  async publishPluginVersion(versionId: string): Promise<WorkflowTemplateVersion> {
+    return this.domain.publishVersion(versionId, true);
+  }
+
   async updateVersionNote(input: UpdateWorkflowTemplateVersionNoteInput): Promise<WorkflowTemplateVersion> {
     return this.domain.updateVersionNote(input);
   }
@@ -110,12 +122,11 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.listTemplates();
   }
 
-  async listWorkflows(tenantId: string): Promise<WorkflowTemplate[]> {
-    const currentPluginTemplateIds = new Set(
-      (await this.workflowBindingsRepository.listCurrent(tenantId)).map((binding) => binding.workflowTemplateId),
-    );
+  async listWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
     return (await this.domain.listTemplates()).filter((template) => (
-      template.origin === 'user' || currentPluginTemplateIds.has(template.id)
+      template.origin === 'legacy'
+      || template.origin === 'user'
+      || template.origin === 'plugin_derived'
     ));
   }
 

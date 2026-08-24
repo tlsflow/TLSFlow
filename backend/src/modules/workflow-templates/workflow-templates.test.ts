@@ -367,15 +367,9 @@ describe('WorkflowTemplates', () => {
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
     const app = new App();
-    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      body: { content: templateFixture(), changeSummary: '初始版本' },
-    });
-    assert.equal(created.statusCode, 201);
-    const createdBody = created.body as { template: { id: string } };
+    const service = new WorkflowTemplatesApplicationService();
+    new WorkflowTemplatesController(service).register(app.router);
+    const createdBody = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
 
     const templates = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
     assert.equal(templates.statusCode, 200);
@@ -389,27 +383,20 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
-  it('新工作流接口排除旧模板接口创建的兼容记录', async () => {
+  it('通用首次创建接口退出，工作流列表保留用户来源并排除 plugin_internal', async () => {
     const app = new App();
     const currentBindings: PluginWorkflowBindingRecord[] = [];
     const service = new WorkflowTemplatesApplicationService(undefined, {}, undefined, workflowBindingsRepository(currentBindings));
     new WorkflowTemplatesController(service).register(app.router);
 
-    const legacy = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      body: { content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } },
-    });
-    const current = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflows',
-      body: { content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-workflow' } } },
-    });
-
-    assert.equal(legacy.statusCode, 201);
-    assert.equal(current.statusCode, 201);
-    const legacyId = (legacy.body as { template: { id: string } }).template.id;
-    const currentId = (current.body as { template: { id: string } }).template.id;
+    const legacy = await service.createTemplate({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'legacy-workflow' } } });
+    const current = await service.createWorkflow({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-workflow' } } });
+    const derived = await service.createPluginDerivedWorkflow({ content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'derived-workflow' } } });
+    const legacyId = legacy.template.id;
+    const currentId = current.template.id;
+    const derivedId = derived.template.id;
+    assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflow-templates', body: {} })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'POST', path: '/api/v1/workflows', body: {} })).statusCode, 404);
 
     const compatibilityList = await app.inject({ method: 'GET', path: '/api/v1/workflow-templates' });
     const workflowList = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
@@ -418,8 +405,9 @@ describe('WorkflowTemplates', () => {
 
     assert.equal(compatibilityIds.includes(legacyId), true);
     assert.equal(compatibilityIds.includes(currentId), true);
-    assert.equal(workflowIds.includes(legacyId), false);
+    assert.equal(workflowIds.includes(legacyId), true);
     assert.equal(workflowIds.includes(currentId), true);
+    assert.equal(workflowIds.includes(derivedId), true);
 
     const pluginWorkflow = await service.createPluginTemplate({
       content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
@@ -435,20 +423,15 @@ describe('WorkflowTemplates', () => {
     });
     const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
     const workflowIdsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
-    assert.equal(workflowIdsWithPlugin.includes(pluginWorkflow.template.id), true);
+    assert.equal(workflowIdsWithPlugin.includes(pluginWorkflow.template.id), false);
+    assert.equal(workflowIdsWithPlugin.includes(legacyId), true);
   });
 
   it('HTTP 重命名接口只修改工作流记录，不改写历史版本', async () => {
     const app = new App();
-    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      body: { content: templateFixture(), changeSummary: '初始版本' },
-    });
-    assert.equal(created.statusCode, 201);
-    const createdBody = created.body as { template: { id: string }; version: { id: string; contentHash: string } };
+    const service = new WorkflowTemplatesApplicationService();
+    new WorkflowTemplatesController(service).register(app.router);
+    const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const renamed = await app.inject({
       method: 'POST',
@@ -467,15 +450,9 @@ describe('WorkflowTemplates', () => {
 
   it('HTTP 版本备注接口只更新备注，不改写版本内容', async () => {
     const app = new App();
-    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      body: { content: templateFixture(), changeSummary: '初始版本' },
-    });
-    assert.equal(created.statusCode, 201);
-    const createdBody = created.body as { template: { id: string }; version: { id: string; contentHash: string } };
+    const service = new WorkflowTemplatesApplicationService();
+    new WorkflowTemplatesController(service).register(app.router);
+    const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const noted = await app.inject({
       method: 'POST',
@@ -492,15 +469,9 @@ describe('WorkflowTemplates', () => {
 
   it('HTTP 删除接口会禁用模板和版本，并让列表不再返回该记录', async () => {
     const app = new App();
-    new WorkflowTemplatesController(new WorkflowTemplatesApplicationService()).register(app.router);
-
-    const created = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-templates',
-      body: { content: templateFixture(), changeSummary: '初始版本' },
-    });
-    assert.equal(created.statusCode, 201);
-    const createdBody = created.body as { template: { id: string }; version: { id: string } };
+    const service = new WorkflowTemplatesApplicationService();
+    new WorkflowTemplatesController(service).register(app.router);
+    const createdBody = await service.createWorkflow({ content: templateFixture(), changeSummary: '初始版本' });
 
     const deleted = await app.inject({
       method: 'POST',

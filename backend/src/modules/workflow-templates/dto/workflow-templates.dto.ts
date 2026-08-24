@@ -312,6 +312,44 @@ export interface WorkflowDslV1 {
 export interface CreateWorkflowTemplateInput {
   content: WorkflowDslV1;
   changeSummary?: string;
+  provenance?: WorkflowTemplateProvenance;
+}
+
+export type WorkflowTemplateOrigin = 'legacy' | 'user' | 'plugin_internal' | 'plugin_derived';
+
+export interface WorkflowTemplateProvenance {
+  sourceType: 'PLUGIN_CAPABILITY';
+  pluginId: string;
+  pluginVersionId: string;
+  capabilityKey: 'certificate.deploy' | 'certificate.rollback';
+  sourceWorkflowTemplateId: string;
+  sourceWorkflowVersionId: string;
+  sourceContentHash: string;
+  createdAt: string;
+}
+
+export interface WorkflowSourceCandidate {
+  pluginId: string;
+  pluginVersionId: string;
+  pluginVersion: string;
+  displayName: string;
+  capabilityKey: 'certificate.deploy' | 'certificate.rollback';
+  workflowTemplateId: string;
+  workflowVersionId: string;
+  workflowContentHash: string;
+  stepCount: number;
+  rollbackCount: number;
+}
+
+export interface CreateWorkflowFromPluginInput {
+  pluginVersionId: string;
+  capabilityKey: 'certificate.deploy' | 'certificate.rollback';
+  name: string;
+  changeSummary?: string;
+}
+
+export interface CreateWorkflowDraftFromPluginInput extends CreateWorkflowFromPluginInput {
+  templateId: string;
 }
 
 export interface RenameWorkflowTemplateInput {
@@ -333,7 +371,8 @@ export interface UpdateWorkflowTemplateVersionNoteInput {
 export interface WorkflowTemplate {
   id: string;
   name: string;
-  origin?: 'legacy' | 'user' | 'plugin';
+  origin?: WorkflowTemplateOrigin;
+  provenance?: WorkflowTemplateProvenance;
   status: WorkflowTemplateStatus;
   currentVersionId?: string;
   currentVersion?: number;
