@@ -1,15 +1,21 @@
-# GCAC CA Node
+# GCAC CA Node（已废弃）
 
-GCAC CA Node 是独立于 GCAC 主应用部署的最小签发服务，同一份源码可构建 Windows 和 Linux 版本。
+`go-ca-node` 是历史 CA 节点实现，已经从 GCAC 运行期执行链中永久移除。本目录保留可构建的失败关闭入口，用于阻止旧部署被误启动；它不再监听端口、不读取配置、不注册控制面、不租约任务、不保存签发结果，也不执行任何外部程序。
 
-- CA 私钥保留在节点或节点连接的 HSM/KMS/PKCS#11 后端。
-- 对外提供 `/health`、`/v1/sign` 和 `/v1/revoke`。
-- 支持一次性令牌注册、心跳、任务租约和结果回传。
-- 使用 `idempotencyKey` 持久化签发结果，避免重试产生重复证书。
-- 文件私钥模式属于可导出软件密钥，不得宣称不可导出。
+## 当前规则
 
-构建命令：
+- 证书签发、吊销和其他厂商能力必须通过独立 Plugin Runner 与 Host API 合同完成。
+- 本机通用事实采集和计划执行必须使用通用 Agent v2 的四个动作：`agent.fact.collect`、`agent.plan.validate`、`agent.plan.execute`、`agent.execution.receipt`。
+- 本目录不提供历史协议兼容层、旧任务转换、运行期 fallback 或旁路执行入口。
+- 启动程序会输出明确的废弃错误并以非零状态码退出，避免旧版本继续运行。
+
+## 测试与构建
+
+在本目录执行：
 
 ```powershell
+go test ./...
 ./build.ps1
 ```
+
+构建脚本只在本目录的 `dist/` 下生成 Windows amd64 和 Linux amd64 失败关闭产物，不会修改其他 Agent 目录。

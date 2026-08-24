@@ -1,7 +1,10 @@
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
-$windowsOutput = Join-Path $root 'windows-go-ca-node/gcac-ca-node.exe'
-$linuxOutput = Join-Path $root 'linux-go-ca-node/gcac-ca-node'
+
+$outputDirectory = Join-Path $PSScriptRoot 'dist'
+$windowsOutput = Join-Path $outputDirectory 'gcac-ca-node.windows-amd64.exe'
+$linuxOutput = Join-Path $outputDirectory 'gcac-ca-node.linux-amd64'
+
+New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 
 Push-Location $PSScriptRoot
 try {
