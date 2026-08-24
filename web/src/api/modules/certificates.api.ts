@@ -51,6 +51,13 @@ export function validateCertificateImport(payload: ApiBody) {
   return postAction(CERTIFICATE_VALIDATE_IMPORT_PATH, payload, 'certificate_import_validate')
 }
 
+export function deleteCertificateVersion(id: string) {
+  return apiClient.request<ApiRecord>(`${toClientPath(`${CERTIFICATE_VERSIONS_PATH}/delete`)}?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    idempotencyKey: createIdempotencyKey('certificate_version_delete'),
+  })
+}
+
 export function createCertificateFormat(payload: ApiBody) {
   return postAction(CERTIFICATE_FORMATS_PATH, payload, 'certificate_format_create')
 }

@@ -63,6 +63,7 @@ describe('BusinessResourcePage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    document.body.innerHTML = ''
   })
 
   it('渲染状态标签、风险标签和详情面板', async () => {
@@ -104,8 +105,8 @@ describe('BusinessResourcePage', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('危险测试'))
     await wrapper.findAll('button').find((button) => button.text() === '危险测试')?.trigger('click')
 
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('输入 CONFIRM 二次确认')
+    await vi.waitFor(() => expect(document.body.textContent).toContain('输入 CONFIRM 二次确认'))
+    expect(document.body.querySelector('[role="dialog"]')).toBeTruthy()
   })
 
   it('主操作按钮点击后执行配置动作', async () => {
@@ -163,13 +164,25 @@ describe('BusinessResourcePage', () => {
       },
     })
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('资源二'))
-    await wrapper.findAll('button').find((button) => button.text() === '资源二')?.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '危险测试')?.trigger('click')
-    await wrapper.find('input').setValue('CONFIRM')
-    await wrapper.findAll('button').find((button) => button.text() === '确认')?.trigger('click')
+    await vi.waitFor(() => expect(wrapper.findAll('.business-page__row-link')).toHaveLength(2))
+    const rowButtons = wrapper.findAll('.business-page__row-link')
+    await rowButtons[1]!.trigger('click')
 
-    expect(run).toHaveBeenCalledWith(expect.objectContaining({ id: 'row-2' }))
+    const dangerTrigger = wrapper.findAll('button').find((button) => button.text() === '危险测试')
+    expect(dangerTrigger).toBeTruthy()
+    await dangerTrigger!.trigger('click')
+
+    await vi.waitFor(() => expect(document.body.querySelector('.gc-confirm input')).toBeTruthy())
+    const confirmInput = document.body.querySelector('.gc-confirm input') as HTMLInputElement | null
+    expect(confirmInput).toBeTruthy()
+    confirmInput!.value = 'CONFIRM'
+    confirmInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    const confirmButton = document.body.querySelector('.gc-confirm footer .gc-button--danger') as HTMLButtonElement | null
+    expect(confirmButton).toBeTruthy()
+    confirmButton!.click()
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith(expect.objectContaining({ id: 'row-2' })))
   })
 
   it('错误状态展示 requestId 排查入口', async () => {

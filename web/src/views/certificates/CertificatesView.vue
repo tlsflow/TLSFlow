@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
+  deleteCertificateVersion,
   importCertificate,
   listCertificates,
   listCertificateVersions,
@@ -10,12 +11,14 @@ import {
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import {
+  GcConfirmAction,
   GcDataTable,
   GcEmptyState,
   GcModal,
   GcPermissionButton,
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import { usePermissionStore } from '@/stores/permission.store'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
 import CertificateImportForm from './CertificateImportForm.vue'
 import {
@@ -46,6 +49,7 @@ const EXPIRING_SOON_DAYS = 10
 
 const route = useRoute()
 const router = useRouter()
+const permissionStore = usePermissionStore()
 const initialQuery = route.query ?? {}
 const filters = reactive<Record<string, string>>({
   keyword: typeof initialQuery.keyword === 'string' ? initialQuery.keyword : '',
@@ -60,6 +64,7 @@ const versionsError = ref<CertificatePageError | null>(null)
 const assets = ref<ApiRecord[]>([])
 const versions = ref<ApiRecord[]>([])
 const assetLifecycleMap = ref<Record<string, string>>({})
+const assetVersionCountMap = ref<Record<string, number>>({})
 const selectedAssetId = ref('')
 const versionFilterKeyword = ref('')
 const versionFilterStatus = ref('')
@@ -70,6 +75,8 @@ const importDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
 const importLoading = ref(false)
 const importValidating = ref(false)
+const deletingVersionId = ref('')
+const versionActionError = ref<CertificatePageError | null>(null)
 const importError = ref('')
 const importResultId = ref('')
 const importValidationResult = ref<CertificateImportValidationResult | null>(null)
@@ -77,9 +84,36 @@ const detailVersionId = ref('')
 const detailAssetId = ref('')
 const draft = reactive(createCertificateImportDraft())
 
-const selectedAsset = computed(() => assets.value.find((item) => readId(item) === selectedAssetId.value) ?? null)
+const assetDomainGroups = computed(() => {
+  const groups = new Map<string, ApiRecord[]>()
+  assets.value.forEach((record) => {
+    const assetId = readId(record)
+    const domainName = readAssetName(record)
+    if (!assetId || !domainName) return
+    if ((assetVersionCountMap.value[assetId] ?? 0) <= 0) return
+    const current = groups.get(domainName)
+    if (current) {
+      current.push(record)
+      return
+    }
+    groups.set(domainName, [record])
+  })
+  return groups
+})
+const displayedAssets = computed(() =>
+  [...assetDomainGroups.value.values()]
+    .map(selectRepresentativeAsset)
+    .filter((record): record is ApiRecord => Boolean(record)),
+)
+const selectedAsset = computed(() => displayedAssets.value.find((item) => readId(item) === selectedAssetId.value) ?? null)
 const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : '未选择域名'))
-const assetCount = computed(() => assets.value.length)
+const selectedAssetMemberIds = computed(() => {
+  if (!selectedAsset.value) return []
+  return (assetDomainGroups.value.get(readAssetName(selectedAsset.value)) ?? [])
+    .map((item) => readId(item))
+    .filter(Boolean)
+})
+const assetCount = computed(() => displayedAssets.value.length)
 const rawVersionRows = computed<CertificateVersionRow[]>(() =>
   versions.value.map((record, index) => {
     const id = readString(record, ['id', 'certificateVersionId'], `certver-${index + 1}`)
@@ -109,7 +143,7 @@ const versionColumns: DataTableColumn<CertificateVersionRow>[] = [
   { key: 'associatedAsset', title: '关联资产', width: '12%' },
   { key: 'status', title: '状态', width: '8%' },
   { key: 'id', title: '证书版本 ID', width: '12%' },
-  { key: 'actions', title: '操作', width: '8%' },
+  { key: 'actions', title: '操作', width: '168px' },
 ]
 const versionRows = computed<CertificateVersionRow[]>(() => {
   const keyword = versionFilterKeyword.value.trim().toLowerCase()
@@ -131,6 +165,7 @@ const versionRows = computed<CertificateVersionRow[]>(() => {
   return [...rows].sort(compareVersionRows)
 })
 const versionCount = computed(() => versionRows.value.length)
+const canDeleteVersion = computed(() => permissionStore.hasPermission('certificate.lifecycle'))
 
 const hasCertificateMaterial = computed(() => isMaterialReady(draft))
 
@@ -140,7 +175,7 @@ watch(selectedAssetId, async (assetId) => {
     versionsError.value = null
     return
   }
-  await loadVersions(assetId)
+  await loadVersions(selectedAssetMemberIds.value)
 })
 
 watch(
@@ -199,14 +234,15 @@ async function loadAssets() {
     })
     assets.value = [...(result.data?.items ?? [])]
     await loadAssetLifecycleStatuses(assets.value)
-    const nextSelectedId = assets.value.some((item) => readId(item) === selectedAssetId.value)
+    const nextSelectedId = displayedAssets.value.some((item) => readId(item) === selectedAssetId.value)
       ? selectedAssetId.value
-      : readId(assets.value[0] as ApiRecord)
+      : readId(displayedAssets.value[0] as ApiRecord)
     selectedAssetId.value = nextSelectedId
   } catch (cause) {
     assetsError.value = toErrorState(cause)
     assets.value = []
     assetLifecycleMap.value = {}
+    assetVersionCountMap.value = {}
     selectedAssetId.value = ''
   } finally {
     assetsLoading.value = false
@@ -216,7 +252,7 @@ async function loadAssets() {
 async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
   const entries = await Promise.all(records.map(async (record) => {
     const assetId = readId(record)
-    if (!assetId) return ['', '未知'] as const
+    if (!assetId) return ['', { lifecycle: '未知', total: 0 }] as const
     try {
       const result = await listCertificateVersions({
         page: 1,
@@ -228,27 +264,44 @@ async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
       })
       const latest = (result.data?.items?.[0] ?? null) as ApiRecord | null
       const notAfter = readString(latest, ['notAfter'], '')
-      return [assetId, resolveLifecycleStatus(formatDateOnly(notAfter), readString(latest, ['status', 'state'], 'MANAGED'))] as const
+      return [assetId, {
+        lifecycle: resolveLifecycleStatus(formatDateOnly(notAfter), readString(latest, ['status', 'state'], 'MANAGED')),
+        total: Number(result.data?.total ?? 0),
+      }] as const
     } catch {
-      return [assetId, readAssetLifecycleStatus(record)] as const
+      return [assetId, { lifecycle: readAssetLifecycleStatus(record), total: 0 }] as const
     }
   }))
-  assetLifecycleMap.value = Object.fromEntries(entries.filter(([assetId]) => assetId))
+  assetLifecycleMap.value = Object.fromEntries(entries.filter(([assetId]) => assetId).map(([assetId, state]) => [assetId, state.lifecycle]))
+  assetVersionCountMap.value = Object.fromEntries(entries.filter(([assetId]) => assetId).map(([assetId, state]) => [assetId, state.total]))
 }
 
-async function loadVersions(assetId: string) {
+async function loadVersions(assetIds: string[]) {
+  if (assetIds.length === 0) {
+    versions.value = []
+    versionsError.value = null
+    return
+  }
   versionsLoading.value = true
   versionsError.value = null
   try {
-    const result = await listCertificateVersions({
+    const results = await Promise.all(assetIds.map((assetId) => listCertificateVersions({
       page: 1,
       pageSize: 100,
       sort: 'createdAt:desc',
       filters: {
         certificateAssetId: assetId,
       },
+    })))
+    const merged = new Map<string, ApiRecord>()
+    results.forEach((result) => {
+      ;(result.data?.items ?? []).forEach((item) => {
+        const versionId = readString(item, ['id', 'certificateVersionId'], '')
+        if (!versionId || merged.has(versionId)) return
+        merged.set(versionId, item)
+      })
     })
-    versions.value = [...(result.data?.items ?? [])]
+    versions.value = [...merged.values()]
   } catch (cause) {
     versionsError.value = toErrorState(cause)
     versions.value = []
@@ -361,6 +414,23 @@ function resolveLifecycleStatus(notAfter: string, status = '') {
   return '有效'
 }
 
+function selectRepresentativeAsset(records: ApiRecord[]) {
+  return [...records].sort(compareAssetRecords)[0]
+}
+
+function compareAssetRecords(left: ApiRecord, right: ApiRecord) {
+  const leftId = readId(left)
+  const rightId = readId(right)
+  const countDiff = (assetVersionCountMap.value[rightId] ?? 0) - (assetVersionCountMap.value[leftId] ?? 0)
+  if (countDiff !== 0) return countDiff
+  const leftTime = Date.parse(readString(left, ['currentVersion.notAfter', 'updatedAt'], ''))
+  const rightTime = Date.parse(readString(right, ['currentVersion.notAfter', 'updatedAt'], ''))
+  const normalizedLeftTime = Number.isNaN(leftTime) ? -1 : leftTime
+  const normalizedRightTime = Number.isNaN(rightTime) ? -1 : rightTime
+  if (normalizedLeftTime !== normalizedRightTime) return normalizedRightTime - normalizedLeftTime
+  return leftId.localeCompare(rightId)
+}
+
 function normalizeSortValue(row: CertificateVersionRow, field: VersionSortField) {
   switch (field) {
     case 'notBefore':
@@ -411,6 +481,28 @@ function openDetailDialog(row: CertificateVersionRow) {
   detailAssetId.value = row.assetId
   detailVersionId.value = row.id
   detailDialogOpen.value = true
+}
+
+async function removeVersion(row: CertificateVersionRow) {
+  if (!row.id || deletingVersionId.value) return
+  deletingVersionId.value = row.id
+  versionActionError.value = null
+  try {
+    await deleteCertificateVersion(row.id)
+    if (detailDialogOpen.value && detailVersionId.value === row.id) {
+      detailDialogOpen.value = false
+      detailVersionId.value = ''
+      detailAssetId.value = ''
+    }
+    if (selectedAssetId.value) {
+      await loadVersions(selectedAssetMemberIds.value)
+    }
+    await loadAssets()
+  } catch (cause) {
+    versionActionError.value = toErrorState(cause)
+  } finally {
+    deletingVersionId.value = ''
+  }
 }
 </script>
 
@@ -463,11 +555,11 @@ function openDetailDialog(row: CertificateVersionRow) {
 
         <div v-else-if="assetsLoading" class="certificate-page__state">加载中...</div>
 
-        <GcEmptyState v-else-if="assets.length === 0" class="certificate-page__empty-state" title="暂无域名列表" />
+        <GcEmptyState v-else-if="displayedAssets.length === 0" class="certificate-page__empty-state" title="暂无域名列表" />
 
         <div v-else class="certificate-page__asset-list">
           <button
-            v-for="asset in assets"
+            v-for="asset in displayedAssets"
             :key="readId(asset)"
             class="certificate-page__asset-item"
             :class="{ 'certificate-page__asset-item--active': readId(asset) === selectedAssetId }"
@@ -494,9 +586,14 @@ function openDetailDialog(row: CertificateVersionRow) {
         </header>
 
         <div class="certificate-page__versions-body">
+          <div v-if="versionActionError" class="certificate-page__inline-error" role="alert">
+            <strong>删除失败</strong>
+            <span>{{ versionActionError.message }}</span>
+            <span v-if="versionActionError.errorCode">错误码：{{ versionActionError.errorCode }}</span>
+          </div>
           <GcEmptyState v-if="versionsError" class="certificate-page__empty-state" title="SSL 证书列表加载失败" :description="versionsError.message">
             <p>错误码：{{ versionsError.errorCode }}</p>
-            <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetId)">重试</button>
+            <button class="gc-button" type="button" @click="selectedAssetId && loadVersions(selectedAssetMemberIds)">重试</button>
           </GcEmptyState>
 
           <div v-else-if="versionsLoading" class="certificate-page__state">加载中...</div>
@@ -585,7 +682,17 @@ function openDetailDialog(row: CertificateVersionRow) {
               <code class="certificate-page__version-id">{{ row.id }}</code>
             </template>
             <template #cell-actions="{ row }">
-              <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">详情</button>
+              <div class="certificate-page__row-actions">
+                <button class="gc-button" type="button" @click="openDetailDialog(row as CertificateVersionRow)">详情</button>
+                <GcConfirmAction
+                  v-if="canDeleteVersion"
+                  action-name="删除"
+                  :impact-count="1"
+                  risk-text="删除会直接移除当前证书版本；如果该版本仍被绑定或部署引用，后端会拒绝这个操作。"
+                  confirm-text="DELETE"
+                  @confirm="removeVersion(row as CertificateVersionRow)"
+                />
+              </div>
             </template>
           </GcDataTable>
         </div>
@@ -846,6 +953,16 @@ function openDetailDialog(row: CertificateVersionRow) {
   font-weight: 600;
 }
 
+.certificate-page__inline-error {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  background: #fff1f2;
+  color: #b42318;
+}
+
 .certificate-page__versions-body {
   display: flex;
   flex-direction: column;
@@ -1021,6 +1138,13 @@ function openDetailDialog(row: CertificateVersionRow) {
 
 .certificate-page__version-table :deep(td:last-child .gc-button) {
   min-width: 56px;
+}
+
+.certificate-page__row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: max-content;
 }
 
 @media (max-width: 1200px) {
