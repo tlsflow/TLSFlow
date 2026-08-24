@@ -31,6 +31,21 @@ describe('核心数据模型迁移', () => {
     }
   });
 
+  it('重复时间戳迁移保留历史版本并使用稳定的兼容版本', async () => {
+    const db = await migratedDb();
+    const result = await db.query<{ version: string; name: string }>(`
+      select version, name
+      from schema_migrations
+      where name in ('notification_settings', 'risk_history_and_report_tables')
+      order by name
+    `);
+
+    assert.deepEqual(result.rows, [
+      { version: '20260721000300', name: 'notification_settings' },
+      { version: '20260721000300_2', name: 'risk_history_and_report_tables' },
+    ]);
+  });
+
   it('关键索引和唯一约束存在', async () => {
     const db = await migratedDb();
     const result = await db.query<{ indexname: string }>(`
