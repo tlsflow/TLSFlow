@@ -53,6 +53,19 @@ vi.mock('@/design-system/components', () => ({
     name: 'GcPageToolbarStub',
     template: '<div class="gc-page-toolbar-stub"><slot name="actions" /><slot name="primary" /></div>',
   }),
+  GcPagination: defineComponent({
+    name: 'GcPaginationStub',
+    props: {
+      total: { type: Number, default: 0 },
+      page: { type: Number, default: 1 },
+      pageSize: { type: Number, default: 20 },
+      pageSizeOptions: { type: Array, default: () => [20, 50, 100] },
+      showTotal: { type: Boolean, default: true },
+      disabled: { type: Boolean, default: false },
+    },
+    emits: ['update:page', 'update:pageSize'],
+    template: '<nav class="gc-pagination-stub" />',
+  }),
 }))
 
 function mountView() {

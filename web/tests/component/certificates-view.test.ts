@@ -207,7 +207,10 @@ describe('CertificatesView', () => {
 
     expect(document.body.querySelector('.certificate-page__version-table')).not.toBeNull()
     expect(document.body.querySelector('.certificate-page__sort-row')).toBeNull()
-    expect(document.body.querySelector('.gc-data-table__footer')).toBeNull()
+    const versionTableFooter = document.body.querySelector('.certificate-page__version-table .gc-data-table__footer')
+    expect(versionTableFooter).not.toBeNull()
+    expect(versionTableFooter?.querySelector('.gc-pagination')).not.toBeNull()
+    expect(versionTableFooter?.querySelector('select.gc-pagination__size-select')).not.toBeNull()
 
     const tableText = document.body.textContent ?? ''
     expect(tableText).toContain('开始日期')

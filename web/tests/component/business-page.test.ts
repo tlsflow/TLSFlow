@@ -161,9 +161,12 @@ describe('BusinessResourcePage', () => {
 
     await vi.waitFor(() => expect(wrapper.text()).toContain('资源一'))
     expect(wrapper.get('.business-page__toolbar-title').text()).not.toContain('总数 2')
-    expect(wrapper.get('.gc-data-table__footer').text()).toContain('总数 2')
-    expect(wrapper.get('.gc-data-table__footer').text()).toContain('第 1 页 / 每页 20 条')
-    expect(wrapper.get('.business-page__pagination').element.parentElement?.classList.contains('gc-data-table__footer')).toBe(true)
+    const footer = wrapper.get('.gc-data-table__footer')
+    expect(footer.text()).toContain('总数 2')
+    expect(footer.text()).not.toContain('每页 20 条')
+    expect(footer.find('.gc-pagination').exists()).toBe(true)
+    expect(footer.find('select.gc-pagination__size-select').element).toBeInstanceOf(HTMLSelectElement)
+    expect((footer.find('select.gc-pagination__size-select').element as HTMLSelectElement).value).toBe('20')
   })
 
   it('普通资源动作按钮会执行 run 并刷新列表', async () => {

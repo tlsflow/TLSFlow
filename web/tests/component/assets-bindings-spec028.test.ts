@@ -609,7 +609,7 @@ describe('资产与证书产物视图', () => {
     })
     expect(wrapper.find('[data-testid="asset-overview-pagination"]').exists()).toBe(true)
 
-    await wrapper.get('[data-testid="asset-overview-next-page"]').trigger('click')
+    await wrapper.get('[data-testid="asset-overview-pagination"]').get('button[aria-label="下一页"]').trigger('click')
     await flushPromises()
 
     expect(assetMocks.listAssets).toHaveBeenLastCalledWith({
