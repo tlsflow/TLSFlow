@@ -1,11 +1,11 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "web-iis-certificate-verify", "displayName": "IIS certificate verification", "category": "certificate", "version": "1.0.12", "platforms": ["windows"], "maintainer": "GCAC" },
+  "metadata": { "name": "web-iis-certificate-verify", "displayName": "IIS certificate verification", "category": "certificate", "version": "1.0.13", "platforms": ["windows"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
-      "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.target" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "target": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "deployment_target_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "siteName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
       "bindingInformation": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }
     },
