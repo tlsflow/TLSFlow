@@ -694,9 +694,18 @@ export default {
     actions: {
       install: '플러그인 설치',
       detail: '상세 정보',
+      refresh: '마켓 새로고침',
+      refreshing: '새로고침 중...',
+      createWorkflow: '워크플로 만들기',
+      creatingWorkflow: '만드는 중...',
       disable: '플러그인 사용하지 않기',
       disableRisk: '플러그인을 사용하지 않으면 Provider, 템플릿, 실행기 기능에 영향을 준다.'
     },
+    market: { eyebrow: 'DSL 플러그인 마켓', title: '재사용 가능한 자동화 기능 찾기', description: '기본 제공 템플릿은 시스템과 함께 배포되고 사용자 템플릿은 data/workflows 에서 로드됩니다. 각 템플릿은 Logo, 시맨틱 버전, 태그를 관리할 수 있습니다.' },
+    sources: { builtin: '기본 제공', user: '사용자 플러그인' },
+    statuses: { valid: '사용 가능', invalid: '유효하지 않음', available: '생성 가능', inUse: '사용 중', notInUse: '사용하지 않음' },
+    filters: { searchLabel: '플러그인 검색', searchPlaceholder: '이름, 태그, 분류 또는 경로로 검색', allSources: '모든 출처', allStatuses: '모든 상태', statusLabel: '플러그인 상태' },
+    card: { defaultDescription: '이 DSL 플러그인에는 아직 설명이 없습니다.', unversioned: '버전 없음', stepCount: '실행 단계 {count}개' },
     columns: {
       name: '플러그인 이름',
       status: '상태',
@@ -709,6 +718,9 @@ export default {
         title: '총 플러그인',
         description: '설치되어 업그레이드 가능한 플러그인.'
       },
+      builtin: { title: '기본 제공 플러그인' },
+      user: { title: '사용자 플러그인' },
+      using: { title: '사용 중' },
       risky: {
         title: '고위험군은 처리를 기다린다.',
         description: '고위험 권한, 예외 서명 또는 샌드박스 격리 플러그인.'
@@ -729,9 +741,13 @@ export default {
       name: '플러그인 이름',
       currentStatus: '현재 상태',
       version: '버전',
+      source: '출처', category: '분류', steps: '실행 단계', rollbackSteps: '롤백 단계', updatedAt: '업데이트 시간', filePath: '템플릿 경로', logoUrl: 'Logo URL', platforms: '대상 플랫폼', updateMethods: '업데이트 방식', maintainer: '관리자', homepage: '프로젝트 홈페이지', usage: '사용 상태', validationError: '검증 오류',
       signatureStatus: '서명 상태',
       riskLevel: '위험수준'
-    }
+    },
+    aria: { filters: '플러그인 마켓 필터', list: 'DSL 플러그인 목록', logo: '{name} Logo' },
+    errors: { loadFailed: '플러그인 마켓을 불러오지 못했습니다', createFailed: '플러그인에서 워크플로를 만들지 못했습니다' },
+    changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
   },
   deploymentPlans: {
     title: '계획을 배포하다.',

@@ -720,9 +720,18 @@ export default {
     actions: {
       install: 'インストールプラグイン',
       detail: '詳細',
+      refresh: 'マーケットを更新',
+      refreshing: '更新中...',
+      createWorkflow: 'ワークフローを作成',
+      creatingWorkflow: '作成中...',
       disable: '無効化プラグイン',
       disableRisk: '無効化プラグインは影響 Provider、テンプレートとExecutor機能。'
     },
+    market: { eyebrow: 'DSL プラグインマーケット', title: '再利用可能な自動化機能を探す', description: '組み込みテンプレートはシステムに同梱され、ユーザーテンプレートは data/workflows から読み込まれます。各テンプレートで Logo、セマンティックバージョン、タグを管理できます。'},
+    sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
+    statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', inUse: '使用中', notInUse: '未使用' },
+    filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
+    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件' },
     columns: {
       name: 'プラグイン名前',
       status: 'ステータス',
@@ -735,6 +744,9 @@ export default {
         title: 'プラグイン合計',
         description: 'インストールとアップグレード可能なプラグイン済み。'
       },
+      builtin: { title: '組み込みプラグイン' },
+      user: { title: 'ユーザープラグイン' },
+      using: { title: '使用中' },
       risky: {
         title: '高リスク待処理',
         description: '高リスク権限、署名異常またはサンドボックス隔離プラグイン。'
@@ -755,9 +767,13 @@ export default {
       name: 'プラグイン名前',
       currentStatus: '現在のステータス',
       version: 'バージョン',
+      source: '提供元', category: 'カテゴリ', steps: '実行ステップ', rollbackSteps: 'ロールバックステップ', updatedAt: '更新日時', filePath: 'テンプレートパス', logoUrl: 'Logo URL', platforms: '対象プラットフォーム', updateMethods: '更新方法', maintainer: 'メンテナー', homepage: 'ホームページ', usage: '使用状態', validationError: '検証エラー',
       signatureStatus: '署名ステータス',
       riskLevel: 'リスク等级'
-    }
+    },
+    aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },
+    errors: { loadFailed: 'プラグインマーケットの読み込みに失敗しました', createFailed: 'プラグインからワークフローを作成できませんでした' },
+    changeSummaries: { createWorkflow: 'プラグインマーケットのテンプレートからワークフローを作成' }
   },
   deploymentPlans: {
     title: 'デプロイプラン',

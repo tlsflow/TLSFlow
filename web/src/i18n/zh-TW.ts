@@ -720,9 +720,18 @@ export default {
     actions: {
       install: "安裝外掛",
       detail: "詳情",
+      refresh: "重新整理市場",
+      refreshing: "重新整理中...",
+      createWorkflow: "建立工作流程",
+      creatingWorkflow: "建立中...",
       disable: "停用外掛",
       disableRisk: "停用外掛會影響 Provider、模板和執行器能力。"
     },
+    market: { eyebrow: "DSL 外掛市場", title: "探索可重用的自動化能力", description: "內建模板隨系統發布，使用者模板來自 data/workflows。每個模板都可維護 Logo、語意版本與能力標籤。" },
+    sources: { builtin: "內建外掛", user: "使用者外掛" },
+    statuses: { valid: "可用", invalid: "無效", available: "可建立", inUse: "正在使用", notInUse: "尚未使用" },
+    filters: { searchLabel: "搜尋外掛", searchPlaceholder: "依名稱、標籤、分類或路徑搜尋", allSources: "全部來源", allStatuses: "全部狀態", statusLabel: "外掛狀態" },
+    card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟" },
     columns: {
       name: "外掛名稱",
       status: "狀態",
@@ -735,6 +744,9 @@ export default {
         title: "外掛總數",
         description: "已安裝和可升級外掛。"
       },
+      builtin: { title: "內建外掛" },
+      user: { title: "使用者外掛" },
+      using: { title: "正在使用" },
       risky: {
         title: "高危待處理",
         description: "高危權限、簽名異常或沙箱隔離外掛。"
@@ -755,9 +767,13 @@ export default {
       name: "外掛名稱",
       currentStatus: "目前狀態",
       version: "版本",
+      source: "來源", category: "分類", steps: "執行步驟", rollbackSteps: "復原步驟", updatedAt: "更新時間", filePath: "模板路徑", logoUrl: "Logo 位址", platforms: "面向平台", updateMethods: "更新方式", maintainer: "維護者", homepage: "專案首頁", usage: "使用狀態", validationError: "驗證錯誤",
       signatureStatus: "簽名狀態",
       riskLevel: "風險等級"
-    }
+    },
+    aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },
+    errors: { loadFailed: "外掛市場載入失敗", createFailed: "依外掛建立工作流程失敗" },
+    changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
   },
   deploymentPlans: {
     title: "部署計畫",

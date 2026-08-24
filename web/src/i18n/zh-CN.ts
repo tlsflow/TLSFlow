@@ -723,13 +723,45 @@ export default {
   },
   plugins: {
     title: '插件',
-    description: '管理插件包、执行器、权限声明与沙箱隔离状态。',
+    description: '浏览内置与用户自定义 DSL 模板，并以插件形式统一管理版本、Logo 和模板能力。',
     resourceName: '插件',
     actions: {
       install: '安装插件',
       detail: '详情',
+      refresh: '刷新市场',
+      refreshing: '刷新中...',
+      createWorkflow: '创建工作流',
+      creatingWorkflow: '创建中...',
       disable: '禁用插件',
       disableRisk: '禁用插件会影响 Provider、模板和执行器能力。'
+    },
+    market: {
+      eyebrow: 'DSL 插件市场',
+      title: '发现可复用的自动化能力',
+      description: '内置模板随系统发布，用户模板来自 data/workflows。每个模板都可以维护独立 Logo、语义版本和能力标签。'
+    },
+    sources: {
+      builtin: '内置插件',
+      user: '用户插件'
+    },
+    statuses: {
+      valid: '可用',
+      invalid: '无效',
+      available: '可创建',
+      inUse: '正在使用',
+      notInUse: '尚未使用'
+    },
+    filters: {
+      searchLabel: '搜索插件',
+      searchPlaceholder: '按名称、标签、分类或路径搜索',
+      allSources: '全部来源',
+      allStatuses: '全部状态',
+      statusLabel: '插件状态'
+    },
+    card: {
+      defaultDescription: '该 DSL 插件尚未配置说明。',
+      unversioned: '未标注版本',
+      stepCount: '{count} 个执行步骤'
     },
     columns: {
       name: '插件名称',
@@ -743,6 +775,9 @@ export default {
         title: '插件总数',
         description: '已安装和可升级插件。'
       },
+      builtin: { title: '内置插件' },
+      user: { title: '用户插件' },
+      using: { title: '正在使用' },
       risky: {
         title: '高危待处理',
         description: '高危权限、签名异常或沙箱隔离插件。'
@@ -750,12 +785,12 @@ export default {
     },
     empty: {
       title: '暂无插件',
-      description: '安装前请确认插件权限、签名与回滚策略。'
+      description: '没有找到匹配的 DSL 插件，请调整筛选条件或向 data/workflows 导入模板。'
     },
     detail: {
       title: '插件详情',
       titleWithName: '插件 {name}',
-      description: '查看插件详情、权限声明与沙箱隔离信息。',
+      description: '查看 DSL 插件的来源、版本、Logo、步骤数量和文件位置。',
       versionLabel: '版本 {version}'
     },
     fields: {
@@ -763,8 +798,33 @@ export default {
       name: '插件名称',
       currentStatus: '当前状态',
       version: '版本',
+      source: '来源',
+      category: '分类',
+      steps: '执行步骤',
+      rollbackSteps: '回滚步骤',
+      updatedAt: '更新时间',
+      filePath: '模板路径',
+      logoUrl: 'Logo 地址',
+      platforms: '面向平台',
+      updateMethods: '更新方式',
+      maintainer: '维护者',
+      homepage: '项目主页',
+      usage: '使用状态',
+      validationError: '校验错误',
       signatureStatus: '签名状态',
       riskLevel: '风险等级'
+    },
+    aria: {
+      filters: '插件市场筛选条件',
+      list: 'DSL 插件列表',
+      logo: '{name} 的 Logo'
+    },
+    errors: {
+      loadFailed: '插件市场加载失败',
+      createFailed: '基于插件创建工作流失败'
+    },
+    changeSummaries: {
+      createWorkflow: '从插件市场模板创建工作流'
     }
   },
   deploymentPlans: {

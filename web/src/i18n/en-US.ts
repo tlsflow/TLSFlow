@@ -723,13 +723,36 @@ export default {
   },
   plugins: {
     title: 'Plugins',
-    description: 'Plugin packages, providers, permission declarations, signature validation, sandbox status, and isolation entry points.',
+    description: 'Browse built-in and user-defined DSL templates as versioned plugins with logos and capability metadata.',
     resourceName: 'Plugin',
     actions: {
       install: 'Install plugin',
       detail: 'Details',
+      refresh: 'Refresh market',
+      refreshing: 'Refreshing...',
+      createWorkflow: 'Create workflow',
+      creatingWorkflow: 'Creating...',
       disable: 'Disable plugin',
       disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
+    },
+    market: {
+      eyebrow: 'DSL Plugin Market',
+      title: 'Discover reusable automation capabilities',
+      description: 'Built-in templates ship with the system, while user templates come from data/workflows. Each template can maintain its own logo, semantic version, and capability tags.'
+    },
+    sources: { builtin: 'Built-in', user: 'User plugin' },
+    statuses: { valid: 'Available', invalid: 'Invalid', available: 'Ready to create', inUse: 'In use', notInUse: 'Not used' },
+    filters: {
+      searchLabel: 'Search plugins',
+      searchPlaceholder: 'Search by name, tag, category, or path',
+      allSources: 'All sources',
+      allStatuses: 'All statuses',
+      statusLabel: 'Plugin status'
+    },
+    card: {
+      defaultDescription: 'This DSL plugin has no description yet.',
+      unversioned: 'Unversioned',
+      stepCount: '{count} execution steps'
     },
     columns: {
       name: 'Plugin name',
@@ -743,6 +766,9 @@ export default {
         title: 'Total plugins',
         description: 'Installed and upgradeable plugins.'
       },
+      builtin: { title: 'Built-in plugins' },
+      user: { title: 'User plugins' },
+      using: { title: 'In use' },
       risky: {
         title: 'High-risk pending',
         description: 'Plugins with high-risk permissions, signature errors, or sandbox isolation.'
@@ -750,12 +776,12 @@ export default {
     },
     empty: {
       title: 'No plugins',
-      description: 'Review permission differences, signatures, and rollback strategy before installing plugins.'
+      description: 'No matching DSL plugins were found. Adjust the filters or import a template into data/workflows.'
     },
     detail: {
       title: 'Plugin details',
       titleWithName: 'Plugin {name}',
-      description: 'Plugin details are shown in a modal while the main page keeps a compact list.',
+      description: 'Review the DSL plugin source, version, logo, step counts, and file location.',
       versionLabel: 'Version {version}'
     },
     fields: {
@@ -763,9 +789,32 @@ export default {
       name: 'Plugin name',
       currentStatus: 'Current status',
       version: 'Version',
+      source: 'Source',
+      category: 'Category',
+      steps: 'Execution steps',
+      rollbackSteps: 'Rollback steps',
+      updatedAt: 'Updated at',
+      filePath: 'Template path',
+      logoUrl: 'Logo URL',
+      platforms: 'Target platforms',
+      updateMethods: 'Update methods',
+      maintainer: 'Maintainer',
+      homepage: 'Homepage',
+      usage: 'Usage status',
+      validationError: 'Validation error',
       signatureStatus: 'Signature status',
       riskLevel: 'Risk level'
-    }
+    },
+    aria: {
+      filters: 'Plugin market filters',
+      list: 'DSL plugin list',
+      logo: '{name} logo'
+    },
+    errors: {
+      loadFailed: 'Failed to load the plugin market',
+      createFailed: 'Failed to create a workflow from the plugin'
+    },
+    changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
   },
   deploymentPlans: {
     title: 'Deployment plans',

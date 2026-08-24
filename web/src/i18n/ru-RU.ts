@@ -694,9 +694,18 @@ export default {
     actions: {
       install: 'Установить плагин',
       detail: 'Детали',
+      refresh: 'Обновить каталог',
+      refreshing: 'Обновление...',
+      createWorkflow: 'Создать процесс',
+      creatingWorkflow: 'Создание...',
       disable: 'Отключить плагин',
       disableRisk: 'Отключение плагина повлияет на возможности Provider, шаблонов и исполнителей.'
     },
+    market: { eyebrow: 'Каталог DSL-плагинов', title: 'Повторно используемые возможности автоматизации', description: 'Встроенные шаблоны поставляются с системой, пользовательские загружаются из data/workflows. Для каждого шаблона можно задать логотип, семантическую версию и теги.' },
+    sources: { builtin: 'Встроенный', user: 'Пользовательский' },
+    statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', inUse: 'Используется', notInUse: 'Не используется' },
+    filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
+    card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}' },
     columns: {
       name: 'Название плагина',
       status: 'Статус',
@@ -709,6 +718,9 @@ export default {
         title: 'Всего плагинов',
         description: 'Установленные и доступные к обновлению плагины.'
       },
+      builtin: { title: 'Встроенные плагины' },
+      user: { title: 'Пользовательские плагины' },
+      using: { title: 'Используются' },
       risky: {
         title: 'Высокий риск к обработке',
         description: 'Плагины с опасными правами, ошибками подписи или изоляцией песочницы.'
@@ -729,9 +741,13 @@ export default {
       name: 'Название плагина',
       currentStatus: 'Текущий статус',
       version: 'Версия',
+      source: 'Источник', category: 'Категория', steps: 'Шаги выполнения', rollbackSteps: 'Шаги отката', updatedAt: 'Обновлено', filePath: 'Путь шаблона', logoUrl: 'URL логотипа', platforms: 'Целевые платформы', updateMethods: 'Способы обновления', maintainer: 'Сопровождающий', homepage: 'Страница проекта', usage: 'Статус использования', validationError: 'Ошибка проверки',
       signatureStatus: 'Статус подписи',
       riskLevel: 'Уровень риска'
-    }
+    },
+    aria: { filters: 'Фильтры каталога плагинов', list: 'Список DSL-плагинов', logo: 'Логотип {name}' },
+    errors: { loadFailed: 'Не удалось загрузить каталог плагинов', createFailed: 'Не удалось создать процесс из плагина' },
+    changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
   },
   deploymentPlans: {
     title: 'Планы развертывания',

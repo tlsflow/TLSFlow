@@ -694,9 +694,18 @@ export default {
     actions: {
       install: 'Instalar plugin',
       detail: 'Detalhes',
+      refresh: 'Atualizar mercado',
+      refreshing: 'Atualizando...',
+      createWorkflow: 'Criar fluxo de trabalho',
+      creatingWorkflow: 'Criando...',
       disable: 'Desativar plugin',
       disableRisk: 'Desativar um plugin afeta capacidades de Provider, modelos e executores.'
     },
+    market: { eyebrow: 'Mercado de plugins DSL', title: 'Descubra automações reutilizáveis', description: 'Os modelos integrados acompanham o sistema e os modelos do usuário vêm de data/workflows. Cada modelo pode manter logo, versão semântica e tags.' },
+    sources: { builtin: 'Integrado', user: 'Plugin do usuário' },
+    statuses: { valid: 'Disponível', invalid: 'Inválido', available: 'Pronto para criar', inUse: 'Em uso', notInUse: 'Não utilizado' },
+    filters: { searchLabel: 'Pesquisar plugins', searchPlaceholder: 'Pesquisar por nome, tag, categoria ou caminho', allSources: 'Todas as origens', allStatuses: 'Todos os estados', statusLabel: 'Estado do plugin' },
+    card: { defaultDescription: 'Este plugin DSL ainda não possui descrição.', unversioned: 'Sem versão', stepCount: '{count} etapas de execução' },
     columns: {
       name: 'Nome do plugin',
       status: 'Status',
@@ -709,6 +718,9 @@ export default {
         title: 'Total de plugins',
         description: 'Plugins instalados e com atualização disponível.'
       },
+      builtin: { title: 'Plugins integrados' },
+      user: { title: 'Plugins do usuário' },
+      using: { title: 'Em uso' },
       risky: {
         title: 'Alto risco pendente',
         description: 'Plugins com permissões de alto risco, assinatura anormal ou isolamento em sandbox.'
@@ -729,9 +741,13 @@ export default {
       name: 'Nome do plugin',
       currentStatus: 'Status atual',
       version: 'Versão',
+      source: 'Origem', category: 'Categoria', steps: 'Etapas de execução', rollbackSteps: 'Etapas de rollback', updatedAt: 'Atualizado em', filePath: 'Caminho do modelo', logoUrl: 'URL do logo', platforms: 'Plataformas alvo', updateMethods: 'Métodos de atualização', maintainer: 'Mantenedor', homepage: 'Página do projeto', usage: 'Estado de uso', validationError: 'Erro de validação',
       signatureStatus: 'Status da assinatura',
       riskLevel: 'Nível de risco'
-    }
+    },
+    aria: { filters: 'Filtros do mercado de plugins', list: 'Lista de plugins DSL', logo: 'Logo de {name}' },
+    errors: { loadFailed: 'Falha ao carregar o mercado de plugins', createFailed: 'Falha ao criar o fluxo a partir do plugin' },
+    changeSummaries: { createWorkflow: 'Criar fluxo a partir do modelo do mercado de plugins' }
   },
   deploymentPlans: {
     title: 'Planos de implantação',
