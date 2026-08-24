@@ -1,6 +1,8 @@
 package main
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestDefaultHeartbeatAndDirectControlState(t *testing.T) {
 	config := &AgentConfig{DirectControlEnabled: true}
@@ -10,6 +12,42 @@ func TestDefaultHeartbeatAndDirectControlState(t *testing.T) {
 	state := newDirectControlState(config)
 	if !state.Enabled || state.ListenAddress == "" {
 		t.Fatalf("注册前未生成 Direct Control 端点：%+v", state)
+	}
+}
+
+func TestBuildDirectDiscoveryPayloadWindowsKeepsEmptyIISHostHeader(t *testing.T) {
+	identity := runtimeIdentity{
+		PrimaryIPAddress: "10.0.0.10",
+		AdapterSnapshot: windowsAdapterSnapshot{
+			IIS: &windowsIISDetail{
+				Installed: true,
+				Sites: []windowsIISSite{{
+					Name: "测试站点",
+					Bindings: []windowsIISBinding{{
+						Protocol:           "https",
+						IPAddress:          "*",
+						Port:               443,
+						BindingInformation: "*:443:",
+					}},
+				}},
+			},
+		},
+	}
+
+	payload := buildDirectDiscoveryPayloadWindows(identity, directDiscoveryRequest{IncludeBindings: true})
+	sites := payload["siteAssets"].([]map[string]any)
+	if len(sites) != 1 {
+		t.Fatalf("空 Host Header 的 HTTPS Binding 应保留，实际站点数量 %d", len(sites))
+	}
+	if sites[0]["port"] != 443 || sites[0]["bindingInformation"] != "*:443:" {
+		t.Fatalf("IIS Binding 信息不完整：%+v", sites[0])
+	}
+	if sites[0]["hostHeader"] != "" {
+		t.Fatalf("空 Host Header 不应伪造成站点名称：%+v", sites[0])
+	}
+	serviceAssets := payload["serviceAssets"].([]map[string]any)
+	if serviceAssets[0]["address"] != "10.0.0.10" {
+		t.Fatalf("通配绑定应回退到设备地址：%+v", serviceAssets[0])
 	}
 }
 

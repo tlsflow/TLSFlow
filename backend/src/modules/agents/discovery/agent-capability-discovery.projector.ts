@@ -31,6 +31,7 @@ interface WebProductDescriptor {
   frameworkName: string;
   targetType: string;
   deployCapability: string;
+  fallbackHostHeaderToSiteName?: boolean;
 }
 
 const webProductProjectors: AgentProductDiscoveryProjector[] = [
@@ -149,7 +150,7 @@ function createWebProductProjector(descriptor: WebProductDescriptor): AgentProdu
 
       for (const [siteIndex, site] of readRecords(detail, 'sites', 'Sites').entries()) {
         const siteName = readString(site, 'name', 'Name') ?? `${descriptor.frameworkName}-${siteIndex + 1}`;
-        const listeners = readRecords(site, 'listen', 'Bindings').filter(hasValidPort);
+        const listeners = readRecords(site, 'listen', 'bindings', 'Bindings').filter(hasValidPort);
         const primaryListener = listeners.find(isTlsListener) ?? listeners[0];
         const projectedSite = createSite(
           frameworkStableKey,
@@ -159,6 +160,7 @@ function createWebProductProjector(descriptor: WebProductDescriptor): AgentProdu
           site,
           primaryListener,
           listeners,
+          descriptor.fallbackHostHeaderToSiteName !== false,
         );
         discovery.sites.push(projectedSite);
         for (const [listenerIndex, listener] of listeners.entries()) {
@@ -189,6 +191,7 @@ function createIisProductProjector(): AgentProductDiscoveryProjector {
     frameworkName: 'Microsoft IIS',
     targetType: 'tls.binding',
     deployCapability: 'windows.iis.binding.update_certificate',
+    fallbackHostHeaderToSiteName: false,
   });
 }
 
@@ -243,13 +246,14 @@ function createSite(
   site: Record<string, unknown>,
   listener?: Record<string, unknown>,
   listeners: Record<string, unknown>[] = listener ? [listener] : [],
+  fallbackHostHeaderToSiteName = true,
 ): StandardDeviceDiscoveryV2['sites'][number] {
   const address = readString(listener, 'address', 'IPAddress', 'Address') ?? '*';
   const port = readNumber(listener, 'port', 'Port');
   const protocol = normalizeProtocol(listener);
   const hostHeader = readString(listener, 'hostHeader', 'HostHeader')
     ?? readStrings(site, 'serverNames')[0]
-    ?? siteName;
+    ?? (fallbackHostHeaderToSiteName ? siteName : undefined);
   const siteIdentity = readString(site, 'id', 'Id', 'siteId', 'SiteId', 'siteKey', 'SiteKey', 'key', 'Key')
     ?? readStrings(site, 'configFiles').join('|')
     ?? String(siteIndex);
@@ -265,8 +269,8 @@ function createSite(
     metadata: compactRecord({
       siteName,
       hostHeader,
-      bindingInformation: listener ? listenerBindingInformation(siteName, site, listener) : undefined,
-      listeners: listeners.map((item, index) => normalizeListener(siteName, site, item, index)),
+      bindingInformation: listener ? listenerBindingInformation(siteName, site, listener, fallbackHostHeaderToSiteName) : undefined,
+      listeners: listeners.map((item, index) => normalizeListener(siteName, site, item, index, fallbackHostHeaderToSiteName)),
       configPath: readStrings(site, 'configFiles')[0],
       sitePath: readString(site, 'sitePath', 'PhysicalPath'),
       siteMode: readString(site, 'siteMode'),
@@ -301,20 +305,20 @@ function createManagedTarget(input: {
   };
 }
 
-function normalizeListener(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>, listenerIndex: number): Record<string, unknown> {
+function normalizeListener(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>, listenerIndex: number, fallbackHostHeaderToSiteName = true): Record<string, unknown> {
   const address = readString(listener, 'address', 'IPAddress', 'Address') ?? '*';
   const port = readNumber(listener, 'port', 'Port');
   const protocol = normalizeProtocol(listener);
   const hostHeader = readString(listener, 'hostHeader', 'HostHeader')
     ?? readStrings(site, 'serverNames')[0]
-    ?? siteName;
+    ?? (fallbackHostHeaderToSiteName ? siteName : undefined);
   return compactRecord({
     listenerKey: listenerStableKey(listener, listenerIndex),
     address,
     port,
     protocol,
     hostHeader,
-    bindingInformation: listenerBindingInformation(siteName, site, listener),
+    bindingInformation: listenerBindingInformation(siteName, site, listener, fallbackHostHeaderToSiteName),
     tls: isTlsListener(listener),
   });
 }
@@ -330,14 +334,14 @@ function listenerStableKey(listener: Record<string, unknown>, listenerIndex: num
   );
 }
 
-function listenerBindingInformation(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>): string {
+function listenerBindingInformation(siteName: string, site: Record<string, unknown>, listener: Record<string, unknown>, fallbackHostHeaderToSiteName = true): string {
   const explicit = readString(listener, 'bindingInformation', 'BindingInformation');
   if (explicit) return explicit;
   const address = readString(listener, 'address', 'IPAddress', 'Address') ?? '*';
   const port = readNumber(listener, 'port', 'Port') ?? '';
   const hostHeader = readString(listener, 'hostHeader', 'HostHeader')
     ?? readStrings(site, 'serverNames')[0]
-    ?? siteName;
+    ?? (fallbackHostHeaderToSiteName ? siteName : '');
   return [address, port, hostHeader].join(':');
 }
 

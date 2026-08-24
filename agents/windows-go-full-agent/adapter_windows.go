@@ -371,7 +371,8 @@ func (h windowsExecutionHost) runPowerShell(script string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
 	defer cancel()
 
-	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	utf8Script := "$utf8 = New-Object System.Text.UTF8Encoding($false); [Console]::OutputEncoding = $utf8; $OutputEncoding = $utf8; " + script
+	command := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", utf8Script)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("powershell 执行失败: %w: %s", err, strings.TrimSpace(string(output)))

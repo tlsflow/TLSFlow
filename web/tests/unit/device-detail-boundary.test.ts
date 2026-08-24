@@ -123,6 +123,14 @@ describe('统一设备详情动作边界', () => {
     expect(source).toContain("candidates: ['controlVersion']")
   })
 
+  it('应用资产向导进入部署模式时刷新当前 ACTIVE 发现数据', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/views/assets/AssetsView.vue'), 'utf8')
+    expect(source).toContain("filters: { deviceId: hostId, status: 'ACTIVE' }")
+    expect(source).toContain('await refreshManagedTargetSelection()')
+    expect(source).toContain('await refreshAssetTargets()')
+    expect(source).toContain('await loadManagedTargets(assetDraft.siteAssetId)')
+  })
+
   it('统一详情沿用旧 Agent 视觉骨架且保留双列站点布局', () => {
     const modalSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/ManagedDeviceDetailModal.vue'), 'utf8')
     const sitesSource = readFileSync(resolve(process.cwd(), 'src/views/devices/details/tabs/DeviceSitesTab.vue'), 'utf8')
@@ -132,10 +140,16 @@ describe('统一设备详情动作边界', () => {
     expect(modalSource).toContain('agent-detail-modal__tab')
     expect(modalSource).toContain('agent-detail-modal__actions')
     expect(modalSource).toContain('width="82vw"')
+    expect(modalSource).toContain('<template #header-actions>')
+    expect(modalSource).not.toContain(':description="t(\'devices.unifiedDetail.modalDescription\')"')
     expect(modalSource).toContain('@certificate-click="openCertificateDetail"')
     expect(modalSource).toContain('CertificateDetailPanel')
     expect(modalSource).toContain('certificateAssetDetailOpen.value = true')
     expect(modalSource).toContain('@click="executePluginAction(action.capabilityKey)"')
+    expect(modalSource).toContain("allowedActions.includes('device.discover')")
+    expect(modalSource).toContain("pluginCapabilities.includes('device.discover')")
+    expect(modalSource).toContain("executePluginAction('device.discover')")
+    expect(modalSource).toContain("action.capabilityKey !== 'device.discover'")
     expect(modalSource).toContain('getManagedDevice(openedDeviceId.value, locale.value)')
     expect(modalSource).not.toContain('@click="openCertificateAssetDetail"')
     expect(modalSource).not.toContain('selectedCertificate.value !== selection')

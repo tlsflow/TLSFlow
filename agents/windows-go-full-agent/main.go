@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.4"
+	agentVersion      = "0.1.6"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll   = 60
@@ -683,7 +683,7 @@ func runForeground(ctx context.Context, configPath string) error {
 		logger.Warn("direct control firewall rule sync failed: %v", firewallErr)
 	}
 
-	directServer, directErr := startDirectControlServer(config, &status)
+	directServer, directErr := startDirectControlServer(config, registration, &status)
 	if directErr != nil {
 		logger.Warn("direct control listener failed: %v", directErr)
 		status.DirectControl = newDirectControlState(config)
@@ -1269,7 +1269,7 @@ func newDirectControlState(config *AgentConfig) *directControlState {
 	return state
 }
 
-func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot) (*directControlServer, error) {
+func startDirectControlServer(config *AgentConfig, registration *runtimeRegistration, status *runtimeStatusSnapshot) (*directControlServer, error) {
 	if !config.DirectControlEnabled {
 		return nil, nil
 	}
@@ -1317,7 +1317,7 @@ func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot
 			http.Error(w, "invalid json body", http.StatusBadRequest)
 			return
 		}
-		response, statusCode := executeDirectControlAction(config, request)
+		response, statusCode := executeDirectControlAction(config, registration, request)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(response)
@@ -1332,7 +1332,7 @@ func startDirectControlServer(config *AgentConfig, status *runtimeStatusSnapshot
 			http.Error(w, "invalid json body", http.StatusBadRequest)
 			return
 		}
-		response, statusCode := startDirectControlAction(config, request)
+		response, statusCode := startDirectControlAction(config, registration, request)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(response)
@@ -1384,7 +1384,7 @@ func (s *directControlServer) shutdown(ctx context.Context) {
 	_ = s.server.Shutdown(ctx)
 }
 
-func executeDirectControlAction(config *AgentConfig, request directActionExecuteRequest) (map[string]any, int) {
+func executeDirectControlAction(config *AgentConfig, registration *runtimeRegistration, request directActionExecuteRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
 	payload := map[string]any{}
 	for key, value := range request.Inputs {
@@ -1405,10 +1405,6 @@ func executeDirectControlAction(config *AgentConfig, request directActionExecute
 	}
 
 	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
-	hostName, err := os.Hostname()
-	if err != nil || strings.TrimSpace(hostName) == "" {
-		hostName = "localhost"
-	}
 	execution := &taskExecutionContext{
 		ctx:    context.Background(),
 		client: &http.Client{Timeout: 20 * time.Second},
@@ -1425,11 +1421,7 @@ func executeDirectControlAction(config *AgentConfig, request directActionExecute
 				entries:  map[string]recoveryLedgerEntry{},
 			},
 		},
-		registration: &runtimeRegistration{
-			AgentID:  "direct-control",
-			Hostname: hostName,
-			Version:  agentVersion,
-		},
+		registration: registration,
 		task: agentTaskEnvelope{
 			ID:              taskID,
 			ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
@@ -1456,7 +1448,7 @@ func executeDirectControlAction(config *AgentConfig, request directActionExecute
 	}, statusCode
 }
 
-func startDirectControlAction(config *AgentConfig, request directActionStartRequest) (map[string]any, int) {
+func startDirectControlAction(config *AgentConfig, registration *runtimeRegistration, request directActionStartRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
 	payload := map[string]any{}
 	for key, value := range request.Inputs {
@@ -1487,10 +1479,6 @@ func startDirectControlAction(config *AgentConfig, request directActionStartRequ
 	})
 
 	go func() {
-		hostName, err := os.Hostname()
-		if err != nil || strings.TrimSpace(hostName) == "" {
-			hostName = "localhost"
-		}
 		execution := &taskExecutionContext{
 			ctx:    context.Background(),
 			client: &http.Client{Timeout: 20 * time.Second},
@@ -1507,11 +1495,7 @@ func startDirectControlAction(config *AgentConfig, request directActionStartRequ
 					entries:  map[string]recoveryLedgerEntry{},
 				},
 			},
-			registration: &runtimeRegistration{
-				AgentID:  "direct-control",
-				Hostname: hostName,
-				Version:  agentVersion,
-			},
+			registration: registration,
 			task: agentTaskEnvelope{
 				ID:              actionID,
 				ExecutionRunID:  fmt.Sprintf("direct_run_%d", time.Now().UnixNano()),
@@ -1630,21 +1614,31 @@ func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request direct
 					continue
 				}
 				hostHeader := strings.TrimSpace(binding.HostHeader)
-				if hostHeader == "" || binding.Port <= 0 {
+				if binding.Port <= 0 {
 					continue
 				}
-				serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", hostHeader, binding.Port, protocol))
+				address := hostHeader
+				if address == "" {
+					address = strings.TrimSpace(binding.IPAddress)
+				}
+				if address == "" || address == "*" || address == "0.0.0.0" || address == "::" {
+					address = primaryIP
+				}
+				if address == "" {
+					address = hostName
+				}
+				serviceAssetRef := strings.ToLower(fmt.Sprintf("%s:%d:%s", address, binding.Port, protocol))
 				siteKey := strings.ToLower(fmt.Sprintf("%s:iis:%s:%s", hostName, site.Name, binding.BindingInformation))
 				serviceAssets = append(serviceAssets, map[string]any{
 					"serviceAssetRef": serviceAssetRef,
 					"hostname":        hostName,
 					"providerType":    "IIS",
 					"serviceName":     "iis",
-					"address":         hostHeader,
+					"address":         address,
 					"port":            binding.Port,
 					"protocol":        protocol,
 					"sniName":         hostHeader,
-					"displayName":     hostHeader,
+					"displayName":     site.Name,
 				})
 				siteAssets = append(siteAssets, map[string]any{
 					"siteAssetRef":       "site-asset:" + siteKey,

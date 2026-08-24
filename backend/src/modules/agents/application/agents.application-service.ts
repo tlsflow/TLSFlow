@@ -352,30 +352,22 @@ export class AgentsApplicationService {
   async enqueueCapabilityRescanTask(tenantId: string, input: EnqueueAgentCapabilityRescanInput, requestId: string): Promise<AgentTaskEnvelope> {
     const agent = await this.requireAgent(tenantId, input.agentId);
     const existingQueuedTask = await this.findActiveCapabilityRescanTask(tenantId, input.agentId);
-    if (existingQueuedTask) {
-      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Agent 已存在进行中的能力重扫任务', {
-        agentId: input.agentId,
-        taskId: existingQueuedTask.id,
-        status: existingQueuedTask.status,
-      });
-    }
-    if (!agent.directControl?.enabled || !agent.directControl.reachable || !agent.directControl.supportedActions.includes('agent.capability.rescan')) {
-      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 能力重扫要求可达的主动直连通道', {
-        agentId: agent.id,
-        actionType: 'agent.capability.rescan',
-      });
-    }
-    const task = await this.enqueueDirectTask(tenantId, {
+    if (existingQueuedTask) return existingQueuedTask;
+    const task = await this.enqueueTask(tenantId, {
       agentId: input.agentId,
       executionRunId: `agent_rescan:${input.agentId}`,
       executionStepId: `capability_rescan:${input.agentId}`,
-      idempotencyKey: `agent.capability.rescan:${input.agentId}`,
+      idempotencyKey: `agent.capability.rescan:${input.agentId}:${requestId}`,
       payload: {
         type: 'agent.capability.rescan',
         requestedBy: input.requestedBy,
         requestedAt: new Date().toISOString(),
       },
     }, requestId);
+    const canExecuteDirectly = agent.directControl?.enabled
+      && agent.directControl.reachable
+      && agent.directControl.supportedActions.includes('agent.capability.rescan');
+    if (!canExecuteDirectly) return task;
     const direct = await this.executeTaskDirect(tenantId, task.id, `${requestId}:direct_rescan`);
     return direct.task;
   }

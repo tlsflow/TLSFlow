@@ -95,9 +95,12 @@ onBeforeUnmount(() => {
             <h2 v-if="title">{{ title }}</h2>
             <p v-if="description">{{ description }}</p>
           </div>
-          <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
-            ×
-          </button>
+          <div class="gc-modal__header-actions">
+            <slot name="header-actions" />
+            <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
+              ×
+            </button>
+          </div>
         </header>
 
         <div class="gc-modal__body">
@@ -189,6 +192,14 @@ onBeforeUnmount(() => {
   gap: var(--gc-space-2);
   padding-top: 10px;
   border-top: 1px solid var(--gc-color-border);
+}
+
+.gc-modal__header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gc-space-2);
+  margin-left: auto;
 }
 
 .gc-modal--frameless {

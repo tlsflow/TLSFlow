@@ -103,12 +103,22 @@ export class DevicesApplicationService {
     return this.onboardPluginDevice(tenantId, input, actorId);
   }
 
-  async executeCapability(tenantId: string, deviceId: string, capabilityKey: string) {
-    if (!this.pluginBindings || !this.pluginWorkflows || !this.workflows) throw new AppError('CAPABILITY_MISSING', '插件工作流执行服务未注册');
+  async executeCapability(tenantId: string, deviceId: string, capabilityKey: string, actorId = 'system_devices', requestId = 'device-action') {
     if (!['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.discover'].includes(capabilityKey)) {
       throw new AppError('VALIDATION_FAILED', '该设备动作必须通过部署计划执行', { capabilityKey });
     }
     const device = await this.get(tenantId, deviceId);
+    if (device.extension.type === 'AGENT') {
+      if (capabilityKey !== 'device.discover') {
+        throw new AppError('CAPABILITY_MISSING', 'Agent 设备不支持该设备动作', { deviceId, capabilityKey });
+      }
+      if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 服务未注册');
+      return this.agents.enqueueCapabilityRescanTask(tenantId, {
+        agentId: device.extension.agentId,
+        requestedBy: actorId,
+      }, requestId);
+    }
+    if (!this.pluginBindings || !this.pluginWorkflows || !this.workflows) throw new AppError('CAPABILITY_MISSING', '插件工作流执行服务未注册');
     if (capabilityKey !== 'device.connection.test'
       && (device.livenessSignals?.length ?? 0) > 0
       && device.livenessStatus !== 'ONLINE') {
@@ -446,6 +456,7 @@ function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDeta
   }));
   return {
     ...device,
+    allowedActions: [...new Set([...device.allowedActions, 'device.discover'])],
     overview: {
       ...device.overview,
       deviceType: 'AGENT',

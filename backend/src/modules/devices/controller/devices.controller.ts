@@ -19,7 +19,7 @@ export class DevicesController {
     router.get('/api/v1/devices', '查询统一设备列表', tags, (request) => this.list(request));
     router.get('/api/v1/devices/onboarding-platforms', '查询设备添加平台', tags, () => this.service.listOnboardingPlatforms());
     router.post('/api/v1/devices/onboarding', '添加受管设备', tags, (request) => this.onboard(request));
-    router.post('/api/v1/devices/:deviceId/actions', '执行设备插件能力', tags, (request) => this.executeCapability(request));
+    router.post('/api/v1/devices/:deviceId/actions', '执行统一设备能力', tags, (request) => this.executeCapability(request));
     router.get('/api/v1/devices/:deviceId', '查询统一设备详情', tags, (request) => this.get(request));
   }
 
@@ -71,7 +71,13 @@ export class DevicesController {
     await this.security?.rbac.assertCan(subject, 'host.update', {
       type: 'host', id: deviceId, scope: { tenantId: request.context.tenantId, ownerId: subject.id },
     }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject });
-    return this.service.executeCapability(tenantId(request), deviceId, capabilityKey);
+    return this.service.executeCapability(
+      tenantId(request),
+      deviceId,
+      capabilityKey,
+      subject.id,
+      request.context.requestId ?? 'device-action',
+    );
   }
 
   private subjectFromRequest(request: HttpRequest): SecuritySubject {
@@ -93,7 +99,7 @@ export function getDeviceRouteContracts(): RouteContract[] {
     method: 'POST',
     path: '/api/v1/devices/:deviceId/actions',
     operationId: 'executeManagedDeviceCapability',
-    summary: '执行设备插件能力',
+    summary: '执行统一设备能力',
     tags,
     responseSchema: { type: 'object' },
   }, {

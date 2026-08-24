@@ -6,6 +6,35 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AgentsApplicationService } from './application/agents.application-service.js';
 
 describe('Agent direct control api', () => {
+  it('非直连 Agent 能力重扫进入现有任务队列且重复请求复用活动任务', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const registered = await agentsService.register('tenant_agent_queued_rescan', {
+      agentKey: 'queued-rescan-agent',
+      machineId: 'queued-rescan-machine',
+      hostname: 'queued-rescan-host',
+      version: '1.0.0',
+      osType: 'windows',
+      arch: 'amd64',
+    }, 'request_register_queued_rescan');
+
+    const first = await agentsService.enqueueCapabilityRescanTask('tenant_agent_queued_rescan', {
+      agentId: registered.id,
+      requestedBy: 'user-1',
+    }, 'request_queued_rescan_1');
+    const repeated = await agentsService.enqueueCapabilityRescanTask('tenant_agent_queued_rescan', {
+      agentId: registered.id,
+      requestedBy: 'user-1',
+    }, 'request_queued_rescan_2');
+
+    assert.equal(first.status, 'queued');
+    assert.equal(first.payload.type, 'agent.capability.rescan');
+    assert.equal(repeated.id, first.id);
+    assert.deepEqual((await agentsService.pullTasks('tenant_agent_queued_rescan', registered.id)).map((task) => task.id), [first.id]);
+  });
+
   it('同一 Agent 可复用原始一次性令牌完成幂等重注册', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');

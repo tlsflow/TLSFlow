@@ -309,7 +309,9 @@ function bindingInformation(site: StandardDeviceDiscoveryV2['sites'][number]) {
 
 function siteHostHeader(site: StandardDeviceDiscoveryV2['sites'][number]): string | null {
   const metadataHostHeader = site.metadata?.hostHeader;
-  return typeof metadataHostHeader === 'string' && metadataHostHeader.trim() ? metadataHostHeader.trim() : site.addresses[0] ?? null;
+  if (typeof metadataHostHeader === 'string' && metadataHostHeader.trim()) return metadataHostHeader.trim();
+  const address = site.addresses[0]?.trim();
+  return address && !['*', '0.0.0.0', '::'].includes(address) ? address : null;
 }
 
 function siteListenIp(site: StandardDeviceDiscoveryV2['sites'][number]): string | null {

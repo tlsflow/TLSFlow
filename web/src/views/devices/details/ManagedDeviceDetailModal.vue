@@ -37,7 +37,12 @@ const pluginPresentation = computed(() => {
   return value && typeof value === 'object' ? value as DevicePresentationSchema : null
 })
 const pluginMessages = computed(() => asRecord(pluginUi.value.messages) as Record<string, string>)
-const pluginActions = computed(() => pluginPresentation.value?.actions ?? [])
+const pluginActions = computed(() => (pluginPresentation.value?.actions ?? []).filter(action => action.capabilityKey !== 'device.discover'))
+const canRediscover = computed(() => {
+  const allowedActions = Array.isArray(detail.value?.allowedActions) ? detail.value.allowedActions : []
+  const pluginCapabilities = Array.isArray(pluginUi.value.capabilities) ? pluginUi.value.capabilities : []
+  return allowedActions.includes('device.discover') || pluginCapabilities.includes('device.discover')
+})
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
 const status = computed(() => String(detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
@@ -200,10 +205,20 @@ defineExpose({ open })
   <GcModal
     v-model:open="opened"
     :title="t('devices.detail.title')"
-    :description="t('devices.unifiedDetail.modalDescription')"
     size="lg"
     width="82vw"
   >
+    <template #header-actions>
+      <button
+        v-if="canRediscover"
+        class="gc-button"
+        type="button"
+        :disabled="rediscovering"
+        @click="executePluginAction('device.discover')"
+      >
+        {{ rediscovering ? t('devices.unifiedDetail.discovery.refreshing') : t('devices.unifiedDetail.discovery.action') }}
+      </button>
+    </template>
     <section class="agent-detail-modal">
       <p v-if="error" class="agent-detail-modal__error">{{ error }}</p>
       <div v-if="detail" class="agent-detail-modal__hero">
