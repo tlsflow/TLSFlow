@@ -14,11 +14,11 @@ const WORKFLOWS_PATH = '/api/v1/workflows'
 const WORKFLOW_RUNS_PATH = '/api/v1/workflow-runs'
 
 export function listWorkflowTemplates(query?: BusinessListQuery) {
-  return listRecords(WORKFLOW_TEMPLATES_PATH, query)
+  return listRecords(WORKFLOWS_PATH, query)
 }
 
 export function createWorkflowTemplate(payload: ApiBody) {
-  return postAction(WORKFLOW_TEMPLATES_PATH, payload, 'workflow_template_create')
+  return postAction(WORKFLOWS_PATH, payload, 'workflow_create')
 }
 
 export function renameWorkflowTemplate(templateId: string, name: string) {

@@ -82,7 +82,7 @@ const config: BusinessPageConfig = {
     })
     await pageRef.value?.reload()
   },
-  moduleName: 'workflow-templates',
+  moduleName: 'workflows',
   resourceName: t('workflows.templates.resourceName'),
   defaultStatus: 'draft',
   defaultRisk: 'MEDIUM',

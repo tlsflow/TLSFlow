@@ -266,7 +266,7 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
-    path: '/workflow-templates',
+    path: '/workflows',
     name: 'workflow.template.list',
     component: () => import('@/views/workflows/WorkflowTemplatesView.vue'),
     meta: {
@@ -280,6 +280,22 @@ export const businessRoutes: GcRouteRecord[] = [
       breadcrumbKeys: ['nav.workflows', 'nav.workflowTemplates'],
       keepAlive: true,
       featureFlag: 'template.dsl.editor'
+    }
+  },
+  {
+    path: '/workflow-templates',
+    name: 'workflow.template.legacyRedirect',
+    redirect: (to) => ({ path: '/workflows', query: to.query, hash: to.hash }),
+    meta: {
+      title: 'Workflows',
+      titleKey: 'nav.workflowTemplates',
+      module: 'workflow',
+      requiresAuth: true,
+      permission: 'workflow.template.read',
+      resourceType: 'workflowTemplate',
+      riskLevel: 'high',
+      breadcrumbKeys: ['nav.workflows', 'nav.workflowTemplates'],
+      hiddenInMenu: true
     }
   },
   {

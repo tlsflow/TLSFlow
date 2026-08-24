@@ -24,7 +24,7 @@ describe('权限 Store', () => {
       '/certificates',
       '/assets',
       '/deployment-plans',
-      '/workflow-templates',
+      '/workflows',
       '/monitors',
       '/settings'
     ])
@@ -53,7 +53,7 @@ describe('权限 Store', () => {
     store.setPermissions(['plugin.read'])
     expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.workflows'])
     expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
-    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflow-templates', '/plugins'])
+    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflows', '/automations', '/automation-runs', '/plugins'])
     expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.plugins'])
   })
 
