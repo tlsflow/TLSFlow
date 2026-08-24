@@ -33,6 +33,7 @@ import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
+import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import {
   getDeploymentStrategyPluginBindingId,
   validateDeploymentStrategyPluginBinding,
@@ -86,6 +87,7 @@ export interface DeploymentPlansApplicationDependencies {
   managedTargetContextResolver?: ManagedTargetContextResolver;
   workflows?: WorkflowTemplatesApplicationService;
   pluginBindings?: PluginBindingsApplicationService;
+  pluginWorkflows?: PluginWorkflowPublisherService;
 }
 
 export class DeploymentPlansApplicationService {
@@ -105,6 +107,7 @@ export class DeploymentPlansApplicationService {
   private readonly managedTargetContextResolver?: ManagedTargetContextResolver;
   private readonly workflows?: WorkflowTemplatesApplicationService;
   private readonly pluginBindings?: PluginBindingsApplicationService;
+  private readonly pluginWorkflows?: PluginWorkflowPublisherService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -127,6 +130,7 @@ export class DeploymentPlansApplicationService {
       ?? (dependencies.deviceAssets ? new ManagedTargetContextResolver(this.assets, this.agents, dependencies.deviceAssets) : undefined);
     this.workflows = dependencies.workflows;
     this.pluginBindings = dependencies.pluginBindings;
+    this.pluginWorkflows = dependencies.pluginWorkflows;
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -533,12 +537,12 @@ export class DeploymentPlansApplicationService {
     const managedTargetContext = strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
       ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
       : undefined;
-    const resolvedStrategy = this.deploymentStrategyResolver.resolve({
+    const resolvedStrategy = await this.attachPluginExecutionIdentity(strategyAsset, this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
       bindingTarget,
       certificateBinding: readyBinding,
       managedTargetContext,
-    });
+    }));
 
     return {
       name: planName,
@@ -582,7 +586,51 @@ export class DeploymentPlansApplicationService {
     if (!binding || binding.tenantId !== tenantId) {
       throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
     }
-    return { ...asset, deploymentStrategy: validateDeploymentStrategyPluginBinding(strategy, binding) };
+    const validated = validateDeploymentStrategyPluginBinding(strategy, binding);
+    if (validated.type !== 'WORKFLOW' || !validated.workflow?.pluginBindingId) {
+      return { ...asset, deploymentStrategy: validated };
+    }
+    if (!this.pluginWorkflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件 Workflow 发布服务未接入', { code: 'PLUGIN_WORKFLOW_RESOLVER_MISSING' });
+    const workflowBinding = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
+    return {
+      ...asset,
+      deploymentStrategy: {
+        ...validated,
+        workflow: {
+          ...validated.workflow,
+          workflowId: workflowBinding.workflowTemplateId,
+          workflowVersionSelection: 'PINNED',
+          workflowVersionId: workflowBinding.workflowVersionId,
+          variableBindings: binding.variableBindings,
+          credentialRefs: binding.secretBindings,
+          connectionBindings: binding.connectionBindings as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
+          certificateArtifactBindings: binding.certificateArtifactBindings,
+        },
+      },
+    };
+  }
+
+  private async attachPluginExecutionIdentity(
+    asset: ServiceAssetDto,
+    resolved: ReturnType<DeploymentStrategyResolver['resolve']>,
+  ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
+    const pluginBindingId = getDeploymentStrategyPluginBindingId(asset.deploymentStrategy!);
+    if (!pluginBindingId || !this.pluginBindings) return resolved;
+    const binding = await this.pluginBindings.getBinding(pluginBindingId);
+    if (!binding) throw new AppError('RESOURCE_NOT_FOUND', '部署策略引用的 PluginBinding 不存在', { pluginBindingId });
+    const workflowRequest = readRecord(resolved.payload.workflowRequest);
+    return {
+      ...resolved,
+      payload: {
+        ...resolved.payload,
+        workflowRequest: workflowRequest ? {
+          ...workflowRequest,
+          pluginVersionId: binding.pluginVersionId,
+          pluginBindingId,
+          capabilityKey: 'certificate.deploy',
+        } : workflowRequest,
+      },
+    };
   }
 
   private async resolveManagedTargetContext(tenantId: string, managedTargetId?: string) {
@@ -1665,6 +1713,9 @@ export class DeploymentPlansApplicationService {
         code: 'WORKFLOW_VERSION_RESOLVER_MISSING',
         workflowId: workflow.workflowId,
       });
+    }
+    if (!workflow.workflowId) {
+      throw new AppError('VALIDATION_FAILED', 'WORKFLOW 最新版本策略缺少 workflowId', { code: 'WORKFLOW_ID_REQUIRED' });
     }
     const latest = await this.workflows.getRuntimePublishedVersion(workflow.workflowId);
     if (!latest) {

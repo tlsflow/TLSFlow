@@ -1,0 +1,71 @@
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import type { PluginWorkflowBindingRecord } from '../dto/plugin-workflow-bindings.dto.js';
+
+export interface PluginWorkflowBindingsRepositoryPort {
+  save(record: PluginWorkflowBindingRecord): Promise<PluginWorkflowBindingRecord>;
+  find(pluginVersionId: string, capabilityKey: string): Promise<PluginWorkflowBindingRecord | undefined>;
+  findByResource(pluginVersionId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined>;
+  list(pluginVersionId: string): Promise<PluginWorkflowBindingRecord[]>;
+}
+
+export class PluginWorkflowBindingsRepository implements PluginWorkflowBindingsRepositoryPort {
+  constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
+
+  async save(record: PluginWorkflowBindingRecord): Promise<PluginWorkflowBindingRecord> {
+    await this.db.query(`insert into unified_plugin_workflow_bindings
+      (plugin_version_id,capability_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
+      values ($1,$2,$3,$4,$5,$6,$7)
+      on conflict (plugin_version_id,capability_key) do nothing`, [
+      record.pluginVersionId, record.capabilityKey, record.workflowResourcePath, record.workflowTemplateId,
+      record.workflowVersionId, record.workflowContentSha256, record.createdAt,
+    ]);
+    return (await this.find(record.pluginVersionId, record.capabilityKey)) ?? record;
+  }
+
+  async find(pluginVersionId: string, capabilityKey: string): Promise<PluginWorkflowBindingRecord | undefined> {
+    const row = (await this.db.query<WorkflowBindingRow>(
+      'select * from unified_plugin_workflow_bindings where plugin_version_id=$1 and capability_key=$2',
+      [pluginVersionId, capabilityKey],
+    )).rows[0];
+    return row ? toRecord(row) : undefined;
+  }
+
+  async findByResource(pluginVersionId: string, workflowResourcePath: string): Promise<PluginWorkflowBindingRecord | undefined> {
+    const row = (await this.db.query<WorkflowBindingRow>(
+      'select * from unified_plugin_workflow_bindings where plugin_version_id=$1 and workflow_resource_path=$2',
+      [pluginVersionId, workflowResourcePath],
+    )).rows[0];
+    return row ? toRecord(row) : undefined;
+  }
+
+  async list(pluginVersionId: string): Promise<PluginWorkflowBindingRecord[]> {
+    const rows = (await this.db.query<WorkflowBindingRow>(
+      'select * from unified_plugin_workflow_bindings where plugin_version_id=$1 order by capability_key',
+      [pluginVersionId],
+    )).rows;
+    return rows.map(toRecord);
+  }
+}
+
+interface WorkflowBindingRow extends Record<string, unknown> {
+  plugin_version_id: string;
+  capability_key: string;
+  workflow_resource_path: string;
+  workflow_template_id: string;
+  workflow_version_id: string;
+  workflow_content_sha256: string;
+  created_at: string;
+}
+
+function toRecord(row: WorkflowBindingRow): PluginWorkflowBindingRecord {
+  return {
+    pluginVersionId: row.plugin_version_id,
+    capabilityKey: row.capability_key,
+    workflowResourcePath: row.workflow_resource_path,
+    workflowTemplateId: row.workflow_template_id,
+    workflowVersionId: row.workflow_version_id,
+    workflowContentSha256: row.workflow_content_sha256,
+    createdAt: row.created_at,
+  };
+}

@@ -78,11 +78,11 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
       type: 'WORKFLOW',
       workflow: {
         pluginBindingId,
-        workflowId: requireNonEmpty(workflow.workflowId, 'workflow.workflowId'),
+        workflowId: pluginBindingId ? optionalNonEmpty(workflow.workflowId) : requireNonEmpty(workflow.workflowId, 'workflow.workflowId'),
         workflowVersionSelection,
-        workflowVersionId: workflowVersionSelection === 'PINNED'
+        workflowVersionId: workflowVersionSelection === 'PINNED' && !pluginBindingId
           ? requireNonEmpty(workflow.workflowVersionId, 'workflow.workflowVersionId')
-          : undefined,
+          : optionalNonEmpty(workflow.workflowVersionId),
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),

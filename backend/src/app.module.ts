@@ -55,6 +55,8 @@ import { createGatewayPersistenceRepositories, GatewaysApplicationService, Gatew
 import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
+import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
+import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { AgentDeploymentPluginsApplicationService } from './modules/plugins/application/agent-deployment-plugins.application-service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
@@ -94,6 +96,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   const app = new App();
   const appDb = dependencies.db ?? new PgliteDatabase();
+  app.setResource('database', appDb);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
   const gatewayPersistence = createGatewayPersistenceRepositories({
     ...(dependencies.gatewayPersistence ?? {}),
@@ -165,9 +168,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginsService = new PluginsApplicationService(pluginsRepository);
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
+  const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
+  app.setResource('workflowTemplatesService', workflowTemplatesService);
+  app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
   app.setResource('internalCaService', internalCaService);
 
@@ -217,6 +223,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificatesApp: certificateServices.certificates,
     workflows: workflowTemplatesService,
     pluginBindings: pluginBindingsService,
+    pluginWorkflows: pluginWorkflowPublisher,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new SecurityController(security, new AuditPresentationService({
@@ -355,8 +362,10 @@ export async function createAppAsync(
     await options.registerFlushers(app);
   }
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
-  if (unifiedPlugins) {
-    await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
+  const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
+  if (unifiedPlugins && pluginWorkflowPublisher) {
+    const installed = await new BuiltinUnifiedPluginLoader().installAll(process.env.GCAC_BUILTIN_PLUGIN_TENANT_ID ?? 'default', unifiedPlugins);
+    for (const plugin of installed) await pluginWorkflowPublisher.publishPlugin(plugin);
   }
   return app;
 }

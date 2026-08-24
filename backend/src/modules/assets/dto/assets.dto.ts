@@ -64,7 +64,7 @@ export interface ManagedTargetDeploymentStrategyDto {
 
 export interface WorkflowDeploymentStrategyDto {
   pluginBindingId?: string;
-  workflowId: string;
+  workflowId?: string;
   workflowVersionSelection?: WorkflowVersionSelection;
   workflowVersionId?: string;
   runner: WorkflowRunnerType;
