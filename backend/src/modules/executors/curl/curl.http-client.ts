@@ -1,6 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { checkServerIdentity } from 'node:tls';
+import { checkServerIdentity, type PeerCertificate } from 'node:tls';
 
 export interface CurlHttpClientRequest {
   url: string;
@@ -35,7 +35,7 @@ export class NodeCurlHttpClient implements CurlHttpClient {
     const useHttps = url.protocol === 'https:';
 
     return await new Promise<CurlHttpClientResponse>((resolve, reject) => {
-      const client = (useHttps ? httpsRequest : httpRequest)({
+      const requestOptions = {
         protocol: url.protocol,
         hostname: url.hostname,
         port: url.port ? Number(url.port) : undefined,
@@ -47,10 +47,11 @@ export class NodeCurlHttpClient implements CurlHttpClient {
         cert: request.tls?.cert,
         key: request.tls?.key,
         servername: request.tls?.servername,
-        checkServerIdentity: request.tls?.servername
-          ? (_host, cert) => checkServerIdentity(request.tls?.servername ?? '', cert)
-          : undefined,
-      }, (response) => {
+        ...(request.tls?.servername ? {
+          checkServerIdentity: (_host: string, cert: PeerCertificate) => checkServerIdentity(request.tls?.servername ?? '', cert),
+        } : {}),
+      };
+      const client = (useHttps ? httpsRequest : httpRequest)(requestOptions, (response) => {
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer | string) => {
           chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));

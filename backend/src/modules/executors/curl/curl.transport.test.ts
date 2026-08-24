@@ -3,7 +3,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { describe, it } from 'node:test';
 import type { TLSSocket } from 'node:tls';
 import { CurlExecutor } from './curl.executor.js';
-import type { CurlHttpClient, CurlHttpClientRequest, CurlHttpClientResponse } from './curl.http-client.js';
+import { NodeCurlHttpClient, type CurlHttpClient, type CurlHttpClientRequest, type CurlHttpClientResponse } from './curl.http-client.js';
 import { StaticCurlSecretResolver } from './curl.secret-resolver.js';
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----
@@ -82,6 +82,35 @@ describe('spec017 CURL 真实传输闭环', () => {
     assert.equal(httpClient.requests[0]?.headers.Authorization, 'Bearer runtime-token-secret');
     assert.equal(httpClient.requests[0]?.body?.toString('utf8'), 'secret-body');
     assert.doesNotMatch(JSON.stringify(result), /runtime-token-secret|secret-body/);
+  });
+
+  it('HTTPS 传输未设置 SNI 时不传入非法的 checkServerIdentity', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const client = new NodeCurlHttpClient();
+      const result = await client.send({
+        url: `https://127.0.0.1:${port}/health`,
+        method: 'GET',
+        headers: {},
+        timeoutMs: 3000,
+        tls: { verify: false },
+      });
+
+      assert.equal(result.statusCode, 200);
+      assert.equal(result.bodyJson && typeof result.bodyJson === 'object' ? (result.bodyJson as { ok?: boolean }).ok : false, true);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   it('真实 HTTPS 传输支持自定义 CA、mTLS 和 SNI', async () => {
